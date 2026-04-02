@@ -1,0 +1,102 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /ai
+
+spring:
+  application:
+    name: ai-text-service
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/ai_text_service?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+    username: ai_text_service
+    password: ${AI_WORK_DB_PASSWORD:123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      timeout: 5000ms
+
+mybatis-plus:
+  mapper-locations: classpath:/mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+# ---- Milvus 配置 ----
+milvus:
+  host: ${MILVUS_HOST:localhost}
+  port: ${MILVUS_PORT:19530}
+  # 向量维度，需与 embedding 模型输出一致
+  dimension: 1536
+
+# ---- Embedding 配置 ----
+embedding:
+  # 当前激活的 provider: tongyi / openai / ...
+  provider: tongyi
+  tongyi:
+    api-key: ${TONGYI_API_KEY:123456}
+    model: text-embedding-v2
+    endpoint: https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding
+    batch-size: 25
+
+# ---- LLM 配置 ----
+llm:
+  provider: tongyi
+  tongyi:
+    api-key: ${TONGYI_API_KEY:123456}
+    model: qwen-max
+    endpoint: https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation
+
+# ---- RAG 配置 ----
+rag:
+  default-top-k: 5
+  score-threshold: 0.5
+
+# ---- Pipeline 入库流水线配置 ----
+# 不同知识库可以走不同的 Pipeline 步骤链
+pipeline:
+  definitions:
+    # 默认流水线（未单独配置的知识库使用此配置）
+    default:
+      steps:
+        - FILE_PARSE
+        - TEXT_CLEAN
+        - CHUNK
+        - EMBEDDING
+        - VECTOR_STORE
+        - METADATA_PERSIST
+    # 合同知识库（标准流程）
+    kb_contract:
+      steps:
+        - FILE_PARSE
+        - TEXT_CLEAN
+        - CHUNK
+        - EMBEDDING
+        - VECTOR_STORE
+        - METADATA_PERSIST
+    # 扫描件知识库（含 OCR 步骤）
+    kb_scan:
+      steps:
+        - FILE_PARSE
+        - OCR
+        - TEXT_CLEAN
+        - CHUNK
+        - EMBEDDING
+        - VECTOR_STORE
+        - METADATA_PERSIST
+
+# ---- 文件上传配置 ----
+spring.servlet.multipart:
+  max-file-size: 50MB
+  max-request-size: 100MB
+
+# ---- 日志 ----
+logging:
+  level:
+    com.enterprise.ai: DEBUG
+    io.milvus: INFO
