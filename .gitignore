@@ -25,3 +25,16 @@ replay_pid*
 
 # Idea #
 .idea/
+
+# AITextFront — 前端依赖与构建产物（Vite）
+AITextFront/node_modules/
+AITextFront/dist/
+AITextFront/.vite/
+
+# AI Text Service — Maven 构建与 IDE 生成文件
+AI Text Service/target/
+AI Text Service/.classpath
+AI Text Service/.project
+AI Text Service/.settings/
+AI Text Service/.factorypath
+AI Text Service/.springBeans

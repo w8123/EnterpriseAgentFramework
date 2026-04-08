@@ -338,6 +338,123 @@ PUT /ai/knowledge/kb/{kbCode}/config
 
 ---
 
+## 八-B、业务语义索引模块（V3 新增）
+
+### 1. 模块简介
+
+支持多业务系统接入的语义检索能力。各业务系统（物资、合同、考勤等）将结构化数据 + 附件推送到 AI 中台，中台负责向量化和语义匹配，返回匹配的业务 ID 供调用方回查详情。
+
+**核心特性：**
+- 业务系统间数据物理隔离（独立 Milvus Collection）
+- 灵活的文本模板引擎（业务系统自定义，AI 中台渲染）
+- 支持附件解析与 Chunk 语义检索
+- 过滤条件透传（权限由业务系统控制）
+- 搜索结果按 bizId 去重、取最高分
+
+### 2. 数据流
+
+```
+业务系统注册索引 → 定义模板和字段
+         │
+业务系统推送数据 → POST /ai/biz-index/{indexCode}/upsert
+         │
+AI 中台处理：
+  模板渲染 → Embedding → Milvus 存储
+  附件解析 → Chunk 切分 → Embedding → Milvus 存储
+         │
+语义搜索 → POST /ai/biz-index/{indexCode}/search
+         │
+AI 中台：向量检索 → 按 bizId 去重 → 返回 bizId + score + metadata
+         │
+业务系统：根据 bizId 查询自身 MySQL 获取完整业务详情
+```
+
+### 3. 接口一览
+
+| 接口 | 说明 |
+|------|------|
+| `POST   /ai/biz-index` | 注册新索引 |
+| `PUT    /ai/biz-index/{indexCode}` | 更新索引配置 |
+| `DELETE /ai/biz-index/{indexCode}` | 删除索引 |
+| `GET    /ai/biz-index/list` | 索引列表 |
+| `GET    /ai/biz-index/{indexCode}` | 索引详情 |
+| `GET    /ai/biz-index/{indexCode}/stats` | 索引统计 |
+| `POST   /ai/biz-index/{indexCode}/upsert` | 推送数据（Multipart） |
+| `POST   /ai/biz-index/{indexCode}/batch` | 批量推送 |
+| `DELETE /ai/biz-index/{indexCode}/record/{bizId}` | 删除记录 |
+| `POST   /ai/biz-index/{indexCode}/rebuild` | 重建索引 |
+| `POST   /ai/biz-index/{indexCode}/search` | 语义搜索 |
+
+### 4. 推送数据示例
+
+```
+POST /ai/biz-index/biz_material/upsert
+Content-Type: multipart/form-data
+
+Part "data" (application/json):
+{
+  "bizId": "MAT-2026-001",
+  "bizType": "seal",
+  "fields": {
+    "name": "氟橡胶O型密封圈",
+    "spec": "内径50mm 线径3.5mm",
+    "category": "密封件",
+    "useScene": "高温蒸汽管道法兰连接"
+  },
+  "metadata": {
+    "materialNo": "MAT-2026-001",
+    "warehouse": "A区3号库"
+  },
+  "ownerUserId": "user_001",
+  "ownerOrgId": "org_001"
+}
+
+Part "attachments" (file, 可选):
+  产品规格书.pdf
+```
+
+### 5. 搜索示例
+
+```
+POST /ai/biz-index/biz_material/search
+{
+  "query": "耐高温的管道密封材料",
+  "topK": 10,
+  "scoreThreshold": 0.5,
+  "filters": {
+    "owner_org_id": ["org_001"]
+  }
+}
+```
+
+### 6. 模板语法
+
+```
+{fieldName}          → 替换为字段值
+{fieldName|默认文本}  → 字段为空时使用默认值
+
+示例：物资名称：{name}，规格型号：{spec|未知}，用途：{useScene}
+```
+
+### 7. 数据库表
+
+| 表名 | 说明 |
+|------|------|
+| `business_index` | 索引注册（编码、模板、字段定义、Embedding 配置） |
+| `business_index_record` | 索引记录（bizId、searchText、权限字段、元数据） |
+| `business_index_attachment` | 附件 Chunk（文件名、切分内容、向量 ID） |
+
+**初始化：** 执行 `sql/business_index_v3.sql`
+
+### 8. 前端页面
+
+| 页面 | 路由 | 功能 |
+|------|------|------|
+| 业务索引列表 | `/biz-index` | 索引 CRUD、统计概览 |
+| 索引详情 | `/biz-index/:code` | 统计、接入指南（自动生成示例代码）、搜索测试 |
+
+---
+
 ## 九、扩展点
 
 | 扩展方向 | 方式 |

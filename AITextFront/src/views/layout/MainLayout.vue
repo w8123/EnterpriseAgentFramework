@@ -25,6 +25,10 @@
           <el-icon><Search /></el-icon>
           <span>检索测试</span>
         </el-menu-item>
+        <el-menu-item index="/biz-index">
+          <el-icon><Connection /></el-icon>
+          <span>业务索引</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 
@@ -48,13 +52,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { Collection, Upload, DataAnalysis, Search } from '@element-plus/icons-vue'
+import { Collection, Upload, DataAnalysis, Search, Connection } from '@element-plus/icons-vue'
 
 const route = useRoute()
 
 const activeMenu = computed(() => {
   const path = route.path
   if (path.startsWith('/knowledge')) return '/knowledge'
+  if (path.startsWith('/biz-index')) return '/biz-index'
   return path
 })
 const currentTitle = computed(() => (route.meta.title as string) || '')

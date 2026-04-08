@@ -37,6 +37,18 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/RetrievalTest.vue'),
         meta: { title: '检索测试' },
       },
+      {
+        path: 'biz-index',
+        name: 'BizIndexList',
+        component: () => import('@/views/BizIndexList.vue'),
+        meta: { title: '业务索引管理' },
+      },
+      {
+        path: 'biz-index/:code',
+        name: 'BizIndexDetail',
+        component: () => import('@/views/BizIndexDetail.vue'),
+        meta: { title: '索引详情' },
+      },
     ],
   },
 ]
