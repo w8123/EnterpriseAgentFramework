@@ -1,0 +1,43 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: ai-model-service
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:sk-your-key-here}
+      chat:
+        options:
+          model: qwen-max
+          temperature: 0.7
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+        enabled: ${NACOS_ENABLED:false}
+      config:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+        enabled: ${NACOS_ENABLED:false}
+        file-extension: yml
+
+# 模型网关配置
+model:
+  default-provider: tongyi
+  tongyi:
+    api-key: ${DASHSCOPE_API_KEY:sk-your-key-here}
+    embedding:
+      model: text-embedding-v2
+      endpoint: https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding
+      batch-size: 25
+      dimension: 1536
+
+logging:
+  level:
+    com.enterprise.ai.model: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics

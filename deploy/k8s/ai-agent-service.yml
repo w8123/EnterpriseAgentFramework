@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent-service
+  labels:
+    app: ai-agent-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-agent-service
+  template:
+    metadata:
+      labels:
+        app: ai-agent-service
+    spec:
+      containers:
+        - name: ai-agent-service
+          image: registry.enterprise.com/ai/ai-agent-service:latest
+          ports:
+            - containerPort: 8081
+          env:
+            - name: DASHSCOPE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: dashscope-api-key
+            - name: JISHI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: jishi-api-key
+            - name: REDIS_HOST
+              value: redis
+            - name: MODEL_SERVICE_URL
+              value: http://ai-model-service:8090
+            - name: TEXT_SERVICE_URL
+              value: http://ai-text-service:8080
+            - name: NACOS_ADDR
+              value: nacos:8848
+            - name: NACOS_ENABLED
+              value: "true"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1.5Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-agent-service
+spec:
+  selector:
+    app: ai-agent-service
+  ports:
+    - port: 8081
+      targetPort: 8081
+  type: ClusterIP

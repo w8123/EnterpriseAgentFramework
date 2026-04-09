@@ -1,16 +1,10 @@
-# Compiled class file
+# ============================================
+# Enterprise Agent Framework — Unified .gitignore
+# ============================================
+
+# ---- Compiled / Build ----
 *.class
-
-# Log file
 *.log
-
-# BlueJ files
-*.ctxt
-
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
-
-# Package Files #
 *.jar
 *.war
 *.nar
@@ -18,23 +12,34 @@
 *.zip
 *.tar.gz
 *.rar
+target/
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+# ---- JVM crash logs ----
 hs_err_pid*
 replay_pid*
 
-# Idea #
+# ---- IDE ----
 .idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+.factorypath
+.springBeans
 
-# AITextFront — 前端依赖与构建产物（Vite）
-AITextFront/node_modules/
-AITextFront/dist/
-AITextFront/.vite/
+# ---- Frontend (ai-admin-front) ----
+ai-admin-front/node_modules/
+ai-admin-front/dist/
+ai-admin-front/.vite/
 
-# AI Text Service — Maven 构建与 IDE 生成文件
-AI Text Service/target/
-AI Text Service/.classpath
-AI Text Service/.project
-AI Text Service/.settings/
-AI Text Service/.factorypath
-AI Text Service/.springBeans
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Environment / Secrets ----
+.env
+.env.local
+.env.*.local
+**/application-local.yml
+**/application-secret.yml

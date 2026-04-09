@@ -1,0 +1,98 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: ai-agent-service
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:sk-your-key-here}
+      chat:
+        options:
+          model: deepseek-r1
+          temperature: 0.7
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+        enabled: ${NACOS_ENABLED:false}
+      config:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+        enabled: ${NACOS_ENABLED:false}
+        file-extension: yml
+
+# ==================== 极视角平台配置 ====================
+jishi:
+  platform:
+    base-url: ${JISHI_BASE_URL:http://172.17.101.22:31003}
+    api-key: ${JISHI_API_KEY:app-fi6mmka81vsybo8lxyh8lc24p42nlxxi}
+    timeout: 30000
+    agents:
+      default-chat:
+        app-id: 2014777d-3eea-4a0c-b3cc-569c212b31f3
+        name: 默认对话智能体
+        description: 通用对话能力，支持多轮对话和知识问答
+
+# 服务间调用
+services:
+  model-service:
+    url: ${MODEL_SERVICE_URL:http://localhost:8090}
+  text-service:
+    url: ${TEXT_SERVICE_URL:http://localhost:8080}
+
+# 业务系统
+business:
+  system:
+    base-url: ${BUSINESS_SYSTEM_URL:http://localhost:8082}
+    timeout: 10000
+
+# AgentScope
+agentscope:
+  model:
+    name: deepseek-r1
+    enable-thinking: true
+
+# Agent 配置
+agent:
+  max-steps: 5
+  default-timeout: 60000
+  agents:
+    query-data: false
+    knowledge-qa: true
+    business-operation: false
+    analysis: false
+    creative-task: true
+    general-chat: true
+  intent:
+    system-prompt: |
+      你是一个意图识别专家。请分析用户的输入，判断用户意图属于以下哪个类别：
+      1. QUERY_DATA - 问数/数据查询（如：查询某个数据、统计某项指标）
+      2. KNOWLEDGE_QA - 知识问答（如：查询制度规定、操作流程、技术规范）
+      3. BUSINESS_OPERATION - 业务操作（如：发起审批、提交工单、执行业务动作）
+      4. ANALYSIS - 数据分析（如：对比分析、趋势分析、综合评估、给出建议）
+      5. GENERAL_CHAT - 闲聊（不属于以上类别的一般对话）
+      请只返回意图类别名称，不要返回其他内容。
+
+# RAG（直连 ai-text-service）
+rag:
+  top-k: 5
+  score-threshold: 0.7
+
+logging:
+  level:
+    com.enterprise.ai.agent: DEBUG
+    org.springframework.ai: DEBUG
+    io.agentscope: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
