@@ -48,7 +48,7 @@ EnterpriseAgentFramework/
 
 | 问题 | 说明 | 计划阶段 |
 |------|------|---------|
-| groupId 未统一 | agent-service 仍为 `com.jishi.ai.agent`，需统一为 `com.enterprise.ai.agent` | P2 |
+| ~~groupId 未统一~~ | ~~agent-service 已从 `com.jishi.ai.agent` 统一为 `com.enterprise.ai.agent`~~ | ✅ 已完成 |
 | 无共享基础设施 | Nacos 配置中心尚未启用、无 API 网关 | P2 |
 | 前端覆盖不足 | ai-admin-front 只管知识库，无 Agent 管理界面 | P2 |
 | 长期记忆未实现 | 当前仅 Redis 短期记忆，MySQL 长期历史待实现 | P2 |
@@ -319,7 +319,7 @@ sequenceDiagram
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
-| groupId 统一 | `com.jishi.ai.agent` → `com.enterprise.ai.agent` | 高 |
+| ~~groupId 统一~~ | ~~`com.jishi.ai.agent` → `com.enterprise.ai.agent`~~ | ✅ 已完成 |
 | ai-text-service Embedding 解耦 | Embedding 调用改走 ai-model-service | 高 |
 | 长期记忆 | MySQL 持久化会话历史和用户偏好 | 中 |
 | AI Gateway | Spring Cloud Gateway + 统一鉴权 + 限流 | 中 |

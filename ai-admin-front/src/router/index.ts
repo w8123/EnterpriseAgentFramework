@@ -5,8 +5,37 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: () => import('@/views/layout/MainLayout.vue'),
-    redirect: '/knowledge',
+    redirect: '/dashboard',
     children: [
+      // ── Dashboard ──
+      {
+        path: 'dashboard',
+        name: 'Dashboard',
+        component: () => import('@/views/dashboard/Dashboard.vue'),
+        meta: { title: '概览' },
+      },
+
+      // ── Agent 管理 ──
+      {
+        path: 'agent',
+        name: 'AgentList',
+        component: () => import('@/views/agent/AgentList.vue'),
+        meta: { title: 'Agent 管理' },
+      },
+      {
+        path: 'agent/:id/edit',
+        name: 'AgentEdit',
+        component: () => import('@/views/agent/AgentEdit.vue'),
+        meta: { title: 'Agent 编辑' },
+      },
+      {
+        path: 'agent/:id/debug',
+        name: 'AgentDebug',
+        component: () => import('@/views/agent/AgentDebug.vue'),
+        meta: { title: 'Agent 调试' },
+      },
+
+      // ── 知识管理 ──
       {
         path: 'knowledge',
         name: 'KnowledgeList',
@@ -49,6 +78,28 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/BizIndexDetail.vue'),
         meta: { title: '索引详情' },
       },
+
+      // ── 模型管理 ──
+      {
+        path: 'model',
+        name: 'ModelProvider',
+        component: () => import('@/views/model/ModelProvider.vue'),
+        meta: { title: 'Provider 管理' },
+      },
+      {
+        path: 'model/playground',
+        name: 'ModelPlayground',
+        component: () => import('@/views/model/ModelPlayground.vue'),
+        meta: { title: '模型调试台' },
+      },
+
+      // ── Tool 管理 ──
+      {
+        path: 'tool',
+        name: 'ToolList',
+        component: () => import('@/views/tool/ToolList.vue'),
+        meta: { title: 'Tool 管理' },
+      },
     ],
   },
 ]
@@ -59,7 +110,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
-  document.title = `${(to.meta.title as string) || ''} - AI 知识库管理系统`
+  document.title = `${(to.meta.title as string) || ''} - AI 管理平台`
   next()
 })
 

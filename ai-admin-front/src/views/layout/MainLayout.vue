@@ -2,34 +2,55 @@
   <el-container class="main-layout">
     <el-aside width="220px" class="sidebar">
       <div class="logo">
-        <el-icon :size="24"><DataAnalysis /></el-icon>
-        <span class="logo-text">AI 知识库</span>
+        <el-icon :size="24"><Cpu /></el-icon>
+        <span class="logo-text">AI 管理平台</span>
       </div>
-      <el-menu
-        :default-active="activeMenu"
-        router
-        class="sidebar-menu"
-        background-color="#1d2129"
-        text-color="#ffffffa6"
-        active-text-color="#ffffff"
-      >
-        <el-menu-item index="/knowledge">
-          <el-icon><Collection /></el-icon>
-          <span>知识库管理</span>
-        </el-menu-item>
-        <el-menu-item index="/knowledge/import">
-          <el-icon><Upload /></el-icon>
-          <span>文件入库</span>
-        </el-menu-item>
-        <el-menu-item index="/retrieval">
-          <el-icon><Search /></el-icon>
-          <span>检索测试</span>
-        </el-menu-item>
-        <el-menu-item index="/biz-index">
-          <el-icon><Connection /></el-icon>
-          <span>业务索引</span>
-        </el-menu-item>
-      </el-menu>
+      <el-scrollbar>
+        <el-menu
+          :default-active="activeMenu"
+          router
+          class="sidebar-menu"
+          background-color="#1d2129"
+          text-color="#ffffffa6"
+          active-text-color="#ffffff"
+          :default-openeds="['/knowledge-group', '/model-group']"
+        >
+          <el-menu-item index="/dashboard">
+            <el-icon><DataAnalysis /></el-icon>
+            <span>概览</span>
+          </el-menu-item>
+
+          <el-menu-item index="/agent">
+            <el-icon><Cpu /></el-icon>
+            <span>Agent 管理</span>
+          </el-menu-item>
+
+          <el-sub-menu index="/knowledge-group">
+            <template #title>
+              <el-icon><Collection /></el-icon>
+              <span>知识管理</span>
+            </template>
+            <el-menu-item index="/knowledge">知识库管理</el-menu-item>
+            <el-menu-item index="/knowledge/import">文件入库</el-menu-item>
+            <el-menu-item index="/retrieval">检索测试</el-menu-item>
+            <el-menu-item index="/biz-index">业务索引</el-menu-item>
+          </el-sub-menu>
+
+          <el-sub-menu index="/model-group">
+            <template #title>
+              <el-icon><Coin /></el-icon>
+              <span>模型管理</span>
+            </template>
+            <el-menu-item index="/model">Provider 管理</el-menu-item>
+            <el-menu-item index="/model/playground">模型调试台</el-menu-item>
+          </el-sub-menu>
+
+          <el-menu-item index="/tool">
+            <el-icon><SetUp /></el-icon>
+            <span>Tool 管理</span>
+          </el-menu-item>
+        </el-menu>
+      </el-scrollbar>
     </el-aside>
 
     <el-container>
@@ -52,7 +73,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { Collection, Upload, DataAnalysis, Search, Connection } from '@element-plus/icons-vue'
+import {
+  Collection,
+  DataAnalysis,
+  Cpu,
+  Coin,
+  SetUp,
+} from '@element-plus/icons-vue'
 
 const route = useRoute()
 
@@ -60,8 +87,12 @@ const activeMenu = computed(() => {
   const path = route.path
   if (path.startsWith('/knowledge')) return '/knowledge'
   if (path.startsWith('/biz-index')) return '/biz-index'
+  if (path.startsWith('/agent')) return '/agent'
+  if (path.startsWith('/model/playground')) return '/model/playground'
+  if (path.startsWith('/model')) return '/model'
   return path
 })
+
 const currentTitle = computed(() => (route.meta.title as string) || '')
 </script>
 
@@ -73,6 +104,8 @@ const currentTitle = computed(() => (route.meta.title as string) || '')
 .sidebar {
   background: #1d2129;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .logo {
@@ -85,6 +118,7 @@ const currentTitle = computed(() => (route.meta.title as string) || '')
   font-size: 16px;
   font-weight: 600;
   border-bottom: 1px solid #ffffff1a;
+  flex-shrink: 0;
 }
 
 .logo-text {
@@ -103,6 +137,20 @@ const currentTitle = computed(() => (route.meta.title as string) || '')
     &.is-active {
       background: #409eff !important;
     }
+  }
+
+  :deep(.el-sub-menu__title) {
+    height: 48px;
+    line-height: 48px;
+    margin: 4px 8px;
+    border-radius: 6px;
+  }
+
+  :deep(.el-sub-menu .el-menu-item) {
+    padding-left: 52px !important;
+    height: 42px;
+    line-height: 42px;
+    margin: 2px 8px;
   }
 }
 

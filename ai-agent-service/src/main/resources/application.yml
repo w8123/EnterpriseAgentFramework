@@ -88,7 +88,7 @@ rag:
 # ==================== 日志 ====================
 logging:
   level:
-    com.jishi.ai.agent: DEBUG
+    com.enterprise.ai.agent: DEBUG
     io.agentscope: DEBUG
 
 management:
