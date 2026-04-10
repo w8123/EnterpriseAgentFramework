@@ -43,12 +43,22 @@ public class TongyiEmbeddingProvider {
 
     public EmbeddingResponse embed(List<String> texts, String model) {
         String useModel = (model != null && !model.isBlank()) ? model : defaultModel;
+        int totalBatches = (int) Math.ceil((double) texts.size() / batchSize);
+        log.info("[Tongyi Embedding] 开始向量化，model={}, 文本数量={}, batchSize={}, 批次数={}",
+                useModel, texts.size(), batchSize, totalBatches);
+
         List<List<Float>> allEmbeddings = new ArrayList<>();
+        long start = System.currentTimeMillis();
 
         for (int i = 0; i < texts.size(); i += batchSize) {
             List<String> batch = texts.subList(i, Math.min(i + batchSize, texts.size()));
+            int batchIndex = i / batchSize + 1;
+            log.debug("[Tongyi Embedding] 调用第 {}/{} 批次，本批文本数={}", batchIndex, totalBatches, batch.size());
             allEmbeddings.addAll(callApi(batch, useModel));
         }
+
+        log.info("[Tongyi Embedding] 向量化完成 耗时={}ms, 返回向量数={}, 维度={}",
+                System.currentTimeMillis() - start, allEmbeddings.size(), dimension);
 
         return EmbeddingResponse.builder()
                 .model(useModel)
@@ -69,7 +79,10 @@ public class TongyiEmbeddingProvider {
             Map<String, Object> body = Map.of("model", model, "input", input, "parameters", params);
 
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+            long start = System.currentTimeMillis();
             ResponseEntity<String> response = restTemplate.exchange(endpoint, HttpMethod.POST, entity, String.class);
+            log.debug("[Tongyi Embedding] DashScope API 响应 耗时={}ms, status={}",
+                    System.currentTimeMillis() - start, response.getStatusCode());
 
             JsonNode root = objectMapper.readTree(response.getBody());
             JsonNode embeddings = root.path("output").path("embeddings");
@@ -84,7 +97,7 @@ public class TongyiEmbeddingProvider {
             }
             return result;
         } catch (Exception e) {
-            log.error("通义 Embedding API 调用失败", e);
+            log.error("[Tongyi Embedding] DashScope API 调用失败，endpoint={}", endpoint, e);
             throw new RuntimeException("Embedding API call failed", e);
         }
     }

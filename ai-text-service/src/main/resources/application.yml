@@ -43,24 +43,30 @@ milvus:
   port: ${MILVUS_PORT:19530}
   dimension: 1536
 
-# ---- Embedding 配置（调用 ai-model-service） ----
+# ---- Embedding 配置 ----
+# 【当前模式】provider: model-service —— 通过 Feign 调用 ai-model-service（POST /model/embedding）
+#            由 ai-model-service 统一管理 API Key 并转发到通义 DashScope
+# 【切换直连】将 provider 改为 tongyi，并填写下方 tongyi.api-key，
+#            则本服务直接 HTTP 调用 DashScope Embedding API，不经过 ai-model-service
 embedding:
   provider: model-service
   model-service:
     url: ${MODEL_SERVICE_URL:http://localhost:8090}
-  # 本地直连模式（不通过 model-service 时的降级配置）
   tongyi:
     api-key: ${DASHSCOPE_API_KEY:sk-your-key-here}
     model: text-embedding-v2
     endpoint: https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding
     batch-size: 25
 
-# ---- LLM 配置（调用 ai-model-service） ----
+# ---- LLM 配置 ----
+# 【当前模式】provider: model-service —— 通过 Feign 调用 ai-model-service（POST /model/chat）
+#            由 ai-model-service 统一管理 API Key 并借助 Spring AI Alibaba 与通义 DashScope 通信
+# 【切换直连】将 provider 改为 tongyi，并填写下方 tongyi.api-key，
+#            则本服务直接 HTTP 调用 DashScope Text Generation API，不经过 ai-model-service
 llm:
   provider: model-service
   model-service:
     url: ${MODEL_SERVICE_URL:http://localhost:8090}
-  # 本地直连降级
   tongyi:
     api-key: ${DASHSCOPE_API_KEY:sk-your-key-here}
     model: qwen-max

@@ -36,13 +36,18 @@ public class TongyiProvider implements ModelProvider {
 
     @Override
     public ChatResponse chat(ChatRequest request) {
+        int msgCount = request.getMessages() == null ? 0 : request.getMessages().size();
+        log.info("[Tongyi Chat] 开始调用 DashScope，model={}, messages数量={}", request.getModel(), msgCount);
+
         List<Message> messages = convertMessages(request.getMessages());
         Prompt prompt = new Prompt(messages);
 
+        long start = System.currentTimeMillis();
         var result = chatClientBuilder.build()
                 .prompt(prompt)
                 .call()
                 .chatResponse();
+        long elapsed = System.currentTimeMillis() - start;
 
         String content = result.getResult().getOutput().getText();
 
@@ -56,6 +61,10 @@ public class TongyiProvider implements ModelProvider {
                     .build();
         }
 
+        log.info("[Tongyi Chat] 调用完成 耗时={}ms, promptTokens={}, completionTokens={}, totalTokens={}",
+                elapsed, usage.getPromptTokens(), usage.getCompletionTokens(), usage.getTotalTokens());
+        log.debug("[Tongyi Chat] 响应内容: {}", content);
+
         return ChatResponse.builder()
                 .content(content)
                 .model(request.getModel())
@@ -66,6 +75,9 @@ public class TongyiProvider implements ModelProvider {
 
     @Override
     public Flux<String> chatStream(ChatRequest request) {
+        int msgCount = request.getMessages() == null ? 0 : request.getMessages().size();
+        log.info("[Tongyi ChatStream] 开始流式调用 DashScope，model={}, messages数量={}", request.getModel(), msgCount);
+
         List<Message> messages = convertMessages(request.getMessages());
         Prompt prompt = new Prompt(messages);
 

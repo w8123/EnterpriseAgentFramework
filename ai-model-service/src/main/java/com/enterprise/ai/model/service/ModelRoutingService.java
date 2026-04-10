@@ -49,6 +49,7 @@ public class ModelRoutingService {
 
     public EmbeddingResponse embed(EmbeddingRequest request) {
         String providerName = request.getProvider() != null ? request.getProvider() : defaultProvider;
+        log.debug("[Routing] Embedding 路由到 Provider: {}", providerName);
         if ("tongyi".equals(providerName)) {
             return tongyiEmbeddingProvider.embed(request.getTexts(), request.getModel());
         }
