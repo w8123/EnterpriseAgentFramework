@@ -4,13 +4,6 @@ server:
 spring:
   application:
     name: ai-agent-service
-  ai:
-    dashscope:
-      api-key: ${DASHSCOPE_API_KEY:sk-your-key-here}
-      chat:
-        options:
-          model: deepseek-r1
-          temperature: 0.7
 
   data:
     redis:
@@ -28,7 +21,14 @@ spring:
         enabled: ${NACOS_ENABLED:false}
         file-extension: yml
 
-# ==================== 极视角平台配置 ====================
+# ==================== 服务间调用 ====================
+services:
+  model-service:
+    url: ${MODEL_SERVICE_URL:http://localhost:8090}
+  text-service:
+    url: ${TEXT_SERVICE_URL:http://localhost:8080}
+
+# ==================== 极视角平台（仅保留业务工具能力） ====================
 jishi:
   platform:
     base-url: ${JISHI_BASE_URL:http://127.0.0.1:31003}
@@ -38,31 +38,26 @@ jishi:
       default-chat:
         app-id: 2014777d-3eea-4a0c-b3cc-569c212b31f3
         name: 默认对话智能体
-        description: 通用对话能力，支持多轮对话和知识问答
+        description: 极视角业务工具（会话管理、文件上传、工作流交互）
 
-# 服务间调用
-services:
-  model-service:
-    url: ${MODEL_SERVICE_URL:http://localhost:8090}
-  text-service:
-    url: ${TEXT_SERVICE_URL:http://localhost:8080}
-
-# 业务系统
+# ==================== 业务系统 ====================
 business:
   system:
     base-url: ${BUSINESS_SYSTEM_URL:http://localhost:8082}
     timeout: 10000
 
-# AgentScope
+# ==================== AgentScope ====================
+# Agent 的 LLM 调用统一通过 model-service 的 OpenAI 兼容代理端点
 agentscope:
   model:
-    name: deepseek-r1
-    enable-thinking: true
+    name: qwen-max
 
-# Agent 配置
+# ==================== Agent 配置 ====================
 agent:
   max-steps: 5
   default-timeout: 60000
+  definitions:
+    file: ${AGENT_DEF_FILE:agent-definitions.json}
   agents:
     query-data: false
     knowledge-qa: true
@@ -80,15 +75,20 @@ agent:
       5. GENERAL_CHAT - 闲聊（不属于以上类别的一般对话）
       请只返回意图类别名称，不要返回其他内容。
 
-# RAG（直连 ai-text-service）
+# ==================== 会话记忆 ====================
+memory:
+  max-messages: 20
+  ttl-hours: 24
+
+# ==================== RAG（通过 ai-text-service） ====================
 rag:
   top-k: 5
   score-threshold: 0.7
 
+# ==================== 日志 ====================
 logging:
   level:
-    com.enterprise.ai.agent: DEBUG
-    org.springframework.ai: DEBUG
+    com.jishi.ai.agent: DEBUG
     io.agentscope: DEBUG
 
 management:

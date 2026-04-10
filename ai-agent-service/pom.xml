@@ -20,6 +20,14 @@
             <groupId>com.enterprise.ai</groupId>
             <artifactId>ai-common</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.enterprise.ai</groupId>
+            <artifactId>ai-skill-sdk</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.enterprise.ai</groupId>
+            <artifactId>ai-skill-services</artifactId>
+        </dependency>
 
         <!-- Spring Boot Web -->
         <dependency>
@@ -37,12 +45,6 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
-        </dependency>
-
-        <!-- Spring AI Alibaba DashScope -->
-        <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
         </dependency>
 
         <!-- AgentScope -->
@@ -98,6 +100,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- WebFlux (仅用于 WebClient 消费 SSE 流，不影响 Servlet 容器) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
     </dependencies>
 

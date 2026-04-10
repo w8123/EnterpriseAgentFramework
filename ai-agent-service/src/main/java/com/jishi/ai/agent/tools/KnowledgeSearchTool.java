@@ -8,9 +8,9 @@ import org.springframework.stereotype.Component;
 import java.util.Map;
 
 /**
- * 知识库搜索工具
+ * 知识库搜索工具（平台内置工具）
  * <p>
- * 通过极视角平台的知识问答智能体检索企业制度、技术文档、操作规范等信息。
+ * 通过 ai-text-service 的 RAG 引擎检索企业制度、技术文档、操作规范等信息。
  */
 @Slf4j
 @Component

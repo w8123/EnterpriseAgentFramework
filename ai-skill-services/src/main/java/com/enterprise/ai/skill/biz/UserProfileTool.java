@@ -1,8 +1,11 @@
-package com.jishi.ai.agent.tools;
+package com.enterprise.ai.skill.biz;
 
+import com.enterprise.ai.skill.AiTool;
+import com.enterprise.ai.skill.ToolParameter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -22,6 +25,11 @@ public class UserProfileTool implements AiTool {
     @Override
     public String description() {
         return "查询当前登录用户的身份信息，包括姓名、年龄、性别、身高等基本资料。参数：user_id（用户ID或工号，可为空）。";
+    }
+
+    @Override
+    public List<ToolParameter> parameters() {
+        return List.of(ToolParameter.optional("user_id", "string", "用户ID或工号"));
     }
 
     @Override

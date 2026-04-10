@@ -1,19 +1,21 @@
-package com.jishi.ai.agent.tools;
+package com.enterprise.ai.skill.biz;
 
+import com.enterprise.ai.skill.AiTool;
+import com.enterprise.ai.skill.ToolParameter;
+import com.enterprise.ai.skill.biz.client.BusinessSystemClient;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jishi.ai.agent.client.BusinessSystemClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 
 /**
  * 业务 API 调用工具
  * <p>
  * 调用下游业务系统的 REST 接口，获取或操作业务数据。
- * 所有调用均经 BusinessSystemClient 中转，确保鉴权和审计。
  */
 @Slf4j
 @Component
@@ -31,6 +33,14 @@ public class BusinessApiTool implements AiTool {
     @Override
     public String description() {
         return "调用业务系统 REST API。当需要获取或操作业务数据（人员信息、项目状态、审批记录等）时使用。参数：api_path（API路径）、params_json（JSON格式参数）。";
+    }
+
+    @Override
+    public List<ToolParameter> parameters() {
+        return List.of(
+                ToolParameter.required("api_path", "string", "业务 API 路径"),
+                ToolParameter.required("params_json", "string", "JSON 格式的请求参数")
+        );
     }
 
     @Override

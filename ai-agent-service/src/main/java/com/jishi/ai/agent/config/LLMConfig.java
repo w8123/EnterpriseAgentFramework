@@ -18,15 +18,6 @@ public class LLMConfig {
     /** 单次Agent执行超时(ms) */
     private long defaultTimeout = 60000;
 
-    /**
-     * 直连极视角模式：跳过本地意图识别和RAG编排，将用户问题直接转发给极视角智能体。
-     * true = 所有请求直接由极视角智能体处理；false = 走本地Agent编排流程（意图识别→工作流分发）
-     */
-    private boolean directToJishi = false;
-
-    /** 直连模式下使用的极视角智能体标识，对应 jishi.platform.agents 中的 Key */
-    private String directJishiAgentKey = "default-chat";
-
     private IntentConfig intent = new IntentConfig();
 
     /** 各 Agent 类型的启用开关 */

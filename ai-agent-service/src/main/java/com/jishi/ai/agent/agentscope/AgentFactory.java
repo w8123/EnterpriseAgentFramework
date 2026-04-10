@@ -3,7 +3,7 @@ package com.jishi.ai.agent.agentscope;
 import com.jishi.ai.agent.agentscope.adapter.ToolRegistryAdapter;
 import com.jishi.ai.agent.config.LLMConfig;
 import io.agentscope.core.ReActAgent;
-import io.agentscope.core.model.DashScopeChatModel;
+import io.agentscope.core.model.Model;
 import io.agentscope.core.tool.Toolkit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -26,14 +26,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class AgentFactory {
 
-    private final DashScopeChatModel singleAgentModel;
-    private final DashScopeChatModel multiAgentModel;
+    private final Model singleAgentModel;
+    private final Model multiAgentModel;
     private final ToolRegistryAdapter toolRegistryAdapter;
     private final int maxSteps;
 
     public AgentFactory(
-            @Qualifier("agentScopeChatModel") DashScopeChatModel singleAgentModel,
-            @Qualifier("agentScopeMultiAgentModel") DashScopeChatModel multiAgentModel,
+            @Qualifier("agentScopeChatModel") Model singleAgentModel,
+            @Qualifier("agentScopeMultiAgentModel") Model multiAgentModel,
             ToolRegistryAdapter toolRegistryAdapter,
             LLMConfig llmConfig) {
         this.singleAgentModel = singleAgentModel;

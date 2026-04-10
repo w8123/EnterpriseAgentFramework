@@ -1,22 +1,13 @@
 package com.jishi.ai.agent.config;
 
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-
 /**
- * Spring AI 核心 Bean 配置
+ * 已废弃：Spring AI ChatClient 配置已移除。
  * <p>
- * ChatClient 基于 DashScope ChatModel 构建，是所有 LLM 交互的统一入口
+ * LLM 调用统一通过 ai-model-service（Feign），不再直接依赖 Spring AI。
+ * - 非 Agent 路径：LlmService → ModelServiceClient → ai-model-service /model/chat
+ * - Agent 路径：AgentScope OpenAIChatModel → ai-model-service /model/openai-proxy/v1/chat/completions
  */
-@Configuration
+// @Configuration — 已移除，保留此文件作为架构迁移记录
 public class SpringAIConfig {
-
-    @Bean
-    public ChatClient chatClient(ChatModel chatModel) {
-        return ChatClient.builder(chatModel)
-                .defaultSystem("你是青岛地铁的企业级智能助手，名叫小铁宝。你能够帮助用户查询数据、搜索知识库、执行业务操作。请用专业且友好的语气回答问题。")
-                .build();
-    }
+    // 此类不再提供任何 Bean，可在后续清理中删除
 }

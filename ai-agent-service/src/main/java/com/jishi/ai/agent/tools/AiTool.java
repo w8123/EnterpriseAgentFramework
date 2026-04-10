@@ -1,28 +1,15 @@
 package com.jishi.ai.agent.tools;
 
-import java.util.Map;
-
 /**
- * 框架无关的 AI 工具接口
+ * 框架无关的 AI 工具接口（agent-service 本地兼容层）
  * <p>
- * 所有业务工具统一实现此接口，不依赖任何 AI 框架（Spring AI / AgentScope / LangChain 等）。
- * 框架通过 Adapter 桥接本接口，实现工具层与编排层的彻底解耦。
+ * 直接继承 ai-skill-sdk 的 {@link com.enterprise.ai.skill.AiTool}，
+ * 现有 Tool 实现无需修改 import。
  * <p>
- * 更换 Agent 框架时，只需替换 Adapter，Tool 实现零修改。
+ * 新 Tool 建议直接实现 {@code com.enterprise.ai.skill.AiTool}。
+ *
+ * @deprecated 新 Tool 请直接实现 {@link com.enterprise.ai.skill.AiTool}
  */
-public interface AiTool {
-
-    /** 工具唯一标识，用于 ToolRegistry 查找和 Agent 调用 */
-    String name();
-
-    /** 工具功能描述，Agent/LLM 据此决策是否调用 */
-    String description();
-
-    /**
-     * 执行工具逻辑
-     *
-     * @param args 调用参数，Key 为参数名，Value 为参数值
-     * @return 执行结果（通常为 String 或可序列化对象）
-     */
-    Object execute(Map<String, Object> args);
+@Deprecated
+public interface AiTool extends com.enterprise.ai.skill.AiTool {
 }

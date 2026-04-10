@@ -1,39 +1,57 @@
 package com.jishi.ai.agent.rag;
 
-import com.jishi.ai.agent.client.JishiAgentClient;
-import com.jishi.ai.agent.model.jishi.JishiChatResult;
+import com.jishi.ai.agent.client.TextServiceClient;
+import com.jishi.ai.agent.client.TextServiceClient.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * RAG底层客户端
+ * RAG 底层客户端
  * <p>
- * 通过极视角平台的对话智能体实现知识检索。
- * 使用的智能体由 rag.agent-key 配置指定，可随时切换到专用的知识问答智能体。
+ * 通过 ai-text-service 的 RAG 引擎进行知识检索与问答。
+ * ai-text-service 内部完成：Embedding → Milvus 检索 → Prompt 组装 → LLM 生成。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class RagClient {
 
-    private final JishiAgentClient jishiAgentClient;
+    private final TextServiceClient textServiceClient;
 
-    /** 用于RAG检索的极视角智能体标识，对应 yml 中 jishi.platform.agents 的 Key */
-    @Value("${rag.agent-key:default-chat}")
-    private String ragAgentKey;
+    @Value("${rag.top-k:5}")
+    private int topK;
 
     /**
-     * 通过极视角智能体检索知识
+     * 通过 ai-text-service RAG 引擎检索知识并生成回答
      *
      * @param query 用户查询
-     * @param user  用户标识
-     * @return 智能体返回的回答
+     * @param userId 用户标识（用于权限过滤）
+     * @return RAG 生成的回答
      */
-    public String retrieve(String query, String user) {
-        log.debug("RAG检索: agentKey={}, query={}", ragAgentKey, query);
-        JishiChatResult result = jishiAgentClient.chat(ragAgentKey, query, user, null);
-        return result.getAnswer();
+    public String retrieve(String query, String userId) {
+        log.debug("[RagClient] RAG检索: query={}, userId={}", query, userId);
+
+        RagQueryRequest request = RagQueryRequest.builder()
+                .question(query)
+                .userId(userId)
+                .topK(topK)
+                .build();
+
+        try {
+            RagResult result = textServiceClient.ragQuery(request);
+            if (result.getData() != null && result.getData().getAnswer() != null) {
+                log.debug("[RagClient] RAG检索成功, answerLength={}",
+                        result.getData().getAnswer().length());
+                return result.getData().getAnswer();
+            }
+            log.warn("[RagClient] ai-text-service 返回空结果: code={}, msg={}",
+                    result.getCode(), result.getMessage());
+            return "未找到相关知识库内容";
+        } catch (Exception e) {
+            log.error("[RagClient] ai-text-service 调用失败", e);
+            return "知识检索服务暂不可用: " + e.getMessage();
+        }
     }
 }

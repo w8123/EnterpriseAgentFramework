@@ -19,6 +19,9 @@ public class ChatResponse {
 
     private String answer;
 
+    /** 会话标识，客户端应在后续请求中携带以延续多轮对话 */
+    private String sessionId;
+
     private String intentType;
 
     private List<String> toolCalls;

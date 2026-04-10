@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -143,10 +144,47 @@ public class AgentRouter {
             metadata.put("generateReason", response.getGenerateReason().name());
         }
 
+        List<String> toolCalls = extractToolCalls(response);
+        if (!toolCalls.isEmpty()) {
+            metadata.put("toolCalls", toolCalls);
+        }
+
+        List<String> steps = extractSteps(response, intentType);
+        if (!steps.isEmpty()) {
+            metadata.put("steps", steps);
+        }
+
         return AgentResult.builder()
                 .success(success)
                 .answer(response.getTextContent())
                 .metadata(metadata)
                 .build();
+    }
+
+    /**
+     * 从 AgentScope Msg 的 metadata 中提取工具调用记录
+     */
+    private List<String> extractToolCalls(Msg response) {
+        List<String> toolCalls = new ArrayList<>();
+        if (response.getMetadata() != null) {
+            Object calls = response.getMetadata().get("tool_calls");
+            if (calls instanceof List<?> list) {
+                list.forEach(item -> toolCalls.add(String.valueOf(item)));
+            }
+        }
+        return toolCalls;
+    }
+
+    /**
+     * 从上下文构建推理步骤摘要
+     */
+    private List<String> extractSteps(Msg response, String intentType) {
+        List<String> steps = new ArrayList<>();
+        steps.add("意图识别: " + intentType);
+        steps.add("Agent执行: " + response.getName());
+        if (response.getGenerateReason() != null) {
+            steps.add("完成原因: " + response.getGenerateReason().name());
+        }
+        return steps;
     }
 }
