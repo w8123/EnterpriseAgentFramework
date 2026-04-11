@@ -1,7 +1,7 @@
 ---
 name: AI Agent架构重构方案
 overview: 基于对现有项目的代码级分析，梳理企业级 AI Agent 平台的服务拆分、职责边界、缺失能力，以及从当前状态到目标架构的演进路径。
-status: P0+P1 已实施，P2 待规划
+status: P0+P1 已实施；P2 进行中（含 ai-admin-front 管理面扩展）
 isProject: false
 ---
 
@@ -50,7 +50,7 @@ EnterpriseAgentFramework/
 |------|------|---------|
 | ~~groupId 未统一~~ | ~~agent-service 已从 `com.jishi.ai.agent` 统一为 `com.enterprise.ai.agent`~~ | ✅ 已完成 |
 | 无共享基础设施 | Nacos 配置中心尚未启用、无 API 网关 | P2 |
-| 前端覆盖不足 | ai-admin-front 只管知识库，无 Agent 管理界面 | P2 |
+| ~~前端覆盖不足~~ | ~~ai-admin-front 已扩展 Dashboard、Agent、模型调试、Tool 页等；Tool 全能力仍依赖后端 `/api/tools` 等接口~~ | ✅ 前端已推进，后端 Tool API 仍属 P2 |
 | 长期记忆未实现 | 当前仅 Redis 短期记忆，MySQL 长期历史待实现 | P2 |
 
 ---
@@ -206,11 +206,11 @@ graph TB
 - 统一响应体 `ApiResult<T>`
 - 统一异常体系与错误码
 
-#### (7) ai-admin-front — 统一管理前端（部分实现）
+#### (7) ai-admin-front — 统一管理前端（核心页面已实现）
 
-**已有:** 知识库管理、文件管理、检索测试
+**已有:** 知识库/文件/检索/业务索引（RAG 域）；**Dashboard 概览**；**Agent 列表与 CRUD、编辑、调试台**（轻量对话 / SSE / 详细执行）；**模型 Provider 管理与模型调试台**（同步与流式）；**Tool 管理页**（列表与测试 UI，需后端 `GET/POST /api/tools*` 配合）。
 
-**待实现（P2）:** Agent 管理、模型管理、Tool 管理、监控 Dashboard
+**仍属 P2 / 持续迭代:** 后端 Tool REST 与会话列表等 API；执行链深度可视化、权限与登录、ECharts 等规划项。
 
 #### (8) AI Gateway（独立项目，未启动）
 
@@ -323,7 +323,8 @@ sequenceDiagram
 | ai-text-service Embedding 解耦 | Embedding 调用改走 ai-model-service | 高 |
 | 长期记忆 | MySQL 持久化会话历史和用户偏好 | 中 |
 | AI Gateway | Spring Cloud Gateway + 统一鉴权 + 限流 | 中 |
-| Agent 管理 UI | ai-admin-front 扩展 Agent 配置与调试页面 | 中 |
+| ~~Agent 管理 UI~~ | ~~ai-admin-front：Agent 列表/编辑/调试台~~ | ✅ 已完成 |
+| Tool 管理 REST API | ai-agent-service：`GET/POST /api/tools` 等，供 ai-admin-front Tool 页联调 | 中 |
 | RemoteToolProvider | Python/MCP 远程工具协议支持 | 中 |
 | 执行链追踪 | AgentScope Hook System + 日志持久化 | 中 |
 | Workflow 可视化编排 | 前端拖拽 + 后端 DAG 引擎 | 低 |
