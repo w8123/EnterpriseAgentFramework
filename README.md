@@ -40,7 +40,9 @@
 ### 🤖 智能体编排引擎
 
 - 基于 **AgentScope + Spring AI** 的 ReAct Agent，支持意图识别、多步推理、Tool 自动调用
+- **AgentDefinition 驱动路由** — 全配置化的 Agent 调度，新增 Agent 无需改代码，管理后台即可完成
 - 内置 AgentRouter 意图路由，支持单 Agent / Pipeline 多 Agent 协作
+- 支持多触发方式（对话 / API / 事件驱动），为 AI 能力中台奠定基础
 - 完整的会话记忆管理（Redis），支持多轮对话上下文
 
 ### 📚 RAG 知识引擎
@@ -67,7 +69,9 @@
 ### 🖥️ 可视化管理后台
 
 - 基于 **Vue 3 + Element Plus** 的现代化管理界面
-- Agent 配置与调试、知识库管理、模型调试、Tool 管理一站式搞定
+- Agent 全生命周期管理：配置、调试、启停，支持 **AI 能力中台配置**（知识库组、Prompt 模板、输出 Schema、触发方式）
+- 意图类型支持预置 + 自定义扩展，列表多维筛选
+- 知识库管理、模型调试、Tool 管理一站式搞定
 - 开箱即用，无需额外开发管理工具
 
 ### 🚀 生产级部署方案
@@ -268,12 +272,25 @@ public interface CrmFeignClient {
 
 ## 🗺️ 路线图
 
-- **AI Agent 编排引擎** — AgentScope + ReAct Agent + 意图路由
-- **RAG 知识引擎** — 文档 Pipeline + Milvus 向量检索
-- **统一模型网关** — 多 Provider 路由 + SSE 流式
-- **Skill SDK 体系** — AiTool 接口 + ToolRegistry + AutoConfiguration
-- **管理后台** — Agent / 知识库 / 模型 / Tool 管理
-- **Docker / K8s 部署方案**
+### 已完成
+
+- ✅ **AI Agent 编排引擎** — AgentScope + ReAct Agent + 意图路由
+- ✅ **RAG 知识引擎** — 文档 Pipeline + Milvus 向量检索
+- ✅ **统一模型网关** — 多 Provider 路由 + SSE 流式
+- ✅ **Skill SDK 体系** — AiTool 接口 + ToolRegistry + AutoConfiguration
+- ✅ **管理后台** — Agent / 知识库 / 模型 / Tool 管理
+- ✅ **Docker / K8s 部署方案**
+- ✅ **AgentDefinition 驱动路由** — 全配置化 Agent 调度，消除硬编码，管理后台可视化配置
+
+### 进行中
+
+- 🔨 **AI 能力 API Gateway** — 标准化 REST API 输出 AI 能力（生成、审查、提取、检索、摘要、问答、数据查询）
+- 🔨 **Prompt 模板管理** — 可视化 Prompt 模板编辑、变量注入、版本管理
+- 🔨 **多知识库协同检索** — 跨知识库组检索与结果融合
+- 🔨 **结构化输出** — Agent 返回 JSON Schema 约束的结构化数据
+
+### 规划中
+
 - **Swagger/OpenAPI 自动扫描** — 扫描老项目接口，自动生成 Tool 定义
 - **Controller 注解扫描** — 基于 JavaParser 静态分析
 - **Freemarker 代码生成器** — 一键生成 Skill Service 脚手架
@@ -281,6 +298,7 @@ public interface CrmFeignClient {
 - **Python Tool Protocol** — 跨语言 Tool 支持（MCP 兼容）
 - **Tool 权限、限流、审计** — 企业级治理能力
 - **调用链追踪与可观测性** — 全链路监控
+- **WorkflowEngine / 状态机** — 多步骤、人机协同的复杂业务流程编排
 
 ---
 

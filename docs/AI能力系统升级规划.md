@@ -1,7 +1,7 @@
 ---
 name: AI Agent架构重构方案
-overview: 梳理企业级 AI Agent 平台的服务拆分、职责边界与演进路径；P0/P1 已落地；P2 持续推进（含 ai-admin-front 作为 text/agent/model 三服务统一运维入口、Tool 管理 REST 等待后端等）。
-status: P0+P1 已实施；P2 进行中（管理前端、网关、长期记忆等分项推进）
+overview: 梳理企业级 AI Agent 平台的服务拆分、职责边界与演进路径；P0/P1 已落地；P2 核心项已完成（AgentDefinition 驱动路由、Tool REST API、管理前端 AI 能力中台配置）；AI 能力中台演进持续推进。
+status: P0+P1 已实施；P2 核心项已完成，AI 能力中台演进进行中
 isProject: false
 ---
 
@@ -51,7 +51,8 @@ EnterpriseAgentFramework/
 |------|------|---------|
 | ~~groupId 未统一~~ | ~~agent-service 已从 `com.jishi.ai.agent` 统一为 `com.enterprise.ai.agent`~~ | ✅ 已完成 |
 | 无共享基础设施 | Nacos 配置中心尚未启用、无 API 网关 | P2 |
-| 管理端「全闭环」待补齐 | Tool 列表/测试、会话列表与历史等需 **ai-agent-service** 暴露 REST（如 `/api/tools*`、`/api/chat/sessions*`）；前端页面与路由已预留 | P2 |
+| ~~管理端 Tool 闭环~~ | ~~Tool 列表/测试需 ai-agent-service 暴露 REST~~ | ✅ 已完成 |
+| 管理端深化 | 会话列表与历史、Prompt 管理、知识库组管理等需后端 API 配合 | P2 |
 | 长期记忆未实现 | 当前仅 Redis 短期记忆，MySQL 长期历史待实现 | P2 |
 
 ---
@@ -162,7 +163,7 @@ graph TB
 **待实现（P2）:**
 - Embedding 调用改为调 ai-model-service（当前仍内部直连通义）
 
-#### (3) ai-agent-service — 智能体编排 ✅ P0+P1 已完成
+#### (3) ai-agent-service — 智能体编排 ✅ P0+P1+P2 核心已完成
 
 **已实现能力:**
 - AgentScope 编排（ReActAgent、Pipeline）
@@ -175,11 +176,18 @@ graph TB
 - SSE 流式输出
 - Agent 定义持久化与 CRUD API
 - 极视角瘦身（仅保留业务工具能力）
+- **AgentDefinition 驱动路由** — AgentRouter/AgentFactory 全配置化，消除硬编码 switch-case ✅
+- **IntentService 动态化** — 意图候选列表从 AgentDefinition 动态生成 ✅
+- **AgentDefinition 扩展字段** — triggerMode、knowledgeBaseGroupId、promptTemplateId、outputSchemaType、useMultiAgentModel ✅
+- **Tool 管理 REST API** — `GET/POST /api/tools` 列表、详情、测试执行 ✅
 
-**待实现（P2）:**
+**待实现:**
 - 长期记忆（MySQL）
 - 执行链追踪（AgentScope Hook）
-- 面向管理端的 Tool 列表/测试等 **REST**（与 `ai-admin-front` `/tool` 页联调）
+- AI 能力 API Gateway（`/api/ai/*` 标准化能力接口）
+- 结构化输出（TypedAgentResult + JSON Schema 约束）
+- Prompt 模板管理（PromptTemplate 实体 + CRUD + 前端）
+- 多知识库协同检索（KnowledgeBaseGroup）
 
 #### (4) ai-skill-sdk — Skill 开发 SDK ✅ P1 新增
 
@@ -208,11 +216,18 @@ graph TB
 - 统一响应体 `ApiResult<T>`
 - 统一异常体系与错误码
 
-#### (7) ai-admin-front — 统一管理前端（核心页面已实现）
+#### (7) ai-admin-front — 统一管理前端 ✅ 核心页面已实现
 
-**已有:** 知识库/文件/检索/业务索引（RAG 域）；**Dashboard 概览**；**Agent 列表与 CRUD、编辑、调试台**（轻量对话 / SSE / 详细执行）；**模型 Provider 管理与模型调试台**（同步与流式）；**Tool 管理页**（列表与测试 UI，需后端 `GET/POST /api/tools*` 配合）。
+**已有:**
+- 知识库/文件/检索/业务索引（RAG 域）
+- Dashboard 概览（统计卡片、健康探测、快览）
+- Agent 列表与 CRUD、编辑、调试台（轻量对话 / SSE / 详细执行）
+- **Agent 编辑页 AI 能力中台配置** — 触发方式、多 Agent 模型、输出 Schema、知识库组 ID、Prompt 模板 ID ✅
+- **Agent 列表页多维筛选** — 意图类型（含自定义）、触发方式、状态 ✅
+- 模型 Provider 管理与模型调试台（同步与流式）
+- **Tool 管理页** — 列表、参数 Schema 展开、测试弹窗（已对接后端 `/api/tools` REST） ✅
 
-**仍属 P2 / 持续迭代:** 后端 Tool REST 与会话列表等 API；执行链深度可视化、权限与登录、ECharts 等规划项。
+**仍属持续迭代:** 会话列表与历史 API；Prompt 模板管理页；知识库组管理页；执行链深度可视化、权限与登录、ECharts 等规划项。
 
 #### (8) AI Gateway（独立项目，未启动）
 
@@ -322,24 +337,42 @@ sequenceDiagram
 | 创建 ai-skill-sdk 模块（AiTool + ToolRegistry 下沉） | ✅ |
 | 业务工具迁移到 ai-skill-services | ✅ |
 
-### P2 — 扩展能力（进行中 / backlog）
+### P2 — 扩展能力
+
+#### 已完成
+
+| 任务 | 说明 | 状态 |
+|------|------|------|
+| ~~groupId 统一~~ | `com.jishi.ai.agent` → `com.enterprise.ai.agent` | ✅ |
+| ~~Agent 管理 UI~~ | ai-admin-front：Agent 列表 / 编辑 / 调试台（含 SSE 消费） | ✅ |
+| ~~模型管理 UI~~ | ai-admin-front：Provider 列表、连通性测试、模型调试台 | ✅ |
+| ~~管理概览 Dashboard~~ | ai-admin-front：统计卡片、Actuator 健康探测、最近数据快览 | ✅ |
+| ~~Tool 管理 REST API~~ | ai-agent-service：`GET/POST /api/tools` 列表、详情、测试执行 | ✅ |
+| ~~AgentDefinition 驱动路由~~ | AgentRouter/AgentFactory 全配置化，消除硬编码 switch-case | ✅ |
+| ~~IntentService 动态化~~ | 意图候选列表从 AgentDefinition 动态生成，不再硬编码 | ✅ |
+| ~~AgentDefinition 扩展~~ | 新增 triggerMode、knowledgeBaseGroupId、promptTemplateId、outputSchemaType、useMultiAgentModel | ✅ |
+| ~~管理前端 AI 能力中台配置~~ | Agent 编辑页新增触发方式/多 Agent 模型/输出 Schema/知识库组/Prompt 模板配置；列表页多维筛选 | ✅ |
+
+#### 进行中 / Backlog
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
-| ~~groupId 统一~~ | ~~`com.jishi.ai.agent` → `com.enterprise.ai.agent`~~ | ✅ 已完成 |
-| ai-text-service Embedding 解耦 | Embedding 调用改走 ai-model-service | 高 |
+| AI 能力 API Gateway | `/api/ai/*` 标准化 REST API（generate/review/extract/search/summarize/qa/query-data） | 高 |
+| 结构化输出 | TypedAgentResult + JSON Schema 约束 + BeanOutputConverter | 高 |
+| Prompt 模板管理 | PromptTemplate 实体 + CRUD + 变量注入 + 前端管理页 | 高 |
+| 多知识库协同检索 | KnowledgeBaseGroup + 多 Collection 并行 + 融合排序 | 高 |
+| ai-text-service Embedding 解耦 | Embedding 调用改走 ai-model-service | 中 |
 | 长期记忆 | MySQL 持久化会话历史和用户偏好 | 中 |
 | AI Gateway | Spring Cloud Gateway + 统一鉴权 + 限流 | 中 |
-| ~~Agent 管理 UI~~ | ~~ai-admin-front：Agent 列表 / 编辑 / 调试台（含 SSE 消费）~~ | ✅ 已完成 |
-| ~~模型管理 UI~~ | ~~ai-admin-front：Provider 列表、连通性测试、模型调试台（同步 + 流式）~~ | ✅ 已完成 |
-| ~~管理概览 Dashboard~~ | ~~ai-admin-front：统计卡片、Actuator 健康探测、最近数据快览~~ | ✅ 已完成 |
-| Tool 管理 REST API | ai-agent-service：`GET/POST /api/tools` 等，供 `/tool` 页联调；含参数 Schema 与手动执行 | 中 |
-| 管理端深化 | 登录鉴权、执行链可视化、调用量图表、会话列表与历史（依赖后端 API） | 中～低 |
+| 管理端深化 | 登录鉴权、执行链可视化、调用量图表、会话列表与历史 | 中～低 |
 | RemoteToolProvider | Python/MCP 远程工具协议支持 | 中 |
 | 执行链追踪 | AgentScope Hook System + 日志持久化 | 中 |
+| ToolRegistryAdapter 动态化 | 消除每新增 AiTool 都要手动添加桥接方法的问题 | 中 |
+| WorkflowEngine | 有状态流程编排 + 人机协同 + 条件分支 | 中 |
 | Workflow 可视化编排 | 前端拖拽 + 后端 DAG 引擎 | 低 |
 | Agent 模板系统 | 预置模板快速创建 Agent | 低 |
-| Dockerfile + K8s | 容器化部署配置 | 低 |
+
+> 详细的 AI 能力中台演进方案见 [企业AI能力中台 — 架构演进方案](企业AI能力中台%20—%20架构演进方案.md)
 
 ---
 
@@ -359,11 +392,12 @@ sequenceDiagram
 
 业务工具不独立部署，而是作为 ai-agent-service 的 Maven 依赖通过 Spring Boot AutoConfiguration 自动注册。避免多一跳网络开销，ToolRegistry 的自动发现机制天然支持此方式。
 
-### 6.4 双入口设计
+### 6.4 三入口设计
 
 - `/api/chat`：轻量对话 + 会话记忆 + 轻量 Tool Calling（知识搜索等）
 - `/api/agent/execute`：完整 Agent 编排（意图识别 + ReAct + Pipeline）
-- 两者共享 Tool 层和会话记忆
+- `/api/ai/*`：标准化 AI 能力 API（规划中），业务系统直接调用 AI 能力
+- 三者共享底层 Agent 编排引擎、RAG 引擎、模型网关和 Tool 体系
 
 ### 6.5 ai-admin-front 与多后端对接
 

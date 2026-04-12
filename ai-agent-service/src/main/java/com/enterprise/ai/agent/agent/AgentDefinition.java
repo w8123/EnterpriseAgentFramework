@@ -54,6 +54,23 @@ public class AgentDefinition {
     /** Pipeline 类型 Agent 的子 Agent ID 列表（按执行顺序排列） */
     private List<String> pipelineAgentIds;
 
+    /** 关联的知识库组 ID（Agent 检索时使用） */
+    private String knowledgeBaseGroupId;
+
+    /** 关联的 Prompt 模板 ID（可覆盖 systemPrompt） */
+    private String promptTemplateId;
+
+    /** 输出 Schema 类型名（如 ReviewResult、ExtractResult），为空则返回纯文本 */
+    private String outputSchemaType;
+
+    /** 触发方式：chat（对话）、api（API 调用）、event（事件驱动）、all（全部） */
+    @Builder.Default
+    private String triggerMode = "all";
+
+    /** 使用多 Agent 模型（Pipeline 场景下的子 Agent 应设为 true） */
+    @Builder.Default
+    private boolean useMultiAgentModel = false;
+
     /** 额外参数 */
     private Map<String, Object> extra;
 

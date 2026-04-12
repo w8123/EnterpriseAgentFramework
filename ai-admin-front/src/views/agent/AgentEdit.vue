@@ -12,7 +12,7 @@
       ref="formRef"
       :model="form"
       :rules="rules"
-      label-width="120px"
+      label-width="140px"
       v-loading="pageLoading"
     >
       <!-- 基本信息 -->
@@ -26,7 +26,13 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="意图类型" prop="intentType">
-              <el-select v-model="form.intentType" placeholder="选择意图类型" style="width: 100%">
+              <el-select
+                v-model="form.intentType"
+                placeholder="选择或输入意图类型"
+                style="width: 100%"
+                filterable
+                allow-create
+              >
                 <el-option
                   v-for="t in INTENT_TYPES"
                   :key="t.value"
@@ -38,7 +44,7 @@
           </el-col>
         </el-row>
         <el-form-item label="描述">
-          <el-input v-model="form.description" type="textarea" :rows="2" placeholder="Agent 描述" />
+          <el-input v-model="form.description" type="textarea" :rows="2" placeholder="Agent 描述（同时用于意图识别候选列表）" />
         </el-form-item>
       </el-card>
 
@@ -46,28 +52,79 @@
       <el-card shadow="never" class="section-card">
         <template #header>模型与执行</template>
         <el-row :gutter="24">
-          <el-col :span="8">
+          <el-col :span="6">
             <el-form-item label="模型">
-              <el-input v-model="form.modelName" placeholder="如 qwen-max，留空用默认" />
+              <el-input v-model="form.modelName" placeholder="留空用默认" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="6">
             <el-form-item label="最大步数">
               <el-input-number v-model="form.maxSteps" :min="1" :max="20" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
-            <el-form-item label="类型">
+          <el-col :span="6">
+            <el-form-item label="Agent 类型">
               <el-radio-group v-model="form.type">
                 <el-radio value="single">单 Agent</el-radio>
                 <el-radio value="pipeline">Pipeline</el-radio>
               </el-radio-group>
             </el-form-item>
           </el-col>
+          <el-col :span="6">
+            <el-form-item label="触发方式">
+              <el-select v-model="form.triggerMode" style="width: 100%">
+                <el-option
+                  v-for="m in TRIGGER_MODES"
+                  :key="m.value"
+                  :label="m.label"
+                  :value="m.value"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
         </el-row>
-        <el-form-item label="启用">
-          <el-switch v-model="form.enabled" />
-        </el-form-item>
+        <el-row :gutter="24">
+          <el-col :span="6">
+            <el-form-item label="启用">
+              <el-switch v-model="form.enabled" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="6">
+            <el-form-item label="多 Agent 模型">
+              <el-switch v-model="form.useMultiAgentModel" />
+              <el-tooltip content="Pipeline 子 Agent 应开启此项，使用 MultiAgentFormatter 模型" placement="top">
+                <el-icon class="tip-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="输出 Schema">
+              <el-input v-model="form.outputSchemaType" placeholder="如 ReviewResult，留空返回纯文本" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-card>
+
+      <!-- AI 能力中台配置 -->
+      <el-card shadow="never" class="section-card">
+        <template #header>
+          <div class="card-header-with-badge">
+            AI 能力中台配置
+            <el-tag size="small" type="info">新</el-tag>
+          </div>
+        </template>
+        <el-row :gutter="24">
+          <el-col :span="12">
+            <el-form-item label="知识库组 ID">
+              <el-input v-model="form.knowledgeBaseGroupId" placeholder="关联的知识库组（多库协同检索）" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="Prompt 模板 ID">
+              <el-input v-model="form.promptTemplateId" placeholder="关联的 Prompt 模板（可覆盖 System Prompt）" />
+            </el-form-item>
+          </el-col>
+        </el-row>
       </el-card>
 
       <!-- System Prompt -->
@@ -88,13 +145,13 @@
       <el-card shadow="never" class="section-card">
         <template #header>Tool 配置</template>
         <el-form-item label="可用工具" label-width="100px">
-          <div class="tool-input-area">
+          <div class="tag-input-area">
             <el-tag
               v-for="(tool, idx) in form.tools"
               :key="idx"
               closable
               @close="form.tools.splice(idx, 1)"
-              class="tool-tag"
+              class="item-tag"
             >{{ tool }}</el-tag>
             <el-input
               v-if="showToolInput"
@@ -117,14 +174,14 @@
       <el-card v-if="form.type === 'pipeline'" shadow="never" class="section-card">
         <template #header>Pipeline 配置</template>
         <el-form-item label="子 Agent ID" label-width="120px">
-          <div class="tool-input-area">
+          <div class="tag-input-area">
             <el-tag
               v-for="(aid, idx) in form.pipelineAgentIds"
               :key="idx"
               closable
               type="warning"
               @close="form.pipelineAgentIds.splice(idx, 1)"
-              class="tool-tag"
+              class="item-tag"
             >{{ aid }}</el-tag>
             <el-input
               v-if="showPipelineInput"
@@ -150,8 +207,8 @@ import { ref, reactive, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
-import { INTENT_TYPES } from '@/types/agent'
+import { ArrowLeft, QuestionFilled } from '@element-plus/icons-vue'
+import { INTENT_TYPES, TRIGGER_MODES } from '@/types/agent'
 import type { AgentForm } from '@/types/agent'
 import { getAgent, createAgent, updateAgent } from '@/api/agent'
 
@@ -175,15 +232,18 @@ const form = reactive<AgentForm>({
   enabled: true,
   type: 'single',
   pipelineAgentIds: [],
+  knowledgeBaseGroupId: '',
+  promptTemplateId: '',
+  outputSchemaType: '',
+  triggerMode: 'all',
+  useMultiAgentModel: false,
   extra: {},
 })
 
 const rules: FormRules = {
   name: [{ required: true, message: '请输入 Agent 名称', trigger: 'blur' }],
-  intentType: [{ required: true, message: '请选择意图类型', trigger: 'change' }],
 }
 
-// Tool tag input
 const showToolInput = ref(false)
 const newToolName = ref('')
 const toolInputRef = ref()
@@ -197,7 +257,6 @@ function addTool() {
   showToolInput.value = false
 }
 
-// Pipeline input
 const showPipelineInput = ref(false)
 const newPipelineId = ref('')
 
@@ -218,7 +277,7 @@ async function loadAgent() {
     Object.assign(form, {
       name: data.name,
       description: data.description || '',
-      intentType: data.intentType,
+      intentType: data.intentType || '',
       systemPrompt: data.systemPrompt || '',
       tools: data.tools || [],
       modelName: data.modelName || '',
@@ -226,6 +285,11 @@ async function loadAgent() {
       enabled: data.enabled ?? true,
       type: data.type || 'single',
       pipelineAgentIds: data.pipelineAgentIds || [],
+      knowledgeBaseGroupId: data.knowledgeBaseGroupId || '',
+      promptTemplateId: data.promptTemplateId || '',
+      outputSchemaType: data.outputSchemaType || '',
+      triggerMode: data.triggerMode || 'all',
+      useMultiAgentModel: data.useMultiAgentModel ?? false,
       extra: data.extra || {},
     })
   } catch {
@@ -273,6 +337,12 @@ onMounted(() => {
   margin-bottom: 16px;
 }
 
+.card-header-with-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .prompt-editor {
   :deep(textarea) {
     font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
@@ -281,14 +351,20 @@ onMounted(() => {
   }
 }
 
-.tool-input-area {
+.tag-input-area {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
 }
 
-.tool-tag {
+.item-tag {
   margin: 0;
+}
+
+.tip-icon {
+  margin-left: 6px;
+  color: #909399;
+  cursor: help;
 }
 </style>

@@ -9,8 +9,8 @@
 | 功能域 | 模块 | 说明 |
 |--------|------|------|
 | **概览** | Dashboard | 统计卡片（Agent / 知识库 / Tool / Provider 数量）、各服务 Actuator 健康探测、最近 Agent 与知识库快览 |
-| **Agent** | Agent 管理 | 列表、筛选、启停、新建/编辑/删除；对接 `/api/agent/definitions` |
-| | Agent 编辑 | 名称、意图类型、System Prompt、模型名、Tools、Pipeline、最大步数等 |
+| **Agent** | Agent 管理 | 列表、多维筛选（意图类型 / 触发方式 / 状态）、启停、新建/编辑/删除；支持自定义意图类型；对接 `/api/agent/definitions` |
+| | Agent 编辑 | 名称、意图类型（预置+自定义）、System Prompt、模型名、Tools、Pipeline、最大步数、**触发方式**、**多 Agent 模型**、**输出 Schema**、**知识库组 ID**、**Prompt 模板 ID** 等 AI 能力中台配置 |
 | | Agent 调试台 | 轻量对话、SSE 流式对话、完整 Agent 执行；会话 ID 展示与清除会话 |
 | **知识管理** | 知识库管理 | 知识库 CRUD、详情、Chunk 策略 |
 | | 文件入库 | 拖拽上传、切分预览、Pipeline 入库 |
@@ -98,7 +98,7 @@ ai-admin-front/
     │   └── BizIndex*.vue
     ├── router/index.ts
     ├── store/              # knowledge、import、bizIndex、agent、app
-    ├── types/              # knowledge、import、bizIndex、agent、chat、model、tool
+    ├── types/              # knowledge、import、bizIndex、agent（含 TRIGGER_MODES）、chat、model、tool
     ├── styles/index.scss
     └── utils/index.ts
 ```
@@ -262,4 +262,39 @@ server {
 3. **流式输出**：依赖后端返回标准 SSE；前端已剥离 `data:` 前缀，仅拼接正文。
 4. **Tool 页为空**：请先在后端实现并注册 `/api/tools` 等接口。
 
-更多平台级背景与路线图见仓库根目录 [`docs/背景、现状、目标.md`](../docs/背景、现状、目标.md)、[`docs/AI能力系统升级规划.md`](../docs/AI能力系统升级规划.md)。
+---
+
+## 十一、v1.3 更新 — AgentDefinition 驱动路由 & AI 能力中台配置
+
+本次更新配合后端 `ai-agent-service` 的 **AgentDefinition 驱动路由**改造，前端管理后台同步升级：
+
+### 新增字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `triggerMode` | `string` | 触发方式：`all` / `chat` / `api` / `event` |
+| `useMultiAgentModel` | `boolean` | 是否使用多 Agent 模型（Pipeline 子 Agent 场景） |
+| `outputSchemaType` | `string` | 输出 Schema 类型名（如 `ReviewResult`），为空返回纯文本 |
+| `knowledgeBaseGroupId` | `string` | 关联的知识库组 ID（多库协同检索） |
+| `promptTemplateId` | `string` | 关联的 Prompt 模板 ID（可覆盖 System Prompt） |
+
+### Agent 列表页改进
+
+- 新增**触发方式**列，以不同颜色 Tag 区分 `chat` / `api` / `event` / `all`
+- 新增**知识库组**列，展示关联的知识库组 ID
+- 意图类型筛选支持**自定义意图**（从数据中自动聚合）
+- 新增**触发方式筛选**下拉框
+
+### Agent 编辑页改进
+
+- 意图类型选择器支持 `filterable` + `allow-create`，可输入自定义意图
+- 新增 **"AI 能力中台配置"** 卡片区域（带 `新` 标签），包含知识库组 ID 和 Prompt 模板 ID
+- 模型与执行区域新增：触发方式下拉、多 Agent 模型开关（带 Tooltip 说明）、输出 Schema 输入
+- 预置意图类型新增 `CREATIVE_TASK`（创意任务）
+
+### 类型定义更新
+
+- `AgentDefinition` / `AgentForm` 接口新增上述 5 个字段
+- 新增 `TRIGGER_MODES` 常量导出
+
+更多平台级背景与路线图见仓库根目录 [`docs/背景、现状、目标.md`](../docs/背景、现状、目标.md)、[`docs/AI能力系统升级规划.md`](../docs/AI能力系统升级规划.md)、[`docs/企业AI能力中台 — 架构演进方案.md`](../docs/企业AI能力中台%20—%20架构演进方案.md)。

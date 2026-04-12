@@ -89,6 +89,11 @@ public class AgentDefinitionService {
         if (update.getMaxSteps() > 0) existing.setMaxSteps(update.getMaxSteps());
         if (update.getType() != null) existing.setType(update.getType());
         if (update.getPipelineAgentIds() != null) existing.setPipelineAgentIds(update.getPipelineAgentIds());
+        if (update.getKnowledgeBaseGroupId() != null) existing.setKnowledgeBaseGroupId(update.getKnowledgeBaseGroupId());
+        if (update.getPromptTemplateId() != null) existing.setPromptTemplateId(update.getPromptTemplateId());
+        if (update.getOutputSchemaType() != null) existing.setOutputSchemaType(update.getOutputSchemaType());
+        if (update.getTriggerMode() != null) existing.setTriggerMode(update.getTriggerMode());
+        existing.setUseMultiAgentModel(update.isUseMultiAgentModel());
         if (update.getExtra() != null) existing.setExtra(update.getExtra());
         existing.setEnabled(update.isEnabled());
         existing.setUpdatedAt(LocalDateTime.now());
@@ -141,81 +146,158 @@ public class AgentDefinitionService {
     }
 
     private void seedDefaults() {
+        // --- 单 Agent 定义 ---
+
         create(AgentDefinition.builder()
                 .name("知识问答 Agent")
-                .description("基于企业知识库回答制度、规范、流程类问题")
+                .description("知识问答 - 查询制度规定、操作流程、技术规范等知识类问题")
                 .intentType("KNOWLEDGE_QA")
                 .systemPrompt("""
-                        你是青岛地铁的知识问答专家，名叫小铁宝。
+                        你是企业的知识问答专家。
                         你的核心职责是回答企业制度、技术规范、操作流程等知识类问题。
                         工作流程：
                         1. 使用 search_knowledge 工具检索企业知识库
                         2. 基于检索结果生成准确、完整的回答
                         3. 如果知识库没有相关信息，诚实告知用户
-                        约束：回答必须基于知识库内容，不要编造信息。""")
+                        约束：回答必须基于知识库内容，不要编造信息。如引用制度条款，需标注出处。""")
                 .tools(List.of("search_knowledge"))
                 .maxSteps(5)
+                .triggerMode("all")
                 .build());
 
         create(AgentDefinition.builder()
                 .name("数据查询 Agent")
-                .description("自然语言转 SQL 查询业务数据")
+                .description("问数/数据查询 - 查询某个数据、统计某项指标")
                 .intentType("QUERY_DATA")
                 .systemPrompt("""
-                        你是青岛地铁的数据查询专家，名叫小铁宝。
+                        你是企业的数据查询专家。
                         你的核心职责是帮助用户查询业务数据。
                         工作流程：
                         1. 分析用户的自然语言问题，理解查询意图
                         2. 使用 query_database 工具生成并执行 SQL SELECT 查询
                         3. 将查询结果用通俗易懂的语言总结给用户
-                        约束：只生成 SELECT 查询，严禁 INSERT/UPDATE/DELETE。""")
+                        约束：
+                        - 只生成 SELECT 查询，严禁 INSERT/UPDATE/DELETE
+                        - 如果查询结果为空，告知用户并建议调整查询条件
+                        - 数据涉及敏感信息时需提醒用户注意保密""")
                 .tools(List.of("query_database"))
                 .maxSteps(5)
+                .triggerMode("all")
                 .build());
 
         create(AgentDefinition.builder()
                 .name("业务操作 Agent")
-                .description("执行业务 API 调用和操作")
+                .description("业务操作 - 发起审批、提交工单、执行业务动作")
                 .intentType("BUSINESS_OPERATION")
                 .systemPrompt("""
-                        你是青岛地铁的业务操作助手，名叫小铁宝。
+                        你是企业的业务操作助手。
                         你的核心职责是帮助用户执行业务操作。
                         工作流程：
                         1. 理解用户的业务操作需求
                         2. 确定需要调用的业务 API 路径和参数
                         3. 使用 call_business_api 工具执行操作
                         4. 将操作结果清晰反馈给用户
-                        约束：操作前需确认关键参数。""")
+                        约束：操作前需确认关键参数，操作失败时给出明确的错误说明和建议。""")
                 .tools(List.of("call_business_api"))
                 .maxSteps(5)
+                .triggerMode("all")
                 .build());
 
         create(AgentDefinition.builder()
                 .name("数据分析 Agent")
-                .description("多步推理进行数据分析、趋势判断和建议")
+                .description("数据分析 - 对比分析、趋势分析、综合评估、给出建议")
                 .intentType("ANALYSIS")
                 .systemPrompt("""
-                        你是青岛地铁的数据分析专家，名叫小铁宝。
+                        你是企业的数据分析专家。
                         你的核心职责是对业务数据进行深度分析，提供有价值的洞察和建议。
                         工作流程：
                         1. 理解用户的分析需求，拆解为具体的数据查询步骤
                         2. 使用 query_database 工具查询所需数据
                         3. 如需要，使用 search_knowledge 获取相关制度或背景信息
                         4. 综合分析数据，给出有洞察力的结论和改进建议
-                        约束：结论必须有数据支撑，建议应具有可操作性。""")
+                        约束：可以进行多步查询，逐步深入分析。结论必须有数据支撑，建议应具有可操作性。""")
                 .tools(List.of("query_database", "search_knowledge"))
                 .maxSteps(8)
+                .triggerMode("all")
                 .build());
 
         create(AgentDefinition.builder()
                 .name("通用对话 Agent")
-                .description("一般性对话和闲聊")
+                .description("闲聊 - 不属于以上类别的一般对话")
                 .intentType("GENERAL_CHAT")
-                .systemPrompt("你是青岛地铁的智能助手，名叫小铁宝。请用专业且友好的语气与用户对话，帮助解答一般性问题。")
+                .systemPrompt("你是企业的智能助手。请用专业且友好的语气与用户对话，帮助解答一般性问题。")
                 .tools(List.of())
                 .maxSteps(3)
+                .triggerMode("all")
                 .build());
 
-        log.info("[AgentDef] 已生成 {} 个默认 Agent 定义", cache.size());
+        // --- Pipeline 子 Agent（不参与意图路由，仅被 Pipeline 引用） ---
+
+        create(AgentDefinition.builder()
+                .name("[Pipeline] 数据查询")
+                .description("Pipeline 子 Agent：负责数据获取，不做分析")
+                .systemPrompt("""
+                        你是数据查询专家。负责将自然语言问题转换为 SQL 查询并执行。
+                        只关注数据获取，不做分析。将查询到的原始数据传递给下一个 Agent。""")
+                .tools(List.of("query_database"))
+                .maxSteps(5)
+                .useMultiAgentModel(true)
+                .build());
+
+        create(AgentDefinition.builder()
+                .name("[Pipeline] 数据分析")
+                .description("Pipeline 子 Agent：基于上游数据进行深度分析")
+                .systemPrompt("""
+                        你是数据分析专家。基于上游 Agent 提供的数据进行深度分析。
+                        给出有洞察力的结论、趋势判断和改进建议。结论必须有数据支撑。""")
+                .tools(List.of("query_database", "search_knowledge"))
+                .maxSteps(5)
+                .useMultiAgentModel(true)
+                .build());
+
+        String pipelineInfoGatherId = create(AgentDefinition.builder()
+                .name("[Pipeline] 信息采集")
+                .description("Pipeline 子 Agent：采集完成任务所需的背景信息")
+                .systemPrompt("""
+                        你是信息采集专家。你的唯一任务是：理解用户需求，判断需要哪些背景信息，然后使用工具采集。
+                        工作流程：
+                        1. 分析用户的请求，判断完成该任务需要哪些基础信息
+                        2. 调用合适的工具采集信息
+                        3. 将采集到的所有信息整理成清晰的摘要，传递给下一个 Agent
+                        约束：只负责信息采集和整理，绝不自己完成最终任务。""")
+                .tools(List.of("query_user_profile", "query_database", "search_knowledge"))
+                .maxSteps(5)
+                .useMultiAgentModel(true)
+                .build()).getId();
+
+        String pipelineCreativeId = create(AgentDefinition.builder()
+                .name("[Pipeline] 创意生成")
+                .description("Pipeline 子 Agent：基于采集到的信息完成创意任务")
+                .systemPrompt("""
+                        你是企业的创意助手。
+                        你的任务是基于上游 Agent 采集到的信息，完成用户的创意请求。
+                        你擅长：起名字、写文案、公告、邮件、通知、总结、工作计划、活动策划等。
+                        约束：
+                        - 必须基于上游 Agent 提供的信息进行创作
+                        - 如果上游信息不足，先说明缺少什么，再尽力完成
+                        - 给出多个选项供用户选择""")
+                .tools(List.of())
+                .maxSteps(5)
+                .useMultiAgentModel(true)
+                .build()).getId();
+
+        // --- Pipeline 定义 ---
+
+        create(AgentDefinition.builder()
+                .name("创意任务 Pipeline")
+                .description("创意任务 - 起名字、写文案、写邮件、生成方案等需要先查询信息再进行创作的任务")
+                .intentType("CREATIVE_TASK")
+                .type("pipeline")
+                .pipelineAgentIds(List.of(pipelineInfoGatherId, pipelineCreativeId))
+                .maxSteps(5)
+                .triggerMode("all")
+                .build());
+
+        log.info("[AgentDef] 已生成 {} 个默认 Agent 定义（含 Pipeline 子 Agent）", cache.size());
     }
 }
