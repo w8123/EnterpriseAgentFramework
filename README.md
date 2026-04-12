@@ -29,6 +29,7 @@
 - 🏗️ 存量系统庞大 — 数百万行 Spring Boot / SSM / Dubbo 代码不可能推倒重来
 - 🔌 接入成本极高 — Python Agent 框架与 Java 业务系统之间存在巨大的技术鸿沟
 - 👥 团队技能不匹配 — Java 团队被迫学习 Python 生态，效率大打折扣
+- 🔌 python在web生态较差 — Python在web生态、企业级场景下相比Java较差
 
 **Enterprise Agent Framework 就是为解决这个问题而生的。** 它是一套**纯 Java 技术栈**的企业级 AI Agent 完整解决方案，让 Java 团队用最熟悉的技术，最低的成本，最快的速度落地智能体项目。
 
@@ -56,9 +57,9 @@
 - 内置 OpenAI 兼容代理，第三方工具可直接对接
 - 流式 SSE 响应，实时输出
 
-### 🛠️ 零改动接入历史系统
+### 🛠️ 尽量不改动接入历史系统
 
-- **独创的 Skill SDK 体系** — 老系统无需任何改动，通过 Feign 桥接即可将业务 API 变为 Agent 可调用的 Tool
+- **独创的 Skill SDK 体系** — 老系统无需改动或极少改动，通过 Feign 桥接即可将业务 API 变为 Agent 可调用的 Tool
 - 标准化的 `AiTool` 接口契约，实现即注册，开箱即用
 - 支持 Swagger/OpenAPI 扫描 → 自动生成 Tool 定义（规划中）
 - 配合 Cursor AI 辅助生成 Skill Service，效率翻倍
@@ -110,7 +111,7 @@
 ┌──────────────────────────────────────┐
 │        历史业务系统 (JDK 1.8+)        │
 │   CRM · ERP · OA · 任意 Java 系统    │
-│        无需改动任何代码               │
+│        无需改动任何代码或微改动               │
 └──────────────────────────────────────┘
 ```
 
@@ -194,7 +195,7 @@ cd ai-admin-front && npm install && npm run dev
 
 ## 🔧 如何接入你的历史系统
 
-Enterprise Agent Framework 的核心价值在于：**让老系统的业务能力成为 AI Agent 可调用的 Tool，且老系统零改动。**
+Enterprise Agent Framework 的核心价值在于：**让老系统的业务能力成为 AI Agent 可调用的 Tool，且老系统零改动或微改动。**
 
 只需 3 步：
 
@@ -300,7 +301,7 @@ public interface CrmFeignClient {
 ## 💡 设计理念
 
 1. **老系统零改动** — 历史项目保持独立运行（原 JDK 版本、原部署方式），框架通过 HTTP 桥接调用
-2. **Java 原生** — 不是 Python 的附庸，而是 Java 生态的一等公民方案
+2. **Java 原生 + Python辅助** — 不是 Python 的附庸，而是 Java 生态的一等公民方案
 3. **SDK 化、可插拔** — Tool 体系高度解耦，实现 AiTool 接口即可注册，无框架绑定
 4. **生产可用** — 不是 Demo，而是面向生产环境设计的完整基础设施
 5. **渐进式接入** — 可以从一个 Tool 开始，逐步扩展，无需一步到位
@@ -333,16 +334,8 @@ EnterpriseAgentFramework/
 
 ## 📬 联系与交流
 
-- 提交 [Issue](https://github.com/your-username/EnterpriseAgentFramework/issues) 反馈问题或建议
-- 提交 [Pull Request](https://github.com/your-username/EnterpriseAgentFramework/pulls) 参与贡献
-- 如果你也在做 Java + AI 的事情，欢迎交流探讨
-
----
-
-## 📝 License
-
-本项目采用 [Apache License 2.0](LICENSE) 开源协议。
-
+- 如果你也在做 Java + AI 的事情，或者企业面临AI转型，欢迎交流探讨
+- QQ群 1073839193
 ---
 
 
