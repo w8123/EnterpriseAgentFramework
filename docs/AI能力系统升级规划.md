@@ -1,7 +1,7 @@
 ---
 name: AI Agent架构重构方案
-overview: 基于对现有项目的代码级分析，梳理企业级 AI Agent 平台的服务拆分、职责边界、缺失能力，以及从当前状态到目标架构的演进路径。
-status: P0+P1 已实施；P2 进行中（含 ai-admin-front 管理面扩展）
+overview: 梳理企业级 AI Agent 平台的服务拆分、职责边界与演进路径；P0/P1 已落地；P2 持续推进（含 ai-admin-front 作为 text/agent/model 三服务统一运维入口、Tool 管理 REST 等待后端等）。
+status: P0+P1 已实施；P2 进行中（管理前端、网关、长期记忆等分项推进）
 isProject: false
 ---
 
@@ -25,7 +25,7 @@ EnterpriseAgentFramework/
 ├── ai-model-service/    模型网关（LLM Chat / Embedding，多 Provider）
 ├── ai-text-service/     RAG 引擎（知识库、文档 Pipeline、向量检索）
 ├── ai-agent-service/    智能体编排（AgentScope、意图识别、Tool 调用）
-├── ai-admin-front/      统一管理前端（Vue 3 + Element Plus）
+├── ai-admin-front/      统一管理前端（Vue 3 + Vite；运维入口对接 text/agent/model）
 └── deploy/              部署配置（Docker / K8s）
 ```
 
@@ -43,6 +43,7 @@ EnterpriseAgentFramework/
 | Agent 定义硬编码 | AgentDefinitionService + REST CRUD API | ✅ 已完成 |
 | Tool 层与 agent-service 耦合 | ai-skill-sdk 下沉 AiTool 接口，ai-skill-services 外置业务工具 | ✅ 已完成 |
 | 极视角大量冗余 | JishiAgentClient 瘦身，仅保留业务工具能力 | ✅ 已完成 |
+| 管理前端能力碎片化 | ai-admin-front 统一承载知识库、Agent、模型、概览等；开发态经 Vite 多路径代理联调三后端 | ✅ 核心页面已落地 |
 
 ### 1.3 遗留问题
 
@@ -50,7 +51,7 @@ EnterpriseAgentFramework/
 |------|------|---------|
 | ~~groupId 未统一~~ | ~~agent-service 已从 `com.jishi.ai.agent` 统一为 `com.enterprise.ai.agent`~~ | ✅ 已完成 |
 | 无共享基础设施 | Nacos 配置中心尚未启用、无 API 网关 | P2 |
-| ~~前端覆盖不足~~ | ~~ai-admin-front 已扩展 Dashboard、Agent、模型调试、Tool 页等；Tool 全能力仍依赖后端 `/api/tools` 等接口~~ | ✅ 前端已推进，后端 Tool API 仍属 P2 |
+| 管理端「全闭环」待补齐 | Tool 列表/测试、会话列表与历史等需 **ai-agent-service** 暴露 REST（如 `/api/tools*`、`/api/chat/sessions*`）；前端页面与路由已预留 | P2 |
 | 长期记忆未实现 | 当前仅 Redis 短期记忆，MySQL 长期历史待实现 | P2 |
 
 ---
@@ -63,6 +64,7 @@ EnterpriseAgentFramework/
 graph TB
     subgraph external [外部入口]
         User[用户/业务系统]
+        AdminFront[ai-admin-front<br/>统一运维与联调]
     end
 
     subgraph gateway [独立项目: AI Gateway]
@@ -84,10 +86,6 @@ graph TB
         subgraph shared [共享层]
             Common["ai-common<br/>公共库"]
         end
-
-        subgraph front [前端]
-            AdminFront["ai-admin-front<br/>统一管理前端"]
-        end
     end
 
     subgraph infra [基础设施]
@@ -104,9 +102,13 @@ graph TB
     end
 
     User --> GW
+    User -.->|"浏览器访问"| AdminFront
+    AdminFront --> AgentSvc
+    AdminFront --> TextSvc
+    AdminFront --> ModelSvc
     GW --> AgentSvc
     GW --> TextSvc
-    GW --> AdminFront
+    GW -.->|"可选: 经网关托管静态"| AdminFront
 
     AgentSvc --> ModelSvc
     AgentSvc --> TextSvc
@@ -175,9 +177,9 @@ graph TB
 - 极视角瘦身（仅保留业务工具能力）
 
 **待实现（P2）:**
-- groupId 统一为 `com.enterprise.ai.agent`
 - 长期记忆（MySQL）
 - 执行链追踪（AgentScope Hook）
+- 面向管理端的 Tool 列表/测试等 **REST**（与 `ai-admin-front` `/tool` 页联调）
 
 #### (4) ai-skill-sdk — Skill 开发 SDK ✅ P1 新增
 
@@ -229,15 +231,15 @@ EnterpriseAgentFramework/
   ai-model-service/                # 模型网关服务 :8090
   ai-text-service/                 # RAG 引擎 :8080
   ai-agent-service/                # 智能体编排 :8081
-  ai-admin-front/                  # 管理前端
+  ai-admin-front/                  # 管理前端（Vue + Vite，**未**纳入根 POM 的 Maven 聚合）
   deploy/                          # 部署配置
   docs/                            # 架构文档
 ```
 
 **根 POM 关键配置:**
 - Spring Boot 3.4.5
-- 统一 groupId: `com.enterprise.ai`（agent-service 内部包名待迁移）
-- 6 个 Maven 子模块
+- 统一 groupId: `com.enterprise.ai`（各 Java 子模块已对齐）
+- **6 个 Maven 子模块**（`ai-common`、`ai-skill-sdk`、`ai-skill-services`、`ai-model-service`、`ai-text-service`、`ai-agent-service`）；`ai-admin-front` 为同仓 **npm 工程**，独立构建与部署
 
 ---
 
@@ -286,6 +288,11 @@ sequenceDiagram
 - Agent LLM 调用：AgentScope OpenAIChatModel → model-service OpenAI 代理端点
 - 流式响应：SSE，model-service → agent-service (WebClient) → 用户 (SseEmitter)
 
+**管理前端（ai-admin-front）与后端：**
+- 开发态：Vite 将 `/ai`、`/api/*`、`/model` 分别代理至 text（8080）、agent（8081）、model（8090）服务。
+- 生产态：静态资源 + Nginx（或网关）按路径拆分反向代理；流式接口建议关闭 `proxy_buffering`。
+- 详见同目录 [`ai-admin-front/README.md`](../ai-admin-front/README.md)。
+
 ---
 
 ## 五、实施进展与路线图
@@ -315,7 +322,7 @@ sequenceDiagram
 | 创建 ai-skill-sdk 模块（AiTool + ToolRegistry 下沉） | ✅ |
 | 业务工具迁移到 ai-skill-services | ✅ |
 
-### P2 — 扩展能力（待规划）
+### P2 — 扩展能力（进行中 / backlog）
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
@@ -323,8 +330,11 @@ sequenceDiagram
 | ai-text-service Embedding 解耦 | Embedding 调用改走 ai-model-service | 高 |
 | 长期记忆 | MySQL 持久化会话历史和用户偏好 | 中 |
 | AI Gateway | Spring Cloud Gateway + 统一鉴权 + 限流 | 中 |
-| ~~Agent 管理 UI~~ | ~~ai-admin-front：Agent 列表/编辑/调试台~~ | ✅ 已完成 |
-| Tool 管理 REST API | ai-agent-service：`GET/POST /api/tools` 等，供 ai-admin-front Tool 页联调 | 中 |
+| ~~Agent 管理 UI~~ | ~~ai-admin-front：Agent 列表 / 编辑 / 调试台（含 SSE 消费）~~ | ✅ 已完成 |
+| ~~模型管理 UI~~ | ~~ai-admin-front：Provider 列表、连通性测试、模型调试台（同步 + 流式）~~ | ✅ 已完成 |
+| ~~管理概览 Dashboard~~ | ~~ai-admin-front：统计卡片、Actuator 健康探测、最近数据快览~~ | ✅ 已完成 |
+| Tool 管理 REST API | ai-agent-service：`GET/POST /api/tools` 等，供 `/tool` 页联调；含参数 Schema 与手动执行 | 中 |
+| 管理端深化 | 登录鉴权、执行链可视化、调用量图表、会话列表与历史（依赖后端 API） | 中～低 |
 | RemoteToolProvider | Python/MCP 远程工具协议支持 | 中 |
 | 执行链追踪 | AgentScope Hook System + 日志持久化 | 中 |
 | Workflow 可视化编排 | 前端拖拽 + 后端 DAG 引擎 | 低 |
@@ -354,3 +364,9 @@ sequenceDiagram
 - `/api/chat`：轻量对话 + 会话记忆 + 轻量 Tool Calling（知识搜索等）
 - `/api/agent/execute`：完整 Agent 编排（意图识别 + ReAct + Pipeline）
 - 两者共享 Tool 层和会话记忆
+
+### 6.5 ai-admin-front 与多后端对接
+
+- **职责**：面向运维与研发的统一控制台，覆盖 RAG（text）、Agent/对话（agent）、模型网关（model）三类 API。
+- **协议**：REST + `text/event-stream`；前端对 SSE 做行级解析，仅拼接 `data:` 载荷，避免将 `event:` 等协议行展示给用户。
+- **与 P2 关系**：页面与路由已就绪；Tool 全链路、会话治理、登录与可观测性深化仍与后端能力同步迭代。
