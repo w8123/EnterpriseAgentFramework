@@ -14,7 +14,7 @@
 
 *一套开箱即用的企业级 AI Agent 基础设施平台 — 统一智能体编排、RAG 知识引擎、模型网关，帮助 Java 企业在不改动一行历史代码的前提下，快速落地 AI Agent 项目。*
 
-
+本仓库的定位正在从「对话型 Agent 后台」演进为**企业 AI 能力中台**：一方面通过 **Skill SDK / AiTool** 把存量业务 API 变成 Agent 可调用的工具（**业务能力 → Agent**）；另一方面规划标准化 **REST 能力面**（如 `/api/ai/*`），便于业务系统在任意环节嵌入生成、审查、抽取、检索等能力（**AI 能力 → 业务系统**）。编排层、RAG、模型网关与 Tool 体系共享同一套底座。
 
 ---
 
@@ -27,11 +27,11 @@
 这意味着：
 
 - 🏗️ 存量系统庞大 — 数百万行 Spring Boot / SSM / Dubbo 代码不可能推倒重来
-- 🔌 接入成本极高 — Python Agent 框架与 Java 业务系统之间存在巨大的技术鸿沟
-- 👥 团队技能不匹配 — Java 团队被迫学习 Python 生态，效率大打折扣
-- 🔌 python在web生态较差 — Python在web生态、企业级场景下相比Java较差
+- 🔌 接入成本高 — 若核心链路再叠一层异构 Agent 运行时，与现有服务、权限、运维体系对齐成本显著上升
+- 👥 团队与交付 — 多数企业 Java 团队占比高，在熟悉栈内落地 AI「增强能力」迭代更快、维护更稳
+- 🧩 AI 是增强能力而非孤岛 — 常要嵌入审批、检索、定时任务等流程；Python 生态在模型与脚本侧很丰富，本框架以 **Java 为编排与业务集成核心**，数据处理等辅助场景可继续用 Python，并**预留跨语言 Tool 协议**（如 MCP 思路）
 
-**Enterprise Agent Framework 就是为解决这个问题而生的。** 它是一套**纯 Java 技术栈**的企业级 AI Agent 完整解决方案，让 Java 团队用最熟悉的技术，最低的成本，最快的速度落地智能体项目。
+**Enterprise Agent Framework 就是为解决这个问题而生的。** 它是一套以 **Java 为核心技术栈**的企业级 AI Agent 基础设施，让 Java 团队用最熟悉的技术，以较低成本落地智能体与中台化能力；不与 Python 生态对立，而是在企业集成面上优先 Java。
 
 ---
 
@@ -76,9 +76,10 @@
 
 ### 🚀 生产级部署方案
 
-- Docker Compose 一键启动全套基础设施
+- Docker Compose 一键启动全套基础设施（含 MySQL、Redis、Milvus、Nacos 等）
 - 提供 Kubernetes 部署清单，支持云原生部署
-- Nacos 服务注册与配置中心，微服务架构开箱即用
+- 服务间调用以 **OpenFeign** 为主；**Nacos** 可作为注册/配置中心逐步接入（能力与共享网关仍在演进中）
+- **统一 AI 入口网关**（如 Spring Cloud Gateway + 鉴权/限流）规划为独立工程，与业务微服务网关解耦
 
 ---
 
@@ -119,6 +120,8 @@
 └──────────────────────────────────────┘
 ```
 
+**对外 API 形态（`ai-agent-service`）**：`/api/chat` 提供轻量对话、会话记忆与轻量 Tool Calling；`/api/agent/execute` 提供完整编排（意图识别、ReAct / Pipeline）；标准化 **AI 能力 REST**（`/api/ai/*`，供业务系统直接调用）在路线图中推进，与上述入口共享同一套模型、RAG 与 Tool 底座。
+
 ---
 
 ## 📦 模块说明
@@ -135,6 +138,7 @@
 | **ai-admin-front**    | 管理前端 — Vue 3 + Vite + Element Plus + TypeScript     | 3000 |
 | **deploy**            | 部署配置 — Docker Compose / Kubernetes                  | -    |
 
+仓库根目录 `pom.xml` **仅聚合 6 个 Java 子模块**（`ai-common`、`ai-skill-sdk`、`ai-skill-services`、`ai-model-service`、`ai-text-service`、`ai-agent-service`）。**`ai-admin-front`** 为同目录下的 **npm / Vite 工程**，不参与 Maven 聚合；**`deploy`** 为部署清单目录，同样不在聚合内。
 
 ---
 
@@ -261,7 +265,7 @@ public interface CrmFeignClient {
 | **框架**   | Spring Boot 3.4 · Spring Cloud 2024.0 · Spring Cloud Alibaba     |
 | **AI**   | Spring AI 1.0 · Spring AI Alibaba (DashScope) · AgentScope 1.0.9 |
 | **数据**   | MySQL 8 · Redis 7 · Milvus 2.4                                   |
-| **注册中心** | Nacos 3.0                                                        |
+| **注册中心** | Nacos 3.0（可选；与统一网关能力持续完善中）                                  |
 | **ORM**  | MyBatis-Plus 3.5                                                 |
 | **文档解析** | Apache POI 5.2 · PDFBox 2.0                                      |
 | **前端**   | Vue 3 · Vite 6 · Element Plus · TypeScript · Pinia               |
@@ -274,31 +278,36 @@ public interface CrmFeignClient {
 
 ### 已完成
 
-- ✅ **AI Agent 编排引擎** — AgentScope + ReAct Agent + 意图路由
+- ✅ **AI Agent 编排引擎** — AgentScope + ReAct Agent + 意图路由；`/api/chat` 与 `/api/agent/execute` 等入口
 - ✅ **RAG 知识引擎** — 文档 Pipeline + Milvus 向量检索
-- ✅ **统一模型网关** — 多 Provider 路由 + SSE 流式
-- ✅ **Skill SDK 体系** — AiTool 接口 + ToolRegistry + AutoConfiguration
-- ✅ **管理后台** — Agent / 知识库 / 模型 / Tool 管理
+- ✅ **统一模型网关** — 多 Provider 路由 + SSE 流式；OpenAI 兼容代理供 AgentScope 使用
+- ✅ **调用链路** — Agent 侧 LLM / RAG 经 Feign 统一走 `ai-model-service`、`ai-text-service`
+- ✅ **Skill SDK 体系** — `AiTool`（含 `parameters()`）+ `ToolRegistry` + Spring Boot 自动注册；`ai-skill-services` 以 jar 形式加载到 `ai-agent-service`
+- ✅ **会话记忆（Redis）** — 短期上下文窗口
+- ✅ **管理后台** — 知识库 / Agent / 模型 / Dashboard；**Tool 管理页**对接后端 REST
+- ✅ **AgentDefinition 全配置化** — `AgentRouter` / `AgentFactory` 消除硬编码；**IntentService** 意图候选随 Agent 定义动态生成；扩展字段（触发方式、知识库组、Prompt 模板 ID、输出 Schema、多 Agent 模型等）
+- ✅ **Tool 管理 REST API** — `GET/POST /api/tools`（列表、详情、测试执行）
 - ✅ **Docker / K8s 部署方案**
-- ✅ **AgentDefinition 驱动路由** — 全配置化 Agent 调度，消除硬编码，管理后台可视化配置
 
-### 进行中
+### 进行中（高优先级 backlog）
 
-- 🔨 **AI 能力 API Gateway** — 标准化 REST API 输出 AI 能力（生成、审查、提取、检索、摘要、问答、数据查询）
-- 🔨 **Prompt 模板管理** — 可视化 Prompt 模板编辑、变量注入、版本管理
-- 🔨 **多知识库协同检索** — 跨知识库组检索与结果融合
-- 🔨 **结构化输出** — Agent 返回 JSON Schema 约束的结构化数据
+- 🔨 **AI 能力 REST（`/api/ai/*`）** — 面向业务系统的标准化能力面（生成、审查、抽取、检索、摘要、问答、数据查询等）
+- 🔨 **结构化输出** — TypedAgentResult + JSON Schema 约束
+- 🔨 **Prompt 模板管理** — 实体 + CRUD + 变量注入 + 管理端页面
+- 🔨 **多知识库协同检索** — KnowledgeBaseGroup、多 Collection 与结果融合
 
-### 规划中
+### 规划中（能力与治理持续迭代）
 
-- **Swagger/OpenAPI 自动扫描** — 扫描老项目接口，自动生成 Tool 定义
-- **Controller 注解扫描** — 基于 JavaParser 静态分析
-- **Freemarker 代码生成器** — 一键生成 Skill Service 脚手架
-- **Cursor AI Skill** — AI 辅助理解业务语义，智能生成 Skill
-- **Python Tool Protocol** — 跨语言 Tool 支持（MCP 兼容）
+- **RAG Embedding 解耦** — `ai-text-service` 侧 Embedding 调用统一改走 `ai-model-service`
+- **长期记忆** — 会话与偏好等 MySQL 持久化（当前以 Redis 短期记忆为主）
+- **AI Gateway（独立工程）** — 统一入口、鉴权、限流、熔断
+- **管理端深化** — 会话列表与历史、执行链可视化、登录与权限等（与后端 API 同步推进）
+- **ai-skill-scanner + 模板代码生成** — Swagger/OpenAPI 与 Controller 注解扫描（JavaParser）、Freemarker 脚手架、**Cursor Skill** 辅助生成 Skill Service
+- **Service 层 / JavaDoc 扫描** — 三级扫描策略中的源码级补充
+- **RemoteToolProvider / MCP 兼容** — 跨语言 Tool 接入
 - **Tool 权限、限流、审计** — 企业级治理能力
-- **调用链追踪与可观测性** — 全链路监控
-- **WorkflowEngine / 状态机** — 多步骤、人机协同的复杂业务流程编排
+- **调用链追踪与可观测性** — AgentScope Hook、日志与指标持久化
+- **WorkflowEngine / 可视化编排** — 有状态流程、人机协同、DAG / 低代码编排（分阶段推进）
 
 ---
 
@@ -326,6 +335,15 @@ public interface CrmFeignClient {
 
 ---
 
+## 📚 架构与设计文档
+
+更完整的背景、现状与演进路径见仓库内文档（与 README 同步维护）：
+
+- [docs/背景、现状、目标.md](docs/背景、现状、目标.md) — 背景与动机、Tool 分层与调用链路、开发时扫描/生成与运行时 jar 加载、分阶段实施与中台演进概要
+- [docs/AI能力系统升级规划.md](docs/AI能力系统升级规划.md) — 单仓模块划分、各服务职责、典型调用链、P0/P1/P2 进展与 backlog 路线图
+
+---
+
 ## 📄 项目结构
 
 ```
@@ -339,8 +357,10 @@ EnterpriseAgentFramework/
 ├── ai-admin-front/         管理前端（Vue 3 + Element Plus + TypeScript）
 ├── deploy/                 部署配置（Docker Compose / Kubernetes）
 ├── sql/                    数据库初始化脚本
-└── docs/                   架构设计文档
+└── docs/                   架构与设计文档（见上一节链接）
 ```
+
+根目录 Maven 聚合与各模块关系见上文「📦 模块说明」表格下方的说明。
 
 ---
 
