@@ -1,8 +1,11 @@
 package com.enterprise.ai.agent.agentscope;
 
 import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agentscope.adapter.ToolRegistryAdapter;
+import com.enterprise.ai.agent.agentscope.adapter.AiToolAgentAdapter;
 import com.enterprise.ai.agent.config.LLMConfig;
+import com.enterprise.ai.agent.tools.ToolRegistry;
+import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
+import com.enterprise.ai.skill.AiTool;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.tool.Toolkit;
@@ -27,17 +30,20 @@ public class AgentFactory {
 
     private final Model singleAgentModel;
     private final Model multiAgentModel;
-    private final ToolRegistryAdapter toolRegistryAdapter;
+    private final ToolRegistry toolRegistry;
+    private final ToolDefinitionService toolDefinitionService;
     private final int defaultMaxSteps;
 
     public AgentFactory(
             @Qualifier("agentScopeChatModel") Model singleAgentModel,
             @Qualifier("agentScopeMultiAgentModel") Model multiAgentModel,
-            ToolRegistryAdapter toolRegistryAdapter,
+            ToolRegistry toolRegistry,
+            ToolDefinitionService toolDefinitionService,
             LLMConfig llmConfig) {
         this.singleAgentModel = singleAgentModel;
         this.multiAgentModel = multiAgentModel;
-        this.toolRegistryAdapter = toolRegistryAdapter;
+        this.toolRegistry = toolRegistry;
+        this.toolDefinitionService = toolDefinitionService;
         this.defaultMaxSteps = llmConfig.getMaxSteps();
         log.info("[AgentFactory] 初始化完成: defaultMaxSteps={}", defaultMaxSteps);
     }
@@ -62,7 +68,7 @@ public class AgentFactory {
                 .maxIters(maxSteps);
 
         if (hasTools) {
-            builder.toolkit(createToolkit());
+            builder.toolkit(createToolkit(toolNames));
         }
 
         log.debug("[AgentFactory] 构建 Agent: name={}, tools={}, model={}, maxSteps={}",
@@ -77,9 +83,20 @@ public class AgentFactory {
     /**
      * 创建 Toolkit 并注册 ToolRegistryAdapter（AgentScope 工具桥接的唯一入口）
      */
-    private Toolkit createToolkit() {
+    Toolkit createToolkit(List<String> toolNames) {
         Toolkit toolkit = new Toolkit();
-        toolkit.registerTool(toolRegistryAdapter);
+        for (String toolName : toolNames) {
+            if (!toolDefinitionService.isAgentCallable(toolName)) {
+                log.warn("[AgentFactory] 工具未启用或不可见，跳过注册: {}", toolName);
+                continue;
+            }
+            if (!toolRegistry.contains(toolName)) {
+                log.warn("[AgentFactory] ToolRegistry 中未找到工具: {}", toolName);
+                continue;
+            }
+            AiTool aiTool = toolRegistry.get(toolName);
+            toolkit.registerAgentTool(new AiToolAgentAdapter(aiTool));
+        }
         return toolkit;
     }
 }

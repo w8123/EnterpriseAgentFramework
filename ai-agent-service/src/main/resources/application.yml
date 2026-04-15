@@ -5,6 +5,12 @@ spring:
   application:
     name: ai-agent-service
 
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/ai_text_service?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai}
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -90,6 +96,10 @@ logging:
   level:
     com.enterprise.ai.agent: DEBUG
     io.agentscope: DEBUG
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
 
 management:
   endpoints:

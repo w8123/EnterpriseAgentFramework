@@ -145,27 +145,29 @@
       <el-card shadow="never" class="section-card">
         <template #header>Tool 配置</template>
         <el-form-item label="可用工具" label-width="100px">
-          <div class="tag-input-area">
-            <el-tag
-              v-for="(tool, idx) in form.tools"
-              :key="idx"
-              closable
-              @close="form.tools.splice(idx, 1)"
-              class="item-tag"
-            >{{ tool }}</el-tag>
-            <el-input
-              v-if="showToolInput"
-              ref="toolInputRef"
-              v-model="newToolName"
-              size="small"
-              style="width: 160px"
-              @keyup.enter="addTool"
-              @blur="addTool"
-              placeholder="工具名称"
-            />
-            <el-button v-else size="small" @click="showToolInput = true">
-              + 添加工具
-            </el-button>
+          <div class="tool-select-area">
+            <el-select
+              v-model="form.tools"
+              multiple
+              filterable
+              collapse-tags
+              collapse-tags-tooltip
+              style="width: 100%"
+              placeholder="选择已启用且对 Agent 可见的工具"
+            >
+              <el-option
+                v-for="tool in availableTools"
+                :key="tool.name"
+                :label="tool.name"
+                :value="tool.name"
+              >
+                <div class="tool-option">
+                  <span>{{ tool.name }}</span>
+                  <span class="tool-option-desc">{{ tool.description }}</span>
+                </div>
+              </el-option>
+            </el-select>
+            <div class="tool-hint">仅展示已启用且设置为 Agent 可见的工具。</div>
           </div>
         </el-form-item>
       </el-card>
@@ -203,7 +205,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, nextTick } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -211,6 +213,8 @@ import { ArrowLeft, QuestionFilled } from '@element-plus/icons-vue'
 import { INTENT_TYPES, TRIGGER_MODES } from '@/types/agent'
 import type { AgentForm } from '@/types/agent'
 import { getAgent, createAgent, updateAgent } from '@/api/agent'
+import { getTools } from '@/api/tool'
+import type { ToolInfo } from '@/types/tool'
 
 const route = useRoute()
 const router = useRouter()
@@ -220,6 +224,7 @@ const isNew = agentId === 'new'
 const formRef = ref<FormInstance>()
 const pageLoading = ref(false)
 const saving = ref(false)
+const toolOptions = ref<ToolInfo[]>([])
 
 const form = reactive<AgentForm>({
   name: '',
@@ -244,18 +249,9 @@ const rules: FormRules = {
   name: [{ required: true, message: '请输入 Agent 名称', trigger: 'blur' }],
 }
 
-const showToolInput = ref(false)
-const newToolName = ref('')
-const toolInputRef = ref()
-
-function addTool() {
-  const name = newToolName.value.trim()
-  if (name && !form.tools.includes(name)) {
-    form.tools.push(name)
-  }
-  newToolName.value = ''
-  showToolInput.value = false
-}
+const availableTools = computed(() =>
+  toolOptions.value.filter((tool) => tool.enabled && tool.agentVisible),
+)
 
 const showPipelineInput = ref(false)
 const newPipelineId = ref('')
@@ -299,6 +295,16 @@ async function loadAgent() {
   }
 }
 
+async function loadToolOptions() {
+  try {
+    const { data } = await getTools()
+    toolOptions.value = Array.isArray(data) ? data : []
+  } catch {
+    toolOptions.value = []
+    ElMessage.error('加载 Tool 选项失败')
+  }
+}
+
 async function handleSave() {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
@@ -322,7 +328,7 @@ async function handleSave() {
 
 onMounted(() => {
   loadAgent()
-  nextTick(() => toolInputRef.value?.focus?.())
+  loadToolOptions()
 })
 </script>
 
@@ -360,6 +366,22 @@ onMounted(() => {
 
 .item-tag {
   margin: 0;
+}
+
+.tool-select-area {
+  width: 100%;
+}
+
+.tool-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tool-option-desc,
+.tool-hint {
+  color: #909399;
+  font-size: 12px;
 }
 
 .tip-icon {

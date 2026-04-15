@@ -118,6 +118,11 @@
             </dependency>
             <dependency>
                 <groupId>com.enterprise.ai</groupId>
+                <artifactId>ai-skill-scanner</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.enterprise.ai</groupId>
                 <artifactId>skill-ai-text-retrieval</artifactId>
                 <version>${project.version}</version>
             </dependency>

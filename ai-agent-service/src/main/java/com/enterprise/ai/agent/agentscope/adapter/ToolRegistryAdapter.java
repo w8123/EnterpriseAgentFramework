@@ -33,6 +33,7 @@ import java.util.Map;
  * <b>新增工具时</b>：1) 创建 AiTool 实现类  2) 在本类添加对应的桥接方法
  */
 @Slf4j
+@Deprecated
 @Component
 @RequiredArgsConstructor
 public class ToolRegistryAdapter {

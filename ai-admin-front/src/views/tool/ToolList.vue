@@ -2,9 +2,17 @@
   <div class="page-container">
     <div class="page-header">
       <h2>Tool 管理</h2>
-      <el-button type="primary" @click="fetchTools" :loading="loading">
-        <el-icon><Refresh /></el-icon>刷新
-      </el-button>
+      <div class="header-actions">
+        <el-button @click="openImportDialog">
+          <el-icon><Upload /></el-icon>导入 Manifest
+        </el-button>
+        <el-button type="primary" @click="openCreateDialog">
+          <el-icon><Plus /></el-icon>新建 Tool
+        </el-button>
+        <el-button @click="fetchTools" :loading="loading">
+          <el-icon><Refresh /></el-icon>刷新
+        </el-button>
+      </div>
     </div>
 
     <el-card shadow="never">
@@ -16,6 +24,11 @@
               <el-table :data="row.parameters || []" size="small" border>
                 <el-table-column prop="name" label="参数名" width="160" />
                 <el-table-column prop="type" label="类型" width="100" />
+                <el-table-column prop="location" label="位置" width="100">
+                  <template #default="{ row: param }">
+                    {{ param.location || '-' }}
+                  </template>
+                </el-table-column>
                 <el-table-column prop="description" label="描述" />
                 <el-table-column prop="required" label="必填" width="80" align="center">
                   <template #default="{ row: param }">
@@ -25,6 +38,14 @@
                   </template>
                 </el-table-column>
               </el-table>
+              <div class="tool-meta">
+                <div><b>来源：</b>{{ row.source }}</div>
+                <div><b>HTTP：</b>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</div>
+                <div><b>Base URL：</b>{{ row.baseUrl || '-' }}</div>
+                <div><b>来源定位：</b>{{ row.sourceLocation || '-' }}</div>
+                <div><b>请求体类型：</b>{{ row.requestBodyType || '-' }}</div>
+                <div><b>响应类型：</b>{{ row.responseType || '-' }}</div>
+              </div>
             </div>
           </template>
         </el-table-column>
@@ -33,21 +54,176 @@
             <el-text type="primary" tag="b">{{ row.name }}</el-text>
           </template>
         </el-table-column>
+        <el-table-column label="来源" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag :type="sourceTagType(row.source)" size="small">{{ row.source }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="端点" min-width="220">
+          <template #default="{ row }">
+            <span>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="description" label="描述" />
         <el-table-column label="参数数量" width="100" align="center">
           <template #default="{ row }">
             {{ (row.parameters || []).length }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="启用" width="90" align="center">
           <template #default="{ row }">
+            <el-switch
+              :model-value="row.enabled"
+              @change="handleEnabledChange(row, $event as boolean)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="Agent 可见" width="110" align="center">
+          <template #default="{ row }">
+            <el-switch
+              :model-value="row.agentVisible"
+              @change="handleFlagChange(row, 'agentVisible', $event as boolean)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="轻量调用" width="110" align="center">
+          <template #default="{ row }">
+            <el-switch
+              :model-value="row.lightweightEnabled"
+              @change="handleFlagChange(row, 'lightweightEnabled', $event as boolean)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
             <el-button link type="primary" size="small" @click="openTest(row)">测试</el-button>
+            <el-button
+              link
+              type="danger"
+              size="small"
+              :disabled="row.source === 'code'"
+              @click="handleDelete(row)"
+            >删除</el-button>
           </template>
         </el-table-column>
       </el-table>
 
       <el-empty v-if="!loading && tools.length === 0" description="未获取到已注册 Tool（需后端提供 /api/tools 接口）" />
     </el-card>
+
+    <el-dialog v-model="formDialogVisible" :title="formDialogTitle" width="760px">
+      <el-form label-width="120px">
+        <el-form-item label="工具名">
+          <el-input v-model="form.name" :disabled="isCodeTool || isEditMode" placeholder="snake_case" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="form.description" :disabled="isCodeTool" type="textarea" :rows="2" />
+        </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="8">
+            <el-form-item label="来源">
+              <el-input :model-value="form.source" disabled />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="HTTP 方法">
+              <el-select v-model="form.httpMethod" :disabled="isCodeTool" style="width: 100%">
+                <el-option v-for="method in httpMethods" :key="method" :label="method" :value="method" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="请求体类型">
+              <el-input v-model="form.requestBodyType" :disabled="isCodeTool" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="Base URL">
+              <el-input v-model="form.baseUrl" :disabled="isCodeTool" placeholder="http://localhost:8080" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="Context Path">
+              <el-input v-model="form.contextPath" :disabled="isCodeTool" placeholder="/api" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="Endpoint Path">
+              <el-input v-model="form.endpointPath" :disabled="isCodeTool" placeholder="/customer/search" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="响应类型">
+              <el-input v-model="form.responseType" :disabled="isCodeTool" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="来源定位">
+          <el-input v-model="form.sourceLocation" :disabled="isCodeTool" placeholder="类名/扫描位置" />
+        </el-form-item>
+
+        <el-form-item label="参数定义">
+          <div class="parameter-editor">
+            <el-table :data="form.parameters" size="small" border>
+              <el-table-column label="参数名" min-width="120">
+                <template #default="{ row }">
+                  <el-input v-model="row.name" :disabled="isCodeTool" />
+                </template>
+              </el-table-column>
+              <el-table-column label="类型" width="120">
+                <template #default="{ row }">
+                  <el-input v-model="row.type" :disabled="isCodeTool" />
+                </template>
+              </el-table-column>
+              <el-table-column label="位置" width="120">
+                <template #default="{ row }">
+                  <el-select v-model="row.location" :disabled="isCodeTool" style="width: 100%">
+                    <el-option v-for="location in parameterLocations" :key="location" :label="location" :value="location" />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column label="描述" min-width="180">
+                <template #default="{ row }">
+                  <el-input v-model="row.description" :disabled="isCodeTool" />
+                </template>
+              </el-table-column>
+              <el-table-column label="必填" width="80" align="center">
+                <template #default="{ row }">
+                  <el-switch v-model="row.required" :disabled="isCodeTool" />
+                </template>
+              </el-table-column>
+              <el-table-column width="80" align="center">
+                <template #default="{ $index }">
+                  <el-button link type="danger" :disabled="isCodeTool" @click="removeParameter($index)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-button class="add-parameter-button" :disabled="isCodeTool" @click="addParameter">+ 添加参数</el-button>
+          </div>
+        </el-form-item>
+
+        <el-form-item label="运行控制">
+          <div class="switch-group">
+            <el-switch v-model="form.enabled" />
+            <span>启用</span>
+            <el-switch v-model="form.agentVisible" />
+            <span>Agent 可见</span>
+            <el-switch v-model="form.lightweightEnabled" />
+            <span>轻量调用可见</span>
+          </div>
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="formDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 测试弹窗 -->
     <el-dialog v-model="testDialogVisible" :title="`测试工具 — ${testingTool?.name}`" width="600px">
@@ -84,24 +260,127 @@
         <el-button type="primary" @click="handleTest" :loading="testRunning">执行</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="importDialogVisible" title="导入 Tool Manifest" width="720px">
+      <div class="import-actions">
+        <el-button type="primary" @click="selectManifestFile">选择 YAML 文件</el-button>
+        <span v-if="manifestFileName" class="file-name">{{ manifestFileName }}</span>
+        <input ref="fileInputRef" type="file" accept=".yaml,.yml" class="hidden-input" @change="handleManifestFileChange" />
+      </div>
+
+      <el-empty v-if="!manifestPreview.length" description="请选择 Tool Manifest YAML 文件" />
+      <el-table v-else :data="manifestPreview" border size="small">
+        <el-table-column prop="name" label="工具名" width="220" />
+        <el-table-column prop="description" label="描述" />
+      </el-table>
+
+      <template #footer>
+        <el-button @click="importDialogVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!manifestContent" :loading="importRunning" @click="handleImport">
+          导入
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
-import type { ToolInfo, ToolTestResult } from '@/types/tool'
-import { getTools, testTool } from '@/api/tool'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
+import type { ToolInfo, ToolParameter, ToolTestResult, ToolUpsertRequest } from '@/types/tool'
+import { createTool, deleteTool, getTools, importManifest, testTool, toggleTool, updateTool } from '@/api/tool'
 
 const tools = ref<ToolInfo[]>([])
 const loading = ref(false)
+const saving = ref(false)
+
+const formDialogVisible = ref(false)
+const editingName = ref<string | null>(null)
+const form = reactive<ToolUpsertRequest>(createEmptyForm())
+const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
+const parameterLocations = ['QUERY', 'PATH', 'BODY']
+const isEditMode = computed(() => editingName.value !== null)
+const isCodeTool = computed(() => form.source === 'code')
+const formDialogTitle = computed(() => (isEditMode.value ? `编辑 Tool — ${form.name}` : '新建 Tool'))
 
 const testDialogVisible = ref(false)
 const testingTool = ref<ToolInfo | null>(null)
 const testArgs = reactive<Record<string, string>>({})
 const testResult = ref<ToolTestResult | null>(null)
 const testRunning = ref(false)
+
+const importDialogVisible = ref(false)
+const importRunning = ref(false)
+const manifestContent = ref('')
+const manifestFileName = ref('')
+const manifestPreview = ref<Array<{ name: string; description: string }>>([])
+const fileInputRef = ref<HTMLInputElement | null>(null)
+
+function createEmptyForm(): ToolUpsertRequest {
+  return {
+    name: '',
+    description: '',
+    parameters: [],
+    source: 'manual',
+    sourceLocation: '',
+    httpMethod: 'GET',
+    baseUrl: '',
+    contextPath: '/api',
+    endpointPath: '',
+    requestBodyType: '',
+    responseType: '',
+    enabled: true,
+    agentVisible: true,
+    lightweightEnabled: false,
+  }
+}
+
+function sourceTagType(source: ToolInfo['source']) {
+  if (source === 'code') return 'success'
+  if (source === 'scanner') return 'warning'
+  return 'info'
+}
+
+function cloneParameters(parameters: ToolParameter[] = []): ToolParameter[] {
+  return parameters.map((parameter) => ({ ...parameter }))
+}
+
+function toUpsertRequest(tool: ToolInfo): ToolUpsertRequest {
+  return {
+    name: tool.name,
+    description: tool.description,
+    parameters: cloneParameters(tool.parameters),
+    source: tool.source,
+    sourceLocation: tool.sourceLocation || '',
+    httpMethod: tool.httpMethod || 'GET',
+    baseUrl: tool.baseUrl || '',
+    contextPath: tool.contextPath || '/api',
+    endpointPath: tool.endpointPath || '',
+    requestBodyType: tool.requestBodyType || '',
+    responseType: tool.responseType || '',
+    enabled: tool.enabled,
+    agentVisible: tool.agentVisible,
+    lightweightEnabled: tool.lightweightEnabled,
+  }
+}
+
+function applyForm(data: ToolUpsertRequest) {
+  form.name = data.name
+  form.description = data.description
+  form.parameters = cloneParameters(data.parameters)
+  form.source = data.source
+  form.sourceLocation = data.sourceLocation || ''
+  form.httpMethod = data.httpMethod || 'GET'
+  form.baseUrl = data.baseUrl || ''
+  form.contextPath = data.contextPath || '/api'
+  form.endpointPath = data.endpointPath || ''
+  form.requestBodyType = data.requestBodyType || ''
+  form.responseType = data.responseType || ''
+  form.enabled = data.enabled
+  form.agentVisible = data.agentVisible
+  form.lightweightEnabled = data.lightweightEnabled
+}
 
 async function fetchTools() {
   loading.value = true
@@ -110,8 +389,97 @@ async function fetchTools() {
     tools.value = Array.isArray(data) ? data : []
   } catch {
     tools.value = []
+    ElMessage.error('加载 Tool 列表失败')
   } finally {
     loading.value = false
+  }
+}
+
+function openCreateDialog() {
+  editingName.value = null
+  applyForm(createEmptyForm())
+  formDialogVisible.value = true
+}
+
+function openEditDialog(tool: ToolInfo) {
+  editingName.value = tool.name
+  applyForm(toUpsertRequest(tool))
+  formDialogVisible.value = true
+}
+
+function addParameter() {
+  form.parameters.push({
+    name: '',
+    type: 'string',
+    description: '',
+    required: false,
+    location: 'QUERY',
+  })
+}
+
+function removeParameter(index: number) {
+  form.parameters.splice(index, 1)
+}
+
+async function handleSave() {
+  if (!form.name.trim() || !form.description.trim()) {
+    ElMessage.warning('请填写工具名和描述')
+    return
+  }
+  saving.value = true
+  try {
+    if (isEditMode.value && editingName.value) {
+      await updateTool(editingName.value, { ...form, parameters: cloneParameters(form.parameters) })
+      ElMessage.success('Tool 更新成功')
+    } else {
+      await createTool({ ...form, parameters: cloneParameters(form.parameters) })
+      ElMessage.success('Tool 创建成功')
+    }
+    formDialogVisible.value = false
+    await fetchTools()
+  } catch (error) {
+    ElMessage.error((error as Error).message || '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function handleDelete(tool: ToolInfo) {
+  try {
+    await ElMessageBox.confirm(`确认删除工具 ${tool.name} 吗？`, '删除确认', {
+      type: 'warning',
+    })
+    await deleteTool(tool.name)
+    ElMessage.success('Tool 删除成功')
+    await fetchTools()
+  } catch (error) {
+    if ((error as Error).message !== 'cancel') {
+      ElMessage.error((error as Error).message || '删除失败')
+    }
+  }
+}
+
+async function handleEnabledChange(tool: ToolInfo, enabled: boolean) {
+  try {
+    await toggleTool(tool.name, enabled)
+    ElMessage.success(`已${enabled ? '启用' : '禁用'} ${tool.name}`)
+    await fetchTools()
+  } catch (error) {
+    ElMessage.error((error as Error).message || '状态更新失败')
+  }
+}
+
+async function handleFlagChange(tool: ToolInfo, field: 'agentVisible' | 'lightweightEnabled', value: boolean) {
+  try {
+    const payload = toUpsertRequest({
+      ...tool,
+      [field]: value,
+    })
+    await updateTool(tool.name, payload)
+    ElMessage.success('配置已更新')
+    await fetchTools()
+  } catch (error) {
+    ElMessage.error((error as Error).message || '配置更新失败')
   }
 }
 
@@ -148,10 +516,74 @@ async function handleTest() {
   }
 }
 
+function openImportDialog() {
+  manifestContent.value = ''
+  manifestFileName.value = ''
+  manifestPreview.value = []
+  importDialogVisible.value = true
+}
+
+function selectManifestFile() {
+  fileInputRef.value?.click()
+}
+
+async function handleManifestFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  manifestFileName.value = file.name
+  manifestContent.value = await file.text()
+  manifestPreview.value = buildManifestPreview(manifestContent.value)
+  input.value = ''
+}
+
+function buildManifestPreview(content: string) {
+  const preview: Array<{ name: string; description: string }> = []
+  const lines = content.split(/\r?\n/)
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (line.startsWith('- name:')) {
+      preview.push({
+        name: sanitizeYamlValue(line.slice('- name:'.length)),
+        description: '',
+      })
+      continue
+    }
+    if (line.startsWith('description:') && preview.length > 0 && !preview[preview.length - 1].description) {
+      preview[preview.length - 1].description = sanitizeYamlValue(line.slice('description:'.length))
+    }
+  }
+  return preview
+}
+
+function sanitizeYamlValue(value: string) {
+  return value.trim().replace(/^['"]|['"]$/g, '')
+}
+
+async function handleImport() {
+  if (!manifestContent.value) return
+  importRunning.value = true
+  try {
+    const { data } = await importManifest(manifestContent.value)
+    ElMessage.success(`已导入 ${data.importedCount} 个工具`)
+    importDialogVisible.value = false
+    await fetchTools()
+  } catch (error) {
+    ElMessage.error((error as Error).message || '导入失败')
+  } finally {
+    importRunning.value = false
+  }
+}
+
 onMounted(fetchTools)
 </script>
 
 <style scoped lang="scss">
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .expand-content {
   padding: 12px 20px;
 
@@ -162,10 +594,33 @@ onMounted(fetchTools)
   }
 }
 
+.tool-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #606266;
+}
+
 .param-hint {
   font-size: 12px;
   color: #909399;
   margin-top: 2px;
+}
+
+.parameter-editor {
+  width: 100%;
+}
+
+.add-parameter-button {
+  margin-top: 8px;
+}
+
+.switch-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .test-result-area {
@@ -189,5 +644,21 @@ onMounted(fetchTools)
   font-size: 12px;
   color: #909399;
   margin-top: 8px;
+}
+
+.import-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.file-name {
+  font-size: 13px;
+  color: #606266;
+}
+
+.hidden-input {
+  display: none;
 }
 </style>

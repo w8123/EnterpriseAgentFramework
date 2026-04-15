@@ -124,7 +124,7 @@ const filterEnabled = ref<boolean | ''>('')
  * 确保筛选下拉框能覆盖所有实际值。
  */
 const allIntentTypes = computed(() => {
-  const presetValues = new Set(INTENT_TYPES.map((t) => t.value))
+  const presetValues = new Set<string>(INTENT_TYPES.map((t) => t.value))
   const custom = agents.value
     .map((a) => a.intentType)
     .filter((v) => v && !presetValues.has(v))

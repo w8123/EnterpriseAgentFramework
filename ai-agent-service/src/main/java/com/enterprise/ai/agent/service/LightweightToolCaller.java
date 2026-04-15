@@ -2,6 +2,7 @@ package com.enterprise.ai.agent.service;
 
 import com.enterprise.ai.skill.AiTool;
 import com.enterprise.ai.agent.tools.ToolRegistry;
+import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -25,8 +26,7 @@ import java.util.regex.Pattern;
 public class LightweightToolCaller {
 
     private final ToolRegistry toolRegistry;
-
-    private static final Set<String> ALLOWED_TOOLS = Set.of("search_knowledge");
+    private final ToolDefinitionService toolDefinitionService;
 
     private static final Pattern TOOL_CALL_PATTERN = Pattern.compile(
             "\\[TOOL_CALL\\]\\s*\\{\\s*\"name\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*\"args\"\\s*:\\s*\\{([^}]*)\\}\\s*\\}",
@@ -42,7 +42,7 @@ public class LightweightToolCaller {
         sb.append("[TOOL_CALL]{\"name\": \"工具名\", \"args\": {\"参数名\": \"参数值\"}}\n\n");
         sb.append("可用工具：\n");
 
-        for (String toolName : ALLOWED_TOOLS) {
+        for (String toolName : toolDefinitionService.listLightweightEnabledToolNames()) {
             if (toolRegistry.contains(toolName)) {
                 AiTool tool = toolRegistry.get(toolName);
                 sb.append("- ").append(tool.name()).append("：").append(tool.description()).append("\n");
@@ -67,7 +67,7 @@ public class LightweightToolCaller {
         String toolName = matcher.group(1).trim();
         String argsRaw = matcher.group(2).trim();
 
-        if (!ALLOWED_TOOLS.contains(toolName)) {
+        if (!toolDefinitionService.isLightweightCallable(toolName)) {
             log.warn("[LightweightTool] 工具不在白名单: {}", toolName);
             return Optional.empty();
         }
