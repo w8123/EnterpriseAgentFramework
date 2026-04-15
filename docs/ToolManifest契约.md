@@ -44,9 +44,9 @@ tools:
 
 ### `tools[]`
 
-- `name`: 生成后 `AiTool.name()` 的唯一标识，使用 snake_case。
+- `name`: 生成后 `AiTool.name()` 的唯一标识，使用 snake_case；同一份 manifest 中必须唯一。
 - `description`: Tool 对业务能力的简洁描述。
-- `method`: HTTP 方法，当前支持 `GET`、`POST`、`PUT`、`DELETE`。
+- `method`: HTTP 方法，当前支持 `GET`、`POST`、`PUT`、`DELETE`、`PATCH`。
 - `path`: 不含 `contextPath` 的接口路径。
 - `endpoint`: 人类可读的完整端点摘要，格式固定为 `<METHOD> <contextPath><path>`。
 - `parameters`: 生成运行时 `ToolParameter` 与 HTTP 请求组装所需的参数列表。
@@ -68,6 +68,12 @@ tools:
 - 该参数默认命名为 `body_json`，类型为 `json`。
 - 复杂 DTO 字段展开、嵌套对象拆分、Schema 级约束不在当前阶段实现。
 - 生成器会把 `BODY` 参数透传为 JSON 请求体，把 `PATH` 与 `QUERY` 参数分别组装到 URL。
+
+## 当前限制
+
+- OpenAPI `header` / `cookie` 参数暂未纳入当前 MVP。
+- OpenAPI `components.parameters` 的 `$ref` 展开尚未覆盖。
+- `Service + JavaDoc` 的源码级深扫属于下一阶段能力，不在当前 manifest 生成范围内。
 
 ## 生成约束
 

@@ -1,7 +1,7 @@
 ---
 name: AI Agent架构重构方案
-overview: 梳理企业级 AI Agent 平台的服务拆分、职责边界与演进路径；P0/P1 已落地；P2 核心项已完成（AgentDefinition 驱动路由、Tool REST API、管理前端 AI 能力中台配置）；AI 能力中台演进持续推进。
-status: P0+P1 已实施；P2 核心项已完成，AI 能力中台演进进行中
+overview: 梳理企业级 AI Agent 平台的服务拆分、职责边界与演进路径；P0/P1 已落地；P2 核心项已完成（AgentDefinition 驱动路由、Tool REST API、管理前端 AI 能力中台配置）；scanner-first 开发时工具链 MVP 已落地。
+status: P0+P1 已实施；P2 核心项与 scanner-first MVP 已完成，AI 能力中台演进进行中
 isProject: false
 ---
 
@@ -22,6 +22,8 @@ EnterpriseAgentFramework/
 ├── ai-common/           公共库（DTO、异常、通用配置）
 ├── ai-skill-sdk/        Skill 开发 SDK（AiTool 接口、ToolRegistry）     [P1 新增]
 ├── ai-skill-services/   业务工具实现（jar 包加载到 agent-service）      [P1 新增]
+├── ai-skill-scanner/    开发时扫描器（OpenAPI / Controller -> Tool Manifest） [P2 新增]
+├── skill-services/      生成的 Skill Service 示例目录                  [P2 新增]
 ├── ai-model-service/    模型网关（LLM Chat / Embedding，多 Provider）
 ├── ai-text-service/     RAG 引擎（知识库、文档 Pipeline、向量检索）
 ├── ai-agent-service/    智能体编排（AgentScope、意图识别、Tool 调用）
@@ -44,6 +46,7 @@ EnterpriseAgentFramework/
 | Tool 层与 agent-service 耦合 | ai-skill-sdk 下沉 AiTool 接口，ai-skill-services 外置业务工具 | ✅ 已完成 |
 | 极视角大量冗余 | JishiAgentClient 瘦身，仅保留业务工具能力 | ✅ 已完成 |
 | 管理前端能力碎片化 | ai-admin-front 统一承载知识库、Agent、模型、概览等；开发态经 Vite 多路径代理联调三后端 | ✅ 核心页面已落地 |
+| 缺少开发时标准化接入链路 | `ai-skill-scanner` + `Tool Manifest` + 模板生成 + CLI，并以 `RetrievalController` 验证闭环 | ✅ 已完成 |
 
 ### 1.3 遗留问题
 
@@ -229,7 +232,21 @@ graph TB
 
 **仍属持续迭代:** 会话列表与历史 API；Prompt 模板管理页；知识库组管理页；执行链深度可视化、权限与登录、ECharts 等规划项。
 
-#### (8) AI Gateway（独立项目，未启动）
+#### (8) ai-skill-scanner — 开发时工具链 ✅ MVP 已实现
+
+**已实现能力：**
+- OpenAPI / Swagger 扫描 -> `Tool Manifest`
+- Spring MVC Controller 注解扫描（JavaParser）-> `Tool Manifest`
+- Freemarker 模板生成 Skill Service 骨架
+- CLI：`scan-openapi`、`scan-controller`、`generate`
+- 项目级 Cursor Skill：`.cursor/skills/generate-skill`
+- 真实样例：`docs/generated-manifests/ai-text-retrieval.yaml` 与 `skill-services/skill-ai-text-retrieval`
+
+**当前边界：**
+- 当前优先打通 `ToolRegistry` 路径，ReAct / AgentScope 仍需 `ToolRegistryAdapter` 补桥接
+- 源码级 `Service + JavaDoc` 深扫仍待下一阶段
+
+#### (9) AI Gateway（独立项目，未启动）
 
 统一入口路由、鉴权、限流。计划 P2 阶段。
 
@@ -243,10 +260,13 @@ EnterpriseAgentFramework/
   ai-common/                       # 公共库模块
   ai-skill-sdk/                    # Skill 开发 SDK
   ai-skill-services/               # 业务工具实现（jar 加载）
+  ai-skill-scanner/                # 开发时扫描器与生成 CLI
+  skill-services/skill-ai-text-retrieval/ # 生成示例模块（端到端验证）
   ai-model-service/                # 模型网关服务 :8090
   ai-text-service/                 # RAG 引擎 :8080
   ai-agent-service/                # 智能体编排 :8081
   ai-admin-front/                  # 管理前端（Vue + Vite，**未**纳入根 POM 的 Maven 聚合）
+  templates/                       # Skill Service Freemarker 模板
   deploy/                          # 部署配置
   docs/                            # 架构文档
 ```
@@ -254,7 +274,7 @@ EnterpriseAgentFramework/
 **根 POM 关键配置:**
 - Spring Boot 3.4.5
 - 统一 groupId: `com.enterprise.ai`（各 Java 子模块已对齐）
-- **6 个 Maven 子模块**（`ai-common`、`ai-skill-sdk`、`ai-skill-services`、`ai-model-service`、`ai-text-service`、`ai-agent-service`）；`ai-admin-front` 为同仓 **npm 工程**，独立构建与部署
+- **8 个 Maven 子模块**：在原有运行时模块基础上，新增 `ai-skill-scanner`，并纳入一个生成示例模块 `skill-services/skill-ai-text-retrieval`；`ai-admin-front` 为同仓 **npm 工程**，独立构建与部署
 
 ---
 
@@ -352,6 +372,9 @@ sequenceDiagram
 | ~~IntentService 动态化~~ | 意图候选列表从 AgentDefinition 动态生成，不再硬编码 | ✅ |
 | ~~AgentDefinition 扩展~~ | 新增 triggerMode、knowledgeBaseGroupId、promptTemplateId、outputSchemaType、useMultiAgentModel | ✅ |
 | ~~管理前端 AI 能力中台配置~~ | Agent 编辑页新增触发方式/多 Agent 模型/输出 Schema/知识库组/Prompt 模板配置；列表页多维筛选 | ✅ |
+| ~~scanner-first 开发时工具链 MVP~~ | `ai-skill-scanner`：OpenAPI / Controller 扫描、`Tool Manifest`、Freemarker 模板生成、CLI | ✅ |
+| ~~生成样例与端到端验证~~ | 基于 `ai-text-service` `RetrievalController` 生成 `skill-ai-text-retrieval` 并完成 `ToolRegistry` 集成测试 | ✅ |
+| ~~项目级 Cursor Skill~~ | `.cursor/skills/generate-skill`，约束 scanner-first 工作流与当前边界 | ✅ |
 
 #### 进行中 / Backlog
 
@@ -366,6 +389,7 @@ sequenceDiagram
 | AI Gateway | Spring Cloud Gateway + 统一鉴权 + 限流 | 中 |
 | 管理端深化 | 登录鉴权、执行链可视化、调用量图表、会话列表与历史 | 中～低 |
 | RemoteToolProvider | Python/MCP 远程工具协议支持 | 中 |
+| 源码级扫描增强 | Service 层 / JavaDoc 扫描，补齐三级扫描策略最后一层 | 中 |
 | 执行链追踪 | AgentScope Hook System + 日志持久化 | 中 |
 | ToolRegistryAdapter 动态化 | 消除每新增 AiTool 都要手动添加桥接方法的问题 | 中 |
 | WorkflowEngine | 有状态流程编排 + 人机协同 + 条件分支 | 中 |
