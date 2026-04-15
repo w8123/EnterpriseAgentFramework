@@ -28,6 +28,10 @@
             <groupId>com.enterprise.ai</groupId>
             <artifactId>ai-skill-services</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.enterprise.ai</groupId>
+            <artifactId>skill-ai-text-retrieval</artifactId>
+        </dependency>
 
         <!-- Spring Boot Web -->
         <dependency>

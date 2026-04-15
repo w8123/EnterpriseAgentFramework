@@ -16,6 +16,8 @@
         <module>ai-common</module>
         <module>ai-skill-sdk</module>
         <module>ai-skill-services</module>
+        <module>ai-skill-scanner</module>
+        <module>skill-services/skill-ai-text-retrieval</module>
         <module>ai-model-service</module>
         <module>ai-text-service</module>
         <module>ai-agent-service</module>
@@ -44,6 +46,7 @@
         <!-- 工具 -->
         <hutool.version>5.8.27</hutool.version>
         <lombok.version>1.18.34</lombok.version>
+        <javaparser.version>3.27.1</javaparser.version>
 
         <!-- 文档处理 -->
         <poi.version>5.2.5</poi.version>
@@ -111,6 +114,11 @@
             <dependency>
                 <groupId>com.enterprise.ai</groupId>
                 <artifactId>ai-skill-services</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.enterprise.ai</groupId>
+                <artifactId>skill-ai-text-retrieval</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
