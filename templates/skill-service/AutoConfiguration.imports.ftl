@@ -1,0 +1,1 @@
+${basePackage}.SkillAutoConfiguration

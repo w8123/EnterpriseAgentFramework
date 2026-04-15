@@ -1,0 +1,58 @@
+openapi: 3.0.3
+info:
+  title: Legacy CRM API
+  version: 1.0.0
+servers:
+  - url: http://localhost:9001/api
+paths:
+  /customer/search:
+    get:
+      operationId: query_customer
+      summary: 查询客户信息
+      description: 支持按姓名、手机号、客户编号检索客户
+      parameters:
+        - name: keyword
+          in: query
+          required: true
+          description: 搜索关键词
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerPageResponse'
+  /customers/{customerId}/orders:
+    post:
+      operationId: create_order
+      summary: 创建销售订单
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          description: 客户 ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResponse'
+components:
+  schemas:
+    CustomerPageResponse:
+      type: object
+    CreateOrderRequest:
+      type: object
+    CreateOrderResponse:
+      type: object
