@@ -100,6 +100,18 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/tool/ToolList.vue'),
         meta: { title: 'Tool 管理' },
       },
+      {
+        path: 'scan-project',
+        name: 'ScanProjectList',
+        component: () => import('@/views/scan/ScanProjectList.vue'),
+        meta: { title: '扫描项目' },
+      },
+      {
+        path: 'scan-project/:id',
+        name: 'ScanProjectDetail',
+        component: () => import('@/views/scan/ScanProjectDetail.vue'),
+        meta: { title: '扫描详情' },
+      },
     ],
   },
 ]

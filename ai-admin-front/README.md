@@ -20,6 +20,8 @@
 | **模型** | Provider 管理 | 列表、连通性测试（`/model/providers`、`/model/providers/{name}/test`） |
 | | 模型调试台 | 选择 Provider/Model，同步或 SSE 流式对话，Token 用量展示 |
 | **Tool** | Tool 管理 | 列表、参数 Schema 展开、测试弹窗（依赖后端 `GET/POST /api/tools` 等接口） |
+| **扫描项目** | 扫描项目列表 | 创建项目、填写项目名/域名/磁盘路径/扫描方式，触发扫描或重新扫描 |
+| | 扫描项目详情 | 查看项目扫描结果、编辑参数、测试工具、启用/禁用动态 Tool |
 
 > **说明**：Tool 列表与测试需 **ai-agent-service** 暴露 REST（如 `GET /api/tools`、`POST /api/tools/{name}/test`）；未实现时页面为空或请求失败属预期。会话列表、历史记录等高级能力同样依赖后端扩展接口。
 
@@ -125,8 +127,10 @@ ai-admin-front/
 | `/model` | `ModelProvider.vue` | Provider 管理 |
 | `/model/playground` | `ModelPlayground.vue` | 模型调试台 |
 | `/tool` | `ToolList.vue` | Tool 管理 |
+| `/scan-project` | `ScanProjectList.vue` | 扫描项目列表 |
+| `/scan-project/:id` | `ScanProjectDetail.vue` | 扫描项目详情 |
 
-侧栏采用分组菜单：概览、Agent、知识管理（子菜单）、模型管理（子菜单）、Tool。
+侧栏采用分组菜单：概览、Agent、知识管理（子菜单）、模型管理（子菜单）、Tool、扫描项目。
 
 ---
 
@@ -170,6 +174,21 @@ ai-admin-front/
 | GET | `/api/tools` | 已注册工具列表 |
 | GET | `/api/tools/{name}` | 工具详情 |
 | POST | `/api/tools/{name}/test` | 手动测试执行 |
+
+**扫描项目**（`agentRequest`）：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/scan-projects` | 扫描项目列表 |
+| POST | `/api/scan-projects` | 创建扫描项目 |
+| GET | `/api/scan-projects/{id}` | 项目详情 |
+| PUT | `/api/scan-projects/{id}` | 更新项目信息 |
+| DELETE | `/api/scan-projects/{id}` | 删除项目 |
+| POST | `/api/scan-projects/{id}/scan` | 首次扫描 |
+| POST | `/api/scan-projects/{id}/rescan` | 重新扫描 |
+| GET | `/api/scan-projects/{id}/tools` | 查看该项目下的扫描工具 |
+
+说明：以上扫描项目接口由 `ai-agent-service` 提供，扫描执行阶段会通过 Feign 远程调用 `ai-text-service` 的 `/ai/scanner/openapi` 与 `/ai/scanner/controller`。
 
 ---
 
@@ -261,6 +280,7 @@ server {
 2. **模型调用 401**：多为 `ai-model-service` 未配置或配置了失效的 DashScope Key，与前端无关。
 3. **流式输出**：依赖后端返回标准 SSE；前端已剥离 `data:` 前缀，仅拼接正文。
 4. **Tool 页为空**：请先在后端实现并注册 `/api/tools` 等接口。
+5. **扫描项目路径**：`scanPath` 需要对实际执行扫描的 `ai-text-service` 进程可访问（通常与 `ai-agent-service` 同机部署），不是浏览器本地路径。
 
 ---
 

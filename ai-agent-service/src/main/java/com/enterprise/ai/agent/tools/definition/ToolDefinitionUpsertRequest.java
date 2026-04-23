@@ -14,6 +14,7 @@ public record ToolDefinitionUpsertRequest(
         String endpointPath,
         String requestBodyType,
         String responseType,
+        Long projectId,
         boolean enabled,
         boolean agentVisible,
         boolean lightweightEnabled

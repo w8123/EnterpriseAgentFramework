@@ -20,6 +20,9 @@ export interface ToolInfo {
   endpointPath?: string | null
   requestBodyType?: string | null
   responseType?: string | null
+  projectId?: number | null
+  /** 扫描项目显示名，由后端根据 `projectId` 解析；无项目时多为 null */
+  sourceProjectName?: string | null
   enabled: boolean
   agentVisible: boolean
   lightweightEnabled: boolean
@@ -37,6 +40,7 @@ export interface ToolUpsertRequest {
   endpointPath?: string | null
   requestBodyType?: string | null
   responseType?: string | null
+  projectId?: number | null
   enabled: boolean
   agentVisible: boolean
   lightweightEnabled: boolean
@@ -55,7 +59,22 @@ export interface ToolTestResult {
   durationMs: number
 }
 
-export interface ToolImportResult {
-  importedCount: number
-  toolNames: string[]
+/** Tool 列表查询（与 GET /api/tools 查询参数一致） */
+export interface ToolListQuery {
+  current?: number
+  size?: number
+  /** 匹配工具名或描述（模糊） */
+  keyword?: string
+  source?: 'code' | 'scanner' | 'manual' | string
+  enabled?: boolean
+  projectId?: number
+}
+
+/** Tool 列表分页结果 */
+export interface ToolPageResult {
+  records: ToolInfo[]
+  total: number
+  size: number
+  current: number
+  pages: number
 }

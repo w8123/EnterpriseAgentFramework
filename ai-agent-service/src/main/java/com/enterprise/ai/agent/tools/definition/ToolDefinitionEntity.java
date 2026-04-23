@@ -18,6 +18,8 @@ public class ToolDefinitionEntity {
 
     private String description;
 
+    private String aiDescription;
+
     private String parametersJson;
 
     private String source;
@@ -35,6 +37,10 @@ public class ToolDefinitionEntity {
     private String requestBodyType;
 
     private String responseType;
+
+    private Long projectId;
+
+    private Long moduleId;
 
     private Boolean enabled;
 

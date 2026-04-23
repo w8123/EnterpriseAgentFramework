@@ -88,17 +88,39 @@ CREATE TABLE IF NOT EXISTS `tool_definition` (
     `endpoint_path`       VARCHAR(256) DEFAULT NULL            COMMENT '接口路径 (不含 contextPath)',
     `request_body_type`   VARCHAR(256) DEFAULT NULL            COMMENT '请求体类型',
     `response_type`       VARCHAR(256) DEFAULT NULL            COMMENT '响应类型',
+    `project_id`          BIGINT       DEFAULT NULL            COMMENT '关联的扫描项目 ID',
     `enabled`             TINYINT      NOT NULL DEFAULT 1      COMMENT '是否启用',
     `agent_visible`       TINYINT      NOT NULL DEFAULT 1      COMMENT '是否对 ReAct Agent 可见',
     `lightweight_enabled` TINYINT      NOT NULL DEFAULT 0      COMMENT '是否对轻量对话可见',
     `create_time`         DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`         DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_name` (`name`)
+    UNIQUE KEY `uk_name` (`name`),
+    KEY `idx_project_id` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工具定义表';
 
 -- -----------------------------------------------------------
--- 6. 初始化示例数据
+-- 6. 扫描项目表
+-- -----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `scan_project` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `name`          VARCHAR(128) NOT NULL                COMMENT '项目名称',
+    `base_url`      VARCHAR(256) NOT NULL                COMMENT '项目域名',
+    `context_path`  VARCHAR(128) NOT NULL DEFAULT ''     COMMENT '公共路径前缀',
+    `scan_path`     VARCHAR(512) NOT NULL                COMMENT '磁盘扫描目录',
+    `scan_type`     VARCHAR(32)  NOT NULL                COMMENT '扫描方式: openapi/controller/auto',
+    `spec_file`     VARCHAR(256) DEFAULT NULL            COMMENT 'OpenAPI 规范文件相对路径',
+    `tool_count`    INT          NOT NULL DEFAULT 0      COMMENT '扫描发现的接口数',
+    `status`        VARCHAR(32)  NOT NULL DEFAULT 'created' COMMENT '状态: created/scanning/scanned/failed',
+    `error_message` TEXT         DEFAULT NULL            COMMENT '失败原因',
+    `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_scan_project_name` (`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='扫描项目表';
+
+-- -----------------------------------------------------------
+-- 7. 初始化示例数据
 -- -----------------------------------------------------------
 INSERT INTO `knowledge_base` (`name`, `code`, `description`, `embedding_model`, `dimension`, `status`)
 VALUES

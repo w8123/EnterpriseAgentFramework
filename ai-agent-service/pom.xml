@@ -24,19 +24,6 @@
             <groupId>com.enterprise.ai</groupId>
             <artifactId>ai-skill-sdk</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.enterprise.ai</groupId>
-            <artifactId>ai-skill-services</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.enterprise.ai</groupId>
-            <artifactId>ai-skill-scanner</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.enterprise.ai</groupId>
-            <artifactId>skill-ai-text-retrieval</artifactId>
-        </dependency>
-
         <!-- Spring Boot Web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -127,6 +114,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
+        <!-- JavaParser (用于扫描项目源码生成语义上下文) -->
+        <dependency>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-core</artifactId>
+            <version>${javaparser.version}</version>
         </dependency>
     </dependencies>
 

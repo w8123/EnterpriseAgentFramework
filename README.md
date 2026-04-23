@@ -63,15 +63,15 @@
 
 - **独创的 Skill SDK 体系** — 老系统无需改动或极少改动，通过 HTTP 桥接即可将业务 API 变为 Agent 可调用的 Tool
 - 标准化的 `AiTool` 接口契约，实现即注册，开箱即用
-- 已提供 **scanner-first 开发时工具链** — `Swagger/OpenAPI / Spring MVC Controller -> Tool Manifest -> Skill Service` 骨架生成
-- 配合项目级 **Cursor Skill**（`generate-skill`）辅助生成与校验 Skill Service
+- 已提供 **一条历史系统接入主线**
+  - **运行时 Web 扫描链路** — 管理后台录入项目名 / 域名 / 磁盘路径，后端扫描 OpenAPI 或 Controller，结果直接入库并注册为动态 Tool
 
 ### 🖥️ 可视化管理后台
 
 - 基于 **Vue 3 + Element Plus** 的现代化管理界面
 - Agent 全生命周期管理：配置、调试、启停，支持 **AI 能力中台配置**（知识库组、Prompt 模板、输出 Schema、触发方式）
 - 意图类型支持预置 + 自定义扩展，列表多维筛选
-- 知识库管理、模型调试、Tool 管理一站式搞定
+- 知识库管理、模型调试、Tool 管理、**扫描项目管理** 一站式搞定
 - 开箱即用，无需额外开发管理工具
 
 ### 🚀 生产级部署方案
@@ -105,11 +105,11 @@
        │
        ▼
 ┌──────────────────────────────────────┐
-│         ai-skill-sdk + services       │
+│   ai-skill-sdk + dynamic tooling     │
 │                                      │
 │  AiTool 接口 · ToolRegistry          │
-│  DatabaseQueryTool · BusinessApiTool  │
-│  ──── Feign 桥接 ────                │
+│  DynamicHttpAiTool · Scanner Core    │
+│  ──── HTTP 桥接 / 运行时注册 ────      │
 └──────────────┬───────────────────────┘
                │ HTTP
                ▼
@@ -131,15 +131,13 @@
 | --------------------- | --------------------------------------------------- | ---- |
 | **ai-common**         | 公共库 — DTO、异常定义、通用配置                                 | -    |
 | **ai-skill-sdk**      | Skill 开发 SDK — AiTool 接口、ToolParameter、ToolRegistry | -    |
-| **ai-skill-services** | 内置业务工具 — DatabaseQuery、BusinessApi、UserProfile 等    | -    |
-| **ai-skill-scanner**  | 开发时扫描器 — OpenAPI / Controller 扫描、Tool Manifest、模板生成 CLI | -    |
 | **ai-model-service**  | 模型网关 — LLM Chat / Embedding，多 Provider 路由           | 8090 |
-| **ai-text-service**   | RAG 引擎 — 知识库、文档 Pipeline、向量检索                       | 8080 |
+| **ai-text-service**   | 知识 / Tooling 基础层 — RAG、文档 Pipeline、向量检索、OpenAPI / Controller 扫描核心 | 8080 |
 | **ai-agent-service**  | 智能体编排 — AgentScope、意图识别、Tool 调用、会话记忆                | 8081 |
 | **ai-admin-front**    | 管理前端 — Vue 3 + Vite + Element Plus + TypeScript     | 3000 |
 | **deploy**            | 部署配置 — Docker Compose / Kubernetes                  | -    |
 
-仓库根目录 `pom.xml` 当前聚合 **8 个 Java 子模块**：在原有运行时模块基础上，新增 `ai-skill-scanner`，并纳入一个用于端到端验证的生成示例模块 `skill-services/skill-ai-text-retrieval`。**`ai-admin-front`** 为同目录下的 **npm / Vite 工程**，不参与 Maven 聚合；**`deploy`** 为部署清单目录，同样不在聚合内。
+仓库根目录 `pom.xml` 当前聚合 **5 个 Java 子模块**。扫描核心已并入 `ai-text-service`；**`ai-admin-front`** 为同目录下的 **npm / Vite 工程**，不参与 Maven 聚合；**`deploy`** 为部署清单目录，同样不在聚合内。
 
 ---
 
@@ -170,7 +168,7 @@ docker compose -f deploy/docker-compose.infra.yml up -d
 ### 3. 初始化数据库
 
 ```bash
-mysql -h localhost -u root -proot ai_text_service < sql/init.sql
+mysql -h localhost -u root -proot ai_text_service < ai-text-service/sql/init.sql
 ```
 
 ### 4. 构建全部 Java 模块
@@ -249,25 +247,28 @@ public interface CrmFeignClient {
 }
 ```
 
-### Step 3：打包为 jar，Agent 自动发现
+### Step 3：注册到运行时 Tool 体系
 
-将 Skill Service 作为 Maven 依赖引入 `ai-agent-service`，Spring Boot AutoConfiguration 自动注册，Agent 即刻获得调用该业务能力的能力。
+将实现类放入当前运行时模块或独立依赖模块并交给 Spring 托管，`ToolRegistry` 即可发现并注册该能力。
 
 **就是这么简单。** 你的 CRM / ERP / OA 系统不需要改动任何代码，Agent 就能通过自然语言调用它们的业务接口。
 
-### Scanner-First 接入（MVP 已实现）
+### 运行时 Web 扫描接入（已实现）
 
-对于已有 `openapi.yaml/json` 或 Spring MVC Controller 的老项目，也可以直接走开发时生成链路：
+对于已经部署在服务器上的历史 Java 项目，现在优先推荐直接走管理后台的 **扫描项目** 流程：
 
-1. 用 `ai-skill-scanner` 扫描 OpenAPI 或 Controller，输出 `Tool Manifest`
-2. 基于 `templates/skill-service/` 生成 `skill-services/skill-<project-name>/` 模块
-3. 将生成模块作为 Maven 依赖接入 `ai-agent-service`，通过 `ToolRegistry` 自动发现
+1. 在管理后台新增扫描项目，填写**项目名称**、**项目域名**、**磁盘路径**、**扫描方式**（OpenAPI / Controller）
+2. 后端由 `ai-agent-service` 通过 Feign 调用 `ai-text-service` 暴露的扫描接口（`/ai/scanner/openapi`、`/ai/scanner/controller`），对磁盘项目进行扫描
+3. 扫描结果直接写入数据库：
+   - `scan_project`：保存项目元数据、扫描状态、错误信息
+   - `tool_definition`：保存接口定义，并用 `project_id` 关联项目
+4. 开发者在页面上编辑工具名、描述、参数、开关后，即可直接作为**动态 Tool** 被 Agent 调用
 
-当前已在仓库内用 `ai-text-service` 的 `RetrievalController` 验证了这条闭环，并产出了示例 manifest：`docs/generated-manifests/ai-text-retrieval.yaml`。
+这条链路的特点是：
 
-说明：生成模块当前默认打通的是 `ToolRegistry` 路径；如果要让 ReAct / AgentScope 直接使用，仍需补充 `ToolRegistryAdapter` 的桥接方法。
-
----
+- **没有 YAML 中间文件**
+- **没有必须生成 jar 的前置要求**
+- **更适合运维 / 联调 / 快速接入历史系统**
 
 ## 🛠️ 技术栈
 
@@ -295,13 +296,12 @@ public interface CrmFeignClient {
 - ✅ **RAG 知识引擎** — 文档 Pipeline + Milvus 向量检索
 - ✅ **统一模型网关** — 多 Provider 路由 + SSE 流式；OpenAI 兼容代理供 AgentScope 使用
 - ✅ **调用链路** — Agent 侧 LLM / RAG 经 Feign 统一走 `ai-model-service`、`ai-text-service`
-- ✅ **Skill SDK 体系** — `AiTool`（含 `parameters()`）+ `ToolRegistry` + Spring Boot 自动注册；`ai-skill-services` 以 jar 形式加载到 `ai-agent-service`
-- ✅ **scanner-first 开发时工具链 MVP** — `ai-skill-scanner` 提供 OpenAPI / Controller 扫描、`Tool Manifest`、Freemarker 模板生成、CLI，以及 `generate-skill` 项目级 Cursor Skill
+- ✅ **Skill SDK 体系** — `AiTool`（含 `parameters()`）+ `ToolRegistry` + Spring Boot 自动注册；动态 Tool 与手写 Tool 共用同一套运行时契约
+- ✅ **扫描项目 Web 化闭环** — `scan_project` + `tool_definition.project_id`、`/api/scan-projects/*`、管理端扫描项目列表 / 详情页、动态 Tool 直接入库
 - ✅ **会话记忆（Redis）** — 短期上下文窗口
 - ✅ **管理后台** — 知识库 / Agent / 模型 / Dashboard；**Tool 管理页**对接后端 REST
 - ✅ **AgentDefinition 全配置化** — `AgentRouter` / `AgentFactory` 消除硬编码；**IntentService** 意图候选随 Agent 定义动态生成；扩展字段（触发方式、知识库组、Prompt 模板 ID、输出 Schema、多 Agent 模型等）
 - ✅ **Tool 管理 REST API** — `GET/POST /api/tools`（列表、详情、测试执行）
-- ✅ **真实项目验证样例** — 以 `ai-text-service` `RetrievalController` 生成 `skill-ai-text-retrieval` 并在 `ai-agent-service` 中完成 `ToolRegistry` 集成测试
 - ✅ **Docker / K8s 部署方案**
 
 ### 进行中（高优先级 backlog）
@@ -318,7 +318,7 @@ public interface CrmFeignClient {
 - **AI Gateway（独立工程）** — 统一入口、鉴权、限流、熔断
 - **管理端深化** — 会话列表与历史、执行链可视化、登录与权限等（与后端 API 同步推进）
 - **源码级扫描增强** — Service 层 / JavaDoc 扫描（三级扫描策略的最后一层）
-- **生成工具链深化** — OpenAPI 更复杂契约支持、生成模块治理、样板模块扩展
+- **扫描能力深化** — OpenAPI 更复杂契约支持、Service / JavaDoc 深扫、差异对比与增量更新
 - **RemoteToolProvider / MCP 兼容** — 跨语言 Tool 接入
 - **Tool 权限、限流、审计** — 企业级治理能力
 - **调用链追踪与可观测性** — AgentScope Hook、日志与指标持久化
@@ -354,9 +354,8 @@ public interface CrmFeignClient {
 
 更完整的背景、现状与演进路径见仓库内文档（与 README 同步维护）：
 
-- [docs/背景、现状、目标.md](docs/背景、现状、目标.md) — 背景与动机、Tool 分层与调用链路、开发时扫描/生成与运行时 jar 加载、分阶段实施与中台演进概要
-- [docs/AI能力系统升级规划.md](docs/AI能力系统升级规划.md) — 单仓模块划分、各服务职责、典型调用链、P0/P1/P2 进展与 backlog 路线图
-- [docs/ToolManifest契约.md](docs/ToolManifest契约.md) — `ai-skill-scanner` 与模板生成器共享的最小契约说明
+- [docs/背景、现状、目标.md](docs/背景、现状、目标.md) — 背景与动机、Tool 分层与调用链路、运行时 Web 扫描主线、分阶段实施与中台演进概要
+- [docs/AI能力系统升级规划.md](docs/AI能力系统升级规划.md) — 单仓模块划分、各服务职责、扫描项目 Web 化与 backlog 路线图
 
 ---
 
@@ -366,17 +365,12 @@ public interface CrmFeignClient {
 EnterpriseAgentFramework/
 ├── ai-common/              公共库（DTO、异常、通用配置）
 ├── ai-skill-sdk/           Skill 开发 SDK（AiTool 接口、ToolParameter、ToolRegistry）
-├── ai-skill-services/      内置业务工具（DatabaseQuery、BusinessApi、UserProfile）
-├── ai-skill-scanner/       开发时扫描器（OpenAPI / Controller -> Tool Manifest）
 ├── ai-model-service/       模型网关（LLM Chat / Embedding，多 Provider 路由）
-├── ai-text-service/        RAG 引擎（知识库、文档 Pipeline、向量检索）
+├── ai-text-service/        知识 / Tooling 基础层（知识库、文档 Pipeline、向量检索、扫描核心）
 ├── ai-agent-service/       智能体编排（AgentScope、意图识别、Tool 调用、会话记忆）
 ├── ai-admin-front/         管理前端（Vue 3 + Element Plus + TypeScript）
-├── skill-services/         生成的 Skill Service 示例目录
-├── templates/              Skill Service Freemarker 模板
-├── .cursor/skills/         项目级 AI 辅助技能（含 generate-skill）
 ├── deploy/                 部署配置（Docker Compose / Kubernetes）
-├── sql/                    数据库初始化脚本
+├── ai-text-service/sql/    数据库初始化与升级脚本（含 tool_definition / scan_project）
 └── docs/                   架构与设计文档（见上一节链接）
 ```
 

@@ -67,10 +67,7 @@ public class AgentOrchestrator {
             context.setIntentType(intentType);
 
             AgentResult result = switch (intentType) {
-                case "QUERY_DATA" -> agentWorkflow.executeQueryDataFlow(context);
                 case "KNOWLEDGE_QA" -> agentWorkflow.executeKnowledgeQAFlow(context);
-                case "BUSINESS_OPERATION" -> agentWorkflow.executeBusinessOperationFlow(context);
-                case "ANALYSIS", "CREATIVE_TASK" -> agentWorkflow.executeCreativeTaskFlow(context);
                 default -> agentWorkflow.executeGeneralChatFlow(context);
             };
 

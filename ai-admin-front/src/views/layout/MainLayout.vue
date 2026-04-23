@@ -49,6 +49,11 @@
             <el-icon><SetUp /></el-icon>
             <span>Tool 管理</span>
           </el-menu-item>
+
+          <el-menu-item index="/scan-project">
+            <el-icon><FolderOpened /></el-icon>
+            <span>扫描项目</span>
+          </el-menu-item>
         </el-menu>
       </el-scrollbar>
     </el-aside>
@@ -79,6 +84,7 @@ import {
   Cpu,
   Coin,
   SetUp,
+  FolderOpened,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -90,6 +96,7 @@ const activeMenu = computed(() => {
   if (path.startsWith('/agent')) return '/agent'
   if (path.startsWith('/model/playground')) return '/model/playground'
   if (path.startsWith('/model')) return '/model'
+  if (path.startsWith('/scan-project')) return '/scan-project'
   return path
 })
 

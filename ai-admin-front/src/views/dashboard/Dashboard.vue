@@ -147,7 +147,7 @@ async function fetchStats() {
   const results = await Promise.allSettled([
     getAgentList(),
     getKnowledgeList(),
-    getTools(),
+    getTools({ current: 1, size: 1 }),
     getProviders(),
   ])
 
@@ -166,8 +166,8 @@ async function fetchStats() {
   }
 
   if (results[2].status === 'fulfilled') {
-    const data = results[2].value.data
-    stats.toolCount = Array.isArray(data) ? data.length : 0
+    const d = results[2].value.data as { total?: number } | undefined
+    stats.toolCount = typeof d?.total === 'number' ? d.total : 0
   }
 
   if (results[3].status === 'fulfilled') {

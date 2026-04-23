@@ -297,8 +297,8 @@ async function loadAgent() {
 
 async function loadToolOptions() {
   try {
-    const { data } = await getTools()
-    toolOptions.value = Array.isArray(data) ? data : []
+    const { data } = await getTools({ current: 1, size: 2000 })
+    toolOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
   } catch {
     toolOptions.value = []
     ElMessage.error('加载 Tool 选项失败')

@@ -3,19 +3,61 @@
     <div class="page-header">
       <h2>Tool 管理</h2>
       <div class="header-actions">
-        <el-button @click="openImportDialog">
-          <el-icon><Upload /></el-icon>导入 Manifest
-        </el-button>
         <el-button type="primary" @click="openCreateDialog">
           <el-icon><Plus /></el-icon>新建 Tool
         </el-button>
-        <el-button @click="fetchTools" :loading="loading">
+        <el-button @click="onRefresh" :loading="loading">
           <el-icon><Refresh /></el-icon>刷新
         </el-button>
       </div>
     </div>
 
     <el-card shadow="never">
+      <el-form :inline="true" class="tool-filter" @submit.prevent="handleSearch">
+        <el-form-item label="关键词">
+          <el-input
+            v-model="filters.keyword"
+            clearable
+            placeholder="工具名或描述"
+            style="width: 200px"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="来源">
+          <el-select v-model="filters.source" clearable placeholder="全部" style="width: 130px">
+            <el-option label="code" value="code" />
+            <el-option label="scanner" value="scanner" />
+            <el-option label="manual" value="manual" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-select v-model="filters.enabled" clearable placeholder="全部" style="width: 120px">
+            <el-option label="是" :value="true" />
+            <el-option label="否" :value="false" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="来源项目">
+          <el-select
+            v-model="filters.projectId"
+            clearable
+            filterable
+            placeholder="全部"
+            style="width: 200px"
+          >
+            <el-option
+              v-for="p in scanProjects"
+              :key="p.id"
+              :label="`${p.name} (ID ${p.id})`"
+              :value="p.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="handleSearch">查询</el-button>
+          <el-button @click="resetFilters">重置</el-button>
+        </el-form-item>
+      </el-form>
+
       <el-table :data="tools" v-loading="loading" stripe>
         <el-table-column type="expand">
           <template #default="{ row }">
@@ -40,6 +82,7 @@
               </el-table>
               <div class="tool-meta">
                 <div><b>来源：</b>{{ row.source }}</div>
+                <div><b>来源项目：</b>{{ sourceProjectLabel(row) }}</div>
                 <div><b>HTTP：</b>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</div>
                 <div><b>Base URL：</b>{{ row.baseUrl || '-' }}</div>
                 <div><b>来源定位：</b>{{ row.sourceLocation || '-' }}</div>
@@ -59,12 +102,36 @@
             <el-tag :type="sourceTagType(row.source)" size="small">{{ row.source }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="来源项目" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ sourceProjectLabel(row) }}
+          </template>
+        </el-table-column>
         <el-table-column label="端点" min-width="220">
           <template #default="{ row }">
             <span>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="description" label="描述" />
+        <el-table-column prop="description" label="描述" min-width="320">
+          <template #default="{ row }">
+            <el-tooltip
+              placement="top-start"
+              :show-after="200"
+              :hide-after="0"
+              :teleported="true"
+              popper-class="tool-description-tooltip"
+            >
+              <template #content>
+                <div class="tool-description-tooltip-content">
+                  {{ row.description || '-' }}
+                </div>
+              </template>
+              <div class="tool-description-cell">
+                {{ row.description || '-' }}
+              </div>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column label="参数数量" width="100" align="center">
           <template #default="{ row }">
             {{ (row.parameters || []).length }}
@@ -109,7 +176,21 @@
         </el-table-column>
       </el-table>
 
-      <el-empty v-if="!loading && tools.length === 0" description="未获取到已注册 Tool（需后端提供 /api/tools 接口）" />
+      <el-empty
+        v-if="!loading && tools.length === 0"
+        description="暂无数据，请调整条件或先在后端注册 Tool"
+      />
+      <div v-if="total > 0" class="pagination-wrap">
+        <el-pagination
+          v-model:current-page="pagination.current"
+          v-model:page-size="pagination.size"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="total"
+          layout="total, sizes, prev, pager, next, jumper"
+          @current-change="fetchTools"
+          @size-change="handlePageSizeChange"
+        />
+      </div>
     </el-card>
 
     <el-dialog v-model="formDialogVisible" :title="formDialogTitle" width="760px">
@@ -260,39 +341,29 @@
         <el-button type="primary" @click="handleTest" :loading="testRunning">执行</el-button>
       </template>
     </el-dialog>
-
-    <el-dialog v-model="importDialogVisible" title="导入 Tool Manifest" width="720px">
-      <div class="import-actions">
-        <el-button type="primary" @click="selectManifestFile">选择 YAML 文件</el-button>
-        <span v-if="manifestFileName" class="file-name">{{ manifestFileName }}</span>
-        <input ref="fileInputRef" type="file" accept=".yaml,.yml" class="hidden-input" @change="handleManifestFileChange" />
-      </div>
-
-      <el-empty v-if="!manifestPreview.length" description="请选择 Tool Manifest YAML 文件" />
-      <el-table v-else :data="manifestPreview" border size="small">
-        <el-table-column prop="name" label="工具名" width="220" />
-        <el-table-column prop="description" label="描述" />
-      </el-table>
-
-      <template #footer>
-        <el-button @click="importDialogVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="!manifestContent" :loading="importRunning" @click="handleImport">
-          导入
-        </el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
+import { Plus, Refresh } from '@element-plus/icons-vue'
 import type { ToolInfo, ToolParameter, ToolTestResult, ToolUpsertRequest } from '@/types/tool'
-import { createTool, deleteTool, getTools, importManifest, testTool, toggleTool, updateTool } from '@/api/tool'
+import type { ScanProject } from '@/types/scanProject'
+import { getScanProjects } from '@/api/scanProject'
+import { createTool, deleteTool, getTools, testTool, toggleTool, updateTool } from '@/api/tool'
 
 const tools = ref<ToolInfo[]>([])
+const scanProjects = ref<ScanProject[]>([])
+const total = ref(0)
 const loading = ref(false)
+const filters = reactive({
+  keyword: '',
+  source: undefined as string | undefined,
+  enabled: undefined as boolean | undefined,
+  projectId: undefined as number | undefined,
+})
+const pagination = reactive({ current: 1, size: 20 })
 const saving = ref(false)
 
 const formDialogVisible = ref(false)
@@ -310,13 +381,6 @@ const testArgs = reactive<Record<string, string>>({})
 const testResult = ref<ToolTestResult | null>(null)
 const testRunning = ref(false)
 
-const importDialogVisible = ref(false)
-const importRunning = ref(false)
-const manifestContent = ref('')
-const manifestFileName = ref('')
-const manifestPreview = ref<Array<{ name: string; description: string }>>([])
-const fileInputRef = ref<HTMLInputElement | null>(null)
-
 function createEmptyForm(): ToolUpsertRequest {
   return {
     name: '',
@@ -330,6 +394,7 @@ function createEmptyForm(): ToolUpsertRequest {
     endpointPath: '',
     requestBodyType: '',
     responseType: '',
+    projectId: null,
     enabled: true,
     agentVisible: true,
     lightweightEnabled: false,
@@ -340,6 +405,22 @@ function sourceTagType(source: ToolInfo['source']) {
   if (source === 'code') return 'success'
   if (source === 'scanner') return 'warning'
   return 'info'
+}
+
+/** 来源项目列：展示后端返回的名称；缺失时用本地扫描项目列表补救 */
+function sourceProjectLabel(row: ToolInfo) {
+  if (row.sourceProjectName) {
+    return row.sourceProjectName
+  }
+  const pid = row.projectId
+  if (pid == null) {
+    return '-'
+  }
+  const found = scanProjects.value.find((p) => p.id === pid)
+  if (found) {
+    return `${found.name} (ID ${found.id})`
+  }
+  return `ID ${pid}`
 }
 
 function cloneParameters(parameters: ToolParameter[] = []): ToolParameter[] {
@@ -359,6 +440,7 @@ function toUpsertRequest(tool: ToolInfo): ToolUpsertRequest {
     endpointPath: tool.endpointPath || '',
     requestBodyType: tool.requestBodyType || '',
     responseType: tool.responseType || '',
+    projectId: tool.projectId ?? null,
     enabled: tool.enabled,
     agentVisible: tool.agentVisible,
     lightweightEnabled: tool.lightweightEnabled,
@@ -377,22 +459,74 @@ function applyForm(data: ToolUpsertRequest) {
   form.endpointPath = data.endpointPath || ''
   form.requestBodyType = data.requestBodyType || ''
   form.responseType = data.responseType || ''
+  form.projectId = data.projectId ?? null
   form.enabled = data.enabled
   form.agentVisible = data.agentVisible
   form.lightweightEnabled = data.lightweightEnabled
 }
 
+function buildListParams() {
+  return {
+    current: pagination.current,
+    size: pagination.size,
+    ...(filters.keyword.trim() ? { keyword: filters.keyword.trim() } : {}),
+    ...(filters.source ? { source: filters.source } : {}),
+    ...(filters.enabled !== undefined ? { enabled: filters.enabled } : {}),
+    ...(filters.projectId !== undefined ? { projectId: filters.projectId } : {}),
+  }
+}
+
 async function fetchTools() {
   loading.value = true
   try {
-    const { data } = await getTools()
-    tools.value = Array.isArray(data) ? data : []
+    const { data } = await getTools(buildListParams())
+    if (data && 'records' in data) {
+      tools.value = Array.isArray(data.records) ? data.records : []
+      total.value = typeof data.total === 'number' ? data.total : 0
+    } else {
+      tools.value = []
+      total.value = 0
+    }
   } catch {
     tools.value = []
+    total.value = 0
     ElMessage.error('加载 Tool 列表失败')
   } finally {
     loading.value = false
   }
+}
+
+function handleSearch() {
+  pagination.current = 1
+  return fetchTools()
+}
+
+function handlePageSizeChange() {
+  pagination.current = 1
+  return fetchTools()
+}
+
+function resetFilters() {
+  filters.keyword = ''
+  filters.source = undefined
+  filters.enabled = undefined
+  filters.projectId = undefined
+  pagination.current = 1
+  return fetchTools()
+}
+
+async function loadScanProjects() {
+  try {
+    const { data } = await getScanProjects()
+    scanProjects.value = Array.isArray(data) ? data : []
+  } catch {
+    scanProjects.value = []
+  }
+}
+
+async function onRefresh() {
+  await loadScanProjects()
+  return fetchTools()
 }
 
 function openCreateDialog() {
@@ -516,72 +650,33 @@ async function handleTest() {
   }
 }
 
-function openImportDialog() {
-  manifestContent.value = ''
-  manifestFileName.value = ''
-  manifestPreview.value = []
-  importDialogVisible.value = true
-}
-
-function selectManifestFile() {
-  fileInputRef.value?.click()
-}
-
-async function handleManifestFileChange(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  manifestFileName.value = file.name
-  manifestContent.value = await file.text()
-  manifestPreview.value = buildManifestPreview(manifestContent.value)
-  input.value = ''
-}
-
-function buildManifestPreview(content: string) {
-  const preview: Array<{ name: string; description: string }> = []
-  const lines = content.split(/\r?\n/)
-  for (const rawLine of lines) {
-    const line = rawLine.trim()
-    if (line.startsWith('- name:')) {
-      preview.push({
-        name: sanitizeYamlValue(line.slice('- name:'.length)),
-        description: '',
-      })
-      continue
-    }
-    if (line.startsWith('description:') && preview.length > 0 && !preview[preview.length - 1].description) {
-      preview[preview.length - 1].description = sanitizeYamlValue(line.slice('description:'.length))
-    }
-  }
-  return preview
-}
-
-function sanitizeYamlValue(value: string) {
-  return value.trim().replace(/^['"]|['"]$/g, '')
-}
-
-async function handleImport() {
-  if (!manifestContent.value) return
-  importRunning.value = true
-  try {
-    const { data } = await importManifest(manifestContent.value)
-    ElMessage.success(`已导入 ${data.importedCount} 个工具`)
-    importDialogVisible.value = false
-    await fetchTools()
-  } catch (error) {
-    ElMessage.error((error as Error).message || '导入失败')
-  } finally {
-    importRunning.value = false
-  }
-}
-
-onMounted(fetchTools)
+onMounted(() => {
+  loadScanProjects()
+  fetchTools()
+})
 </script>
 
 <style scoped lang="scss">
 .header-actions {
   display: flex;
   gap: 8px;
+}
+
+.tool-filter {
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.tool-filter :deep(.el-form-item) {
+  margin-bottom: 12px;
+}
+
+.pagination-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid #ebeef5;
 }
 
 .expand-content {
@@ -601,6 +696,25 @@ onMounted(fetchTools)
   margin-top: 12px;
   font-size: 13px;
   color: #606266;
+}
+
+.tool-description-cell {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  line-height: 20px;
+  max-height: 60px;
+  white-space: normal;
+  word-break: break-word;
+  color: #606266;
+}
+
+.tool-description-tooltip-content {
+  max-width: 420px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 20px;
 }
 
 .param-hint {
@@ -646,19 +760,7 @@ onMounted(fetchTools)
   margin-top: 8px;
 }
 
-.import-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.file-name {
-  font-size: 13px;
-  color: #606266;
-}
-
-.hidden-input {
-  display: none;
+:deep(.tool-description-tooltip) {
+  max-width: 460px;
 }
 </style>

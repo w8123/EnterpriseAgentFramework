@@ -47,6 +47,10 @@ public class DynamicHttpAiTool implements AiTool {
 
     @Override
     public String description() {
+        String aiDescription = definition.getAiDescription();
+        if (aiDescription != null && !aiDescription.isBlank()) {
+            return aiDescription;
+        }
         return definition.getDescription();
     }
 

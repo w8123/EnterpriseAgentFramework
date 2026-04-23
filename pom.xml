@@ -15,9 +15,6 @@
     <modules>
         <module>ai-common</module>
         <module>ai-skill-sdk</module>
-        <module>ai-skill-services</module>
-        <module>ai-skill-scanner</module>
-        <module>skill-services/skill-ai-text-retrieval</module>
         <module>ai-model-service</module>
         <module>ai-text-service</module>
         <module>ai-agent-service</module>
@@ -113,17 +110,7 @@
             </dependency>
             <dependency>
                 <groupId>com.enterprise.ai</groupId>
-                <artifactId>ai-skill-services</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.enterprise.ai</groupId>
-                <artifactId>ai-skill-scanner</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.enterprise.ai</groupId>
-                <artifactId>skill-ai-text-retrieval</artifactId>
+                <artifactId>ai-text-service</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

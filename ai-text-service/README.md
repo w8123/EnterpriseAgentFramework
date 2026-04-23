@@ -1,15 +1,19 @@
-# AI Text Service（AI 文本中台）
+# AI Text Service（文本/RAG + Tooling 混合能力层）
 
 ## 一、项目简介
 
-基于 **Spring Boot 3.x + Java 17** 构建的企业级 AI 文本中台服务，统一对外提供：
+基于 **Spring Boot 3.x + Java 17** 构建的企业级 AI 能力服务，当前定位为 **文本/RAG + Tooling 混合层**，统一承载：
 
 - **RAG**（检索增强生成） — 多知识库问答
 - **语义查重**（相似度检测） — 单库 / 多库查重
 - **Embedding**（文本向量化） — 可扩展多模型
 - **知识库管理闭环**（V2） — 知识库详情、文件管理、Chunk 查看、检索测试、策略配置
+- **Tooling 扫描核心**（V4） — OpenAPI / Spring MVC Controller 扫描，供 `ai-agent-service` 运行时复用
+- **业务语义索引**（V3） — 多业务系统语义检索能力
 
-核心特性：文件级权限控制、多知识库隔离、Milvus 向量检索、接口与实现完全解耦。
+核心特性：文件级权限控制、多知识库隔离、Milvus 向量检索、扫描能力内聚、接口与实现解耦。
+
+> 说明：`ai-text-service` 已不再是“仅文本/RAG”服务，而是知识能力与 Tooling 基础能力的混合承载层。
 
 ---
 
@@ -85,6 +89,7 @@ AI Text Service/
 │   ├── vector/                           # Milvus 向量封装层
 │   ├── embedding/                        # Embedding 模块
 │   ├── rag/                              # RAG 模块
+│   ├── text/tooling/scanner/             # Tooling 扫描核心（OpenAPI / Controller）
 │   └── security/                         # 权限模块
 └── src/main/resources/
     └── application.yml                   # 应用配置
@@ -93,6 +98,23 @@ AI Text Service/
 ---
 
 ## 四、核心接口
+
+### 0. Tooling 扫描核心（库能力 + HTTP 能力）
+
+该能力由 `ai-text-service` 统一承载，对外提供扫描接口供 `ai-agent-service` 通过 Feign 调用：
+
+- `POST /ai/scanner/openapi` — 基于 OpenAPI 规范扫描并返回 `ToolManifest`
+- `POST /ai/scanner/controller` — 基于 Spring MVC Controller 扫描并返回 `ToolManifest`
+
+服务内核心实现位于：
+
+- `com.enterprise.ai.text.tooling.scanner.openapi.OpenApiToolManifestScanner`
+- `com.enterprise.ai.text.tooling.scanner.controller.ControllerAnnotationToolManifestScanner`
+- `com.enterprise.ai.text.tooling.scanner.manifest.*`
+
+用途：支撑 `/api/scan-projects/*` 运行时扫描链路，将历史项目接口转换为动态 Tool 定义。
+
+---
 
 ### 1. RAG 问答
 
@@ -235,6 +257,19 @@ PUT /ai/knowledge/kb/{kbCode}/config
 ---
 
 ## 五、模块说明
+
+### 0. Tooling Scanner 模块（V4）
+
+| 类/包 | 说明 |
+|----|------|
+| `text.tooling.scanner.openapi` | OpenAPI 规范扫描 |
+| `text.tooling.scanner.controller` | Spring MVC Controller 扫描 |
+| `text.tooling.scanner.manifest` | 扫描结果内部模型（ToolManifest 等） |
+| `controller.ScannerController` | 扫描 HTTP 能力面（`/ai/scanner/openapi`、`/ai/scanner/controller`） |
+
+定位：为编排层提供可复用的扫描核心，并通过 REST 暴露标准扫描能力供远程调用。
+
+---
 
 ### 1. Embedding 模块
 

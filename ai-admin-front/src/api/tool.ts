@@ -1,8 +1,8 @@
 import { agentRequest } from './request'
-import type { ToolImportResult, ToolInfo, ToolTestResult, ToolUpsertRequest } from '@/types/tool'
+import type { ToolInfo, ToolListQuery, ToolPageResult, ToolTestResult, ToolUpsertRequest } from '@/types/tool'
 
-export function getTools() {
-  return agentRequest.get<ToolInfo[]>('/api/tools')
+export function getTools(params?: ToolListQuery) {
+  return agentRequest.get<ToolPageResult>('/api/tools', { params })
 }
 
 export function getToolDetail(name: string) {
@@ -23,10 +23,6 @@ export function deleteTool(name: string) {
 
 export function toggleTool(name: string, enabled: boolean) {
   return agentRequest.put<ToolInfo>(`/api/tools/${name}/toggle`, { enabled })
-}
-
-export function importManifest(content: string) {
-  return agentRequest.post<ToolImportResult>('/api/tools/import', { content })
 }
 
 export function testTool(name: string, args: Record<string, unknown>) {

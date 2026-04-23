@@ -26,6 +26,13 @@ spring:
         server-addr: ${NACOS_ADDR:localhost:8848}
         enabled: ${NACOS_ENABLED:false}
         file-extension: yml
+    # LLM 单次可能超过 1～2 分钟，默认 Feign 读超时会报 Read timed out；调大以匹配长生成
+    openfeign:
+      client:
+        config:
+          ai-model-service:
+            connectTimeout: 10000
+            readTimeout: ${FEIGN_MODEL_READ_TIMEOUT_MS:300000}
 
 # ==================== 服务间调用 ====================
 services:
@@ -34,7 +41,7 @@ services:
   text-service:
     url: ${TEXT_SERVICE_URL:http://localhost:8080}
 
-# ==================== 极视角平台（仅保留业务工具能力） ====================
+# ==================== 极视角平台 ====================
 jishi:
   platform:
     base-url: ${JISHI_BASE_URL:http://127.0.0.1:31003}
@@ -45,12 +52,6 @@ jishi:
         app-id: 2014777d-3eea-4a0c-b3cc-569c212b31f3
         name: 默认对话智能体
         description: 极视角业务工具（会话管理、文件上传、工作流交互）
-
-# ==================== 业务系统 ====================
-business:
-  system:
-    base-url: ${BUSINESS_SYSTEM_URL:http://localhost:8082}
-    timeout: 10000
 
 # ==================== AgentScope ====================
 # Agent 的 LLM 调用统一通过 model-service 的 OpenAI 兼容代理端点
@@ -69,7 +70,7 @@ agent:
     knowledge-qa: true
     business-operation: false
     analysis: false
-    creative-task: true
+    creative-task: false
     general-chat: true
   intent:
     system-prompt: |

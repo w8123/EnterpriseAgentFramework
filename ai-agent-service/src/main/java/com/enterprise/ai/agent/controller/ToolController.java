@@ -1,5 +1,7 @@
 package com.enterprise.ai.agent.controller;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.enterprise.ai.agent.scan.ScanProjectService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
@@ -23,13 +25,28 @@ import java.util.Map;
 public class ToolController {
 
     private final ToolDefinitionService toolDefinitionService;
+    private final ScanProjectService scanProjectService;
 
     @GetMapping
-    public ResponseEntity<List<ToolInfoDTO>> list() {
-        List<ToolInfoDTO> tools = toolDefinitionService.list().stream()
+    public ResponseEntity<ToolListPageResponse> list(
+            @RequestParam(defaultValue = "1") int current,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String source,
+            @RequestParam(required = false) Boolean enabled,
+            @RequestParam(required = false) Long projectId) {
+        IPage<ToolDefinitionEntity> page = toolDefinitionService.page(
+                current, size, keyword, source, enabled, projectId);
+        List<ToolInfoDTO> records = page.getRecords().stream()
                 .map(this::toDto)
                 .toList();
-        return ResponseEntity.ok(tools);
+        return ResponseEntity.ok(new ToolListPageResponse(
+                records,
+                page.getTotal(),
+                page.getSize(),
+                page.getCurrent(),
+                page.getPages()
+        ));
     }
 
     @GetMapping("/{name}")
@@ -83,16 +100,6 @@ public class ToolController {
         }
     }
 
-    @PostMapping("/import")
-    public ResponseEntity<ToolImportResultDTO> importManifest(@RequestBody ToolImportRequest request) {
-        try {
-            ToolDefinitionService.ImportResult result = toolDefinitionService.importManifest(request.content());
-            return ResponseEntity.ok(new ToolImportResultDTO(result.importedCount(), result.toolNames()));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
     @PostMapping("/{name}/test")
     public ResponseEntity<ToolTestResultDTO> test(@PathVariable String name,
                                                   @RequestBody ToolTestRequest request) {
@@ -111,6 +118,14 @@ public class ToolController {
             log.warn("[ToolController] 测试工具 {} 失败: {}", name, e.getMessage());
             return ResponseEntity.ok(new ToolTestResultDTO(false, null, e.getMessage(), duration));
         }
+    }
+
+    record ToolListPageResponse(
+            List<ToolInfoDTO> records,
+            long total,
+            long size,
+            long current,
+            long pages) {
     }
 
     private ToolInfoDTO toDto(ToolDefinitionEntity entity) {
@@ -135,6 +150,8 @@ public class ToolController {
                 entity.getEndpointPath(),
                 entity.getRequestBodyType(),
                 entity.getResponseType(),
+                entity.getProjectId(),
+                scanProjectService.getProjectNameOrNull(entity.getProjectId()),
                 Boolean.TRUE.equals(entity.getEnabled()),
                 Boolean.TRUE.equals(entity.getAgentVisible()),
                 Boolean.TRUE.equals(entity.getLightweightEnabled())
@@ -152,6 +169,8 @@ public class ToolController {
                        String endpointPath,
                        String requestBodyType,
                        String responseType,
+                       Long projectId,
+                       String sourceProjectName,
                        boolean enabled,
                        boolean agentVisible,
                        boolean lightweightEnabled) {
@@ -171,6 +190,7 @@ public class ToolController {
                              String endpointPath,
                              String requestBodyType,
                              String responseType,
+                             Long projectId,
                              boolean enabled,
                              boolean agentVisible,
                              boolean lightweightEnabled) {
@@ -187,6 +207,7 @@ public class ToolController {
                     endpointPath,
                     requestBodyType,
                     responseType,
+                    projectId,
                     enabled,
                     agentVisible,
                     lightweightEnabled
@@ -200,10 +221,4 @@ public class ToolController {
     record ToolTestRequest(Map<String, Object> args) {}
 
     record ToolTestResultDTO(boolean success, String result, String errorMessage, long durationMs) {}
-
-    record ToolImportRequest(String content) {
-    }
-
-    record ToolImportResultDTO(int importedCount, List<String> toolNames) {
-    }
 }

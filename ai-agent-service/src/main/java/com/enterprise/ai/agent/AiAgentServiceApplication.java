@@ -3,12 +3,14 @@ package com.enterprise.ai.agent;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.openfeign.EnableFeignClients;
+import org.springframework.scheduling.annotation.EnableAsync;
 
 /**
  * AI Agent 编排服务启动类
  */
 @SpringBootApplication
 @EnableFeignClients
+@EnableAsync
 public class AiAgentServiceApplication {
 
     public static void main(String[] args) {

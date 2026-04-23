@@ -1,21 +1,22 @@
 package com.enterprise.ai.agent.tools.definition;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.enterprise.ai.agent.tools.ToolRegistry;
 import com.enterprise.ai.agent.tools.dynamic.DynamicHttpAiTool;
 import com.enterprise.ai.skill.AiTool;
 import com.enterprise.ai.skill.ToolParameter;
-import com.enterprise.ai.skill.scanner.manifest.ToolManifest;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -63,6 +64,7 @@ public class ToolDefinitionService {
                     .toList()));
             entity.setSource(SOURCE_CODE);
             entity.setSourceLocation(tool.getClass().getName());
+            entity.setProjectId(null);
 
             if (existing == null) {
                 entity.setEnabled(true);
@@ -84,6 +86,45 @@ public class ToolDefinitionService {
 
     public List<ToolDefinitionEntity> list() {
         return mapper.selectList(new LambdaQueryWrapper<ToolDefinitionEntity>()
+                .orderByAsc(ToolDefinitionEntity::getName));
+    }
+
+    /**
+     * 分页查询，支持按关键词（名称/描述 模糊匹配）、来源、是否启用、扫描项目过滤。
+     */
+    public IPage<ToolDefinitionEntity> page(
+            int current,
+            int size,
+            String keyword,
+            String source,
+            Boolean enabled,
+            Long projectId) {
+        int pageNum = Math.max(1, current);
+        int pageSize = Math.min(100, Math.max(1, size));
+        Page<ToolDefinitionEntity> p = new Page<>(pageNum, pageSize, true);
+        LambdaQueryWrapper<ToolDefinitionEntity> w = new LambdaQueryWrapper<>();
+        if (StringUtils.hasText(keyword)) {
+            String k = keyword.trim();
+            w.and(q -> q.like(ToolDefinitionEntity::getName, k)
+                    .or()
+                    .like(ToolDefinitionEntity::getDescription, k));
+        }
+        if (StringUtils.hasText(source)) {
+            w.eq(ToolDefinitionEntity::getSource, source.trim().toLowerCase());
+        }
+        if (enabled != null) {
+            w.eq(ToolDefinitionEntity::getEnabled, enabled);
+        }
+        if (projectId != null) {
+            w.eq(ToolDefinitionEntity::getProjectId, projectId);
+        }
+        w.orderByAsc(ToolDefinitionEntity::getName);
+        return mapper.selectPage(p, w);
+    }
+
+    public List<ToolDefinitionEntity> listByProjectId(Long projectId) {
+        return mapper.selectList(new LambdaQueryWrapper<ToolDefinitionEntity>()
+                .eq(ToolDefinitionEntity::getProjectId, projectId)
                 .orderByAsc(ToolDefinitionEntity::getName));
     }
 
@@ -136,6 +177,20 @@ public class ToolDefinitionService {
         return mapper.deleteById(existing.getId()) > 0;
     }
 
+    public boolean deleteByProjectId(Long projectId) {
+        List<ToolDefinitionEntity> entities = listByProjectId(projectId);
+        if (entities.isEmpty()) {
+            return false;
+        }
+        for (ToolDefinitionEntity entity : entities) {
+            if (SOURCE_CODE.equals(entity.getSource())) {
+                continue;
+            }
+            mapper.deleteById(entity.getId());
+        }
+        return true;
+    }
+
     public ToolDefinitionEntity toggle(String name, boolean enabled) {
         ToolDefinitionEntity existing = findByName(name)
                 .orElseThrow(() -> new IllegalArgumentException("工具不存在: " + name));
@@ -145,54 +200,6 @@ public class ToolDefinitionService {
             registerIfNeeded(existing);
         }
         return existing;
-    }
-
-    public ImportResult importManifest(String yaml) {
-        ToolManifest manifest = ToolManifest.fromYaml(yaml);
-        int imported = 0;
-        List<String> toolNames = new java.util.ArrayList<>();
-
-        for (var tool : manifest.tools()) {
-            ToolDefinitionEntity existing = findByName(tool.name()).orElse(null);
-            if (existing != null && SOURCE_CODE.equals(existing.getSource())) {
-                throw new IllegalArgumentException("Manifest 中的工具名与代码工具冲突: " + tool.name());
-            }
-
-            ToolDefinitionUpsertRequest request = new ToolDefinitionUpsertRequest(
-                    tool.name(),
-                    tool.description(),
-                    tool.parameters().stream()
-                            .map(parameter -> new ToolDefinitionParameter(
-                                    parameter.name(),
-                                    parameter.type(),
-                                    parameter.description(),
-                                    parameter.required(),
-                                    parameter.location() == null ? null : parameter.location().name()
-                            ))
-                            .toList(),
-                    SOURCE_SCANNER,
-                    tool.source() == null ? null : tool.source().location(),
-                    tool.method(),
-                    manifest.project().baseUrl(),
-                    manifest.project().contextPath(),
-                    tool.path(),
-                    tool.requestBodyType(),
-                    tool.responseType(),
-                    existing == null || Boolean.TRUE.equals(existing.getEnabled()),
-                    existing == null || Boolean.TRUE.equals(existing.getAgentVisible()),
-                    existing != null && Boolean.TRUE.equals(existing.getLightweightEnabled())
-            );
-
-            if (existing == null) {
-                create(request);
-            } else {
-                update(tool.name(), request);
-            }
-            imported++;
-            toolNames.add(tool.name());
-        }
-
-        return new ImportResult(imported, List.copyOf(toolNames));
     }
 
     public Object executeTool(String name, Map<String, Object> args) {
@@ -261,6 +268,7 @@ public class ToolDefinitionService {
         entity.setEndpointPath(request.endpointPath());
         entity.setRequestBodyType(request.requestBodyType());
         entity.setResponseType(request.responseType());
+        entity.setProjectId(request.projectId());
         entity.setEnabled(request.enabled());
         entity.setAgentVisible(request.agentVisible());
         entity.setLightweightEnabled(request.lightweightEnabled());
@@ -334,8 +342,5 @@ public class ToolDefinitionService {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
-    }
-
-    public record ImportResult(int importedCount, List<String> toolNames) {
     }
 }

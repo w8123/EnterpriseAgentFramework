@@ -13,11 +13,13 @@ CREATE TABLE IF NOT EXISTS `tool_definition` (
     `endpoint_path`       VARCHAR(256) DEFAULT NULL            COMMENT '接口路径 (不含 contextPath)',
     `request_body_type`   VARCHAR(256) DEFAULT NULL            COMMENT '请求体类型',
     `response_type`       VARCHAR(256) DEFAULT NULL            COMMENT '响应类型',
+    `project_id`          BIGINT       DEFAULT NULL            COMMENT '关联的扫描项目 ID',
     `enabled`             TINYINT      NOT NULL DEFAULT 1      COMMENT '是否启用',
     `agent_visible`       TINYINT      NOT NULL DEFAULT 1      COMMENT '是否对 ReAct Agent 可见',
     `lightweight_enabled` TINYINT      NOT NULL DEFAULT 0      COMMENT '是否对轻量对话可见',
     `create_time`         DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`         DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_name` (`name`)
+    UNIQUE KEY `uk_name` (`name`),
+    KEY `idx_project_id` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工具定义表';
