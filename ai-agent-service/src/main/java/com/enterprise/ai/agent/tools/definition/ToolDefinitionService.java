@@ -3,6 +3,7 @@ package com.enterprise.ai.agent.tools.definition;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.enterprise.ai.agent.tool.retrieval.ToolEmbeddingService;
 import com.enterprise.ai.agent.tools.ToolRegistry;
 import com.enterprise.ai.agent.tools.dynamic.DynamicHttpAiTool;
 import com.enterprise.ai.skill.AiTool;
@@ -34,15 +35,18 @@ public class ToolDefinitionService {
     private final ToolRegistry toolRegistry;
     private final List<AiTool> codeTools;
     private final ObjectMapper objectMapper;
+    private final ToolEmbeddingService toolEmbeddingService;
 
     public ToolDefinitionService(ToolDefinitionMapper mapper,
                                  ToolRegistry toolRegistry,
                                  List<AiTool> codeTools,
-                                 ObjectMapper objectMapper) {
+                                 ObjectMapper objectMapper,
+                                 ToolEmbeddingService toolEmbeddingService) {
         this.mapper = mapper;
         this.toolRegistry = toolRegistry;
         this.codeTools = codeTools;
         this.objectMapper = objectMapper;
+        this.toolEmbeddingService = toolEmbeddingService;
     }
 
     @PostConstruct
@@ -142,6 +146,7 @@ public class ToolDefinitionService {
         ToolDefinitionEntity entity = applyRequest(new ToolDefinitionEntity(), request, false);
         mapper.insert(entity);
         registerIfNeeded(entity);
+        toolEmbeddingService.upsert(entity);
         return entity;
     }
 
@@ -155,6 +160,7 @@ public class ToolDefinitionService {
             existing.setAgentVisible(request.agentVisible());
             existing.setLightweightEnabled(request.lightweightEnabled());
             mapper.updateById(existing);
+            toolEmbeddingService.upsert(existing);
             return existing;
         }
 
@@ -163,6 +169,7 @@ public class ToolDefinitionService {
         updated.setSource(existing.getSource());
         mapper.updateById(updated);
         registerIfNeeded(updated);
+        toolEmbeddingService.upsert(updated);
         return updated;
     }
 
@@ -174,7 +181,11 @@ public class ToolDefinitionService {
         if (SOURCE_CODE.equals(existing.getSource())) {
             throw new IllegalArgumentException("Code Tool 不可删除，只能禁用");
         }
-        return mapper.deleteById(existing.getId()) > 0;
+        boolean removed = mapper.deleteById(existing.getId()) > 0;
+        if (removed) {
+            toolEmbeddingService.delete(existing.getId());
+        }
+        return removed;
     }
 
     public boolean deleteByProjectId(Long projectId) {
@@ -187,6 +198,7 @@ public class ToolDefinitionService {
                 continue;
             }
             mapper.deleteById(entity.getId());
+            toolEmbeddingService.delete(entity.getId());
         }
         return true;
     }
@@ -199,6 +211,7 @@ public class ToolDefinitionService {
         if (enabled) {
             registerIfNeeded(existing);
         }
+        toolEmbeddingService.upsert(existing);
         return existing;
     }
 

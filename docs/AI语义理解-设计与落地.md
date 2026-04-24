@@ -124,7 +124,7 @@ flowchart TB
 - `ai_description MEDIUMTEXT`：LLM 生成的业务语义描述，Agent 运行时优先使用。
 - `module_id BIGINT`：指向 `scan_module.id`。
 
-迁移脚本：[`ai-text-service/sql/semantic_docs_v6.sql`](../ai-text-service/sql/semantic_docs_v6.sql)。
+迁移脚本：[`ai-skills-service/sql/semantic_docs_v6.sql`](../ai-skills-service/sql/semantic_docs_v6.sql)。
 
 ## 六、后端落地（ai-agent-service 为主）
 

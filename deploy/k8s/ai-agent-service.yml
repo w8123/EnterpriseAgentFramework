@@ -34,8 +34,8 @@ spec:
               value: redis
             - name: MODEL_SERVICE_URL
               value: http://ai-model-service:8090
-            - name: TEXT_SERVICE_URL
-              value: http://ai-text-service:8080
+            - name: SKILLS_SERVICE_URL
+              value: http://ai-skills-service:8080
             - name: NACOS_ADDR
               value: nacos:8848
             - name: NACOS_ENABLED

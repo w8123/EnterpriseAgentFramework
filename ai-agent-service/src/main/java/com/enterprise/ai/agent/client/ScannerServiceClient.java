@@ -11,8 +11,8 @@ import java.util.List;
 
 @FeignClient(
         contextId = "scannerServiceClient",
-        name = "ai-text-service",
-        url = "${services.text-service.url:http://localhost:8080}",
+        name = "ai-skills-service",
+        url = "${services.skills-service.url:http://localhost:8080}",
         path = "/ai/scanner"
 )
 public interface ScannerServiceClient {
@@ -84,6 +84,7 @@ public interface ScannerServiceClient {
         private String description;
         private boolean required;
         private String location;
+        private List<ToolParameterData> children;
     }
 
     @Data

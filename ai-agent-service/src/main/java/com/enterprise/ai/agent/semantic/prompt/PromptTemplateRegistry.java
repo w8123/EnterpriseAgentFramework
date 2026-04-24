@@ -34,7 +34,9 @@ public class PromptTemplateRegistry {
     public void load() {
         templates.put(SemanticContext.LEVEL_PROJECT, loadResource("prompts/semantic/project.prompt.md"));
         templates.put(SemanticContext.LEVEL_MODULE, loadResource("prompts/semantic/module.prompt.md"));
-        templates.put(SemanticContext.LEVEL_TOOL, loadResource("prompts/semantic/tool.prompt.md"));
+        String toolTpl = loadResource("prompts/semantic/tool.prompt.md");
+        templates.put(SemanticContext.LEVEL_TOOL, toolTpl);
+        templates.put(SemanticContext.LEVEL_SCAN_TOOL, toolTpl);
     }
 
     public String render(SemanticContext context) {

@@ -58,7 +58,7 @@
       </dependency>
       <dependency>
         <groupId>com.enterprise.ai</groupId>
-        <artifactId>ai-text-service</artifactId>
+        <artifactId>ai-skills-service</artifactId>
         <version>1.0.0-SNAPSHOT</version>
       </dependency>
       <dependency>

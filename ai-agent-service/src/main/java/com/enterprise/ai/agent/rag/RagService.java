@@ -7,7 +7,7 @@ import org.springframework.stereotype.Service;
 /**
  * RAG 服务层
  * <p>
- * 通过 ai-text-service 的 RAG 引擎完成知识检索 + 增强生成全流程：
+ * 通过 ai-skills-service 的 RAG 引擎完成知识检索 + 增强生成全流程：
  * Embedding → Milvus 向量检索 → Prompt 组装 → LLM 生成回答。
  */
 @Slf4j

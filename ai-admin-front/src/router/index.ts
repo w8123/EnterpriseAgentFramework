@@ -101,6 +101,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Tool 管理' },
       },
       {
+        path: 'tool/retrieval',
+        name: 'ToolRetrievalTest',
+        component: () => import('@/views/tool/ToolRetrievalTest.vue'),
+        meta: { title: 'Tool 检索测试' },
+      },
+      {
         path: 'scan-project',
         name: 'ScanProjectList',
         component: () => import('@/views/scan/ScanProjectList.vue'),

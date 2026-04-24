@@ -63,9 +63,16 @@
           <template #default="{ row }">
             <div class="expand-content">
               <h4>参数定义</h4>
-              <el-table :data="row.parameters || []" size="small" border>
-                <el-table-column prop="name" label="参数名" width="160" />
-                <el-table-column prop="type" label="类型" width="100" />
+              <el-table
+                :data="parameterRows(row.parameters)"
+                size="small"
+                border
+                row-key="_key"
+                :tree-props="{ children: 'children' }"
+                default-expand-all
+              >
+                <el-table-column prop="name" label="参数名" min-width="200" />
+                <el-table-column prop="type" label="类型" width="160" />
                 <el-table-column prop="location" label="位置" width="100">
                   <template #default="{ row: param }">
                     {{ param.location || '-' }}
@@ -425,6 +432,25 @@ function sourceProjectLabel(row: ToolInfo) {
 
 function cloneParameters(parameters: ToolParameter[] = []): ToolParameter[] {
   return parameters.map((parameter) => ({ ...parameter }))
+}
+
+/** 与扫描项目详情一致：为 el-table 树形行分配稳定 _key，递归挂 children */
+interface ParameterRow extends ToolParameter {
+  _key: string
+  children?: ParameterRow[]
+}
+
+function parameterRows(parameters: ToolParameter[] | null | undefined, prefix = ''): ParameterRow[] {
+  if (!parameters || parameters.length === 0) return []
+  return parameters.map((parameter, index) => {
+    const keyBase = `${parameter.location || 'ROOT'}:${parameter.name || `#${index}`}`
+    const key = prefix ? `${prefix}>${keyBase}` : keyBase
+    const { children, ...rest } = parameter
+    const nested = children && children.length > 0 ? parameterRows(children, key) : undefined
+    const row: ParameterRow = { ...rest, _key: key }
+    if (nested) row.children = nested
+    return row
+  })
 }
 
 function toUpsertRequest(tool: ToolInfo): ToolUpsertRequest {

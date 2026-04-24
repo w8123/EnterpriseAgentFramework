@@ -1,5 +1,7 @@
 package com.enterprise.ai.agent.agentscope.adapter;
 
+import com.enterprise.ai.agent.tool.log.ToolCallLogService;
+import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.enterprise.ai.skill.AiTool;
 import com.enterprise.ai.skill.ToolParameter;
 import io.agentscope.core.message.ToolResultBlock;
@@ -15,9 +17,19 @@ import java.util.Objects;
 public class AiToolAgentAdapter implements AgentTool {
 
     private final AiTool aiTool;
+    private final ToolExecutionContext executionContext;
+    private final ToolCallLogService toolCallLogService;
 
     public AiToolAgentAdapter(AiTool aiTool) {
+        this(aiTool, null, null);
+    }
+
+    public AiToolAgentAdapter(AiTool aiTool,
+                              ToolExecutionContext executionContext,
+                              ToolCallLogService toolCallLogService) {
         this.aiTool = Objects.requireNonNull(aiTool, "aiTool must not be null");
+        this.executionContext = executionContext;
+        this.toolCallLogService = toolCallLogService;
     }
 
     @Override
@@ -55,14 +67,34 @@ public class AiToolAgentAdapter implements AgentTool {
 
     @Override
     public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
-        return Mono.fromCallable(() -> {
-            try {
-                Object result = aiTool.execute(param.getInput() == null ? Map.of() : param.getInput());
-                return ToolResultBlock.text(result == null ? "" : String.valueOf(result));
-            } catch (Exception ex) {
-                return ToolResultBlock.error(ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
-            }
-        });
+        return Mono.fromCallable(() -> invoke(param));
+    }
+
+    private ToolResultBlock invoke(ToolCallParam param) {
+        Map<String, Object> args = param.getInput() == null ? Map.of() : param.getInput();
+        long started = System.currentTimeMillis();
+        try {
+            Object result = aiTool.execute(args);
+            long elapsed = System.currentTimeMillis() - started;
+            log(args, result, true, null, elapsed);
+            return ToolResultBlock.text(result == null ? "" : String.valueOf(result));
+        } catch (Exception ex) {
+            long elapsed = System.currentTimeMillis() - started;
+            String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+            log(args, message, false, ex.getClass().getSimpleName(), elapsed);
+            return ToolResultBlock.error(message);
+        }
+    }
+
+    private void log(Map<String, Object> args, Object result, boolean success, String errorCode, long elapsed) {
+        if (toolCallLogService == null) {
+            return;
+        }
+        try {
+            toolCallLogService.record(executionContext, aiTool.name(), args, result, success, errorCode, elapsed);
+        } catch (Exception ignored) {
+            // 审计日志失败不影响 tool 调用链
+        }
     }
 
     private String normalizeType(String rawType) {

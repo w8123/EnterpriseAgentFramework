@@ -101,6 +101,30 @@ public class SemanticDocService {
                 .eq(SemanticDocEntity::getLevel, SemanticDocEntity.LEVEL_TOOL));
     }
 
+    @Transactional
+    public void deleteByScanTool(Long projectId, Long scanToolId) {
+        mapper.delete(new LambdaQueryWrapper<SemanticDocEntity>()
+                .eq(SemanticDocEntity::getProjectId, projectId)
+                .eq(SemanticDocEntity::getToolId, scanToolId)
+                .eq(SemanticDocEntity::getLevel, SemanticDocEntity.LEVEL_SCAN_TOOL));
+    }
+
+    /**
+     * 将扫描接口语义文档切到全局 Tool（{@link SemanticDocEntity#LEVEL_TOOL} + tool_definition 主键）。
+     */
+    @Transactional
+    public void migrateScanToolDocsToGlobal(Long projectId, Long scanToolId, Long toolDefinitionId) {
+        List<SemanticDocEntity> docs = mapper.selectList(new LambdaQueryWrapper<SemanticDocEntity>()
+                .eq(SemanticDocEntity::getProjectId, projectId)
+                .eq(SemanticDocEntity::getLevel, SemanticDocEntity.LEVEL_SCAN_TOOL)
+                .eq(SemanticDocEntity::getToolId, scanToolId));
+        for (SemanticDocEntity d : docs) {
+            d.setLevel(SemanticDocEntity.LEVEL_TOOL);
+            d.setToolId(toolDefinitionId);
+            mapper.updateById(d);
+        }
+    }
+
     private void applyRef(LambdaQueryWrapper<SemanticDocEntity> w, Long projectId, Long moduleId, Long toolId) {
         if (projectId != null) {
             w.eq(SemanticDocEntity::getProjectId, projectId);

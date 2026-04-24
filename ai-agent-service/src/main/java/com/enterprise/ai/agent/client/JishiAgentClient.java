@@ -26,7 +26,7 @@ import java.util.Map;
  * 仅保留极视角平台的<b>业务工具能力</b>（会话管理、文件上传、工作流交互等）。
  * <p>
  * LLM 对话能力已迁移至 ai-model-service（JishiProvider），
- * RAG 检索已迁移至 ai-text-service。
+ * RAG 检索已迁移至 ai-skills-service。
  * <p>
  * API 路径模式：/console/api/app_ability/public/{appId}/...
  *

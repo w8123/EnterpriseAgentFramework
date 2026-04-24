@@ -94,7 +94,7 @@
         ┌────────────────────┼────────────────────┐
         ▼                    ▼                    ▼
 ┌──────────────┐   ┌──────────────┐   ┌──────────────────┐
-│ ai-agent     │   │ ai-text      │   │ ai-model         │
+│ ai-agent     │   │ ai-skills    │   │ ai-model         │
 │ -service     │   │ -service     │   │ -service         │
 │              │   │              │   │                  │
 │ 智能体编排    │──▶│ RAG 引擎     │   │ 模型网关          │
@@ -132,12 +132,12 @@
 | **ai-common**         | 公共库 — DTO、异常定义、通用配置                                 | -    |
 | **ai-skill-sdk**      | Skill 开发 SDK — AiTool 接口、ToolParameter、ToolRegistry | -    |
 | **ai-model-service**  | 模型网关 — LLM Chat / Embedding，多 Provider 路由           | 8090 |
-| **ai-text-service**   | 知识 / Tooling 基础层 — RAG、文档 Pipeline、向量检索、OpenAPI / Controller 扫描核心 | 8080 |
+| **ai-skills-service**   | 知识 / Tooling 基础层 — RAG、文档 Pipeline、向量检索、OpenAPI / Controller 扫描核心 | 8080 |
 | **ai-agent-service**  | 智能体编排 — AgentScope、意图识别、Tool 调用、会话记忆                | 8081 |
 | **ai-admin-front**    | 管理前端 — Vue 3 + Vite + Element Plus + TypeScript     | 3000 |
 | **deploy**            | 部署配置 — Docker Compose / Kubernetes                  | -    |
 
-仓库根目录 `pom.xml` 当前聚合 **5 个 Java 子模块**。扫描核心已并入 `ai-text-service`；**`ai-admin-front`** 为同目录下的 **npm / Vite 工程**，不参与 Maven 聚合；**`deploy`** 为部署清单目录，同样不在聚合内。
+仓库根目录 `pom.xml` 当前聚合 **5 个 Java 子模块**。扫描核心已并入 `ai-skills-service`；**`ai-admin-front`** 为同目录下的 **npm / Vite 工程**，不参与 Maven 聚合；**`deploy`** 为部署清单目录，同样不在聚合内。
 
 ---
 
@@ -168,7 +168,7 @@ docker compose -f deploy/docker-compose.infra.yml up -d
 ### 3. 初始化数据库
 
 ```bash
-mysql -h localhost -u root -proot ai_text_service < ai-text-service/sql/init.sql
+mysql -h localhost -u root -proot ai_text_service < ai-skills-service/sql/init.sql
 ```
 
 ### 4. 构建全部 Java 模块
@@ -184,7 +184,7 @@ mvn clean install -DskipTests
 cd ai-model-service && mvn spring-boot:run
 
 # 2) RAG 引擎
-cd ai-text-service && mvn spring-boot:run
+cd ai-skills-service && mvn spring-boot:run
 
 # 3) 智能体编排
 cd ai-agent-service && mvn spring-boot:run
@@ -258,7 +258,7 @@ public interface CrmFeignClient {
 对于已经部署在服务器上的历史 Java 项目，现在优先推荐直接走管理后台的 **扫描项目** 流程：
 
 1. 在管理后台新增扫描项目，填写**项目名称**、**项目域名**、**磁盘路径**、**扫描方式**（OpenAPI / Controller）
-2. 后端由 `ai-agent-service` 通过 Feign 调用 `ai-text-service` 暴露的扫描接口（`/ai/scanner/openapi`、`/ai/scanner/controller`），对磁盘项目进行扫描
+2. 后端由 `ai-agent-service` 通过 Feign 调用 `ai-skills-service` 暴露的扫描接口（`/ai/scanner/openapi`、`/ai/scanner/controller`），对磁盘项目进行扫描
 3. 扫描结果直接写入数据库：
    - `scan_project`：保存项目元数据、扫描状态、错误信息
    - `tool_definition`：保存接口定义，并用 `project_id` 关联项目
@@ -295,7 +295,7 @@ public interface CrmFeignClient {
 - ✅ **AI Agent 编排引擎** — AgentScope + ReAct Agent + 意图路由；`/api/chat` 与 `/api/agent/execute` 等入口
 - ✅ **RAG 知识引擎** — 文档 Pipeline + Milvus 向量检索
 - ✅ **统一模型网关** — 多 Provider 路由 + SSE 流式；OpenAI 兼容代理供 AgentScope 使用
-- ✅ **调用链路** — Agent 侧 LLM / RAG 经 Feign 统一走 `ai-model-service`、`ai-text-service`
+- ✅ **调用链路** — Agent 侧 LLM / RAG 经 Feign 统一走 `ai-model-service`、`ai-skills-service`
 - ✅ **Skill SDK 体系** — `AiTool`（含 `parameters()`）+ `ToolRegistry` + Spring Boot 自动注册；动态 Tool 与手写 Tool 共用同一套运行时契约
 - ✅ **扫描项目 Web 化闭环** — `scan_project` + `tool_definition.project_id`、`/api/scan-projects/*`、管理端扫描项目列表 / 详情页、动态 Tool 直接入库
 - ✅ **会话记忆（Redis）** — 短期上下文窗口
@@ -313,7 +313,7 @@ public interface CrmFeignClient {
 
 ### 规划中（能力与治理持续迭代）
 
-- **RAG Embedding 解耦** — `ai-text-service` 侧 Embedding 调用统一改走 `ai-model-service`
+- **RAG Embedding 解耦** — `ai-skills-service` 侧 Embedding 调用统一改走 `ai-model-service`
 - **长期记忆** — 会话与偏好等 MySQL 持久化（当前以 Redis 短期记忆为主）
 - **AI Gateway（独立工程）** — 统一入口、鉴权、限流、熔断
 - **管理端深化** — 会话列表与历史、执行链可视化、登录与权限等（与后端 API 同步推进）
@@ -366,11 +366,11 @@ EnterpriseAgentFramework/
 ├── ai-common/              公共库（DTO、异常、通用配置）
 ├── ai-skill-sdk/           Skill 开发 SDK（AiTool 接口、ToolParameter、ToolRegistry）
 ├── ai-model-service/       模型网关（LLM Chat / Embedding，多 Provider 路由）
-├── ai-text-service/        知识 / Tooling 基础层（知识库、文档 Pipeline、向量检索、扫描核心）
+├── ai-skills-service/        知识 / Tooling 基础层（知识库、文档 Pipeline、向量检索、扫描核心）
 ├── ai-agent-service/       智能体编排（AgentScope、意图识别、Tool 调用、会话记忆）
 ├── ai-admin-front/         管理前端（Vue 3 + Element Plus + TypeScript）
 ├── deploy/                 部署配置（Docker Compose / Kubernetes）
-├── ai-text-service/sql/    数据库初始化与升级脚本（含 tool_definition / scan_project）
+├── ai-skills-service/sql/    数据库初始化与升级脚本（含 tool_definition / scan_project）
 └── docs/                   架构与设计文档（见上一节链接）
 ```
 

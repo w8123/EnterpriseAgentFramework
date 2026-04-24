@@ -45,10 +45,14 @@
             <el-menu-item index="/model/playground">模型调试台</el-menu-item>
           </el-sub-menu>
 
-          <el-menu-item index="/tool">
-            <el-icon><SetUp /></el-icon>
-            <span>Tool 管理</span>
-          </el-menu-item>
+          <el-sub-menu index="/tool-group">
+            <template #title>
+              <el-icon><SetUp /></el-icon>
+              <span>Tool 管理</span>
+            </template>
+            <el-menu-item index="/tool">Tool 列表</el-menu-item>
+            <el-menu-item index="/tool/retrieval">Tool 检索测试</el-menu-item>
+          </el-sub-menu>
 
           <el-menu-item index="/scan-project">
             <el-icon><FolderOpened /></el-icon>
@@ -96,6 +100,8 @@ const activeMenu = computed(() => {
   if (path.startsWith('/agent')) return '/agent'
   if (path.startsWith('/model/playground')) return '/model/playground'
   if (path.startsWith('/model')) return '/model'
+  if (path.startsWith('/tool/retrieval')) return '/tool/retrieval'
+  if (path.startsWith('/tool')) return '/tool'
   if (path.startsWith('/scan-project')) return '/scan-project'
   return path
 })

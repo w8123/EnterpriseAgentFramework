@@ -30,6 +30,9 @@ public record SemanticContext(
     public static final String LEVEL_MODULE = "module";
     public static final String LEVEL_TOOL = "tool";
 
+    /** 与 {@link com.enterprise.ai.agent.semantic.SemanticDocEntity#LEVEL_SCAN_TOOL} 一致 */
+    public static final String LEVEL_SCAN_TOOL = "scan_tool";
+
     public record SourceSnippet(String qualifier, String content, boolean trimmed) {
     }
 }

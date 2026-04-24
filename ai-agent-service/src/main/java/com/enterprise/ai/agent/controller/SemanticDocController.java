@@ -2,10 +2,14 @@ package com.enterprise.ai.agent.controller;
 
 import com.enterprise.ai.agent.scan.ScanModuleEntity;
 import com.enterprise.ai.agent.scan.ScanModuleService;
+import com.enterprise.ai.agent.scan.ScanProjectToolEntity;
+import com.enterprise.ai.agent.scan.ScanProjectToolMapper;
+import com.enterprise.ai.agent.scan.ScanProjectToolService;
 import com.enterprise.ai.agent.semantic.SemanticDocEntity;
 import com.enterprise.ai.agent.semantic.SemanticDocService;
 import com.enterprise.ai.agent.semantic.SemanticGenerationOrchestrator;
 import com.enterprise.ai.agent.semantic.SemanticGenerationTask;
+import com.enterprise.ai.agent.tool.retrieval.ToolEmbeddingService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionMapper;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
@@ -31,6 +35,9 @@ public class SemanticDocController {
     private final ScanModuleService scanModuleService;
     private final ToolDefinitionService toolDefinitionService;
     private final ToolDefinitionMapper toolDefinitionMapper;
+    private final ScanProjectToolMapper scanProjectToolMapper;
+    private final ScanProjectToolService scanProjectToolService;
+    private final ToolEmbeddingService toolEmbeddingService;
 
     // ==================== 批量生成 & 进度 ====================
 
@@ -104,15 +111,38 @@ public class SemanticDocController {
         }
     }
 
+    @PostMapping("/scan-projects/{projectId}/scan-tools/{scanToolId}/semantic/generate")
+    public ResponseEntity<?> generateScanProjectTool(@PathVariable("projectId") Long projectId,
+                                                     @PathVariable("scanToolId") Long scanToolId,
+                                                     @RequestParam(value = "force", defaultValue = "true") boolean force,
+                                                     @RequestParam(value = "provider", required = false) String provider,
+                                                     @RequestParam(value = "model", required = false) String model) {
+        if (scanProjectToolService.findByProjectAndId(projectId, scanToolId).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        try {
+            SemanticDocEntity doc = orchestrator.generateForScanProjectTool(scanToolId, force, provider, model);
+            return ResponseEntity.ok(SemanticDocDTO.from(doc));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(new ApiError(ex.getMessage()));
+        }
+    }
+
     // ==================== 文档查询与编辑 ====================
 
     @GetMapping("/semantic-docs")
     public ResponseEntity<?> query(@RequestParam("level") String level,
                                    @RequestParam(value = "projectId", required = false) Long projectId,
                                    @RequestParam(value = "moduleId", required = false) Long moduleId,
-                                   @RequestParam(value = "toolName", required = false) String toolName) {
+                                   @RequestParam(value = "toolName", required = false) String toolName,
+                                   @RequestParam(value = "scanToolId", required = false) Long scanToolId) {
         Long toolId = null;
-        if (toolName != null) {
+        if (SemanticDocEntity.LEVEL_SCAN_TOOL.equals(level)) {
+            if (scanToolId == null) {
+                return ResponseEntity.badRequest().body(new ApiError("scan_tool 层级须传 scanToolId"));
+            }
+            toolId = scanToolId;
+        } else if (toolName != null) {
             ToolDefinitionEntity tool = toolDefinitionService.findByName(toolName).orElse(null);
             if (tool == null) {
                 return ResponseEntity.notFound().build();
@@ -127,22 +157,40 @@ public class SemanticDocController {
     @GetMapping("/scan-projects/{id}/semantic-docs")
     public ResponseEntity<List<SemanticDocDTO>> listProjectDocs(@PathVariable Long id) {
         List<SemanticDocEntity> docs = semanticDocService.listByProject(id);
-        java.util.Map<Long, String> toolNames = new java.util.HashMap<>();
-        docs.stream().filter(d -> d.getToolId() != null).map(SemanticDocEntity::getToolId).distinct().forEach(toolId -> {
-            ToolDefinitionEntity tool = toolDefinitionMapper.selectById(toolId);
-            if (tool != null) {
-                toolNames.put(toolId, tool.getName());
-            }
-        });
         return ResponseEntity.ok(docs.stream()
-                .map(d -> SemanticDocDTO.from(d, d.getToolId() == null ? null : toolNames.get(d.getToolId())))
+                .map(d -> SemanticDocDTO.from(d, resolveToolDisplayName(d)))
                 .toList());
+    }
+
+    private String resolveToolDisplayName(SemanticDocEntity d) {
+        if (d.getToolId() == null) {
+            return null;
+        }
+        if (SemanticDocEntity.LEVEL_SCAN_TOOL.equals(d.getLevel())) {
+            ScanProjectToolEntity st = scanProjectToolMapper.selectById(d.getToolId());
+            return st == null ? null : st.getName();
+        }
+        if (SemanticDocEntity.LEVEL_TOOL.equals(d.getLevel())) {
+            ToolDefinitionEntity tool = toolDefinitionMapper.selectById(d.getToolId());
+            return tool == null ? null : tool.getName();
+        }
+        return null;
     }
 
     @PutMapping("/semantic-docs/{id}")
     public ResponseEntity<?> edit(@PathVariable Long id, @RequestBody EditRequest request) {
         try {
             SemanticDocEntity doc = semanticDocService.edit(id, request == null ? null : request.contentMd());
+            // Tool 级语义文档被编辑后：同步更新 ai_description + 重建向量
+            if (SemanticDocEntity.LEVEL_TOOL.equals(doc.getLevel()) && doc.getToolId() != null) {
+                ToolDefinitionEntity tool = toolDefinitionMapper.selectById(doc.getToolId());
+                if (tool != null) {
+                    String summary = orchestrator.extractToolSummary(doc.getContentMd());
+                    tool.setAiDescription(summary);
+                    toolDefinitionMapper.updateById(tool);
+                    toolEmbeddingService.upsert(tool);
+                }
+            }
             return ResponseEntity.ok(SemanticDocDTO.from(doc));
         } catch (IllegalArgumentException ex) {
             return ex.getMessage() != null && ex.getMessage().contains("不存在")

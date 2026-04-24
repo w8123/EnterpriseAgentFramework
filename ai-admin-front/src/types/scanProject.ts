@@ -33,5 +33,23 @@ export interface ScanProjectScanResult {
 }
 
 export interface ProjectToolInfo extends ToolInfo {
+  /** 扫描表 scan_project_tool.id，编辑/测试/语义生成/添加为 Tool 均依赖此字段 */
+  scanToolId: number
   projectId?: number | null
+  /** 扫描模块 scan_module.id，与语义文档模块一致 */
+  moduleId?: number | null
+  /** 模块展示名（优先 displayName） */
+  moduleDisplayName?: string | null
+}
+
+/** POST .../promote-to-tool 响应 */
+export interface PromotedGlobalTool {
+  globalToolId: number
+  globalToolName: string
+}
+
+/** POST .../promote-by-module 响应 */
+export interface BatchPromoteToToolsResult {
+  promotedCount: number
+  items: PromotedGlobalTool[]
 }

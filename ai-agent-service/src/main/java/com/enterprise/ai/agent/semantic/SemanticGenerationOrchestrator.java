@@ -10,6 +10,11 @@ import com.enterprise.ai.agent.semantic.context.SemanticContextCollector;
 import com.enterprise.ai.agent.semantic.llm.SemanticLlmClient;
 import com.enterprise.ai.agent.semantic.llm.SemanticLlmClient.SemanticGenerationResult;
 import com.enterprise.ai.agent.semantic.prompt.PromptTemplateRegistry;
+import com.enterprise.ai.agent.scan.ScanProjectToolAdapter;
+import com.enterprise.ai.agent.scan.ScanProjectToolEntity;
+import com.enterprise.ai.agent.scan.ScanProjectToolMapper;
+import com.enterprise.ai.agent.scan.ScanProjectToolService;
+import com.enterprise.ai.agent.tool.retrieval.ToolEmbeddingService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +47,9 @@ public class SemanticGenerationOrchestrator {
     private final SemanticLlmClient llmClient;
     private final SemanticDocService semanticDocService;
     private final ToolDefinitionMapper toolDefinitionMapper;
+    private final ScanProjectToolMapper scanProjectToolMapper;
+    private final ScanProjectToolService scanProjectToolService;
+    private final ToolEmbeddingService toolEmbeddingService;
 
     private final ConcurrentMap<String, SemanticGenerationTask> tasks = new ConcurrentHashMap<>();
     private final Map<Long, String> projectLocks = new ConcurrentHashMap<>();
@@ -57,7 +65,10 @@ public class SemanticGenerationOrchestrator {
                                           PromptTemplateRegistry promptRegistry,
                                           SemanticLlmClient llmClient,
                                           SemanticDocService semanticDocService,
-                                          ToolDefinitionMapper toolDefinitionMapper) {
+                                          ToolDefinitionMapper toolDefinitionMapper,
+                                          ScanProjectToolMapper scanProjectToolMapper,
+                                          ScanProjectToolService scanProjectToolService,
+                                          ToolEmbeddingService toolEmbeddingService) {
         this.scanProjectService = scanProjectService;
         this.scanModuleService = scanModuleService;
         this.contextCollector = contextCollector;
@@ -65,6 +76,9 @@ public class SemanticGenerationOrchestrator {
         this.llmClient = llmClient;
         this.semanticDocService = semanticDocService;
         this.toolDefinitionMapper = toolDefinitionMapper;
+        this.scanProjectToolMapper = scanProjectToolMapper;
+        this.scanProjectToolService = scanProjectToolService;
+        this.toolEmbeddingService = toolEmbeddingService;
     }
 
     // ==================== 单层同步生成 ====================
@@ -81,28 +95,55 @@ public class SemanticGenerationOrchestrator {
     public SemanticDocEntity generateForModule(Long moduleId, boolean force, String provider, String model) {
         ScanModuleEntity module = scanModuleService.getById(moduleId);
         ScanProjectEntity project = scanProjectService.getById(module.getProjectId());
-        List<ToolDefinitionEntity> moduleTools = toolDefinitionMapper.selectList(
-                new LambdaQueryWrapper<ToolDefinitionEntity>()
-                        .eq(ToolDefinitionEntity::getModuleId, moduleId));
-        SemanticContext ctx = contextCollector.collectForModule(project, module, moduleTools);
+        List<ScanProjectToolEntity> moduleTools = scanProjectToolMapper.selectList(
+                new LambdaQueryWrapper<ScanProjectToolEntity>()
+                        .eq(ScanProjectToolEntity::getModuleId, moduleId));
+        SemanticContext ctx = contextCollector.collectForModule(project, module, toDefinitionList(moduleTools));
         return runGeneration(ctx, SemanticContext.LEVEL_MODULE, project.getId(), moduleId, null, force, provider, model);
     }
 
     @Transactional
-    public SemanticDocEntity generateForTool(Long toolId, boolean force, String provider, String model) {
-        ToolDefinitionEntity tool = toolDefinitionMapper.selectById(toolId);
+    public SemanticDocEntity generateForTool(Long toolDefinitionId, boolean force, String provider, String model) {
+        ToolDefinitionEntity tool = toolDefinitionMapper.selectById(toolDefinitionId);
         if (tool == null) {
-            throw new IllegalArgumentException("工具不存在: " + toolId);
+            throw new IllegalArgumentException("工具不存在: " + toolDefinitionId);
         }
-        if (tool.getProjectId() == null) {
-            throw new IllegalArgumentException("只支持扫描项目下的工具: " + tool.getName());
+        ScanProjectEntity project;
+        if (tool.getProjectId() != null) {
+            project = scanProjectService.getById(tool.getProjectId());
+        } else {
+            project = new ScanProjectEntity();
+            project.setId(0L);
+            project.setName(tool.getName() == null ? "tool" : tool.getName());
+            project.setScanPath("");
+        }
+        ScanModuleEntity module = null;
+        if (tool.getModuleId() != null && tool.getProjectId() != null) {
+            module = scanModuleService.getById(tool.getModuleId());
+        }
+        SemanticContext ctx = contextCollector.collectForTool(project, tool, module);
+        Long docProjectId = tool.getProjectId() != null ? project.getId() : null;
+        SemanticDocEntity doc = runGeneration(ctx, SemanticContext.LEVEL_TOOL,
+                docProjectId, tool.getModuleId(), toolDefinitionId, force, provider, model);
+        applyToolAiDescription(tool, doc);
+        return doc;
+    }
+
+    /**
+     * 为扫描项目内接口（{@code scan_project_tool}）生成语义文档。
+     */
+    @Transactional
+    public SemanticDocEntity generateForScanProjectTool(Long scanToolId, boolean force, String provider, String model) {
+        ScanProjectToolEntity tool = scanProjectToolMapper.selectById(scanToolId);
+        if (tool == null) {
+            throw new IllegalArgumentException("扫描接口不存在: " + scanToolId);
         }
         ScanProjectEntity project = scanProjectService.getById(tool.getProjectId());
         ScanModuleEntity module = tool.getModuleId() == null ? null : scanModuleService.getById(tool.getModuleId());
-        SemanticContext ctx = contextCollector.collectForTool(project, tool, module);
-        SemanticDocEntity doc = runGeneration(ctx, SemanticContext.LEVEL_TOOL,
-                project.getId(), tool.getModuleId(), toolId, force, provider, model);
-        applyToolAiDescription(tool, doc);
+        SemanticContext ctx = contextCollector.collectForScanProjectTool(project, tool, module);
+        SemanticDocEntity doc = runGeneration(ctx, SemanticContext.LEVEL_SCAN_TOOL,
+                project.getId(), tool.getModuleId(), scanToolId, force, provider, model);
+        applyScanToolAiDescription(tool, doc);
         return doc;
     }
 
@@ -141,9 +182,9 @@ public class SemanticGenerationOrchestrator {
         task.setStage(SemanticGenerationTask.Stage.RUNNING);
         try {
             List<ScanModuleEntity> modules = scanModuleService.listByProject(task.getProjectId());
-            List<ToolDefinitionEntity> tools = toolDefinitionMapper.selectList(
-                    new LambdaQueryWrapper<ToolDefinitionEntity>()
-                            .eq(ToolDefinitionEntity::getProjectId, task.getProjectId()));
+            List<ScanProjectToolEntity> tools = scanProjectToolMapper.selectList(
+                    new LambdaQueryWrapper<ScanProjectToolEntity>()
+                            .eq(ScanProjectToolEntity::getProjectId, task.getProjectId()));
             task.setTotalSteps(1 + modules.size() + tools.size());
 
             String provider = task.getLlmProvider();
@@ -160,9 +201,9 @@ public class SemanticGenerationOrchestrator {
                 task.setCompletedSteps(task.getCompletedSteps() + 1);
             }
 
-            for (ToolDefinitionEntity tool : tools) {
+            for (ScanProjectToolEntity tool : tools) {
                 task.setCurrentStep("tool:" + tool.getName());
-                SemanticDocEntity toolDoc = self.generateForTool(tool.getId(), force, provider, model);
+                SemanticDocEntity toolDoc = self.generateForScanProjectTool(tool.getId(), force, provider, model);
                 task.setTotalTokens(task.getTotalTokens() + safeTokens(toolDoc));
                 task.setCompletedSteps(task.getCompletedSteps() + 1);
             }
@@ -220,12 +261,25 @@ public class SemanticGenerationOrchestrator {
         String summary = extractToolSummary(doc.getContentMd());
         tool.setAiDescription(summary);
         toolDefinitionMapper.updateById(tool);
+        // Tool Retrieval: ai_description 变更即重建向量
+        toolEmbeddingService.upsert(tool);
+    }
+
+    private void applyScanToolAiDescription(ScanProjectToolEntity tool, SemanticDocEntity doc) {
+        String summary = extractToolSummary(doc.getContentMd());
+        scanProjectToolService.updateAiDescription(tool.getId(), summary);
+    }
+
+    private List<ToolDefinitionEntity> toDefinitionList(List<ScanProjectToolEntity> list) {
+        return list.stream().map(ScanProjectToolAdapter::toDefinitionEntity).toList();
     }
 
     /**
      * 从接口级 Markdown 中抽取「一句话语义」二级标题下的首段，作为冗余的 ai_description。
+     * <p>
+     * 公开以便 {@code SemanticDocController#edit} 在手工编辑文档后复用同一套抽取规则。
      */
-    String extractToolSummary(String md) {
+    public String extractToolSummary(String md) {
         if (md == null || md.isBlank()) {
             return null;
         }

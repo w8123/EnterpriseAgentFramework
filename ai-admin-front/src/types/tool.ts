@@ -5,6 +5,8 @@ export interface ToolParameter {
   description: string
   required: boolean
   location?: string | null
+  /** body_json 解析出的 DTO 子字段（可递归），仅展示用，运行时 body 以整体 JSON 传入 */
+  children?: ToolParameter[]
 }
 
 /** 已注册 Tool 信息 */

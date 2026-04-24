@@ -3,6 +3,8 @@ package com.enterprise.ai.agent.semantic.context;
 import com.enterprise.ai.agent.scan.ScanModuleEntity;
 import com.enterprise.ai.agent.scan.ScanModuleService;
 import com.enterprise.ai.agent.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.scan.ScanProjectToolAdapter;
+import com.enterprise.ai.agent.scan.ScanProjectToolEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseProblemException;
@@ -143,6 +145,19 @@ public class SemanticContextCollector {
     public SemanticContext collectForTool(ScanProjectEntity project,
                                           ToolDefinitionEntity tool,
                                           ScanModuleEntity module) {
+        return collectForTool(project, tool, module, SemanticContext.LEVEL_TOOL);
+    }
+
+    public SemanticContext collectForScanProjectTool(ScanProjectEntity project,
+                                                     ScanProjectToolEntity tool,
+                                                     ScanModuleEntity module) {
+        return collectForTool(project, ScanProjectToolAdapter.toDefinitionEntity(tool), module, SemanticContext.LEVEL_SCAN_TOOL);
+    }
+
+    private SemanticContext collectForTool(ScanProjectEntity project,
+                                         ToolDefinitionEntity tool,
+                                         ScanModuleEntity module,
+                                         String contextLevel) {
         Path root = resolveRoot(project);
         JavaSourceIndex index = JavaSourceIndex.build(root);
 
@@ -199,7 +214,7 @@ public class SemanticContextCollector {
                 tool.getEndpointPath() == null ? "" : tool.getEndpointPath()).trim();
 
         return new SemanticContext(
-                SemanticContext.LEVEL_TOOL,
+                contextLevel,
                 project.getName(),
                 null,
                 null,

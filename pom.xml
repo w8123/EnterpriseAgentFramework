@@ -16,7 +16,7 @@
         <module>ai-common</module>
         <module>ai-skill-sdk</module>
         <module>ai-model-service</module>
-        <module>ai-text-service</module>
+        <module>ai-skills-service</module>
         <module>ai-agent-service</module>
     </modules>
 
@@ -110,7 +110,7 @@
             </dependency>
             <dependency>
                 <groupId>com.enterprise.ai</groupId>
-                <artifactId>ai-text-service</artifactId>
+                <artifactId>ai-skills-service</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

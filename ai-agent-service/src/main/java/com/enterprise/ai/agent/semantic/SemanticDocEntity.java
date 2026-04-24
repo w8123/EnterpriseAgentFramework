@@ -19,6 +19,9 @@ public class SemanticDocEntity {
     public static final String LEVEL_MODULE = "module";
     public static final String LEVEL_TOOL = "tool";
 
+    /** 扫描项目内接口的语义文档，{@link #toolId} 存 {@code scan_project_tool.id} */
+    public static final String LEVEL_SCAN_TOOL = "scan_tool";
+
     public static final String STATUS_DRAFT = "draft";
     public static final String STATUS_GENERATED = "generated";
     public static final String STATUS_EDITED = "edited";

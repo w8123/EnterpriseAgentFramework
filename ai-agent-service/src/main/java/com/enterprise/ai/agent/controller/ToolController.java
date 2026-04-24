@@ -130,13 +130,7 @@ public class ToolController {
 
     private ToolInfoDTO toDto(ToolDefinitionEntity entity) {
         List<ToolParameterDTO> params = toolDefinitionService.parseParameters(entity.getParametersJson()).stream()
-                .map(parameter -> new ToolParameterDTO(
-                        parameter.name(),
-                        parameter.type(),
-                        parameter.description(),
-                        parameter.required(),
-                        parameter.location()
-                ))
+                .map(ToolParameterDTO::from)
                 .toList();
         return new ToolInfoDTO(
                 entity.getName(),
@@ -176,7 +170,27 @@ public class ToolController {
                        boolean lightweightEnabled) {
     }
 
-    record ToolParameterDTO(String name, String type, String description, boolean required, String location) {
+    record ToolParameterDTO(String name,
+                            String type,
+                            String description,
+                            boolean required,
+                            String location,
+                            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
+                            List<ToolParameterDTO> children) {
+        static ToolParameterDTO from(ToolDefinitionParameter parameter) {
+            List<ToolDefinitionParameter> rawChildren = parameter.children();
+            List<ToolParameterDTO> mappedChildren = rawChildren == null || rawChildren.isEmpty()
+                    ? List.of()
+                    : rawChildren.stream().map(ToolParameterDTO::from).toList();
+            return new ToolParameterDTO(
+                    parameter.name(),
+                    parameter.type(),
+                    parameter.description(),
+                    parameter.required(),
+                    parameter.location(),
+                    mappedChildren
+            );
+        }
     }
 
     record ToolUpsertRequest(String name,

@@ -183,7 +183,7 @@ async function checkHealth() {
   statusLoading.value = true
   const services = [
     { name: 'ai-agent-service', url: 'http://localhost:8081', healthPath: '/actuator/health' },
-    { name: 'ai-text-service', url: 'http://localhost:8080', healthPath: '/ai/actuator/health' },
+    { name: 'ai-skills-service', url: 'http://localhost:8080', healthPath: '/ai/actuator/health' },
     { name: 'ai-model-service', url: 'http://localhost:8090', healthPath: '/actuator/health' },
   ]
 

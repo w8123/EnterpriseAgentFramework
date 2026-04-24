@@ -23,7 +23,7 @@ Enterprise Agent Framework 的智能体编排服务，负责意图识别、Agent
 ```text
 ai-agent-service
 ├── ai-skill-sdk      Tool 契约与注册中心
-├── ai-text-service   知识检索 + scanner 核心代码
+├── ai-skills-service   知识检索 + scanner 核心代码
 ├── ai-model-service  LLM 调用网关（Feign / OpenAI 兼容代理）
 └── ai-admin-front    管理端入口（通过 REST API 调用本服务）
 ```
@@ -36,7 +36,7 @@ ai-agent-service
 管理端创建扫描项目
   -> POST /api/scan-projects
   -> POST /api/scan-projects/{id}/scan
-  -> ScanProjectService 调用 ai-text-service 中的 scanner 核心
+  -> ScanProjectService 调用 ai-skills-service 中的 scanner 核心
   -> 扫描结果写入 scan_project / tool_definition
   -> ToolDefinitionService 注册 DynamicHttpAiTool
 ```
@@ -71,16 +71,16 @@ src/main/java/com/enterprise/ai/agent/
 ├── scan/          扫描项目实体、Mapper、Service
 ├── service/       ChatService / IntentService / LightweightToolCaller
 ├── tools/         KnowledgeSearchTool / DynamicHttpAiTool
-├── rag/           调 ai-text-service 的知识检索封装
-├── client/        调 ai-model-service / ai-text-service / 极视角客户端
+├── rag/           调 ai-skills-service 的知识检索封装
+├── client/        调 ai-model-service / ai-skills-service / 极视角客户端
 └── config/        LLM、Scanner、Tool 等配置
 ```
 
 ## 配置要点
 
 - `agent.definitions.file`：Agent 定义持久化文件，默认 `agent-definitions.json`
-- `services.model-service.url`：模型网关地址
-- `services.text-service.url`：知识 / Tooling 基础层地址
+- `services.model-service.url`：模型网关地址（也可通过环境变量 `MODEL_SERVICE_URL` 覆盖，与 `application.yml` 一致）
+- `services.skills-service.url`：知识 / Tooling 基础层地址；**生产与本机统一通过环境变量 `SKILLS_SERVICE_URL` 配置**（未设置时默认 `http://localhost:8080`）
 - `agent.agents.*`：意图开关；当前默认仅保留知识问答与通用对话安全可用
 
 ## 当前默认行为

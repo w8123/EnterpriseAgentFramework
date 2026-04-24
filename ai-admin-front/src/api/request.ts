@@ -35,7 +35,7 @@ function createInstance(baseURL: string): AxiosInstance {
   return instance
 }
 
-/** ai-text-service (RAG / 知识库) — /ai prefix via context-path */
+/** ai-skills-service (RAG / 知识库) — /ai prefix via context-path */
 const textRequest = createInstance(import.meta.env.VITE_API_BASE_URL || '/ai')
 
 /** ai-agent-service (Agent / Chat / Tool) — /api prefix */

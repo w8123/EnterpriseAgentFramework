@@ -8,6 +8,9 @@
           <el-icon><Refresh /></el-icon>刷新
         </el-button>
         <el-button type="warning" :loading="rescanLoading" @click="handleRescan">重新扫描</el-button>
+        <el-button type="info" :loading="rebuildEmbeddingLoading" @click="handleRebuildEmbeddings">
+          重建向量索引
+        </el-button>
       </div>
     </div>
 
@@ -38,74 +41,116 @@
         </div>
       </template>
 
-      <el-table :data="tools" v-loading="loading" stripe>
-        <el-table-column type="expand">
-          <template #default="{ row }">
-            <div class="expand-content">
-              <h4>参数定义</h4>
-              <el-table :data="row.parameters || []" size="small" border>
-                <el-table-column prop="name" label="参数名" width="160" />
-                <el-table-column prop="type" label="类型" width="100" />
-                <el-table-column prop="location" label="位置" width="100">
-                  <template #default="{ row: param }">
-                    {{ param.location || '-' }}
-                  </template>
-                </el-table-column>
-                <el-table-column prop="description" label="描述" />
-                <el-table-column prop="required" label="必填" width="80" align="center">
-                  <template #default="{ row: param }">
-                    <el-tag :type="param.required ? 'danger' : 'info'" size="small">
-                      {{ param.required ? '是' : '否' }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-              </el-table>
-              <div class="tool-meta">
-                <div><b>HTTP：</b>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</div>
-                <div><b>Base URL：</b>{{ row.baseUrl || '-' }}</div>
-                <div><b>来源定位：</b>{{ row.sourceLocation || '-' }}</div>
-                <div><b>请求体类型：</b>{{ row.requestBodyType || '-' }}</div>
-                <div><b>响应类型：</b>{{ row.responseType || '-' }}</div>
+      <div v-loading="loading" class="tools-table-wrap">
+        <el-empty v-if="!loading && tools.length === 0" description="这个项目还没有扫描出任何接口" />
+        <el-collapse
+          v-else-if="tools.length > 0"
+          v-model="scanCollapseActive"
+          class="tool-groups-collapse"
+        >
+          <el-collapse-item v-for="g in toolModuleGroups" :key="g.key" :name="g.key">
+            <template #title>
+              <div class="module-collapse-title">
+                <div class="module-collapse-title__text">
+                  <span class="collapse-module-title">{{ g.label }}</span>
+                  <el-tag size="small" type="info" class="module-tool-count">{{ g.tools.length }} 个接口</el-tag>
+                </div>
+                <el-button
+                  v-if="g.tools.length > 0"
+                  type="primary"
+                  size="small"
+                  :loading="batchModulePromoteLoading[g.key] ?? false"
+                  @click.stop="handlePromoteModuleToGlobal(g)"
+                >
+                  添加为 Tool
+                </el-button>
               </div>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="name" label="工具名" min-width="220" />
-        <el-table-column label="端点" min-width="220">
-          <template #default="{ row }">
-            <span>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="description" label="描述" min-width="280" />
-        <el-table-column label="参数数" width="90" align="center">
-          <template #default="{ row }">
-            {{ (row.parameters || []).length }}
-          </template>
-        </el-table-column>
-        <el-table-column label="启用" width="90" align="center">
-          <template #default="{ row }">
-            <el-switch :model-value="row.enabled" @change="handleEnabledChange(row, $event as boolean)" />
-          </template>
-        </el-table-column>
-        <el-table-column label="Agent 可见" width="110" align="center">
-          <template #default="{ row }">
-            <el-switch :model-value="row.agentVisible" @change="handleFlagChange(row, 'agentVisible', $event as boolean)" />
-          </template>
-        </el-table-column>
-        <el-table-column label="轻量调用" width="110" align="center">
-          <template #default="{ row }">
-            <el-switch :model-value="row.lightweightEnabled" @change="handleFlagChange(row, 'lightweightEnabled', $event as boolean)" />
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
-            <el-button link type="primary" size="small" @click="openTest(row)">测试</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <el-empty v-if="!loading && tools.length === 0" description="这个项目还没有扫描出任何接口" />
+            </template>
+            <el-table :data="g.tools" stripe class="nested-tools-table">
+              <el-table-column type="expand">
+                <template #default="{ row }">
+                  <div class="expand-content">
+                    <h4>参数定义</h4>
+                    <el-table
+                      :data="parameterRows(row.parameters)"
+                      size="small"
+                      border
+                      row-key="_key"
+                      :tree-props="{ children: 'children' }"
+                      default-expand-all
+                    >
+                      <el-table-column prop="name" label="参数名" min-width="200" />
+                      <el-table-column prop="type" label="类型" width="160" />
+                      <el-table-column prop="location" label="位置" width="100">
+                        <template #default="{ row: param }">
+                          {{ param.location || '-' }}
+                        </template>
+                      </el-table-column>
+                      <el-table-column prop="description" label="描述" />
+                      <el-table-column prop="required" label="必填" width="80" align="center">
+                        <template #default="{ row: param }">
+                          <el-tag :type="param.required ? 'danger' : 'info'" size="small">
+                            {{ param.required ? '是' : '否' }}
+                          </el-tag>
+                        </template>
+                      </el-table-column>
+                    </el-table>
+                    <div class="tool-meta">
+                      <div><b>HTTP：</b>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</div>
+                      <div><b>Base URL：</b>{{ row.baseUrl || '-' }}</div>
+                      <div><b>来源定位：</b>{{ row.sourceLocation || '-' }}</div>
+                      <div><b>请求体类型：</b>{{ row.requestBodyType || '-' }}</div>
+                      <div><b>响应类型：</b>{{ row.responseType || '-' }}</div>
+                    </div>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column prop="name" label="工具名" min-width="220" />
+              <el-table-column label="端点" min-width="220">
+                <template #default="{ row }">
+                  <span>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="description" label="描述" min-width="280" />
+              <el-table-column label="参数数" width="90" align="center">
+                <template #default="{ row }">
+                  {{ (row.parameters || []).length }}
+                </template>
+              </el-table-column>
+              <el-table-column label="启用" width="90" align="center">
+                <template #default="{ row }">
+                  <el-switch :model-value="row.enabled" @change="handleEnabledChange(row, $event as boolean)" />
+                </template>
+              </el-table-column>
+              <el-table-column label="Agent 可见" width="110" align="center">
+                <template #default="{ row }">
+                  <el-switch :model-value="row.agentVisible" @change="handleFlagChange(row, 'agentVisible', $event as boolean)" />
+                </template>
+              </el-table-column>
+              <el-table-column label="轻量调用" width="110" align="center">
+                <template #default="{ row }">
+                  <el-switch :model-value="row.lightweightEnabled" @change="handleFlagChange(row, 'lightweightEnabled', $event as boolean)" />
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="280" fixed="right">
+                <template #default="{ row }">
+                  <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
+                  <el-button link type="primary" size="small" @click="openTest(row)">测试</el-button>
+                  <el-button
+                    link
+                    type="success"
+                    size="small"
+                    :loading="promoteLoading[row.scanToolId]"
+                    @click="handlePromoteToGlobal(row)"
+                  >
+                    添加为 Tool
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
     </el-card>
       </el-tab-pane>
 
@@ -211,36 +256,49 @@
 
           <el-card shadow="never" class="section-card">
             <template #header>接口语义 AI 描述</template>
-            <el-table :data="tools" stripe>
-              <el-table-column type="expand">
-                <template #default="{ row }">
-                  <div v-if="toolDocMap[row.name]" class="markdown-body expand-md" v-html="renderMd(toolDocMap[row.name].contentMd)" />
-                  <el-empty v-else description="该接口还没有 AI 描述" :image-size="60" />
+            <el-empty v-if="tools.length === 0" description="暂无接口" />
+            <el-collapse
+              v-else
+              v-model="aiToolCollapseActive"
+              class="tool-groups-collapse"
+            >
+              <el-collapse-item v-for="g in toolModuleGroups" :key="`ai-${g.key}`" :name="g.key">
+                <template #title>
+                  <span class="collapse-module-title">{{ g.label }}</span>
+                  <el-tag size="small" type="info" class="module-tool-count">{{ g.tools.length }} 个接口</el-tag>
                 </template>
-              </el-table-column>
-              <el-table-column prop="name" label="工具名" min-width="220" />
-              <el-table-column label="AI 描述" min-width="400">
-                <template #default="{ row }">
-                  <div class="ai-desc-ellipsis">
-                    {{ toolDocSummary(row) }}
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column label="状态" width="120">
-                <template #default="{ row }">
-                  <el-tag v-if="toolDocMap[row.name]" :type="toolDocMap[row.name].status === 'edited' ? 'success' : 'info'" size="small">
-                    {{ toolDocMap[row.name].status }}
-                  </el-tag>
-                  <el-tag v-else size="small" type="warning">未生成</el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="200">
-                <template #default="{ row }">
-                  <el-button link size="small" type="primary" @click="regenerateTool(row)">重新生成</el-button>
-                  <el-button link size="small" :disabled="!toolDocMap[row.name]" @click="openEditDoc(toolDocMap[row.name])">编辑</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
+                <el-table :data="g.tools" stripe class="nested-tools-table">
+                  <el-table-column type="expand">
+                    <template #default="{ row }">
+                      <div v-if="toolDocMap[row.scanToolId]" class="markdown-body expand-md" v-html="renderMd(toolDocMap[row.scanToolId].contentMd)" />
+                      <el-empty v-else description="该接口还没有 AI 描述" :image-size="60" />
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="name" label="工具名" min-width="220" />
+                  <el-table-column label="AI 描述" min-width="400">
+                    <template #default="{ row }">
+                      <div class="ai-desc-ellipsis">
+                        {{ toolDocSummary(row) }}
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="状态" width="120">
+                    <template #default="{ row }">
+                      <el-tag v-if="toolDocMap[row.scanToolId]" :type="toolDocMap[row.scanToolId].status === 'edited' ? 'success' : 'info'" size="small">
+                        {{ toolDocMap[row.scanToolId].status }}
+                      </el-tag>
+                      <el-tag v-else size="small" type="warning">未生成</el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="200">
+                    <template #default="{ row }">
+                      <el-button link size="small" type="primary" @click="regenerateTool(row)">重新生成</el-button>
+                      <el-button link size="small" :disabled="!toolDocMap[row.scanToolId]" @click="openEditDoc(toolDocMap[row.scanToolId])">编辑</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </el-collapse-item>
+            </el-collapse>
           </el-card>
         </div>
       </el-tab-pane>
@@ -445,15 +503,24 @@ import { Refresh } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import type { ProviderInfo } from '@/types/model'
 import type { ProjectToolInfo, ScanProject } from '@/types/scanProject'
-import type { ToolInfo, ToolParameter, ToolTestResult, ToolUpsertRequest } from '@/types/tool'
+import type { ToolParameter, ToolTestResult, ToolUpsertRequest } from '@/types/tool'
 import type { ScanModule, SemanticDoc, SemanticTask } from '@/types/semanticDoc'
-import { getScanProjectDetail, getScanProjectTools, triggerRescan } from '@/api/scanProject'
-import { testTool, toggleTool, updateTool } from '@/api/tool'
+import {
+  getScanProjectDetail,
+  getScanProjectTools,
+  promoteScanModuleToolsToGlobal,
+  promoteScanProjectToolToGlobal,
+  testScanProjectTool,
+  toggleScanProjectTool,
+  triggerRescan,
+  updateScanProjectTool,
+} from '@/api/scanProject'
+import { startToolRetrievalRebuild } from '@/api/toolRetrieval'
 import {
   editSemanticDoc,
   generateModuleDoc,
   generateProjectDoc,
-  generateToolDoc,
+  generateScanToolDoc,
   getProjectBatchStatus,
   listProjectSemanticDocs,
   listScanModules,
@@ -473,18 +540,30 @@ const tools = ref<ProjectToolInfo[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const rescanLoading = ref(false)
+const rebuildEmbeddingLoading = ref(false)
 
 const formDialogVisible = ref(false)
-const editingName = ref<string | null>(null)
+const editingScanToolId = ref<number | null>(null)
+const promoteLoading = reactive<Record<number, boolean>>({})
+/** 扫描结果按模块「批量添加为 Tool」 loading，key 同 toolModuleGroups */
+const batchModulePromoteLoading = reactive<Record<string, boolean>>({})
 const form = reactive<ToolUpsertRequest>(createEmptyForm())
 const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
 const parameterLocations = ['QUERY', 'PATH', 'BODY']
 
 const testDialogVisible = ref(false)
-const testingTool = ref<ToolInfo | null>(null)
+const testingTool = ref<ProjectToolInfo | null>(null)
 const testArgs = reactive<Record<string, string>>({})
 const testResult = ref<ToolTestResult | null>(null)
 const testRunning = ref(false)
+
+/** 扫描结果 / 接口语义 按模块分组（与下方 toolModuleGroups 一致） */
+interface ToolModuleGroup {
+  key: string
+  moduleId: number | null
+  label: string
+  tools: ProjectToolInfo[]
+}
 
 function createEmptyForm(): ToolUpsertRequest {
   return {
@@ -508,6 +587,25 @@ function createEmptyForm(): ToolUpsertRequest {
 
 function cloneParameters(parameters: ToolParameter[] = []): ToolParameter[] {
   return parameters.map((parameter) => ({ ...parameter }))
+}
+
+/** 参数表用行：给每个节点分配唯一 _key（按 location:path 累积），children 递归保留，供 el-table 树形展示。 */
+interface ParameterRow extends ToolParameter {
+  _key: string
+  children?: ParameterRow[]
+}
+
+function parameterRows(parameters: ToolParameter[] | null | undefined, prefix = ''): ParameterRow[] {
+  if (!parameters || parameters.length === 0) return []
+  return parameters.map((parameter, index) => {
+    const keyBase = `${parameter.location || 'ROOT'}:${parameter.name || `#${index}`}`
+    const key = prefix ? `${prefix}>${keyBase}` : keyBase
+    const { children, ...rest } = parameter
+    const nested = children && children.length > 0 ? parameterRows(children, key) : undefined
+    const row: ParameterRow = { ...rest, _key: key }
+    if (nested) row.children = nested
+    return row
+  })
 }
 
 function toUpsertRequest(tool: ProjectToolInfo): ToolUpsertRequest {
@@ -558,18 +656,33 @@ function statusTagType(status: ScanProject['status']) {
 async function refreshAll() {
   loading.value = true
   try {
-    const [projectResponse, toolResponse] = await Promise.all([
+    const [projectResponse, toolResponse, moduleResponse] = await Promise.all([
       getScanProjectDetail(projectId.value),
       getScanProjectTools(projectId.value),
+      listScanModules(projectId.value),
     ])
     project.value = projectResponse.data
     tools.value = Array.isArray(toolResponse.data) ? toolResponse.data : []
+    modules.value = Array.isArray(moduleResponse.data) ? moduleResponse.data : []
   } catch {
     project.value = null
     tools.value = []
+    modules.value = []
     ElMessage.error('加载扫描详情失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function handleRebuildEmbeddings() {
+  rebuildEmbeddingLoading.value = true
+  try {
+    const { data } = await startToolRetrievalRebuild()
+    ElMessage.success(`已提交向量索引重建任务 (${data.taskId.slice(0, 8)})，可在「Tool 检索测试」页查看进度`)
+  } catch (error) {
+    ElMessage.error((error as Error).message || '重建向量索引失败')
+  } finally {
+    rebuildEmbeddingLoading.value = false
   }
 }
 
@@ -588,7 +701,7 @@ async function handleRescan() {
 }
 
 function openEditDialog(tool: ProjectToolInfo) {
-  editingName.value = tool.name
+  editingScanToolId.value = tool.scanToolId
   applyForm(toUpsertRequest(tool))
   formDialogVisible.value = true
 }
@@ -608,14 +721,17 @@ function removeParameter(index: number) {
 }
 
 async function handleSave() {
-  if (!editingName.value || !form.name.trim() || !form.description.trim()) {
+  if (editingScanToolId.value == null || !form.name.trim() || !form.description.trim()) {
     ElMessage.warning('请填写工具名和描述')
     return
   }
   saving.value = true
   try {
-    await updateTool(editingName.value, { ...form, parameters: cloneParameters(form.parameters) })
-    ElMessage.success('Tool 更新成功')
+    await updateScanProjectTool(projectId.value, editingScanToolId.value, {
+      ...form,
+      parameters: cloneParameters(form.parameters),
+    })
+    ElMessage.success('扫描接口已更新')
     formDialogVisible.value = false
     await refreshAll()
   } catch (error) {
@@ -627,7 +743,7 @@ async function handleSave() {
 
 async function handleEnabledChange(tool: ProjectToolInfo, enabled: boolean) {
   try {
-    await toggleTool(tool.name, enabled)
+    await toggleScanProjectTool(projectId.value, tool.scanToolId, enabled)
     ElMessage.success(`已${enabled ? '启用' : '禁用'} ${tool.name}`)
     await refreshAll()
   } catch (error) {
@@ -641,7 +757,7 @@ async function handleFlagChange(tool: ProjectToolInfo, field: 'agentVisible' | '
       ...tool,
       [field]: value,
     })
-    await updateTool(tool.name, payload)
+    await updateScanProjectTool(projectId.value, tool.scanToolId, payload)
     ElMessage.success('配置已更新')
     await refreshAll()
   } catch (error) {
@@ -651,7 +767,9 @@ async function handleFlagChange(tool: ProjectToolInfo, field: 'agentVisible' | '
 
 async function batchToggle(enabled: boolean) {
   try {
-    await Promise.all(tools.value.map((tool) => toggleTool(tool.name, enabled)))
+    await Promise.all(
+      tools.value.map((tool) => toggleScanProjectTool(projectId.value, tool.scanToolId, enabled)),
+    )
     ElMessage.success(enabled ? '已批量启用' : '已批量禁用')
     await refreshAll()
   } catch (error) {
@@ -659,7 +777,40 @@ async function batchToggle(enabled: boolean) {
   }
 }
 
-function openTest(tool: ToolInfo) {
+async function handlePromoteToGlobal(tool: ProjectToolInfo) {
+  promoteLoading[tool.scanToolId] = true
+  try {
+    const { data } = await promoteScanProjectToolToGlobal(projectId.value, tool.scanToolId)
+    ElMessage.success(`已添加到 Tool 管理，全局名称：${data.globalToolName}`)
+    await refreshAll()
+    await reloadAiTab()
+  } catch (error) {
+    ElMessage.error((error as Error).message || '添加失败')
+  } finally {
+    promoteLoading[tool.scanToolId] = false
+  }
+}
+
+async function handlePromoteModuleToGlobal(g: ToolModuleGroup) {
+  if (g.tools.length === 0) return
+  batchModulePromoteLoading[g.key] = true
+  try {
+    const { data } = await promoteScanModuleToolsToGlobal(projectId.value, g.moduleId)
+    if (data.promotedCount === 0) {
+      ElMessage.info('本模块下没有可添加的接口')
+      return
+    }
+    ElMessage.success(`已添加 ${data.promotedCount} 个接口到 Tool 管理`)
+    await refreshAll()
+    await reloadAiTab()
+  } catch (error) {
+    ElMessage.error((error as Error).message || '批量添加失败')
+  } finally {
+    batchModulePromoteLoading[g.key] = false
+  }
+}
+
+function openTest(tool: ProjectToolInfo) {
   testingTool.value = tool
   testResult.value = null
   Object.keys(testArgs).forEach((key) => delete testArgs[key])
@@ -680,7 +831,7 @@ async function handleTest() {
         args[key] = value
       }
     }
-    const { data } = await testTool(testingTool.value.name, args)
+    const { data } = await testScanProjectTool(projectId.value, testingTool.value.scanToolId, args)
     testResult.value = data as unknown as ToolTestResult
   } catch (error) {
     testResult.value = {
@@ -704,8 +855,48 @@ const activeTab = ref<'scan' | 'ai'>('scan')
 const modules = ref<ScanModule[]>([])
 const projectDoc = ref<SemanticDoc | null>(null)
 const moduleDocMap = ref<Record<number, SemanticDoc>>({})
-const toolDocMap = ref<Record<string, SemanticDoc>>({})
+const toolDocMap = ref<Record<number, SemanticDoc>>({})
 const selectedModuleIds = ref<number[]>([])
+
+const scanCollapseActive = ref<string[]>([])
+const aiToolCollapseActive = ref<string[]>([])
+
+const toolModuleGroups = computed<ToolModuleGroup[]>(() => {
+  const moduleById = new Map<number, ScanModule>()
+  for (const m of modules.value) {
+    moduleById.set(m.id, m)
+  }
+  const buckets = new Map<string, ProjectToolInfo[]>()
+  const order: string[] = []
+
+  for (const t of tools.value) {
+    const mid = t.moduleId ?? null
+    const key = mid != null ? `m-${mid}` : 'm-none'
+    if (!buckets.has(key)) {
+      buckets.set(key, [])
+      order.push(key)
+    }
+    buckets.get(key)!.push(t)
+  }
+
+  const groups: ToolModuleGroup[] = order.map((key) => {
+    const list = buckets.get(key)!
+    const mid = key === 'm-none' ? null : Number(key.slice(2))
+    const mod = mid != null ? moduleById.get(mid) : undefined
+    const fromTool = list[0]?.moduleDisplayName?.trim()
+    const label =
+      mid == null
+        ? '未关联模块'
+        : (mod?.displayName?.trim() || mod?.name || fromTool || `模块 #${mid}`)
+    return { key, moduleId: mid, label, tools: list }
+  })
+
+  return groups.sort((a, b) => {
+    if (a.moduleId == null && b.moduleId != null) return 1
+    if (a.moduleId != null && b.moduleId == null) return -1
+    return a.label.localeCompare(b.label, 'zh-CN')
+  })
+})
 
 const batchStarting = ref(false)
 const task = ref<SemanticTask | null>(null)
@@ -748,7 +939,7 @@ function renderMd(content: string | null | undefined): string {
 }
 
 function toolDocSummary(tool: ProjectToolInfo): string {
-  const doc = toolDocMap.value[tool.name]
+  const doc = toolDocMap.value[tool.scanToolId]
   if (!doc || !doc.contentMd) return tool.description || '（无 AI 描述）'
   const marker = '## 一句话语义'
   const idx = doc.contentMd.indexOf(marker)
@@ -829,9 +1020,9 @@ async function reloadAiTab() {
     const mMap: Record<number, SemanticDoc> = {}
     docs.filter((d) => d.level === 'module' && d.moduleId != null).forEach((d) => { mMap[d.moduleId as number] = d })
     moduleDocMap.value = mMap
-    const tMap: Record<string, SemanticDoc> = {}
-    for (const d of docs.filter((x) => x.level === 'tool')) {
-      if (d.toolName) tMap[d.toolName] = d
+    const tMap: Record<number, SemanticDoc> = {}
+    for (const d of docs.filter((x) => x.level === 'scan_tool')) {
+      if (d.toolId != null) tMap[d.toolId] = d
     }
     toolDocMap.value = tMap
   } catch (error) {
@@ -908,8 +1099,8 @@ async function regenerateModule(row: ScanModule) {
 
 async function regenerateTool(row: ProjectToolInfo) {
   try {
-    const { data } = await generateToolDoc(row.name, true, semanticLlmParams())
-    toolDocMap.value = { ...toolDocMap.value, [row.name]: data }
+    const { data } = await generateScanToolDoc(projectId.value, row.scanToolId, true, semanticLlmParams())
+    toolDocMap.value = { ...toolDocMap.value, [row.scanToolId]: data }
     ElMessage.success(`已更新接口 ${row.name}`)
     await refreshAll()
   } catch (error) {
@@ -932,9 +1123,14 @@ async function submitDocEdit() {
     if (data.level === 'project') projectDoc.value = data
     else if (data.level === 'module' && data.moduleId != null)
       moduleDocMap.value = { ...moduleDocMap.value, [data.moduleId]: data }
-    else if (data.level === 'tool' && data.toolId != null) {
-      const name = Object.keys(toolDocMap.value).find((key) => toolDocMap.value[key].id === data.id)
-      if (name) toolDocMap.value = { ...toolDocMap.value, [name]: data }
+    else if (data.level === 'scan_tool' && data.toolId != null) {
+      toolDocMap.value = { ...toolDocMap.value, [data.toolId]: data }
+    } else if (data.level === 'tool' && data.toolId != null) {
+      const ent = Object.entries(toolDocMap.value).find(([, v]) => v.id === data.id)
+      if (ent) {
+        const k = Number(ent[0])
+        if (!Number.isNaN(k)) toolDocMap.value = { ...toolDocMap.value, [k]: data }
+      }
     }
     docEditVisible.value = false
     ElMessage.success('已保存')
@@ -1039,6 +1235,58 @@ onUnmounted(stopPollingTask)
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px 20px;
   font-size: 14px;
+}
+
+.tools-table-wrap {
+  min-height: 120px;
+}
+
+.tool-groups-collapse {
+  border: none;
+
+  :deep(.el-collapse-item__header) {
+    font-weight: 500;
+    padding-left: 4px;
+  }
+
+  :deep(.el-collapse-item__wrap) {
+    border-bottom: none;
+  }
+
+  :deep(.el-collapse-item__content) {
+    padding-bottom: 12px;
+  }
+}
+
+.module-collapse-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+  box-sizing: border-box;
+  padding-right: 4px;
+}
+
+.module-collapse-title__text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.collapse-module-title {
+  margin-right: 0;
+}
+
+.module-tool-count {
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.nested-tools-table {
+  margin-top: 4px;
 }
 
 .tools-header {

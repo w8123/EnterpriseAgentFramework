@@ -1,8 +1,6 @@
 package com.enterprise.ai.agent.scan;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -10,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -32,15 +31,18 @@ public class ScanModuleService {
     };
 
     private final ScanModuleMapper moduleMapper;
-    private final ToolDefinitionMapper toolMapper;
+    private final ScanProjectToolMapper scanProjectToolMapper;
     private final ObjectMapper objectMapper;
+    private final ScanProjectMapper projectMapper;
 
     public ScanModuleService(ScanModuleMapper moduleMapper,
-                             ToolDefinitionMapper toolMapper,
-                             ObjectMapper objectMapper) {
+                             ScanProjectToolMapper scanProjectToolMapper,
+                             ObjectMapper objectMapper,
+                             ScanProjectMapper projectMapper) {
         this.moduleMapper = moduleMapper;
-        this.toolMapper = toolMapper;
+        this.scanProjectToolMapper = scanProjectToolMapper;
         this.objectMapper = objectMapper;
+        this.projectMapper = projectMapper;
     }
 
     public List<ScanModuleEntity> listByProject(Long projectId) {
@@ -58,19 +60,21 @@ public class ScanModuleService {
     }
 
     /**
-     * 扫描/重扫完成后调用：根据项目下的 tool_definition 自动按 Controller 类名初始化模块，
-     * 并回写 tool_definition.module_id。幂等：已存在同名模块的工具会复用原模块。
+     * 扫描/重扫完成后调用：根据项目下的 scan_project_tool 自动按 Controller 类名初始化模块，
+     * 并回写 module_id。幂等：已存在同名模块的工具会复用原模块。
      */
     @Transactional
     public void bootstrapFromTools(Long projectId) {
-        List<ToolDefinitionEntity> tools = toolMapper.selectList(new LambdaQueryWrapper<ToolDefinitionEntity>()
-                .eq(ToolDefinitionEntity::getProjectId, projectId));
+        List<ScanProjectToolEntity> tools = scanProjectToolMapper.selectList(new LambdaQueryWrapper<ScanProjectToolEntity>()
+                .eq(ScanProjectToolEntity::getProjectId, projectId));
         if (tools.isEmpty()) {
             return;
         }
 
-        Map<String, List<ToolDefinitionEntity>> grouped = new LinkedHashMap<>();
-        for (ToolDefinitionEntity tool : tools) {
+        Path scanRoot = resolveScanRoot(projectId);
+
+        Map<String, List<ScanProjectToolEntity>> grouped = new LinkedHashMap<>();
+        for (ScanProjectToolEntity tool : tools) {
             String moduleName = resolveControllerModuleName(tool);
             grouped.computeIfAbsent(moduleName, key -> new ArrayList<>()).add(tool);
         }
@@ -80,21 +84,23 @@ public class ScanModuleService {
             existingByName.put(existing.getName(), existing);
         }
 
-        for (Map.Entry<String, List<ToolDefinitionEntity>> entry : grouped.entrySet()) {
+        for (Map.Entry<String, List<ScanProjectToolEntity>> entry : grouped.entrySet()) {
             String moduleName = entry.getKey();
             ScanModuleEntity module = existingByName.get(moduleName);
             if (module == null) {
                 module = new ScanModuleEntity();
                 module.setProjectId(projectId);
                 module.setName(moduleName);
-                module.setDisplayName(moduleName);
+                module.setDisplayName(resolveModuleDisplayName(scanRoot, moduleName, entry.getValue().get(0)));
                 module.setSourceClasses(serializeClasses(List.of(moduleName)));
                 moduleMapper.insert(module);
+            } else {
+                refreshDisplayNameIfDefault(scanRoot, moduleName, module, entry.getValue().get(0));
             }
-            for (ToolDefinitionEntity tool : entry.getValue()) {
+            for (ScanProjectToolEntity tool : entry.getValue()) {
                 if (!Objects.equals(tool.getModuleId(), module.getId())) {
                     tool.setModuleId(module.getId());
-                    toolMapper.updateById(tool);
+                    scanProjectToolMapper.updateById(tool);
                 }
             }
         }
@@ -102,9 +108,45 @@ public class ScanModuleService {
         existingByName.values().stream()
                 .filter(existing -> !grouped.containsKey(existing.getName()))
                 .filter(existing -> !hasMultipleSourceClasses(existing))
-                .filter(existing -> toolMapper.selectCount(new LambdaQueryWrapper<ToolDefinitionEntity>()
-                        .eq(ToolDefinitionEntity::getModuleId, existing.getId())) == 0)
+                .filter(existing -> scanProjectToolMapper.selectCount(new LambdaQueryWrapper<ScanProjectToolEntity>()
+                        .eq(ScanProjectToolEntity::getModuleId, existing.getId())) == 0)
                 .forEach(orphan -> moduleMapper.deleteById(orphan.getId()));
+    }
+
+    private Path resolveScanRoot(Long projectId) {
+        ScanProjectEntity project = projectMapper.selectById(projectId);
+        if (project == null || !StringUtils.hasText(project.getScanPath())) {
+            return null;
+        }
+        try {
+            return Path.of(project.getScanPath().trim());
+        } catch (Exception ex) {
+            log.warn("[ScanModuleService] invalid scanPath for project {}: {}", projectId, project.getScanPath(), ex);
+            return null;
+        }
+    }
+
+    /**
+     * 展示名：类 Javadoc → 类上 @Api/@Tag/@Tags 等 → 类名。
+     */
+    private String resolveModuleDisplayName(Path scanRoot, String moduleName, ScanProjectToolEntity sample) {
+        return ControllerModuleDisplayNameResolver.resolve(scanRoot, moduleName, sample.getSourceLocation())
+                .filter(StringUtils::hasText)
+                .orElse(moduleName);
+    }
+
+    /**
+     * 若展示名仍为默认的类名，则在重扫时尝试用源码中的 Javadoc/注解更新。
+     */
+    private void refreshDisplayNameIfDefault(Path scanRoot, String moduleName, ScanModuleEntity module, ScanProjectToolEntity sample) {
+        if (!Objects.equals(module.getDisplayName(), module.getName())) {
+            return;
+        }
+        String resolved = resolveModuleDisplayName(scanRoot, moduleName, sample);
+        if (StringUtils.hasText(resolved) && !Objects.equals(resolved, module.getDisplayName())) {
+            module.setDisplayName(resolved);
+            moduleMapper.updateById(module);
+        }
     }
 
     @Transactional
@@ -143,11 +185,11 @@ public class ScanModuleService {
             mergedClasses.addAll(parseClasses(source.getSourceClasses()));
             mergedClasses.add(source.getName());
 
-            toolMapper.selectList(new LambdaQueryWrapper<ToolDefinitionEntity>()
-                            .eq(ToolDefinitionEntity::getModuleId, source.getId()))
+            scanProjectToolMapper.selectList(new LambdaQueryWrapper<ScanProjectToolEntity>()
+                            .eq(ScanProjectToolEntity::getModuleId, source.getId()))
                     .forEach(tool -> {
                         tool.setModuleId(target.getId());
-                        toolMapper.updateById(tool);
+                        scanProjectToolMapper.updateById(tool);
                     });
             moduleMapper.deleteById(source.getId());
         }
@@ -192,10 +234,10 @@ public class ScanModuleService {
     }
 
     /**
-     * 从 {@link ToolDefinitionEntity#getSourceLocation()} 里尝试还原 Controller 类名。
+     * 从 {@link ScanProjectToolEntity#getSourceLocation()} 里尝试还原 Controller 类名。
      * Scanner 约定写法：{fileName}#{ClassName}#{methodName} 或 OpenAPI 场景只有 tag/file，回退取首段。
      */
-    private String resolveControllerModuleName(ToolDefinitionEntity tool) {
+    private String resolveControllerModuleName(ScanProjectToolEntity tool) {
         String loc = tool.getSourceLocation();
         if (StringUtils.hasText(loc)) {
             String[] parts = loc.split("#");

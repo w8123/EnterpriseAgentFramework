@@ -64,11 +64,22 @@ export function generateToolDoc(toolName: string, force = true, llm?: SemanticLl
   )
 }
 
+/** 扫描项目内接口的语义生成（文档层级为 scan_tool） */
+export function generateScanToolDoc(projectId: number, scanToolId: number, force = true, llm?: SemanticLlmParams) {
+  return agentRequest.post<SemanticDoc>(
+    `/api/scan-projects/${projectId}/scan-tools/${scanToolId}/semantic/generate`,
+    null,
+    { params: { force, ...llmQueryParams(llm) } },
+  )
+}
+
 export function findSemanticDoc(params: {
   level: SemanticLevel
   projectId?: number
   moduleId?: number
   toolName?: string
+  /** level 为 scan_tool 时必填，对应 scan_project_tool.id */
+  scanToolId?: number
 }) {
   return agentRequest.get<SemanticDoc>('/api/semantic-docs', { params })
 }

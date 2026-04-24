@@ -38,8 +38,8 @@ spring:
 services:
   model-service:
     url: ${MODEL_SERVICE_URL:http://localhost:8090}
-  text-service:
-    url: ${TEXT_SERVICE_URL:http://localhost:8080}
+  skills-service:
+    url: ${SKILLS_SERVICE_URL:http://localhost:8080}
 
 # ==================== 极视角平台 ====================
 jishi:
@@ -87,10 +87,32 @@ memory:
   max-messages: 20
   ttl-hours: 24
 
-# ==================== RAG（通过 ai-text-service） ====================
+# ==================== RAG（通过 ai-skills-service） ====================
 rag:
   top-k: 5
   score-threshold: 0.7
+
+# ==================== Milvus（Tool Retrieval 直连） ====================
+milvus:
+  host: ${MILVUS_HOST:localhost}
+  port: ${MILVUS_PORT:19530}
+
+# ==================== Tool Retrieval & Call Log ====================
+ai:
+  tool-retrieval:
+    enabled: ${TOOL_RETRIEVAL_ENABLED:true}
+    top-k: 15
+    min-score: 0.3
+    fallback-on-error: true
+    collection-name: tool_embeddings
+    embedding-dim: 1536
+    embedding-provider: ${EMBEDDING_PROVIDER:}
+    embedding-model: ${EMBEDDING_MODEL:}
+  tool-call-log:
+    enabled: ${TOOL_CALL_LOG_ENABLED:true}
+    async: true
+    result-max-chars: 2000
+    args-max-chars: 4000
 
 # ==================== 日志 ====================
 logging:

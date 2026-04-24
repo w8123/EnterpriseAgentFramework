@@ -1,4 +1,4 @@
-export type SemanticLevel = 'project' | 'module' | 'tool'
+export type SemanticLevel = 'project' | 'module' | 'tool' | 'scan_tool'
 export type SemanticStatus = 'draft' | 'generated' | 'edited'
 export type SemanticTaskStage = 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED'
 

@@ -3,7 +3,6 @@ package com.enterprise.ai.agent.scan;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.enterprise.ai.agent.client.ScannerServiceClient;
 import com.enterprise.ai.agent.semantic.SemanticDocService;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionUpsertRequest;
@@ -31,21 +30,23 @@ public class ScanProjectService {
 
     private final ScanProjectMapper projectMapper;
     private final ToolDefinitionService toolDefinitionService;
+    private final ScanProjectToolService scanProjectToolService;
     private final ScannerServiceClient scannerServiceClient;
-
-    /** 可选依赖：仅当 ai-model-service 语义能力启用时需要。延迟注入避免循环。 */
-    @Autowired(required = false)
-    private ScanModuleService scanModuleService;
+    private final ScanModuleService scanModuleService;
 
     @Autowired(required = false)
     private SemanticDocService semanticDocService;
 
     public ScanProjectService(ScanProjectMapper projectMapper,
                               ToolDefinitionService toolDefinitionService,
-                              ScannerServiceClient scannerServiceClient) {
+                              ScanProjectToolService scanProjectToolService,
+                              ScannerServiceClient scannerServiceClient,
+                              ScanModuleService scanModuleService) {
         this.projectMapper = projectMapper;
         this.toolDefinitionService = toolDefinitionService;
+        this.scanProjectToolService = scanProjectToolService;
         this.scannerServiceClient = scannerServiceClient;
+        this.scanModuleService = scanModuleService;
     }
 
     public ScanProjectEntity create(ScanProjectUpsertRequest request) {
@@ -105,28 +106,27 @@ public class ScanProjectService {
                 .last("limit 1")));
     }
 
-    public List<ToolDefinitionEntity> listTools(Long projectId) {
+    public List<ScanProjectToolEntity> listTools(Long projectId) {
         getById(projectId);
-        return toolDefinitionService.listByProjectId(projectId);
+        return scanProjectToolService.listByProject(projectId);
     }
 
     @Transactional
     public void delete(Long id) {
         getById(id);
+        scanProjectToolService.deleteByProject(id);
         toolDefinitionService.deleteByProjectId(id);
         if (semanticDocService != null) {
             semanticDocService.deleteByProject(id);
         }
-        if (scanModuleService != null) {
-            scanModuleService.deleteByProject(id);
-        }
+        scanModuleService.deleteByProject(id);
         projectMapper.deleteById(id);
     }
 
     @Transactional
     public ScanResult scan(Long projectId) {
         ScanProjectEntity project = getById(projectId);
-        if (!toolDefinitionService.listByProjectId(projectId).isEmpty()) {
+        if (!scanProjectToolService.listByProject(projectId).isEmpty()) {
             throw new IllegalArgumentException("项目已有扫描结果，请使用重新扫描");
         }
         return performScan(project, false);
@@ -141,14 +141,13 @@ public class ScanProjectService {
     private ScanResult performScan(ScanProjectEntity project, boolean deleteOldTools) {
         updateStatus(project, "scanning", null);
         if (deleteOldTools) {
+            scanProjectToolService.deleteByProject(project.getId());
             toolDefinitionService.deleteByProjectId(project.getId());
         }
         ScannerServiceClient.ManifestData manifest = scanManifest(project);
         List<String> toolNames = persistTools(project, manifest);
         project.setToolCount(toolNames.size());
-        if (scanModuleService != null) {
-            scanModuleService.bootstrapFromTools(project.getId());
-        }
+        scanModuleService.bootstrapFromTools(project.getId());
         updateStatus(project, "scanned", null);
         return new ScanResult(project.getId(), project.getName(), toolNames.size(), List.copyOf(toolNames));
     }
@@ -183,6 +182,24 @@ public class ScanProjectService {
         return requireSuccess(scannerServiceClient.scanController(request));
     }
 
+    /**
+     * 把扫描服务返回的参数数据递归映射成 {@link ToolDefinitionParameter}（保留 body 子字段树）。
+     */
+    private static ToolDefinitionParameter toToolDefinitionParameter(ScannerServiceClient.ToolParameterData parameter) {
+        List<ScannerServiceClient.ToolParameterData> rawChildren = parameter.getChildren();
+        List<ToolDefinitionParameter> children = rawChildren == null || rawChildren.isEmpty()
+                ? List.of()
+                : rawChildren.stream().map(ScanProjectService::toToolDefinitionParameter).toList();
+        return new ToolDefinitionParameter(
+                parameter.getName(),
+                parameter.getType(),
+                parameter.getDescription(),
+                parameter.isRequired(),
+                parameter.getLocation(),
+                children
+        );
+    }
+
     private ScannerServiceClient.ManifestData requireSuccess(ScannerServiceClient.ScanManifestResult result) {
         if (result == null) {
             throw new IllegalArgumentException("扫描服务返回为空");
@@ -199,21 +216,16 @@ public class ScanProjectService {
     private List<String> persistTools(ScanProjectEntity project, ScannerServiceClient.ManifestData manifest) {
         List<String> toolNames = new ArrayList<>();
         List<ScannerServiceClient.ToolData> tools = manifest.getTools() == null ? List.of() : manifest.getTools();
+        boolean useProjectPrefix = !isControllerScannerManifest(tools);
         String manifestBaseUrl = manifest.getProject() == null ? project.getBaseUrl() : manifest.getProject().getBaseUrl();
         String manifestContextPath = manifest.getProject() == null ? normalizeContextPath(project.getContextPath()) : manifest.getProject().getContextPath();
         for (ScannerServiceClient.ToolData tool : tools) {
-            String scopedName = buildUniqueToolName(project.getName(), tool.getName());
-            toolDefinitionService.create(new ToolDefinitionUpsertRequest(
+            String scopedName = buildUniqueToolName(project.getId(), project.getName(), tool.getName(), useProjectPrefix);
+            scanProjectToolService.insertScanned(project.getId(), new ToolDefinitionUpsertRequest(
                     scopedName,
                     tool.getDescription(),
                     (tool.getParameters() == null ? List.<ScannerServiceClient.ToolParameterData>of() : tool.getParameters()).stream()
-                            .map(parameter -> new ToolDefinitionParameter(
-                                    parameter.getName(),
-                                    parameter.getType(),
-                                    parameter.getDescription(),
-                                    parameter.isRequired(),
-                                    parameter.getLocation()
-                            ))
+                            .map(ScanProjectService::toToolDefinitionParameter)
                             .toList(),
                     "scanner",
                     tool.getSource() == null ? null : tool.getSource().getLocation(),
@@ -223,7 +235,7 @@ public class ScanProjectService {
                     tool.getPath(),
                     tool.getRequestBodyType(),
                     tool.getResponseType(),
-                    project.getId(),
+                    null,
                     false,
                     false,
                     false
@@ -273,15 +285,37 @@ public class ScanProjectService {
         return null;
     }
 
-    private String buildUniqueToolName(String projectName, String rawToolName) {
-        String baseName = scopeToolName(projectName, rawToolName);
+    /**
+     * 代码扫描（Controller）结果不再加 {@code 项目名__} 前缀，与扫描器生成的工具名一致；OpenAPI 等仍加前缀以降低全局重名概率。
+     */
+    private boolean isControllerScannerManifest(List<ScannerServiceClient.ToolData> tools) {
+        if (tools.isEmpty()) {
+            return false;
+        }
+        for (ScannerServiceClient.ToolData tool : tools) {
+            if (tool.getSource() == null || !"controller".equals(tool.getSource().getScanner())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private String buildUniqueToolName(Long projectId, String projectName, String rawToolName, boolean useProjectPrefix) {
+        String baseName = useProjectPrefix
+                ? scopeToolName(projectName, rawToolName)
+                : controllerScanToolBaseName(rawToolName);
         String candidate = baseName;
         int suffix = 2;
-        while (toolDefinitionService.findByName(candidate).isPresent()) {
+        while (scanProjectToolService.existsByProjectAndName(projectId, candidate)) {
             candidate = baseName + "_" + suffix;
             suffix++;
         }
         return candidate;
+    }
+
+    private String controllerScanToolBaseName(String rawToolName) {
+        String normalized = normalizeName(rawToolName);
+        return normalized.isBlank() ? "tool" : normalized;
     }
 
     private String scopeToolName(String projectName, String rawToolName) {
