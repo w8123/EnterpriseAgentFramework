@@ -24,8 +24,19 @@ spring:
 # 模型网关配置
 model:
   default-provider: tongyi
+  # 小米 MiMo（OpenAI 兼容，请求头 api-key）。配置非空 api-key 后自动注册 provider「mimo」
+  mimo:
+    api-key: ${MIMO_API_KEY:sk-ctg3qfd8m2tdo10qy1uor5x1arysho0zn02wkue1gzvmv9vb}
+    base-url: https://api.xiaomimimo.com
+    default-model: mimo-v2.5-pro
+    models:
+      - mimo-v2.5-pro
+    max-completion-tokens: 1024
+    temperature: 1.0
+    top-p: 0.95
+    frequency-penalty: 0
+    presence-penalty: 0
   tongyi:
-    api-key: ${DASHSCOPE_API_KEY:sk-your-key-here}
     embedding:
       model: text-embedding-v2
       endpoint: https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding

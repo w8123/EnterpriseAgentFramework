@@ -17,6 +17,8 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -25,10 +27,10 @@ class SemanticDocControllerTest {
     @Test
     void batchGenerateAcceptedAndReturnsTaskId() {
         SemanticGenerationOrchestrator orchestrator = mock(SemanticGenerationOrchestrator.class);
-        when(orchestrator.startProjectBatch(1L, false)).thenReturn("task-xyz");
+        when(orchestrator.startProjectBatch(eq(1L), eq(false), isNull(), isNull())).thenReturn("task-xyz");
 
         SemanticDocController controller = controller(orchestrator);
-        ResponseEntity<?> resp = controller.batchGenerate(1L, false);
+        ResponseEntity<?> resp = controller.batchGenerate(1L, false, null, null);
 
         assertEquals(HttpStatus.ACCEPTED, resp.getStatusCode());
         assertNotNull(resp.getBody());
@@ -37,10 +39,11 @@ class SemanticDocControllerTest {
     @Test
     void batchGenerateConflictsWhenLocked() {
         SemanticGenerationOrchestrator orchestrator = mock(SemanticGenerationOrchestrator.class);
-        when(orchestrator.startProjectBatch(2L, false)).thenThrow(new IllegalStateException("项目已有生成任务在进行中: 2"));
+        when(orchestrator.startProjectBatch(eq(2L), eq(false), isNull(), isNull()))
+                .thenThrow(new IllegalStateException("项目已有生成任务在进行中: 2"));
 
         SemanticDocController controller = controller(orchestrator);
-        ResponseEntity<?> resp = controller.batchGenerate(2L, false);
+        ResponseEntity<?> resp = controller.batchGenerate(2L, false, null, null);
 
         assertEquals(409, resp.getStatusCode().value());
     }
@@ -82,7 +85,7 @@ class SemanticDocControllerTest {
         when(toolService.findByName("unknown")).thenReturn(Optional.empty());
 
         SemanticDocController controller = controller(orchestrator, toolService);
-        assertEquals(HttpStatus.NOT_FOUND, controller.generateTool("unknown", true).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, controller.generateTool("unknown", true, null, null).getStatusCode());
     }
 
     @Test
@@ -99,10 +102,10 @@ class SemanticDocControllerTest {
         doc.setLevel(SemanticDocEntity.LEVEL_TOOL);
         doc.setContentMd("## 一句话语义\n创建订单。");
         doc.setStatus(SemanticDocEntity.STATUS_GENERATED);
-        when(orchestrator.generateForTool(11L, true)).thenReturn(doc);
+        when(orchestrator.generateForTool(eq(11L), eq(true), isNull(), isNull())).thenReturn(doc);
 
         SemanticDocController controller = controller(orchestrator, toolService);
-        ResponseEntity<?> resp = controller.generateTool("demo", true);
+        ResponseEntity<?> resp = controller.generateTool("demo", true, null, null);
 
         assertEquals(HttpStatus.OK, resp.getStatusCode());
     }

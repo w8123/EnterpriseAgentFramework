@@ -9,11 +9,26 @@ import type {
   SemanticTask,
 } from '@/types/semanticDoc'
 
-export function startProjectBatchGenerate(projectId: number, force = false) {
+/** 语义生成（项目摘要 / 模块 / 工具 / 批量）可选的模型网关参数 */
+export type SemanticLlmParams = {
+  provider?: string
+  model?: string
+}
+
+function llmQueryParams(llm?: SemanticLlmParams): Record<string, string> {
+  const q: Record<string, string> = {}
+  const p = llm?.provider?.trim()
+  const m = llm?.model?.trim()
+  if (p) q.provider = p
+  if (m) q.model = m
+  return q
+}
+
+export function startProjectBatchGenerate(projectId: number, force = false, llm?: SemanticLlmParams) {
   return agentRequest.post<BatchStartResponse>(
     `/api/scan-projects/${projectId}/semantic/generate`,
     null,
-    { params: { force } },
+    { params: { force, ...llmQueryParams(llm) } },
   )
 }
 
@@ -25,27 +40,27 @@ export function getProjectBatchStatus(projectId: number, taskId?: string) {
   )
 }
 
-export function generateProjectDoc(projectId: number, force = true) {
+export function generateProjectDoc(projectId: number, force = true, llm?: SemanticLlmParams) {
   return agentRequest.post<SemanticDoc>(
     `/api/scan-projects/${projectId}/semantic/generate-project`,
     null,
-    { params: { force } },
+    { params: { force, ...llmQueryParams(llm) } },
   )
 }
 
-export function generateModuleDoc(moduleId: number, force = true) {
+export function generateModuleDoc(moduleId: number, force = true, llm?: SemanticLlmParams) {
   return agentRequest.post<SemanticDoc>(
     `/api/scan-modules/${moduleId}/semantic/generate`,
     null,
-    { params: { force } },
+    { params: { force, ...llmQueryParams(llm) } },
   )
 }
 
-export function generateToolDoc(toolName: string, force = true) {
+export function generateToolDoc(toolName: string, force = true, llm?: SemanticLlmParams) {
   return agentRequest.post<SemanticDoc>(
     `/api/tools/${encodeURIComponent(toolName)}/semantic/generate`,
     null,
-    { params: { force } },
+    { params: { force, ...llmQueryParams(llm) } },
   )
 }
 

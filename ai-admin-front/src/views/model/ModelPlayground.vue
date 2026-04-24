@@ -63,7 +63,7 @@
             class="msg-block"
             :class="msg.role"
           >
-            <div class="msg-role">{{ msg.role === 'user' ? '你' : 'AI' }}</div>
+            <div class="msg-role">{{ msg.role === 'user' ? '你' : msg.role === 'tool' ? '工具' : 'AI' }}</div>
             <div class="msg-text">{{ msg.content }}</div>
           </div>
           <div v-if="streamingContent" class="msg-block assistant">
@@ -97,7 +97,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
-import type { ProviderInfo, ModelChatMessage, TokenUsage } from '@/types/model'
+import type { ProviderInfo, ModelChatMessage, ModelChatResponse, TokenUsage } from '@/types/model'
 import { getProviders, modelChat, modelChatStream } from '@/api/model'
 import { useSSE } from '@/composables/useSSE'
 
@@ -181,9 +181,21 @@ async function handleSend() {
         model: config.model,
         messages: allMessages,
       })
-      const resp = data?.data ?? data
-      messages.value.push({ role: 'assistant', content: (resp as any).content || '' })
-      lastUsage.value = (resp as any).usage || null
+      const resp = (data?.data ?? data) as ModelChatResponse
+      const assistantMsg: ModelChatMessage = {
+        role: 'assistant',
+        content: resp.content || '',
+      }
+      if (resp.reasoningContent) {
+        assistantMsg.reasoningContent = resp.reasoningContent
+      }
+      if (resp.toolCalls != null) {
+        assistantMsg.toolCalls = Array.isArray(resp.toolCalls)
+          ? resp.toolCalls
+          : [resp.toolCalls]
+      }
+      messages.value.push(assistantMsg)
+      lastUsage.value = resp.usage || null
     } catch {
       messages.value.push({ role: 'assistant', content: '请求失败' })
     } finally {

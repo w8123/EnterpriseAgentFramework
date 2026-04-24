@@ -59,7 +59,7 @@ class SemanticGenerationOrchestratorTest {
         locks.put(1L, "pre-existing-task");
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> orchestrator.startProjectBatch(1L, false));
+                () -> orchestrator.startProjectBatch(1L, false, null, null));
         assertTrue(ex.getMessage().contains("进行中"));
     }
 

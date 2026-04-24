@@ -4,6 +4,9 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,19 +38,32 @@ public interface ModelServiceClient {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     class ModelChatRequest {
         private String provider;
         private String model;
         private List<ChatMessage> messages;
         private Map<String, Object> options;
+        private JsonNode tools;
+
+        @JsonAlias("tool_choice")
+        private JsonNode toolChoice;
 
         @Data
         @Builder
         @NoArgsConstructor
         @AllArgsConstructor
+        @JsonInclude(JsonInclude.Include.NON_NULL)
         public static class ChatMessage {
             private String role;
             private String content;
+            @JsonAlias("reasoning_content")
+            private String reasoningContent;
+            @JsonAlias("tool_calls")
+            private JsonNode toolCalls;
+            @JsonAlias("tool_call_id")
+            private String toolCallId;
+            private String name;
         }
     }
 
@@ -66,11 +82,15 @@ public interface ModelServiceClient {
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     class ModelChatData {
         private String content;
         private String model;
         private String provider;
         private ModelUsage usage;
+        private String reasoningContent;
+        private JsonNode toolCalls;
+        private String finishReason;
     }
 
     @Data

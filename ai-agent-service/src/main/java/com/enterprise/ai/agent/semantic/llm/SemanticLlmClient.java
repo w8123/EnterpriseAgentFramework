@@ -29,14 +29,22 @@ public class SemanticLlmClient {
         this.modelServiceClient = modelServiceClient;
     }
 
-    public SemanticGenerationResult generate(String userPrompt) {
-        ModelChatRequest request = ModelChatRequest.builder()
-                .model(defaultModel)
+    /**
+     * @param provider 非空时传给模型网关；为空则走网关默认 Provider
+     * @param model    非空时使用该模型；为空则使用 {@code agentscope.model.name}
+     */
+    public SemanticGenerationResult generate(String userPrompt, String provider, String model) {
+        String modelToUse = (model == null || model.isBlank()) ? defaultModel : model.trim();
+        ModelChatRequest.ModelChatRequestBuilder b = ModelChatRequest.builder()
+                .model(modelToUse)
                 .messages(List.of(
                         ModelChatRequest.ChatMessage.builder().role("system").content(SYSTEM_PROMPT).build(),
                         ModelChatRequest.ChatMessage.builder().role("user").content(userPrompt).build()
-                ))
-                .build();
+                ));
+        if (provider != null && !provider.isBlank()) {
+            b.provider(provider.trim());
+        }
+        ModelChatRequest request = b.build();
 
         ModelChatResult result;
         try {
@@ -51,7 +59,7 @@ public class SemanticLlmClient {
         ModelChatData data = result.getData();
         ModelUsage usage = data.getUsage();
         int total = usage == null ? 0 : usage.getTotalTokens();
-        String modelName = data.getModel() == null ? defaultModel : data.getModel();
+        String modelName = data.getModel() == null ? modelToUse : data.getModel();
         return new SemanticGenerationResult(data.getContent().trim(), modelName, total);
     }
 

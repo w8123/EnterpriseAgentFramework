@@ -64,9 +64,23 @@ public class ModelController {
         return ApiResult.ok(routingService.listProviders());
     }
 
-    /** Provider 连通性测试 */
+    /**
+     * Provider 连通性测试（Query 方式，不依赖编译器 {@code -parameters}，避免部分 IDE/构建下 PathVariable 绑定失败）。
+     */
+    @PostMapping("/providers/test")
+    public ApiResult<Boolean> testProviderByQuery(@RequestParam("name") String name) {
+        return runProviderConnectivityTest(name);
+    }
+
+    /**
+     * Provider 连通性测试（Path 方式，与旧文档/调用一致）。
+     */
     @PostMapping("/providers/{name}/test")
-    public ApiResult<Boolean> testProvider(@PathVariable String name) {
+    public ApiResult<Boolean> testProviderByPath(@PathVariable("name") String name) {
+        return runProviderConnectivityTest(name);
+    }
+
+    private ApiResult<Boolean> runProviderConnectivityTest(String name) {
         log.info("[ProviderTest] 测试 provider={}", name);
         boolean result = routingService.testProvider(name);
         log.info("[ProviderTest] provider={} 测试结果={}", name, result);

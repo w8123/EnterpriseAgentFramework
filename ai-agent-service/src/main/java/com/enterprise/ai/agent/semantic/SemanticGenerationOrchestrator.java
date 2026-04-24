@@ -70,26 +70,26 @@ public class SemanticGenerationOrchestrator {
     // ==================== 单层同步生成 ====================
 
     @Transactional
-    public SemanticDocEntity generateForProject(Long projectId, boolean force) {
+    public SemanticDocEntity generateForProject(Long projectId, boolean force, String provider, String model) {
         ScanProjectEntity project = scanProjectService.getById(projectId);
         List<ScanModuleEntity> modules = scanModuleService.listByProject(projectId);
         SemanticContext ctx = contextCollector.collectForProject(project, modules);
-        return runGeneration(ctx, SemanticContext.LEVEL_PROJECT, projectId, null, null, force);
+        return runGeneration(ctx, SemanticContext.LEVEL_PROJECT, projectId, null, null, force, provider, model);
     }
 
     @Transactional
-    public SemanticDocEntity generateForModule(Long moduleId, boolean force) {
+    public SemanticDocEntity generateForModule(Long moduleId, boolean force, String provider, String model) {
         ScanModuleEntity module = scanModuleService.getById(moduleId);
         ScanProjectEntity project = scanProjectService.getById(module.getProjectId());
         List<ToolDefinitionEntity> moduleTools = toolDefinitionMapper.selectList(
                 new LambdaQueryWrapper<ToolDefinitionEntity>()
                         .eq(ToolDefinitionEntity::getModuleId, moduleId));
         SemanticContext ctx = contextCollector.collectForModule(project, module, moduleTools);
-        return runGeneration(ctx, SemanticContext.LEVEL_MODULE, project.getId(), moduleId, null, force);
+        return runGeneration(ctx, SemanticContext.LEVEL_MODULE, project.getId(), moduleId, null, force, provider, model);
     }
 
     @Transactional
-    public SemanticDocEntity generateForTool(Long toolId, boolean force) {
+    public SemanticDocEntity generateForTool(Long toolId, boolean force, String provider, String model) {
         ToolDefinitionEntity tool = toolDefinitionMapper.selectById(toolId);
         if (tool == null) {
             throw new IllegalArgumentException("工具不存在: " + toolId);
@@ -101,14 +101,14 @@ public class SemanticGenerationOrchestrator {
         ScanModuleEntity module = tool.getModuleId() == null ? null : scanModuleService.getById(tool.getModuleId());
         SemanticContext ctx = contextCollector.collectForTool(project, tool, module);
         SemanticDocEntity doc = runGeneration(ctx, SemanticContext.LEVEL_TOOL,
-                project.getId(), tool.getModuleId(), toolId, force);
+                project.getId(), tool.getModuleId(), toolId, force, provider, model);
         applyToolAiDescription(tool, doc);
         return doc;
     }
 
     // ==================== 批量异步生成 ====================
 
-    public String startProjectBatch(Long projectId, boolean force) {
+    public String startProjectBatch(Long projectId, boolean force, String provider, String model) {
         scanProjectService.getById(projectId);
         if (projectLocks.putIfAbsent(projectId, "-") != null) {
             throw new IllegalStateException("项目已有生成任务在进行中: " + projectId);
@@ -116,6 +116,8 @@ public class SemanticGenerationOrchestrator {
         SemanticGenerationTask task = new SemanticGenerationTask();
         task.setTaskId(UUID.randomUUID().toString());
         task.setProjectId(projectId);
+        task.setLlmProvider(blankToNull(provider));
+        task.setLlmModel(blankToNull(model));
         task.setStage(SemanticGenerationTask.Stage.QUEUED);
         task.setStartedAt(Instant.now());
         tasks.put(task.getTaskId(), task);
@@ -144,21 +146,23 @@ public class SemanticGenerationOrchestrator {
                             .eq(ToolDefinitionEntity::getProjectId, task.getProjectId()));
             task.setTotalSteps(1 + modules.size() + tools.size());
 
+            String provider = task.getLlmProvider();
+            String model = task.getLlmModel();
             task.setCurrentStep("project");
-            SemanticDocEntity projectDoc = self.generateForProject(task.getProjectId(), force);
+            SemanticDocEntity projectDoc = self.generateForProject(task.getProjectId(), force, provider, model);
             task.setTotalTokens(task.getTotalTokens() + safeTokens(projectDoc));
             task.setCompletedSteps(task.getCompletedSteps() + 1);
 
             for (ScanModuleEntity module : modules) {
                 task.setCurrentStep("module:" + module.getName());
-                SemanticDocEntity moduleDoc = self.generateForModule(module.getId(), force);
+                SemanticDocEntity moduleDoc = self.generateForModule(module.getId(), force, provider, model);
                 task.setTotalTokens(task.getTotalTokens() + safeTokens(moduleDoc));
                 task.setCompletedSteps(task.getCompletedSteps() + 1);
             }
 
             for (ToolDefinitionEntity tool : tools) {
                 task.setCurrentStep("tool:" + tool.getName());
-                SemanticDocEntity toolDoc = self.generateForTool(tool.getId(), force);
+                SemanticDocEntity toolDoc = self.generateForTool(tool.getId(), force, provider, model);
                 task.setTotalTokens(task.getTotalTokens() + safeTokens(toolDoc));
                 task.setCompletedSteps(task.getCompletedSteps() + 1);
             }
@@ -175,12 +179,22 @@ public class SemanticGenerationOrchestrator {
 
     // ==================== 内部核心 ====================
 
+    private static String blankToNull(String s) {
+        if (s == null) {
+            return null;
+        }
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
+    }
+
     private SemanticDocEntity runGeneration(SemanticContext context,
                                             String level,
                                             Long projectId,
                                             Long moduleId,
                                             Long toolId,
-                                            boolean force) {
+                                            boolean force,
+                                            String provider,
+                                            String model) {
         Optional<SemanticDocEntity> existing = semanticDocService.findByRef(level, projectId, moduleId, toolId);
         if (!force && existing.isPresent()
                 && SemanticDocEntity.STATUS_EDITED.equals(existing.get().getStatus())) {
@@ -188,7 +202,7 @@ public class SemanticGenerationOrchestrator {
         }
 
         String prompt = promptRegistry.render(context);
-        SemanticGenerationResult result = llmClient.generate(prompt);
+        SemanticGenerationResult result = llmClient.generate(prompt, provider, model);
 
         SemanticDocEntity doc = new SemanticDocEntity();
         doc.setLevel(level);

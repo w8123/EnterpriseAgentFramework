@@ -117,6 +117,26 @@
             </el-button>
             <el-button :loading="batchStarting" @click="startBatchGenerate(true)">强制重生成（覆盖已编辑）</el-button>
             <el-button @click="reloadAiTab">刷新</el-button>
+            <el-select
+              v-model="semanticProvider"
+              placeholder="Provider"
+              clearable
+              filterable
+              class="semantic-llm-select"
+              @change="onSemanticProviderChange"
+            >
+              <el-option v-for="p in semanticProviders" :key="p.name" :label="p.name" :value="p.name" />
+            </el-select>
+            <el-select
+              v-model="semanticModel"
+              placeholder="模型"
+              clearable
+              filterable
+              class="semantic-llm-select semantic-model-select"
+              :disabled="!semanticProvider"
+            >
+              <el-option v-for="m in semanticModelsForSelect" :key="m" :label="m" :value="m" />
+            </el-select>
             <el-tag v-if="task" :type="taskTagType(task.stage)" style="margin-left: 12px">
               {{ task.stage }} · {{ task.completedSteps }}/{{ task.totalSteps }}
             </el-tag>
@@ -423,6 +443,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { marked } from 'marked'
+import type { ProviderInfo } from '@/types/model'
 import type { ProjectToolInfo, ScanProject } from '@/types/scanProject'
 import type { ToolInfo, ToolParameter, ToolTestResult, ToolUpsertRequest } from '@/types/tool'
 import type { ScanModule, SemanticDoc, SemanticTask } from '@/types/semanticDoc'
@@ -439,7 +460,9 @@ import {
   mergeScanModules,
   renameScanModule,
   startProjectBatchGenerate,
+  type SemanticLlmParams,
 } from '@/api/semanticDoc'
+import { getProviders } from '@/api/model'
 
 const route = useRoute()
 const router = useRouter()
@@ -689,6 +712,14 @@ const task = ref<SemanticTask | null>(null)
 const projectGenLoading = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
+const semanticProviders = ref<ProviderInfo[]>([])
+const semanticProvider = ref('')
+const semanticModel = ref('')
+const semanticModelsForSelect = computed(() => {
+  const p = semanticProviders.value.find((x) => x.name === semanticProvider.value)
+  return p?.models ?? []
+})
+
 const docEditVisible = ref(false)
 const docEditContent = ref('')
 const docEditingId = ref<number | null>(null)
@@ -737,6 +768,55 @@ function taskTagType(stage: SemanticTask['stage']) {
   }
 }
 
+function syncSemanticModelToProvider() {
+  const models = semanticModelsForSelect.value
+  if (models.length === 0) {
+    semanticModel.value = ''
+    return
+  }
+  if (!semanticModel.value || !models.includes(semanticModel.value)) {
+    semanticModel.value = models[0]
+  }
+}
+
+function onSemanticProviderChange() {
+  if (!semanticProvider.value) {
+    semanticModel.value = ''
+    return
+  }
+  syncSemanticModelToProvider()
+}
+
+/** 传给语义生成接口；未选 Provider/模型时由后端走默认网关配置 */
+function semanticLlmParams(): SemanticLlmParams | undefined {
+  const p = semanticProvider.value?.trim()
+  const m = semanticModel.value?.trim()
+  if (!p && !m) return undefined
+  return {
+    ...(p ? { provider: p } : {}),
+    ...(m ? { model: m } : {}),
+  }
+}
+
+async function loadSemanticProviders() {
+  try {
+    const { data } = await getProviders()
+    const list = (data?.data ?? (Array.isArray(data) ? data : [])) as ProviderInfo[]
+    semanticProviders.value = list
+    if (list.length === 0) {
+      semanticProvider.value = ''
+      semanticModel.value = ''
+      return
+    }
+    if (!semanticProvider.value || !list.some((x) => x.name === semanticProvider.value)) {
+      semanticProvider.value = list[0].name
+    }
+    syncSemanticModelToProvider()
+  } catch {
+    semanticProviders.value = []
+  }
+}
+
 async function reloadAiTab() {
   try {
     const [moduleResp, docResp] = await Promise.all([
@@ -762,7 +842,7 @@ async function reloadAiTab() {
 async function startBatchGenerate(force: boolean) {
   batchStarting.value = true
   try {
-    const { data } = await startProjectBatchGenerate(projectId.value, force)
+    const { data } = await startProjectBatchGenerate(projectId.value, force, semanticLlmParams())
     ElMessage.success('已提交批量生成任务')
     startPollingTask(data.taskId)
   } catch (error) {
@@ -806,7 +886,7 @@ function stopPollingTask() {
 async function regenerateProject() {
   projectGenLoading.value = true
   try {
-    const { data } = await generateProjectDoc(projectId.value, true)
+    const { data } = await generateProjectDoc(projectId.value, true, semanticLlmParams())
     projectDoc.value = data
     ElMessage.success('项目级 AI 摘要已更新')
   } catch (error) {
@@ -818,7 +898,7 @@ async function regenerateProject() {
 
 async function regenerateModule(row: ScanModule) {
   try {
-    const { data } = await generateModuleDoc(row.id, true)
+    const { data } = await generateModuleDoc(row.id, true, semanticLlmParams())
     moduleDocMap.value = { ...moduleDocMap.value, [row.id]: data }
     ElMessage.success(`已更新模块 ${row.displayName}`)
   } catch (error) {
@@ -828,7 +908,7 @@ async function regenerateModule(row: ScanModule) {
 
 async function regenerateTool(row: ProjectToolInfo) {
   try {
-    const { data } = await generateToolDoc(row.name, true)
+    const { data } = await generateToolDoc(row.name, true, semanticLlmParams())
     toolDocMap.value = { ...toolDocMap.value, [row.name]: data }
     ElMessage.success(`已更新接口 ${row.name}`)
     await refreshAll()
@@ -929,7 +1009,8 @@ async function submitRename() {
 
 watch(activeTab, (tab) => {
   if (tab === 'ai') {
-    reloadAiTab()
+    void loadSemanticProviders()
+    void reloadAiTab()
     if (!task.value) {
       getProjectBatchStatus(projectId.value).then(({ data }) => {
         task.value = data ?? null
@@ -1048,6 +1129,14 @@ onUnmounted(stopPollingTask)
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.semantic-llm-select {
+  width: 140px;
+}
+
+.semantic-model-select {
+  width: 200px;
 }
 
 .token-sum {

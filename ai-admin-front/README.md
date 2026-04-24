@@ -17,7 +17,7 @@
 | | 文件详情 | Chunk 列表 |
 | | 检索测试 | 向量检索与相似度展示 |
 | | 业务索引 | 业务索引 CRUD、数据 upsert、语义搜索 |
-| **模型** | Provider 管理 | 列表、连通性测试（`/model/providers`、`/model/providers/{name}/test`） |
+| **模型** | Provider 管理 | 列表、连通性测试（`/model/providers`、`/model/providers/test?name=`） |
 | | 模型调试台 | 选择 Provider/Model，同步或 SSE 流式对话，Token 用量展示 |
 | **Tool** | Tool 管理 | 列表、参数 Schema 展开、测试弹窗（依赖后端 `GET/POST /api/tools` 等接口） |
 | **扫描项目** | 扫描项目列表 | 创建项目、填写项目名/域名/磁盘路径/扫描方式，触发扫描或重新扫描 |
@@ -163,7 +163,8 @@ ai-admin-front/
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/model/providers` | Provider 列表 |
-| POST | `/model/providers/{name}/test` | 连通性测试 |
+| POST | `/model/providers/test?name=` | 连通性测试（推荐） |
+| POST | `/model/providers/{name}/test` | 连通性测试（Path，兼容旧调用） |
 | POST | `/model/chat` | 同步对话 |
 | POST | `/model/chat/stream` | SSE 流式 |
 
