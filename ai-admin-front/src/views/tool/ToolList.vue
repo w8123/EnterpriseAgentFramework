@@ -256,43 +256,11 @@
         </el-form-item>
 
         <el-form-item label="参数定义">
-          <div class="parameter-editor">
-            <el-table :data="form.parameters" size="small" border>
-              <el-table-column label="参数名" min-width="120">
-                <template #default="{ row }">
-                  <el-input v-model="row.name" :disabled="isCodeTool" />
-                </template>
-              </el-table-column>
-              <el-table-column label="类型" width="120">
-                <template #default="{ row }">
-                  <el-input v-model="row.type" :disabled="isCodeTool" />
-                </template>
-              </el-table-column>
-              <el-table-column label="位置" width="120">
-                <template #default="{ row }">
-                  <el-select v-model="row.location" :disabled="isCodeTool" style="width: 100%">
-                    <el-option v-for="location in parameterLocations" :key="location" :label="location" :value="location" />
-                  </el-select>
-                </template>
-              </el-table-column>
-              <el-table-column label="描述" min-width="180">
-                <template #default="{ row }">
-                  <el-input v-model="row.description" :disabled="isCodeTool" />
-                </template>
-              </el-table-column>
-              <el-table-column label="必填" width="80" align="center">
-                <template #default="{ row }">
-                  <el-switch v-model="row.required" :disabled="isCodeTool" />
-                </template>
-              </el-table-column>
-              <el-table-column width="80" align="center">
-                <template #default="{ $index }">
-                  <el-button link type="danger" :disabled="isCodeTool" @click="removeParameter($index)">删除</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-            <el-button class="add-parameter-button" :disabled="isCodeTool" @click="addParameter">+ 添加参数</el-button>
-          </div>
+          <ParameterTable
+            v-model="form.parameters as any"
+            :disabled="isCodeTool"
+            :show-location="true"
+          />
         </el-form-item>
 
         <el-form-item label="运行控制">
@@ -355,6 +323,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
+import ParameterTable from '@/components/ParameterTable.vue'
 import type { ToolInfo, ToolParameter, ToolTestResult, ToolUpsertRequest } from '@/types/tool'
 import type { ScanProject } from '@/types/scanProject'
 import { getScanProjects } from '@/api/scanProject'
@@ -377,7 +346,6 @@ const formDialogVisible = ref(false)
 const editingName = ref<string | null>(null)
 const form = reactive<ToolUpsertRequest>(createEmptyForm())
 const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
-const parameterLocations = ['QUERY', 'PATH', 'BODY']
 const isEditMode = computed(() => editingName.value !== null)
 const isCodeTool = computed(() => form.source === 'code')
 const formDialogTitle = computed(() => (isEditMode.value ? `编辑 Tool — ${form.name}` : '新建 Tool'))
@@ -565,20 +533,6 @@ function openEditDialog(tool: ToolInfo) {
   editingName.value = tool.name
   applyForm(toUpsertRequest(tool))
   formDialogVisible.value = true
-}
-
-function addParameter() {
-  form.parameters.push({
-    name: '',
-    type: 'string',
-    description: '',
-    required: false,
-    location: 'QUERY',
-  })
-}
-
-function removeParameter(index: number) {
-  form.parameters.splice(index, 1)
 }
 
 async function handleSave() {

@@ -37,7 +37,9 @@ public class ToolController {
             @RequestParam(required = false) Long projectId) {
         IPage<ToolDefinitionEntity> page = toolDefinitionService.page(
                 current, size, keyword, source, enabled, projectId);
+        // 仅展示 TOOL；Skill 去 /api/skills 管理
         List<ToolInfoDTO> records = page.getRecords().stream()
+                .filter(e -> !ToolDefinitionService.KIND_SKILL.equalsIgnoreCase(e.getKind()))
                 .map(this::toDto)
                 .toList();
         return ResponseEntity.ok(new ToolListPageResponse(
@@ -134,6 +136,7 @@ public class ToolController {
                 .toList();
         return new ToolInfoDTO(
                 entity.getName(),
+                entity.getKind() == null ? "TOOL" : entity.getKind(),
                 entity.getDescription(),
                 params,
                 entity.getSource(),
@@ -148,11 +151,13 @@ public class ToolController {
                 scanProjectService.getProjectNameOrNull(entity.getProjectId()),
                 Boolean.TRUE.equals(entity.getEnabled()),
                 Boolean.TRUE.equals(entity.getAgentVisible()),
-                Boolean.TRUE.equals(entity.getLightweightEnabled())
+                Boolean.TRUE.equals(entity.getLightweightEnabled()),
+                entity.getSideEffect()
         );
     }
 
     record ToolInfoDTO(String name,
+                       String kind,
                        String description,
                        List<ToolParameterDTO> parameters,
                        String source,
@@ -167,7 +172,8 @@ public class ToolController {
                        String sourceProjectName,
                        boolean enabled,
                        boolean agentVisible,
-                       boolean lightweightEnabled) {
+                       boolean lightweightEnabled,
+                       String sideEffect) {
     }
 
     record ToolParameterDTO(String name,

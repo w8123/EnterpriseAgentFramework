@@ -35,10 +35,18 @@ public class AgentOrchestrator {
      * 自动降级到原有的 AgentWorkflow 路径。
      */
     public AgentResult orchestrate(String sessionId, String userId, String message, String intentHint) {
-        log.info("Agent编排开始: sessionId={}, userId={}", sessionId, userId);
+        return orchestrate(sessionId, userId, message, intentHint, null);
+    }
+
+    /**
+     * Phase 3.1：带 roles 的编排入口，供 Tool ACL 使用。
+     */
+    public AgentResult orchestrate(String sessionId, String userId, String message,
+                                   String intentHint, java.util.List<String> roles) {
+        log.info("Agent编排开始: sessionId={}, userId={}, roles={}", sessionId, userId, roles);
 
         try {
-            AgentResult result = agentRouter.route(sessionId, userId, message, intentHint);
+            AgentResult result = agentRouter.route(sessionId, userId, message, intentHint, roles);
             log.info("Agent编排完成(AgentScope): success={}", result.isSuccess());
             return result;
 

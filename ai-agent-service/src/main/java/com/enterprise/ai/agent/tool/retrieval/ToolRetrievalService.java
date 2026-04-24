@@ -156,6 +156,7 @@ public class ToolRetrievalService {
         appendInList(parts, ToolEmbeddingService.F_ID, scope.toolWhitelist());
         appendInList(parts, ToolEmbeddingService.F_PROJECT, scope.projectIds());
         appendInList(parts, ToolEmbeddingService.F_MODULE, scope.moduleIds());
+        appendStringInList(parts, ToolEmbeddingService.F_KIND, scope.kinds());
         if (parts.isEmpty()) {
             return null;
         }
@@ -167,6 +168,20 @@ public class ToolRetrievalService {
             return;
         }
         String list = ids.stream().map(String::valueOf).collect(Collectors.joining(","));
+        parts.add(field + " in [" + list + "]");
+    }
+
+    private static void appendStringInList(List<String> parts, String field, java.util.Set<String> values) {
+        if (values == null || values.isEmpty()) {
+            return;
+        }
+        String list = values.stream()
+                .filter(v -> v != null && !v.isBlank())
+                .map(v -> "\"" + v.trim().toUpperCase().replace("\"", "\\\"") + "\"")
+                .collect(Collectors.joining(","));
+        if (list.isEmpty()) {
+            return;
+        }
         parts.add(field + " in [" + list + "]");
     }
 

@@ -49,6 +49,9 @@
                   type="success"
                 >{{ tc }}</el-tag>
               </div>
+              <div v-if="msg.traceId" class="message-meta">
+                <el-button link type="primary" size="small" @click="openTrace(msg.traceId)">查看 Trace</el-button>
+              </div>
             </div>
           </div>
         </div>
@@ -149,6 +152,10 @@
         </el-tabs>
       </div>
     </div>
+
+    <el-drawer v-model="traceDrawerVisible" :title="`Trace 回放 - ${activeTraceId}`" size="45%">
+      <TraceTimeline :nodes="traceNodes" />
+    </el-drawer>
   </div>
 </template>
 
@@ -157,10 +164,13 @@ import { ref, reactive, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, User, Cpu, ChatDotRound } from '@element-plus/icons-vue'
+import TraceTimeline from '@/components/TraceTimeline.vue'
 import type { ChatMessage, ChatResponse } from '@/types/chat'
 import type { AgentResult } from '@/types/agent'
+import type { TraceNode } from '@/types/trace'
 import { sendChat, clearSession } from '@/api/chat'
 import { getAgent, executeAgentDetailed } from '@/api/agent'
+import { getTraceDetail } from '@/api/trace'
 import { useSSE } from '@/composables/useSSE'
 
 const route = useRoute()
@@ -178,6 +188,9 @@ const messagesRef = ref<HTMLElement>()
 
 const lastResult = ref<ChatResponse | null>(null)
 const lastAgentResult = ref<AgentResult | null>(null)
+const traceDrawerVisible = ref(false)
+const activeTraceId = ref('')
+const traceNodes = ref<TraceNode[]>([])
 
 const { content: streamContent, isStreaming: streaming, start: startSSE, stop: stopStream } = useSSE()
 
@@ -189,6 +202,19 @@ function createMsg(role: 'user' | 'assistant', content: string, extra?: Partial<
     content,
     timestamp: Date.now(),
     ...extra,
+  }
+}
+
+async function openTrace(traceId?: string) {
+  if (!traceId) return
+  activeTraceId.value = traceId
+  traceDrawerVisible.value = true
+  try {
+    const { data } = await getTraceDetail(traceId)
+    traceNodes.value = data.nodes || []
+  } catch {
+    traceNodes.value = []
+    ElMessage.error('加载 Trace 失败')
   }
 }
 
@@ -293,6 +319,7 @@ async function handleAgentExec(msg: string) {
     })
     placeholder.loading = false
     placeholder.content = data.answer || '(无回答)'
+    placeholder.traceId = (data.metadata?.traceId as string) || undefined
     lastAgentResult.value = data
   } catch {
     placeholder.loading = false

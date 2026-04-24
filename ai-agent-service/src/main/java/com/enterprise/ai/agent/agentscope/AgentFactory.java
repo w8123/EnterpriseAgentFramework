@@ -1,9 +1,12 @@
 package com.enterprise.ai.agent.agentscope;
 
+import com.enterprise.ai.agent.acl.ToolAclDecision;
+import com.enterprise.ai.agent.acl.ToolAclService;
 import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.agentscope.adapter.AiToolAgentAdapter;
 import com.enterprise.ai.agent.config.LLMConfig;
 import com.enterprise.ai.agent.config.ToolRetrievalProperties;
+import com.enterprise.ai.agent.skill.SubAgentSkillExecutor;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.enterprise.ai.agent.tool.retrieval.RetrievalScope;
@@ -13,6 +16,7 @@ import com.enterprise.ai.agent.tools.ToolRegistry;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionMapper;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
+import com.enterprise.ai.skill.AiSkill;
 import com.enterprise.ai.skill.AiTool;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.ReActAgent;
@@ -56,6 +60,7 @@ public class AgentFactory {
     private final ToolCallLogService toolCallLogService;
     private final ToolRetrievalProperties retrievalProperties;
     private final ObjectMapper objectMapper;
+    private final ToolAclService toolAclService;
     private final int defaultMaxSteps;
 
     public AgentFactory(
@@ -68,6 +73,7 @@ public class AgentFactory {
             ToolCallLogService toolCallLogService,
             ToolRetrievalProperties retrievalProperties,
             ObjectMapper objectMapper,
+            ToolAclService toolAclService,
             LLMConfig llmConfig) {
         this.singleAgentModel = singleAgentModel;
         this.multiAgentModel = multiAgentModel;
@@ -78,6 +84,7 @@ public class AgentFactory {
         this.toolCallLogService = toolCallLogService;
         this.retrievalProperties = retrievalProperties;
         this.objectMapper = objectMapper;
+        this.toolAclService = toolAclService;
         this.defaultMaxSteps = llmConfig.getMaxSteps();
         log.info("[AgentFactory] 初始化完成: defaultMaxSteps={}, toolRetrieval={}",
                 defaultMaxSteps, retrievalProperties.isEnabled());
@@ -226,21 +233,50 @@ public class AgentFactory {
     }
 
     /**
-     * 创建 Toolkit 并注册 {@link AiToolAgentAdapter}：按白名单顺序过滤已启用可见的 tool。
+     * 创建 Toolkit 并注册 {@link AiToolAgentAdapter}：按白名单顺序过滤已启用可见的 tool 或 skill。
+     * <p>
+     * Phase 2.0 起，TOOL 与 SKILL 对 Adapter 无感知差异：SubAgentSkill 自身的 execute() 会委托给
+     * {@link SubAgentSkillExecutor} 展开为子 ReActAgent。区别仅在日志标签：TOOL vs SKILL。
+     * <p>
+     * 防御递归：当 {@code SubAgentSkillExecutor.currentDepth() > 0} 说明正在为某个 SubAgent 的
+     * 子 Toolkit 装配工具，此时直接拒绝再挂 Skill，避免多层嵌套（仅保留一层 SubAgent 深度）。
      */
     Toolkit createToolkit(List<String> toolNames, ToolExecutionContext context) {
         Toolkit toolkit = new Toolkit();
+        boolean insideChildSkill = SubAgentSkillExecutor.currentDepth() > 0;
+        List<String> roles = context == null ? null : context.getRoles();
         for (String toolName : toolNames) {
             if (!toolDefinitionService.isAgentCallable(toolName)) {
-                log.warn("[AgentFactory] 工具未启用或不可见，跳过注册: {}", toolName);
+                log.warn("[AgentFactory] 工具/Skill 未启用或不可见，跳过注册: {}", toolName);
                 continue;
             }
             if (!toolRegistry.contains(toolName)) {
-                log.warn("[AgentFactory] ToolRegistry 中未找到工具: {}", toolName);
+                log.warn("[AgentFactory] ToolRegistry 中未找到工具/Skill: {}", toolName);
                 continue;
             }
             AiTool aiTool = toolRegistry.get(toolName);
-            toolkit.registerAgentTool(new AiToolAgentAdapter(aiTool, context, toolCallLogService));
+            boolean isSkill = aiTool instanceof AiSkill;
+            if (isSkill && insideChildSkill) {
+                log.warn("[AgentFactory] 子 Skill 内部不允许嵌套 Skill，跳过: skill={}", toolName);
+                continue;
+            }
+            // Phase 3.1 Tool ACL：在装配阶段按 roles × tool_acl 过滤，被拦的能力完全不进 LLM 视野
+            ToolAclDecision decision = toolAclService.decide(roles, toolName, isSkill);
+            if (decision == ToolAclDecision.SKIPPED) {
+                // 兼容灰度期：roles 为空时只打 warn，不拦截
+                log.warn("[AgentFactory][ACL] roles 为空，跳过 ACL 校验（建议网关补上）: tool={}", toolName);
+            } else if (decision.isDenied()) {
+                log.warn("[AgentFactory][ACL] 拦截装配: kind={}, name={}, roles={}, reason={}",
+                        isSkill ? "SKILL" : "TOOL", toolName, roles, decision);
+                continue;
+            }
+            // Phase 3.0 sideEffect 运行时闸口：把 tool_definition.side_effect 透传给 Adapter
+            String sideEffect = toolDefinitionService.findByName(toolName)
+                    .map(ToolDefinitionEntity::getSideEffect)
+                    .orElse(null);
+            toolkit.registerAgentTool(new AiToolAgentAdapter(aiTool, context, toolCallLogService, sideEffect));
+            log.debug("[AgentFactory] 装配 {}: {} (sideEffect={}, aclDecision={})",
+                    isSkill ? "SKILL" : "TOOL", toolName, sideEffect, decision);
         }
         return toolkit;
     }

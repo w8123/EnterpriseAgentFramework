@@ -11,8 +11,11 @@ import io.milvus.param.IndexType;
 import io.milvus.param.MetricType;
 import io.milvus.param.R;
 import io.milvus.param.RpcStatus;
+import io.milvus.grpc.DescribeCollectionResponse;
 import io.milvus.param.collection.CollectionSchemaParam;
 import io.milvus.param.collection.CreateCollectionParam;
+import io.milvus.param.collection.DescribeCollectionParam;
+import io.milvus.param.collection.DropCollectionParam;
 import io.milvus.param.collection.FieldType;
 import io.milvus.param.collection.HasCollectionParam;
 import io.milvus.param.collection.LoadCollectionParam;
@@ -43,10 +46,13 @@ public class ToolEmbeddingService {
     public static final String F_MODULE = "module_id";
     public static final String F_ENABLED = "enabled";
     public static final String F_VISIBLE = "agent_visible";
+    /** Phase 2.0 新增：区分 TOOL / SKILL 形态的 scalar 字段（varchar 便于未来扩展）。 */
+    public static final String F_KIND = "kind";
     public static final String F_TEXT = "text";
     public static final String F_VECTOR = "embedding";
 
     private static final int TEXT_MAX_CHARS = 4096;
+    private static final int KIND_MAX_CHARS = 16;
 
     private final MilvusServiceClient milvus;
     private final EmbeddingClient embeddingClient;
@@ -95,8 +101,15 @@ public class ToolEmbeddingService {
                 .withCollectionName(name)
                 .build());
         if (has.getData() != null && has.getData()) {
-            milvus.loadCollection(LoadCollectionParam.newBuilder().withCollectionName(name).build());
-            return;
+            // Phase 2.0 schema 含 F_KIND；旧 collection 没有则 drop 重建（数据由 rebuildAll 回灌）
+            if (!hasKindField(name)) {
+                log.warn("[ToolEmbedding] 旧 collection {} 缺失 {} 字段，drop 重建；请调用 /api/tools/retrieval/rebuild 重灌数据",
+                        name, F_KIND);
+                milvus.dropCollection(DropCollectionParam.newBuilder().withCollectionName(name).build());
+            } else {
+                milvus.loadCollection(LoadCollectionParam.newBuilder().withCollectionName(name).build());
+                return;
+            }
         }
 
         List<FieldType> fields = List.of(
@@ -106,6 +119,8 @@ public class ToolEmbeddingService {
                 FieldType.newBuilder().withName(F_MODULE).withDataType(DataType.Int64).build(),
                 FieldType.newBuilder().withName(F_ENABLED).withDataType(DataType.Bool).build(),
                 FieldType.newBuilder().withName(F_VISIBLE).withDataType(DataType.Bool).build(),
+                FieldType.newBuilder().withName(F_KIND).withDataType(DataType.VarChar)
+                        .withMaxLength(KIND_MAX_CHARS).build(),
                 FieldType.newBuilder().withName(F_TEXT).withDataType(DataType.VarChar)
                         .withMaxLength(TEXT_MAX_CHARS).build(),
                 FieldType.newBuilder().withName(F_VECTOR).withDataType(DataType.FloatVector)
@@ -226,6 +241,7 @@ public class ToolEmbeddingService {
         fields.add(new InsertParam.Field(F_MODULE, List.of(nvl(tool.getModuleId()))));
         fields.add(new InsertParam.Field(F_ENABLED, List.of(Boolean.TRUE.equals(tool.getEnabled()))));
         fields.add(new InsertParam.Field(F_VISIBLE, List.of(Boolean.TRUE.equals(tool.getAgentVisible()))));
+        fields.add(new InsertParam.Field(F_KIND, List.of(normalizeKind(tool.getKind()))));
         fields.add(new InsertParam.Field(F_TEXT, List.of(truncate(text, TEXT_MAX_CHARS))));
         fields.add(new InsertParam.Field(F_VECTOR, List.of(vector)));
 
@@ -276,6 +292,31 @@ public class ToolEmbeddingService {
 
     private static long nvl(Long v) {
         return v == null ? 0L : v;
+    }
+
+    private static String normalizeKind(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "TOOL";
+        }
+        return raw.trim().toUpperCase();
+    }
+
+    /**
+     * 通过 describeCollection 探测是否含 {@link #F_KIND} 字段，判定 schema 是否需要升级。
+     */
+    private boolean hasKindField(String collectionName) {
+        try {
+            R<DescribeCollectionResponse> resp = milvus.describeCollection(
+                    DescribeCollectionParam.newBuilder().withCollectionName(collectionName).build());
+            if (resp == null || resp.getData() == null || resp.getData().getSchema() == null) {
+                return false;
+            }
+            return resp.getData().getSchema().getFieldsList().stream()
+                    .anyMatch(f -> F_KIND.equals(f.getName()));
+        } catch (Exception ex) {
+            log.debug("[ToolEmbedding] describeCollection 失败，视作缺字段重建: {}", ex.toString());
+            return false;
+        }
     }
 
     public record RebuildResult(int success, int skipped, int failed, String message) {

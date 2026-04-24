@@ -52,6 +52,21 @@ public class ToolRegistry {
         return tools.containsKey(name);
     }
 
+    /** 仅当已注册且为 {@link AiSkill} 时返回 true。 */
+    public boolean isSkill(String name) {
+        AiTool tool = tools.get(name);
+        return tool instanceof AiSkill;
+    }
+
+    /** 从注册表移除（Skill/Tool 热更新 / 删除时用）。 */
+    public AiTool remove(String name) {
+        AiTool removed = tools.remove(name);
+        if (removed != null) {
+            log.debug("[ToolRegistry] 卸载工具: {}", name);
+        }
+        return removed;
+    }
+
     public Set<String> getToolNames() {
         return Collections.unmodifiableSet(tools.keySet());
     }

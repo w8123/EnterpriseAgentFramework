@@ -1,6 +1,8 @@
 /** Agent 定义 */
 export interface AgentDefinition {
   id: string
+  /** 人类可读 slug，对应 /api/v1/agents/{keySlug}/chat */
+  keySlug: string
   name: string
   description: string
   intentType: string
@@ -17,12 +19,17 @@ export interface AgentDefinition {
   triggerMode: string
   useMultiAgentModel: boolean
   extra: Record<string, unknown>
+  /** Agent Studio 画布节点/连线 JSON */
+  canvasJson?: string
+  /** 是否允许调用 IRREVERSIBLE 副作用 Tool */
+  allowIrreversible?: boolean
   createdAt: string
   updatedAt: string
 }
 
 /** Agent 创建 / 编辑表单 */
 export interface AgentForm {
+  keySlug?: string
   name: string
   description: string
   intentType: string
@@ -39,6 +46,30 @@ export interface AgentForm {
   triggerMode: string
   useMultiAgentModel: boolean
   extra: Record<string, unknown>
+  canvasJson?: string
+  allowIrreversible?: boolean
+}
+
+/** Agent 发布版本（对应后端 agent_version 表） */
+export interface AgentVersion {
+  id: number
+  agentId: string
+  version: string
+  snapshotJson: string
+  rolloutPercent: number
+  status: 'DRAFT' | 'ACTIVE' | 'RETIRED'
+  publishedBy?: string
+  publishedAt?: string
+  note?: string
+  createTime: string
+}
+
+/** 发布请求体 */
+export interface PublishVersionRequest {
+  version: string
+  rolloutPercent?: number
+  note?: string
+  publishedBy?: string
 }
 
 /** 预置意图类型（可通过管理后台自定义扩展） */

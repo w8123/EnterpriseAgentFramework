@@ -3,6 +3,10 @@ package com.enterprise.ai.agent.tools.definition;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.enterprise.ai.agent.skill.SubAgentSkill;
+import com.enterprise.ai.agent.skill.SubAgentSkillFactory;
+import com.enterprise.ai.agent.skill.SubAgentSpec;
+import com.enterprise.ai.agent.scan.SideEffectInferrer;
 import com.enterprise.ai.agent.tool.retrieval.ToolEmbeddingService;
 import com.enterprise.ai.agent.tools.ToolRegistry;
 import com.enterprise.ai.agent.tools.dynamic.DynamicHttpAiTool;
@@ -12,6 +16,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -31,22 +36,28 @@ public class ToolDefinitionService {
     private static final String SOURCE_SCANNER = "scanner";
     private static final String SOURCE_MANUAL = "manual";
 
+    public static final String KIND_TOOL = "TOOL";
+    public static final String KIND_SKILL = "SKILL";
+
     private final ToolDefinitionMapper mapper;
     private final ToolRegistry toolRegistry;
     private final List<AiTool> codeTools;
     private final ObjectMapper objectMapper;
     private final ToolEmbeddingService toolEmbeddingService;
+    private final SubAgentSkillFactory subAgentSkillFactory;
 
     public ToolDefinitionService(ToolDefinitionMapper mapper,
                                  ToolRegistry toolRegistry,
                                  List<AiTool> codeTools,
                                  ObjectMapper objectMapper,
-                                 ToolEmbeddingService toolEmbeddingService) {
+                                 ToolEmbeddingService toolEmbeddingService,
+                                 @Lazy SubAgentSkillFactory subAgentSkillFactory) {
         this.mapper = mapper;
         this.toolRegistry = toolRegistry;
         this.codeTools = codeTools;
         this.objectMapper = objectMapper;
         this.toolEmbeddingService = toolEmbeddingService;
+        this.subAgentSkillFactory = subAgentSkillFactory;
     }
 
     @PostConstruct
@@ -58,10 +69,15 @@ public class ToolDefinitionService {
     public void syncCodeTools() {
         Set<String> currentNames = new LinkedHashSet<>();
         for (AiTool tool : codeTools) {
+            // Skill 通过 DB 加载，不在 codeTools 里；这里只同步纯代码 Tool。
+            if (tool instanceof com.enterprise.ai.skill.AiSkill) {
+                continue;
+            }
             currentNames.add(tool.name());
             ToolDefinitionEntity existing = findByName(tool.name()).orElse(null);
             ToolDefinitionEntity entity = existing == null ? new ToolDefinitionEntity() : existing;
             entity.setName(tool.name());
+            entity.setKind(KIND_TOOL);
             entity.setDescription(tool.description());
             entity.setParametersJson(serializeParameters(tool.parameters().stream()
                     .map(this::toStoredParameter)
@@ -74,6 +90,7 @@ public class ToolDefinitionService {
                 entity.setEnabled(true);
                 entity.setAgentVisible(true);
                 entity.setLightweightEnabled("search_knowledge".equals(tool.name()));
+                entity.setSideEffect("READ_ONLY");
                 mapper.insert(entity);
             } else {
                 mapper.updateById(entity);
@@ -132,6 +149,31 @@ public class ToolDefinitionService {
                 .orderByAsc(ToolDefinitionEntity::getName));
     }
 
+    /**
+     * 一次性回填副作用等级：
+     * - 仅处理 kind=TOOL（Skill 由运营侧明确配置）
+     * - 默认只覆盖 side_effect 为空或 WRITE 的记录，避免误伤人工已校准值
+     *
+     * @return 实际更新条数
+     */
+    public int backfillSideEffectsForTools() {
+        List<ToolDefinitionEntity> tools = mapper.selectList(new LambdaQueryWrapper<ToolDefinitionEntity>()
+                .eq(ToolDefinitionEntity::getKind, KIND_TOOL));
+        int updated = 0;
+        for (ToolDefinitionEntity tool : tools) {
+            if (!shouldBackfillSideEffect(tool.getSideEffect())) {
+                continue;
+            }
+            String inferred = SideEffectInferrer.inferAsString(tool.getHttpMethod(), tool.getEndpointPath());
+            if (!inferred.equalsIgnoreCase(normalizeSideEffect(tool.getSideEffect()))) {
+                tool.setSideEffect(inferred);
+                mapper.updateById(tool);
+                updated++;
+            }
+        }
+        return updated;
+    }
+
     public Optional<ToolDefinitionEntity> findByName(String name) {
         return Optional.ofNullable(mapper.selectOne(new LambdaQueryWrapper<ToolDefinitionEntity>()
                 .eq(ToolDefinitionEntity::getName, name)
@@ -183,6 +225,7 @@ public class ToolDefinitionService {
         }
         boolean removed = mapper.deleteById(existing.getId()) > 0;
         if (removed) {
+            toolRegistry.remove(name);
             toolEmbeddingService.delete(existing.getId());
         }
         return removed;
@@ -198,6 +241,7 @@ public class ToolDefinitionService {
                 continue;
             }
             mapper.deleteById(entity.getId());
+            toolRegistry.remove(entity.getName());
             toolEmbeddingService.delete(entity.getId());
         }
         return true;
@@ -210,6 +254,11 @@ public class ToolDefinitionService {
         mapper.updateById(existing);
         if (enabled) {
             registerIfNeeded(existing);
+        } else {
+            // 禁用时立刻从 registry 摘除，Agent 下次 createToolkit 就看不到它
+            if (!SOURCE_CODE.equals(existing.getSource())) {
+                toolRegistry.remove(existing.getName());
+            }
         }
         toolEmbeddingService.upsert(existing);
         return existing;
@@ -218,6 +267,11 @@ public class ToolDefinitionService {
     public Object executeTool(String name, Map<String, Object> args) {
         ToolDefinitionEntity existing = findByName(name)
                 .orElseThrow(() -> new IllegalArgumentException("工具不存在: " + name));
+        if (KIND_SKILL.equalsIgnoreCase(existing.getKind())) {
+            // Skill 不管 source 是啥，都走 SubAgentSkill 走一遍
+            SubAgentSkill skill = subAgentSkillFactory.build(existing);
+            return skill.execute(args == null ? Map.of() : args);
+        }
         if (SOURCE_CODE.equals(existing.getSource())) {
             return toolRegistry.execute(name, args == null ? Map.of() : args);
         }
@@ -248,6 +302,38 @@ public class ToolDefinitionService {
                 .isPresent();
     }
 
+    public boolean isSkill(String name) {
+        return findByName(name)
+                .filter(entity -> KIND_SKILL.equalsIgnoreCase(entity.getKind()))
+                .isPresent();
+    }
+
+    /** 获取所有 Skill（kind=SKILL）。用于 SkillController 列表页。 */
+    public List<ToolDefinitionEntity> listSkills() {
+        return mapper.selectList(new LambdaQueryWrapper<ToolDefinitionEntity>()
+                .eq(ToolDefinitionEntity::getKind, KIND_SKILL)
+                .orderByAsc(ToolDefinitionEntity::getName));
+    }
+
+    public IPage<ToolDefinitionEntity> pageSkills(int current, int size, String keyword, Boolean enabled) {
+        int pageNum = Math.max(1, current);
+        int pageSize = Math.min(100, Math.max(1, size));
+        Page<ToolDefinitionEntity> p = new Page<>(pageNum, pageSize, true);
+        LambdaQueryWrapper<ToolDefinitionEntity> w = new LambdaQueryWrapper<>();
+        w.eq(ToolDefinitionEntity::getKind, KIND_SKILL);
+        if (StringUtils.hasText(keyword)) {
+            String k = keyword.trim();
+            w.and(q -> q.like(ToolDefinitionEntity::getName, k)
+                    .or()
+                    .like(ToolDefinitionEntity::getDescription, k));
+        }
+        if (enabled != null) {
+            w.eq(ToolDefinitionEntity::getEnabled, enabled);
+        }
+        w.orderByAsc(ToolDefinitionEntity::getName);
+        return mapper.selectPage(p, w);
+    }
+
     public List<ToolDefinitionParameter> parseParameters(String parametersJson) {
         if (parametersJson == null || parametersJson.isBlank()) {
             return List.of();
@@ -270,21 +356,41 @@ public class ToolDefinitionService {
     }
 
     private ToolDefinitionEntity applyRequest(ToolDefinitionEntity entity, ToolDefinitionUpsertRequest request, boolean updating) {
+        String kind = normalizeKind(request.kind());
         entity.setName(updating ? entity.getName() : request.name());
+        entity.setKind(kind);
         entity.setDescription(request.description());
         entity.setParametersJson(serializeParameters(request.parameters()));
         entity.setSource(normalizeSource(request.source()));
         entity.setSourceLocation(request.sourceLocation());
-        entity.setHttpMethod(request.httpMethod());
-        entity.setBaseUrl(request.baseUrl());
-        entity.setContextPath(request.contextPath());
-        entity.setEndpointPath(request.endpointPath());
-        entity.setRequestBodyType(request.requestBodyType());
-        entity.setResponseType(request.responseType());
         entity.setProjectId(request.projectId());
         entity.setEnabled(request.enabled());
         entity.setAgentVisible(request.agentVisible());
         entity.setLightweightEnabled(request.lightweightEnabled());
+        entity.setSideEffect(normalizeSideEffect(request.sideEffect()));
+
+        if (KIND_SKILL.equals(kind)) {
+            // Skill: 不落 HTTP 字段，保存 spec_json / skill_kind
+            entity.setHttpMethod(null);
+            entity.setBaseUrl(null);
+            entity.setContextPath(null);
+            entity.setEndpointPath(null);
+            entity.setRequestBodyType(null);
+            entity.setResponseType(null);
+            entity.setSkillKind(isBlank(request.skillKind())
+                    ? SubAgentSkillFactory.SKILL_KIND_SUB_AGENT
+                    : request.skillKind().trim().toUpperCase());
+            entity.setSpecJson(request.specJson());
+        } else {
+            entity.setHttpMethod(request.httpMethod());
+            entity.setBaseUrl(request.baseUrl());
+            entity.setContextPath(request.contextPath());
+            entity.setEndpointPath(request.endpointPath());
+            entity.setRequestBodyType(request.requestBodyType());
+            entity.setResponseType(request.responseType());
+            entity.setSkillKind(null);
+            entity.setSpecJson(null);
+        }
         return entity;
     }
 
@@ -298,13 +404,46 @@ public class ToolDefinitionService {
         if (isBlank(request.description())) {
             throw new IllegalArgumentException("工具描述不能为空");
         }
+        String kind = normalizeKind(request.kind());
         String source = normalizeSource(request.source());
+
+        if (KIND_SKILL.equals(kind)) {
+            // Skill 校验
+            if (isBlank(request.specJson())) {
+                throw new IllegalArgumentException("Skill 必须提供 specJson");
+            }
+            // 调用 factory 的 parseSpec + validateSpec（会抛 IllegalArgumentException）
+            SubAgentSpec parsed = subAgentSkillFactory.parseSpec(request.specJson());
+            subAgentSkillFactory.validateSpec(
+                    updating ? request.name() : request.name(), parsed);
+            return;
+        }
+
+        // 下方仅对 TOOL 生效
         if (!updating && SOURCE_CODE.equals(source)) {
             throw new IllegalArgumentException("不允许手工创建 code 类型工具");
         }
         if ((SOURCE_MANUAL.equals(source) || SOURCE_SCANNER.equals(source)) && isBlank(request.httpMethod())) {
             throw new IllegalArgumentException("HTTP 工具必须提供 httpMethod");
         }
+    }
+
+    private String normalizeKind(String kind) {
+        if (isBlank(kind)) {
+            return KIND_TOOL;
+        }
+        String normalized = kind.trim().toUpperCase();
+        if (!KIND_TOOL.equals(normalized) && !KIND_SKILL.equals(normalized)) {
+            throw new IllegalArgumentException("未知 kind: " + kind);
+        }
+        return normalized;
+    }
+
+    private String normalizeSideEffect(String raw) {
+        if (isBlank(raw)) {
+            return "WRITE";
+        }
+        return raw.trim().toUpperCase();
     }
 
     private String normalizeSource(String source) {
@@ -328,6 +467,18 @@ public class ToolDefinitionService {
 
     private void registerIfNeeded(ToolDefinitionEntity entity) {
         if (!Boolean.TRUE.equals(entity.getEnabled())) {
+            return;
+        }
+        if (KIND_SKILL.equalsIgnoreCase(entity.getKind())) {
+            try {
+                SubAgentSkill skill = subAgentSkillFactory.build(entity);
+                toolRegistry.register(skill);
+                log.debug("[ToolDefinitionService] 注册 Skill: name={}, kind={}",
+                        entity.getName(), entity.getSkillKind());
+            } catch (Exception ex) {
+                log.warn("[ToolDefinitionService] Skill 注册失败（跳过，不阻塞启动）: name={}, err={}",
+                        entity.getName(), ex.toString());
+            }
             return;
         }
         if (SOURCE_CODE.equals(entity.getSource())) {
@@ -355,5 +506,9 @@ public class ToolDefinitionService {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private boolean shouldBackfillSideEffect(String sideEffect) {
+        return isBlank(sideEffect) || "WRITE".equalsIgnoreCase(sideEffect);
     }
 }

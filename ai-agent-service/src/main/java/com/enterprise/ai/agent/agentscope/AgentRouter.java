@@ -44,13 +44,84 @@ public class AgentRouter {
     private static final String GENERAL_CHAT = "GENERAL_CHAT";
 
     /**
+     * 根据显式的 {@link AgentDefinition} 直接执行（跳过意图识别与 keySlug 解析）。
+     * <p>
+     * Phase 3.0 Agent Studio 发布端点 {@code /api/v1/agents/{key}/chat} 的执行入口：
+     * <ol>
+     *   <li>{@code AgentVersionService.resolveActiveSnapshot} 已经按 userId 灰度选好了具体版本；</li>
+     *   <li>这里直接用传入的 definition 构 Agent 并 call，不再查 intentType；</li>
+     *   <li>traceId / ToolExecutionContext 照常生成，保持和 {@link #route} 的审计链路一致。</li>
+     * </ol>
+     */
+    public AgentResult executeByDefinition(AgentDefinition definition, String sessionId,
+                                           String userId, String message) {
+        return executeByDefinition(definition, sessionId, userId, message, null);
+    }
+
+    /**
+     * {@link #executeByDefinition(AgentDefinition, String, String, String)} 的 ACL 版本。
+     * Phase 3.1 起，网关端点会把 {@code roles} 从 {@code ChatRequest} 取出并注入上下文。
+     */
+    public AgentResult executeByDefinition(AgentDefinition definition, String sessionId,
+                                           String userId, String message, List<String> roles) {
+        String traceId = UUID.randomUUID().toString();
+        log.info("[AgentRouter] 按定义执行: agent={}, keySlug={}, sessionId={}, roles={}, traceId={}",
+                definition.getName(), definition.getKeySlug(), sessionId, roles, traceId);
+
+        Msg input = Msg.builder().textContent(message).build();
+        ToolExecutionContext context = ToolExecutionContext.builder()
+                .traceId(traceId)
+                .sessionId(sessionId)
+                .userId(userId)
+                .agentName(definition.getName())
+                .intentType(definition.getIntentType())
+                .allowIrreversible(definition.isAllowIrreversible())
+                .roles(roles)
+                .build();
+
+        long startTime = System.currentTimeMillis();
+        try {
+            Msg response;
+            if ("pipeline".equals(definition.getType()) && definition.getPipelineAgentIds() != null
+                    && !definition.getPipelineAgentIds().isEmpty()) {
+                response = executePipeline(definition, input, message, context);
+            } else {
+                response = executeSingleAgent(
+                        agentFactory.buildFromDefinition(definition, message, context),
+                        input);
+            }
+            long elapsed = System.currentTimeMillis() - startTime;
+            return buildResult(true, response, definition.getIntentType(), elapsed, traceId);
+        } catch (Exception e) {
+            log.error("[AgentRouter] 按定义执行失败: agent={}, traceId={}", definition.getName(), traceId, e);
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("traceId", traceId);
+            metadata.put("agentName", definition.getName());
+            return AgentResult.builder()
+                    .success(false)
+                    .answer("处理过程中遇到异常：" + e.getMessage())
+                    .metadata(metadata)
+                    .build();
+        }
+    }
+
+    /**
      * 路由并执行 Agent 任务
      */
     public AgentResult route(String sessionId, String userId, String message, String intentHint) {
+        return route(sessionId, userId, message, intentHint, null);
+    }
+
+    /**
+     * {@link #route(String, String, String, String)} 的 ACL 版本。
+     * Phase 3.1：{@code /api/agent/chat} 的上层 controller 可把 {@code ChatRequest.roles} 传过来。
+     */
+    public AgentResult route(String sessionId, String userId, String message, String intentHint,
+                             List<String> roles) {
         String intentType = resolveIntent(message, intentHint);
         String traceId = UUID.randomUUID().toString();
-        log.info("[AgentRouter] 路由决策: intent={}, sessionId={}, userId={}, traceId={}",
-                intentType, sessionId, userId, traceId);
+        log.info("[AgentRouter] 路由决策: intent={}, sessionId={}, userId={}, roles={}, traceId={}",
+                intentType, sessionId, userId, roles, traceId);
 
         Msg input = Msg.builder()
                 .textContent(message)
@@ -59,7 +130,7 @@ public class AgentRouter {
         try {
             long startTime = System.currentTimeMillis();
 
-            Msg response = dispatch(intentType, input, sessionId, userId, message, traceId);
+            Msg response = dispatch(intentType, input, sessionId, userId, message, traceId, roles);
 
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("[AgentRouter] 执行完成: intent={}, agent={}, 耗时={}ms, traceId={}",
@@ -100,7 +171,8 @@ public class AgentRouter {
      * 配置驱动的路由分发 — 从 AgentDefinitionService 查找定义并构建 Agent
      */
     private Msg dispatch(String intentType, Msg input,
-                         String sessionId, String userId, String userMessage, String traceId) {
+                         String sessionId, String userId, String userMessage, String traceId,
+                         List<String> roles) {
         AgentDefinition def = agentDefinitionService.findByIntentType(intentType)
                 .orElseThrow(() -> new IllegalStateException(
                         "未找到意图 '" + intentType + "' 对应的 Agent 定义"));
@@ -111,6 +183,8 @@ public class AgentRouter {
                 .userId(userId)
                 .agentName(def.getName())
                 .intentType(intentType)
+                .allowIrreversible(def.isAllowIrreversible())
+                .roles(roles)
                 .build();
 
         if ("pipeline".equals(def.getType()) && def.getPipelineAgentIds() != null) {

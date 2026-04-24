@@ -52,12 +52,22 @@
             </template>
             <el-menu-item index="/tool">Tool 列表</el-menu-item>
             <el-menu-item index="/tool/retrieval">Tool 检索测试</el-menu-item>
+            <el-menu-item index="/skill">Skill 管理</el-menu-item>
+            <el-menu-item index="/skill/mining">Skill Mining</el-menu-item>
           </el-sub-menu>
 
           <el-menu-item index="/scan-project">
             <el-icon><FolderOpened /></el-icon>
             <span>扫描项目</span>
           </el-menu-item>
+
+          <el-sub-menu index="/settings-group">
+            <template #title>
+              <el-icon><Lock /></el-icon>
+              <span>设置 / 护栏</span>
+            </template>
+            <el-menu-item index="/settings/tool-acl">Tool ACL</el-menu-item>
+          </el-sub-menu>
         </el-menu>
       </el-scrollbar>
     </el-aside>
@@ -89,6 +99,7 @@ import {
   Coin,
   SetUp,
   FolderOpened,
+  Lock,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -101,8 +112,11 @@ const activeMenu = computed(() => {
   if (path.startsWith('/model/playground')) return '/model/playground'
   if (path.startsWith('/model')) return '/model'
   if (path.startsWith('/tool/retrieval')) return '/tool/retrieval'
+  if (path.startsWith('/skill/mining')) return '/skill/mining'
+  if (path.startsWith('/skill')) return '/skill'
   if (path.startsWith('/tool')) return '/tool'
   if (path.startsWith('/scan-project')) return '/scan-project'
+  if (path.startsWith('/settings/tool-acl')) return '/settings/tool-acl'
   return path
 })
 

@@ -16,11 +16,17 @@ public class ToolDefinitionEntity {
 
     private String name;
 
+    /** 能力形态：TOOL / SKILL。默认 TOOL；Phase 2.0 新增。 */
+    private String kind;
+
     private String description;
 
     private String aiDescription;
 
     private String parametersJson;
+
+    /** Skill 专属 spec JSON（SubAgent: {systemPrompt, toolWhitelist, llmProvider, llmModel, maxSteps}）。 */
+    private String specJson;
 
     private String source;
 
@@ -45,6 +51,12 @@ public class ToolDefinitionEntity {
     private Boolean enabled;
 
     private Boolean agentVisible;
+
+    /** 副作用等级：NONE / READ_ONLY / IDEMPOTENT_WRITE / WRITE / IRREVERSIBLE。 */
+    private String sideEffect;
+
+    /** 仅 kind=SKILL 有值：SUB_AGENT / WORKFLOW / AUGMENTED_TOOL。 */
+    private String skillKind;
 
     private Boolean lightweightEnabled;
 

@@ -34,6 +34,18 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/agent/AgentDebug.vue'),
         meta: { title: 'Agent 调试' },
       },
+      {
+        path: 'agent/:id/studio',
+        name: 'AgentStudio',
+        component: () => import('@/views/agent/AgentStudio.vue'),
+        meta: { title: 'Agent Studio 画布' },
+      },
+      {
+        path: 'agent/:id/versions',
+        name: 'AgentVersions',
+        component: () => import('@/views/agent/AgentVersions.vue'),
+        meta: { title: 'Agent 版本管理' },
+      },
 
       // ── 知识管理 ──
       {
@@ -107,6 +119,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Tool 检索测试' },
       },
       {
+        path: 'skill',
+        name: 'SkillList',
+        component: () => import('@/views/skill/SkillList.vue'),
+        meta: { title: 'Skill 管理' },
+      },
+      {
+        path: 'skill/mining',
+        name: 'SkillMining',
+        component: () => import('@/views/skill/SkillMining.vue'),
+        meta: { title: 'Skill Mining' },
+      },
+      {
         path: 'scan-project',
         name: 'ScanProjectList',
         component: () => import('@/views/scan/ScanProjectList.vue'),
@@ -117,6 +141,14 @@ const routes: RouteRecordRaw[] = [
         name: 'ScanProjectDetail',
         component: () => import('@/views/scan/ScanProjectDetail.vue'),
         meta: { title: '扫描详情' },
+      },
+
+      // ── 设置 / 护栏 ──
+      {
+        path: 'settings/tool-acl',
+        name: 'ToolAclList',
+        component: () => import('@/views/settings/ToolAclList.vue'),
+        meta: { title: 'Tool ACL' },
       },
     ],
   },

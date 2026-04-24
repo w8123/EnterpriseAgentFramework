@@ -16,23 +16,8 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
-      '/api/agent': {
-        target: 'http://localhost:8081',
-        changeOrigin: true,
-      },
-      '/api/chat': {
-        target: 'http://localhost:8081',
-        changeOrigin: true,
-      },
-      '/api/tools': {
-        target: 'http://localhost:8081',
-        changeOrigin: true,
-      },
-      '/api/scan-projects': {
-        target: 'http://localhost:8081',
-        changeOrigin: true,
-      },
-      '/api/tool-retrieval': {
+      /** ai-agent-service：统一走 8081，避免新增 /api/skills、/api/tool-acl 等路径漏配代理 */
+      '/api': {
         target: 'http://localhost:8081',
         changeOrigin: true,
       },

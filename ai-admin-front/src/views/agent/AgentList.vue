@@ -8,6 +8,11 @@
     </div>
 
     <el-card shadow="never">
+      <el-tabs v-model="activeView" class="top-tabs">
+        <el-tab-pane label="Agent 列表" name="agents" />
+        <el-tab-pane label="最近 Trace" name="traces" />
+      </el-tabs>
+      <template v-if="activeView === 'agents'">
       <div class="filter-bar">
         <el-select v-model="filterIntent" placeholder="按意图类型筛选" clearable style="width: 180px">
           <el-option
@@ -87,9 +92,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="updatedAt" label="更新时间" width="170" />
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="handleEdit(row.id)">编辑</el-button>
+            <el-button link type="warning" size="small" @click="handleStudio(row.id)">画布编排</el-button>
+            <el-button link type="info" size="small" @click="handleVersions(row.id)">版本</el-button>
             <el-button link type="success" size="small" @click="handleDebug(row.id)">调试</el-button>
             <el-popconfirm title="确认删除该 Agent？" @confirm="handleDelete(row.id)">
               <template #reference>
@@ -99,18 +106,49 @@
           </template>
         </el-table-column>
       </el-table>
+      </template>
+      <template v-else>
+        <div class="filter-bar">
+          <el-input v-model="traceFilter.userId" placeholder="按 userId 过滤" clearable style="width: 200px" />
+          <el-select v-model="traceFilter.days" style="width: 130px">
+            <el-option :value="1" label="近1天" />
+            <el-option :value="7" label="近7天" />
+            <el-option :value="14" label="近14天" />
+          </el-select>
+          <el-button type="primary" @click="fetchRecentTraces">查询</el-button>
+        </div>
+        <el-table :data="recentTraces" v-loading="traceLoading" stripe>
+          <el-table-column prop="traceId" label="traceId" min-width="240" show-overflow-tooltip />
+          <el-table-column prop="agentName" label="agent" width="140" />
+          <el-table-column prop="intentType" label="intent" width="120" />
+          <el-table-column prop="callCount" label="调用数" width="80" />
+          <el-table-column label="成功率" width="100">
+            <template #default="{ row }">
+              {{ row.callCount ? ((row.successCount / row.callCount) * 100).toFixed(1) : '0.0' }}%
+            </template>
+          </el-table-column>
+          <el-table-column prop="startedAt" label="开始时间" width="180" />
+          <el-table-column label="操作" width="120">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="copyTraceId(row.traceId)">复制ID</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import type { AgentDefinition } from '@/types/agent'
 import { INTENT_TYPES, TRIGGER_MODES } from '@/types/agent'
 import { getAgentList, deleteAgent, updateAgent } from '@/api/agent'
+import { getRecentTraces } from '@/api/trace'
+import type { TraceSummary } from '@/types/trace'
 
 const router = useRouter()
 const agents = ref<AgentDefinition[]>([])
@@ -118,6 +156,10 @@ const loading = ref(false)
 const filterIntent = ref<string>('')
 const filterTrigger = ref<string>('')
 const filterEnabled = ref<boolean | ''>('')
+const activeView = ref<'agents' | 'traces'>('agents')
+const recentTraces = ref<TraceSummary[]>([])
+const traceLoading = ref(false)
+const traceFilter = ref({ userId: '', days: 7 })
 
 /**
  * 合并预置意图类型与数据中出现的自定义意图，
@@ -172,6 +214,31 @@ async function fetchData() {
   }
 }
 
+async function fetchRecentTraces() {
+  traceLoading.value = true
+  try {
+    const { data } = await getRecentTraces({
+      userId: traceFilter.value.userId || undefined,
+      days: traceFilter.value.days,
+      limit: 50,
+    })
+    recentTraces.value = Array.isArray(data) ? data : []
+  } catch {
+    recentTraces.value = []
+    ElMessage.error('加载 Trace 失败')
+  } finally {
+    traceLoading.value = false
+  }
+}
+
+function copyTraceId(traceId: string) {
+  if (!traceId) return
+  if (typeof window !== 'undefined' && window.navigator?.clipboard) {
+    window.navigator.clipboard.writeText(traceId)
+    ElMessage.success('traceId 已复制')
+  }
+}
+
 function handleCreate() {
   router.push('/agent/new/edit')
 }
@@ -182,6 +249,14 @@ function handleEdit(id: string) {
 
 function handleDebug(id: string) {
   router.push(`/agent/${id}/debug`)
+}
+
+function handleStudio(id: string) {
+  router.push(`/agent/${id}/studio`)
+}
+
+function handleVersions(id: string) {
+  router.push(`/agent/${id}/versions`)
 }
 
 async function handleToggle(agent: AgentDefinition, enabled: boolean) {
@@ -204,7 +279,16 @@ async function handleDelete(id: string) {
   }
 }
 
-onMounted(fetchData)
+onMounted(() => {
+  fetchData()
+})
+
+// 切到"最近 Trace"时再拉；避免用户从不点该 tab 也做了无用请求
+watch(activeView, (view) => {
+  if (view === 'traces' && recentTraces.value.length === 0) {
+    fetchRecentTraces()
+  }
+})
 </script>
 
 <style scoped lang="scss">

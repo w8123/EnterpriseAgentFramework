@@ -38,7 +38,8 @@ public class AgentService {
                 sessionId,
                 request.getUserId(),
                 request.getMessage(),
-                request.getIntentHint()
+                request.getIntentHint(),
+                request.getRoles()
         );
 
         return toChatResponse(agentResult);
@@ -56,7 +57,8 @@ public class AgentService {
                 sessionId,
                 request.getUserId(),
                 request.getMessage(),
-                request.getIntentHint()
+                request.getIntentHint(),
+                request.getRoles()
         );
     }
 

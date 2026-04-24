@@ -5,7 +5,10 @@
         <el-button @click="router.push('/agent')" :icon="ArrowLeft" text>返回</el-button>
         <h2>{{ isNew ? '新建 Agent' : `编辑 Agent — ${form.name}` }}</h2>
       </div>
-      <el-button type="primary" @click="handleSave" :loading="saving">保存</el-button>
+      <div class="header-actions">
+        <el-button v-if="!isNew" @click="router.push(`/agent/${agentId}/studio`)">画布编排</el-button>
+        <el-button type="primary" @click="handleSave" :loading="saving">保存</el-button>
+      </div>
     </div>
 
     <el-form
@@ -40,6 +43,24 @@
                   :value="t.value"
                 />
               </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="24">
+          <el-col :span="12">
+            <el-form-item label="keySlug">
+              <el-input
+                v-model="form.keySlug"
+                placeholder="对应 /api/v1/agents/{keySlug}/chat，留空自动用 id"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="允许 IRREVERSIBLE">
+              <el-switch v-model="form.allowIrreversible" />
+              <el-tooltip content="允许调用 DELETE 等不可逆副作用工具（护栏白名单）" placement="top">
+                <el-icon class="tip-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
             </el-form-item>
           </el-col>
         </el-row>
@@ -227,6 +248,7 @@ const saving = ref(false)
 const toolOptions = ref<ToolInfo[]>([])
 
 const form = reactive<AgentForm>({
+  keySlug: '',
   name: '',
   description: '',
   intentType: 'GENERAL_CHAT',
@@ -243,6 +265,7 @@ const form = reactive<AgentForm>({
   triggerMode: 'all',
   useMultiAgentModel: false,
   extra: {},
+  allowIrreversible: false,
 })
 
 const rules: FormRules = {
@@ -271,6 +294,7 @@ async function loadAgent() {
   try {
     const { data } = await getAgent(agentId)
     Object.assign(form, {
+      keySlug: data.keySlug ?? '',
       name: data.name,
       description: data.description || '',
       intentType: data.intentType || '',
@@ -287,6 +311,7 @@ async function loadAgent() {
       triggerMode: data.triggerMode || 'all',
       useMultiAgentModel: data.useMultiAgentModel ?? false,
       extra: data.extra || {},
+      allowIrreversible: data.allowIrreversible ?? false,
     })
   } catch {
     ElMessage.error('加载 Agent 失败')
@@ -334,6 +359,12 @@ onMounted(() => {
 
 <style scoped lang="scss">
 .header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-actions {
   display: flex;
   align-items: center;
   gap: 8px;

@@ -205,8 +205,10 @@ public class ScanProjectToolService {
                 .orElseThrow(() -> new IllegalArgumentException("扫描接口不存在: " + scanToolId));
         String globalName = allocateUniqueGlobalName(st.getName());
         List<ToolDefinitionParameter> parameters = parseParameters(st.getParametersJson());
+        String inferredSideEffect = SideEffectInferrer.inferAsString(st.getHttpMethod(), st.getEndpointPath());
         ToolDefinitionUpsertRequest req = new ToolDefinitionUpsertRequest(
                 globalName,
+                "TOOL",
                 st.getDescription(),
                 parameters,
                 SOURCE_SCANNER,
@@ -220,7 +222,10 @@ public class ScanProjectToolService {
                 projectId,
                 Boolean.TRUE.equals(st.getEnabled()),
                 Boolean.TRUE.equals(st.getAgentVisible()),
-                Boolean.TRUE.equals(st.getLightweightEnabled())
+                Boolean.TRUE.equals(st.getLightweightEnabled()),
+                inferredSideEffect,
+                null,
+                null
         );
         ToolDefinitionEntity created = toolDefinitionService.create(req);
         semanticDocService.migrateScanToolDocsToGlobal(projectId, scanToolId, created.getId());

@@ -23,6 +23,12 @@ public class AgentDefinition {
 
     private String id;
 
+    /**
+     * 人类可读的 slug，面向 {@code /api/v1/agents/{keySlug}/chat} 端点。
+     * Phase 3.0 新增；旧数据为空时由 {@code AgentDefinitionService} 自动补齐为 id。
+     */
+    private String keySlug;
+
     private String name;
 
     private String description;
@@ -73,6 +79,16 @@ public class AgentDefinition {
 
     /** 额外参数 */
     private Map<String, Object> extra;
+
+    /** Agent Studio 画布 JSON（节点 + 连线布局）；Phase 3.0 新增。 */
+    private String canvasJson;
+
+    /**
+     * 是否允许调用 IRREVERSIBLE 副作用 Tool（护栏白名单）。
+     * 默认 false；由运营在 Studio 发布时显式确认后置为 true。
+     */
+    @Builder.Default
+    private boolean allowIrreversible = false;
 
     private LocalDateTime createdAt;
 

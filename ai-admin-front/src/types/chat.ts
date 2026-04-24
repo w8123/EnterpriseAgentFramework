@@ -25,4 +25,5 @@ export interface ChatMessage {
   loading?: boolean
   toolCalls?: string[]
   reasoningSteps?: string[]
+  traceId?: string
 }
