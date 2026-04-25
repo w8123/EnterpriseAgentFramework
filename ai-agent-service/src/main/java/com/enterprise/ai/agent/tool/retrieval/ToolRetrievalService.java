@@ -1,6 +1,8 @@
 package com.enterprise.ai.agent.tool.retrieval;
 
 import com.enterprise.ai.agent.config.ToolRetrievalProperties;
+import com.enterprise.ai.agent.tool.log.ToolCallLogService;
+import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionMapper;
 import io.milvus.grpc.SearchResults;
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -35,23 +38,34 @@ public class ToolRetrievalService {
     private final ToolRetrievalProperties properties;
     private final ToolEmbeddingService embeddingService;
     private final ToolDefinitionMapper toolDefinitionMapper;
+    private final ToolCallLogService toolCallLogService;
 
     public ToolRetrievalService(MilvusServiceClient milvus,
                                 EmbeddingClient embeddingClient,
                                 ToolRetrievalProperties properties,
                                 ToolEmbeddingService embeddingService,
-                                ToolDefinitionMapper toolDefinitionMapper) {
+                                ToolDefinitionMapper toolDefinitionMapper,
+                                ToolCallLogService toolCallLogService) {
         this.milvus = milvus;
         this.embeddingClient = embeddingClient;
         this.properties = properties;
         this.embeddingService = embeddingService;
         this.toolDefinitionMapper = toolDefinitionMapper;
+        this.toolCallLogService = toolCallLogService;
     }
 
     /**
      * 检索 top-K tool 候选。任何异常/未就绪情况返回空列表，由上层决定降级策略。
      */
     public List<ToolCandidate> retrieve(String query, RetrievalScope scope, int topK) {
+        return retrieve(query, scope, topK, null);
+    }
+
+    /**
+     * 同 {@link #retrieve(String, RetrievalScope, int)}，在提供 {@code auditContext} 时写入向量化 / Milvus 检索 Trace。
+     */
+    public List<ToolCandidate> retrieve(String query, RetrievalScope scope, int topK,
+                                        ToolExecutionContext auditContext) {
         if (!properties.isEnabled()) {
             return List.of();
         }
@@ -71,7 +85,11 @@ public class ToolRetrievalService {
         }
 
         try {
+            long tEmbed = System.currentTimeMillis();
             List<Float> queryVector = embeddingClient.embed(query);
+            long embedMs = System.currentTimeMillis() - tEmbed;
+            logEmbeddingSpan(auditContext, query, queryVector, embedMs);
+
             String expr = buildExpression(effectiveScope);
             SearchParam.Builder builder = SearchParam.newBuilder()
                     .withCollectionName(properties.getCollectionName())
@@ -88,14 +106,19 @@ public class ToolRetrievalService {
             if (expr != null && !expr.isBlank()) {
                 builder.withExpr(expr);
             }
+            long tSearch = System.currentTimeMillis();
             R<SearchResults> resp = milvus.search(builder.build());
+            long searchMs = System.currentTimeMillis() - tSearch;
             if (resp.getException() != null) {
                 log.warn("[ToolRetrieval] Milvus 搜索异常: {}", resp.getException().toString());
+                logMilvusSpan(auditContext, query, expr, k, List.of(), searchMs,
+                        "Milvus: " + resp.getException());
                 return List.of();
             }
             SearchResultsWrapper wrapper = new SearchResultsWrapper(resp.getData().getResults());
             List<SearchResultsWrapper.IDScore> idScores = wrapper.getIDScore(0);
             if (idScores == null || idScores.isEmpty()) {
+                logMilvusSpan(auditContext, query, expr, k, List.of(), searchMs, null);
                 return List.of();
             }
 
@@ -132,11 +155,121 @@ public class ToolRetrievalService {
                         text
                 ));
             }
+            logMilvusSpan(auditContext, query, expr, k, candidates, searchMs, null);
             return Collections.unmodifiableList(candidates);
         } catch (Exception ex) {
             log.warn("[ToolRetrieval] 检索异常，返回空结果: {}", ex.toString());
+            logRetrievalFailureSpan(auditContext, query, ex);
             return List.of();
         }
+    }
+
+    private void logEmbeddingSpan(ToolExecutionContext ctx, String query, List<Float> vector, long elapsedMs) {
+        if (toolCallLogService == null || ctx == null || ctx.getTraceId() == null || ctx.getTraceId().isBlank()) {
+            return;
+        }
+        try {
+            Map<String, Object> args = new LinkedHashMap<>();
+            args.put("queryText", truncate(query, 4000));
+            args.put("provider", blankToNull(properties.getEmbeddingProvider()));
+            args.put("model", blankToNull(properties.getEmbeddingModel()));
+            Map<String, Object> res = new LinkedHashMap<>();
+            res.put("dimensions", vector == null ? 0 : vector.size());
+            res.put("vectorPreview", previewVector(vector, 12));
+            res.put("elapsedMs", elapsedMs);
+            toolCallLogService.record(ctx, "_trace:embedding.encode", args, res, true, null, elapsedMs, null);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void logMilvusSpan(ToolExecutionContext ctx,
+                               String query,
+                               String expr,
+                               int topK,
+                               List<ToolCandidate> candidates,
+                               long elapsedMs,
+                               String errorNote) {
+        if (toolCallLogService == null || ctx == null || ctx.getTraceId() == null || ctx.getTraceId().isBlank()) {
+            return;
+        }
+        try {
+            Map<String, Object> args = new LinkedHashMap<>();
+            args.put("queryText", truncate(query, 2000));
+            args.put("collection", properties.getCollectionName());
+            args.put("topK", topK);
+            args.put("expr", expr == null ? null : truncate(expr, 6000));
+            args.put("metric", "COSINE");
+            Map<String, Object> res = new LinkedHashMap<>();
+            res.put("hitCount", candidates == null ? 0 : candidates.size());
+            res.put("candidates", summarizeCandidatesForTrace(candidates));
+            res.put("elapsedMs", elapsedMs);
+            if (errorNote != null) {
+                res.put("error", errorNote);
+            }
+            boolean ok = errorNote == null;
+            toolCallLogService.record(ctx, "_trace:milvus.tool_search", args, res, ok,
+                    ok ? null : "MILVUS", elapsedMs, null);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void logRetrievalFailureSpan(ToolExecutionContext ctx, String query, Exception ex) {
+        if (toolCallLogService == null || ctx == null || ctx.getTraceId() == null || ctx.getTraceId().isBlank()) {
+            return;
+        }
+        try {
+            Map<String, Object> args = Map.of("queryText", truncate(query, 2000));
+            Map<String, Object> res = Map.of("error", ex.getClass().getSimpleName() + ": " + safeMsg(ex.getMessage()));
+            toolCallLogService.record(ctx, "_trace:tool_retrieval.failed", args, res, false,
+                    ex.getClass().getSimpleName(), 0L, null);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static List<Double> previewVector(List<Float> vector, int n) {
+        if (vector == null || vector.isEmpty()) {
+            return List.of();
+        }
+        int limit = Math.min(n, vector.size());
+        List<Double> out = new ArrayList<>(limit);
+        for (int i = 0; i < limit; i++) {
+            out.add(vector.get(i) == null ? null : vector.get(i).doubleValue());
+        }
+        return out;
+    }
+
+    private List<Map<String, Object>> summarizeCandidatesForTrace(List<ToolCandidate> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (ToolCandidate c : candidates) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("toolId", c.toolId());
+            row.put("toolName", c.toolName());
+            row.put("score", c.score());
+            row.put("indexedText", truncate(c.text(), 400));
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private static String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s;
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) {
+            return null;
+        }
+        if (max <= 0 || s.length() <= max) {
+            return s;
+        }
+        return s.substring(0, max) + "...[truncated]";
+    }
+
+    private static String safeMsg(String m) {
+        return m == null ? "" : m;
     }
 
     /**

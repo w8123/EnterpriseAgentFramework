@@ -25,6 +25,9 @@ public class OpenAIProxyController {
 
     private static final String DASHSCOPE_COMPATIBLE_BASE = "https://dashscope.aliyuncs.com/compatible-mode";
 
+    /** DEBUG 下请求/响应 JSON 预览最大字符数 */
+    private static final int DEBUG_BODY_PREVIEW_MAX = 1200;
+
     @Value("${model.tongyi.api-key:${spring.ai.dashscope.api-key:}}")
     private String apiKey;
 
@@ -42,6 +45,9 @@ public class OpenAIProxyController {
             HttpServletRequest servletRequest) {
 
         log.debug("[OpenAI Proxy] 收到代理请求, bodyLength={}", body.length());
+        if (log.isDebugEnabled()) {
+            log.debug("[OpenAI Proxy] 请求体预览: {}", previewJson(body));
+        }
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -58,6 +64,12 @@ public class OpenAIProxyController {
             );
 
             log.debug("[OpenAI Proxy] DashScope 响应 status={}", response.getStatusCode());
+            if (log.isDebugEnabled()) {
+                String respBody = response.getBody();
+                int len = respBody == null ? 0 : respBody.length();
+                log.debug("[OpenAI Proxy] DashScope 响应体长度={}", len);
+                log.debug("[OpenAI Proxy] DashScope 响应体预览: {}", previewJson(respBody));
+            }
             return ResponseEntity.status(response.getStatusCode())
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(response.getBody());
@@ -67,5 +79,16 @@ public class OpenAIProxyController {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body("{\"error\":{\"message\":\"Model service proxy error: " + e.getMessage() + "\"}}");
         }
+    }
+
+    private static String previewJson(String raw) {
+        if (raw == null) {
+            return "null";
+        }
+        if (raw.length() <= DEBUG_BODY_PREVIEW_MAX) {
+            return raw;
+        }
+        return raw.substring(0, DEBUG_BODY_PREVIEW_MAX)
+                + "... (已截断预览，总长=" + raw.length() + ")";
     }
 }

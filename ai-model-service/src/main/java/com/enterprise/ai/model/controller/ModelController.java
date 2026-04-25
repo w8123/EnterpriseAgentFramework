@@ -2,6 +2,8 @@ package com.enterprise.ai.model.controller;
 
 import com.enterprise.ai.common.dto.ApiResult;
 import com.enterprise.ai.model.service.*;
+import com.enterprise.ai.model.util.ChatDebugLogs;
+import com.enterprise.ai.model.util.EmbeddingDebugLogs;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -24,6 +26,7 @@ public class ModelController {
         log.info("[Chat] 收到请求 provider={}, model={}, messages数量={}",
                 request.getProvider(), request.getModel(),
                 request.getMessages() == null ? 0 : request.getMessages().size());
+        ChatDebugLogs.logChatRequest(log, "[Chat] 请求入参", request);
         ChatResponse response = routingService.chat(request);
         log.info("[Chat] 响应完成 provider={}, model={}, tokens={}",
                 response.getProvider(), response.getModel(),
@@ -37,6 +40,7 @@ public class ModelController {
         log.info("[ChatStream] 收到流式请求 provider={}, model={}, messages数量={}",
                 request.getProvider(), request.getModel(),
                 request.getMessages() == null ? 0 : request.getMessages().size());
+        ChatDebugLogs.logChatRequest(log, "[ChatStream] 请求入参", request);
         return routingService.chatStream(request)
                 .doOnComplete(() -> log.info("[ChatStream] 流式响应结束 provider={}, model={}",
                         request.getProvider(), request.getModel()))
@@ -50,6 +54,7 @@ public class ModelController {
         int textCount = request.getTexts() == null ? 0 : request.getTexts().size();
         log.info("[Embedding] 收到请求 provider={}, model={}, 文本数量={}",
                 request.getProvider(), request.getModel(), textCount);
+        EmbeddingDebugLogs.logInputTexts(log, "[Embedding] 请求入参", request.getTexts());
         EmbeddingResponse response = routingService.embed(request);
         log.info("[Embedding] 响应完成 provider={}, model={}, 向量数量={}, 维度={}",
                 response.getProvider(), response.getModel(),

@@ -4,6 +4,8 @@ import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.service.IntentService;
+import com.enterprise.ai.agent.skill.ToolExecutionContextHolder;
+import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.AgentBase;
@@ -15,6 +17,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -40,6 +43,7 @@ public class AgentRouter {
     private final IntentService intentService;
     private final AgentFactory agentFactory;
     private final AgentDefinitionService agentDefinitionService;
+    private final ToolCallLogService toolCallLogService;
 
     private static final String GENERAL_CHAT = "GENERAL_CHAT";
 
@@ -88,7 +92,8 @@ public class AgentRouter {
             } else {
                 response = executeSingleAgent(
                         agentFactory.buildFromDefinition(definition, message, context),
-                        input);
+                        input,
+                        context);
             }
             long elapsed = System.currentTimeMillis() - startTime;
             return buildResult(true, response, definition.getIntentType(), elapsed, traceId);
@@ -192,13 +197,26 @@ public class AgentRouter {
         } else {
             return executeSingleAgent(
                     agentFactory.buildFromDefinition(def, userMessage, context),
-                    input);
+                    input,
+                    context);
         }
     }
 
-    private Msg executeSingleAgent(ReActAgent agent, Msg input) {
+    private Msg executeSingleAgent(ReActAgent agent, Msg input, ToolExecutionContext ctx) {
         log.debug("[AgentRouter] 单Agent执行: {}", agent.getName());
-        return agent.call(input).block();
+        ToolExecutionContext prev = ToolExecutionContextHolder.get();
+        ToolExecutionContextHolder.set(ctx);
+        long t0 = System.currentTimeMillis();
+        try {
+            Msg response = agent.call(input).block();
+            logAgentscopeRun(ctx, agent.getName(), input, response, System.currentTimeMillis() - t0, true, null);
+            return response;
+        } catch (Exception ex) {
+            logAgentscopeRun(ctx, agent.getName(), input, null, System.currentTimeMillis() - t0, false, ex);
+            throw ex;
+        } finally {
+            ToolExecutionContextHolder.set(prev);
+        }
     }
 
     /**
@@ -217,7 +235,61 @@ public class AgentRouter {
                 .map(def -> (AgentBase) agentFactory.buildFromDefinition(def, userMessage, context))
                 .toList();
 
-        return Pipelines.sequential(agents, input).block();
+        ToolExecutionContext prev = ToolExecutionContextHolder.get();
+        ToolExecutionContextHolder.set(context);
+        try {
+            return Pipelines.sequential(agents, input).block();
+        } finally {
+            ToolExecutionContextHolder.set(prev);
+        }
+    }
+
+    /**
+     * 记录一次 AgentScope 顶层调用的入参/出参摘要（与多轮 {@code _trace:llm.stream#n} 互补）。
+     */
+    private void logAgentscopeRun(ToolExecutionContext ctx,
+                                  String reactAgentName,
+                                  Msg input,
+                                  Msg output,
+                                  long elapsedMs,
+                                  boolean success,
+                                  Exception error) {
+        if (toolCallLogService == null || ctx == null || ctx.getTraceId() == null || ctx.getTraceId().isBlank()) {
+            return;
+        }
+        try {
+            Map<String, Object> args = new LinkedHashMap<>();
+            args.put("reactAgentName", reactAgentName);
+            args.put("userInput", input == null ? null : truncate(input.getTextContent(), 8000));
+            Map<String, Object> res = new LinkedHashMap<>();
+            if (output != null) {
+                res.put("answer", truncate(output.getTextContent(), 12000));
+                res.put("msgName", output.getName());
+                if (output.getGenerateReason() != null) {
+                    res.put("generateReason", output.getGenerateReason().name());
+                }
+                if (output.getMetadata() != null && !output.getMetadata().isEmpty()) {
+                    res.put("metadata", new LinkedHashMap<>(output.getMetadata()));
+                }
+            }
+            if (error != null) {
+                res.put("exception", error.getClass().getSimpleName() + ": " + error.getMessage());
+            }
+            toolCallLogService.record(ctx, "_trace:agentscope.run", args, res, success,
+                    error == null ? null : error.getClass().getSimpleName(), elapsedMs, null);
+        } catch (Exception ignored) {
+            // 与 Tool 审计一致：不影响主链路
+        }
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) {
+            return null;
+        }
+        if (max <= 0 || s.length() <= max) {
+            return s;
+        }
+        return s.substring(0, max) + "...[truncated]";
     }
 
     private AgentResult buildResult(boolean success, Msg response, String intentType, long elapsed, String traceId) {

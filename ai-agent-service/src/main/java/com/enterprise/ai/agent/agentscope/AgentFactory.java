@@ -159,7 +159,7 @@ public class AgentFactory {
                 true, true);
         List<ToolCandidate> candidates;
         try {
-            candidates = toolRetrievalService.retrieve(userMessage, scope, retrievalProperties.getTopK());
+            candidates = toolRetrievalService.retrieve(userMessage, scope, retrievalProperties.getTopK(), context);
         } catch (Exception ex) {
             log.warn("[AgentFactory] Tool 召回异常，降级到白名单: {}", ex.toString());
             if (retrievalProperties.isFallbackOnError()) {

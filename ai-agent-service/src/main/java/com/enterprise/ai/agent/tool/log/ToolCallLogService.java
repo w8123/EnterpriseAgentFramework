@@ -50,6 +50,20 @@ public class ToolCallLogService {
                        boolean success,
                        String errorCode,
                        long elapsedMs) {
+        record(context, toolName, args, result, success, errorCode, elapsedMs, null);
+    }
+
+    /**
+     * 记录一次 tool 或内部 Trace 节点；{@code tokenCost} 用于 LLM 等可统计 token 的跨度。
+     */
+    public void record(ToolExecutionContext context,
+                       String toolName,
+                       Map<String, Object> args,
+                       Object result,
+                       boolean success,
+                       String errorCode,
+                       long elapsedMs,
+                       Integer tokenCost) {
         if (!properties.isEnabled()) {
             return;
         }
@@ -65,6 +79,7 @@ public class ToolCallLogService {
         entity.setSuccess(success);
         entity.setErrorCode(errorCode);
         entity.setElapsedMs((int) Math.min(elapsedMs, Integer.MAX_VALUE));
+        entity.setTokenCost(tokenCost);
         entity.setRetrievalTraceJson(context == null ? null : context.getRetrievalTraceJson());
         entity.setCreateTime(LocalDateTime.now());
 

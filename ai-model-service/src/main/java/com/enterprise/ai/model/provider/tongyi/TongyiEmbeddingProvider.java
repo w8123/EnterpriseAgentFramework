@@ -1,6 +1,7 @@
 package com.enterprise.ai.model.provider.tongyi;
 
 import com.enterprise.ai.model.service.EmbeddingResponse;
+import com.enterprise.ai.model.util.EmbeddingDebugLogs;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -54,6 +55,7 @@ public class TongyiEmbeddingProvider {
             List<String> batch = texts.subList(i, Math.min(i + batchSize, texts.size()));
             int batchIndex = i / batchSize + 1;
             log.debug("[Tongyi Embedding] 调用第 {}/{} 批次，本批文本数={}", batchIndex, totalBatches, batch.size());
+            EmbeddingDebugLogs.logInputTexts(log, "[Tongyi Embedding] 本批 DashScope input.texts", batch);
             allEmbeddings.addAll(callApi(batch, useModel));
         }
 

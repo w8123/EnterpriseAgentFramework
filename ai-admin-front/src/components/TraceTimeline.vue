@@ -9,7 +9,13 @@
         placement="top"
       >
         <div class="node-header">
-          <el-tag size="small" :type="group.parent.success ? 'success' : 'danger'">
+          <el-tag
+            size="small"
+            :type="tagTypeForNode(group.parent)"
+          >
+            {{ traceNodeTitle(group.parent.toolName) }}
+          </el-tag>
+          <el-tag v-if="isInternalTraceSpan(group.parent.toolName)" size="small" type="info" effect="plain">
             {{ group.parent.toolName }}
           </el-tag>
           <span class="meta">{{ group.parent.agentName || '-' }}</span>
@@ -20,17 +26,17 @@
           </el-tag>
         </div>
         <el-collapse>
-          <el-collapse-item title="参数 / 结果 / 召回">
+          <el-collapse-item :title="collapseDetailTitle(group.parent)">
             <div class="block">
-              <b>args:</b>
-              <pre>{{ prettyJson(group.parent.argsJson) }}</pre>
+              <b>{{ argLabel(group.parent) }}</b>
+              <pre :class="{ 'pre-trace-span': isInternalTraceSpan(group.parent.toolName) }">{{ prettyJson(group.parent.argsJson) }}</pre>
             </div>
             <div class="block">
-              <b>result:</b>
-              <pre>{{ prettyJson(group.parent.resultSummary) }}</pre>
+              <b>{{ resultLabel(group.parent) }}</b>
+              <pre :class="{ 'pre-trace-span': isInternalTraceSpan(group.parent.toolName) }">{{ prettyJson(group.parent.resultSummary) }}</pre>
             </div>
-            <div class="block">
-              <b>retrieval top-k:</b>
+            <div v-if="!isInternalTraceSpan(group.parent.toolName)" class="block">
+              <b>召回 top-k（与本 trace 共享快照）：</b>
               <pre>{{ JSON.stringify(group.parent.retrievalCandidates || [], null, 2) }}</pre>
             </div>
           </el-collapse-item>
@@ -44,7 +50,10 @@
               class="child-node"
             >
               <div class="node-header">
-                <el-tag size="small" :type="child.success ? 'success' : 'danger'">
+                <el-tag size="small" :type="tagTypeForNode(child)">
+                  {{ traceNodeTitle(child.toolName) }}
+                </el-tag>
+                <el-tag v-if="isInternalTraceSpan(child.toolName)" size="small" type="info" effect="plain">
                   {{ child.toolName }}
                 </el-tag>
                 <span class="meta">{{ child.elapsedMs || 0 }}ms</span>
@@ -52,17 +61,17 @@
                 <span class="meta">{{ child.createdAt }}</span>
               </div>
               <el-collapse>
-                <el-collapse-item title="参数 / 结果 / 召回">
+                <el-collapse-item :title="collapseDetailTitle(child)">
                   <div class="block">
-                    <b>args:</b>
-                    <pre>{{ prettyJson(child.argsJson) }}</pre>
+                    <b>{{ argLabel(child) }}</b>
+                    <pre :class="{ 'pre-trace-span': isInternalTraceSpan(child.toolName) }">{{ prettyJson(child.argsJson) }}</pre>
                   </div>
                   <div class="block">
-                    <b>result:</b>
-                    <pre>{{ prettyJson(child.resultSummary) }}</pre>
+                    <b>{{ resultLabel(child) }}</b>
+                    <pre :class="{ 'pre-trace-span': isInternalTraceSpan(child.toolName) }">{{ prettyJson(child.resultSummary) }}</pre>
                   </div>
-                  <div class="block">
-                    <b>retrieval top-k:</b>
+                  <div v-if="!isInternalTraceSpan(child.toolName)" class="block">
+                    <b>召回 top-k（与本 trace 共享快照）：</b>
                     <pre>{{ JSON.stringify(child.retrievalCandidates || [], null, 2) }}</pre>
                   </div>
                 </el-collapse-item>
@@ -78,6 +87,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { TraceNode } from '@/types/trace'
+import { isInternalTraceSpan, traceNodeTitle } from '@/utils/traceLabels'
 
 const props = defineProps<{
   nodes: TraceNode[]
@@ -114,6 +124,31 @@ const groupedNodes = computed<NodeGroup[]>(() => {
  * 后端 args_json/result_summary 是紧凑 JSON 字符串或普通文本；
  * 能解析成 JSON 就 pretty-print，否则原样返回，避免抽屉里一行长文本。
  */
+function tagTypeForNode(node: TraceNode): 'success' | 'danger' {
+  return node.success ? 'success' : 'danger'
+}
+
+function collapseDetailTitle(node: TraceNode): string {
+  if (isInternalTraceSpan(node.toolName)) return '入参 / 出参（详细）'
+  return 'Tool 入参 / 出参 / 召回'
+}
+
+function argLabel(node: TraceNode): string {
+  if (node.toolName === '_trace:embedding.encode') return '向量化请求摘要（query、provider、model）：'
+  if (node.toolName.startsWith('_trace:llm.stream#')) return '大模型请求（消息历史摘要、可用 tools、generateOptions）：'
+  if (node.toolName === '_trace:milvus.tool_search') return 'Milvus 检索条件：'
+  if (node.toolName === '_trace:agentscope.run') return '本次 AgentScope 调用输入：'
+  return '入参（args）：'
+}
+
+function resultLabel(node: TraceNode): string {
+  if (node.toolName === '_trace:embedding.encode') return '向量化结果（维度、向量预览）：'
+  if (node.toolName.startsWith('_trace:llm.stream#')) return '大模型输出（合并流式片段：assistant 文本、toolCalls、finishReason）：'
+  if (node.toolName === '_trace:milvus.tool_search') return 'Milvus 命中结果：'
+  if (node.toolName === '_trace:agentscope.run') return '最终输出与元数据：'
+  return '出参（result）：'
+}
+
 function prettyJson(raw?: string | null): string {
   if (raw == null || raw === '') return '-'
   const trimmed = raw.trim()
@@ -156,5 +191,8 @@ pre {
   word-break: break-all;
   max-height: 200px;
   overflow: auto;
+}
+.pre-trace-span {
+  max-height: 480px;
 }
 </style>

@@ -85,6 +85,8 @@ public class SubAgentSkillExecutor {
                 callMono = callMono.retryWhen(Retry.max(retryLimit).filter(this::isRetryable));
             }
             Msg response;
+            ToolExecutionContext holderPrev = ToolExecutionContextHolder.get();
+            ToolExecutionContextHolder.set(childCtx);
             try {
                 response = callMono.block();
             } catch (Exception ex) {
@@ -92,6 +94,8 @@ public class SubAgentSkillExecutor {
                     throw new SkillTimeoutException(skill.name(), timeout.toMillis(), ex);
                 }
                 throw ex;
+            } finally {
+                ToolExecutionContextHolder.set(holderPrev);
             }
             return response == null ? "" : response.getTextContent();
         } catch (IllegalStateException recursionFail) {

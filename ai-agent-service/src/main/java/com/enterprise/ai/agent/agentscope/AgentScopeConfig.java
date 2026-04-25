@@ -1,5 +1,7 @@
 package com.enterprise.ai.agent.agentscope;
 
+import com.enterprise.ai.agent.config.ToolCallLogProperties;
+import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import io.agentscope.core.formatter.openai.OpenAIMultiAgentFormatter;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.model.OpenAIChatModel;
@@ -35,14 +37,16 @@ public class AgentScopeConfig {
      * model-service 再转发到 DashScope，实现 API Key 集中管理。
      */
     @Bean
-    public Model agentScopeChatModel() {
+    public Model agentScopeChatModel(ToolCallLogService toolCallLogService,
+                                     ToolCallLogProperties toolCallLogProperties) {
         String baseUrl = modelServiceUrl + "/model/openai-proxy/v1";
         log.info("[AgentScope] 初始化模型: baseUrl={}, model={}", baseUrl, modelName);
-        return OpenAIChatModel.builder()
+        Model inner = OpenAIChatModel.builder()
                 .apiKey("proxy-via-model-service")
                 .baseUrl(baseUrl)
                 .modelName(modelName)
                 .build();
+        return new TracingModel(inner, toolCallLogService, toolCallLogProperties);
     }
 
     /**
@@ -52,13 +56,15 @@ public class AgentScopeConfig {
      * 会在历史消息中用 XML 标签区分不同 Agent 的发言。
      */
     @Bean
-    public Model agentScopeMultiAgentModel() {
+    public Model agentScopeMultiAgentModel(ToolCallLogService toolCallLogService,
+                                           ToolCallLogProperties toolCallLogProperties) {
         String baseUrl = modelServiceUrl + "/model/openai-proxy/v1";
-        return OpenAIChatModel.builder()
+        Model inner = OpenAIChatModel.builder()
                 .apiKey("proxy-via-model-service")
                 .baseUrl(baseUrl)
                 .modelName(modelName)
                 .formatter(new OpenAIMultiAgentFormatter())
                 .build();
+        return new TracingModel(inner, toolCallLogService, toolCallLogProperties);
     }
 }

@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class ToolRetrievalServiceExpressionTest {
 
-    private final ToolRetrievalService service = new ToolRetrievalService(null, null, null, null, null);
+    private final ToolRetrievalService service = new ToolRetrievalService(null, null, null, null, null, null);
 
     @Test
     void nullScopeReturnsNull() {
