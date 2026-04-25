@@ -1,5 +1,5 @@
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 COPY ai-agent-service/target/ai-agent-service-*.jar app.jar
-EXPOSE 8081
+EXPOSE 8603
 ENTRYPOINT ["java", "-jar", "app.jar"]

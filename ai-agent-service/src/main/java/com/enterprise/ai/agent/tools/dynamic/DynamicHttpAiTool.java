@@ -24,12 +24,34 @@ public class DynamicHttpAiTool implements AiTool {
     private static final TypeReference<List<ToolDefinitionParameter>> PARAMETER_LIST_TYPE = new TypeReference<>() {
     };
 
+    /**
+     * 每次调用附加的 HTTP 头与查询参数（例如扫描项目级 API Key）。
+     */
+    public record HttpInvocationExtras(Map<String, String> extraHeaders, Map<String, String> extraQueryParams) {
+        public static final HttpInvocationExtras EMPTY = new HttpInvocationExtras(Map.of(), Map.of());
+
+        public HttpInvocationExtras {
+            extraHeaders = extraHeaders == null ? Map.of() : Map.copyOf(extraHeaders);
+            extraQueryParams = extraQueryParams == null ? Map.of() : Map.copyOf(extraQueryParams);
+        }
+
+        public boolean isEmpty() {
+            return extraHeaders.isEmpty() && extraQueryParams.isEmpty();
+        }
+    }
+
     private final ToolDefinitionEntity definition;
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
     private final List<ToolDefinitionParameter> parameters;
+    private final HttpInvocationExtras invocationExtras;
 
     public DynamicHttpAiTool(ToolDefinitionEntity definition, ObjectMapper objectMapper) {
+        this(definition, objectMapper, null);
+    }
+
+    public DynamicHttpAiTool(ToolDefinitionEntity definition, ObjectMapper objectMapper,
+                             HttpInvocationExtras invocationExtras) {
         this.definition = Objects.requireNonNull(definition, "definition must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
         String baseUrl = definition.getBaseUrl();
@@ -38,6 +60,9 @@ public class DynamicHttpAiTool implements AiTool {
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
         this.parameters = parseParameters(definition.getParametersJson());
+        this.invocationExtras = invocationExtras == null || invocationExtras.isEmpty()
+                ? HttpInvocationExtras.EMPTY
+                : invocationExtras;
     }
 
     @Override
@@ -83,6 +108,9 @@ public class DynamicHttpAiTool implements AiTool {
                 body = value;
             }
         }
+        for (Map.Entry<String, String> entry : invocationExtras.extraQueryParams().entrySet()) {
+            queryParameters.put(entry.getKey(), entry.getValue());
+        }
 
         String uri = Objects.requireNonNull(buildUri(pathVariables, queryParameters));
         String methodName = definition.getHttpMethod();
@@ -93,9 +121,12 @@ public class DynamicHttpAiTool implements AiTool {
         Object requestBody = Objects.requireNonNull(shouldSendBody(httpMethod) ? normalizeBody(body) : Map.of());
 
         try {
-            return restClient.method(httpMethod)
-                    .uri(uri)
-                    .body(requestBody)
+            var spec = restClient.method(httpMethod).uri(uri);
+            if (!invocationExtras.extraHeaders().isEmpty()) {
+                spec = spec.headers(headers -> invocationExtras.extraHeaders()
+                        .forEach((name, value) -> headers.add(name, value == null ? "" : value)));
+            }
+            return spec.body(requestBody)
                     .retrieve()
                     .body(String.class);
         } catch (Exception ex) {

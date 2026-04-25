@@ -28,12 +28,150 @@
       </div>
     </el-card>
 
-    <el-tabs v-model="activeTab" class="detail-tabs">
-      <el-tab-pane label="扫描结果" name="scan">
-    <el-card shadow="never">
+    <el-card v-if="project" shadow="never" class="section-card">
+      <template #header>鉴权设置</template>
+      <p class="auth-hint">用于「测试」扫描到的 HTTP 接口，以及已注册为全局 Tool 且仍关联本项目的动态调用。</p>
+      <el-form label-width="160px" class="auth-form" @submit.prevent>
+        <el-form-item label="鉴权方式">
+          <el-select v-model="authForm.authType" style="width: 260px" placeholder="请选择">
+            <el-option label="无需鉴权" value="none" />
+            <el-option label="API Key" value="api_key" />
+          </el-select>
+        </el-form-item>
+        <template v-if="authForm.authType === 'api_key'">
+          <el-form-item label="Key 位置">
+            <el-select v-model="authForm.authApiKeyIn" style="width: 260px" placeholder="请选择">
+              <el-option label="HTTP Header" value="header" />
+              <el-option label="URL 查询参数 (params)" value="query" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="参数名 (Key)">
+            <el-input v-model="authForm.authApiKeyName" clearable placeholder="例如 X-API-Key、api_key" />
+          </el-form-item>
+          <el-form-item label="参数值 (Value)">
+            <el-input
+              v-model="authForm.authApiKeyValue"
+              type="password"
+              show-password
+              clearable
+              placeholder="密钥或 Token"
+            />
+          </el-form-item>
+        </template>
+        <el-form-item>
+          <el-button type="primary" :loading="authSaving" @click="saveAuthSettings">保存鉴权设置</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
+    <el-card v-if="project" shadow="never" class="section-card ai-settings-card">
+      <template #header>AI 理解生成设置</template>
+      <p class="ai-settings-hint">以下模型选择与「一键生成 / 强制重生成」对项目级摘要、模块列表及下方接口列表中的单条「重新生成」均生效。</p>
+      <div class="ai-toolbar">
+        <el-button type="primary" :loading="batchStarting" @click="startBatchGenerate(false)">
+          一键生成 AI 理解
+        </el-button>
+        <el-button :loading="batchStarting" @click="startBatchGenerate(true)">强制重生成（覆盖已编辑）</el-button>
+        <el-button @click="reloadSemanticUi">刷新</el-button>
+        <el-select
+          v-model="semanticProvider"
+          placeholder="Provider"
+          clearable
+          filterable
+          class="semantic-llm-select"
+          @change="onSemanticProviderChange"
+        >
+          <el-option v-for="p in semanticProviders" :key="p.name" :label="p.name" :value="p.name" />
+        </el-select>
+        <el-select
+          v-model="semanticModel"
+          placeholder="模型"
+          clearable
+          filterable
+          class="semantic-llm-select semantic-model-select"
+          :disabled="!semanticProvider"
+        >
+          <el-option v-for="m in semanticModelsForSelect" :key="m" :label="m" :value="m" />
+        </el-select>
+        <el-tag v-if="task" :type="taskTagType(task.stage)" style="margin-left: 12px">
+          {{ task.stage }} · {{ task.completedSteps }}/{{ task.totalSteps }}
+        </el-tag>
+        <span v-if="task" class="token-sum">累计 token：{{ task.totalTokens }}</span>
+      </div>
+      <el-progress
+        v-if="task && (task.stage === 'QUEUED' || task.stage === 'RUNNING')"
+        :percentage="taskPercent"
+        :text-inside="true"
+        :stroke-width="18"
+        class="task-progress"
+      />
+      <el-alert
+        v-if="task && task.stage === 'FAILED'"
+        type="error"
+        :title="`批量生成失败：${task.errorMessage || '未知错误'}`"
+        :closable="false"
+        show-icon
+      />
+    </el-card>
+
+    <div class="semantic-summary-block">
+      <el-card shadow="never" class="section-card">
+        <template #header>
+          <div class="ai-card-header">
+            <span>项目级摘要</span>
+            <div>
+              <el-button size="small" :loading="projectGenLoading" @click="regenerateProject">重新生成</el-button>
+              <el-button size="small" :disabled="!projectDoc" @click="openEditDoc(projectDoc)">编辑</el-button>
+            </div>
+          </div>
+        </template>
+        <div v-if="projectDoc" class="markdown-body" v-html="renderMd(projectDoc.contentMd)" />
+        <el-empty v-else description="项目级文档尚未生成" />
+      </el-card>
+
+      <el-card shadow="never" class="section-card">
+        <template #header>
+          <div class="ai-card-header">
+            <span>模块列表（{{ modules.length }}）</span>
+            <div>
+              <el-button size="small" :disabled="selectedModuleIds.length < 2" @click="openMergeDialog">
+                合并选中（{{ selectedModuleIds.length }}）
+              </el-button>
+            </div>
+          </div>
+        </template>
+        <el-table :data="modules" stripe @selection-change="onModuleSelectionChange">
+          <el-table-column type="selection" width="48" />
+          <el-table-column prop="displayName" label="展示名" min-width="200" />
+          <el-table-column prop="name" label="原始类名" min-width="220" />
+          <el-table-column label="聚合类" min-width="260">
+            <template #default="{ row }">
+              <el-tag v-for="c in row.sourceClasses" :key="c" size="small" class="source-class-tag">{{ c }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="AI 文档" width="160">
+            <template #default="{ row }">
+              <el-tag v-if="moduleDocMap[row.id]" :type="moduleDocMap[row.id].status === 'edited' ? 'success' : 'info'" size="small">
+                {{ moduleDocMap[row.id].status }}
+              </el-tag>
+              <el-tag v-else size="small" type="warning">未生成</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="260">
+            <template #default="{ row }">
+              <el-button link size="small" type="primary" @click="regenerateModule(row)">重新生成</el-button>
+              <el-button link size="small" :disabled="!moduleDocMap[row.id]" @click="openEditDoc(moduleDocMap[row.id])">编辑</el-button>
+              <el-button link size="small" @click="openRenameDialog(row)">重命名</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+    </div>
+
+    <el-card shadow="never" class="section-card merged-tools-card">
       <template #header>
         <div class="tools-header">
-          <span>扫描到的接口</span>
+          <span>扫描接口与 AI 语义</span>
           <div class="tools-actions">
             <el-button size="small" @click="batchToggle(false)">全部禁用</el-button>
             <el-button size="small" type="primary" @click="batchToggle(true)">全部启用</el-button>
@@ -45,7 +183,7 @@
         <el-empty v-if="!loading && tools.length === 0" description="这个项目还没有扫描出任何接口" />
         <el-collapse
           v-else-if="tools.length > 0"
-          v-model="scanCollapseActive"
+          v-model="interfaceCollapseActive"
           class="tool-groups-collapse"
         >
           <el-collapse-item v-for="g in toolModuleGroups" :key="g.key" :name="g.key">
@@ -56,7 +194,7 @@
                   <el-tag size="small" type="info" class="module-tool-count">{{ g.tools.length }} 个接口</el-tag>
                 </div>
                 <el-button
-                  v-if="g.tools.length > 0"
+                  v-if="g.tools.length > 0 && g.tools.some((t) => !t.globalToolDefinitionId)"
                   type="primary"
                   size="small"
                   :loading="batchModulePromoteLoading[g.key] ?? false"
@@ -66,10 +204,10 @@
                 </el-button>
               </div>
             </template>
-            <el-table :data="g.tools" stripe class="nested-tools-table">
-              <el-table-column type="expand">
+            <el-table :data="g.tools" stripe class="nested-tools-table merged-interface-table">
+              <el-table-column type="expand" width="44">
                 <template #default="{ row }">
-                  <div class="expand-content">
+                  <div class="expand-content expand-merged">
                     <h4>参数定义</h4>
                     <el-table
                       :data="parameterRows(row.parameters)"
@@ -102,49 +240,93 @@
                       <div><b>请求体类型：</b>{{ row.requestBodyType || '-' }}</div>
                       <div><b>响应类型：</b>{{ row.responseType || '-' }}</div>
                     </div>
+                    <h4 class="expand-ai-heading">AI 语义文档</h4>
+                    <div v-if="toolDocMap[row.scanToolId]" class="markdown-body expand-md" v-html="renderMd(toolDocMap[row.scanToolId].contentMd)" />
+                    <el-empty v-else description="该接口还没有 AI 描述" :image-size="60" />
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column prop="name" label="工具名" min-width="220" />
-              <el-table-column label="端点" min-width="220">
+              <el-table-column prop="name" label="工具名" min-width="180" />
+              <el-table-column label="端点" min-width="200">
                 <template #default="{ row }">
                   <span>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="description" label="描述" min-width="280" />
-              <el-table-column label="参数数" width="90" align="center">
+              <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
+              <el-table-column label="参数数" width="78" align="center">
                 <template #default="{ row }">
                   {{ (row.parameters || []).length }}
                 </template>
               </el-table-column>
-              <el-table-column label="启用" width="90" align="center">
+              <el-table-column label="AI 描述" min-width="200">
+                <template #default="{ row }">
+                  <div class="ai-desc-ellipsis">
+                    {{ toolDocSummary(row) }}
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="AI 状态" width="96" align="center">
+                <template #default="{ row }">
+                  <el-tag v-if="toolDocMap[row.scanToolId]" :type="toolDocMap[row.scanToolId].status === 'edited' ? 'success' : 'info'" size="small">
+                    {{ toolDocMap[row.scanToolId].status }}
+                  </el-tag>
+                  <el-tag v-else size="small" type="warning">未生成</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="启用" width="78" align="center">
                 <template #default="{ row }">
                   <el-switch :model-value="row.enabled" @change="handleEnabledChange(row, $event as boolean)" />
                 </template>
               </el-table-column>
-              <el-table-column label="Agent 可见" width="110" align="center">
+              <el-table-column label="Agent 可见" width="96" align="center">
                 <template #default="{ row }">
                   <el-switch :model-value="row.agentVisible" @change="handleFlagChange(row, 'agentVisible', $event as boolean)" />
                 </template>
               </el-table-column>
-              <el-table-column label="轻量调用" width="110" align="center">
+              <el-table-column label="轻量调用" width="96" align="center">
                 <template #default="{ row }">
                   <el-switch :model-value="row.lightweightEnabled" @change="handleFlagChange(row, 'lightweightEnabled', $event as boolean)" />
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="280" fixed="right">
+              <el-table-column label="操作" width="520" fixed="right">
                 <template #default="{ row }">
-                  <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
-                  <el-button link type="primary" size="small" @click="openTest(row)">测试</el-button>
-                  <el-button
-                    link
-                    type="success"
-                    size="small"
-                    :loading="promoteLoading[row.scanToolId]"
-                    @click="handlePromoteToGlobal(row)"
-                  >
-                    添加为 Tool
-                  </el-button>
+                  <div class="merged-ops-wrap">
+                    <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
+                    <el-button link type="primary" size="small" @click="openTest(row)">测试</el-button>
+                    <el-button
+                      v-if="!row.globalToolDefinitionId"
+                      link
+                      type="success"
+                      size="small"
+                      :loading="promoteLoading[row.scanToolId]"
+                      @click="handlePromoteToGlobal(row)"
+                    >
+                      添加为 Tool
+                    </el-button>
+                    <el-button
+                      v-if="row.globalToolDefinitionId && row.globalToolOutOfSync"
+                      link
+                      type="warning"
+                      size="small"
+                      :loading="pushToGlobalLoading[row.scanToolId]"
+                      @click="handlePushToGlobalTool(row)"
+                    >
+                      更新到Tool
+                    </el-button>
+                    <el-button
+                      v-if="row.globalToolDefinitionId"
+                      link
+                      type="danger"
+                      size="small"
+                      :loading="unpromoteLoading[row.scanToolId]"
+                      @click="handleUnpromoteFromGlobal(row)"
+                    >
+                      从Tool中下架
+                    </el-button>
+                    <span class="merged-ops-sep" aria-hidden="true" />
+                    <el-button link size="small" type="primary" @click="regenerateTool(row)">重新生成 AI</el-button>
+                    <el-button link size="small" :disabled="!toolDocMap[row.scanToolId]" @click="openEditDoc(toolDocMap[row.scanToolId])">编辑 AI 文档</el-button>
+                  </div>
                 </template>
               </el-table-column>
             </el-table>
@@ -152,157 +334,6 @@
         </el-collapse>
       </div>
     </el-card>
-      </el-tab-pane>
-
-      <el-tab-pane label="AI 理解" name="ai" lazy>
-        <div class="ai-tab">
-          <div class="ai-toolbar">
-            <el-button type="primary" :loading="batchStarting" @click="startBatchGenerate(false)">
-              一键生成 AI 理解
-            </el-button>
-            <el-button :loading="batchStarting" @click="startBatchGenerate(true)">强制重生成（覆盖已编辑）</el-button>
-            <el-button @click="reloadAiTab">刷新</el-button>
-            <el-select
-              v-model="semanticProvider"
-              placeholder="Provider"
-              clearable
-              filterable
-              class="semantic-llm-select"
-              @change="onSemanticProviderChange"
-            >
-              <el-option v-for="p in semanticProviders" :key="p.name" :label="p.name" :value="p.name" />
-            </el-select>
-            <el-select
-              v-model="semanticModel"
-              placeholder="模型"
-              clearable
-              filterable
-              class="semantic-llm-select semantic-model-select"
-              :disabled="!semanticProvider"
-            >
-              <el-option v-for="m in semanticModelsForSelect" :key="m" :label="m" :value="m" />
-            </el-select>
-            <el-tag v-if="task" :type="taskTagType(task.stage)" style="margin-left: 12px">
-              {{ task.stage }} · {{ task.completedSteps }}/{{ task.totalSteps }}
-            </el-tag>
-            <span v-if="task" class="token-sum">累计 token：{{ task.totalTokens }}</span>
-          </div>
-          <el-progress
-            v-if="task && (task.stage === 'QUEUED' || task.stage === 'RUNNING')"
-            :percentage="taskPercent"
-            :text-inside="true"
-            :stroke-width="18"
-            class="task-progress"
-          />
-          <el-alert
-            v-if="task && task.stage === 'FAILED'"
-            type="error"
-            :title="`批量生成失败：${task.errorMessage || '未知错误'}`"
-            :closable="false"
-            show-icon
-          />
-
-          <el-card shadow="never" class="section-card">
-            <template #header>
-              <div class="ai-card-header">
-                <span>项目级摘要</span>
-                <div>
-                  <el-button size="small" :loading="projectGenLoading" @click="regenerateProject">重新生成</el-button>
-                  <el-button size="small" :disabled="!projectDoc" @click="openEditDoc(projectDoc)">编辑</el-button>
-                </div>
-              </div>
-            </template>
-            <div v-if="projectDoc" class="markdown-body" v-html="renderMd(projectDoc.contentMd)" />
-            <el-empty v-else description="项目级文档尚未生成" />
-          </el-card>
-
-          <el-card shadow="never" class="section-card">
-            <template #header>
-              <div class="ai-card-header">
-                <span>模块列表（{{ modules.length }}）</span>
-                <div>
-                  <el-button size="small" :disabled="selectedModuleIds.length < 2" @click="openMergeDialog">
-                    合并选中（{{ selectedModuleIds.length }}）
-                  </el-button>
-                </div>
-              </div>
-            </template>
-            <el-table :data="modules" stripe @selection-change="onModuleSelectionChange">
-              <el-table-column type="selection" width="48" />
-              <el-table-column prop="displayName" label="展示名" min-width="200" />
-              <el-table-column prop="name" label="原始类名" min-width="220" />
-              <el-table-column label="聚合类" min-width="260">
-                <template #default="{ row }">
-                  <el-tag v-for="c in row.sourceClasses" :key="c" size="small" class="source-class-tag">{{ c }}</el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="AI 文档" width="160">
-                <template #default="{ row }">
-                  <el-tag v-if="moduleDocMap[row.id]" :type="moduleDocMap[row.id].status === 'edited' ? 'success' : 'info'" size="small">
-                    {{ moduleDocMap[row.id].status }}
-                  </el-tag>
-                  <el-tag v-else size="small" type="warning">未生成</el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="260">
-                <template #default="{ row }">
-                  <el-button link size="small" type="primary" @click="regenerateModule(row)">重新生成</el-button>
-                  <el-button link size="small" :disabled="!moduleDocMap[row.id]" @click="openEditDoc(moduleDocMap[row.id])">编辑</el-button>
-                  <el-button link size="small" @click="openRenameDialog(row)">重命名</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-card>
-
-          <el-card shadow="never" class="section-card">
-            <template #header>接口语义 AI 描述</template>
-            <el-empty v-if="tools.length === 0" description="暂无接口" />
-            <el-collapse
-              v-else
-              v-model="aiToolCollapseActive"
-              class="tool-groups-collapse"
-            >
-              <el-collapse-item v-for="g in toolModuleGroups" :key="`ai-${g.key}`" :name="g.key">
-                <template #title>
-                  <span class="collapse-module-title">{{ g.label }}</span>
-                  <el-tag size="small" type="info" class="module-tool-count">{{ g.tools.length }} 个接口</el-tag>
-                </template>
-                <el-table :data="g.tools" stripe class="nested-tools-table">
-                  <el-table-column type="expand">
-                    <template #default="{ row }">
-                      <div v-if="toolDocMap[row.scanToolId]" class="markdown-body expand-md" v-html="renderMd(toolDocMap[row.scanToolId].contentMd)" />
-                      <el-empty v-else description="该接口还没有 AI 描述" :image-size="60" />
-                    </template>
-                  </el-table-column>
-                  <el-table-column prop="name" label="工具名" min-width="220" />
-                  <el-table-column label="AI 描述" min-width="400">
-                    <template #default="{ row }">
-                      <div class="ai-desc-ellipsis">
-                        {{ toolDocSummary(row) }}
-                      </div>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="状态" width="120">
-                    <template #default="{ row }">
-                      <el-tag v-if="toolDocMap[row.scanToolId]" :type="toolDocMap[row.scanToolId].status === 'edited' ? 'success' : 'info'" size="small">
-                        {{ toolDocMap[row.scanToolId].status }}
-                      </el-tag>
-                      <el-tag v-else size="small" type="warning">未生成</el-tag>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="操作" width="200">
-                    <template #default="{ row }">
-                      <el-button link size="small" type="primary" @click="regenerateTool(row)">重新生成</el-button>
-                      <el-button link size="small" :disabled="!toolDocMap[row.scanToolId]" @click="openEditDoc(toolDocMap[row.scanToolId])">编辑</el-button>
-                    </template>
-                  </el-table-column>
-                </el-table>
-              </el-collapse-item>
-            </el-collapse>
-          </el-card>
-        </div>
-      </el-tab-pane>
-    </el-tabs>
 
     <el-dialog v-model="docEditVisible" title="编辑 AI 文档（保存后标记为 edited，不会被重新生成覆盖，除非强制）" width="720px">
       <el-input v-model="docEditContent" type="textarea" :rows="18" placeholder="Markdown 内容" />
@@ -498,7 +529,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import type { ProviderInfo } from '@/types/model'
@@ -510,9 +541,12 @@ import {
   getScanProjectTools,
   promoteScanModuleToolsToGlobal,
   promoteScanProjectToolToGlobal,
+  pushScanProjectToolToGlobalTool,
+  unpromoteScanProjectToolFromGlobal,
   testScanProjectTool,
   toggleScanProjectTool,
   triggerRescan,
+  updateScanProjectAuthSettings,
   updateScanProjectTool,
 } from '@/api/scanProject'
 import { startToolRetrievalRebuild } from '@/api/toolRetrieval'
@@ -545,6 +579,8 @@ const rebuildEmbeddingLoading = ref(false)
 const formDialogVisible = ref(false)
 const editingScanToolId = ref<number | null>(null)
 const promoteLoading = reactive<Record<number, boolean>>({})
+const pushToGlobalLoading = reactive<Record<number, boolean>>({})
+const unpromoteLoading = reactive<Record<number, boolean>>({})
 /** 扫描结果按模块「批量添加为 Tool」 loading，key 同 toolModuleGroups */
 const batchModulePromoteLoading = reactive<Record<string, boolean>>({})
 const form = reactive<ToolUpsertRequest>(createEmptyForm())
@@ -556,6 +592,51 @@ const testingTool = ref<ProjectToolInfo | null>(null)
 const testArgs = reactive<Record<string, string>>({})
 const testResult = ref<ToolTestResult | null>(null)
 const testRunning = ref(false)
+
+const authSaving = ref(false)
+const authForm = reactive({
+  authType: 'none' as 'none' | 'api_key',
+  authApiKeyIn: 'header' as 'header' | 'query',
+  authApiKeyName: '',
+  authApiKeyValue: '',
+})
+
+function syncAuthFormFromProject() {
+  const p = project.value
+  if (!p) return
+  authForm.authType = p.authType === 'api_key' ? 'api_key' : 'none'
+  authForm.authApiKeyIn = p.authApiKeyIn === 'query' ? 'query' : 'header'
+  authForm.authApiKeyName = p.authApiKeyName ?? ''
+  authForm.authApiKeyValue = p.authApiKeyValue ?? ''
+}
+
+async function saveAuthSettings() {
+  if (authForm.authType === 'api_key') {
+    if (!authForm.authApiKeyName.trim()) {
+      ElMessage.warning('请填写参数名 (Key)')
+      return
+    }
+    if (!authForm.authApiKeyValue.trim()) {
+      ElMessage.warning('请填写参数值 (Value)')
+      return
+    }
+  }
+  authSaving.value = true
+  try {
+    await updateScanProjectAuthSettings(projectId.value, {
+      authType: authForm.authType,
+      authApiKeyIn: authForm.authType === 'api_key' ? authForm.authApiKeyIn : null,
+      authApiKeyName: authForm.authType === 'api_key' ? authForm.authApiKeyName.trim() : null,
+      authApiKeyValue: authForm.authType === 'api_key' ? authForm.authApiKeyValue : null,
+    })
+    ElMessage.success('鉴权设置已保存')
+    await refreshAll()
+  } catch (e) {
+    ElMessage.error((e as Error).message || '保存失败')
+  } finally {
+    authSaving.value = false
+  }
+}
 
 /** 扫描结果 / 接口语义 按模块分组（与下方 toolModuleGroups 一致） */
 interface ToolModuleGroup {
@@ -574,7 +655,7 @@ function createEmptyForm(): ToolUpsertRequest {
     sourceLocation: '',
     httpMethod: 'GET',
     baseUrl: '',
-    contextPath: '/api',
+    contextPath: '',
     endpointPath: '',
     requestBodyType: '',
     responseType: '',
@@ -617,7 +698,7 @@ function toUpsertRequest(tool: ProjectToolInfo): ToolUpsertRequest {
     sourceLocation: tool.sourceLocation || '',
     httpMethod: tool.httpMethod || 'GET',
     baseUrl: tool.baseUrl || '',
-    contextPath: tool.contextPath || '/api',
+    contextPath: tool.contextPath ?? '',
     endpointPath: tool.endpointPath || '',
     requestBodyType: tool.requestBodyType || '',
     responseType: tool.responseType || '',
@@ -636,7 +717,7 @@ function applyForm(data: ToolUpsertRequest) {
   form.sourceLocation = data.sourceLocation || ''
   form.httpMethod = data.httpMethod || 'GET'
   form.baseUrl = data.baseUrl || ''
-  form.contextPath = data.contextPath || '/api'
+  form.contextPath = data.contextPath ?? ''
   form.endpointPath = data.endpointPath || ''
   form.requestBodyType = data.requestBodyType || ''
   form.responseType = data.responseType || ''
@@ -653,6 +734,20 @@ function statusTagType(status: ScanProject['status']) {
   return 'info'
 }
 
+function applySemanticDocsFromList(docs: SemanticDoc[]) {
+  projectDoc.value = docs.find((d) => d.level === 'project') || null
+  const mMap: Record<number, SemanticDoc> = {}
+  docs.filter((d) => d.level === 'module' && d.moduleId != null).forEach((d) => {
+    mMap[d.moduleId as number] = d
+  })
+  moduleDocMap.value = mMap
+  const tMap: Record<number, SemanticDoc> = {}
+  for (const d of docs.filter((x) => x.level === 'scan_tool')) {
+    if (d.toolId != null) tMap[d.toolId] = d
+  }
+  toolDocMap.value = tMap
+}
+
 async function refreshAll() {
   loading.value = true
   try {
@@ -662,12 +757,20 @@ async function refreshAll() {
       listScanModules(projectId.value),
     ])
     project.value = projectResponse.data
+    syncAuthFormFromProject()
     tools.value = Array.isArray(toolResponse.data) ? toolResponse.data : []
     modules.value = Array.isArray(moduleResponse.data) ? moduleResponse.data : []
+    try {
+      const { data } = await listProjectSemanticDocs(projectId.value)
+      applySemanticDocsFromList(Array.isArray(data) ? data : [])
+    } catch {
+      applySemanticDocsFromList([])
+    }
   } catch {
     project.value = null
     tools.value = []
     modules.value = []
+    applySemanticDocsFromList([])
     ElMessage.error('加载扫描详情失败')
   } finally {
     loading.value = false
@@ -791,6 +894,42 @@ async function handlePromoteToGlobal(tool: ProjectToolInfo) {
   }
 }
 
+async function handlePushToGlobalTool(tool: ProjectToolInfo) {
+  pushToGlobalLoading[tool.scanToolId] = true
+  try {
+    await pushScanProjectToolToGlobalTool(projectId.value, tool.scanToolId)
+    ElMessage.success('已更新到 Tool 管理中的对应工具')
+    await refreshAll()
+  } catch (error) {
+    ElMessage.error((error as Error).message || '更新失败')
+  } finally {
+    pushToGlobalLoading[tool.scanToolId] = false
+  }
+}
+
+async function handleUnpromoteFromGlobal(tool: ProjectToolInfo) {
+  try {
+    await ElMessageBox.confirm(
+      '将删除 Tool 管理中的该工具，并解除与本扫描接口的关联。若需对外暴露，可再次点「添加为 Tool」。',
+      '从Tool中下架',
+      { type: 'warning', confirmButtonText: '确定下架', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  unpromoteLoading[tool.scanToolId] = true
+  try {
+    await unpromoteScanProjectToolFromGlobal(projectId.value, tool.scanToolId)
+    ElMessage.success('已从 Tool 中下架')
+    await refreshAll()
+    await reloadAiTab()
+  } catch (error) {
+    ElMessage.error((error as Error).message || '下架失败')
+  } finally {
+    unpromoteLoading[tool.scanToolId] = false
+  }
+}
+
 async function handlePromoteModuleToGlobal(g: ToolModuleGroup) {
   if (g.tools.length === 0) return
   batchModulePromoteLoading[g.key] = true
@@ -849,17 +988,16 @@ function goBack() {
   router.push('/scan-project')
 }
 
-// ==================== AI 理解 Tab ====================
+// ==================== 语义文档与「扫描接口 + AI」合并列表 ====================
 
-const activeTab = ref<'scan' | 'ai'>('scan')
 const modules = ref<ScanModule[]>([])
 const projectDoc = ref<SemanticDoc | null>(null)
 const moduleDocMap = ref<Record<number, SemanticDoc>>({})
 const toolDocMap = ref<Record<number, SemanticDoc>>({})
 const selectedModuleIds = ref<number[]>([])
 
-const scanCollapseActive = ref<string[]>([])
-const aiToolCollapseActive = ref<string[]>([])
+/** 扫描接口与 AI 语义合并列表：按模块折叠，与原先两个 TAB 共用同一组 key */
+const interfaceCollapseActive = ref<string[]>([])
 
 const toolModuleGroups = computed<ToolModuleGroup[]>(() => {
   const moduleById = new Map<number, ScanModule>()
@@ -1015,18 +1153,26 @@ async function reloadAiTab() {
       listProjectSemanticDocs(projectId.value),
     ])
     modules.value = Array.isArray(moduleResp.data) ? moduleResp.data : []
-    const docs = Array.isArray(docResp.data) ? docResp.data : []
-    projectDoc.value = docs.find((d) => d.level === 'project') || null
-    const mMap: Record<number, SemanticDoc> = {}
-    docs.filter((d) => d.level === 'module' && d.moduleId != null).forEach((d) => { mMap[d.moduleId as number] = d })
-    moduleDocMap.value = mMap
-    const tMap: Record<number, SemanticDoc> = {}
-    for (const d of docs.filter((x) => x.level === 'scan_tool')) {
-      if (d.toolId != null) tMap[d.toolId] = d
-    }
-    toolDocMap.value = tMap
+    applySemanticDocsFromList(Array.isArray(docResp.data) ? docResp.data : [])
   } catch (error) {
     ElMessage.error((error as Error).message || '加载 AI 理解数据失败')
+  }
+}
+
+/** 工具栏「刷新」：同步模块与语义文档（项目级摘要、模块列表、AI TAB 共用） */
+async function reloadSemanticUi() {
+  await reloadAiTab()
+}
+
+async function resumeBatchTaskIfAny() {
+  try {
+    const { data } = await getProjectBatchStatus(projectId.value)
+    task.value = data ?? null
+    if (data && (data.stage === 'RUNNING' || data.stage === 'QUEUED')) {
+      startPollingTask(data.taskId)
+    }
+  } catch {
+    task.value = null
   }
 }
 
@@ -1203,24 +1349,11 @@ async function submitRename() {
   }
 }
 
-watch(activeTab, (tab) => {
-  if (tab === 'ai') {
-    void loadSemanticProviders()
-    void reloadAiTab()
-    if (!task.value) {
-      getProjectBatchStatus(projectId.value).then(({ data }) => {
-        task.value = data ?? null
-        if (data && (data.stage === 'RUNNING' || data.stage === 'QUEUED')) {
-          startPollingTask(data.taskId)
-        }
-      }).catch(() => {
-        task.value = null
-      })
-    }
-  }
+onMounted(() => {
+  void refreshAll()
+  void loadSemanticProviders()
+  void resumeBatchTaskIfAny()
 })
-
-onMounted(refreshAll)
 onUnmounted(stopPollingTask)
 </script>
 
@@ -1362,14 +1495,65 @@ onUnmounted(stopPollingTask)
   margin-top: 8px;
 }
 
-.detail-tabs {
+.auth-hint {
+  font-size: 13px;
+  color: #909399;
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.auth-form {
+  max-width: 640px;
+}
+
+.ai-settings-card {
   margin-top: 16px;
 }
 
-.ai-tab {
+.ai-settings-hint {
+  font-size: 13px;
+  color: #909399;
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.merged-tools-card {
+  margin-top: 16px;
+}
+
+.merged-interface-table {
+  min-width: 1080px;
+}
+
+.expand-merged .expand-ai-heading {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  color: #909399;
+}
+
+.merged-ops-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 2px;
+  line-height: 1.5;
+}
+
+.merged-ops-sep {
+  display: inline-block;
+  width: 1px;
+  height: 14px;
+  margin: 0 8px 0 4px;
+  background: #dcdfe6;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.semantic-summary-block {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  margin-top: 16px;
 }
 
 .ai-toolbar {

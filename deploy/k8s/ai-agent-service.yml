@@ -18,7 +18,7 @@ spec:
         - name: ai-agent-service
           image: registry.enterprise.com/ai/ai-agent-service:latest
           ports:
-            - containerPort: 8081
+            - containerPort: 8603
           env:
             - name: DASHSCOPE_API_KEY
               valueFrom:
@@ -33,9 +33,9 @@ spec:
             - name: REDIS_HOST
               value: redis
             - name: MODEL_SERVICE_URL
-              value: http://ai-model-service:8090
+              value: http://ai-model-service:8601
             - name: SKILLS_SERVICE_URL
-              value: http://ai-skills-service:8080
+              value: http://ai-skills-service:8602
             - name: NACOS_ADDR
               value: nacos:8848
             - name: NACOS_ENABLED
@@ -50,7 +50,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /actuator/health
-              port: 8081
+              port: 8603
             initialDelaySeconds: 30
             periodSeconds: 10
 ---
@@ -62,6 +62,6 @@ spec:
   selector:
     app: ai-agent-service
   ports:
-    - port: 8081
-      targetPort: 8081
+    - port: 8603
+      targetPort: 8603
   type: ClusterIP

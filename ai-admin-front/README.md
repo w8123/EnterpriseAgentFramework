@@ -51,15 +51,15 @@
 
 | 实例 | baseURL | 典型路径 | 后端服务（默认端口） |
 |------|---------|----------|----------------------|
-| `textRequest`（默认导出） | `/ai` | `/knowledge/*`、`/file/*`、`/retrieval/*`、`/biz-index/*` | ai-skills-service `:8080`（context-path `/ai`） |
-| `agentRequest` | `''`（站点根） | `/api/agent/*`、`/api/chat/*`、`/api/tools/*` | ai-agent-service `:8081` |
-| `modelRequest` | `/model` | `/model/chat`、`/model/providers` 等 | ai-model-service `:8090` |
+| `textRequest`（默认导出） | `/ai` | `/knowledge/*`、`/file/*`、`/retrieval/*`、`/biz-index/*` | ai-skills-service `:8602`（context-path `/ai`） |
+| `agentRequest` | `''`（站点根） | `/api/agent/*`、`/api/chat/*`、`/api/tools/*` | ai-agent-service `:8603` |
+| `modelRequest` | `/model` | `/model/chat`、`/model/providers` 等 | ai-model-service `:8601` |
 
 开发环境下 **Vite 代理**（`vite.config.ts`）：
 
-- `/ai` → `http://localhost:8080`
-- `/api/agent`、`/api/chat`、`/api/tools` → `http://localhost:8081`
-- `/model` → `http://localhost:8090`
+- `/ai` → `http://localhost:8602`
+- `/api/agent`、`/api/chat`、`/api/tools` → `http://localhost:8603`
+- `/model` → `http://localhost:8601`
 
 生产部署时，需在 **Nginx（或网关）** 上为上述路径分别反代到对应服务，并保留较长 `proxy_read_timeout`（大文件入库、流式对话）。
 
@@ -199,9 +199,9 @@ ai-admin-front/
 
 - Node.js >= 18
 - 按需启动后端：
-  - **仅知识库功能**：`ai-skills-service`（默认 `http://localhost:8080`）
-  - **Agent / 调试台**：`ai-agent-service`（`:8081`）
-  - **模型调试台 / Provider**：`ai-model-service`（`:8090`），并配置有效 **DashScope API Key**（环境变量 `DASHSCOPE_API_KEY` 或 `application.yml`）
+  - **仅知识库功能**：`ai-skills-service`（默认 `http://localhost:8602`）
+  - **Agent / 调试台**：`ai-agent-service`（`:8603`）
+  - **模型调试台 / Provider**：`ai-model-service`（`:8601`），并配置有效 **DashScope API Key**（环境变量 `DASHSCOPE_API_KEY` 或 `application.yml`）
 
 ### 安装与开发
 
@@ -250,21 +250,21 @@ server {
     }
 
     location /ai/ {
-        proxy_pass http://localhost:8080;
+        proxy_pass http://localhost:8602;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_read_timeout 300s;
     }
 
     location /api/ {
-        proxy_pass http://localhost:8081;
+        proxy_pass http://localhost:8603;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_read_timeout 300s;
     }
 
     location /model/ {
-        proxy_pass http://localhost:8090;
+        proxy_pass http://localhost:8601;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_read_timeout 300s;

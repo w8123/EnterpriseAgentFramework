@@ -20,7 +20,7 @@ public class ModelStreamClient {
 
     private final WebClient webClient;
 
-    public ModelStreamClient(@Value("${services.model-service.url:http://localhost:8090}") String modelServiceUrl) {
+    public ModelStreamClient(@Value("${services.model-service.url:http://localhost:8601}") String modelServiceUrl) {
         this.webClient = WebClient.builder()
                 .baseUrl(modelServiceUrl)
                 .build();

@@ -22,7 +22,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class AgentScopeConfig {
 
-    @Value("${services.model-service.url:http://localhost:8090}")
+    @Value("${services.model-service.url:http://localhost:8601}")
     private String modelServiceUrl;
 
     @Value("${agentscope.model.name:qwen-max}")

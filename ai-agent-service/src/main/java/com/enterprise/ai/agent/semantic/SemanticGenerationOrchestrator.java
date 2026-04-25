@@ -258,7 +258,7 @@ public class SemanticGenerationOrchestrator {
     }
 
     private void applyToolAiDescription(ToolDefinitionEntity tool, SemanticDocEntity doc) {
-        String summary = extractToolSummary(doc.getContentMd());
+        String summary = SemanticMarkdownUtil.extractToolSummary(doc.getContentMd());
         tool.setAiDescription(summary);
         toolDefinitionMapper.updateById(tool);
         // Tool Retrieval: ai_description 变更即重建向量
@@ -266,7 +266,7 @@ public class SemanticGenerationOrchestrator {
     }
 
     private void applyScanToolAiDescription(ScanProjectToolEntity tool, SemanticDocEntity doc) {
-        String summary = extractToolSummary(doc.getContentMd());
+        String summary = SemanticMarkdownUtil.extractToolSummary(doc.getContentMd());
         scanProjectToolService.updateAiDescription(tool.getId(), summary);
     }
 
@@ -280,18 +280,7 @@ public class SemanticGenerationOrchestrator {
      * 公开以便 {@code SemanticDocController#edit} 在手工编辑文档后复用同一套抽取规则。
      */
     public String extractToolSummary(String md) {
-        if (md == null || md.isBlank()) {
-            return null;
-        }
-        String marker = "## 一句话语义";
-        int idx = md.indexOf(marker);
-        if (idx < 0) {
-            return md.length() > 500 ? md.substring(0, 500) : md;
-        }
-        String rest = md.substring(idx + marker.length()).trim();
-        int nextHeader = rest.indexOf("\n##");
-        String section = nextHeader > 0 ? rest.substring(0, nextHeader).trim() : rest.trim();
-        return section.isBlank() ? null : section;
+        return SemanticMarkdownUtil.extractToolSummary(md);
     }
 
     private int safeTokens(SemanticDocEntity doc) {

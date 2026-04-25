@@ -137,7 +137,7 @@ ai-skills-service/
    ```
 
 3. **管理端（同仓库，可选）**  
-   知识库、业务索引、扫描等运维界面在 **`ai-admin-front`**（Vue 3 + Vite）中，开发时通过其代理或环境变量指向本服务（默认开发常指向 `http://localhost:8080`，与 `server.servlet.context-path` 为 `/ai` 一致）。  
+   知识库、业务索引、扫描等运维界面在 **`ai-admin-front`**（Vue 3 + Vite）中，开发时通过其代理或环境变量指向本服务（默认开发常指向 `http://localhost:8602`，与 `server.servlet.context-path` 为 `/ai` 一致）。  
 
 ---
 

@@ -25,6 +25,8 @@ export interface ToolInfo {
   projectId?: number | null
   /** 扫描项目显示名，由后端根据 `projectId` 解析；无项目时多为 null */
   sourceProjectName?: string | null
+  /** 从扫描项目语义/接口文档同步的「AI 理解」摘要，用于 Agent 与列表展示 */
+  aiDescription?: string | null
   enabled: boolean
   agentVisible: boolean
   lightweightEnabled: boolean

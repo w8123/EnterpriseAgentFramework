@@ -1,7 +1,10 @@
 package com.enterprise.ai.agent.scan;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.enterprise.ai.agent.semantic.SemanticDocEntity;
 import com.enterprise.ai.agent.semantic.SemanticDocService;
+import com.enterprise.ai.agent.semantic.SemanticMarkdownUtil;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
@@ -15,7 +18,9 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -29,15 +34,18 @@ public class ScanProjectToolService {
     };
 
     private final ScanProjectToolMapper mapper;
+    private final ScanProjectMapper projectMapper;
     private final ToolDefinitionService toolDefinitionService;
     private final SemanticDocService semanticDocService;
     private final ObjectMapper objectMapper;
 
     public ScanProjectToolService(ScanProjectToolMapper mapper,
+                                  ScanProjectMapper projectMapper,
                                   ToolDefinitionService toolDefinitionService,
                                   SemanticDocService semanticDocService,
                                   ObjectMapper objectMapper) {
         this.mapper = mapper;
+        this.projectMapper = projectMapper;
         this.toolDefinitionService = toolDefinitionService;
         this.semanticDocService = semanticDocService;
         this.objectMapper = objectMapper;
@@ -168,14 +176,13 @@ public class ScanProjectToolService {
         ScanProjectToolEntity st = findByProjectAndId(projectId, id)
                 .orElseThrow(() -> new IllegalArgumentException("扫描接口不存在: " + id));
         ToolDefinitionEntity proxy = ScanProjectToolAdapter.toDefinitionEntity(st);
-        return new DynamicHttpAiTool(proxy, objectMapper).execute(args == null ? Map.of() : args);
+        ScanProjectEntity project = projectMapper.selectById(projectId);
+        var extras = ScanProjectAuthSupport.invocationExtras(project);
+        return new DynamicHttpAiTool(proxy, objectMapper, extras).execute(args == null ? Map.of() : args);
     }
 
     /**
-     * 写入全局 {@code tool_definition}，迁移语义文档引用，并删除扫描行。
-     */
-    /**
-     * 将某扫描模块下（或 {@code moduleId} 为 null 表示未关联模块）全部接口注册为全局 Tool，顺序与列表一致。
+     * 将某扫描模块下（或 {@code moduleId} 为 null 表示未关联模块）全部尚未「添加为 Tool」的接口注册为全局 Tool，顺序与列表一致。
      */
     @Transactional
     public List<ToolDefinitionEntity> promoteModuleToGlobalTools(Long projectId, Long moduleId) {
@@ -188,6 +195,7 @@ public class ScanProjectToolService {
         } else {
             w.eq(ScanProjectToolEntity::getModuleId, moduleId);
         }
+        w.isNull(ScanProjectToolEntity::getGlobalToolDefinitionId);
         List<Long> ids = mapper.selectList(w).stream().map(ScanProjectToolEntity::getId).toList();
         if (ids.isEmpty()) {
             return List.of();
@@ -203,6 +211,10 @@ public class ScanProjectToolService {
     public ToolDefinitionEntity promoteToGlobalTool(Long projectId, Long scanToolId) {
         ScanProjectToolEntity st = findByProjectAndId(projectId, scanToolId)
                 .orElseThrow(() -> new IllegalArgumentException("扫描接口不存在: " + scanToolId));
+        if (st.getGlobalToolDefinitionId() != null) {
+            return toolDefinitionService.findById(st.getGlobalToolDefinitionId())
+                    .orElseThrow(() -> new IllegalStateException("关联的全局 Tool 已不存在，请重新扫描后再次添加"));
+        }
         String globalName = allocateUniqueGlobalName(st.getName());
         List<ToolDefinitionParameter> parameters = parseParameters(st.getParametersJson());
         String inferredSideEffect = SideEffectInferrer.inferAsString(st.getHttpMethod(), st.getEndpointPath());
@@ -229,8 +241,174 @@ public class ScanProjectToolService {
         );
         ToolDefinitionEntity created = toolDefinitionService.create(req);
         semanticDocService.migrateScanToolDocsToGlobal(projectId, scanToolId, created.getId());
-        mapper.deleteById(st.getId());
-        return created;
+        syncAiDescriptionToGlobalTool(st, created.getId());
+        st.setGlobalToolDefinitionId(created.getId());
+        mapper.updateById(st);
+        return toolDefinitionService.findById(created.getId()).orElse(created);
+    }
+
+    /**
+     * 将扫描侧 AI 理解（冗余字段 + 若空则从已迁移的接口语义 Markdown 抽取）同步到全局 {@code tool_definition}。
+     */
+    private void syncAiDescriptionToGlobalTool(ScanProjectToolEntity st, long globalToolId) {
+        String ai = null;
+        if (StringUtils.hasText(st.getAiDescription())) {
+            ai = st.getAiDescription().trim();
+        } else {
+            ai = semanticDocService
+                    .findByLevelAndToolId(SemanticDocEntity.LEVEL_TOOL, globalToolId)
+                    .map(d -> SemanticMarkdownUtil.extractToolSummary(d.getContentMd()))
+                    .filter(StringUtils::hasText)
+                    .map(String::trim)
+                    .orElse(null);
+        }
+        if (StringUtils.hasText(ai)) {
+            toolDefinitionService.setAiDescriptionAndReindex(globalToolId, ai);
+        }
+    }
+
+    /**
+     * 扫描行与已关联的 {@code tool_definition} 在可同步字段上是否不一致（需要「更新到 Tool」）。
+     */
+    public boolean isScanDivergedFromGlobal(ScanProjectToolEntity st, ToolDefinitionEntity g) {
+        if (g == null) {
+            return false;
+        }
+        return !scanContentMatchesGlobal(st, g);
+    }
+
+    private boolean scanContentMatchesGlobal(ScanProjectToolEntity st, ToolDefinitionEntity g) {
+        String kind = g.getKind();
+        if (kind == null || kind.isBlank()) {
+            kind = ToolDefinitionService.KIND_TOOL;
+        }
+        if (!ToolDefinitionService.KIND_TOOL.equalsIgnoreCase(kind)) {
+            return false;
+        }
+        if (!Objects.equals(trimOrNull(st.getDescription()), trimOrNull(g.getDescription()))) {
+            return false;
+        }
+        if (!Objects.equals(parseParameters(st.getParametersJson()), parseParameters(g.getParametersJson()))) {
+            return false;
+        }
+        if (!Objects.equals(trimOrNull(st.getSourceLocation()), trimOrNull(g.getSourceLocation()))) {
+            return false;
+        }
+        if (!Objects.equals(trimOrNull(st.getHttpMethod()), trimOrNull(g.getHttpMethod()))) {
+            return false;
+        }
+        if (!Objects.equals(trimOrNull(st.getBaseUrl()), trimOrNull(g.getBaseUrl()))) {
+            return false;
+        }
+        if (!Objects.equals(trimOrNull(st.getContextPath()), trimOrNull(g.getContextPath()))) {
+            return false;
+        }
+        if (!Objects.equals(trimOrNull(st.getEndpointPath()), trimOrNull(g.getEndpointPath()))) {
+            return false;
+        }
+        if (!Objects.equals(trimOrNull(st.getRequestBodyType()), trimOrNull(g.getRequestBodyType()))) {
+            return false;
+        }
+        if (!Objects.equals(trimOrNull(st.getResponseType()), trimOrNull(g.getResponseType()))) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(st.getEnabled()) != Boolean.TRUE.equals(g.getEnabled())) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(st.getAgentVisible()) != Boolean.TRUE.equals(g.getAgentVisible())) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(st.getLightweightEnabled()) != Boolean.TRUE.equals(g.getLightweightEnabled())) {
+            return false;
+        }
+        if (!Objects.equals(st.getProjectId(), g.getProjectId())) {
+            return false;
+        }
+        String inferred = SideEffectInferrer.inferAsString(st.getHttpMethod(), st.getEndpointPath());
+        String gSide = g.getSideEffect() == null || g.getSideEffect().isBlank()
+                ? "WRITE"
+                : g.getSideEffect().trim().toUpperCase(Locale.ROOT);
+        String iSide = inferred == null || inferred.isBlank()
+                ? "WRITE"
+                : inferred.trim().toUpperCase(Locale.ROOT);
+        if (!Objects.equals(iSide, gSide)) {
+            return false;
+        }
+        if (!Objects.equals(trimOrNull(st.getAiDescription()), trimOrNull(g.getAiDescription()))) {
+            return false;
+        }
+        return true;
+    }
+
+    private static String trimOrNull(String s) {
+        if (s == null) {
+            return null;
+        }
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
+    }
+
+    /**
+     * 删除全局 Tool 并解除扫描行关联（语义文档中 level=tool 且该 toolId 的条目共删）。
+     */
+    @Transactional
+    public ScanProjectToolEntity unpromoteFromGlobal(Long projectId, Long scanToolId) {
+        ScanProjectToolEntity st = findByProjectAndId(projectId, scanToolId)
+                .orElseThrow(() -> new IllegalArgumentException("扫描接口不存在: " + scanToolId));
+        if (st.getGlobalToolDefinitionId() == null) {
+            throw new IllegalArgumentException("该扫描接口未关联全局 Tool");
+        }
+        Long gid = st.getGlobalToolDefinitionId();
+        toolDefinitionService.findById(gid).ifPresent(ignored -> {
+            semanticDocService.deleteByTool(gid);
+            toolDefinitionService.deleteNonCodeToolById(gid);
+        });
+        st.setGlobalToolDefinitionId(null);
+        // updateById 在默认策略下会忽略 null，导致库中 global_tool_definition_id 未清空，列表仍显示「已添加为 Tool」
+        mapper.update(null, Wrappers.<ScanProjectToolEntity>lambdaUpdate()
+                .set(ScanProjectToolEntity::getGlobalToolDefinitionId, null)
+                .eq(ScanProjectToolEntity::getId, st.getId()));
+        return st;
+    }
+
+    /**
+     * 用当前扫描行内容覆盖已关联的 {@code tool_definition}（全局名不变）。
+     */
+    @Transactional
+    public ToolDefinitionEntity pushScanToGlobalTool(Long projectId, Long scanToolId) {
+        ScanProjectToolEntity st = findByProjectAndId(projectId, scanToolId)
+                .orElseThrow(() -> new IllegalArgumentException("扫描接口不存在: " + scanToolId));
+        if (st.getGlobalToolDefinitionId() == null) {
+            throw new IllegalArgumentException("该扫描接口未关联全局 Tool");
+        }
+        ToolDefinitionEntity g = toolDefinitionService.findById(st.getGlobalToolDefinitionId())
+                .orElseThrow(() -> new IllegalStateException("关联的全局 Tool 已不存在，请从 Tool 中下架后重新添加"));
+        List<ToolDefinitionParameter> parameters = parseParameters(st.getParametersJson());
+        String inferredSideEffect = SideEffectInferrer.inferAsString(st.getHttpMethod(), st.getEndpointPath());
+        ToolDefinitionUpsertRequest req = new ToolDefinitionUpsertRequest(
+                g.getName(),
+                "TOOL",
+                st.getDescription(),
+                parameters,
+                SOURCE_SCANNER,
+                st.getSourceLocation(),
+                st.getHttpMethod(),
+                st.getBaseUrl(),
+                st.getContextPath(),
+                st.getEndpointPath(),
+                st.getRequestBodyType(),
+                st.getResponseType(),
+                projectId,
+                Boolean.TRUE.equals(st.getEnabled()),
+                Boolean.TRUE.equals(st.getAgentVisible()),
+                Boolean.TRUE.equals(st.getLightweightEnabled()),
+                inferredSideEffect,
+                null,
+                null
+        );
+        ToolDefinitionEntity updated = toolDefinitionService.update(g.getName(), req);
+        syncAiDescriptionToGlobalTool(st, updated.getId());
+        return toolDefinitionService.findById(updated.getId()).orElse(updated);
     }
 
     public void updateAiDescription(Long id, String summary) {

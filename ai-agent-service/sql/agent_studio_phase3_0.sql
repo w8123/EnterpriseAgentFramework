@@ -5,6 +5,7 @@
 --   2. 新建 `agent_version` 表（发布快照 + 灰度百分比 + 状态机）；
 --   3. 脚本幂等：使用 IF NOT EXISTS / add_col_if_absent / add_idx_if_absent；
 --   4. 首次上线：`AgentDefinitionService` 启动时会把 JSON 文件中的旧数据导入一次。
+-- 相关：`scan_project` 鉴权列见根目录 `sql/init.sql` 或 `ai-agent-service/sql/scan_project_auth.sql`（单独补丁）。
 -- ============================================================================
 
 USE `ai_text_service`;

@@ -8,6 +8,7 @@ import com.enterprise.ai.agent.scan.ScanProjectToolService;
 import com.enterprise.ai.agent.semantic.SemanticDocEntity;
 import com.enterprise.ai.agent.semantic.SemanticDocService;
 import com.enterprise.ai.agent.semantic.SemanticGenerationOrchestrator;
+import com.enterprise.ai.agent.semantic.SemanticMarkdownUtil;
 import com.enterprise.ai.agent.semantic.SemanticGenerationTask;
 import com.enterprise.ai.agent.tool.retrieval.ToolEmbeddingService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
@@ -147,6 +148,11 @@ public class SemanticDocController {
             if (tool == null) {
                 return ResponseEntity.notFound().build();
             }
+            if (SemanticDocEntity.LEVEL_TOOL.equals(level)) {
+                return semanticDocService.findByLevelAndToolId(level, tool.getId())
+                        .<ResponseEntity<?>>map(doc -> ResponseEntity.ok(SemanticDocDTO.from(doc)))
+                        .orElseGet(() -> ResponseEntity.notFound().build());
+            }
             toolId = tool.getId();
         }
         return semanticDocService.findByRef(level, projectId, moduleId, toolId)
@@ -185,7 +191,7 @@ public class SemanticDocController {
             if (SemanticDocEntity.LEVEL_TOOL.equals(doc.getLevel()) && doc.getToolId() != null) {
                 ToolDefinitionEntity tool = toolDefinitionMapper.selectById(doc.getToolId());
                 if (tool != null) {
-                    String summary = orchestrator.extractToolSummary(doc.getContentMd());
+                    String summary = SemanticMarkdownUtil.extractToolSummary(doc.getContentMd());
                     tool.setAiDescription(summary);
                     toolDefinitionMapper.updateById(tool);
                     toolEmbeddingService.upsert(tool);

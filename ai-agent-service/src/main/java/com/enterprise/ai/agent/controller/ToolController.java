@@ -152,7 +152,8 @@ public class ToolController {
                 Boolean.TRUE.equals(entity.getEnabled()),
                 Boolean.TRUE.equals(entity.getAgentVisible()),
                 Boolean.TRUE.equals(entity.getLightweightEnabled()),
-                entity.getSideEffect()
+                entity.getSideEffect(),
+                entity.getAiDescription()
         );
     }
 
@@ -173,7 +174,8 @@ public class ToolController {
                        boolean enabled,
                        boolean agentVisible,
                        boolean lightweightEnabled,
-                       String sideEffect) {
+                       String sideEffect,
+                       String aiDescription) {
     }
 
     record ToolParameterDTO(String name,

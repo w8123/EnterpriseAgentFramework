@@ -4,6 +4,7 @@ import type {
   ProjectToolInfo,
   PromotedGlobalTool,
   ScanProject,
+  ScanProjectAuthSaveRequest,
   ScanProjectScanResult,
   ScanProjectUpsertRequest,
 } from '@/types/scanProject'
@@ -23,6 +24,10 @@ export function createScanProject(data: ScanProjectUpsertRequest) {
 
 export function updateScanProject(id: number, data: ScanProjectUpsertRequest) {
   return agentRequest.put<ScanProject>(`/api/scan-projects/${id}`, data)
+}
+
+export function updateScanProjectAuthSettings(id: number, data: ScanProjectAuthSaveRequest) {
+  return agentRequest.patch<ScanProject>(`/api/scan-projects/${id}/auth-settings`, data)
 }
 
 export function deleteScanProject(id: number) {
@@ -60,6 +65,20 @@ export function testScanProjectTool(projectId: number, scanToolId: number, args:
 export function promoteScanProjectToolToGlobal(projectId: number, scanToolId: number) {
   return agentRequest.post<PromotedGlobalTool>(
     `/api/scan-projects/${projectId}/scan-tools/${scanToolId}/promote-to-tool`,
+  )
+}
+
+/** 从全局 Tool 中下架并解除关联 */
+export function unpromoteScanProjectToolFromGlobal(projectId: number, scanToolId: number) {
+  return agentRequest.post<ProjectToolInfo>(
+    `/api/scan-projects/${projectId}/scan-tools/${scanToolId}/unpromote-from-global`,
+  )
+}
+
+/** 用当前扫描行内容覆盖已关联的全局 Tool */
+export function pushScanProjectToolToGlobalTool(projectId: number, scanToolId: number) {
+  return agentRequest.post<ProjectToolInfo>(
+    `/api/scan-projects/${projectId}/scan-tools/${scanToolId}/push-to-global-tool`,
   )
 }
 

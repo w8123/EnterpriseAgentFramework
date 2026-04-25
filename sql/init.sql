@@ -16,6 +16,7 @@
 --   ai-agent-service/sql/tool_call_log_index_phase2_0_1.sql Phase 2.0.1 索引
 --   ai-agent-service/sql/skill_mining_phase2_1.sql Phase 2.1 Skill Mining
 --   ai-agent-service/sql/agent_studio_phase3_0.sql Phase 3.0 Agent Studio（agent_definition / agent_version）
+--   ai-agent-service/sql/scan_project_auth.sql  scan_project HTTP 鉴权列（旧库可单独打补丁，幂等）
 --
 -- 幂等设计：
 --   - 建库 / 建表统一 IF NOT EXISTS；
@@ -226,11 +227,21 @@ CREATE TABLE IF NOT EXISTS `scan_project` (
     `tool_count`    INT          NOT NULL DEFAULT 0      COMMENT '扫描发现的接口数',
     `status`        VARCHAR(32)  NOT NULL DEFAULT 'created' COMMENT '状态: created/scanning/scanned/failed',
     `error_message` TEXT         DEFAULT NULL            COMMENT '失败原因',
+    `auth_type`          VARCHAR(32)  NOT NULL DEFAULT 'none' COMMENT '鉴权: none / api_key',
+    `auth_api_key_in`    VARCHAR(16)  DEFAULT NULL         COMMENT 'api_key 时: header / query',
+    `auth_api_key_name`  VARCHAR(128) DEFAULT NULL         COMMENT 'API Key 参数名',
+    `auth_api_key_value` TEXT         DEFAULT NULL         COMMENT 'API Key 参数值',
     `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_scan_project_name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='扫描项目表';
+
+-- 已存在、且建表时尚无鉴权列的旧库：由下列调用补齐；新库建表已含四列，此处为幂等 no-op
+CALL add_col_if_absent('scan_project', 'auth_type',          'VARCHAR(32) NOT NULL DEFAULT ''none'' COMMENT ''鉴权: none / api_key'' AFTER `error_message`');
+CALL add_col_if_absent('scan_project', 'auth_api_key_in',    'VARCHAR(16) DEFAULT NULL COMMENT ''api_key 时: header / query'' AFTER `auth_type`');
+CALL add_col_if_absent('scan_project', 'auth_api_key_name',  'VARCHAR(128) DEFAULT NULL COMMENT ''API Key 参数名'' AFTER `auth_api_key_in`');
+CALL add_col_if_absent('scan_project', 'auth_api_key_value', 'TEXT DEFAULT NULL COMMENT ''API Key 参数值'' AFTER `auth_api_key_name`');
 
 CREATE TABLE IF NOT EXISTS `scan_module` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -264,6 +275,7 @@ CREATE TABLE IF NOT EXISTS `scan_project_tool` (
     `enabled`             TINYINT      NOT NULL DEFAULT 0      COMMENT '是否启用',
     `agent_visible`       TINYINT      NOT NULL DEFAULT 0      COMMENT '是否对 Agent 可见',
     `lightweight_enabled` TINYINT      NOT NULL DEFAULT 0      COMMENT '是否轻量可见',
+    `global_tool_definition_id` BIGINT DEFAULT NULL            COMMENT '已注册为全局 tool_definition.id，未注册为 NULL',
     `create_time`         DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`         DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),

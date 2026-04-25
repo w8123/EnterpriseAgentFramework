@@ -6,6 +6,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.enterprise.ai.agent.skill.SubAgentSkill;
 import com.enterprise.ai.agent.skill.SubAgentSkillFactory;
 import com.enterprise.ai.agent.skill.SubAgentSpec;
+import com.enterprise.ai.agent.scan.ScanProjectAuthSupport;
+import com.enterprise.ai.agent.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.scan.ScanProjectMapper;
 import com.enterprise.ai.agent.scan.SideEffectInferrer;
 import com.enterprise.ai.agent.tool.retrieval.ToolEmbeddingService;
 import com.enterprise.ai.agent.tools.ToolRegistry;
@@ -20,11 +23,13 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -40,6 +45,7 @@ public class ToolDefinitionService {
     public static final String KIND_SKILL = "SKILL";
 
     private final ToolDefinitionMapper mapper;
+    private final ScanProjectMapper scanProjectMapper;
     private final ToolRegistry toolRegistry;
     private final List<AiTool> codeTools;
     private final ObjectMapper objectMapper;
@@ -47,12 +53,14 @@ public class ToolDefinitionService {
     private final SubAgentSkillFactory subAgentSkillFactory;
 
     public ToolDefinitionService(ToolDefinitionMapper mapper,
+                                 ScanProjectMapper scanProjectMapper,
                                  ToolRegistry toolRegistry,
                                  List<AiTool> codeTools,
                                  ObjectMapper objectMapper,
                                  ToolEmbeddingService toolEmbeddingService,
                                  @Lazy SubAgentSkillFactory subAgentSkillFactory) {
         this.mapper = mapper;
+        this.scanProjectMapper = scanProjectMapper;
         this.toolRegistry = toolRegistry;
         this.codeTools = codeTools;
         this.objectMapper = objectMapper;
@@ -180,6 +188,42 @@ public class ToolDefinitionService {
                 .last("limit 1")));
     }
 
+    public Optional<ToolDefinitionEntity> findById(Long id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(mapper.selectById(id));
+    }
+
+    public List<ToolDefinitionEntity> listByIds(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return mapper.selectList(new LambdaQueryWrapper<ToolDefinitionEntity>().in(ToolDefinitionEntity::getId, ids));
+    }
+
+    public Map<Long, ToolDefinitionEntity> mapByIds(Collection<Long> ids) {
+        return listByIds(ids).stream()
+                .collect(Collectors.toMap(ToolDefinitionEntity::getId, e -> e, (a, b) -> a));
+    }
+
+    /**
+     * 写入 {@code ai_description} 并重建向量索引（与语义文档 pipeline 一致）。
+     */
+    public void setAiDescriptionAndReindex(Long id, String aiDescription) {
+        if (id == null) {
+            return;
+        }
+        ToolDefinitionEntity e = mapper.selectById(id);
+        if (e == null) {
+            return;
+        }
+        e.setAiDescription(aiDescription);
+        mapper.updateById(e);
+        toolEmbeddingService.upsert(e);
+        registerIfNeeded(e);
+    }
+
     public ToolDefinitionEntity create(ToolDefinitionUpsertRequest request) {
         validateRequest(request, false);
         if (findByName(request.name()).isPresent()) {
@@ -227,6 +271,29 @@ public class ToolDefinitionService {
         if (removed) {
             toolRegistry.remove(name);
             toolEmbeddingService.delete(existing.getId());
+        }
+        return removed;
+    }
+
+    /**
+     * 按主键删除非 code 类 Tool（如 scanner / manual），并同步 registry 与向量索引（用于扫描接口「从 Tool 下架」）。
+     */
+    public boolean deleteNonCodeToolById(Long id) {
+        if (id == null) {
+            return false;
+        }
+        ToolDefinitionEntity existing = mapper.selectById(id);
+        if (existing == null) {
+            return false;
+        }
+        if (SOURCE_CODE.equals(existing.getSource())) {
+            throw new IllegalArgumentException("Code Tool 不可删除，只能禁用");
+        }
+        String name = existing.getName();
+        boolean removed = mapper.deleteById(id) > 0;
+        if (removed) {
+            toolRegistry.remove(name);
+            toolEmbeddingService.delete(id);
         }
         return removed;
     }
@@ -488,6 +555,11 @@ public class ToolDefinitionService {
     }
 
     private DynamicHttpAiTool buildDynamicTool(ToolDefinitionEntity entity) {
+        if (entity.getProjectId() != null) {
+            ScanProjectEntity project = scanProjectMapper.selectById(entity.getProjectId());
+            var extras = ScanProjectAuthSupport.invocationExtras(project);
+            return new DynamicHttpAiTool(entity, objectMapper, extras);
+        }
         return new DynamicHttpAiTool(entity, objectMapper);
     }
 

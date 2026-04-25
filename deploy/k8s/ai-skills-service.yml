@@ -18,7 +18,7 @@ spec:
         - name: ai-skills-service
           image: registry.enterprise.com/ai/ai-skills-service:latest
           ports:
-            - containerPort: 8080
+            - containerPort: 8602
           env:
             - name: MYSQL_URL
               valueFrom:
@@ -40,7 +40,7 @@ spec:
             - name: MILVUS_HOST
               value: milvus
             - name: MODEL_SERVICE_URL
-              value: http://ai-model-service:8090
+              value: http://ai-model-service:8601
             - name: NACOS_ADDR
               value: nacos:8848
             - name: NACOS_ENABLED
@@ -55,7 +55,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /ai/actuator/health
-              port: 8080
+              port: 8602
             initialDelaySeconds: 30
             periodSeconds: 10
 ---
@@ -67,6 +67,6 @@ spec:
   selector:
     app: ai-skills-service
   ports:
-    - port: 8080
-      targetPort: 8080
+    - port: 8602
+      targetPort: 8602
   type: ClusterIP

@@ -17,6 +17,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -64,6 +66,24 @@ public class ScanProjectController {
             return ex.getMessage() != null && ex.getMessage().contains("不存在")
                     ? ResponseEntity.notFound().build()
                     : ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PatchMapping("/{id}/auth-settings")
+    public ResponseEntity<?> updateAuthSettings(@PathVariable Long id,
+                                                @RequestBody(required = false) ScanProjectAuthSettingsRequest request) {
+        try {
+            return ResponseEntity.ok(toDto(scanProjectService.updateAuthSettings(id,
+                    new ScanProjectService.ScanProjectAuthSettingsUpdate(
+                            request == null ? null : request.authType(),
+                            request == null ? null : request.authApiKeyIn(),
+                            request == null ? null : request.authApiKeyName(),
+                            request == null ? null : request.authApiKeyValue()))));
+        } catch (IllegalArgumentException ex) {
+            if (ex.getMessage() != null && ex.getMessage().contains("不存在")) {
+                return ResponseEntity.notFound().build();
+            }
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
         }
     }
 
@@ -115,8 +135,13 @@ public class ScanProjectController {
             List<ScanProjectToolEntity> tools = scanProjectService.listTools(id);
             Map<Long, ScanModuleEntity> modulesById = scanModuleService.listByProject(id).stream()
                     .collect(Collectors.toMap(ScanModuleEntity::getId, Function.identity(), (a, b) -> a));
+            Set<Long> globalIds = tools.stream()
+                    .map(ScanProjectToolEntity::getGlobalToolDefinitionId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+            Map<Long, ToolDefinitionEntity> globalById = toolDefinitionService.mapByIds(globalIds);
             return ResponseEntity.ok(tools.stream()
-                    .map(entity -> toToolDto(entity, modulesById))
+                    .map(entity -> toToolDtoBatch(entity, modulesById, globalById))
                     .toList());
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.notFound().build();
@@ -132,7 +157,7 @@ public class ScanProjectController {
                     request == null ? null : request.toServiceRequest());
             Map<Long, ScanModuleEntity> modulesById = scanModuleService.listByProject(projectId).stream()
                     .collect(Collectors.toMap(ScanModuleEntity::getId, Function.identity(), (a, b) -> a));
-            return ResponseEntity.ok(toToolDto(updated, modulesById));
+            return ResponseEntity.ok(toToolDtoSingle(updated, modulesById));
         } catch (IllegalArgumentException ex) {
             if (ex.getMessage() != null && ex.getMessage().contains("不存在")) {
                 return ResponseEntity.notFound().build();
@@ -150,7 +175,7 @@ public class ScanProjectController {
                     request != null && request.enabled());
             Map<Long, ScanModuleEntity> modulesById = scanModuleService.listByProject(projectId).stream()
                     .collect(Collectors.toMap(ScanModuleEntity::getId, Function.identity(), (a, b) -> a));
-            return ResponseEntity.ok(toToolDto(updated, modulesById));
+            return ResponseEntity.ok(toToolDtoSingle(updated, modulesById));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.notFound().build();
         }
@@ -190,6 +215,44 @@ public class ScanProjectController {
         }
     }
 
+    /** 从全局 Tool 中下架：删除 tool_definition 行并清除扫描行上的关联。 */
+    @PostMapping("/{projectId}/scan-tools/{toolId}/unpromote-from-global")
+    public ResponseEntity<ProjectToolDTO> unpromoteFromGlobalTool(@PathVariable Long projectId,
+                                                                 @PathVariable Long toolId) {
+        try {
+            ScanProjectToolEntity updated = scanProjectToolService.unpromoteFromGlobal(projectId, toolId);
+            Map<Long, ScanModuleEntity> modulesById = scanModuleService.listByProject(projectId).stream()
+                    .collect(Collectors.toMap(ScanModuleEntity::getId, Function.identity(), (a, b) -> a));
+            return ResponseEntity.ok(toToolDtoSingle(updated, modulesById));
+        } catch (IllegalArgumentException ex) {
+            if (ex.getMessage() != null && ex.getMessage().contains("不存在")) {
+                return ResponseEntity.notFound().build();
+            }
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    /** 将当前扫描行（参数、端点、开关等）覆盖到已关联的全局 Tool。 */
+    @PostMapping("/{projectId}/scan-tools/{toolId}/push-to-global-tool")
+    public ResponseEntity<ProjectToolDTO> pushToGlobalTool(@PathVariable Long projectId,
+                                                         @PathVariable Long toolId) {
+        try {
+            scanProjectToolService.pushScanToGlobalTool(projectId, toolId);
+            ScanProjectToolEntity latest = scanProjectToolService.findByProjectAndId(projectId, toolId)
+                    .orElseThrow(() -> new IllegalArgumentException("扫描接口不存在: " + toolId));
+            Map<Long, ScanModuleEntity> modulesById = scanModuleService.listByProject(projectId).stream()
+                    .collect(Collectors.toMap(ScanModuleEntity::getId, Function.identity(), (a, b) -> a));
+            return ResponseEntity.ok(toToolDtoSingle(latest, modulesById));
+        } catch (IllegalArgumentException ex) {
+            if (ex.getMessage() != null && ex.getMessage().contains("不存在")) {
+                return ResponseEntity.notFound().build();
+            }
+            return ResponseEntity.badRequest().build();
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
     /**
      * 按模块批量将扫描接口注册为全局 Tool。请求体可省略；{@code moduleId} 为 null 表示未关联模块分组。
      */
@@ -222,7 +285,11 @@ public class ScanProjectController {
                 entity.getSpecFile(),
                 entity.getToolCount() == null ? 0 : entity.getToolCount(),
                 entity.getStatus(),
-                entity.getErrorMessage()
+                entity.getErrorMessage(),
+                entity.getAuthType() == null || entity.getAuthType().isBlank() ? "none" : entity.getAuthType(),
+                entity.getAuthApiKeyIn(),
+                entity.getAuthApiKeyName(),
+                entity.getAuthApiKeyValue()
         );
     }
 
@@ -230,12 +297,39 @@ public class ScanProjectController {
         return new ScanResultDTO(result.projectId(), result.projectName(), result.toolCount(), result.toolNames());
     }
 
-    private ProjectToolDTO toToolDto(ScanProjectToolEntity entity, Map<Long, ScanModuleEntity> modulesById) {
+    private ProjectToolDTO toToolDtoSingle(ScanProjectToolEntity entity, Map<Long, ScanModuleEntity> modulesById) {
+        return buildProjectToolDto(entity, modulesById, resolveGlobal(entity));
+    }
+
+    private ProjectToolDTO toToolDtoBatch(ScanProjectToolEntity entity,
+                                         Map<Long, ScanModuleEntity> modulesById,
+                                         Map<Long, ToolDefinitionEntity> globalById) {
+        Long gid = entity.getGlobalToolDefinitionId();
+        ToolDefinitionEntity g = gid == null ? null : globalById.get(gid);
+        if (g == null && gid != null) {
+            g = toolDefinitionService.findById(gid).orElse(null);
+        }
+        return buildProjectToolDto(entity, modulesById, g);
+    }
+
+    private ToolDefinitionEntity resolveGlobal(ScanProjectToolEntity entity) {
+        Long gid = entity.getGlobalToolDefinitionId();
+        if (gid == null) {
+            return null;
+        }
+        return toolDefinitionService.findById(gid).orElse(null);
+    }
+
+    private ProjectToolDTO buildProjectToolDto(ScanProjectToolEntity entity,
+                                              Map<Long, ScanModuleEntity> modulesById,
+                                              ToolDefinitionEntity global) {
         List<ToolParameterDTO> parameters = toolDefinitionService.parseParameters(entity.getParametersJson()).stream()
                 .map(ToolParameterDTO::from)
                 .toList();
         Long moduleId = entity.getModuleId();
         String moduleDisplayName = resolveModuleDisplayName(moduleId, modulesById);
+        String globalToolName = global != null ? global.getName() : null;
+        boolean globalToolOutOfSync = scanProjectToolService.isScanDivergedFromGlobal(entity, global);
         return new ProjectToolDTO(
                 entity.getId(),
                 entity.getName(),
@@ -253,6 +347,9 @@ public class ScanProjectController {
                 Boolean.TRUE.equals(entity.getEnabled()),
                 Boolean.TRUE.equals(entity.getAgentVisible()),
                 Boolean.TRUE.equals(entity.getLightweightEnabled()),
+                entity.getGlobalToolDefinitionId(),
+                globalToolName,
+                globalToolOutOfSync,
                 moduleId,
                 moduleDisplayName
         );
@@ -302,7 +399,19 @@ public class ScanProjectController {
             String specFile,
             int toolCount,
             String status,
-            String errorMessage
+            String errorMessage,
+            String authType,
+            String authApiKeyIn,
+            String authApiKeyName,
+            String authApiKeyValue
+    ) {
+    }
+
+    record ScanProjectAuthSettingsRequest(
+            String authType,
+            String authApiKeyIn,
+            String authApiKeyName,
+            String authApiKeyValue
     ) {
     }
 
@@ -326,6 +435,9 @@ public class ScanProjectController {
             boolean enabled,
             boolean agentVisible,
             boolean lightweightEnabled,
+            Long globalToolDefinitionId,
+            String globalToolName,
+            boolean globalToolOutOfSync,
             Long moduleId,
             String moduleDisplayName
     ) {

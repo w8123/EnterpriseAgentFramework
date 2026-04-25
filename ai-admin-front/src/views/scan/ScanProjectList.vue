@@ -56,7 +56,7 @@
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="项目域名" required>
-              <el-input v-model="form.baseUrl" placeholder="http://localhost:8080" />
+              <el-input v-model="form.baseUrl" placeholder="http://localhost:8602" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -116,7 +116,7 @@ function createEmptyForm(): ScanProjectUpsertRequest {
   return {
     name: '',
     baseUrl: '',
-    contextPath: '/api',
+    contextPath: '',
     scanPath: '',
     scanType: 'openapi',
     specFile: '',
@@ -126,7 +126,7 @@ function createEmptyForm(): ScanProjectUpsertRequest {
 function applyForm(project: ScanProjectUpsertRequest) {
   form.name = project.name
   form.baseUrl = project.baseUrl
-  form.contextPath = project.contextPath || '/api'
+  form.contextPath = project.contextPath ?? ''
   form.scanPath = project.scanPath
   form.scanType = project.scanType
   form.specFile = project.specFile || ''
@@ -163,7 +163,7 @@ function openEditDialog(project: ScanProject) {
   applyForm({
     name: project.name,
     baseUrl: project.baseUrl,
-    contextPath: project.contextPath || '/api',
+    contextPath: project.contextPath ?? '',
     scanPath: project.scanPath,
     scanType: project.scanType,
     specFile: project.specFile || '',

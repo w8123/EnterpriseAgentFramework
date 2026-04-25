@@ -80,7 +80,7 @@ src/main/java/com/enterprise/ai/agent/
 
 - `agent.definitions.file`：Agent 定义持久化文件，默认 `agent-definitions.json`
 - `services.model-service.url`：模型网关地址（也可通过环境变量 `MODEL_SERVICE_URL` 覆盖，与 `application.yml` 一致）
-- `services.skills-service.url`：知识 / Tooling 基础层地址；**生产与本机统一通过环境变量 `SKILLS_SERVICE_URL` 配置**（未设置时默认 `http://localhost:8080`）
+- `services.skills-service.url`：知识 / Tooling 基础层地址；**生产与本机统一通过环境变量 `SKILLS_SERVICE_URL` 配置**（未设置时默认 `http://localhost:8602`）
 - `agent.agents.*`：意图开关；当前默认仅保留知识问答与通用对话安全可用
 
 ## 当前默认行为

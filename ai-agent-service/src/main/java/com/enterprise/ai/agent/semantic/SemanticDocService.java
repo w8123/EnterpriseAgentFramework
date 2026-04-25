@@ -28,6 +28,22 @@ public class SemanticDocService {
         return Optional.ofNullable(mapper.selectOne(w.last("limit 1")));
     }
 
+    /**
+     * 按全局 Tool 主键查语义文档（不限制 project/module）。
+     * <p>
+     * 从扫描「添加为 Tool」迁移来的文档仍带原 {@code project_id}/{@code module_id}，
+     * 若仅用 {@link #findByRef} 且未传 projectId 会把条件配成 IS NULL，导致查不到。
+     */
+    public Optional<SemanticDocEntity> findByLevelAndToolId(String level, Long toolDefinitionId) {
+        if (toolDefinitionId == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(mapper.selectOne(new LambdaQueryWrapper<SemanticDocEntity>()
+                .eq(SemanticDocEntity::getLevel, level)
+                .eq(SemanticDocEntity::getToolId, toolDefinitionId)
+                .last("limit 1")));
+    }
+
     public List<SemanticDocEntity> listByProject(Long projectId) {
         return mapper.selectList(new LambdaQueryWrapper<SemanticDocEntity>()
                 .eq(SemanticDocEntity::getProjectId, projectId)

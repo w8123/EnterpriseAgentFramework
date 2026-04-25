@@ -32,6 +32,16 @@ public class ScanProjectEntity {
 
     private String errorMessage;
 
+    /** 鉴权类型：none / api_key */
+    private String authType;
+
+    /** api_key 时：header / query */
+    private String authApiKeyIn;
+
+    private String authApiKeyName;
+
+    private String authApiKeyValue;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

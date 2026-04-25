@@ -58,6 +58,10 @@ public class ScanProjectService {
         entity.setToolCount(0);
         entity.setStatus("created");
         entity.setErrorMessage(null);
+        entity.setAuthType("none");
+        entity.setAuthApiKeyIn(null);
+        entity.setAuthApiKeyName(null);
+        entity.setAuthApiKeyValue(null);
         projectMapper.insert(entity);
         return entity;
     }
@@ -73,6 +77,54 @@ public class ScanProjectService {
         ScanProjectEntity updated = applyRequest(existing, request);
         projectMapper.updateById(updated);
         return updated;
+    }
+
+    /**
+     * 更新扫描项目 HTTP 鉴权配置（与项目基本信息独立保存）。
+     */
+    public ScanProjectEntity updateAuthSettings(Long id, ScanProjectAuthSettingsUpdate request) {
+        if (request == null) {
+            throw new IllegalArgumentException("请求不能为空");
+        }
+        ScanProjectEntity existing = getById(id);
+        String authType = normalizeAuthType(request.authType());
+        existing.setAuthType(authType);
+        if ("none".equals(authType)) {
+            existing.setAuthApiKeyIn(null);
+            existing.setAuthApiKeyName(null);
+            existing.setAuthApiKeyValue(null);
+        } else {
+            existing.setAuthApiKeyIn(normalizeAuthApiKeyIn(request.authApiKeyIn()));
+            if (request.authApiKeyName() == null || request.authApiKeyName().isBlank()) {
+                throw new IllegalArgumentException("API Key 参数名不能为空");
+            }
+            if (request.authApiKeyValue() == null || request.authApiKeyValue().isBlank()) {
+                throw new IllegalArgumentException("API Key 参数值不能为空");
+            }
+            existing.setAuthApiKeyName(request.authApiKeyName().trim());
+            existing.setAuthApiKeyValue(request.authApiKeyValue());
+        }
+        projectMapper.updateById(existing);
+        return existing;
+    }
+
+    private String normalizeAuthType(String value) {
+        String v = value == null || value.isBlank() ? "none" : value.trim().toLowerCase(Locale.ROOT);
+        if (!List.of("none", "api_key").contains(v)) {
+            throw new IllegalArgumentException("不支持的鉴权类型: " + value);
+        }
+        return v;
+    }
+
+    private String normalizeAuthApiKeyIn(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("请选择 API Key 放在 Header 或 URL 参数");
+        }
+        String v = value.trim().toLowerCase(Locale.ROOT);
+        if (!List.of("header", "query").contains(v)) {
+            throw new IllegalArgumentException("API Key 位置仅支持 header 或 query");
+        }
+        return v;
     }
 
     public List<ScanProjectEntity> list() {
@@ -218,7 +270,8 @@ public class ScanProjectService {
         List<ScannerServiceClient.ToolData> tools = manifest.getTools() == null ? List.of() : manifest.getTools();
         boolean useProjectPrefix = !isControllerScannerManifest(tools);
         String manifestBaseUrl = manifest.getProject() == null ? project.getBaseUrl() : manifest.getProject().getBaseUrl();
-        String manifestContextPath = manifest.getProject() == null ? normalizeContextPath(project.getContextPath()) : manifest.getProject().getContextPath();
+        // 以项目表配置为准；扫描服务 manifest 中 project.contextPath 可能带默认值（如 /api），不可覆盖用户留空
+        String manifestContextPath = normalizeContextPath(project.getContextPath());
         for (ScannerServiceClient.ToolData tool : tools) {
             String scopedName = buildUniqueToolName(project.getId(), project.getName(), tool.getName(), useProjectPrefix);
             scanProjectToolService.insertScanned(project.getId(), new ToolDefinitionUpsertRequest(
@@ -419,6 +472,14 @@ public class ScanProjectService {
             String scanPath,
             String scanType,
             String specFile
+    ) {
+    }
+
+    public record ScanProjectAuthSettingsUpdate(
+            String authType,
+            String authApiKeyIn,
+            String authApiKeyName,
+            String authApiKeyValue
     ) {
     }
 

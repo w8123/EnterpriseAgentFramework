@@ -58,7 +58,7 @@
         </el-form-item>
       </el-form>
 
-      <el-table :data="tools" v-loading="loading" stripe>
+      <el-table :data="tools" v-loading="loading" stripe @expand-change="onToolExpandChange">
         <el-table-column type="expand">
           <template #default="{ row }">
             <div class="expand-content">
@@ -96,6 +96,20 @@
                 <div><b>请求体类型：</b>{{ row.requestBodyType || '-' }}</div>
                 <div><b>响应类型：</b>{{ row.responseType || '-' }}</div>
               </div>
+              <div class="tool-ai-semantic-block">
+                <div v-if="semanticLoadState[row.name] === 'loading'" class="tool-meta-ai-loading">正在加载完整语义文档…</div>
+                <template v-else-if="fullSemanticMd[row.name]">
+                  <h4 class="expand-ai-doc-title">完整 AI 语义文档</h4>
+                  <div class="markdown-body tool-semantic-md" v-html="renderMd(fullSemanticMd[row.name])" />
+                </template>
+                <div v-else-if="row.aiDescription" class="tool-meta-ai">
+                  <b>AI 理解（摘要）：</b>
+                  <span class="ai-desc-text">{{ row.aiDescription }}</span>
+                  <p v-if="semanticLoadState[row.name] === 'none'" class="ai-doc-miss-hint">
+                    无独立语义文档记录；摘要来自生成结果中的「一句话语义」片段。
+                  </p>
+                </div>
+              </div>
             </div>
           </template>
         </el-table-column>
@@ -119,7 +133,7 @@
             <span>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="description" label="描述" min-width="320">
+        <el-table-column prop="description" label="描述" min-width="240">
           <template #default="{ row }">
             <el-tooltip
               placement="top-start"
@@ -137,6 +151,14 @@
                 {{ row.description || '-' }}
               </div>
             </el-tooltip>
+          </template>
+        </el-table-column>
+        <el-table-column min-width="200" show-overflow-tooltip>
+          <template #header>
+            <span title="列表为摘要（一句话语义）；展开行可加载完整 Markdown 文档">AI 理解</span>
+          </template>
+          <template #default="{ row }">
+            <span class="ai-table-cell">{{ row.aiDescription || '-' }}</span>
           </template>
         </el-table-column>
         <el-table-column label="参数数量" width="100" align="center">
@@ -230,7 +252,7 @@
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="Base URL">
-              <el-input v-model="form.baseUrl" :disabled="isCodeTool" placeholder="http://localhost:8080" />
+              <el-input v-model="form.baseUrl" :disabled="isCodeTool" placeholder="http://localhost:8602" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -323,10 +345,12 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
+import { marked } from 'marked'
 import ParameterTable from '@/components/ParameterTable.vue'
 import type { ToolInfo, ToolParameter, ToolTestResult, ToolUpsertRequest } from '@/types/tool'
 import type { ScanProject } from '@/types/scanProject'
 import { getScanProjects } from '@/api/scanProject'
+import { findSemanticDoc } from '@/api/semanticDoc'
 import { createTool, deleteTool, getTools, testTool, toggleTool, updateTool } from '@/api/tool'
 
 const tools = ref<ToolInfo[]>([])
@@ -355,6 +379,46 @@ const testingTool = ref<ToolInfo | null>(null)
 const testArgs = reactive<Record<string, string>>({})
 const testResult = ref<ToolTestResult | null>(null)
 const testRunning = ref(false)
+
+/** 展开行时懒加载的 tool 级语义 Markdown（完整文档）；key 为工具名 */
+const fullSemanticMd = reactive<Record<string, string>>({})
+/** idle | loading | done | none */
+const semanticLoadState = reactive<Record<string, 'idle' | 'loading' | 'done' | 'none'>>({})
+
+function renderMd(content: string | null | undefined): string {
+  if (!content) return ''
+  return marked.parse(content, { async: false }) as string
+}
+
+async function ensureToolSemanticLoaded(row: ToolInfo) {
+  const k = row.name
+  const st = semanticLoadState[k]
+  if (st === 'done' || st === 'none' || st === 'loading') return
+  semanticLoadState[k] = 'loading'
+  try {
+    const { data } = await findSemanticDoc({ level: 'tool', toolName: row.name })
+    const md = data?.contentMd?.trim()
+    if (md) {
+      fullSemanticMd[k] = md
+      semanticLoadState[k] = 'done'
+    } else {
+      semanticLoadState[k] = 'none'
+    }
+  } catch {
+    semanticLoadState[k] = 'none'
+  }
+}
+
+function onToolExpandChange(row: ToolInfo, expandedRows: ToolInfo[]) {
+  if (expandedRows.some((r) => r.name === row.name)) {
+    void ensureToolSemanticLoaded(row)
+  }
+}
+
+function clearSemanticExpandCache() {
+  Object.keys(fullSemanticMd).forEach((k) => delete fullSemanticMd[k])
+  Object.keys(semanticLoadState).forEach((k) => delete semanticLoadState[k])
+}
 
 function createEmptyForm(): ToolUpsertRequest {
   return {
@@ -477,9 +541,11 @@ async function fetchTools() {
     if (data && 'records' in data) {
       tools.value = Array.isArray(data.records) ? data.records : []
       total.value = typeof data.total === 'number' ? data.total : 0
+      clearSemanticExpandCache()
     } else {
       tools.value = []
       total.value = 0
+      clearSemanticExpandCache()
     }
   } catch {
     tools.value = []
@@ -661,12 +727,39 @@ onMounted(() => {
 
 .expand-content {
   padding: 12px 20px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 
   h4 {
     font-size: 13px;
     color: #909399;
     margin-bottom: 8px;
   }
+}
+
+/* 展开格默认 .cell 常为 flex，会把大块 Markdown 挤到一侧；改为块级占满宽度 */
+:deep(.el-table__expanded-cell) {
+  padding: 0 16px 16px;
+}
+
+:deep(.el-table__expanded-cell .cell) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.tool-ai-semantic-block {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #ebeef5;
 }
 
 .tool-meta {
@@ -742,5 +835,77 @@ onMounted(() => {
 
 :deep(.tool-description-tooltip) {
   max-width: 460px;
+}
+
+.tool-meta-ai {
+  margin: 6px 0;
+  line-height: 1.5;
+}
+
+.ai-desc-text {
+  color: #606266;
+  font-size: 13px;
+}
+
+.ai-table-cell {
+  font-size: 13px;
+  color: #606266;
+}
+
+.tool-meta-ai-loading {
+  margin: 8px 0;
+  font-size: 13px;
+  color: #909399;
+}
+
+.expand-ai-doc-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #909399;
+}
+
+.ai-doc-miss-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.5;
+}
+
+.tool-semantic-md {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-size: 13px;
+  line-height: 1.65;
+  max-height: 480px;
+  overflow: auto;
+  padding: 8px 0;
+  word-break: break-word;
+
+  :deep(h1), :deep(h2), :deep(h3) {
+    margin-top: 10px;
+    margin-bottom: 6px;
+  }
+
+  :deep(pre) {
+    background: #f6f7f9;
+    border-radius: 4px;
+    padding: 8px;
+    overflow: auto;
+    max-width: 100%;
+  }
+
+  :deep(table) {
+    border-collapse: collapse;
+    max-width: 100%;
+    table-layout: auto;
+
+    th, td {
+      border: 1px solid #dcdfe6;
+      padding: 4px 8px;
+      word-break: break-word;
+    }
+  }
 }
 </style>

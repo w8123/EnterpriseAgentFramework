@@ -13,16 +13,16 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/ai': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:8602',
         changeOrigin: true,
       },
-      /** ai-agent-service：统一走 8081，避免新增 /api/skills、/api/tool-acl 等路径漏配代理 */
+      /** ai-agent-service：统一走 8603，避免新增 /api/skills、/api/tool-acl 等路径漏配代理 */
       '/api': {
-        target: 'http://localhost:8081',
+        target: 'http://localhost:8603',
         changeOrigin: true,
       },
       '/model': {
-        target: 'http://localhost:8090',
+        target: 'http://localhost:8601',
         changeOrigin: true,
       },
     },

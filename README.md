@@ -131,9 +131,9 @@
 | --------------------- | --------------------------------------------------- | ---- |
 | **ai-common**         | 公共库 — DTO、异常定义、通用配置                                 | -    |
 | **ai-skill-sdk**      | Skill 开发 SDK — AiTool 接口、ToolParameter、ToolRegistry | -    |
-| **ai-model-service**  | 模型网关 — LLM Chat / Embedding，多 Provider 路由           | 8090 |
-| **ai-skills-service**   | 知识 / Tooling 基础层 — RAG、文档 Pipeline、向量检索、OpenAPI / Controller 扫描核心 | 8080 |
-| **ai-agent-service**  | 智能体编排 — AgentScope、意图识别、Tool 调用、会话记忆                | 8081 |
+| **ai-model-service**  | 模型网关 — LLM Chat / Embedding，多 Provider 路由           | 8601 |
+| **ai-skills-service**   | 知识 / Tooling 基础层 — RAG、文档 Pipeline、向量检索、OpenAPI / Controller 扫描核心 | 8602 |
+| **ai-agent-service**  | 智能体编排 — AgentScope、意图识别、Tool 调用、会话记忆                | 8603 |
 | **ai-admin-front**    | 管理前端 — Vue 3 + Vite + Element Plus + TypeScript     | 3000 |
 | **deploy**            | 部署配置 — Docker Compose / Kubernetes                  | -    |
 

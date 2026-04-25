@@ -18,7 +18,7 @@ import java.util.Map;
  */
 @FeignClient(
         name = "ai-skills-service",
-        url = "${services.skills-service.url:http://localhost:8080}",
+        url = "${services.skills-service.url:http://localhost:8602}",
         path = "/ai"
 )
 public interface SkillsServiceClient {

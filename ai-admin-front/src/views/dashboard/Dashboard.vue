@@ -182,9 +182,9 @@ async function fetchStats() {
 async function checkHealth() {
   statusLoading.value = true
   const services = [
-    { name: 'ai-agent-service', url: 'http://localhost:8081', healthPath: '/actuator/health' },
-    { name: 'ai-skills-service', url: 'http://localhost:8080', healthPath: '/ai/actuator/health' },
-    { name: 'ai-model-service', url: 'http://localhost:8090', healthPath: '/actuator/health' },
+    { name: 'ai-agent-service', url: 'http://localhost:8603', healthPath: '/actuator/health' },
+    { name: 'ai-skills-service', url: 'http://localhost:8602', healthPath: '/ai/actuator/health' },
+    { name: 'ai-model-service', url: 'http://localhost:8601', healthPath: '/actuator/health' },
   ]
 
   const checks: ServiceHealthRow[] = []

@@ -18,7 +18,7 @@ spec:
         - name: ai-model-service
           image: registry.enterprise.com/ai/ai-model-service:latest
           ports:
-            - containerPort: 8090
+            - containerPort: 8601
           env:
             - name: DASHSCOPE_API_KEY
               valueFrom:
@@ -39,13 +39,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /actuator/health
-              port: 8090
+              port: 8601
             initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /actuator/health
-              port: 8090
+              port: 8601
             initialDelaySeconds: 20
             periodSeconds: 5
 ---
@@ -57,6 +57,6 @@ spec:
   selector:
     app: ai-model-service
   ports:
-    - port: 8090
-      targetPort: 8090
+    - port: 8601
+      targetPort: 8601
   type: ClusterIP
