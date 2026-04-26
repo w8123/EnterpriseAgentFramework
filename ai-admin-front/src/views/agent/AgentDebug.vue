@@ -41,6 +41,11 @@
                 </span>
               </div>
               <div class="message-text" v-else>{{ msg.content }}</div>
+              <DynamicInteraction
+                v-if="msg.role === 'assistant' && msg.uiRequest"
+                :payload="msg.uiRequest"
+                @action="(act, vals) => handleUiAction(msg.uiRequest!, act, vals)"
+              />
               <div v-if="msg.toolCalls?.length" class="message-meta">
                 <el-tag
                   v-for="tc in msg.toolCalls"
@@ -165,7 +170,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, User, Cpu, ChatDotRound } from '@element-plus/icons-vue'
 import TraceTimeline from '@/components/TraceTimeline.vue'
+import DynamicInteraction from '@/components/interaction/DynamicInteraction.vue'
 import type { ChatMessage, ChatResponse } from '@/types/chat'
+import type { UiRequestPayload } from '@/types/interaction'
 import type { AgentResult } from '@/types/agent'
 import type { TraceNode } from '@/types/trace'
 import { sendChat, clearSession } from '@/api/chat'
@@ -320,10 +327,37 @@ async function handleAgentExec(msg: string) {
     placeholder.loading = false
     placeholder.content = data.answer || '(无回答)'
     placeholder.traceId = (data.metadata?.traceId as string) || undefined
+    placeholder.uiRequest = data.uiRequest
     lastAgentResult.value = data
   } catch {
     placeholder.loading = false
     placeholder.content = '执行失败，请重试'
+  } finally {
+    sending.value = false
+    scrollToBottom()
+  }
+}
+
+async function handleUiAction(payload: UiRequestPayload, action: string, values: Record<string, unknown>) {
+  const placeholder = createMsg('assistant', '', { loading: true })
+  messages.value.push(placeholder)
+  sending.value = true
+  activeTab.value = 'agent-detail'
+  scrollToBottom()
+  try {
+    const { data } = await executeAgentDetailed({
+      sessionId: sessionId.value || undefined,
+      interactionId: payload.interactionId,
+      uiSubmit: { action, values },
+    })
+    placeholder.loading = false
+    placeholder.content = data.answer || '(无回答)'
+    placeholder.traceId = (data.metadata?.traceId as string) || undefined
+    placeholder.uiRequest = data.uiRequest
+    lastAgentResult.value = data
+  } catch {
+    placeholder.loading = false
+    placeholder.content = '交互提交失败，请重试'
   } finally {
     sending.value = false
     scrollToBottom()

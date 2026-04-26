@@ -1,5 +1,6 @@
 package com.enterprise.ai.agent.model;
 
+import com.enterprise.ai.agent.model.interactive.UiRequestPayload;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -30,6 +31,9 @@ public class ChatResponse {
     private List<String> reasoningSteps;
 
     private Map<String, Object> metadata;
+
+    /** Phase 2.x：交互式表单挂起 */
+    private UiRequestPayload uiRequest;
 
     public static ChatResponse of(String answer) {
         return ChatResponse.builder().answer(answer).build();

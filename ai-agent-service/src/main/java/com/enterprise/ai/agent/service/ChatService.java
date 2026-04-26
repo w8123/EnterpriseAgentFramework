@@ -38,6 +38,9 @@ public class ChatService {
      * 处理对话请求 — 带会话记忆 + 轻量 Tool Calling
      */
     public ChatResponse chat(ChatRequest request) {
+        if (request.getMessage() == null || request.getMessage().isBlank()) {
+            return ChatResponse.error("消息内容不能为空");
+        }
         String sessionId = resolveSessionId(request);
         log.info("处理对话请求: userId={}, sessionId={}", request.getUserId(), sessionId);
 
@@ -86,6 +89,15 @@ public class ChatService {
      * 注意：流式路径暂不支持轻量 Tool Calling（工具调用走同步路径）。
      */
     public SseEmitter chatStream(ChatRequest request) {
+        if (request.getMessage() == null || request.getMessage().isBlank()) {
+            SseEmitter emitter = new SseEmitter(5_000L);
+            try {
+                emitter.send(SseEmitter.event().name("error").data("消息内容不能为空"));
+            } catch (Exception ignored) {
+            }
+            emitter.complete();
+            return emitter;
+        }
         String sessionId = resolveSessionId(request);
         log.info("处理流式对话请求: userId={}, sessionId={}", request.getUserId(), sessionId);
 

@@ -90,13 +90,16 @@ export const TRIGGER_MODES = [
   { value: 'event', label: '仅事件' },
 ] as const
 
+import type { UiRequestPayload } from './interaction'
+
 /** Agent 执行结果 */
 export interface AgentResult {
   success: boolean
   answer: string
-  steps: StepRecord[]
-  toolResults: Record<string, unknown>
-  metadata: Record<string, unknown>
+  steps?: StepRecord[]
+  toolResults?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+  uiRequest?: UiRequestPayload
 }
 
 export interface StepRecord {

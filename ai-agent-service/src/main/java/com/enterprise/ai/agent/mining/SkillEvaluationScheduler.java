@@ -37,6 +37,9 @@ public class SkillEvaluationScheduler {
     public void evaluateSkills() {
         int ok = 0;
         for (var skill : toolDefinitionService.listSkills()) {
+            if (Boolean.TRUE.equals(skill.getDraft())) {
+                continue;
+            }
             try {
                 evaluateOne(skill.getName());
                 ok++;

@@ -3,6 +3,7 @@ package com.enterprise.ai.agent.agentscope;
 import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.model.AgentResult;
+import com.enterprise.ai.agent.model.interactive.UiRequestPayload;
 import com.enterprise.ai.agent.service.IntentService;
 import com.enterprise.ai.agent.skill.ToolExecutionContextHolder;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
@@ -81,6 +82,7 @@ public class AgentRouter {
                 .intentType(definition.getIntentType())
                 .allowIrreversible(definition.isAllowIrreversible())
                 .roles(roles)
+                .currentTurnMessage(message)
                 .build();
 
         long startTime = System.currentTimeMillis();
@@ -96,7 +98,7 @@ public class AgentRouter {
                         context);
             }
             long elapsed = System.currentTimeMillis() - startTime;
-            return buildResult(true, response, definition.getIntentType(), elapsed, traceId);
+            return buildResult(true, response, definition.getIntentType(), elapsed, traceId, context);
         } catch (Exception e) {
             log.error("[AgentRouter] 按定义执行失败: agent={}, traceId={}", definition.getName(), traceId, e);
             Map<String, Object> metadata = new HashMap<>();
@@ -135,13 +137,13 @@ public class AgentRouter {
         try {
             long startTime = System.currentTimeMillis();
 
-            Msg response = dispatch(intentType, input, sessionId, userId, message, traceId, roles);
+            DispatchOutcome outcome = dispatch(intentType, input, sessionId, userId, message, traceId, roles);
 
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("[AgentRouter] 执行完成: intent={}, agent={}, 耗时={}ms, traceId={}",
-                    intentType, response.getName(), elapsed, traceId);
+                    intentType, outcome.response().getName(), elapsed, traceId);
 
-            return buildResult(true, response, intentType, elapsed, traceId);
+            return buildResult(true, outcome.response(), intentType, elapsed, traceId, outcome.context());
 
         } catch (Exception e) {
             log.error("[AgentRouter] Agent执行失败: intent={}, traceId={}", intentType, traceId, e);
@@ -175,7 +177,7 @@ public class AgentRouter {
     /**
      * 配置驱动的路由分发 — 从 AgentDefinitionService 查找定义并构建 Agent
      */
-    private Msg dispatch(String intentType, Msg input,
+    private DispatchOutcome dispatch(String intentType, Msg input,
                          String sessionId, String userId, String userMessage, String traceId,
                          List<String> roles) {
         AgentDefinition def = agentDefinitionService.findByIntentType(intentType)
@@ -190,17 +192,20 @@ public class AgentRouter {
                 .intentType(intentType)
                 .allowIrreversible(def.isAllowIrreversible())
                 .roles(roles)
+                .currentTurnMessage(userMessage)
                 .build();
 
         if ("pipeline".equals(def.getType()) && def.getPipelineAgentIds() != null) {
-            return executePipeline(def, input, userMessage, context);
+            return new DispatchOutcome(executePipeline(def, input, userMessage, context), context);
         } else {
-            return executeSingleAgent(
+            return new DispatchOutcome(executeSingleAgent(
                     agentFactory.buildFromDefinition(def, userMessage, context),
                     input,
-                    context);
+                    context), context);
         }
     }
+
+    private record DispatchOutcome(Msg response, ToolExecutionContext context) {}
 
     private Msg executeSingleAgent(ReActAgent agent, Msg input, ToolExecutionContext ctx) {
         log.debug("[AgentRouter] 单Agent执行: {}", agent.getName());
@@ -292,7 +297,8 @@ public class AgentRouter {
         return s.substring(0, max) + "...[truncated]";
     }
 
-    private AgentResult buildResult(boolean success, Msg response, String intentType, long elapsed, String traceId) {
+    private AgentResult buildResult(boolean success, Msg response, String intentType, long elapsed, String traceId,
+                                    ToolExecutionContext execCtx) {
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("intentType", intentType);
         metadata.put("agentName", response.getName());
@@ -312,10 +318,16 @@ public class AgentRouter {
             metadata.put("steps", steps);
         }
 
+        UiRequestPayload pending = execCtx == null ? null : execCtx.getPendingUiRequest();
+        if (pending != null) {
+            metadata.put("uiRequest", pending);
+        }
+
         return AgentResult.builder()
                 .success(success)
                 .answer(response.getTextContent())
                 .metadata(metadata)
+                .uiRequest(pending)
                 .build();
     }
 

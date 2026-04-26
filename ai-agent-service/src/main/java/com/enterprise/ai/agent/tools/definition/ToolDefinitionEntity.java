@@ -58,6 +58,9 @@ public class ToolDefinitionEntity {
     /** 仅 kind=SKILL 有值：SUB_AGENT / WORKFLOW / AUGMENTED_TOOL。 */
     private String skillKind;
 
+    /** kind=SKILL 时：true 表示草稿暂存，不落 ToolRegistry、不可执行。 */
+    private Boolean draft;
+
     private Boolean lightweightEnabled;
 
     private LocalDateTime createTime;

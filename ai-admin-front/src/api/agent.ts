@@ -6,7 +6,7 @@ import type {
   AgentVersion,
   PublishVersionRequest,
 } from '@/types/agent'
-import type { ChatResponse } from '@/types/chat'
+import type { ChatRequest, ChatResponse } from '@/types/chat'
 
 export function getAgentList() {
   return agentRequest.get<AgentDefinition[]>('/api/agent/definitions')
@@ -28,11 +28,11 @@ export function deleteAgent(id: string) {
   return agentRequest.delete(`/api/agent/definitions/${id}`)
 }
 
-export function executeAgent(data: { message: string; sessionId?: string; userId?: string }) {
+export function executeAgent(data: ChatRequest) {
   return agentRequest.post<ChatResponse>('/api/agent/execute', data)
 }
 
-export function executeAgentDetailed(data: { message: string; sessionId?: string; userId?: string }) {
+export function executeAgentDetailed(data: ChatRequest) {
   return agentRequest.post<AgentResult>('/api/agent/execute/detailed', data)
 }
 

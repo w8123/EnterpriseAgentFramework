@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.model;
 
-import jakarta.validation.constraints.NotBlank;
+import com.enterprise.ai.agent.model.interactive.UiSubmitPayload;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,7 +17,9 @@ import java.util.List;
 @AllArgsConstructor
 public class ChatRequest {
 
-    @NotBlank(message = "消息内容不能为空")
+    /**
+     * 用户自然语言；当携带 {@link #interactionId} 恢复交互时可为空。
+     */
     private String message;
 
     private String sessionId;
@@ -34,4 +36,9 @@ public class ChatRequest {
      * 线上接入时建议统一由网关从 JWT 解出后强制回填。
      */
     private List<String> roles;
+
+    /** Phase 2.x：恢复挂起的交互式 Skill */
+    private String interactionId;
+
+    private UiSubmitPayload uiSubmit;
 }

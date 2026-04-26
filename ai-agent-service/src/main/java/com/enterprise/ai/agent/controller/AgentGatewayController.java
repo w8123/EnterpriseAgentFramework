@@ -7,6 +7,7 @@ import com.enterprise.ai.agent.agentscope.AgentRouter;
 import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.model.ChatRequest;
 import com.enterprise.ai.agent.model.ChatResponse;
+import com.enterprise.ai.agent.skill.interactive.InteractiveFormResumeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +48,7 @@ public class AgentGatewayController {
     private final AgentDefinitionService definitionService;
     private final AgentVersionService versionService;
     private final AgentRouter agentRouter;
+    private final InteractiveFormResumeService interactiveFormResumeService;
 
     @PostMapping("/{key}/chat")
     public ResponseEntity<ChatResponse> chat(@PathVariable("key") String key,
@@ -68,9 +70,20 @@ public class AgentGatewayController {
                 ? request.getSessionId()
                 : UUID.randomUUID().toString().replace("-", "").substring(0, 16);
 
-        AgentResult result = agentRouter.executeByDefinition(
-                snapshot, sessionId, request.getUserId(), request.getMessage(),
-                request.getRoles());
+        boolean hasIx = request.getInteractionId() != null && !request.getInteractionId().isBlank();
+        boolean hasMsg = request.getMessage() != null && !request.getMessage().isBlank();
+        if (!hasIx && !hasMsg) {
+            return ResponseEntity.badRequest().body(ChatResponse.error("请提供 message，或提供 interactionId 继续交互"));
+        }
+
+        AgentResult result;
+        if (hasIx) {
+            result = interactiveFormResumeService.resume(request, sessionId);
+        } else {
+            result = agentRouter.executeByDefinition(
+                    snapshot, sessionId, request.getUserId(), request.getMessage(),
+                    request.getRoles());
+        }
 
         Map<String, Object> metadata = result.getMetadata() == null ? new HashMap<>()
                 : new HashMap<>(result.getMetadata());
@@ -86,6 +99,7 @@ public class AgentGatewayController {
                 .toolCalls(toList(metadata.get("toolCalls")))
                 .reasoningSteps(toList(metadata.get("steps")))
                 .metadata(metadata)
+                .uiRequest(result.getUiRequest())
                 .build();
         return ResponseEntity.ok(response);
     }

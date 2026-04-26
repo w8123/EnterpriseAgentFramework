@@ -1,5 +1,6 @@
 package com.enterprise.ai.agent.tool.log;
 
+import com.enterprise.ai.agent.model.interactive.UiRequestPayload;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -51,5 +52,16 @@ public class ToolExecutionContext {
      * 方便灰度期不破坏现有 Agent 调用；正式接入后所有生产请求都应该带至少一个角色。
      */
     private List<String> roles;
+
+    /**
+     * 当前用户轮次的自然语言输入（由 AgentRouter 注入），供 InteractiveFormSkill 槽抽取使用。
+     */
+    private String currentTurnMessage;
+
+    /**
+     * 当某 Tool/Skill 挂起交互时，由 {@link com.enterprise.ai.agent.agentscope.adapter.AiToolAgentAdapter} 回填，
+     * AgentRouter 在构建 {@link com.enterprise.ai.agent.model.AgentResult} 时读取。
+     */
+    private UiRequestPayload pendingUiRequest;
 }
 

@@ -12,6 +12,7 @@
 > | Phase 2.0 SubAgentSkill MVP | ✅ 已交付 | `Phase2.0-SubAgentSkill-落地验收清单.md` |
 > | **Phase 2.0.1 可信度补强**（timeout/retry + sideEffect 回填 + 指标观测 + Trace 回放） | ✅ **本轮交付** | 本文 §1.6.2 |
 > | **Phase 2.1 Skill Mining 骨架**（聚合 + 频繁序列挖掘 + 草稿评审 + 评估调度） | 🟡 **代码已交付，待真实 `tool_call_log` 数据验证** | 本文 §1.6.3 / §四 |
+> | **Phase 2.x InteractiveFormSkill**（槽填充 + `skill_interaction` 挂起/恢复 + UI 原语 + Admin 调试台） | ✅ **已交付（PoC：`create_team_interactive`）** | `Phase2.x-InteractiveFormSkill-落地验收清单.md` |
 > | Phase 2.2 WorkflowSkill + AugmentedTool | ⚠️ **策略调整**：WorkflowSkill 合并入 Phase 3 Agent Studio，AugmentedTool 仍独立 | 本文 §1.6.4 |
 > | **Phase 3.0 Agent Studio v0**（DB 化 `agent_definition` + 版本灰度 + 画布 + 调试抽屉 + Trace→Skill + IRREVERSIBLE 闸口） | ✅ 已交付（2026-04-24） | `Phase3.0-AgentStudio-落地验收清单.md`、本文 §二 |
 > | **Phase 3.1 Tool ACL**（`tool_acl` 表 + `AgentFactory.createToolkit` 角色过滤 + 管理端 CRUD / 批量 / 诊断） | ✅ **本轮交付** | 本文 §3.2 P0 `tool-acl` 条目 |
@@ -75,6 +76,7 @@ ReAct + 原子 Tool 的组合在「单步问题」上够用，但面对「多步
                 │                                                          │
 user ──▶ Agent ─┼──▶ WorkflowSkill      固定编排，DAG / Sequential / Branch │
                 ├──▶ SubAgentSkill       子 Agent（独立 systemPrompt + 工具）│
+                ├──▶ InteractiveFormSkill 槽填充状态机 + 挂起/恢复 + UI 原语（Phase 2.x）│
                 └──▶ AugmentedTool       单 Tool + 前/后处理 / 校验 / 缓存 / HITL│
 ```
 
@@ -82,6 +84,7 @@ user ──▶ Agent ─┼──▶ WorkflowSkill      固定编排，DAG / Seq
 | --- | --- | --- | --- | --- |
 | **WorkflowSkill** | 确定性编排，代码或 DSL 描述步骤 | 业务分支固定、可描述为流程图的多步流程 | 低 | 「工单超时关单」「月结对账」 |
 | **SubAgentSkill** | 独立 Agent，有自己的 prompt + tool 子集 | 需要自主推理但范围封闭的业务子域 | 中 | 「客户画像子 Agent」「单据审核子 Agent」 |
+| **InteractiveFormSkill** | 确定性槽填充 + 挂起/恢复 + 固化 UI 协议 | 调写接口前需字典匹配、多轮补全、用户确认 | 中 | 「创建班组」「带枚举的建单」 |
 | **AugmentedTool** | 单 Tool 的装饰器 | 单一接口但需要参数清洗 / 结果整形 / 人工审核 | 低 | 「发通知（带 HITL 门）」「退款（金额校验）」 |
 
 ### 1.3 契约设计（草案 → Phase 2.0 已落地）
@@ -463,7 +466,7 @@ Phase 4  Tool 护栏（和 2/3 并行）
 | 术语 | 本项目含义 |
 | --- | --- |
 | Tool | 原子能力，通常对应一个 HTTP 接口或一个 Java 方法，`AiTool` 契约 |
-| Skill | 粗粒度能力，对 LLM 透明，三态：Workflow / SubAgent / AugmentedTool |
+| Skill | 粗粒度能力，对 LLM 透明，四态：Workflow / SubAgent / InteractiveForm / AugmentedTool |
 | Capability | Tool + Skill 的并集；本项目保留 `ToolRegistry` 作为实际类名，统一管理 Tool 与 Skill（Phase 2.0 决策） |
 | Tool Retrieval | 按用户问题向量召回 top-K 能力（覆盖 Tool + Skill）注入 Agent 可见集合 |
 | Skill Mining | 从 `tool_call_log` 里挖高频调用链，LLM 生成 Skill 草稿 |

@@ -1,5 +1,6 @@
 package com.enterprise.ai.agent.model;
 
+import com.enterprise.ai.agent.model.interactive.UiRequestPayload;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -33,6 +34,9 @@ public class AgentResult {
 
     @Builder.Default
     private Map<String, Object> metadata = new HashMap<>();
+
+    /** Phase 2.x：交互式表单挂起时下发的 UI 原语载荷 */
+    private UiRequestPayload uiRequest;
 
     public void addStep(String stepName, String detail) {
         steps.add(new StepRecord(stepName, detail));

@@ -31,10 +31,11 @@ public record ToolDefinitionUpsertRequest(
         boolean lightweightEnabled,
         String sideEffect,
         String skillKind,
-        String specJson
+        String specJson,
+        Boolean draft
 ) {
 
-    /** 老的 15 参构造保持兼容：等价于 kind=TOOL、sideEffect/skillKind/specJson 为空。 */
+    /** 老的 15 参构造保持兼容：等价于 kind=TOOL、sideEffect/skillKind/specJson/draft 为空。 */
     public ToolDefinitionUpsertRequest(
             String name,
             String description,
@@ -55,7 +56,7 @@ public record ToolDefinitionUpsertRequest(
                 httpMethod, baseUrl, contextPath, endpointPath,
                 requestBodyType, responseType, projectId,
                 enabled, agentVisible, lightweightEnabled,
-                null, null, null);
+                null, null, null, false);
     }
 
     public static ToolDefinitionUpsertRequest skill(
@@ -69,11 +70,27 @@ public record ToolDefinitionUpsertRequest(
             String sideEffect,
             String skillKind,
             String specJson) {
+        return skill(name, description, parameters, source, sourceLocation,
+                enabled, agentVisible, sideEffect, skillKind, specJson, false);
+    }
+
+    public static ToolDefinitionUpsertRequest skill(
+            String name,
+            String description,
+            List<ToolDefinitionParameter> parameters,
+            String source,
+            String sourceLocation,
+            boolean enabled,
+            boolean agentVisible,
+            String sideEffect,
+            String skillKind,
+            String specJson,
+            boolean draft) {
         return new ToolDefinitionUpsertRequest(
                 name, "SKILL", description, parameters, source, sourceLocation,
                 null, null, null, null,
                 null, null, null,
                 enabled, agentVisible, false,
-                sideEffect, skillKind, specJson);
+                sideEffect, skillKind, specJson, draft);
     }
 }

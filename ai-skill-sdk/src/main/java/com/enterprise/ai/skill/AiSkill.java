@@ -18,7 +18,7 @@ import java.util.List;
  */
 public interface AiSkill extends AiTool {
 
-    /** Skill 形态。Phase 2.0 仅 {@link SkillKind#SUB_AGENT}。 */
+    /** Skill 形态：{@link SkillKind#SUB_AGENT}、{@link SkillKind#INTERACTIVE_FORM} 等。 */
     SkillKind kind();
 
     /** Skill 元数据（版本 / 副作用 / HITL / 超时）。 */

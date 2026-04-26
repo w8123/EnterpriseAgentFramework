@@ -64,22 +64,29 @@
             <div class="expand-content">
               <h4>参数定义</h4>
               <el-table
+                class="param-definition-table"
                 :data="parameterRows(row.parameters)"
                 size="small"
                 border
                 row-key="_key"
                 :tree-props="{ children: 'children' }"
                 default-expand-all
+                table-layout="fixed"
               >
-                <el-table-column prop="name" label="参数名" min-width="200" />
-                <el-table-column prop="type" label="类型" width="160" />
-                <el-table-column prop="location" label="位置" width="100">
+                <el-table-column prop="name" label="参数名" min-width="120" show-overflow-tooltip />
+                <el-table-column prop="type" label="类型" width="100" show-overflow-tooltip />
+                <el-table-column prop="location" label="位置" width="88" show-overflow-tooltip>
                   <template #default="{ row: param }">
                     {{ param.location || '-' }}
                   </template>
                 </el-table-column>
-                <el-table-column prop="description" label="描述" />
-                <el-table-column prop="required" label="必填" width="80" align="center">
+                <el-table-column
+                  prop="description"
+                  label="描述"
+                  min-width="120"
+                  show-overflow-tooltip
+                />
+                <el-table-column prop="required" label="必填" width="72" align="center">
                   <template #default="{ row: param }">
                     <el-tag :type="param.required ? 'danger' : 'info'" size="small">
                       {{ param.required ? '是' : '否' }}
@@ -737,6 +744,17 @@ onMounted(() => {
     color: #909399;
     margin-bottom: 8px;
   }
+}
+
+/* 参数定义内嵌表：固定表布局 + 可收缩单元格，避免「描述」列撑满后把类型/位置/必填挤出可视区 */
+.param-definition-table {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.param-definition-table :deep(.el-table__cell .cell) {
+  min-width: 0;
 }
 
 /* 展开格默认 .cell 常为 flex，会把大块 Markdown 挤到一侧；改为块级占满宽度 */

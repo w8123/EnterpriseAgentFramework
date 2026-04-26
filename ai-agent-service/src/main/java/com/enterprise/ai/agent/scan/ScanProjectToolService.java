@@ -237,7 +237,8 @@ public class ScanProjectToolService {
                 Boolean.TRUE.equals(st.getLightweightEnabled()),
                 inferredSideEffect,
                 null,
-                null
+                null,
+                false
         );
         ToolDefinitionEntity created = toolDefinitionService.create(req);
         semanticDocService.migrateScanToolDocsToGlobal(projectId, scanToolId, created.getId());
@@ -404,7 +405,8 @@ public class ScanProjectToolService {
                 Boolean.TRUE.equals(st.getLightweightEnabled()),
                 inferredSideEffect,
                 null,
-                null
+                null,
+                false
         );
         ToolDefinitionEntity updated = toolDefinitionService.update(g.getName(), req);
         syncAiDescriptionToGlobalTool(st, updated.getId());

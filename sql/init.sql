@@ -17,6 +17,8 @@
 --   ai-agent-service/sql/skill_mining_phase2_1.sql Phase 2.1 Skill Mining
 --   ai-agent-service/sql/agent_studio_phase3_0.sql Phase 3.0 Agent Studio（agent_definition / agent_version）
 --   ai-agent-service/sql/scan_project_auth.sql  scan_project HTTP 鉴权列（旧库可单独打补丁，幂等）
+--   ai-agent-service/sql/skill_draft_tool_definition.sql Skill 草稿：tool_definition.draft（kind=SKILL 时暂存）
+--   ai-agent-service/sql/skill_interaction_phase2_x.sql Phase 2.x InteractiveFormSkill 挂起/恢复表 skill_interaction
 --
 -- 幂等设计：
 --   - 建库 / 建表统一 IF NOT EXISTS；
@@ -333,6 +335,7 @@ CREATE TABLE IF NOT EXISTS `tool_definition` (
     `agent_visible`       TINYINT       NOT NULL DEFAULT 1      COMMENT '是否对 ReAct Agent 可见',
     `side_effect`         VARCHAR(24)   NOT NULL DEFAULT 'WRITE' COMMENT '副作用等级: NONE / READ_ONLY / IDEMPOTENT_WRITE / WRITE / IRREVERSIBLE',
     `skill_kind`          VARCHAR(24)   DEFAULT NULL            COMMENT 'kind=SKILL 时填: SUB_AGENT / WORKFLOW / AUGMENTED_TOOL',
+    `draft`               TINYINT(1)    NOT NULL DEFAULT 0      COMMENT '1=Skill草稿暂存，不落registry、不可执行',
     `lightweight_enabled` TINYINT       NOT NULL DEFAULT 0      COMMENT '是否对轻量对话可见',
     `create_time`         DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`         DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -354,6 +357,9 @@ CALL add_col_if_absent('tool_definition', 'skill_kind',       'VARCHAR(24) DEFAU
 CALL add_idx_if_absent('tool_definition', 'idx_project_id',           'project_id');
 CALL add_idx_if_absent('tool_definition', 'idx_tool_module_id',       'module_id');
 CALL add_idx_if_absent('tool_definition', 'idx_kind_enabled_visible', 'kind, enabled, agent_visible');
+
+-- Skill 草稿：kind=SKILL 时 draft=1 表示暂存，不参与注册与执行（与 skill_draft_tool_definition.sql 一致）
+CALL add_col_if_absent('tool_definition', 'draft', 'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''1=Skill草稿暂存，不落registry、不可执行'' AFTER `skill_kind`');
 
 
 -- ============================================================================
@@ -426,6 +432,34 @@ CREATE TABLE IF NOT EXISTS `skill_eval_snapshot` (
     KEY `idx_skill_time`  (`skill_name`, `create_time`),
     KEY `idx_status_time` (`status`,     `create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Skill 评估快照（每日 02:00 SkillEvaluationScheduler 写入）';
+
+
+-- ============================================================================
+-- 六.五、Phase 2.x InteractiveFormSkill — 挂起/恢复状态表
+--   与 ai-agent-service/sql/skill_interaction_phase2_x.sql 一致（CREATE IF NOT EXISTS，幂等）
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS `skill_interaction` (
+  `id`              VARCHAR(64)   NOT NULL COMMENT 'interactionId，与前端 uiRequest.interactionId 对齐',
+  `trace_id`        VARCHAR(64)   NOT NULL,
+  `session_id`      VARCHAR(64)   DEFAULT NULL,
+  `user_id`         VARCHAR(64)   DEFAULT NULL,
+  `agent_id`        BIGINT        DEFAULT NULL,
+  `skill_name`      VARCHAR(128)  NOT NULL,
+  `status`          VARCHAR(16)   NOT NULL COMMENT 'PENDING / SUBMITTED / EXPIRED / CANCELLED',
+  `slot_state`      JSON          NOT NULL COMMENT '含 slots 与 phase: COLLECT|CONFIRM',
+  `pending_keys`    JSON          DEFAULT NULL,
+  `ui_payload`      JSON          DEFAULT NULL,
+  `spec_snapshot`   JSON          NOT NULL,
+  `created_at`      DATETIME(3)   NOT NULL,
+  `updated_at`      DATETIME(3)   NOT NULL,
+  `expires_at`      DATETIME(3)   NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_trace` (`trace_id`),
+  KEY `idx_status_expires` (`status`, `expires_at`),
+  KEY `idx_user_status` (`user_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='交互式表单 Skill 挂起状态';
 
 
 -- ============================================================================

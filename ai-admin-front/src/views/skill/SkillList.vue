@@ -17,7 +17,7 @@
       :closable="false"
       show-icon
       title="Skill 是把「一段稳定的多步业务流程」打包成一个粗粒度能力"
-      description="当前只支持 SUB_AGENT 形态：你在这里定义子 Agent 的系统提示词与可用工具白名单，Agent 在上层像调用普通 Tool 一样调用它。"
+      description="支持多种形态：SUB_AGENT 用子 Agent（系统提示词 + 工具白名单）封装一段推理流程；INTERACTIVE_FORM 用结构化表单收集参数后调用目标 Tool。上层 Agent 仍像调用普通 Tool 一样选用它们。"
       style="margin-bottom: 16px"
     />
 
@@ -34,6 +34,12 @@
         </el-form-item>
         <el-form-item label="启用">
           <el-select v-model="filters.enabled" clearable placeholder="全部" style="width: 120px">
+            <el-option label="是" :value="true" />
+            <el-option label="否" :value="false" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="草稿">
+          <el-select v-model="filters.draft" clearable placeholder="全部" style="width: 120px">
             <el-option label="是" :value="true" />
             <el-option label="否" :value="false" />
           </el-select>
@@ -62,19 +68,30 @@
                 </el-table-column>
               </el-table>
 
-              <h4 style="margin-top: 16px">子 Agent Spec</h4>
-              <div class="meta-grid">
-                <div><b>模型：</b>{{ row.spec?.llmProvider || '-' }} / {{ row.spec?.llmModel || '-' }}</div>
-                <div><b>最大步数：</b>{{ row.spec?.maxSteps ?? 8 }}</div>
-                <div class="span-2"><b>工具白名单：</b>{{ (row.spec?.toolWhitelist || []).join(', ') || '-' }}</div>
-                <div class="span-2"><b>系统提示词：</b><pre class="prompt-preview">{{ row.spec?.systemPrompt || '-' }}</pre></div>
-              </div>
+              <template v-if="row.skillKind === 'INTERACTIVE_FORM'">
+                <h4 style="margin-top: 16px">InteractiveForm Spec</h4>
+                <InteractiveFormSpecEditor
+                  :model-value="normalizeInteractiveFormSpec(row.spec)"
+                  :tool-options="toolOptions"
+                  readonly
+                />
+              </template>
+              <template v-else>
+                <h4 style="margin-top: 16px">子 Agent Spec</h4>
+                <div class="meta-grid">
+                  <div><b>模型：</b>{{ (row.spec as any)?.llmProvider || '-' }} / {{ (row.spec as any)?.llmModel || '-' }}</div>
+                  <div><b>最大步数：</b>{{ (row.spec as any)?.maxSteps ?? 8 }}</div>
+                  <div class="span-2"><b>工具白名单：</b>{{ ((row.spec as any)?.toolWhitelist || []).join(', ') || '-' }}</div>
+                  <div class="span-2"><b>系统提示词：</b><pre class="prompt-preview">{{ (row.spec as any)?.systemPrompt || '-' }}</pre></div>
+                </div>
+              </template>
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="name" label="Skill 名" min-width="200">
+        <el-table-column prop="name" label="Skill 名" min-width="220">
           <template #default="{ row }">
             <el-text type="primary" tag="b">{{ row.name }}</el-text>
+            <el-tag v-if="row.draft" type="warning" size="small" style="margin-left: 8px">草稿</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="形态" width="130" align="center">
@@ -94,6 +111,7 @@
           <template #default="{ row }">
             <el-switch
               :model-value="row.enabled"
+              :disabled="Boolean(row.draft)"
               @change="handleEnabledChange(row, $event as boolean)"
             />
           </template>
@@ -109,7 +127,15 @@
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
-            <el-button link type="primary" size="small" @click="openTest(row)">测试</el-button>
+            <el-button
+              link
+              type="primary"
+              size="small"
+              :disabled="Boolean(row.draft)"
+              @click="openTest(row)"
+            >
+              测试
+            </el-button>
             <el-button link type="success" size="small" @click="openMetrics(row)">指标</el-button>
             <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
           </template>
@@ -130,7 +156,7 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="formDialogVisible" :title="formDialogTitle" width="820px" top="4vh">
+    <el-dialog v-model="formDialogVisible" :title="formDialogTitle" width="960px" top="4vh">
       <el-form label-width="130px">
         <el-form-item label="Skill 名">
           <el-input v-model="form.name" :disabled="isEditMode" placeholder="snake_case，如 risk_customer_triage" />
@@ -146,7 +172,7 @@
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="形态">
-              <el-select v-model="form.skillKind" style="width: 100%">
+              <el-select v-model="form.skillKind" style="width: 100%" @change="onSkillKindChange">
                 <el-option
                   v-for="opt in SKILL_KIND_OPTIONS"
                   :key="opt.value"
@@ -179,63 +205,84 @@
           />
         </el-form-item>
 
-        <el-divider content-position="left">SubAgent Spec</el-divider>
-        <el-form-item label="系统提示词">
-          <el-input
-            v-model="form.spec.systemPrompt"
-            type="textarea"
-            :rows="6"
-            placeholder="子 Agent 的角色设定 + 工作流程，用 Markdown/自然语言写。建议约束：1) 只在明确收到请求时执行；2) 步骤与顺序；3) 最终输出结构。"
-          />
-        </el-form-item>
-        <el-form-item label="工具白名单">
-          <el-select
-            v-model="form.spec.toolWhitelist"
-            multiple
-            filterable
-            placeholder="选择子 Agent 可调用的 Tool（不允许包含其他 Skill）"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="t in toolOptions"
-              :key="t.name"
-              :label="`${t.name} — ${t.description?.slice(0, 40) || ''}`"
-              :value="t.name"
+        <el-divider content-position="left">Skill Spec</el-divider>
+        <template v-if="form.skillKind === 'INTERACTIVE_FORM'">
+          <el-form-item label=" " label-width="0px">
+            <InteractiveFormSpecEditor v-model="interactiveSpec" :tool-options="toolOptions" />
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="系统提示词">
+            <el-input
+              v-model="form.spec.systemPrompt"
+              type="textarea"
+              :rows="6"
+              placeholder="子 Agent 的角色设定 + 工作流程，用 Markdown/自然语言写。建议约束：1) 只在明确收到请求时执行；2) 步骤与顺序；3) 最终输出结构。"
             />
-          </el-select>
-          <div class="param-hint">只能挑选 kind=TOOL 的能力；子 Skill 嵌套会被运行时拦截。</div>
-        </el-form-item>
-        <el-row :gutter="16">
-          <el-col :span="8">
-            <el-form-item label="最大推理步数">
-              <el-input-number v-model="form.spec.maxSteps" :min="1" :max="50" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="LLM Provider">
-              <el-input v-model="form.spec.llmProvider" placeholder="留空继承父 Agent" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="LLM Model">
-              <el-input v-model="form.spec.llmModel" placeholder="留空继承父 Agent" />
-            </el-form-item>
-          </el-col>
-        </el-row>
+          </el-form-item>
+          <el-form-item label="工具白名单">
+            <el-select
+              v-model="form.spec.toolWhitelist"
+              multiple
+              filterable
+              placeholder="选择子 Agent 可调用的 Tool（不允许包含其他 Skill）"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="t in toolOptions"
+                :key="t.name"
+                :label="`${t.name} — ${t.description?.slice(0, 40) || ''}`"
+                :value="t.name"
+              />
+            </el-select>
+            <div class="param-hint">只能挑选 kind=TOOL 的能力；子 Skill 嵌套会被运行时拦截。</div>
+          </el-form-item>
+          <el-row :gutter="16">
+            <el-col :span="8">
+              <el-form-item label="最大推理步数">
+                <el-input-number v-model="form.spec.maxSteps" :min="1" :max="50" style="width: 100%" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="LLM Provider">
+                <el-input v-model="form.spec.llmProvider" placeholder="留空继承父 Agent" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="LLM Model">
+                <el-input v-model="form.spec.llmModel" placeholder="留空继承父 Agent" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </template>
 
         <el-form-item label="运行控制">
           <div class="switch-group">
-            <el-switch v-model="form.enabled" />
-            <span>启用</span>
+            <el-tooltip
+              :disabled="!editingIsDraft"
+              content="草稿需先「发布」后才能在列表中启用"
+              placement="top"
+            >
+              <span class="switch-inline">
+                <el-switch v-model="form.enabled" :disabled="editingIsDraft" />
+                <span>启用</span>
+              </span>
+            </el-tooltip>
             <el-switch v-model="form.agentVisible" />
             <span>Agent 可见</span>
           </div>
+          <div v-if="editingIsDraft" class="param-hint">当前为草稿；「发布」通过校验后即可在列表中启用。</div>
         </el-form-item>
       </el-form>
 
       <template #footer>
         <el-button @click="formDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+        <el-button v-if="!isEditMode || editingIsDraft" :loading="saving" @click="handleSaveDraft">
+          暂存
+        </el-button>
+        <el-button type="primary" :loading="saving" @click="handleSave">
+          {{ isEditMode && editingIsDraft ? '发布' : '保存' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -303,6 +350,7 @@ import { computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import ParameterTable from '@/components/ParameterTable.vue'
+import InteractiveFormSpecEditor from '@/components/skill/InteractiveFormSpecEditor.vue'
 import {
   createSkill,
   deleteSkill,
@@ -313,8 +361,14 @@ import {
   updateSkill,
 } from '@/api/skill'
 import { getTools } from '@/api/tool'
-import type { SkillInfo, SkillMetrics, SkillUpsertRequest } from '@/types/skill'
-import { SIDE_EFFECT_OPTIONS, SKILL_KIND_OPTIONS } from '@/types/skill'
+import type { InteractiveFormSpec, SkillInfo, SkillMetrics, SkillUpsertRequest, SubAgentSpec } from '@/types/skill'
+import {
+  SIDE_EFFECT_OPTIONS,
+  SKILL_KIND_OPTIONS,
+  defaultInteractiveFormSpec,
+  normalizeInteractiveFormSpec,
+  validateInteractiveFormSpec,
+} from '@/types/skill'
 import type { ToolInfo } from '@/types/tool'
 
 const skills = ref<SkillInfo[]>([])
@@ -323,6 +377,7 @@ const loading = ref(false)
 const filters = reactive({
   keyword: '',
   enabled: undefined as boolean | undefined,
+  draft: undefined as boolean | undefined,
 })
 const pagination = reactive({ current: 1, size: 20 })
 const saving = ref(false)
@@ -331,7 +386,11 @@ const toolOptions = ref<ToolInfo[]>([])
 
 const formDialogVisible = ref(false)
 const editingName = ref<string | null>(null)
+/** 打开编辑对话框时该行是否为草稿（控制「暂存」与表单内「启用」） */
+const editingIsDraft = ref(false)
 const form = reactive<SkillUpsertRequest>(createEmptyForm())
+/** INTERACTIVE_FORM 形态下编辑的结构化 spec */
+const interactiveSpec = ref<InteractiveFormSpec>(defaultInteractiveFormSpec())
 const isEditMode = computed(() => editingName.value !== null)
 const formDialogTitle = computed(() =>
   isEditMode.value ? `编辑 Skill — ${form.name}` : '新建 Skill',
@@ -345,6 +404,12 @@ const testRunning = ref(false)
 const metricsDialogVisible = ref(false)
 const metricsSkillName = ref('')
 const metricsData = ref<SkillMetrics | null>(null)
+
+function onSkillKindChange(kind: string) {
+  if (kind === 'INTERACTIVE_FORM') {
+    interactiveSpec.value = defaultInteractiveFormSpec()
+  }
+}
 
 function createEmptyForm(): SkillUpsertRequest {
   return {
@@ -388,6 +453,7 @@ function buildListParams() {
     size: pagination.size,
     ...(filters.keyword.trim() ? { keyword: filters.keyword.trim() } : {}),
     ...(filters.enabled !== undefined ? { enabled: filters.enabled } : {}),
+    ...(filters.draft !== undefined ? { draft: filters.draft } : {}),
   }
 }
 
@@ -424,6 +490,7 @@ function handlePageSizeChange() {
 function resetFilters() {
   filters.keyword = ''
   filters.enabled = undefined
+  filters.draft = undefined
   pagination.current = 1
   return fetchSkills()
 }
@@ -452,24 +519,44 @@ function applyForm(data: SkillUpsertRequest) {
   form.sideEffect = data.sideEffect ?? 'WRITE'
   form.enabled = data.enabled
   form.agentVisible = data.agentVisible
-  form.spec = {
-    systemPrompt: data.spec?.systemPrompt || '',
-    toolWhitelist: [...(data.spec?.toolWhitelist || [])],
-    llmProvider: data.spec?.llmProvider || '',
-    llmModel: data.spec?.llmModel || '',
-    maxSteps: data.spec?.maxSteps ?? 8,
-    useMultiAgentModel: data.spec?.useMultiAgentModel ?? false,
+  if (data.skillKind === 'INTERACTIVE_FORM') {
+    const s = data.spec as Record<string, unknown> | undefined
+    interactiveSpec.value =
+      s && typeof s === 'object' && 'targetTool' in s
+        ? normalizeInteractiveFormSpec(s)
+        : defaultInteractiveFormSpec()
+    form.spec = {
+      systemPrompt: '',
+      toolWhitelist: [],
+      llmProvider: '',
+      llmModel: '',
+      maxSteps: 8,
+      useMultiAgentModel: false,
+    }
+  } else {
+    const s = data.spec as SubAgentSpec
+    form.spec = {
+      systemPrompt: s?.systemPrompt || '',
+      toolWhitelist: [...(s?.toolWhitelist || [])],
+      llmProvider: s?.llmProvider || '',
+      llmModel: s?.llmModel || '',
+      maxSteps: s?.maxSteps ?? 8,
+      useMultiAgentModel: s?.useMultiAgentModel ?? false,
+    }
+    interactiveSpec.value = defaultInteractiveFormSpec()
   }
 }
 
 function openCreateDialog() {
   editingName.value = null
+  editingIsDraft.value = false
   applyForm(createEmptyForm())
   formDialogVisible.value = true
 }
 
 function openEditDialog(skill: SkillInfo) {
   editingName.value = skill.name
+  editingIsDraft.value = Boolean(skill.draft)
   applyForm({
     name: skill.name,
     description: skill.description,
@@ -490,25 +577,68 @@ function openEditDialog(skill: SkillInfo) {
   formDialogVisible.value = true
 }
 
+function buildSpecPayload(): Record<string, unknown> | SubAgentSpec {
+  return form.skillKind === 'INTERACTIVE_FORM'
+    ? (JSON.parse(JSON.stringify(interactiveSpec.value)) as unknown as Record<string, unknown>)
+    : { ...form.spec, toolWhitelist: [...(form.spec as SubAgentSpec).toolWhitelist] }
+}
+
+function buildUpsertPayload(draft: boolean): SkillUpsertRequest {
+  return {
+    ...form,
+    parameters: [...form.parameters],
+    spec: buildSpecPayload(),
+    draft,
+  }
+}
+
+async function handleSaveDraft() {
+  if (!form.name.trim()) {
+    ElMessage.warning('请填写 Skill 名')
+    return
+  }
+  saving.value = true
+  try {
+    const payload = buildUpsertPayload(true)
+    if (isEditMode.value && editingName.value) {
+      await updateSkill(editingName.value, payload)
+      ElMessage.success('已暂存')
+    } else {
+      await createSkill(payload)
+      ElMessage.success('已暂存')
+    }
+    formDialogVisible.value = false
+    await fetchSkills()
+  } catch (err) {
+    const msg = err as { response?: { data?: { message?: string } }; message?: string }
+    ElMessage.error(msg.response?.data?.message || msg.message || '暂存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
 async function handleSave() {
   if (!form.name.trim() || !form.description.trim()) {
     ElMessage.warning('请填写 Skill 名与描述')
     return
   }
-  if (!form.spec.systemPrompt.trim()) {
+  if (form.skillKind !== 'INTERACTIVE_FORM' && !(form.spec as SubAgentSpec).systemPrompt?.trim()) {
     ElMessage.warning('请填写子 Agent 系统提示词')
     return
   }
+  if (form.skillKind === 'INTERACTIVE_FORM') {
+    const err = validateInteractiveFormSpec(interactiveSpec.value)
+    if (err) {
+      ElMessage.warning(err)
+      return
+    }
+  }
   saving.value = true
   try {
-    const payload: SkillUpsertRequest = {
-      ...form,
-      parameters: [...form.parameters],
-      spec: { ...form.spec, toolWhitelist: [...form.spec.toolWhitelist] },
-    }
+    const payload = buildUpsertPayload(false)
     if (isEditMode.value && editingName.value) {
       await updateSkill(editingName.value, payload)
-      ElMessage.success('Skill 更新成功')
+      ElMessage.success(editingIsDraft.value ? '已发布' : 'Skill 更新成功')
     } else {
       await createSkill(payload)
       ElMessage.success('Skill 创建成功')
@@ -516,7 +646,7 @@ async function handleSave() {
     formDialogVisible.value = false
     await fetchSkills()
   } catch (err) {
-    const msg = (err as { response?: { data?: { message?: string } }; message?: string })
+    const msg = err as { response?: { data?: { message?: string } }; message?: string }
     ElMessage.error(msg.response?.data?.message || msg.message || '保存失败')
   } finally {
     saving.value = false
@@ -536,18 +666,40 @@ async function handleDelete(skill: SkillInfo) {
   }
 }
 
+function axiosMessage(err: unknown): string {
+  const e = err as { response?: { data?: { message?: string } }; message?: string }
+  return e.response?.data?.message || e.message || '请求失败'
+}
+
 async function handleEnabledChange(skill: SkillInfo, enabled: boolean) {
+  if (skill.draft && enabled) {
+    ElMessage.warning('草稿请先「发布」后再启用')
+    await fetchSkills()
+    return
+  }
   try {
     await toggleSkill(skill.name, enabled)
     ElMessage.success(`已${enabled ? '启用' : '禁用'} ${skill.name}`)
     await fetchSkills()
   } catch (err) {
-    ElMessage.error((err as Error).message || '状态更新失败')
+    ElMessage.error(axiosMessage(err))
+    await fetchSkills()
   }
 }
 
 async function handleVisibleChange(skill: SkillInfo, agentVisible: boolean) {
   try {
+    const specBody: SubAgentSpec | Record<string, unknown> =
+      skill.skillKind === 'INTERACTIVE_FORM'
+        ? (normalizeInteractiveFormSpec(skill.spec ?? {}) as unknown as Record<string, unknown>)
+        : ((skill.spec as SubAgentSpec) || {
+            systemPrompt: '',
+            toolWhitelist: [],
+            llmProvider: '',
+            llmModel: '',
+            maxSteps: 8,
+            useMultiAgentModel: false,
+          })
     await updateSkill(skill.name, {
       name: skill.name,
       description: skill.description,
@@ -556,14 +708,8 @@ async function handleVisibleChange(skill: SkillInfo, agentVisible: boolean) {
       sideEffect: skill.sideEffect || 'WRITE',
       enabled: skill.enabled,
       agentVisible,
-      spec: skill.spec || {
-        systemPrompt: '',
-        toolWhitelist: [],
-        llmProvider: '',
-        llmModel: '',
-        maxSteps: 8,
-        useMultiAgentModel: false,
-      },
+      spec: specBody,
+      draft: Boolean(skill.draft),
     })
     ElMessage.success('配置已更新')
     await fetchSkills()
@@ -573,6 +719,10 @@ async function handleVisibleChange(skill: SkillInfo, agentVisible: boolean) {
 }
 
 function openTest(skill: SkillInfo) {
+  if (skill.draft) {
+    ElMessage.warning('草稿 Skill 不可测试，请先发布')
+    return
+  }
   testingSkill.value = skill
   testResult.value = null
   Object.keys(testArgs).forEach((k) => delete testArgs[k])
@@ -692,6 +842,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.switch-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .test-result-area {

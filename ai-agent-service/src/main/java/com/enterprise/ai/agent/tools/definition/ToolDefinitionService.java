@@ -6,6 +6,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.enterprise.ai.agent.skill.SubAgentSkill;
 import com.enterprise.ai.agent.skill.SubAgentSkillFactory;
 import com.enterprise.ai.agent.skill.SubAgentSpec;
+import com.enterprise.ai.agent.skill.interactive.InteractiveFormSkill;
+import com.enterprise.ai.agent.skill.interactive.InteractiveFormSkillFactory;
+import com.enterprise.ai.agent.skill.interactive.InteractiveFormSpec;
 import com.enterprise.ai.agent.scan.ScanProjectAuthSupport;
 import com.enterprise.ai.agent.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.scan.ScanProjectMapper;
@@ -51,6 +54,7 @@ public class ToolDefinitionService {
     private final ObjectMapper objectMapper;
     private final ToolEmbeddingService toolEmbeddingService;
     private final SubAgentSkillFactory subAgentSkillFactory;
+    private final InteractiveFormSkillFactory interactiveFormSkillFactory;
 
     public ToolDefinitionService(ToolDefinitionMapper mapper,
                                  ScanProjectMapper scanProjectMapper,
@@ -58,7 +62,8 @@ public class ToolDefinitionService {
                                  List<AiTool> codeTools,
                                  ObjectMapper objectMapper,
                                  ToolEmbeddingService toolEmbeddingService,
-                                 @Lazy SubAgentSkillFactory subAgentSkillFactory) {
+                                 @Lazy SubAgentSkillFactory subAgentSkillFactory,
+                                 @Lazy InteractiveFormSkillFactory interactiveFormSkillFactory) {
         this.mapper = mapper;
         this.scanProjectMapper = scanProjectMapper;
         this.toolRegistry = toolRegistry;
@@ -66,6 +71,7 @@ public class ToolDefinitionService {
         this.objectMapper = objectMapper;
         this.toolEmbeddingService = toolEmbeddingService;
         this.subAgentSkillFactory = subAgentSkillFactory;
+        this.interactiveFormSkillFactory = interactiveFormSkillFactory;
     }
 
     @PostConstruct
@@ -317,6 +323,9 @@ public class ToolDefinitionService {
     public ToolDefinitionEntity toggle(String name, boolean enabled) {
         ToolDefinitionEntity existing = findByName(name)
                 .orElseThrow(() -> new IllegalArgumentException("工具不存在: " + name));
+        if (Boolean.TRUE.equals(existing.getDraft()) && enabled) {
+            throw new IllegalArgumentException("草稿请先「发布」（保存且 draft=false）后再启用");
+        }
         existing.setEnabled(enabled);
         mapper.updateById(existing);
         if (enabled) {
@@ -334,8 +343,15 @@ public class ToolDefinitionService {
     public Object executeTool(String name, Map<String, Object> args) {
         ToolDefinitionEntity existing = findByName(name)
                 .orElseThrow(() -> new IllegalArgumentException("工具不存在: " + name));
+        if (Boolean.TRUE.equals(existing.getDraft())) {
+            throw new IllegalArgumentException("草稿 Skill 不可执行或测试");
+        }
         if (KIND_SKILL.equalsIgnoreCase(existing.getKind())) {
-            // Skill 不管 source 是啥，都走 SubAgentSkill 走一遍
+            String sk = existing.getSkillKind();
+            if (sk != null && InteractiveFormSkillFactory.SKILL_KIND_INTERACTIVE_FORM.equalsIgnoreCase(sk.trim())) {
+                InteractiveFormSkill skill = interactiveFormSkillFactory.build(existing);
+                return skill.execute(args == null ? Map.of() : args);
+            }
             SubAgentSkill skill = subAgentSkillFactory.build(existing);
             return skill.execute(args == null ? Map.of() : args);
         }
@@ -364,6 +380,7 @@ public class ToolDefinitionService {
 
     public boolean isAgentCallable(String name) {
         return findByName(name)
+                .filter(entity -> !Boolean.TRUE.equals(entity.getDraft()))
                 .filter(entity -> Boolean.TRUE.equals(entity.getEnabled()))
                 .filter(entity -> Boolean.TRUE.equals(entity.getAgentVisible()))
                 .isPresent();
@@ -382,7 +399,8 @@ public class ToolDefinitionService {
                 .orderByAsc(ToolDefinitionEntity::getName));
     }
 
-    public IPage<ToolDefinitionEntity> pageSkills(int current, int size, String keyword, Boolean enabled) {
+    public IPage<ToolDefinitionEntity> pageSkills(int current, int size, String keyword, Boolean enabled,
+                                                  Boolean draft) {
         int pageNum = Math.max(1, current);
         int pageSize = Math.min(100, Math.max(1, size));
         Page<ToolDefinitionEntity> p = new Page<>(pageNum, pageSize, true);
@@ -396,6 +414,9 @@ public class ToolDefinitionService {
         }
         if (enabled != null) {
             w.eq(ToolDefinitionEntity::getEnabled, enabled);
+        }
+        if (draft != null) {
+            w.eq(ToolDefinitionEntity::getDraft, draft);
         }
         w.orderByAsc(ToolDefinitionEntity::getName);
         return mapper.selectPage(p, w);
@@ -426,15 +447,30 @@ public class ToolDefinitionService {
         String kind = normalizeKind(request.kind());
         entity.setName(updating ? entity.getName() : request.name());
         entity.setKind(kind);
-        entity.setDescription(request.description());
+        String desc = request.description();
+        if (KIND_SKILL.equals(kind) && Boolean.TRUE.equals(request.draft()) && isBlank(desc)) {
+            desc = "（草稿）";
+        }
+        entity.setDescription(desc);
         entity.setParametersJson(serializeParameters(request.parameters()));
         entity.setSource(normalizeSource(request.source()));
         entity.setSourceLocation(request.sourceLocation());
         entity.setProjectId(request.projectId());
-        entity.setEnabled(request.enabled());
         entity.setAgentVisible(request.agentVisible());
         entity.setLightweightEnabled(request.lightweightEnabled());
         entity.setSideEffect(normalizeSideEffect(request.sideEffect()));
+
+        if (KIND_SKILL.equals(kind)) {
+            entity.setDraft(Boolean.TRUE.equals(request.draft()));
+            if (Boolean.TRUE.equals(entity.getDraft())) {
+                entity.setEnabled(false);
+            } else {
+                entity.setEnabled(request.enabled());
+            }
+        } else {
+            entity.setDraft(false);
+            entity.setEnabled(request.enabled());
+        }
 
         if (KIND_SKILL.equals(kind)) {
             // Skill: 不落 HTTP 字段，保存 spec_json / skill_kind
@@ -468,10 +504,13 @@ public class ToolDefinitionService {
         if (!updating && isBlank(request.name())) {
             throw new IllegalArgumentException("工具名不能为空");
         }
+        String kind = normalizeKind(request.kind());
+        if (KIND_SKILL.equals(kind) && Boolean.TRUE.equals(request.draft())) {
+            return;
+        }
         if (isBlank(request.description())) {
             throw new IllegalArgumentException("工具描述不能为空");
         }
-        String kind = normalizeKind(request.kind());
         String source = normalizeSource(request.source());
 
         if (KIND_SKILL.equals(kind)) {
@@ -479,7 +518,14 @@ public class ToolDefinitionService {
             if (isBlank(request.specJson())) {
                 throw new IllegalArgumentException("Skill 必须提供 specJson");
             }
-            // 调用 factory 的 parseSpec + validateSpec（会抛 IllegalArgumentException）
+            String skillKind = request.skillKind();
+            if (skillKind != null
+                    && InteractiveFormSkillFactory.SKILL_KIND_INTERACTIVE_FORM.equalsIgnoreCase(skillKind.trim())) {
+                InteractiveFormSpec parsed = interactiveFormSkillFactory.parseSpec(request.specJson());
+                interactiveFormSkillFactory.validateSpec(
+                        updating ? request.name() : request.name(), parsed);
+                return;
+            }
             SubAgentSpec parsed = subAgentSkillFactory.parseSpec(request.specJson());
             subAgentSkillFactory.validateSpec(
                     updating ? request.name() : request.name(), parsed);
@@ -533,13 +579,26 @@ public class ToolDefinitionService {
     }
 
     private void registerIfNeeded(ToolDefinitionEntity entity) {
+        if (Boolean.TRUE.equals(entity.getDraft())) {
+            if (KIND_SKILL.equalsIgnoreCase(entity.getKind())) {
+                toolRegistry.remove(entity.getName());
+            }
+            return;
+        }
         if (!Boolean.TRUE.equals(entity.getEnabled())) {
             return;
         }
         if (KIND_SKILL.equalsIgnoreCase(entity.getKind())) {
             try {
-                SubAgentSkill skill = subAgentSkillFactory.build(entity);
-                toolRegistry.register(skill);
+                if (entity.getSkillKind() != null
+                        && InteractiveFormSkillFactory.SKILL_KIND_INTERACTIVE_FORM.equalsIgnoreCase(
+                        entity.getSkillKind().trim())) {
+                    InteractiveFormSkill skill = interactiveFormSkillFactory.build(entity);
+                    toolRegistry.register(skill);
+                } else {
+                    SubAgentSkill skill = subAgentSkillFactory.build(entity);
+                    toolRegistry.register(skill);
+                }
                 log.debug("[ToolDefinitionService] 注册 Skill: name={}, kind={}",
                         entity.getName(), entity.getSkillKind());
             } catch (Exception ex) {

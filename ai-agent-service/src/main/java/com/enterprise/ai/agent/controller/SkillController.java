@@ -3,6 +3,8 @@ package com.enterprise.ai.agent.controller;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.enterprise.ai.agent.skill.SubAgentSkillFactory;
 import com.enterprise.ai.agent.skill.SubAgentSpec;
+import com.enterprise.ai.agent.skill.interactive.InteractiveFormSkillFactory;
+import com.enterprise.ai.agent.skill.interactive.InteractiveFormSpec;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
@@ -12,6 +14,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -29,8 +34,15 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SkillController {
 
+    private static final String PLACEHOLDER_SUB_AGENT_SPEC =
+            "{\"systemPrompt\":\"\",\"toolWhitelist\":[],\"maxSteps\":8,\"useMultiAgentModel\":false}";
+    private static final String PLACEHOLDER_INTERACTIVE_SPEC =
+            "{\"targetTool\":\"\",\"fields\":[]}";
+
     private final ToolDefinitionService toolDefinitionService;
     private final SubAgentSkillFactory subAgentSkillFactory;
+    private final InteractiveFormSkillFactory interactiveFormSkillFactory;
+    private final ObjectMapper objectMapper;
     private final ToolCallLogService toolCallLogService;
 
     @GetMapping
@@ -38,8 +50,9 @@ public class SkillController {
             @RequestParam(defaultValue = "1") int current,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Boolean enabled) {
-        IPage<ToolDefinitionEntity> page = toolDefinitionService.pageSkills(current, size, keyword, enabled);
+            @RequestParam(required = false) Boolean enabled,
+            @RequestParam(required = false) Boolean draft) {
+        IPage<ToolDefinitionEntity> page = toolDefinitionService.pageSkills(current, size, keyword, enabled, draft);
         List<SkillInfoDTO> records = page.getRecords().stream()
                 .map(this::toDto)
                 .toList();
@@ -63,7 +76,8 @@ public class SkillController {
     @PostMapping
     public ResponseEntity<?> create(@RequestBody SkillUpsertRequest request) {
         try {
-            ToolDefinitionEntity created = toolDefinitionService.create(request.toServiceRequest(subAgentSkillFactory));
+            ToolDefinitionEntity created = toolDefinitionService.create(
+                    request.toServiceRequest(objectMapper, subAgentSkillFactory, interactiveFormSkillFactory));
             return ResponseEntity.ok(toDto(created));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
@@ -74,7 +88,8 @@ public class SkillController {
     public ResponseEntity<?> update(@PathVariable String name,
                                     @RequestBody SkillUpsertRequest request) {
         try {
-            ToolDefinitionEntity updated = toolDefinitionService.update(name, request.toServiceRequest(subAgentSkillFactory));
+            ToolDefinitionEntity updated = toolDefinitionService.update(name,
+                    request.toServiceRequest(objectMapper, subAgentSkillFactory, interactiveFormSkillFactory));
             return ResponseEntity.ok(toDto(updated));
         } catch (IllegalArgumentException ex) {
             if (ex.getMessage() != null && ex.getMessage().contains("不存在")) {
@@ -106,7 +121,7 @@ public class SkillController {
             }
             return ResponseEntity.ok(toDto(toolDefinitionService.toggle(name, request.enabled())));
         } catch (IllegalArgumentException ex) {
-            return ResponseEntity.notFound().build();
+            return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
         }
     }
 
@@ -143,14 +158,7 @@ public class SkillController {
         List<SkillParameterDTO> params = toolDefinitionService.parseParameters(entity.getParametersJson()).stream()
                 .map(SkillParameterDTO::from)
                 .toList();
-        SubAgentSpec spec = null;
-        if (entity.getSpecJson() != null && !entity.getSpecJson().isBlank()) {
-            try {
-                spec = subAgentSkillFactory.parseSpec(entity.getSpecJson());
-            } catch (Exception ignored) {
-                // 破损 spec 不挡列表展示
-            }
-        }
+        Object spec = parseSpecForDto(entity);
         return new SkillInfoDTO(
                 entity.getName(),
                 entity.getDescription(),
@@ -161,8 +169,36 @@ public class SkillController {
                 Boolean.TRUE.equals(entity.getEnabled()),
                 Boolean.TRUE.equals(entity.getAgentVisible()),
                 entity.getSource(),
-                spec
+                spec,
+                Boolean.TRUE.equals(entity.getDraft())
         );
+    }
+
+    private Object parseSpecForDto(ToolDefinitionEntity entity) {
+        if (entity.getSpecJson() == null || entity.getSpecJson().isBlank()) {
+            return null;
+        }
+        String sk = entity.getSkillKind();
+        if (sk != null && InteractiveFormSkillFactory.SKILL_KIND_INTERACTIVE_FORM.equalsIgnoreCase(sk.trim())) {
+            try {
+                return interactiveFormSkillFactory.parseSpec(entity.getSpecJson());
+            } catch (Exception e1) {
+                try {
+                    return objectMapper.readValue(entity.getSpecJson(), Map.class);
+                } catch (Exception ignored) {
+                    return null;
+                }
+            }
+        }
+        try {
+            return subAgentSkillFactory.parseSpec(entity.getSpecJson());
+        } catch (Exception ignored) {
+            try {
+                return objectMapper.readValue(entity.getSpecJson(), Map.class);
+            } catch (Exception ignored2) {
+                return null;
+            }
+        }
     }
 
     record SkillListPageResponse(List<SkillInfoDTO> records,
@@ -180,7 +216,8 @@ public class SkillController {
                         boolean enabled,
                         boolean agentVisible,
                         String source,
-                        SubAgentSpec spec) {}
+                        Object spec,
+                        boolean draft) {}
 
     record SkillParameterDTO(String name,
                              String type,
@@ -205,24 +242,50 @@ public class SkillController {
                               String sideEffect,
                               boolean enabled,
                               boolean agentVisible,
-                              SubAgentSpec spec) {
-        ToolDefinitionUpsertRequest toServiceRequest(SubAgentSkillFactory factory) {
-            String specJson = spec == null ? null : factory.serializeSpec(spec);
-            String resolvedKind = skillKind == null || skillKind.isBlank()
-                    ? SubAgentSkillFactory.SKILL_KIND_SUB_AGENT
-                    : skillKind.trim().toUpperCase();
-            return ToolDefinitionUpsertRequest.skill(
-                    name,
-                    description,
-                    parameters == null ? List.of() : parameters,
-                    "manual",
-                    null,
-                    enabled,
-                    agentVisible,
-                    sideEffect,
-                    resolvedKind,
-                    specJson
-            );
+                              JsonNode spec,
+                              Boolean draft) {
+        ToolDefinitionUpsertRequest toServiceRequest(ObjectMapper om,
+                                                     SubAgentSkillFactory subFactory,
+                                                     InteractiveFormSkillFactory ifFactory) {
+            try {
+                boolean isDraft = Boolean.TRUE.equals(draft);
+                String resolvedKind = skillKind == null || skillKind.isBlank()
+                        ? SubAgentSkillFactory.SKILL_KIND_SUB_AGENT
+                        : skillKind.trim().toUpperCase();
+                String specJson = spec == null || spec.isNull() ? null : om.writeValueAsString(spec);
+                if (isDraft && (specJson == null || specJson.isBlank())) {
+                    specJson = InteractiveFormSkillFactory.SKILL_KIND_INTERACTIVE_FORM.equalsIgnoreCase(resolvedKind)
+                            ? PLACEHOLDER_INTERACTIVE_SPEC
+                            : PLACEHOLDER_SUB_AGENT_SPEC;
+                }
+                if (!isDraft) {
+                    if (specJson == null || specJson.isBlank()) {
+                        throw new IllegalArgumentException("Skill 必须提供 spec");
+                    }
+                    if (InteractiveFormSkillFactory.SKILL_KIND_INTERACTIVE_FORM.equalsIgnoreCase(resolvedKind)) {
+                        InteractiveFormSpec parsed = ifFactory.parseSpec(specJson);
+                        ifFactory.validateSpec(name, parsed);
+                    } else {
+                        SubAgentSpec parsed = subFactory.parseSpec(specJson);
+                        subFactory.validateSpec(name, parsed);
+                    }
+                }
+                return ToolDefinitionUpsertRequest.skill(
+                        name,
+                        description,
+                        parameters == null ? List.of() : parameters,
+                        "manual",
+                        null,
+                        enabled,
+                        agentVisible,
+                        sideEffect,
+                        resolvedKind,
+                        specJson,
+                        isDraft
+                );
+            } catch (JsonProcessingException e) {
+                throw new IllegalArgumentException("spec JSON 非法: " + e.getMessage());
+            }
         }
     }
 

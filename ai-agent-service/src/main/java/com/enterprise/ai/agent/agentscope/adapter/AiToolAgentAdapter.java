@@ -1,6 +1,7 @@
 package com.enterprise.ai.agent.agentscope.adapter;
 
 import com.enterprise.ai.agent.skill.ToolExecutionContextHolder;
+import com.enterprise.ai.agent.skill.interactive.InteractionSuspendedException;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.enterprise.ai.skill.AiSkill;
@@ -140,6 +141,13 @@ public class AiToolAgentAdapter implements AgentTool {
             long elapsed = System.currentTimeMillis() - started;
             log(args, result, true, null, elapsed);
             return ToolResultBlock.text(result == null ? "" : String.valueOf(result));
+        } catch (InteractionSuspendedException suspended) {
+            long elapsed = System.currentTimeMillis() - started;
+            if (executionContext != null) {
+                executionContext.setPendingUiRequest(suspended.getPayload());
+            }
+            log(args, suspended.getPayload(), true, "INTERACTION_SUSPENDED", elapsed);
+            return ToolResultBlock.text(suspended.getUserVisibleMessage());
         } catch (Exception ex) {
             long elapsed = System.currentTimeMillis() - started;
             String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
