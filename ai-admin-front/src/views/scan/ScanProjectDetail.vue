@@ -7,29 +7,168 @@
         <el-button :loading="loading" @click="refreshAll">
           <el-icon><Refresh /></el-icon>刷新
         </el-button>
-        <el-button type="warning" :loading="rescanLoading" @click="handleRescan">重新扫描</el-button>
-        <el-button type="info" :loading="rebuildEmbeddingLoading" @click="handleRebuildEmbeddings">
-          重建向量索引
-        </el-button>
       </div>
     </div>
 
-    <el-card shadow="never" class="section-card">
-      <template #header>项目概览</template>
-      <div v-if="project" class="project-summary">
-        <div><b>项目名称：</b>{{ project.name }}</div>
-        <div><b>项目域名：</b>{{ project.baseUrl }}</div>
-        <div><b>Context Path：</b>{{ project.contextPath || '-' }}</div>
-        <div><b>扫描路径：</b>{{ project.scanPath }}</div>
-        <div><b>扫描方式：</b>{{ project.scanType }}</div>
-        <div><b>状态：</b><el-tag :type="statusTagType(project.status)">{{ project.status }}</el-tag></div>
-        <div><b>接口数：</b>{{ project.toolCount }}</div>
-        <div><b>错误信息：</b>{{ project.errorMessage || '-' }}</div>
-      </div>
-    </el-card>
+    <el-collapse v-model="detailPanelActive" class="scan-detail-sections">
+      <el-collapse-item class="scan-detail-top-item" name="overview" title="项目概览">
+        <div v-if="project" class="project-summary">
+          <div><b>项目名称：</b>{{ project.name }}</div>
+          <div><b>项目域名：</b>{{ project.baseUrl }}</div>
+          <div><b>Context Path：</b>{{ project.contextPath || '-' }}</div>
+          <div><b>扫描路径：</b>{{ project.scanPath }}</div>
+          <div><b>扫描方式：</b>{{ project.scanType }}</div>
+          <div><b>状态：</b><el-tag :type="statusTagType(project.status)">{{ project.status }}</el-tag></div>
+          <div><b>接口数：</b>{{ project.toolCount }}</div>
+          <div><b>错误信息：</b>{{ project.errorMessage || '-' }}</div>
+        </div>
+      </el-collapse-item>
 
-    <el-card v-if="project" shadow="never" class="section-card">
-      <template #header>鉴权设置</template>
+      <el-collapse-item v-if="project" class="scan-detail-top-item scan-settings-card" name="scanSettings">
+        <template #title>
+        <div class="scan-settings-header">
+          <span>扫描设置</span>
+          <div class="scan-settings-header-actions" @click.stop>
+            <el-tooltip
+              effect="dark"
+              content="将使用最近一次点「保存设置」保存的扫描项配置（含增量与描述来源顺序等）"
+              placement="bottom"
+            >
+              <el-button type="warning" :loading="rescanLoading" @click="handleRescan">重新扫描</el-button>
+            </el-tooltip>
+            <el-button type="info" :loading="rebuildEmbeddingLoading" @click="handleRebuildEmbeddings">
+              重建向量索引
+            </el-button>
+          </div>
+        </div>
+        </template>
+      <el-alert
+        v-if="isOpenApiMode"
+        class="scan-settings-mode-alert"
+        type="info"
+        :closable="false"
+        show-icon
+        title="当前为 OpenAPI/Auto-OpenAPI 方式：下方「描述来源」「仅 @RestController」「类名正则」等仅对 Controller 代码扫描有效；对 OpenAPI 可生效的项有 HTTP 方法、跳过 deprecated、新接口默认开关、增量等。"
+      />
+      <p class="scan-settings-hint">先配置并保存，再点「重新扫描」使配置生效。增量重扫不删除已有接口，仅合入新变更文件解析出的端点并更新同名校验。</p>
+      <el-form label-width="160px" class="scan-settings-form" @submit.prevent>
+        <el-form-item label="接口说明来源（优先级上→下）" :class="{ 'is-disabled-form-item': isOpenApiMode }">
+          <div v-if="!isOpenApiMode" class="order-list">
+            <div v-for="(k, i) in scanSettingsForm.descriptionSourceOrder" :key="k" class="order-item">
+              <span class="order-label">{{ descriptionSourceLabels[k] || k }}</span>
+              <el-switch
+                :model-value="scanSettingsForm.descriptionSourceEnabled[k] !== false"
+                class="order-source-switch"
+                size="small"
+                :disabled="isOpenApiMode"
+                @update:model-value="(v: boolean) => setDescriptionSourceEnabled(k, v)"
+                @click.stop
+              />
+              <el-button-group>
+                <el-button size="small" :disabled="i === 0" @click="moveDescriptionOrder(i, -1)">上移</el-button>
+                <el-button
+                  size="small"
+                  :disabled="i === scanSettingsForm.descriptionSourceOrder.length - 1"
+                  @click="moveDescriptionOrder(i, 1)"
+                >下移</el-button>
+              </el-button-group>
+            </div>
+          </div>
+          <span v-else class="el-text is-secondary">OpenAPI 扫描从规范读取 summary/description，无需本项</span>
+        </el-form-item>
+        <el-form-item label="参数说明来源（优先级上→下）" :class="{ 'is-disabled-form-item': isOpenApiMode }">
+          <div v-if="!isOpenApiMode" class="order-list">
+            <div
+              v-for="(k, i) in scanSettingsForm.paramDescriptionSourceOrder"
+              :key="k"
+              class="order-item"
+            >
+              <span class="order-label">{{ paramSourceLabels[k] || k }}</span>
+              <el-switch
+                :model-value="scanSettingsForm.paramDescriptionSourceEnabled[k] !== false"
+                class="order-source-switch"
+                size="small"
+                :disabled="isOpenApiMode"
+                @update:model-value="(v: boolean) => setParamDescriptionSourceEnabled(k, v)"
+                @click.stop
+              />
+              <el-button-group>
+                <el-button size="small" :disabled="i === 0" @click="moveParamOrder(i, -1)">上移</el-button>
+                <el-button
+                  size="small"
+                  :disabled="i === scanSettingsForm.paramDescriptionSourceOrder.length - 1"
+                  @click="moveParamOrder(i, 1)"
+                >下移</el-button>
+              </el-button-group>
+            </div>
+          </div>
+          <span v-else class="el-text is-secondary">此扫描方式不解析 Controller 形参与 DTO，无需配置</span>
+        </el-form-item>
+        <el-form-item label="仅 @RestController" :class="{ 'is-disabled-form-item': isOpenApiMode }">
+          <el-switch
+            v-model="scanSettingsForm.onlyRestController"
+            :disabled="isOpenApiMode"
+          />
+        </el-form-item>
+        <el-form-item label="HTTP 方法白名单">
+          <el-select
+            v-model="scanSettingsForm.httpMethodWhitelist"
+            multiple
+            clearable
+            filterable
+            class="http-method-select"
+            placeholder="留空=全部；OpenAPI/Controller 均会过滤"
+          >
+            <el-option v-for="m in allHttpMethods" :key="m" :label="m" :value="m" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="类名包含正则" :class="{ 'is-disabled-form-item': isOpenApiMode }">
+          <el-input
+            v-model="scanSettingsForm.classIncludeRegex"
+            clearable
+            :disabled="isOpenApiMode"
+            placeholder="例如 .*\.controller\..*（留空=不限制）"
+          />
+        </el-form-item>
+        <el-form-item label="类名排除正则" :class="{ 'is-disabled-form-item': isOpenApiMode }">
+          <el-input
+            v-model="scanSettingsForm.classExcludeRegex"
+            clearable
+            :disabled="isOpenApiMode"
+            placeholder="留空=不排除"
+          />
+        </el-form-item>
+        <el-form-item label="跳过 deprecated 接口">
+          <el-switch v-model="scanSettingsForm.skipDeprecated" />
+          <span class="el-text is-secondary" style="margin-left: 8px">Controller：@Deprecated/注释；OpenAPI：operation.deprecated</span>
+        </el-form-item>
+        <el-form-item label="新发现接口默认">
+          <div class="switch-group">
+            <el-switch v-model="scanSettingsForm.defaultFlags.enabled" />
+            <span>启用</span>
+            <el-switch v-model="scanSettingsForm.defaultFlags.agentVisible" />
+            <span>Agent 可见</span>
+            <el-switch v-model="scanSettingsForm.defaultFlags.lightweightEnabled" />
+            <span>轻量调用</span>
+          </div>
+        </el-form-item>
+        <el-form-item label="增量扫描">
+          <el-radio-group v-model="scanSettingsForm.incrementalMode" class="incr-radio">
+            <el-radio-button label="OFF">关闭</el-radio-button>
+            <el-radio-button label="MTIME">仅变更文件 (mtime)</el-radio-button>
+            <el-radio-button label="GIT_DIFF">Git 差异</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="上次成功扫描" v-if="lastScannedDisplay">
+          <span class="el-text is-secondary">{{ lastScannedDisplay }}</span>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="scanSettingsSaving" @click="handleSaveScanSettings">保存设置</el-button>
+        </el-form-item>
+      </el-form>
+    </el-collapse-item>
+
+    <el-collapse-item v-if="project" class="scan-detail-top-item" name="auth" title="鉴权设置">
       <p class="auth-hint">用于「测试」扫描到的 HTTP 接口，以及已注册为全局 Tool 且仍关联本项目的动态调用。</p>
       <el-form label-width="160px" class="auth-form" @submit.prevent>
         <el-form-item label="鉴权方式">
@@ -62,10 +201,14 @@
           <el-button type="primary" :loading="authSaving" @click="saveAuthSettings">保存鉴权设置</el-button>
         </el-form-item>
       </el-form>
-    </el-card>
+    </el-collapse-item>
 
-    <el-card v-if="project" shadow="never" class="section-card ai-settings-card">
-      <template #header>AI 理解生成设置</template>
+    <el-collapse-item
+      v-if="project"
+      class="scan-detail-top-item ai-settings-card"
+      name="aiGen"
+      title="AI 理解生成设置"
+    >
       <p class="ai-settings-hint">以下模型选择与「一键生成 / 强制重生成」对项目级摘要、模块列表及下方接口列表中的单条「重新生成」均生效。</p>
       <div class="ai-toolbar">
         <el-button type="primary" :loading="batchStarting" @click="startBatchGenerate(false)">
@@ -112,14 +255,13 @@
         :closable="false"
         show-icon
       />
-    </el-card>
+    </el-collapse-item>
 
-    <div class="semantic-summary-block">
-      <el-card shadow="never" class="section-card">
-        <template #header>
+    <el-collapse-item v-if="project" class="scan-detail-top-item semantic-inline-collapse" name="projectDoc">
+        <template #title>
           <div class="ai-card-header">
             <span>项目级摘要</span>
-            <div>
+            <div @click.stop>
               <el-button size="small" :loading="projectGenLoading" @click="regenerateProject">重新生成</el-button>
               <el-button size="small" :disabled="!projectDoc" @click="openEditDoc(projectDoc)">编辑</el-button>
             </div>
@@ -127,13 +269,13 @@
         </template>
         <div v-if="projectDoc" class="markdown-body" v-html="renderMd(projectDoc.contentMd)" />
         <el-empty v-else description="项目级文档尚未生成" />
-      </el-card>
+    </el-collapse-item>
 
-      <el-card shadow="never" class="section-card">
-        <template #header>
+    <el-collapse-item v-if="project" class="scan-detail-top-item semantic-inline-collapse" name="modules">
+        <template #title>
           <div class="ai-card-header">
             <span>模块列表（{{ modules.length }}）</span>
-            <div>
+            <div @click.stop>
               <el-button size="small" :disabled="selectedModuleIds.length < 2" @click="openMergeDialog">
                 合并选中（{{ selectedModuleIds.length }}）
               </el-button>
@@ -165,14 +307,13 @@
             </template>
           </el-table-column>
         </el-table>
-      </el-card>
-    </div>
+    </el-collapse-item>
 
-    <el-card shadow="never" class="section-card merged-tools-card">
-      <template #header>
+    <el-collapse-item v-if="project" class="scan-detail-top-item merged-tools-card" name="tools">
+      <template #title>
         <div class="tools-header">
           <span>扫描接口与 AI 语义</span>
-          <div class="tools-actions">
+          <div class="tools-actions" @click.stop>
             <el-button size="small" @click="batchToggle(false)">全部禁用</el-button>
             <el-button size="small" type="primary" @click="batchToggle(true)">全部启用</el-button>
           </div>
@@ -333,7 +474,8 @@
           </el-collapse-item>
         </el-collapse>
       </div>
-    </el-card>
+    </el-collapse-item>
+    </el-collapse>
 
     <el-dialog v-model="docEditVisible" title="编辑 AI 文档（保存后标记为 edited，不会被重新生成覆盖，除非强制）" width="720px">
       <el-input v-model="docEditContent" type="textarea" :rows="18" placeholder="Markdown 内容" />
@@ -533,7 +675,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import type { ProviderInfo } from '@/types/model'
-import type { ProjectToolInfo, ScanProject } from '@/types/scanProject'
+import type { DescriptionSource, ParamDescriptionSource, ProjectToolInfo, ScanProject, ScanSettings } from '@/types/scanProject'
+import { getDefaultScanSettings } from '@/types/scanProject'
 import type { ToolParameter, ToolTestResult, ToolUpsertRequest } from '@/types/tool'
 import type { ScanModule, SemanticDoc, SemanticTask } from '@/types/semanticDoc'
 import {
@@ -547,6 +690,7 @@ import {
   toggleScanProjectTool,
   triggerRescan,
   updateScanProjectAuthSettings,
+  updateScanProjectScanSettings,
   updateScanProjectTool,
 } from '@/api/scanProject'
 import { startToolRetrievalRebuild } from '@/api/toolRetrieval'
@@ -575,6 +719,8 @@ const loading = ref(false)
 const saving = ref(false)
 const rescanLoading = ref(false)
 const rebuildEmbeddingLoading = ref(false)
+/** 扫描详情各区块折叠；空数组=全部折叠 */
+const detailPanelActive = ref<string[]>([])
 
 const formDialogVisible = ref(false)
 const editingScanToolId = ref<number | null>(null)
@@ -601,6 +747,99 @@ const authForm = reactive({
   authApiKeyValue: '',
 })
 
+const scanSettingsForm = reactive<ScanSettings>(getDefaultScanSettings())
+const scanSettingsSaving = ref(false)
+
+const descriptionSourceLabels: Record<DescriptionSource, string> = {
+  JAVADOC: 'Javadoc',
+  SWAGGER_API_OPERATION: 'Swagger @ApiOperation',
+  OPENAPI_OPERATION: 'OpenAPI @Operation',
+  METHOD_NAME: '方法名兜底',
+}
+
+const paramSourceLabels: Record<ParamDescriptionSource, string> = {
+  JAVADOC_PARAM: 'Javadoc @param',
+  SCHEMA_ANNO: '@Schema / 模型',
+  PARAMETER_ANNO: '@Parameter 等',
+  FIELD_NAME: '形参/字段名',
+}
+
+const allHttpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const
+
+const isOpenApiMode = computed(() => project.value?.scanType === 'openapi')
+
+const lastScannedDisplay = computed(() => {
+  const t = project.value?.lastScannedAt
+  if (!t) return ''
+  const d = new Date(t)
+  if (Number.isNaN(d.getTime())) return t
+  return d.toLocaleString()
+})
+
+function syncScanSettingsFormFromProject() {
+  const p = project.value
+  if (!p) return
+  const s = p.scanSettings
+  const b = getDefaultScanSettings()
+  if (!s) {
+    Object.assign(scanSettingsForm, b)
+    return
+  }
+  const df = s.defaultFlags ?? b.defaultFlags
+  const dOrder = s.descriptionSourceOrder?.length
+    ? ([...s.descriptionSourceOrder] as DescriptionSource[])
+    : ([...b.descriptionSourceOrder] as DescriptionSource[])
+  const pOrder = s.paramDescriptionSourceOrder?.length
+    ? ([...s.paramDescriptionSourceOrder] as ParamDescriptionSource[])
+    : ([...b.paramDescriptionSourceOrder] as ParamDescriptionSource[])
+  Object.assign(scanSettingsForm, {
+    descriptionSourceOrder: dOrder,
+    paramDescriptionSourceOrder: pOrder,
+    descriptionSourceEnabled: buildSourceEnabledMap(dOrder, s.descriptionSourceEnabled),
+    paramDescriptionSourceEnabled: buildParamSourceEnabledMap(
+      pOrder,
+      s.paramDescriptionSourceEnabled
+    ),
+    onlyRestController: s.onlyRestController ?? b.onlyRestController,
+    httpMethodWhitelist: s.httpMethodWhitelist != null ? [...s.httpMethodWhitelist] : [],
+    classIncludeRegex: s.classIncludeRegex ?? '',
+    classExcludeRegex: s.classExcludeRegex ?? '',
+    skipDeprecated: s.skipDeprecated ?? false,
+    defaultFlags: { ...b.defaultFlags, ...df },
+    incrementalMode: s.incrementalMode ?? b.incrementalMode,
+  } as ScanSettings)
+}
+
+function buildSourceEnabledMap(
+  order: DescriptionSource[],
+  fromApi: ScanSettings['descriptionSourceEnabled'] | undefined
+): ScanSettings['descriptionSourceEnabled'] {
+  const o: ScanSettings['descriptionSourceEnabled'] = {}
+  for (const k of order) {
+    o[k] = fromApi?.[k] !== false
+  }
+  return o
+}
+
+function buildParamSourceEnabledMap(
+  order: ParamDescriptionSource[],
+  fromApi: ScanSettings['paramDescriptionSourceEnabled'] | undefined
+): ScanSettings['paramDescriptionSourceEnabled'] {
+  const o: ScanSettings['paramDescriptionSourceEnabled'] = {}
+  for (const k of order) {
+    o[k] = fromApi?.[k] !== false
+  }
+  return o
+}
+
+function setDescriptionSourceEnabled(k: DescriptionSource, v: boolean) {
+  scanSettingsForm.descriptionSourceEnabled[k] = v
+}
+
+function setParamDescriptionSourceEnabled(k: ParamDescriptionSource, v: boolean) {
+  scanSettingsForm.paramDescriptionSourceEnabled[k] = v
+}
+
 function syncAuthFormFromProject() {
   const p = project.value
   if (!p) return
@@ -608,6 +847,53 @@ function syncAuthFormFromProject() {
   authForm.authApiKeyIn = p.authApiKeyIn === 'query' ? 'query' : 'header'
   authForm.authApiKeyName = p.authApiKeyName ?? ''
   authForm.authApiKeyValue = p.authApiKeyValue ?? ''
+}
+
+function moveDescriptionOrder(i: number, d: number) {
+  const arr = scanSettingsForm.descriptionSourceOrder
+  const j = i + d
+  if (j < 0 || j >= arr.length) return
+  const tmp = arr[i]
+  arr[i] = arr[j]
+  arr[j] = tmp
+}
+
+function moveParamOrder(i: number, d: number) {
+  const arr = scanSettingsForm.paramDescriptionSourceOrder
+  const j = i + d
+  if (j < 0 || j >= arr.length) return
+  const tmp = arr[i]
+  arr[i] = arr[j]
+  arr[j] = tmp
+}
+
+async function handleSaveScanSettings() {
+  const payload: ScanSettings = {
+    descriptionSourceOrder: [...scanSettingsForm.descriptionSourceOrder],
+    paramDescriptionSourceOrder: [...scanSettingsForm.paramDescriptionSourceOrder],
+    descriptionSourceEnabled: { ...scanSettingsForm.descriptionSourceEnabled },
+    paramDescriptionSourceEnabled: { ...scanSettingsForm.paramDescriptionSourceEnabled },
+    onlyRestController: scanSettingsForm.onlyRestController,
+    httpMethodWhitelist: [...scanSettingsForm.httpMethodWhitelist],
+    classIncludeRegex: scanSettingsForm.classIncludeRegex?.trim() ?? '',
+    classExcludeRegex: scanSettingsForm.classExcludeRegex?.trim() ?? '',
+    skipDeprecated: scanSettingsForm.skipDeprecated,
+    defaultFlags: { ...scanSettingsForm.defaultFlags },
+    incrementalMode: scanSettingsForm.incrementalMode,
+  }
+  scanSettingsSaving.value = true
+  try {
+    const { data } = await updateScanProjectScanSettings(projectId.value, payload)
+    if (data) {
+      project.value = data
+      syncScanSettingsFormFromProject()
+    }
+    ElMessage.success('扫描设置已保存')
+  } catch (e) {
+    ElMessage.error((e as Error).message || '保存失败')
+  } finally {
+    scanSettingsSaving.value = false
+  }
 }
 
 async function saveAuthSettings() {
@@ -758,6 +1044,7 @@ async function refreshAll() {
     ])
     project.value = projectResponse.data
     syncAuthFormFromProject()
+    syncScanSettingsFormFromProject()
     tools.value = Array.isArray(toolResponse.data) ? toolResponse.data : []
     modules.value = Array.isArray(moduleResponse.data) ? moduleResponse.data : []
     try {
@@ -1378,8 +1665,10 @@ onUnmounted(stopPollingTask)
   border: none;
 
   :deep(.el-collapse-item__header) {
-    font-weight: 500;
-    padding-left: 4px;
+    font-weight: 600;
+    padding: 0 16px 0 14px;
+    min-height: 44px;
+    align-items: center;
   }
 
   :deep(.el-collapse-item__wrap) {
@@ -1387,7 +1676,7 @@ onUnmounted(stopPollingTask)
   }
 
   :deep(.el-collapse-item__content) {
-    padding-bottom: 12px;
+    padding: 0 4px 12px 0;
   }
 }
 
@@ -1506,8 +1795,102 @@ onUnmounted(stopPollingTask)
   max-width: 640px;
 }
 
+.scan-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scan-settings-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.scan-settings-mode-alert {
+  margin-bottom: 8px;
+}
+
+.scan-settings-hint {
+  font-size: 13px;
+  color: #909399;
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.scan-settings-form {
+  max-width: 800px;
+}
+
+.is-disabled-form-item {
+  opacity: 0.7;
+}
+
+.order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 640px;
+}
+
+.order-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.order-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.order-source-switch {
+  flex-shrink: 0;
+}
+
+.http-method-select {
+  min-width: 280px;
+}
+
+.incr-radio {
+  flex-wrap: wrap;
+}
+
+.scan-detail-sections {
+  border: none;
+  --el-collapse-header-height: 50px;
+}
+.scan-detail-sections :deep(.scan-detail-top-item) {
+  margin-bottom: 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--el-bg-color);
+}
+.scan-detail-sections :deep(.scan-detail-top-item .el-collapse-item__header) {
+  padding: 0 20px 0 18px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  min-height: var(--el-collapse-header-height);
+  align-items: center;
+  box-sizing: border-box;
+}
+.scan-detail-sections :deep(.scan-detail-top-item .el-collapse-item__content) {
+  padding: 4px 20px 18px;
+}
+.scan-detail-sections :deep(.scan-detail-top-item:last-of-type) {
+  margin-bottom: 0;
+}
 .ai-settings-card {
-  margin-top: 16px;
+  margin-top: 0;
 }
 
 .ai-settings-hint {
@@ -1518,7 +1901,7 @@ onUnmounted(stopPollingTask)
 }
 
 .merged-tools-card {
-  margin-top: 16px;
+  margin-top: 0;
 }
 
 .merged-interface-table {
@@ -1547,13 +1930,6 @@ onUnmounted(stopPollingTask)
   background: #dcdfe6;
   vertical-align: middle;
   flex-shrink: 0;
-}
-
-.semantic-summary-block {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-top: 16px;
 }
 
 .ai-toolbar {

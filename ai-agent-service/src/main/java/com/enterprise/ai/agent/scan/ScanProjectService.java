@@ -6,12 +6,14 @@ import com.enterprise.ai.agent.semantic.SemanticDocService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionUpsertRequest;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -33,6 +35,7 @@ public class ScanProjectService {
     private final ScanProjectToolService scanProjectToolService;
     private final ScannerServiceClient scannerServiceClient;
     private final ScanModuleService scanModuleService;
+    private final ObjectMapper objectMapper;
 
     @Autowired(required = false)
     private SemanticDocService semanticDocService;
@@ -41,12 +44,14 @@ public class ScanProjectService {
                               ToolDefinitionService toolDefinitionService,
                               ScanProjectToolService scanProjectToolService,
                               ScannerServiceClient scannerServiceClient,
-                              ScanModuleService scanModuleService) {
+                              ScanModuleService scanModuleService,
+                              ObjectMapper objectMapper) {
         this.projectMapper = projectMapper;
         this.toolDefinitionService = toolDefinitionService;
         this.scanProjectToolService = scanProjectToolService;
         this.scannerServiceClient = scannerServiceClient;
         this.scanModuleService = scanModuleService;
+        this.objectMapper = objectMapper;
     }
 
     public ScanProjectEntity create(ScanProjectUpsertRequest request) {
@@ -82,6 +87,31 @@ public class ScanProjectService {
     /**
      * 更新扫描项目 HTTP 鉴权配置（与项目基本信息独立保存）。
      */
+    @Transactional
+    public ScanProjectEntity updateScanSettings(Long id, ScanSettings request) {
+        if (request == null) {
+            throw new IllegalArgumentException("请求不能为空");
+        }
+        ScanSettings merged = ScanSettingsJson.fromRequest(request);
+        ScanSettingsJson.validate(merged);
+        String json = ScanSettingsJson.toJson(merged, objectMapper);
+        ScanProjectEntity existing = getById(id);
+        existing.setScanSettings(json);
+        projectMapper.updateById(existing);
+        return existing;
+    }
+
+    public ScanSettings parseSettingsForProject(ScanProjectEntity project) {
+        if (project == null) {
+            return ScanSettings.defaults();
+        }
+        return ScanSettingsJson.parseOrDefault(project.getScanSettings(), objectMapper);
+    }
+
+    public ScanSettings parseSettingsById(Long id) {
+        return parseSettingsForProject(getById(id));
+    }
+
     public ScanProjectEntity updateAuthSettings(Long id, ScanProjectAuthSettingsUpdate request) {
         if (request == null) {
             throw new IllegalArgumentException("请求不能为空");
@@ -192,28 +222,64 @@ public class ScanProjectService {
 
     private ScanResult performScan(ScanProjectEntity project, boolean deleteOldTools) {
         updateStatus(project, "scanning", null);
-        if (deleteOldTools) {
+        ScanSettings settings = parseSettingsForProject(project);
+        boolean incrementalMerge = deleteOldTools
+                && ScanSettingsJson.isIncrementalOn(settings)
+                && project.getLastScannedAt() != null;
+        if (deleteOldTools && !incrementalMerge) {
             scanProjectToolService.deleteByProject(project.getId());
             toolDefinitionService.deleteByProjectId(project.getId());
         }
-        ScannerServiceClient.ManifestData manifest = scanManifest(project);
-        List<String> toolNames = persistTools(project, manifest);
+        Long sinceMs = incrementalMerge
+                ? toEpochMs(project.getLastScannedAt())
+                : null;
+        ScannerServiceClient.ManifestData manifest = scanManifest(project, sinceMs, settings);
+        List<String> toolNames = persistTools(project, manifest, incrementalMerge);
         project.setToolCount(toolNames.size());
+        project.setLastScannedAt(java.time.LocalDateTime.now(ZoneId.systemDefault()));
         scanModuleService.bootstrapFromTools(project.getId());
         updateStatus(project, "scanned", null);
         return new ScanResult(project.getId(), project.getName(), toolNames.size(), List.copyOf(toolNames));
     }
 
-    private ScannerServiceClient.ManifestData scanManifest(ScanProjectEntity project) {
+    private static long toEpochMs(java.time.LocalDateTime t) {
+        if (t == null) {
+            return 0L;
+        }
+        return t.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+    }
+
+    private ScannerServiceClient.ScanRequestOptions toFeignOptions(ScanSettings s) {
+        if (s == null) {
+            s = ScanSettings.defaults();
+        }
+        ScannerServiceClient.ScanRequestOptions o = new ScannerServiceClient.ScanRequestOptions();
+        o.setDescriptionSourceOrder(s.getDescriptionSourceOrder());
+        o.setParamDescriptionSourceOrder(s.getParamDescriptionSourceOrder());
+        o.setDescriptionSourceEnabled(s.getDescriptionSourceEnabled());
+        o.setParamDescriptionSourceEnabled(s.getParamDescriptionSourceEnabled());
+        o.setOnlyRestController(s.isOnlyRestController());
+        o.setHttpMethodWhitelist(s.getHttpMethodWhitelist() == null ? List.of() : s.getHttpMethodWhitelist());
+        o.setClassIncludeRegex(s.getClassIncludeRegex());
+        o.setClassExcludeRegex(s.getClassExcludeRegex());
+        o.setSkipDeprecated(s.isSkipDeprecated());
+        o.setIncrementalMode(ScanSettingsJson.normalizeIncremental(s.getIncrementalMode()));
+        return o;
+    }
+
+    private ScannerServiceClient.ManifestData scanManifest(ScanProjectEntity project,
+                                                            Long incrementalSinceMs,
+                                                            ScanSettings settings) {
         String scanType = normalizeScanType(project.getScanType());
         Path scanRoot = Path.of(project.getScanPath());
-        ScannerServiceClient.ScanRequest request = new ScannerServiceClient.ScanRequest(
-                scannerProjectMetadataName(project),
-                project.getBaseUrl(),
-                normalizeContextPath(project.getContextPath()),
-                project.getScanPath(),
-                project.getSpecFile()
-        );
+        ScannerServiceClient.ScanRequest request = new ScannerServiceClient.ScanRequest();
+        request.setProjectName(scannerProjectMetadataName(project));
+        request.setBaseUrl(project.getBaseUrl());
+        request.setContextPath(normalizeContextPath(project.getContextPath()));
+        request.setScanPath(project.getScanPath());
+        request.setSpecFile(project.getSpecFile());
+        request.setOptions(toFeignOptions(settings == null ? ScanSettings.defaults() : settings));
+        request.setIncrementalSinceEpochMs(incrementalSinceMs);
 
         if ("openapi".equals(scanType)) {
             Path specPath = resolveOpenApiSpec(scanRoot, project.getSpecFile());
@@ -265,16 +331,18 @@ public class ScanProjectService {
         return result.getData();
     }
 
-    private List<String> persistTools(ScanProjectEntity project, ScannerServiceClient.ManifestData manifest) {
+    private List<String> persistTools(ScanProjectEntity project, ScannerServiceClient.ManifestData manifest, boolean merge) {
         List<String> toolNames = new ArrayList<>();
         List<ScannerServiceClient.ToolData> tools = manifest.getTools() == null ? List.of() : manifest.getTools();
         boolean useProjectPrefix = !isControllerScannerManifest(tools);
         String manifestBaseUrl = manifest.getProject() == null ? project.getBaseUrl() : manifest.getProject().getBaseUrl();
         // 以项目表配置为准；扫描服务 manifest 中 project.contextPath 可能带默认值（如 /api），不可覆盖用户留空
         String manifestContextPath = normalizeContextPath(project.getContextPath());
+        ScanSettings s = parseSettingsForProject(project);
+        ScanDefaultFlags df = s.getDefaultFlags() == null ? ScanDefaultFlags.defaults() : s.getDefaultFlags();
         for (ScannerServiceClient.ToolData tool : tools) {
             String scopedName = buildUniqueToolName(project.getId(), project.getName(), tool.getName(), useProjectPrefix);
-            scanProjectToolService.insertScanned(project.getId(), new ToolDefinitionUpsertRequest(
+            var upsert = new ToolDefinitionUpsertRequest(
                     scopedName,
                     tool.getDescription(),
                     (tool.getParameters() == null ? List.<ScannerServiceClient.ToolParameterData>of() : tool.getParameters()).stream()
@@ -289,10 +357,15 @@ public class ScanProjectService {
                     tool.getRequestBodyType(),
                     tool.getResponseType(),
                     null,
-                    false,
-                    false,
-                    false
-            ));
+                    df.isEnabled(),
+                    df.isAgentVisible(),
+                    df.isLightweightEnabled()
+            );
+            if (merge) {
+                scanProjectToolService.upsertScanned(project.getId(), upsert);
+            } else {
+                scanProjectToolService.insertScanned(project.getId(), upsert);
+            }
             toolNames.add(scopedName);
         }
         return toolNames;

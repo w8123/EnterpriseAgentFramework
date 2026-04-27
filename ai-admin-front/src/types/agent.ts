@@ -8,6 +8,8 @@ export interface AgentDefinition {
   intentType: string
   systemPrompt: string
   tools: string[]
+  /** 可调用的 Skill 名，与 tools 合并为运行时白名单 */
+  skills?: string[]
   modelName: string
   maxSteps: number
   enabled: boolean
@@ -35,6 +37,7 @@ export interface AgentForm {
   intentType: string
   systemPrompt: string
   tools: string[]
+  skills: string[]
   modelName: string
   maxSteps: number
   enabled: boolean

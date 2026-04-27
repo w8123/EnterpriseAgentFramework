@@ -130,14 +130,11 @@
               <el-input v-model="selectedNode.data.label" />
             </el-form-item>
 
-            <el-form-item
-              v-if="selectedNode.data.kind === 'tool' || selectedNode.data.kind === 'skill'"
-              label="引用"
-            >
+            <el-form-item v-if="selectedNode.data.kind === 'tool'" label="引用 Tool">
               <el-select
                 v-model="selectedNode.data.ref"
                 filterable
-                placeholder="选择 Tool / Skill"
+                placeholder="选择 Tool"
                 style="width: 100%"
               >
                 <el-option
@@ -145,6 +142,21 @@
                   :key="t.name"
                   :label="t.name"
                   :value="t.name"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="selectedNode.data.kind === 'skill'" label="引用 Skill">
+              <el-select
+                v-model="selectedNode.data.ref"
+                filterable
+                placeholder="选择 Skill"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="s in availableSkills"
+                  :key="s.name"
+                  :label="s.name"
+                  :value="s.name"
                 />
               </el-select>
             </el-form-item>
@@ -284,7 +296,9 @@ import type { AgentForm } from '@/types/agent'
 import type { CanvasNode, CanvasEdge, CanvasNodeKind } from '@/types/studio'
 import { getAgent, updateAgent, publishAgentVersion, gatewayChat } from '@/api/agent'
 import { getTools } from '@/api/tool'
+import { getSkills } from '@/api/skill'
 import type { ToolInfo } from '@/types/tool'
+import type { SkillInfo } from '@/types/skill'
 import type { ChatResponse } from '@/types/chat'
 import { canvasToDefinition, definitionToCanvas, kindColor } from '@/utils/studio'
 import TraceTimeline from '@/components/TraceTimeline.vue'
@@ -318,8 +332,12 @@ const traceToolNames = computed(() => {
 })
 
 const toolOptions = ref<ToolInfo[]>([])
+const skillOptions = ref<SkillInfo[]>([])
 const availableTools = computed(() =>
   toolOptions.value.filter((t) => t.enabled && t.agentVisible),
+)
+const availableSkills = computed(() =>
+  skillOptions.value.filter((s) => s.enabled && s.agentVisible && !s.draft),
 )
 
 const form = reactive<AgentForm>({
@@ -329,6 +347,7 @@ const form = reactive<AgentForm>({
   intentType: 'GENERAL_CHAT',
   systemPrompt: '',
   tools: [],
+  skills: [],
   modelName: '',
   maxSteps: 5,
   enabled: true,
@@ -436,6 +455,7 @@ async function loadAgent() {
       intentType: data.intentType || '',
       systemPrompt: data.systemPrompt || '',
       tools: data.tools || [],
+      skills: data.skills || [],
       modelName: data.modelName || '',
       maxSteps: data.maxSteps || 5,
       enabled: data.enabled ?? true,
@@ -464,6 +484,15 @@ async function loadToolOptions() {
     toolOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
   } catch {
     toolOptions.value = []
+  }
+}
+
+async function loadSkillOptions() {
+  try {
+    const { data } = await getSkills({ current: 1, size: 2000 })
+    skillOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
+  } catch {
+    skillOptions.value = []
   }
 }
 
@@ -580,8 +609,8 @@ function handleSwitchToForm() {
 }
 
 onMounted(async () => {
+  await Promise.all([loadToolOptions(), loadSkillOptions()])
   await loadAgent()
-  await loadToolOptions()
   await nextTick()
 })
 

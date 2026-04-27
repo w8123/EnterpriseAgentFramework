@@ -1,5 +1,6 @@
 package com.enterprise.ai.text.tooling.scanner.controller;
 
+import com.enterprise.ai.text.tooling.scanner.ScanOptions;
 import com.enterprise.ai.text.tooling.scanner.manifest.ParameterLocation;
 import com.enterprise.ai.text.tooling.scanner.manifest.ProjectMetadata;
 import com.enterprise.ai.text.tooling.scanner.manifest.ToolDefinition;
@@ -8,6 +9,8 @@ import com.enterprise.ai.text.tooling.scanner.manifest.ToolParameterDefinition;
 import com.enterprise.ai.text.tooling.scanner.manifest.ToolSource;
 import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.javadoc.Javadoc;
+import com.github.javaparser.javadoc.JavadocBlockTag;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -35,6 +38,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
+import java.util.regex.Pattern;
 
 /**
  * 基于 Spring MVC 注解扫描 Controller，生成运行时可消费的扫描结果。
@@ -42,7 +46,6 @@ import java.util.stream.Stream;
 public class ControllerAnnotationToolManifestScanner {
 
     private static final Logger log = LoggerFactory.getLogger(ControllerAnnotationToolManifestScanner.class);
-    private final RequestBodySchemaExtractor bodySchemaExtractor = new RequestBodySchemaExtractor();
     private static final int MAX_OPERATION_DESCRIPTION_CHARS = 512;
     private static final Set<String> GENERIC_METHOD_NAMES = Set.of("test", "execute", "handle", "process");
     private static final Set<String> DEFAULT_IGNORED_PATH_SEGMENTS = Set.of(
@@ -57,24 +60,45 @@ public class ControllerAnnotationToolManifestScanner {
             ".svn"
     );
 
+    private static final class ScanState {
+        ScanOptions options;
+        long incrementalSinceMs;
+        Path sourcePath;
+    }
+
+    private static final ThreadLocal<ScanState> STATE = new ThreadLocal<>();
+
     public ToolManifest scan(Path sourcePath, ProjectMetadata projectMetadata) {
-        List<Path> javaFiles = collectJavaFiles(sourcePath);
-        Map<String, TypeDeclaration<?>> classIndex = buildClassIndex(javaFiles);
-        List<ToolDefinition> tools = new ArrayList<>();
-        javaFiles.forEach(javaFile -> {
-            try {
-                tools.addAll(scanFile(javaFile, projectMetadata, classIndex));
-            } catch (IllegalArgumentException ex) {
-                if (isParseFailure(ex)) {
-                    log.warn("Skip unparsable controller source: {}", javaFile, ex);
-                    return;
+        return scan(sourcePath, projectMetadata, null, null);
+    }
+
+    public ToolManifest scan(Path sourcePath, ProjectMetadata projectMetadata, ScanOptions options, Long incrementalSinceEpochMs) {
+        ScanState s = new ScanState();
+        s.options = options == null ? ScanOptions.empty() : options;
+        s.incrementalSinceMs = incrementalSinceEpochMs == null || incrementalSinceEpochMs < 0 ? 0L : incrementalSinceEpochMs;
+        s.sourcePath = sourcePath;
+        STATE.set(s);
+        try {
+            List<Path> javaFiles = collectJavaFilesWithIncremental(sourcePath, s);
+            Map<String, TypeDeclaration<?>> classIndex = buildClassIndex(javaFiles);
+            List<ToolDefinition> tools = new ArrayList<>();
+            javaFiles.forEach(javaFile -> {
+                try {
+                    tools.addAll(scanFile(javaFile, projectMetadata, classIndex));
+                } catch (IllegalArgumentException ex) {
+                    if (isParseFailure(ex)) {
+                        log.warn("Skip unparsable controller source: {}", javaFile, ex);
+                        return;
+                    }
+                    throw ex;
                 }
-                throw ex;
-            }
-        });
-        ToolManifest manifest = new ToolManifest(projectMetadata, ensureUniqueToolNames(tools));
-        manifest.validate();
-        return manifest;
+            });
+            ToolManifest manifest = new ToolManifest(projectMetadata, ensureUniqueToolNames(tools));
+            manifest.validate();
+            return manifest;
+        } finally {
+            STATE.remove();
+        }
     }
 
     /**
@@ -105,26 +129,37 @@ public class ControllerAnnotationToolManifestScanner {
                                           Map<String, TypeDeclaration<?>> classIndex) {
         CompilationUnit compilationUnit = parse(javaFile);
         List<ToolDefinition> tools = new ArrayList<>();
+        ScanState state = currentState();
+        List<String> paramOrder = paramDescriptionOrder(state);
+        RequestBodySchemaExtractor bodyExtractor = new RequestBodySchemaExtractor(paramOrder);
 
         for (ClassOrInterfaceDeclaration declaration : compilationUnit.findAll(ClassOrInterfaceDeclaration.class)) {
-            if (!isController(declaration)) {
+            if (!isController(declaration, state)) {
                 continue;
             }
-
+            if (skipByClassFqn(declaration, state)) {
+                continue;
+            }
+            if (isClassDeprecated(declaration) && isSkipDeprecated(state)) {
+                continue;
+            }
             String basePath = extractRequestMappingPath(declaration.getAnnotations()).orElse("");
             for (MethodDeclaration method : declaration.getMethods()) {
-                Optional<MappingDefinition> mapping = extractMethodMapping(method);
+                if (isMethodDeprecated(method) && isSkipDeprecated(state)) {
+                    continue;
+                }
+                Optional<MappingDefinition> mapping = extractMethodMapping(method, state);
                 if (mapping.isEmpty()) {
                     continue;
                 }
 
                 MappingDefinition definition = mapping.get();
-                List<ToolParameterDefinition> parameters = extractParameters(method, classIndex);
+                List<ToolParameterDefinition> parameters = extractParameters(method, classIndex, bodyExtractor, state);
                 String requestBodyType = extractRequestBodyType(method);
 
                 tools.add(new ToolDefinition(
                         resolveToolName(method, joinPath(basePath, definition.path())),
-                        resolveToolDescription(method),
+                        resolveToolDescription(method, state),
                         definition.httpMethod(),
                         joinPath(basePath, definition.path()),
                         definition.httpMethod() + " " + joinPath(projectMetadata.contextPath(), joinPath(basePath, definition.path())),
@@ -142,8 +177,98 @@ public class ControllerAnnotationToolManifestScanner {
         return tools;
     }
 
+    private static ScanState currentState() {
+        ScanState s = STATE.get();
+        if (s == null) {
+            s = new ScanState();
+            s.options = ScanOptions.empty();
+        }
+        return s;
+    }
+
+    private static boolean isSkipDeprecated(ScanState s) {
+        return Boolean.TRUE.equals(s.options.getSkipDeprecated());
+    }
+
+    private static List<String> paramDescriptionOrder(ScanState s) {
+        List<String> p = s.options.getParamDescriptionSourceOrder();
+        if (p == null || p.isEmpty()) {
+            p = List.of(ScanOptions.PS_JD, ScanOptions.PS_SCHEMA, ScanOptions.PS_PARAM, ScanOptions.PS_FIELD);
+        }
+        return applySourceEnabled(p, s.options.getParamDescriptionSourceEnabled());
+    }
+
+    private static List<String> descriptionOrder(ScanState s) {
+        List<String> p = s.options.getDescriptionSourceOrder();
+        if (p == null || p.isEmpty()) {
+            p = List.of(ScanOptions.SRC_JAVADOC, ScanOptions.SRC_SWAGGER_API,
+                    ScanOptions.SRC_OPENAPI_OP, ScanOptions.SRC_METHOD_NAME);
+        }
+        return applySourceEnabled(p, s.options.getDescriptionSourceEnabled());
+    }
+
+    /**
+     * 为 false 的项从优先级中移除；未出现在 map 中的 key 仍视为开启（兼容旧配置）。
+     */
+    private static List<String> applySourceEnabled(List<String> order, Map<String, Boolean> enabled) {
+        if (order == null || order.isEmpty() || enabled == null || enabled.isEmpty()) {
+            return order;
+        }
+        List<String> out = new ArrayList<>();
+        for (String k : order) {
+            if (k == null) {
+                continue;
+            }
+            String t = k.trim();
+            if (Boolean.FALSE.equals(enabled.get(t))) {
+                continue;
+            }
+            out.add(t);
+        }
+        return out;
+    }
+
+    private boolean isClassDeprecated(ClassOrInterfaceDeclaration declaration) {
+        return declaration.getAnnotations().stream().anyMatch(a -> "Deprecated".equals(a.getNameAsString()));
+    }
+
+    private boolean isMethodDeprecated(MethodDeclaration method) {
+        if (method.getAnnotations().stream().anyMatch(a -> "Deprecated".equals(a.getNameAsString()))) {
+            return true;
+        }
+        return method.getJavadoc().map(this::javadocHasDeprecated).orElse(false);
+    }
+
+    private boolean javadocHasDeprecated(Javadoc javadoc) {
+        for (JavadocBlockTag t : javadoc.getBlockTags()) {
+            if ("deprecated".equalsIgnoreCase(t.getTagName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean skipByClassFqn(ClassOrInterfaceDeclaration declaration, ScanState state) {
+        String fqn = declaration.getFullyQualifiedName().orElse(declaration.getNameAsString());
+        String include = state.options.getClassIncludeRegex();
+        if (include != null && !include.isBlank()) {
+            if (!Pattern.compile(include, Pattern.CASE_INSENSITIVE).matcher(fqn).find()) {
+                return true;
+            }
+        }
+        String exclude = state.options.getClassExcludeRegex();
+        if (exclude != null && !exclude.isBlank()) {
+            if (Pattern.compile(exclude, Pattern.CASE_INSENSITIVE).matcher(fqn).find()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private List<ToolParameterDefinition> extractParameters(MethodDeclaration method,
-                                                            Map<String, TypeDeclaration<?>> classIndex) {
+                                                            Map<String, TypeDeclaration<?>> classIndex,
+                                                            RequestBodySchemaExtractor bodySchemaExtractor,
+                                                            ScanState state) {
         List<ToolParameterDefinition> parameters = new ArrayList<>();
         for (Parameter parameter : method.getParameters()) {
             if (hasAnnotation(parameter, "RequestBody")) {
@@ -161,10 +286,11 @@ public class ControllerAnnotationToolManifestScanner {
             }
 
             if (hasAnnotation(parameter, "PathVariable")) {
+                String desc = resolveParameterText(parameter, method, state, parameter.getNameAsString());
                 parameters.add(new ToolParameterDefinition(
                         annotationStringValue(parameter, "PathVariable", "value").orElse(parameter.getNameAsString()),
                         mapJavaType(parameter.getType().asString()),
-                        parameter.getNameAsString(),
+                        desc,
                         true,
                         ParameterLocation.PATH
                 ));
@@ -172,16 +298,77 @@ public class ControllerAnnotationToolManifestScanner {
             }
 
             if (hasAnnotation(parameter, "RequestParam")) {
+                String desc = resolveParameterText(parameter, method, state, parameter.getNameAsString());
                 parameters.add(new ToolParameterDefinition(
                         annotationStringValue(parameter, "RequestParam", "value").orElse(parameter.getNameAsString()),
                         mapJavaType(parameter.getType().asString()),
-                        parameter.getNameAsString(),
+                        desc,
                         annotationBooleanValue(parameter, "RequestParam", "required").orElse(true),
                         ParameterLocation.QUERY
                 ));
             }
         }
         return parameters;
+    }
+
+    private String resolveParameterText(Parameter param, MethodDeclaration method, ScanState s, String fallback) {
+        for (String key : paramDescriptionOrder(s)) {
+            if (key == null) {
+                continue;
+            }
+            String u = key.trim();
+            if (ScanOptions.PS_JD.equals(u) || "JAVADOC_PARAM".equals(u)) {
+                String name = param.getNameAsString();
+                Optional<String> p = javadocParamLine(method, name);
+                if (p.isPresent() && !p.get().isBlank()) {
+                    return p.get();
+                }
+            } else if (ScanOptions.PS_SCHEMA.equals(u) || "SCHEMA_ANNO".equals(u)) {
+                for (AnnotationExpr a : param.getAnnotations()) {
+                    if ("Schema".equals(a.getNameAsString())) {
+                        Optional<String> t = extractNamedMember(a, "description").map(this::extractStringValue);
+                        if (t.isPresent() && !t.get().isBlank()) {
+                            return t.get();
+                        }
+                    }
+                }
+            } else if (ScanOptions.PS_PARAM.equals(u) || "PARAMETER_ANNO".equals(u)) {
+                for (AnnotationExpr a : param.getAnnotations()) {
+                    if ("Parameter".equals(a.getNameAsString())) {
+                        Optional<String> t = extractNamedMember(a, "description")
+                                .or(() -> extractNamedMember(a, "name"))
+                                .map(this::extractStringValue);
+                        if (t.isPresent() && !t.get().isBlank()) {
+                            return t.get();
+                        }
+                    }
+                }
+            } else if (ScanOptions.PS_FIELD.equals(u) || "FIELD_NAME".equals(u)) {
+                return fallback;
+            }
+        }
+        return fallback;
+    }
+
+    private Optional<String> javadocParamLine(MethodDeclaration method, String paramName) {
+        if (method.getJavadoc().isEmpty()) {
+            return Optional.empty();
+        }
+        for (JavadocBlockTag t : method.getJavadoc().get().getBlockTags()) {
+            if (!"param".equalsIgnoreCase(t.getTagName())) {
+                continue;
+            }
+            if (t.getName().isEmpty()) {
+                continue;
+            }
+            // 不同 JavaParser 版本里 getName 可能为 SimpleName 等，避免直接 asString
+            String pName = t.getName().map(Object::toString).orElse("").trim();
+            if (pName.isEmpty() || !paramName.equals(pName)) {
+                continue;
+            }
+            return Optional.of(t.getContent().toText().trim()).filter(s -> !s.isBlank());
+        }
+        return Optional.empty();
     }
 
     private String extractRequestBodyType(MethodDeclaration method) {
@@ -201,30 +388,55 @@ public class ControllerAnnotationToolManifestScanner {
         return type;
     }
 
-    private Optional<MappingDefinition> extractMethodMapping(MethodDeclaration method) {
+    private Optional<MappingDefinition> extractMethodMapping(MethodDeclaration method, ScanState state) {
         for (AnnotationExpr annotation : method.getAnnotations()) {
             String name = annotation.getNameAsString();
             if ("GetMapping".equals(name)) {
-                return Optional.of(new MappingDefinition("GET", extractMappingPath(annotation)));
+                return filterByHttpWhitelist(new MappingDefinition("GET", extractMappingPath(annotation)), state);
             }
             if ("PostMapping".equals(name)) {
-                return Optional.of(new MappingDefinition("POST", extractMappingPath(annotation)));
+                return filterByHttpWhitelist(new MappingDefinition("POST", extractMappingPath(annotation)), state);
             }
             if ("PutMapping".equals(name)) {
-                return Optional.of(new MappingDefinition("PUT", extractMappingPath(annotation)));
+                return filterByHttpWhitelist(new MappingDefinition("PUT", extractMappingPath(annotation)), state);
             }
             if ("DeleteMapping".equals(name)) {
-                return Optional.of(new MappingDefinition("DELETE", extractMappingPath(annotation)));
+                return filterByHttpWhitelist(new MappingDefinition("DELETE", extractMappingPath(annotation)), state);
             }
             if ("PatchMapping".equals(name)) {
-                return Optional.of(new MappingDefinition("PATCH", extractMappingPath(annotation)));
+                return filterByHttpWhitelist(new MappingDefinition("PATCH", extractMappingPath(annotation)), state);
             }
             if ("RequestMapping".equals(name)) {
                 String httpMethod = extractRequestMethod(annotation).orElse("GET");
-                return Optional.of(new MappingDefinition(httpMethod, extractMappingPath(annotation)));
+                return filterByHttpWhitelist(new MappingDefinition(httpMethod, extractMappingPath(annotation)), state);
             }
         }
         return Optional.empty();
+    }
+
+    private Optional<MappingDefinition> filterByHttpWhitelist(MappingDefinition def, ScanState state) {
+        if (def == null) {
+            return Optional.empty();
+        }
+        if (!httpMethodAllowed(def.httpMethod(), state)) {
+            return Optional.empty();
+        }
+        return Optional.of(def);
+    }
+
+    private static boolean httpMethodAllowed(String m, ScanState s) {
+        if (m == null) {
+            return false;
+        }
+        if (s.options.getHttpMethodWhitelist() == null || s.options.getHttpMethodWhitelist().isEmpty()) {
+            return true;
+        }
+        for (String w : s.options.getHttpMethodWhitelist()) {
+            if (m.equalsIgnoreCase(w == null ? "" : w.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Optional<String> extractRequestMethod(AnnotationExpr annotation) {
@@ -301,10 +513,23 @@ public class ControllerAnnotationToolManifestScanner {
                 .anyMatch(annotation -> annotationName.equals(annotation.getNameAsString()));
     }
 
-    private boolean isController(ClassOrInterfaceDeclaration declaration) {
+    private boolean isController(ClassOrInterfaceDeclaration declaration, ScanState s) {
+        if (s.options.getOnlyRestController() == null || Boolean.TRUE.equals(s.options.getOnlyRestController())) {
+            return declaration.getAnnotations().stream()
+                    .map(AnnotationExpr::getNameAsString)
+                    .anyMatch("RestController"::equals);
+        }
         return declaration.getAnnotations().stream()
                 .map(AnnotationExpr::getNameAsString)
                 .anyMatch(name -> "RestController".equals(name) || "Controller".equals(name));
+    }
+
+    private List<Path> collectJavaFilesWithIncremental(Path sourcePath, ScanState s) {
+        List<Path> all = collectJavaFiles(sourcePath);
+        if (s.incrementalSinceMs > 0) {
+            return IncrementalFileFilter.apply(all, sourcePath, s.incrementalSinceMs, s.options);
+        }
+        return all;
     }
 
     private List<Path> collectJavaFiles(Path sourcePath) {
@@ -390,34 +615,49 @@ public class ControllerAnnotationToolManifestScanner {
         };
     }
 
-    private String resolveToolDescription(MethodDeclaration method) {
-        Optional<String> docFromJavaDoc = method.getJavadoc()
-                .map(jd -> jd.getDescription().toText().trim())
-                .filter(text -> !text.isBlank());
-        if (docFromJavaDoc.isPresent()) {
-            return docFromJavaDoc.get();
+    private String resolveToolDescription(MethodDeclaration method, ScanState s) {
+        for (String key : descriptionOrder(s)) {
+            if (key == null) {
+                continue;
+            }
+            String u = key.trim();
+            if (ScanOptions.SRC_JAVADOC.equals(u) || "JAVADOC".equals(u)) {
+                Optional<String> doc = method.getJavadoc()
+                        .map(jd -> jd.getDescription().toText().trim())
+                        .filter(text -> !text.isBlank());
+                if (doc.isPresent()) {
+                    return doc.get();
+                }
+            } else if (ScanOptions.SRC_SWAGGER_API.equals(u) || "SWAGGER_API_OPERATION".equals(u)) {
+                Optional<String> op = extractSwaggerApiOperationText(method);
+                if (op.isPresent()) {
+                    return op.get();
+                }
+            } else if (ScanOptions.SRC_OPENAPI_OP.equals(u) || "OPENAPI_OPERATION".equals(u)) {
+                Optional<String> op2 = extractOpenApiOperationText(method);
+                if (op2.isPresent()) {
+                    return op2.get();
+                }
+            } else if (ScanOptions.SRC_METHOD_NAME.equals(u) || "METHOD_NAME".equals(u)) {
+                return method.getNameAsString();
+            }
         }
-        return extractSwaggerOperationDescription(method)
-                .orElse(method.getNameAsString());
+        return method.getNameAsString();
     }
 
-    /**
-     * Swagger 2 {@code ApiOperation} / OpenAPI 3 {@code Operation} 中的文案，用于无 Javadoc 时的接口说明（如管理端「Ai描述」）。
-     */
-    private Optional<String> extractSwaggerOperationDescription(MethodDeclaration method) {
+    private Optional<String> extractSwaggerApiOperationText(MethodDeclaration method) {
         for (AnnotationExpr annotation : method.getAnnotations()) {
-            String name = annotation.getNameAsString();
-            if ("ApiOperation".equals(name)) {
-                Optional<String> text = extractApiOperationDescription(annotation);
-                if (text.isPresent()) {
-                    return text;
-                }
+            if ("ApiOperation".equals(annotation.getNameAsString())) {
+                return extractApiOperationDescription(annotation);
             }
-            if ("Operation".equals(name)) {
-                Optional<String> text = extractOpenApiOperationDescription(annotation);
-                if (text.isPresent()) {
-                    return text;
-                }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<String> extractOpenApiOperationText(MethodDeclaration method) {
+        for (AnnotationExpr annotation : method.getAnnotations()) {
+            if ("Operation".equals(annotation.getNameAsString())) {
+                return extractOpenApiOperationDescription(annotation);
             }
         }
         return Optional.empty();

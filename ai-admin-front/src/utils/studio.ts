@@ -3,7 +3,7 @@ import type { CanvasNode, CanvasEdge, CanvasSnapshot, CanvasNodeKind } from '@/t
 
 /**
  * 画布 → Agent 定义：
- * 1. skill / tool 节点的 ref 展平成 tools[] 白名单（去重、保序）；
+ * 1. tool 节点 ref → tools[]，skill 节点 ref → skills[]（各自去重、保序）；
  * 2. knowledge 节点取首个 groupId 写入 knowledgeBaseGroupId；
  * 3. 画布整体序列化成 canvasJson 存储。
  */
@@ -12,14 +12,22 @@ export function canvasToDefinition(
   snapshot: CanvasSnapshot,
 ): AgentForm {
   const tools: string[] = []
-  const seen = new Set<string>()
+  const skills: string[] = []
+  const seenTools = new Set<string>()
+  const seenSkills = new Set<string>()
   let knowledgeGroupId: string | undefined
 
   for (const node of snapshot.nodes) {
-    if ((node.data.kind === 'skill' || node.data.kind === 'tool') && node.data.ref) {
-      if (!seen.has(node.data.ref)) {
-        seen.add(node.data.ref)
+    if (node.data.kind === 'tool' && node.data.ref) {
+      if (!seenTools.has(node.data.ref)) {
+        seenTools.add(node.data.ref)
         tools.push(node.data.ref)
+      }
+    }
+    if (node.data.kind === 'skill' && node.data.ref) {
+      if (!seenSkills.has(node.data.ref)) {
+        seenSkills.add(node.data.ref)
+        skills.push(node.data.ref)
       }
     }
     if (node.data.kind === 'knowledge' && node.data.groupId && !knowledgeGroupId) {
@@ -30,6 +38,7 @@ export function canvasToDefinition(
   return {
     ...base,
     tools,
+    skills,
     knowledgeBaseGroupId: knowledgeGroupId ?? base.knowledgeBaseGroupId ?? '',
     canvasJson: JSON.stringify(snapshot),
   }
@@ -38,7 +47,7 @@ export function canvasToDefinition(
 /**
  * Agent 定义 → 画布：
  * - 若 `canvasJson` 存在且可解析，优先使用；
- * - 否则按 `tools[]` 自动布局生成最简画布（start → 每个 tool → end）。
+ * - 否则按 `tools[]` 与 `skills[]` 顺序生成最简画布（start → 各节点 → end）。
  */
 export function definitionToCanvas(def: AgentDefinition): CanvasSnapshot {
   if (def.canvasJson) {
@@ -62,13 +71,19 @@ export function definitionToCanvas(def: AgentDefinition): CanvasSnapshot {
     data: { label: '开始', kind: 'start' },
   })
 
-  const toolNames = def.tools ?? []
-  toolNames.forEach((name, idx) => {
+  const chain: { name: string; kind: 'tool' | 'skill' }[] = []
+  for (const name of def.tools ?? []) {
+    chain.push({ name, kind: 'tool' })
+  }
+  for (const name of def.skills ?? []) {
+    chain.push({ name, kind: 'skill' })
+  }
+  chain.forEach((item, idx) => {
     nodes.push({
       id: `node-${idx}`,
-      type: 'tool',
+      type: item.kind,
       position: { x: 260 + idx * 220, y: 220 },
-      data: { label: name, kind: 'tool', ref: name },
+      data: { label: item.name, kind: item.kind, ref: item.name },
     })
     edges.push({
       id: `e-start-${idx}`,
@@ -86,11 +101,11 @@ export function definitionToCanvas(def: AgentDefinition): CanvasSnapshot {
     })
   }
 
-  const lastIdx = toolNames.length - 1
+  const lastIdx = chain.length - 1
   nodes.push({
     id: 'end',
     type: 'end',
-    position: { x: 260 + (toolNames.length || 1) * 220, y: 220 },
+    position: { x: 260 + (chain.length || 1) * 220, y: 220 },
     data: { label: '结束', kind: 'end' },
   })
   edges.push({

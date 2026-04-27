@@ -7,6 +7,7 @@ import type {
   ScanProjectAuthSaveRequest,
   ScanProjectScanResult,
   ScanProjectUpsertRequest,
+  ScanSettings,
 } from '@/types/scanProject'
 import type { ToolTestResult, ToolUpsertRequest } from '@/types/tool'
 
@@ -28,6 +29,10 @@ export function updateScanProject(id: number, data: ScanProjectUpsertRequest) {
 
 export function updateScanProjectAuthSettings(id: number, data: ScanProjectAuthSaveRequest) {
   return agentRequest.patch<ScanProject>(`/api/scan-projects/${id}/auth-settings`, data)
+}
+
+export function updateScanProjectScanSettings(id: number, data: ScanSettings) {
+  return agentRequest.patch<ScanProject>(`/api/scan-projects/${id}/scan-settings`, data)
 }
 
 export function deleteScanProject(id: number) {

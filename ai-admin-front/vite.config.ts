@@ -10,7 +10,8 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    // 3000 落在系统排除范围 2931–3030 内（Hyper-V/WSL 等常见），会 EACCES
+    port: 5173,
     proxy: {
       '/ai': {
         target: 'http://localhost:8602',

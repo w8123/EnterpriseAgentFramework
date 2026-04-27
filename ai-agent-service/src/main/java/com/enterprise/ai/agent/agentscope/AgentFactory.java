@@ -40,7 +40,7 @@ import java.util.stream.Collectors;
  * <h3>Tool Retrieval</h3>
  * 当传入 {@code userMessage} 非空时，本工厂会：
  * <ol>
- *   <li>以 {@code definition.tools} 作白名单，先按名称解析到 {@code tool_definition.id}；</li>
+ *   <li>以 {@code definition.tools} 与 {@code definition.skills} 合并后的白名单，先按名称解析到 {@code tool_definition.id}；</li>
  *   <li>调用 {@link ToolRetrievalService} 在向量库中召回 top-K 候选（命中项会在白名单内取交集）；</li>
  *   <li>若白名单 == null/空 → 以召回结果为最终 toolset；若白名单非空 → 取交集；</li>
  *   <li>将召回 trace 回填到 {@link ToolExecutionContext}，便于 Skill Mining 审计。</li>
@@ -111,7 +111,7 @@ public class AgentFactory {
         Model model = definition.isUseMultiAgentModel() ? multiAgentModel : singleAgentModel;
         int maxSteps = definition.getMaxSteps() > 0 ? definition.getMaxSteps() : defaultMaxSteps;
 
-        List<String> whitelist = definition.getTools();
+        List<String> whitelist = mergeToolSkillWhitelist(definition.getTools(), definition.getSkills());
         List<String> finalTools = resolveToolNames(whitelist, userMessage, context);
 
         var builder = ReActAgent.builder()
@@ -131,6 +131,17 @@ public class AgentFactory {
                 maxSteps);
 
         return builder.build();
+    }
+
+    /**
+     * 将 Tool 白名单与 Skill 白名单合并（去重、先 tools 后 skills）。
+     */
+    static List<String> mergeToolSkillWhitelist(List<String> tools, List<String> skills) {
+        List<String> t = tools == null ? Collections.emptyList() : tools;
+        List<String> s = skills == null ? Collections.emptyList() : skills;
+        LinkedHashSet<String> set = new LinkedHashSet<>(t);
+        set.addAll(s);
+        return new ArrayList<>(set);
     }
 
     /**

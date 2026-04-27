@@ -35,6 +35,9 @@ public class AgentDefinitionEntity {
     /** tools 白名单 JSON 数组字符串。 */
     private String toolsJson;
 
+    /** Skill 白名单 JSON 数组字符串（kind=SKILL 的 tool_definition.name），运行时与 tools 合并装配。 */
+    private String skillsJson;
+
     private String modelName;
 
     private Integer maxSteps;

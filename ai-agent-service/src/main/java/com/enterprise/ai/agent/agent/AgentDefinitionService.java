@@ -139,6 +139,7 @@ public class AgentDefinitionService {
         if (update.getIntentType() != null) current.setIntentType(update.getIntentType());
         if (update.getSystemPrompt() != null) current.setSystemPrompt(update.getSystemPrompt());
         if (update.getTools() != null) current.setTools(update.getTools());
+        if (update.getSkills() != null) current.setSkills(update.getSkills());
         if (update.getModelName() != null) current.setModelName(update.getModelName());
         if (update.getMaxSteps() > 0) current.setMaxSteps(update.getMaxSteps());
         if (update.getType() != null) current.setType(update.getType());
@@ -292,6 +293,7 @@ public class AgentDefinitionService {
                 .intentType(e.getIntentType())
                 .systemPrompt(e.getSystemPrompt())
                 .tools(parseList(e.getToolsJson()))
+                .skills(parseList(e.getSkillsJson()))
                 .modelName(e.getModelName())
                 .maxSteps(e.getMaxSteps() == null ? 5 : e.getMaxSteps())
                 .type(e.getType() == null ? "single" : e.getType())
@@ -319,6 +321,7 @@ public class AgentDefinitionService {
         e.setIntentType(d.getIntentType());
         e.setSystemPrompt(d.getSystemPrompt());
         e.setToolsJson(writeList(d.getTools()));
+        e.setSkillsJson(writeList(d.getSkills()));
         e.setModelName(d.getModelName());
         e.setMaxSteps(d.getMaxSteps() > 0 ? d.getMaxSteps() : 5);
         e.setType(d.getType() == null ? "single" : d.getType());

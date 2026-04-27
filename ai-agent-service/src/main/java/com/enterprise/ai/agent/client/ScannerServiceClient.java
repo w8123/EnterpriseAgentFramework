@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.List;
+import java.util.Map;
 
 @FeignClient(
         contextId = "scannerServiceClient",
@@ -32,6 +33,30 @@ public interface ScannerServiceClient {
         private String contextPath;
         private String scanPath;
         private String specFile;
+        /**
+         * 与 ai-skills-service 扫描器共用的可选项；可为 null 表示全默认。
+         */
+        private ScanRequestOptions options;
+        private Long incrementalSinceEpochMs;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class ScanRequestOptions {
+        private List<String> descriptionSourceOrder;
+        private List<String> paramDescriptionSourceOrder;
+        private Map<String, Boolean> descriptionSourceEnabled;
+        private Map<String, Boolean> paramDescriptionSourceEnabled;
+        private Boolean onlyRestController;
+        private List<String> httpMethodWhitelist;
+        private String classIncludeRegex;
+        private String classExcludeRegex;
+        private Boolean skipDeprecated;
+        /**
+         * OFF / MTIME / GIT_DIFF
+         */
+        private String incrementalMode;
     }
 
     @Data

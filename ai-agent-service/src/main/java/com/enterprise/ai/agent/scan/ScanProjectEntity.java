@@ -42,6 +42,12 @@ public class ScanProjectEntity {
 
     private String authApiKeyValue;
 
+    /** 扫描行为 JSON 配置，见 {@link com.enterprise.ai.agent.scan.ScanSettings} */
+    private String scanSettings;
+
+    /** 上次成功完成扫描时间，作增量基线 */
+    private LocalDateTime lastScannedAt;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

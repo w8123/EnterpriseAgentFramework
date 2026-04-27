@@ -42,6 +42,12 @@ public class AgentDefinition {
     /** Agent 可使用的工具名列表 */
     private List<String> tools;
 
+    /**
+     * Agent 可调用的 Skill 名列表（与 {@link #tools} 并列存储，运行时合并为 Toolkit 白名单）。
+     */
+    @Builder.Default
+    private List<String> skills = List.of();
+
     /** 使用的模型名称（默认继承全局配置） */
     private String modelName;
 

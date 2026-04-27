@@ -1,11 +1,14 @@
 package com.enterprise.ai.agent.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.enterprise.ai.agent.scan.ScanModuleEntity;
 import com.enterprise.ai.agent.scan.ScanModuleService;
 import com.enterprise.ai.agent.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.scan.ScanProjectService;
 import com.enterprise.ai.agent.scan.ScanProjectToolEntity;
 import com.enterprise.ai.agent.scan.ScanProjectToolService;
+import com.enterprise.ai.agent.scan.ScanSettings;
+import com.enterprise.ai.agent.scan.ScanSettingsJson;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
@@ -15,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -27,6 +31,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ScanProjectController {
 
+    private final ObjectMapper objectMapper;
     private final ScanProjectService scanProjectService;
     private final ToolDefinitionService toolDefinitionService;
     private final ScanModuleService scanModuleService;
@@ -66,6 +71,18 @@ public class ScanProjectController {
             return ex.getMessage() != null && ex.getMessage().contains("不存在")
                     ? ResponseEntity.notFound().build()
                     : ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PatchMapping("/{id}/scan-settings")
+    public ResponseEntity<?> updateScanSettings(@PathVariable Long id, @RequestBody ScanSettings request) {
+        try {
+            return ResponseEntity.ok(toDto(scanProjectService.updateScanSettings(id, request)));
+        } catch (IllegalArgumentException ex) {
+            if (ex.getMessage() != null && ex.getMessage().contains("不存在")) {
+                return ResponseEntity.notFound().build();
+            }
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
         }
     }
 
@@ -275,6 +292,10 @@ public class ScanProjectController {
     }
 
     private ScanProjectDTO toDto(ScanProjectEntity entity) {
+        ScanSettings settings = ScanSettingsJson.parseOrDefault(entity.getScanSettings(), objectMapper);
+        String lastScanned = entity.getLastScannedAt() == null
+                ? null
+                : entity.getLastScannedAt().atZone(ZoneId.systemDefault()).toInstant().toString();
         return new ScanProjectDTO(
                 entity.getId(),
                 entity.getName(),
@@ -289,7 +310,9 @@ public class ScanProjectController {
                 entity.getAuthType() == null || entity.getAuthType().isBlank() ? "none" : entity.getAuthType(),
                 entity.getAuthApiKeyIn(),
                 entity.getAuthApiKeyName(),
-                entity.getAuthApiKeyValue()
+                entity.getAuthApiKeyValue(),
+                settings,
+                lastScanned
         );
     }
 
@@ -403,7 +426,9 @@ public class ScanProjectController {
             String authType,
             String authApiKeyIn,
             String authApiKeyName,
-            String authApiKeyValue
+            String authApiKeyValue,
+            ScanSettings scanSettings,
+            String lastScannedAt
     ) {
     }
 

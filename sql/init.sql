@@ -233,6 +233,8 @@ CREATE TABLE IF NOT EXISTS `scan_project` (
     `auth_api_key_in`    VARCHAR(16)  DEFAULT NULL         COMMENT 'api_key 时: header / query',
     `auth_api_key_name`  VARCHAR(128) DEFAULT NULL         COMMENT 'API Key 参数名',
     `auth_api_key_value` TEXT         DEFAULT NULL         COMMENT 'API Key 参数值',
+    `scan_settings`    JSON         DEFAULT NULL          COMMENT '扫描项 JSON 配置',
+    `last_scanned_at`  DATETIME     DEFAULT NULL         COMMENT '上次成功扫描时间（增量基线）',
     `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
@@ -244,6 +246,8 @@ CALL add_col_if_absent('scan_project', 'auth_type',          'VARCHAR(32) NOT NU
 CALL add_col_if_absent('scan_project', 'auth_api_key_in',    'VARCHAR(16) DEFAULT NULL COMMENT ''api_key 时: header / query'' AFTER `auth_type`');
 CALL add_col_if_absent('scan_project', 'auth_api_key_name',  'VARCHAR(128) DEFAULT NULL COMMENT ''API Key 参数名'' AFTER `auth_api_key_in`');
 CALL add_col_if_absent('scan_project', 'auth_api_key_value', 'TEXT DEFAULT NULL COMMENT ''API Key 参数值'' AFTER `auth_api_key_name`');
+CALL add_col_if_absent('scan_project', 'scan_settings',    'JSON DEFAULT NULL COMMENT ''扫描项 JSON 配置'' AFTER `auth_api_key_value`');
+CALL add_col_if_absent('scan_project', 'last_scanned_at', 'DATETIME DEFAULT NULL COMMENT ''上次成功扫描时间（增量基线）'' AFTER `scan_settings`');
 
 CREATE TABLE IF NOT EXISTS `scan_module` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',

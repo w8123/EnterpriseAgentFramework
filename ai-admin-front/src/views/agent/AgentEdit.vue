@@ -193,6 +193,39 @@
         </el-form-item>
       </el-card>
 
+      <!-- Skill 配置 -->
+      <el-card shadow="never" class="section-card">
+        <template #header>Skill 配置</template>
+        <el-form-item label="可用 Skill" label-width="100px">
+          <div class="tool-select-area">
+            <el-select
+              v-model="form.skills"
+              multiple
+              filterable
+              collapse-tags
+              collapse-tags-tooltip
+              style="width: 100%"
+              placeholder="选择已启用且对 Agent 可见的 Skill（作为工具调用）"
+            >
+              <el-option
+                v-for="sk in availableSkills"
+                :key="sk.name"
+                :label="sk.name"
+                :value="sk.name"
+              >
+                <div class="tool-option">
+                  <span>{{ sk.name }}</span>
+                  <span class="tool-option-desc">{{ sk.description }}</span>
+                </div>
+              </el-option>
+            </el-select>
+            <div class="tool-hint">
+              仅展示已启用、非草稿且对 Agent 可见的 Skill；保存后与「Tool 配置」一并注入模型可调用的能力列表。
+            </div>
+          </div>
+        </el-form-item>
+      </el-card>
+
       <!-- Pipeline 配置 -->
       <el-card v-if="form.type === 'pipeline'" shadow="never" class="section-card">
         <template #header>Pipeline 配置</template>
@@ -235,7 +268,9 @@ import { INTENT_TYPES, TRIGGER_MODES } from '@/types/agent'
 import type { AgentForm } from '@/types/agent'
 import { getAgent, createAgent, updateAgent } from '@/api/agent'
 import { getTools } from '@/api/tool'
+import { getSkills } from '@/api/skill'
 import type { ToolInfo } from '@/types/tool'
+import type { SkillInfo } from '@/types/skill'
 
 const route = useRoute()
 const router = useRouter()
@@ -246,6 +281,7 @@ const formRef = ref<FormInstance>()
 const pageLoading = ref(false)
 const saving = ref(false)
 const toolOptions = ref<ToolInfo[]>([])
+const skillOptions = ref<SkillInfo[]>([])
 
 const form = reactive<AgentForm>({
   keySlug: '',
@@ -254,6 +290,7 @@ const form = reactive<AgentForm>({
   intentType: 'GENERAL_CHAT',
   systemPrompt: '',
   tools: [],
+  skills: [],
   modelName: '',
   maxSteps: 5,
   enabled: true,
@@ -274,6 +311,12 @@ const rules: FormRules = {
 
 const availableTools = computed(() =>
   toolOptions.value.filter((tool) => tool.enabled && tool.agentVisible),
+)
+
+const availableSkills = computed(() =>
+  skillOptions.value.filter(
+    (sk) => sk.enabled && sk.agentVisible && !sk.draft,
+  ),
 )
 
 const showPipelineInput = ref(false)
@@ -300,6 +343,7 @@ async function loadAgent() {
       intentType: data.intentType || '',
       systemPrompt: data.systemPrompt || '',
       tools: data.tools || [],
+      skills: data.skills || [],
       modelName: data.modelName || '',
       maxSteps: data.maxSteps || 5,
       enabled: data.enabled ?? true,
@@ -330,6 +374,16 @@ async function loadToolOptions() {
   }
 }
 
+async function loadSkillOptions() {
+  try {
+    const { data } = await getSkills({ current: 1, size: 2000 })
+    skillOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
+  } catch {
+    skillOptions.value = []
+    ElMessage.error('加载 Skill 选项失败')
+  }
+}
+
 async function handleSave() {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
@@ -351,9 +405,9 @@ async function handleSave() {
   }
 }
 
-onMounted(() => {
-  loadAgent()
-  loadToolOptions()
+onMounted(async () => {
+  await Promise.all([loadToolOptions(), loadSkillOptions()])
+  await loadAgent()
 })
 </script>
 

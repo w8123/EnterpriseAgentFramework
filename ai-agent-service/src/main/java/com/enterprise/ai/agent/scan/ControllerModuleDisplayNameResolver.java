@@ -14,12 +14,17 @@ import org.springframework.util.StringUtils;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
 
 /**
- * 从 Controller 源码解析模块展示名：类 Javadoc → Swagger/OpenAPI 类级注解 → 无则交由调用方回退为类名。
+ * 从 Controller 源码解析模块展示名。优先级与「接口说明来源」配置一致：类 Javadoc、类上 Swagger {@code Api}、
+ * OpenAPI {@code Tag}/{@code Tags}、无则回退为类名（与 METHOD_NAME 兜底一致）。
+ * {@link ScanSettings#getDescriptionSourceEnabled()} 中置为 false 的项不参与（与扫描器对端点说明的处理对齐）。
  */
 public final class ControllerModuleDisplayNameResolver {
 
@@ -31,8 +36,9 @@ public final class ControllerModuleDisplayNameResolver {
      * @param classSimpleName Controller 简单类名，与 sourceLocation 第二段一致
      * @param sourceLocation  与扫描器约定一致，如 {@code OrderController.java#OrderController#getOrder}
      * @return 有 Javadoc 或注解文案时返回；无法解析或非 Java Controller 时为空
+     * @param settings 项目扫描设置；为 null 时使用全默认（与未配置 JSON 时一致）
      */
-    public static Optional<String> resolve(Path scanRoot, String classSimpleName, String sourceLocation) {
+    public static Optional<String> resolve(Path scanRoot, String classSimpleName, String sourceLocation, ScanSettings settings) {
         if (scanRoot == null || !StringUtils.hasText(classSimpleName) || !StringUtils.hasText(sourceLocation)) {
             return Optional.empty();
         }
@@ -56,10 +62,17 @@ public final class ControllerModuleDisplayNameResolver {
             return cu.findAll(ClassOrInterfaceDeclaration.class).stream()
                     .filter(c -> classSimpleName.equals(c.getNameAsString()))
                     .findFirst()
-                    .flatMap(ControllerModuleDisplayNameResolver::resolveFromDeclaration);
+                    .flatMap(c -> resolveFromDeclaration(c, settings));
         } catch (Exception ex) {
             return Optional.empty();
         }
+    }
+
+    /**
+     * 不传入扫描设置时，等价于全默认（四种来源按默认顺序、全部开启）。
+     */
+    public static Optional<String> resolve(Path scanRoot, String classSimpleName, String sourceLocation) {
+        return resolve(scanRoot, classSimpleName, sourceLocation, null);
     }
 
     private static Optional<Path> findJavaFile(Path scanRoot, String fileLeaf) {
@@ -84,28 +97,87 @@ public final class ControllerModuleDisplayNameResolver {
         }
     }
 
-    private static Optional<String> resolveFromDeclaration(ClassOrInterfaceDeclaration decl) {
-        Optional<String> javadoc = decl.getJavadoc()
-                .map(j -> j.getDescription().toText().trim())
-                .filter(StringUtils::hasText);
-        if (javadoc.isPresent()) {
-            return javadoc;
+    private static List<String> descriptionSourceKeys(ScanSettings settings) {
+        ScanSettings s = settings != null ? settings : ScanSettings.defaults();
+        List<String> p = s.getDescriptionSourceOrder();
+        if (p == null || p.isEmpty()) {
+            p = List.of("JAVADOC", "SWAGGER_API_OPERATION", "OPENAPI_OPERATION", "METHOD_NAME");
+        } else {
+            p = new ArrayList<>(p);
         }
-        return extractSwaggerClassTitle(decl);
+        return applySourceEnabled(p, s.getDescriptionSourceEnabled());
+    }
+
+    private static List<String> applySourceEnabled(List<String> order, Map<String, Boolean> enabled) {
+        if (enabled == null || enabled.isEmpty()) {
+            return order;
+        }
+        List<String> out = new ArrayList<>();
+        for (String k : order) {
+            if (k == null) {
+                continue;
+            }
+            String t = k.trim();
+            if (Boolean.FALSE.equals(enabled.get(t))) {
+                continue;
+            }
+            out.add(t);
+        }
+        return out;
+    }
+
+    private static Optional<String> resolveFromDeclaration(ClassOrInterfaceDeclaration decl, ScanSettings settings) {
+        for (String key : descriptionSourceKeys(settings)) {
+            if (key == null) {
+                continue;
+            }
+            String u = key.trim();
+            if ("JAVADOC".equals(u)) {
+                Optional<String> javadoc = decl.getJavadoc()
+                        .map(j -> j.getDescription().toText().trim())
+                        .filter(StringUtils::hasText);
+                if (javadoc.isPresent()) {
+                    return javadoc;
+                }
+            } else if ("SWAGGER_API_OPERATION".equals(u)) {
+                Optional<String> sw = extractSwaggerApiClassTitle(decl);
+                if (sw.isPresent()) {
+                    return sw;
+                }
+            } else if ("OPENAPI_OPERATION".equals(u)) {
+                Optional<String> oa = extractOpenApiTagClassTitle(decl);
+                if (oa.isPresent()) {
+                    return oa;
+                }
+            } else if ("METHOD_NAME".equals(u)) {
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
     }
 
     /**
-     * Swagger {@code Api}（类级 tags/value）、OpenAPI {@code Tag} / {@code Tags}。
+     * Swagger2 类上 {@code @Api}（tags/value），与端点级 {@code ApiOperation} 同属「Swagger」一类开关。
      */
-    private static Optional<String> extractSwaggerClassTitle(ClassOrInterfaceDeclaration decl) {
+    private static Optional<String> extractSwaggerApiClassTitle(ClassOrInterfaceDeclaration decl) {
+        for (AnnotationExpr ann : decl.getAnnotations()) {
+            if (!"Api".equals(ann.getNameAsString())) {
+                continue;
+            }
+            Optional<String> fromApi = extractApiAnnotationTitle(ann);
+            if (fromApi.isPresent()) {
+                return fromApi;
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * OpenAPI3 类上 {@code @Tag} / {@code @Tags}。
+     */
+    private static Optional<String> extractOpenApiTagClassTitle(ClassOrInterfaceDeclaration decl) {
         for (AnnotationExpr ann : decl.getAnnotations()) {
             String n = ann.getNameAsString();
-            if ("Api".equals(n)) {
-                Optional<String> fromApi = extractApiAnnotationTitle(ann);
-                if (fromApi.isPresent()) {
-                    return fromApi;
-                }
-            }
             if ("Tag".equals(n)) {
                 Optional<String> tag = extractNamedStringMember(ann, "name");
                 if (tag.isPresent()) {

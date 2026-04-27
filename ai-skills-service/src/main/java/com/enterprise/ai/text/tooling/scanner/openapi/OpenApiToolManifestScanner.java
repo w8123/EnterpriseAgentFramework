@@ -6,11 +6,13 @@ import com.enterprise.ai.text.tooling.scanner.manifest.ToolDefinition;
 import com.enterprise.ai.text.tooling.scanner.manifest.ToolManifest;
 import com.enterprise.ai.text.tooling.scanner.manifest.ToolParameterDefinition;
 import com.enterprise.ai.text.tooling.scanner.manifest.ToolSource;
+import com.enterprise.ai.text.tooling.scanner.ScanOptions;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -30,6 +32,22 @@ public class OpenApiToolManifestScanner {
     private static final List<String> HTTP_METHODS = List.of("get", "post", "put", "delete", "patch");
 
     public ToolManifest scan(Path specPath, ProjectMetadata projectMetadata) {
+        return scan(specPath, projectMetadata, null, null);
+    }
+
+    public ToolManifest scan(Path specPath, ProjectMetadata projectMetadata, ScanOptions options, Long incrementalSinceEpochMs) {
+        if (incrementalSinceEpochMs != null && incrementalSinceEpochMs > 0
+                && options != null
+                && options.getIncrementalMode() != null
+                && (ScanOptions.MODE_MTIME.equalsIgnoreCase(options.getIncrementalMode())
+                || "GIT_DIFF".equalsIgnoreCase(options.getIncrementalMode()))) {
+            try {
+                if (Files.getLastModifiedTime(specPath).toMillis() <= incrementalSinceEpochMs) {
+                    return new ToolManifest(projectMetadata, List.of());
+                }
+            } catch (Exception ignored) {
+            }
+        }
         JsonNode root = readSpec(specPath);
         JsonNode paths = root.path("paths");
         if (!paths.isObject()) {
@@ -38,6 +56,7 @@ public class OpenApiToolManifestScanner {
 
         ProjectMetadata effectiveProject = normalizeProject(projectMetadata, root);
         List<ToolDefinition> tools = new ArrayList<>();
+        boolean skipDep = options != null && Boolean.TRUE.equals(options.getSkipDeprecated());
 
         Iterator<Map.Entry<String, JsonNode>> pathFields = paths.fields();
         while (pathFields.hasNext()) {
@@ -46,8 +65,14 @@ public class OpenApiToolManifestScanner {
             JsonNode pathItem = pathEntry.getValue();
 
             for (String method : HTTP_METHODS) {
+                if (!isHttpMethodAllowedByOptions(method, options)) {
+                    continue;
+                }
                 JsonNode operation = pathItem.get(method);
                 if (operation != null && operation.isObject()) {
+                    if (skipDep && operation.path("deprecated").asBoolean(false)) {
+                        continue;
+                    }
                     tools.add(toToolDefinition(specPath, effectiveProject, apiPath, method, pathItem, operation));
                 }
             }
@@ -56,6 +81,19 @@ public class OpenApiToolManifestScanner {
         ToolManifest manifest = new ToolManifest(effectiveProject, tools);
         manifest.validate();
         return manifest;
+    }
+
+    private static boolean isHttpMethodAllowedByOptions(String method, ScanOptions options) {
+        if (options == null || options.getHttpMethodWhitelist() == null
+                || options.getHttpMethodWhitelist().isEmpty()) {
+            return true;
+        }
+        for (String w : options.getHttpMethodWhitelist()) {
+            if (method != null && method.equalsIgnoreCase(w == null ? "" : w.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private ToolDefinition toToolDefinition(

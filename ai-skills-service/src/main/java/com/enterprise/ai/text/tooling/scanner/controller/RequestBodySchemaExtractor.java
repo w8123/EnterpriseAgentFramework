@@ -14,6 +14,7 @@ import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MemberValuePair;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
+import com.enterprise.ai.text.tooling.scanner.ScanOptions;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -47,6 +48,19 @@ class RequestBodySchemaExtractor {
     private static final Set<String> CONTAINER_TYPES = Set.of(
             "List", "Set", "Collection", "Iterable", "Queue", "Deque", "Optional"
     );
+
+    private final List<String> paramOrder;
+
+    RequestBodySchemaExtractor() {
+        this.paramOrder = null;
+    }
+
+    /**
+     * @param paramOrder 为 null 时沿用旧有固定优先级
+     */
+    RequestBodySchemaExtractor(List<String> paramOrder) {
+        this.paramOrder = paramOrder;
+    }
 
     List<ToolParameterDefinition> extract(String typeLiteral,
                                           Map<String, TypeDeclaration<?>> classIndex) {
@@ -104,7 +118,7 @@ class RequestBodySchemaExtractor {
                                                            int depth) {
         String rawType = component.getType().asString();
         String displayName = jsonPropertyName(component.getAnnotations(), component.getNameAsString());
-        String description = resolveDescription(component.getAnnotations(), null, component.getNameAsString());
+        String description = describeByOrder(component.getAnnotations(), null, component.getNameAsString());
         boolean required = isRequired(component.getAnnotations());
         List<ToolParameterDefinition> children = resolveFields(rawType, classIndex, visited, depth + 1);
         return new ToolParameterDefinition(
@@ -128,7 +142,7 @@ class RequestBodySchemaExtractor {
                 .map(jd -> jd.getDescription().toText().trim())
                 .filter(text -> !text.isBlank())
                 .orElse(null);
-        String description = resolveDescription(field.getAnnotations(), javadoc, variable.getNameAsString());
+        String description = describeByOrder(field.getAnnotations(), javadoc, variable.getNameAsString());
         boolean required = isRequired(field.getAnnotations());
         List<ToolParameterDefinition> children = resolveFields(rawType, classIndex, visited, depth + 1);
         return new ToolParameterDefinition(
@@ -285,6 +299,47 @@ class RequestBodySchemaExtractor {
                 .map(this::extractStringValue)
                 .filter(value -> !value.isBlank())
                 .orElse(fallback);
+    }
+
+    private String describeByOrder(NodeList<AnnotationExpr> annotations, String javadoc, String fallback) {
+        if (paramOrder == null) {
+            return resolveDescription(annotations, javadoc, fallback);
+        }
+        if (paramOrder.isEmpty()) {
+            return fallback;
+        }
+        for (String k : paramOrder) {
+            Optional<String> t = tryDescribeSource(annotations, javadoc, fallback, k);
+            if (t.isPresent() && !t.get().isBlank()) {
+                return t.get();
+            }
+        }
+        return fallback;
+    }
+
+    private Optional<String> tryDescribeSource(NodeList<AnnotationExpr> annotations,
+                                              String javadoc, String fieldName, String key) {
+        if (key == null) {
+            return Optional.empty();
+        }
+        String u = key.trim();
+        if (ScanOptions.PS_JD.equals(u) || "JAVADOC_PARAM".equals(u)) {
+            if (javadoc != null && !javadoc.isBlank()) {
+                return Optional.of(javadoc);
+            }
+            return Optional.empty();
+        }
+        if (ScanOptions.PS_SCHEMA.equals(u) || "SCHEMA_ANNO".equals(u)) {
+            return annotationStringAttr(annotations, "Schema", "description");
+        }
+        if (ScanOptions.PS_PARAM.equals(u) || "PARAMETER_ANNO".equals(u)) {
+            return annotationStringAttr(annotations, "Parameter", "description")
+                    .or(() -> annotationStringAttr(annotations, "Parameter", "value"));
+        }
+        if (ScanOptions.PS_FIELD.equals(u) || "FIELD_NAME".equals(u)) {
+            return Optional.ofNullable(fieldName);
+        }
+        return Optional.empty();
     }
 
     private String resolveDescription(NodeList<AnnotationExpr> annotations, String javadoc, String fallback) {

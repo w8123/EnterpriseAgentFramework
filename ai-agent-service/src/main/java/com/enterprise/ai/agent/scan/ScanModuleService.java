@@ -71,6 +71,7 @@ public class ScanModuleService {
             return;
         }
 
+        ScanSettings scanSettings = loadScanSettings(projectId);
         Path scanRoot = resolveScanRoot(projectId);
 
         Map<String, List<ScanProjectToolEntity>> grouped = new LinkedHashMap<>();
@@ -91,11 +92,11 @@ public class ScanModuleService {
                 module = new ScanModuleEntity();
                 module.setProjectId(projectId);
                 module.setName(moduleName);
-                module.setDisplayName(resolveModuleDisplayName(scanRoot, moduleName, entry.getValue().get(0)));
+                module.setDisplayName(resolveModuleDisplayName(scanRoot, moduleName, entry.getValue().get(0), scanSettings));
                 module.setSourceClasses(serializeClasses(List.of(moduleName)));
                 moduleMapper.insert(module);
             } else {
-                refreshDisplayNameIfDefault(scanRoot, moduleName, module, entry.getValue().get(0));
+                refreshDisplayNameIfDefault(scanRoot, moduleName, module, entry.getValue().get(0), scanSettings);
             }
             for (ScanProjectToolEntity tool : entry.getValue()) {
                 if (!Objects.equals(tool.getModuleId(), module.getId())) {
@@ -126,27 +127,54 @@ public class ScanModuleService {
         }
     }
 
+    private ScanSettings loadScanSettings(Long projectId) {
+        ScanProjectEntity project = projectMapper.selectById(projectId);
+        if (project == null) {
+            return ScanSettings.defaults();
+        }
+        return ScanSettingsJson.parseOrDefault(project.getScanSettings(), objectMapper);
+    }
+
     /**
-     * 展示名：类 Javadoc → 类上 @Api/@Tag/@Tags 等 → 类名。
+     * 展示名：与「接口说明来源」设置一致，从类 Javadoc、类上 @Api / @Tag 等按优先级与开关解析，否则为类名。
      */
-    private String resolveModuleDisplayName(Path scanRoot, String moduleName, ScanProjectToolEntity sample) {
-        return ControllerModuleDisplayNameResolver.resolve(scanRoot, moduleName, sample.getSourceLocation())
+    private String resolveModuleDisplayName(Path scanRoot, String moduleName, ScanProjectToolEntity sample, ScanSettings settings) {
+        return ControllerModuleDisplayNameResolver.resolve(
+                        scanRoot, moduleName, sample.getSourceLocation(), settings)
                 .filter(StringUtils::hasText)
                 .orElse(moduleName);
     }
 
     /**
-     * 若展示名仍为默认的类名，则在重扫时尝试用源码中的 Javadoc/注解更新。
+     * 在重扫时按当前「接口说明来源」更新模块展示名：
+     * 展示名仍为类名、或与「全默认项开启」时的自动解析结果相同时，用当前设置重算，以免关闭 Javadoc 后仍显示旧 Javadoc 文案。
+     * 若用户已手动重命名（与类名、且与全默认下的自动名均不同）则不再覆盖。
      */
-    private void refreshDisplayNameIfDefault(Path scanRoot, String moduleName, ScanModuleEntity module, ScanProjectToolEntity sample) {
-        if (!Objects.equals(module.getDisplayName(), module.getName())) {
+    private void refreshDisplayNameIfDefault(
+            Path scanRoot, String moduleName, ScanModuleEntity module, ScanProjectToolEntity sample, ScanSettings settings) {
+        if (scanRoot == null) {
             return;
         }
-        String resolved = resolveModuleDisplayName(scanRoot, moduleName, sample);
-        if (StringUtils.hasText(resolved) && !Objects.equals(resolved, module.getDisplayName())) {
-            module.setDisplayName(resolved);
-            moduleMapper.updateById(module);
+        String resolved = resolveModuleDisplayName(scanRoot, moduleName, sample, settings);
+        if (!StringUtils.hasText(resolved)) {
+            return;
         }
+        String autoWithAllSourceDefaults = ControllerModuleDisplayNameResolver
+                .resolve(scanRoot, moduleName, sample.getSourceLocation(), ScanSettings.defaults())
+                .filter(StringUtils::hasText)
+                .orElse(moduleName);
+        String name = module.getName();
+        String current = module.getDisplayName();
+        boolean stillClassName = Objects.equals(current, name);
+        boolean matchesLegacyAuto = Objects.equals(current, autoWithAllSourceDefaults);
+        if (!stillClassName && !matchesLegacyAuto) {
+            return;
+        }
+        if (Objects.equals(resolved, current)) {
+            return;
+        }
+        module.setDisplayName(resolved);
+        moduleMapper.updateById(module);
     }
 
     @Transactional

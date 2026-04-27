@@ -88,6 +88,32 @@ public class ScanProjectToolService {
         return e;
     }
 
+    public Optional<ScanProjectToolEntity> findByProjectAndName(Long projectId, String name) {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        ScanProjectToolEntity e = mapper.selectOne(new LambdaQueryWrapper<ScanProjectToolEntity>()
+                .eq(ScanProjectToolEntity::getProjectId, projectId)
+                .eq(ScanProjectToolEntity::getName, name.trim())
+                .last("limit 1"));
+        return Optional.ofNullable(e);
+    }
+
+    /**
+     * 增量/合并扫描：同项目内同工具名则按请求覆盖（用于重新扫描不删库时的 upsert）。
+     */
+    @Transactional
+    public ScanProjectToolEntity upsertScanned(Long projectId, ToolDefinitionUpsertRequest request) {
+        if (request == null || !StringUtils.hasText(request.name())) {
+            throw new IllegalArgumentException("工具名不能为空");
+        }
+        Optional<ScanProjectToolEntity> existing = findByProjectAndName(projectId, request.name().trim());
+        if (existing.isEmpty()) {
+            return insertScanned(projectId, request);
+        }
+        return update(projectId, existing.get().getId(), request);
+    }
+
     @Transactional
     public ScanProjectToolEntity update(Long projectId, Long id, ToolDefinitionUpsertRequest request) {
         ScanProjectToolEntity existing = findByProjectAndId(projectId, id)

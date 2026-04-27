@@ -1,6 +1,7 @@
 package com.enterprise.ai.controller;
 
 import com.enterprise.ai.common.dto.ApiResult;
+import com.enterprise.ai.text.tooling.scanner.ScannerRequestBody;
 import com.enterprise.ai.text.tooling.scanner.controller.ControllerAnnotationToolManifestScanner;
 import com.enterprise.ai.text.tooling.scanner.manifest.ProjectMetadata;
 import com.enterprise.ai.text.tooling.scanner.manifest.ToolManifest;
@@ -22,23 +23,25 @@ public class ScannerController {
     private final ControllerAnnotationToolManifestScanner controllerScanner = new ControllerAnnotationToolManifestScanner();
 
     @PostMapping("/openapi")
-    public ApiResult<ToolManifest> scanOpenApi(@RequestBody ScanRequest request) {
+    public ApiResult<ToolManifest> scanOpenApi(@RequestBody ScannerRequestBody request) {
         ProjectMetadata metadata = toMetadata(request);
-        Path specPath = resolveTargetPath(request.scanPath(), request.specFile());
-        return ApiResult.ok(openApiScanner.scan(specPath, metadata));
+        Path specPath = resolveTargetPath(request.getScanPath(), request.getSpecFile());
+        return ApiResult.ok(openApiScanner.scan(
+                specPath, metadata, request.getOptions(), request.getIncrementalSinceEpochMs()));
     }
 
     @PostMapping("/controller")
-    public ApiResult<ToolManifest> scanController(@RequestBody ScanRequest request) {
+    public ApiResult<ToolManifest> scanController(@RequestBody ScannerRequestBody request) {
         ProjectMetadata metadata = toMetadata(request);
-        return ApiResult.ok(controllerScanner.scan(Path.of(request.scanPath()), metadata));
+        return ApiResult.ok(controllerScanner.scan(
+                Path.of(request.getScanPath()), metadata, request.getOptions(), request.getIncrementalSinceEpochMs()));
     }
 
-    private ProjectMetadata toMetadata(ScanRequest request) {
+    private ProjectMetadata toMetadata(ScannerRequestBody request) {
         return new ProjectMetadata(
-                request.projectName(),
-                request.baseUrl(),
-                request.contextPath() == null ? "" : request.contextPath()
+                request.getProjectName(),
+                request.getBaseUrl(),
+                request.getContextPath() == null ? "" : request.getContextPath()
         );
     }
 
@@ -52,14 +55,5 @@ public class ScannerController {
             candidate = root.resolve(specFile);
         }
         return candidate.normalize();
-    }
-
-    public record ScanRequest(
-            String projectName,
-            String baseUrl,
-            String contextPath,
-            String scanPath,
-            String specFile
-    ) {
     }
 }
