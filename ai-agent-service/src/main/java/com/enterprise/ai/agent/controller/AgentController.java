@@ -4,10 +4,12 @@ import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.model.ChatRequest;
 import com.enterprise.ai.agent.model.ChatResponse;
 import com.enterprise.ai.agent.service.AgentService;
+import com.enterprise.ai.agent.service.RouteEvaluationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AgentController {
 
     private final AgentService agentService;
+    private final RouteEvaluationService routeEvaluationService;
 
     /**
      * 执行Agent任务，返回精简响应
@@ -45,5 +48,11 @@ public class AgentController {
         log.info("收到Agent详细执行请求: userId={}", request.getUserId());
         AgentResult result = agentService.executeAgentDetailed(request);
         return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/route-evaluation")
+    public ResponseEntity<RouteEvaluationService.RouteEvaluation> routeEvaluation(
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "30") int days) {
+        return ResponseEntity.ok(routeEvaluationService.evaluate(days));
     }
 }

@@ -7,6 +7,7 @@ import com.enterprise.ai.agent.agentscope.adapter.AiToolAgentAdapter;
 import com.enterprise.ai.agent.config.LLMConfig;
 import com.enterprise.ai.agent.config.ToolRetrievalProperties;
 import com.enterprise.ai.agent.skill.SubAgentSkillExecutor;
+import com.enterprise.ai.agent.tool.governance.ToolRateLimiter;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.enterprise.ai.agent.tool.retrieval.RetrievalScope;
@@ -61,6 +62,7 @@ public class AgentFactory {
     private final ToolRetrievalProperties retrievalProperties;
     private final ObjectMapper objectMapper;
     private final ToolAclService toolAclService;
+    private final ToolRateLimiter toolRateLimiter;
     private final int defaultMaxSteps;
 
     public AgentFactory(
@@ -74,6 +76,7 @@ public class AgentFactory {
             ToolRetrievalProperties retrievalProperties,
             ObjectMapper objectMapper,
             ToolAclService toolAclService,
+            ToolRateLimiter toolRateLimiter,
             LLMConfig llmConfig) {
         this.singleAgentModel = singleAgentModel;
         this.multiAgentModel = multiAgentModel;
@@ -85,6 +88,7 @@ public class AgentFactory {
         this.retrievalProperties = retrievalProperties;
         this.objectMapper = objectMapper;
         this.toolAclService = toolAclService;
+        this.toolRateLimiter = toolRateLimiter;
         this.defaultMaxSteps = llmConfig.getMaxSteps();
         log.info("[AgentFactory] 初始化完成: defaultMaxSteps={}, toolRetrieval={}",
                 defaultMaxSteps, retrievalProperties.isEnabled());
@@ -285,7 +289,7 @@ public class AgentFactory {
             String sideEffect = toolDefinitionService.findByName(toolName)
                     .map(ToolDefinitionEntity::getSideEffect)
                     .orElse(null);
-            toolkit.registerAgentTool(new AiToolAgentAdapter(aiTool, context, toolCallLogService, sideEffect));
+            toolkit.registerAgentTool(new AiToolAgentAdapter(aiTool, context, toolCallLogService, sideEffect, toolRateLimiter));
             log.debug("[AgentFactory] 装配 {}: {} (sideEffect={}, aclDecision={})",
                     isSkill ? "SKILL" : "TOOL", toolName, sideEffect, decision);
         }

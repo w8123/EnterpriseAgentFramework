@@ -187,6 +187,17 @@
 
     <!-- 发布弹窗 -->
     <el-dialog v-model="publishDialogOpen" title="发布 Agent 版本" width="480px">
+      <el-alert
+        v-if="publishWarnings.length"
+        type="warning"
+        :closable="false"
+        class="publish-warning"
+        title="发布前检查"
+      >
+        <ul>
+          <li v-for="item in publishWarnings" :key="item">{{ item }}</li>
+        </ul>
+      </el-alert>
       <el-form :model="publishForm" label-width="120px">
         <el-form-item label="版本号" required>
           <el-input v-model="publishForm.version" placeholder="v1.0.0" />
@@ -377,6 +388,28 @@ const publishForm = reactive({
   publishedBy: '',
 })
 
+const publishWarnings = computed(() => {
+  const warnings: string[] = []
+  const toolCount = nodes.value.filter((n) => n.data.kind === 'tool' && n.data.ref).length
+  const skillCount = nodes.value.filter((n) => n.data.kind === 'skill' && n.data.ref).length
+  if (!form.keySlug) {
+    warnings.push('未配置 keySlug，业务系统可能无法通过发布端点稳定访问。')
+  }
+  if (!form.systemPrompt || form.systemPrompt.length < 20) {
+    warnings.push('System Prompt 较短，建议补充角色、边界和失败处理策略。')
+  }
+  if (toolCount + skillCount === 0) {
+    warnings.push('画布中没有可调用 Tool/Skill，本版本只能进行纯对话。')
+  }
+  if (form.allowIrreversible) {
+    warnings.push('已允许 IRREVERSIBLE 工具调用，请确认 Tool ACL 与限流已配置。')
+  }
+  if (publishForm.rolloutPercent === 100) {
+    warnings.push('本次为全量发布，会替换该 Agent 的历史 ACTIVE 全量版本。')
+  }
+  return warnings
+})
+
 const paletteItems: { kind: CanvasNodeKind; label: string; hint: string }[] = [
   { kind: 'skill', label: 'Skill 节点', hint: '引用已注册的 SubAgentSkill' },
   { kind: 'tool', label: 'Tool 节点', hint: '引用原子工具（HTTP/Code）' },
@@ -522,6 +555,17 @@ async function handlePublish() {
     ElMessage.warning('请先填写版本号')
     return
   }
+  if (publishWarnings.value.length) {
+    try {
+      await ElMessageBox.confirm(
+        publishWarnings.value.join('\n'),
+        '确认继续发布？',
+        { type: 'warning', confirmButtonText: '继续发布', cancelButtonText: '返回检查' },
+      )
+    } catch {
+      return
+    }
+  }
   publishing.value = true
   try {
     await handleSave()
@@ -627,6 +671,15 @@ watch(
   flex-direction: column;
   height: 100%;
   background: #f5f7fa;
+}
+
+.publish-warning {
+  margin-bottom: 12px;
+
+  ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+  }
 }
 
 .studio-header {

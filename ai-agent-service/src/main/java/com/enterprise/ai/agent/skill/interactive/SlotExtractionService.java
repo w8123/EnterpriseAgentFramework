@@ -1,13 +1,13 @@
 package com.enterprise.ai.agent.skill.interactive;
 
 import com.enterprise.ai.agent.llm.LlmService;
+import com.enterprise.ai.agent.skill.slot.DeterministicSlotExtractor;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -18,13 +18,26 @@ import java.util.regex.Pattern;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class SlotExtractionService {
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
 
     private final LlmService llmService;
     private final ObjectMapper objectMapper;
+    private final DeterministicSlotExtractor deterministicSlotExtractor;
+
+    @Autowired
+    public SlotExtractionService(LlmService llmService,
+                                 ObjectMapper objectMapper,
+                                 DeterministicSlotExtractor deterministicSlotExtractor) {
+        this.llmService = llmService;
+        this.objectMapper = objectMapper;
+        this.deterministicSlotExtractor = deterministicSlotExtractor;
+    }
+
+    public SlotExtractionService(LlmService llmService, ObjectMapper objectMapper) {
+        this(llmService, objectMapper, new DeterministicSlotExtractor());
+    }
 
     /**
      * 将用户自然语言合并到 slots（仅处理 spec 中声明的 key）。
@@ -36,7 +49,16 @@ public class SlotExtractionService {
         if (userText == null || userText.isBlank() || spec.getFields() == null) {
             return;
         }
-        // 1) 确定性：对有候选项的字段做 label / value 匹配（仅叶子）
+        // 1) 通用确定性抽取：时间 / 手机号 / 金额 / 数值等低歧义槽位
+        for (InteractiveFormFieldTree.LeafBinding lb : InteractiveFormFieldTree.flattenLeaves(spec.getFields(), List.of())) {
+            FieldSpec field = lb.field();
+            if (slots.containsKey(field.getKey()) && slots.get(field.getKey()) != null) {
+                continue;
+            }
+            deterministicSlotExtractor.extract(userText, field)
+                    .ifPresent(value -> slots.put(field.getKey(), value));
+        }
+        // 2) 确定性：对有候选项的字段做 label / value 匹配（仅叶子）
         for (InteractiveFormFieldTree.LeafBinding lb : InteractiveFormFieldTree.flattenLeaves(spec.getFields(), List.of())) {
             FieldSpec field = lb.field();
             if (slots.containsKey(field.getKey()) && slots.get(field.getKey()) != null) {
@@ -48,7 +70,7 @@ public class SlotExtractionService {
                 slots.put(field.getKey(), hit);
             }
         }
-        // 2) LLM 抽取剩余空槽
+        // 3) LLM 抽取剩余空槽
         Map<String, Object> llmSlots = extractWithLlm(userText, spec, optionsByField, slots);
         for (Map.Entry<String, Object> e : llmSlots.entrySet()) {
             if (e.getValue() == null) {

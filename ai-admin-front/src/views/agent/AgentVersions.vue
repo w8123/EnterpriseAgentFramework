@@ -34,7 +34,7 @@
         <el-table-column prop="publishedAt" label="发布时间" width="180" />
         <el-table-column prop="note" label="发布说明" min-width="200" show-overflow-tooltip />
         <el-table-column prop="createTime" label="创建时间" width="180" />
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
             <el-button
               link
@@ -42,6 +42,12 @@
               size="small"
               @click="showSnapshot(row)"
             >查看快照</el-button>
+            <el-button
+              link
+              type="primary"
+              size="small"
+              @click="showDiff(row)"
+            >Diff</el-button>
             <el-popconfirm
               :title="`确认回滚到 ${row.version}？其它 ACTIVE 版本会被置为 RETIRED`"
               @confirm="handleRollback(row)"
@@ -64,6 +70,23 @@
     <el-dialog v-model="snapshotOpen" :title="snapshotTitle" width="720px">
       <pre class="snapshot-pre">{{ prettySnapshot }}</pre>
     </el-dialog>
+
+    <el-dialog v-model="diffOpen" :title="diffTitle" width="820px">
+      <el-table :data="snapshotDiffRows" border size="small">
+        <el-table-column prop="field" label="字段" width="160" />
+        <el-table-column prop="current" label="当前版本" min-width="300">
+          <template #default="{ row }">
+            <pre class="diff-pre">{{ row.current }}</pre>
+          </template>
+        </el-table-column>
+        <el-table-column prop="previous" label="对比版本" min-width="300">
+          <template #default="{ row }">
+            <pre class="diff-pre">{{ row.previous }}</pre>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!snapshotDiffRows.length" description="核心字段无差异或没有可对比版本" />
+    </el-dialog>
   </div>
 </template>
 
@@ -85,6 +108,8 @@ const agent = ref<AgentDefinition | null>(null)
 
 const snapshotOpen = ref(false)
 const snapshotRow = ref<AgentVersion | null>(null)
+const diffOpen = ref(false)
+const diffRow = ref<AgentVersion | null>(null)
 const snapshotTitle = computed(() => snapshotRow.value
   ? `快照 — ${snapshotRow.value.version}`
   : '快照')
@@ -95,6 +120,22 @@ const prettySnapshot = computed(() => {
   } catch {
     return snapshotRow.value.snapshotJson
   }
+})
+const diffTitle = computed(() => diffRow.value ? `版本 Diff — ${diffRow.value.version}` : '版本 Diff')
+const snapshotDiffRows = computed(() => {
+  if (!diffRow.value) return []
+  const previous = findPreviousVersion(diffRow.value)
+  if (!previous) return []
+  const currentJson = parseSnapshot(diffRow.value.snapshotJson)
+  const previousJson = parseSnapshot(previous.snapshotJson)
+  const fields = ['name', 'intentType', 'systemPrompt', 'tools', 'skills', 'maxSteps', 'allowIrreversible', 'canvasJson']
+  return fields
+    .map((field) => ({
+      field,
+      current: stringifyValue(currentJson?.[field]),
+      previous: stringifyValue(previousJson?.[field]),
+    }))
+    .filter((row) => row.current !== row.previous)
 })
 
 function statusTagType(status: string): '' | 'success' | 'info' | 'warning' | 'danger' {
@@ -143,6 +184,31 @@ function showSnapshot(row: AgentVersion) {
   snapshotOpen.value = true
 }
 
+function showDiff(row: AgentVersion) {
+  diffRow.value = row
+  diffOpen.value = true
+}
+
+function findPreviousVersion(row: AgentVersion) {
+  const idx = versions.value.findIndex((v) => v.id === row.id)
+  if (idx < 0) return null
+  return versions.value[idx + 1] ?? null
+}
+
+function parseSnapshot(raw: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function stringifyValue(value: unknown) {
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return value
+  return JSON.stringify(value, null, 2)
+}
+
 onMounted(() => {
   loadAgent()
   loadVersions()
@@ -176,5 +242,12 @@ onMounted(() => {
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.diff-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
 }
 </style>

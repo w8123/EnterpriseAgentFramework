@@ -1,8 +1,11 @@
 package com.enterprise.ai.agent.scan;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.agent.persist.AgentDefinitionEntity;
 import com.enterprise.ai.agent.agent.persist.AgentDefinitionMapper;
+import com.enterprise.ai.agent.agent.persist.AgentVersionEntity;
+import com.enterprise.ai.agent.agent.persist.AgentVersionMapper;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -30,6 +33,7 @@ public class ScanProjectBlockerService {
 
     private final ToolDefinitionMapper toolDefinitionMapper;
     private final AgentDefinitionMapper agentDefinitionMapper;
+    private final AgentVersionMapper agentVersionMapper;
     private final ObjectMapper objectMapper;
 
     /**
@@ -86,6 +90,40 @@ public class ScanProjectBlockerService {
                 refAgents.add(new ScanProjectBlockers.AgentRef(a.getId(), a.getName()));
             }
         }
+        for (AgentVersionEntity v : activeVersions()) {
+            AgentDefinition snapshot = parseVersionSnapshot(v);
+            if (snapshot == null) {
+                continue;
+            }
+            Set<String> mentioned = new HashSet<>();
+            mentioned.addAll(snapshot.getTools() == null ? List.of() : snapshot.getTools());
+            mentioned.addAll(snapshot.getSkills() == null ? List.of() : snapshot.getSkills());
+            boolean hit = false;
+            for (String raw : mentioned) {
+                if (raw == null || raw.isBlank()) {
+                    continue;
+                }
+                String name = raw.trim();
+                if (!ownedNames.contains(name)) {
+                    continue;
+                }
+                hit = true;
+                String kind = nameToKind.get(name);
+                if ("SKILL".equalsIgnoreCase(kind)) {
+                    refSkills.add(name);
+                } else {
+                    refTools.add(name);
+                }
+            }
+            if (hit) {
+                String agentName = snapshot.getName() == null || snapshot.getName().isBlank()
+                        ? v.getAgentId()
+                        : snapshot.getName();
+                refAgents.add(new ScanProjectBlockers.AgentRef(
+                        v.getAgentId(),
+                        agentName + " @ " + nullToUnknown(v.getVersion())));
+            }
+        }
 
         boolean blocked = !refAgents.isEmpty();
         return new ScanProjectBlockers(
@@ -112,5 +150,27 @@ public class ScanProjectBlockerService {
             log.warn("[ScanProjectBlocker] 解析 Agent JSON 列表失败: {}", e.toString());
             return List.of();
         }
+    }
+
+    private List<AgentVersionEntity> activeVersions() {
+        return agentVersionMapper.selectList(Wrappers.<AgentVersionEntity>lambdaQuery()
+                .eq(AgentVersionEntity::getStatus, "ACTIVE"));
+    }
+
+    private AgentDefinition parseVersionSnapshot(AgentVersionEntity version) {
+        if (version == null || version.getSnapshotJson() == null || version.getSnapshotJson().isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(version.getSnapshotJson(), AgentDefinition.class);
+        } catch (Exception ex) {
+            log.warn("[ScanProjectBlocker] 解析 AgentVersion 快照失败: versionId={}, err={}",
+                    version.getId(), ex.toString());
+            return null;
+        }
+    }
+
+    private static String nullToUnknown(String raw) {
+        return raw == null || raw.isBlank() ? "unknown" : raw;
     }
 }

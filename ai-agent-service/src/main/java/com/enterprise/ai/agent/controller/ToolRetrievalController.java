@@ -2,6 +2,7 @@ package com.enterprise.ai.agent.controller;
 
 import com.enterprise.ai.agent.tool.retrieval.RetrievalScope;
 import com.enterprise.ai.agent.tool.retrieval.ToolCandidate;
+import com.enterprise.ai.agent.tool.retrieval.ToolEmbeddingService;
 import com.enterprise.ai.agent.tool.retrieval.ToolEmbeddingRebuildManager;
 import com.enterprise.ai.agent.tool.retrieval.ToolEmbeddingRebuildTask;
 import com.enterprise.ai.agent.tool.retrieval.ToolRetrievalService;
@@ -28,6 +29,7 @@ public class ToolRetrievalController {
 
     private final ToolRetrievalService toolRetrievalService;
     private final ToolEmbeddingRebuildManager rebuildManager;
+    private final ToolEmbeddingService embeddingService;
 
     @PostMapping("/search")
     public ResponseEntity<SearchResponse> search(@RequestBody SearchRequest request) {
@@ -64,6 +66,20 @@ public class ToolRetrievalController {
                 : rebuildManager.latest();
         return task.map(t -> ResponseEntity.ok(TaskDTO.from(t)))
                 .orElse(ResponseEntity.ok().body(null));
+    }
+
+    @GetMapping("/health")
+    public ResponseEntity<HealthResponse> health() {
+        ToolEmbeddingService.HealthSnapshot snapshot = embeddingService.healthSnapshot();
+        Optional<ToolEmbeddingRebuildTask> latest = rebuildManager.latest();
+        return ResponseEntity.ok(new HealthResponse(
+                snapshot.enabled(),
+                snapshot.ready(),
+                snapshot.collectionName(),
+                snapshot.status(),
+                snapshot.message(),
+                latest.map(TaskDTO::from).orElse(null)
+        ));
     }
 
     // ==================== DTO ====================
@@ -118,5 +134,15 @@ public class ToolRetrievalController {
     }
 
     public record ApiError(String message) {
+    }
+
+    public record HealthResponse(
+            boolean enabled,
+            boolean ready,
+            String collectionName,
+            String status,
+            String message,
+            TaskDTO latestRebuild
+    ) {
     }
 }

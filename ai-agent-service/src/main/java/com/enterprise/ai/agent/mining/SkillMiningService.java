@@ -47,6 +47,7 @@ public class SkillMiningService {
                     .in(SkillDraftEntity::getStatus, List.of("DRAFT", "APPROVED", "ROLLBACK_CANDIDATE"))
                     .last("limit 1"));
             if (existing != null) {
+                existing.setDescription(draft.description());
                 existing.setSourceTraceIds(sourceTraceIds);
                 existing.setConfidenceScore((double) pattern.support());
                 existing.setSpecJson(draft.specJson());
@@ -121,6 +122,7 @@ public class SkillMiningService {
                 .in(SkillDraftEntity::getStatus, List.of("DRAFT", "APPROVED", "ROLLBACK_CANDIDATE"))
                 .last("limit 1"));
         if (existing != null) {
+            existing.setDescription(draft.description() + "（trace: " + traceId + "）");
             existing.setSourceTraceIds(traceId);
             existing.setConfidenceScore(1.0);
             existing.setSpecJson(draft.specJson());

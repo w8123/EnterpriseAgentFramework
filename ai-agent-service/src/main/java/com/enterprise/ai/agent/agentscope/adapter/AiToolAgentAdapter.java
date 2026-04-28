@@ -2,6 +2,7 @@ package com.enterprise.ai.agent.agentscope.adapter;
 
 import com.enterprise.ai.agent.skill.ToolExecutionContextHolder;
 import com.enterprise.ai.agent.skill.interactive.InteractionSuspendedException;
+import com.enterprise.ai.agent.tool.governance.ToolRateLimiter;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.enterprise.ai.agent.tools.schema.LlmJsonSchemaProvider;
@@ -28,6 +29,7 @@ public class AiToolAgentAdapter implements AgentTool {
     private final AiTool aiTool;
     private final ToolExecutionContext executionContext;
     private final ToolCallLogService toolCallLogService;
+    private final ToolRateLimiter toolRateLimiter;
     /**
      * Phase 3.0: 可空。由 {@code AgentFactory.createToolkit} 在装配阶段查询
      * {@code tool_definition.side_effect} 并透传进来；不传时等价于"无副作用约束"。
@@ -48,10 +50,19 @@ public class AiToolAgentAdapter implements AgentTool {
                               ToolExecutionContext executionContext,
                               ToolCallLogService toolCallLogService,
                               String sideEffect) {
+        this(aiTool, executionContext, toolCallLogService, sideEffect, null);
+    }
+
+    public AiToolAgentAdapter(AiTool aiTool,
+                              ToolExecutionContext executionContext,
+                              ToolCallLogService toolCallLogService,
+                              String sideEffect,
+                              ToolRateLimiter toolRateLimiter) {
         this.aiTool = Objects.requireNonNull(aiTool, "aiTool must not be null");
         this.executionContext = executionContext;
         this.toolCallLogService = toolCallLogService;
         this.sideEffect = sideEffect;
+        this.toolRateLimiter = toolRateLimiter;
     }
 
     @Override
@@ -98,6 +109,10 @@ public class AiToolAgentAdapter implements AgentTool {
         if (denial != null) {
             return Mono.just(ToolResultBlock.error(denial));
         }
+        String rateLimitDenial = checkRateLimitGate();
+        if (rateLimitDenial != null) {
+            return Mono.just(ToolResultBlock.error(rateLimitDenial));
+        }
 
         // 必须 subscribeOn(boundedElastic)，否则 fromCallable 同步阻塞订阅线程，
         // timeout 操作符无法真的按时切走——这是 Reactor 超时只生效在异步源上的硬约束。
@@ -130,6 +145,19 @@ public class AiToolAgentAdapter implements AgentTool {
                 + aiTool.name();
         long elapsed = 0L;
         log(Map.of(), message, false, "IRREVERSIBLE_BLOCKED", elapsed);
+        return message;
+    }
+
+    private String checkRateLimitGate() {
+        if (toolRateLimiter == null) {
+            return null;
+        }
+        ToolRateLimiter.RateLimitDecision decision = toolRateLimiter.check(aiTool.name(), executionContext);
+        if (decision.allowed()) {
+            return null;
+        }
+        String message = decision.message();
+        log(Map.of(), message, false, "RATE_LIMITED", 0L);
         return message;
     }
 

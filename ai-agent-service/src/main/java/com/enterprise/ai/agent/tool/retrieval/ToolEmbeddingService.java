@@ -91,6 +91,34 @@ public class ToolEmbeddingService {
         return collectionReady.get();
     }
 
+    public HealthSnapshot healthSnapshot() {
+        if (!properties.isEnabled()) {
+            return new HealthSnapshot(false, false, properties.getCollectionName(), "DISABLED",
+                    "Tool Retrieval 未启用");
+        }
+        String name = properties.getCollectionName();
+        try {
+            R<Boolean> has = milvus.hasCollection(HasCollectionParam.newBuilder()
+                    .withCollectionName(name)
+                    .build());
+            if (has.getException() != null) {
+                collectionReady.set(false);
+                return new HealthSnapshot(true, false, name, "ERROR", has.getException().getMessage());
+            }
+            if (!Boolean.TRUE.equals(has.getData())) {
+                collectionReady.set(false);
+                return new HealthSnapshot(true, false, name, "MISSING", "Milvus collection 不存在");
+            }
+            boolean schemaOk = hasKindField(name);
+            collectionReady.set(schemaOk);
+            return new HealthSnapshot(true, schemaOk, name, schemaOk ? "READY" : "SCHEMA_MISMATCH",
+                    schemaOk ? null : "Milvus collection 缺少 kind 字段，请重建并回灌");
+        } catch (Exception ex) {
+            collectionReady.set(false);
+            return new HealthSnapshot(true, false, name, "ERROR", ex.getMessage());
+        }
+    }
+
     // ==================== Collection 生命周期 ====================
 
     /**
@@ -327,5 +355,8 @@ public class ToolEmbeddingService {
     }
 
     public record RebuildResult(int success, int skipped, int failed, String message) {
+    }
+
+    public record HealthSnapshot(boolean enabled, boolean ready, String collectionName, String status, String message) {
     }
 }

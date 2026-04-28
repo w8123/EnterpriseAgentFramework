@@ -53,4 +53,24 @@ class SlotExtractionServiceTest {
         assertNull(svc.validateField(f, "12"));
         assertEquals("需要数字", svc.validateField(f, "abc"));
     }
+
+    @Test
+    void mergeFromUserText_prefillsDeterministicSlotsBeforeLlm() {
+        LlmService llm = mock(LlmService.class);
+        when(llm.chat(anyString(), anyString())).thenReturn("{}");
+        SlotExtractionService svc = new SlotExtractionService(llm, new ObjectMapper());
+
+        InteractiveFormSpec spec = InteractiveFormSpec.builder()
+                .targetTool("t")
+                .fields(List.of(
+                        FieldSpec.builder().key("contactPhone").label("手机号").type("text").build(),
+                        FieldSpec.builder().key("amount").label("金额").type("number").build()))
+                .build();
+        Map<String, Object> slots = new LinkedHashMap<>();
+
+        svc.mergeFromUserText(slots, "手机号 13800138000，金额 120.50 元", spec, Map.of());
+
+        assertEquals("13800138000", slots.get("contactPhone"));
+        assertEquals(120.50d, slots.get("amount"));
+    }
 }
