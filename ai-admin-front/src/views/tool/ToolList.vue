@@ -264,7 +264,11 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="Context Path">
-              <el-input v-model="form.contextPath" :disabled="isCodeTool" placeholder="/api" />
+              <el-input
+                v-model="form.contextPath"
+                :disabled="isCodeTool"
+                placeholder="留空表示无应用前缀；若 Endpoint 已含 /api/v1 等则勿再填 /api"
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -436,7 +440,7 @@ function createEmptyForm(): ToolUpsertRequest {
     sourceLocation: '',
     httpMethod: 'GET',
     baseUrl: '',
-    contextPath: '/api',
+    contextPath: '',
     endpointPath: '',
     requestBodyType: '',
     responseType: '',
@@ -501,7 +505,7 @@ function toUpsertRequest(tool: ToolInfo): ToolUpsertRequest {
     sourceLocation: tool.sourceLocation || '',
     httpMethod: tool.httpMethod || 'GET',
     baseUrl: tool.baseUrl || '',
-    contextPath: tool.contextPath || '/api',
+    contextPath: tool.contextPath ?? '',
     endpointPath: tool.endpointPath || '',
     requestBodyType: tool.requestBodyType || '',
     responseType: tool.responseType || '',
@@ -520,7 +524,7 @@ function applyForm(data: ToolUpsertRequest) {
   form.sourceLocation = data.sourceLocation || ''
   form.httpMethod = data.httpMethod || 'GET'
   form.baseUrl = data.baseUrl || ''
-  form.contextPath = data.contextPath || '/api'
+  form.contextPath = data.contextPath ?? ''
   form.endpointPath = data.endpointPath || ''
   form.requestBodyType = data.requestBodyType || ''
   form.responseType = data.responseType || ''

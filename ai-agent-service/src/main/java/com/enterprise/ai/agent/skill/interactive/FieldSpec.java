@@ -29,8 +29,8 @@ public class FieldSpec {
     private Object defaultValue;
 
     /**
-     * 非空时表示分组节点：仅用于结构化展示与提交时组装嵌套 tool 参数；
-     * 槽位、预拉选项、校验仅针对叶子节点（无 children 或 children 为空）。
+     * 非 null 且非空列表：分组节点，递归展开叶子；
+     * {@code children == []}：显式空嵌套对象，不产生表单项，提交时在对应路径写入 {@code {}}。
      */
     private List<FieldSpec> children;
 }

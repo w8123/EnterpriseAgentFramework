@@ -174,7 +174,8 @@ const advOpen = ref<string[]>([])
 const childOpenNames = ref<string[]>([])
 const childKeys = ref<string[]>([])
 
-const isGroupNode = computed(() => (props.modelValue.children?.length ?? 0) > 0)
+/** children!=null 即为分组节点；[] 表示空嵌套对象（如无字段的 body_json），仍为分组而非叶子 */
+const isGroupNode = computed(() => props.modelValue.children != null)
 
 watch(
   () => props.modelValue.children?.length ?? 0,
@@ -216,7 +217,7 @@ function removeChild(index: number) {
   if (props.readonly) return
   const cur = (props.modelValue.children || []).filter((_, i) => i !== index)
   childKeys.value.splice(index, 1)
-  emitPatch({ children: cur.length ? cur : undefined })
+  emitPatch({ children: cur.length ? cur : [] })
 }
 
 function moveChild(index: number, delta: number) {

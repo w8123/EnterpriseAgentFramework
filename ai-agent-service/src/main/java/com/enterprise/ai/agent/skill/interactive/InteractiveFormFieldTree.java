@@ -32,6 +32,10 @@ public final class InteractiveFormFieldTree {
             if (f == null) {
                 continue;
             }
+            /* 显式 children=[]：嵌套对象无需表单项，提交时注入空 Map */
+            if (f.getChildren() != null && f.getChildren().isEmpty()) {
+                continue;
+            }
             if (hasNonEmptyChildren(f)) {
                 List<String> next = new ArrayList<>(parentPath == null ? List.of() : parentPath);
                 if (f.getKey() != null && !f.getKey().isBlank()) {
@@ -82,6 +86,59 @@ public final class InteractiveFormFieldTree {
             cursor.put(lk, val);
         }
         return root;
+    }
+
+    /**
+     * 将树中 {@code children} 为非 null 且为空的节点在嵌套参数中写成空 Map，便于仅含 body_json 占位且 DTO 无字段的 HTTP 调用。
+     */
+    public static void mergeEmptyGroupDefaults(Map<String, Object> root, List<FieldSpec> fields, List<String> parentPath) {
+        if (root == null || fields == null) {
+            return;
+        }
+        List<String> base = parentPath == null ? List.of() : parentPath;
+        for (FieldSpec f : fields) {
+            if (f == null || f.getKey() == null || f.getKey().isBlank()) {
+                continue;
+            }
+            if (f.getChildren() != null && f.getChildren().isEmpty()) {
+                navigateToParentMap(root, base).putIfAbsent(f.getKey(), new LinkedHashMap<>());
+            } else if (hasNonEmptyChildren(f)) {
+                List<String> nextPath = new ArrayList<>(base);
+                nextPath.add(f.getKey());
+                getOrCreateNestedMap(root, base, f.getKey());
+                mergeEmptyGroupDefaults(root, f.getChildren(), nextPath);
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> navigateToParentMap(Map<String, Object> root, List<String> path) {
+        Map<String, Object> cursor = root;
+        if (path != null) {
+            for (String segment : path) {
+                if (segment == null || segment.isBlank()) {
+                    continue;
+                }
+                Object next = cursor.get(segment);
+                if (!(next instanceof Map<?, ?>)) {
+                    Map<String, Object> nm = new LinkedHashMap<>();
+                    cursor.put(segment, nm);
+                    cursor = nm;
+                } else {
+                    cursor = (Map<String, Object>) next;
+                }
+            }
+        }
+        return cursor;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void getOrCreateNestedMap(Map<String, Object> root, List<String> parentPath, String key) {
+        Map<String, Object> parent = navigateToParentMap(root, parentPath);
+        Object existing = parent.get(key);
+        if (!(existing instanceof Map<?, ?>)) {
+            parent.put(key, new LinkedHashMap<>());
+        }
     }
 
     public static FieldSpec findLeafByKey(List<FieldSpec> roots, String key) {

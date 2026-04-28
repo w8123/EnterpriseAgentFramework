@@ -9,6 +9,9 @@
         <el-button @click="onRefresh" :loading="loading">
           <el-icon><Refresh /></el-icon>刷新
         </el-button>
+        <el-button type="warning" plain @click="openPendingInteractionsDialog">
+          <el-icon><List /></el-icon>测试挂起交互
+        </el-button>
       </div>
     </div>
 
@@ -286,7 +289,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="testDialogVisible" :title="`测试 Skill — ${testingSkill?.name}`" width="640px">
+    <el-dialog v-model="testDialogVisible" :title="`测试 Skill — ${testingSkill?.name}`" width="720px">
       <el-form v-if="testingSkill" label-width="140px">
         <el-form-item
           v-for="param in testingSkill.parameters"
@@ -305,19 +308,140 @@
       <div v-if="testResult" class="test-result-area">
         <el-divider content-position="left">执行结果</el-divider>
         <el-alert
-          :type="testResult.success ? 'success' : 'error'"
-          :title="testResult.success ? '执行成功' : '执行失败'"
-          :description="testResult.errorMessage || ''"
+          v-if="testResult.interactionPending && testResult.success"
+          type="warning"
+          title="等待交互（非执行失败）"
+          :description="testResult.result || '请按下方提示继续。'"
           :closable="false"
           show-icon
         />
-        <pre v-if="testResult.result" class="result-content">{{ testResult.result }}</pre>
+        <el-alert v-else :type="testResult.success ? 'success' : 'error'" :closable="false" show-icon>
+          <template #title>
+            <span>{{ testResult.success ? '执行成功' : '执行失败' }}</span>
+          </template>
+          <template #default>
+            <p style="margin: 0">
+              {{
+                testResult.errorMessage ||
+                (!testResult.success ? testResult.result : '') ||
+                ''
+              }}
+            </p>
+            <p v-if="isPendingQuotaBlockError(testResult.errorMessage)" style="margin: 8px 0 0">
+              <el-button link type="primary" @click="openPendingInteractionsDialog">
+                查看并取消挂起中的交互
+              </el-button>
+              <span class="param-hint">（管理端测试会话 skill-admin-test，最多 5 条未完成）</span>
+            </p>
+          </template>
+        </el-alert>
+        <pre
+          v-if="testResult.result && !(testResult.interactionPending && testResult.success)"
+          class="result-content"
+        >{{ testResult.result }}</pre>
+        <!-- 与 Agent 调试台一致：挂起时用 DynamicInteraction 填写 / 确认 -->
+        <div
+          v-if="testResult.interactionPending && testResult.interactionId && testResult.uiRequest"
+          class="skill-test-interaction-wrap"
+          v-loading="testResumeRunning"
+        >
+          <p class="param-hint skill-test-interaction-hint">
+            下方为与对话里相同的交互界面（表单、确认卡等），填写后提交即可继续；也可展开底部查看原始 JSON。
+          </p>
+          <DynamicInteraction
+            :payload="testResult.uiRequest as unknown as UiRequestPayload"
+            @action="handleTestUiAction"
+          />
+          <el-collapse class="skill-test-raw-json">
+            <el-collapse-item title="原始 uiRequest JSON（调试）" name="raw">
+              <pre class="result-content ui-payload">{{ formatUiRequestPreview(testResult.uiRequest) }}</pre>
+            </el-collapse-item>
+            <el-collapse-item
+              v-if="uiRequestComponent(testResult.uiRequest) === 'form'"
+              title="手动输入 JSON（备选，与上方表单二选一）"
+              name="json"
+            >
+              <p class="param-hint">若组件未覆盖某字段类型，可在此提交键值 JSON：</p>
+              <el-input
+                v-model="testResumeValuesJson"
+                type="textarea"
+                :rows="4"
+                placeholder='例如 { "deptId": "001" }'
+              />
+              <el-button
+                type="primary"
+                class="test-resume-btn"
+                :loading="testResumeRunning"
+                @click="handleTestResumeJsonSubmit"
+              >
+                按 JSON 提交本批
+              </el-button>
+            </el-collapse-item>
+          </el-collapse>
+        </div>
         <p class="result-duration">耗时：{{ testResult.durationMs }}ms</p>
       </div>
 
       <template #footer>
         <el-button @click="testDialogVisible = false">关闭</el-button>
-        <el-button type="primary" @click="handleTest" :loading="testRunning">执行</el-button>
+        <el-button type="primary" @click="handleTest" :loading="testRunning && !testResumeRunning">执行</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="pendingDialogVisible"
+      title="Skill 测试 — 挂起中的未完成交互"
+      width="760px"
+      @opened="loadPendingInteractions"
+    >
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+        title="说明"
+        description="页面「测试」按钮使用固定测试身份（skill-admin-test）。InteractiveForm Skill 挂起后会计入未完成条数，达到 5 条后将无法新开测试。可在此取消单条或全部取消后重试。"
+      />
+      <div style="margin-bottom: 10px; display: flex; gap: 8px; flex-wrap: wrap">
+        <el-button size="small" :loading="pendingLoading" @click="loadPendingInteractions">刷新列表</el-button>
+        <el-button
+          size="small"
+          type="danger"
+          plain
+          :loading="pendingCancelAllRunning"
+          :disabled="pendingList.length === 0"
+          @click="handleCancelAllPending"
+        >
+          全部取消
+        </el-button>
+      </div>
+      <el-table :data="pendingList" v-loading="pendingLoading" stripe size="small" max-height="360">
+        <el-table-column prop="skillName" label="Skill" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="uiTitle" label="界面标题" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="interactionId" label="interactionId" min-width="220" show-overflow-tooltip />
+        <el-table-column label="创建时间" width="170">
+          <template #default="{ row }">{{ formatPendingTime(row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column label="过期时间" width="170">
+          <template #default="{ row }">{{ formatPendingTime(row.expiresAt) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="100" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              link
+              type="danger"
+              size="small"
+              :loading="pendingRowDeleting === row.interactionId"
+              @click="handleCancelOnePending(row.interactionId)"
+            >
+              取消
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!pendingLoading && pendingList.length === 0" description="当前无挂起中的测试交互" />
+      <template #footer>
+        <el-button type="primary" @click="pendingDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -348,20 +472,33 @@
 import { onMounted, reactive, ref } from 'vue'
 import { computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import { List, Plus, Refresh } from '@element-plus/icons-vue'
 import ParameterTable from '@/components/ParameterTable.vue'
 import InteractiveFormSpecEditor from '@/components/skill/InteractiveFormSpecEditor.vue'
+import DynamicInteraction from '@/components/interaction/DynamicInteraction.vue'
 import {
+  cancelAdminTestPendingInteraction,
+  cancelAllAdminTestPendingInteractions,
   createSkill,
   deleteSkill,
+  getAdminTestPendingInteractions,
   getSkillMetrics,
   getSkills,
   testSkill,
+  testSkillResume,
   toggleSkill,
   updateSkill,
 } from '@/api/skill'
 import { getTools } from '@/api/tool'
-import type { InteractiveFormSpec, SkillInfo, SkillMetrics, SkillUpsertRequest, SubAgentSpec } from '@/types/skill'
+import type {
+  InteractiveFormSpec,
+  SkillAdminTestPendingItem,
+  SkillInfo,
+  SkillMetrics,
+  SkillUpsertRequest,
+  SubAgentSpec,
+} from '@/types/skill'
+import type { UiRequestPayload } from '@/types/interaction'
 import {
   SIDE_EFFECT_OPTIONS,
   SKILL_KIND_OPTIONS,
@@ -399,11 +536,27 @@ const formDialogTitle = computed(() =>
 const testDialogVisible = ref(false)
 const testingSkill = ref<SkillInfo | null>(null)
 const testArgs = reactive<Record<string, string>>({})
-const testResult = ref<{ success: boolean; result: string; errorMessage?: string; durationMs: number } | null>(null)
+const testResult = ref<{
+  success: boolean
+  result: string
+  errorMessage?: string
+  durationMs: number
+  interactionPending?: boolean
+  interactionId?: string | null
+  uiRequest?: Record<string, unknown> | null
+} | null>(null)
 const testRunning = ref(false)
+const testResumeRunning = ref(false)
+const testResumeValuesJson = ref('{}')
 const metricsDialogVisible = ref(false)
 const metricsSkillName = ref('')
 const metricsData = ref<SkillMetrics | null>(null)
+
+const pendingDialogVisible = ref(false)
+const pendingList = ref<SkillAdminTestPendingItem[]>([])
+const pendingLoading = ref(false)
+const pendingRowDeleting = ref<string | null>(null)
+const pendingCancelAllRunning = ref(false)
 
 function onSkillKindChange(kind: string) {
   if (kind === 'INTERACTIVE_FORM') {
@@ -718,6 +871,87 @@ async function handleVisibleChange(skill: SkillInfo, agentVisible: boolean) {
   }
 }
 
+function formatUiRequestPreview(ui: Record<string, unknown>) {
+  try {
+    return JSON.stringify(ui, null, 2)
+  } catch {
+    return String(ui)
+  }
+}
+
+function uiRequestComponent(
+  ui: Record<string, unknown> | null | undefined,
+): string | undefined {
+  const c = ui?.component
+  return typeof c === 'string' ? c : undefined
+}
+
+/** 与后端 InteractiveFormSkillExecutor 抛出文案一致 */
+function isPendingQuotaBlockError(msg: string | undefined): boolean {
+  if (!msg) return false
+  return msg.includes('未完成') && msg.includes('交互') && msg.includes('上限')
+}
+
+function formatPendingTime(iso: string | null | undefined): string {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString()
+}
+
+function openPendingInteractionsDialog() {
+  pendingDialogVisible.value = true
+}
+
+async function loadPendingInteractions() {
+  pendingLoading.value = true
+  try {
+    const { data } = await getAdminTestPendingInteractions()
+    pendingList.value = Array.isArray(data) ? data : []
+  } catch {
+    pendingList.value = []
+    ElMessage.error('加载挂起交互列表失败')
+  } finally {
+    pendingLoading.value = false
+  }
+}
+
+async function handleCancelOnePending(interactionId: string) {
+  pendingRowDeleting.value = interactionId
+  try {
+    await cancelAdminTestPendingInteraction(interactionId)
+    ElMessage.success('已取消该交互')
+    await loadPendingInteractions()
+  } catch (err) {
+    ElMessage.error(axiosMessage(err))
+  } finally {
+    pendingRowDeleting.value = null
+  }
+}
+
+async function handleCancelAllPending() {
+  try {
+    await ElMessageBox.confirm(
+      '确认取消当前列表中的全部挂起交互？（不影响真实用户会话）',
+      '全部取消',
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  pendingCancelAllRunning.value = true
+  try {
+    const { data } = await cancelAllAdminTestPendingInteractions()
+    const n = data?.cancelled ?? 0
+    ElMessage.success(n > 0 ? `已取消 ${n} 条` : '没有待取消项')
+    await loadPendingInteractions()
+  } catch (err) {
+    ElMessage.error(axiosMessage(err))
+  } finally {
+    pendingCancelAllRunning.value = false
+  }
+}
+
 function openTest(skill: SkillInfo) {
   if (skill.draft) {
     ElMessage.warning('草稿 Skill 不可测试，请先发布')
@@ -725,6 +959,7 @@ function openTest(skill: SkillInfo) {
   }
   testingSkill.value = skill
   testResult.value = null
+  testResumeValuesJson.value = '{}'
   Object.keys(testArgs).forEach((k) => delete testArgs[k])
   for (const p of skill.parameters || []) {
     testArgs[p.name] = ''
@@ -736,6 +971,7 @@ async function handleTest() {
   if (!testingSkill.value) return
   testRunning.value = true
   testResult.value = null
+  testResumeValuesJson.value = '{}'
   try {
     const args: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(testArgs)) {
@@ -753,6 +989,45 @@ async function handleTest() {
   } finally {
     testRunning.value = false
   }
+}
+
+/** 与 AgentDebug 中 DynamicInteraction 一致：action + values 调用 test/resume */
+async function handleTestUiAction(action: string, values: Record<string, unknown>) {
+  if (!testingSkill.value || !testResult.value?.interactionId) return
+  testResumeRunning.value = true
+  try {
+    const { data } = await testSkillResume(testingSkill.value.name, {
+      interactionId: testResult.value.interactionId,
+      action,
+      values: values ?? {},
+    })
+    testResult.value = data as never
+    if (!data.interactionPending) {
+      testResumeValuesJson.value = '{}'
+    }
+  } catch (err) {
+    testResult.value = {
+      success: false,
+      result: '',
+      errorMessage: (err as Error).message || '继续失败',
+      durationMs: 0,
+    }
+  } finally {
+    testResumeRunning.value = false
+  }
+}
+
+async function handleTestResumeJsonSubmit() {
+  if (!testingSkill.value || !testResult.value?.interactionId) return
+  let values: Record<string, unknown> = {}
+  try {
+    const raw = testResumeValuesJson.value?.trim() || '{}'
+    values = JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    ElMessage.error('本批字段 JSON 格式无效')
+    return
+  }
+  await handleTestUiAction('submit', values)
 }
 
 async function openMetrics(skill: SkillInfo) {
@@ -871,6 +1146,30 @@ onMounted(() => {
   font-size: 12px;
   color: #909399;
   margin-top: 8px;
+}
+
+.test-resume-actions {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.test-resume-btn {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+
+.skill-test-interaction-hint {
+  margin-bottom: 8px;
+}
+
+.skill-test-raw-json {
+  margin-top: 12px;
+}
+
+.ui-payload {
+  max-height: 200px;
 }
 
 .metric-cards {

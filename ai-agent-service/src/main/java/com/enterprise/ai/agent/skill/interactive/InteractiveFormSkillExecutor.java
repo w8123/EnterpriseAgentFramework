@@ -231,6 +231,7 @@ public class InteractiveFormSkillExecutor {
                 List<InteractiveFormFieldTree.LeafBinding> leaves =
                         InteractiveFormFieldTree.flattenLeaves(spec.getFields(), List.of());
                 Map<String, Object> nested = InteractiveFormFieldTree.nestArgs(slots, leaves);
+                InteractiveFormFieldTree.mergeEmptyGroupDefaults(nested, spec.getFields(), List.of());
                 Object execResult = toolRegistry.execute(spec.getTargetTool(), new LinkedHashMap<>(nested));
                 row.setStatus(SkillInteractionStatus.SUBMITTED);
                 row.setUpdatedAt(LocalDateTime.now());

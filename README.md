@@ -12,9 +12,9 @@
 
 [English](README_EN.md) | **中文**
 
-*一套开箱即用的企业级 AI Agent 基础设施平台 — 统一智能体编排、RAG 知识引擎、模型网关，帮助 Java 企业在不改动一行历史代码的前提下，快速落地 AI Agent 项目。*
+*一套开箱即用的企业级 AI Agent 基础设施平台 — 统一智能体编排、Skill 三态封装、Tool 治理护栏、RAG 知识引擎、模型网关与 Trace 全链路追踪，帮助 Java 企业在尽量不改动历史项目的前提下，快速落地 AI Agent 项目。*
 
-本仓库的定位正在从「对话型 Agent 后台」演进为**企业 AI 能力中台**：一方面通过 **Skill SDK / AiTool** 把存量业务 API 变成 Agent 可调用的工具（**业务能力 → Agent**）；另一方面规划标准化 **REST 能力面**（如 `/api/ai/*`），便于业务系统在任意环节嵌入生成、审查、抽取、检索等能力（**AI 能力 → 业务系统**）。编排层、RAG、模型网关与 Tool 体系共享同一套底座。
+本仓库的定位正在从「对话型 Agent 后台」演进为**企业 AI 能力中台**：一方面通过 **Skill SDK / AiTool** 把存量业务 API 变成 Agent 可调用的工具，并以 **Skill 三态**（SubAgent / InteractiveForm / AugmentedTool）把多步业务流程从 ReAct 不稳定决策中摘出来（**业务能力 → Agent**）；另一方面通过 **Agent Studio** 让运营同学画布化编排 Agent，并以 **Tool ACL + sideEffect 闸口 + Trace 回放** 提供企业治理护栏（**AI 能力 → 业务系统**）。编排层、Skill 层、RAG、模型网关、Tool Retrieval 与 Trace 体系共享同一套底座。
 
 ---
 
@@ -40,10 +40,73 @@
 ### 🤖 智能体编排引擎
 
 - 基于 **AgentScope + Spring AI** 的 ReAct Agent，支持意图识别、多步推理、Tool 自动调用
-- **AgentDefinition 驱动路由** — 全配置化的 Agent 调度，新增 Agent 无需改代码，管理后台即可完成
-- 内置 AgentRouter 意图路由，支持单 Agent / Pipeline 多 Agent 协作
-- 支持多触发方式（对话 / API / 事件驱动），为 AI 能力中台奠定基础
-- 完整的会话记忆管理（Redis），支持多轮对话上下文
+- **AgentDefinition 已 DB 化**（`agent_definition` 表），首次启动自动从旧 `agent_definitions.json` 迁移，运营同学在管理后台即可新增 / 编辑 / 启停 Agent
+- **版本灰度发布**（`agent_version` 表）— 每次 Studio 发布生成不可变快照，按 `userId` hash 落桶实现按比例灰度，一键回滚
+- **双入口**：内部 `POST /api/agent/execute` 走 `agentId`；外部 `POST /api/v1/agents/{key}/chat` 通过 `keySlug` 暴露给业务系统
+- 内置 `AgentRouter` 意图路由 + 单 Agent / Pipeline 多 Agent 协作；完整会话记忆管理（Redis 短期窗口）
+- 详细见 [docs/Phase3.0-AgentStudio-落地验收清单.md](docs/Phase3.0-AgentStudio-落地验收清单.md)
+
+### 🧠 Skill 层（多步业务流程的"能力原子"）
+
+- **三态 + 一态**：把多步业务流程从 ReAct 不稳定决策里摘出来，封成 LLM 可调的"粗粒度黑盒"
+  - **SubAgentSkill** — 子 Agent，独立 systemPrompt + 工具白名单，最大嵌套深度 3 层（Phase 2.0 ✅）
+  - **InteractiveFormSkill** — 确定性槽填充 + 挂起 / 恢复 + UI 原语协议，支持表单卡 / 摘要卡 / 字典预拉（Phase 2.x ✅）
+  - **AugmentedTool** — 单 Tool 的前 / 后处理装饰器（Phase 2.2 ⏳ 规划中）
+  - **WorkflowSkill** — 已并入 Agent Studio 的画布产物，不再独立立项
+- SDK 契约：`AiSkill extends AiTool`，对 LLM 透明；`SkillKind` / `SkillMetadata` / `SideEffectLevel` / `HitlPolicy` 完整治理元数据
+- 复用 `tool_definition.kind=SKILL` 一张表存 Tool + Skill，避免双 CRUD / 双向量池
+- 详细见 [docs/Phase2.0-SubAgentSkill-落地验收清单.md](docs/Phase2.0-SubAgentSkill-落地验收清单.md) 与 [docs/Phase2.x-InteractiveFormSkill-落地验收清单.md](docs/Phase2.x-InteractiveFormSkill-落地验收清单.md)
+
+### 🔍 Tool Retrieval（语义召回，解决"工具爆炸"）
+
+- 当 Tool 数量从十几个扩张到上百个时，全量塞 system prompt 既贵又选不准
+- `tool_embeddings` Milvus collection 按 `ai_description > description > name` 文本召回 top-K
+- `RetrievalScope` 多维过滤（`project / module / kinds(TOOL/SKILL) / enabled / agentVisible`）
+- **白名单 ∩ 召回**双闸：召回结果与 `AgentDefinition.tools` 求交集，空则回退白名单（保守不阻塞主链路）
+- 完整降级矩阵：开关关闭 / Milvus 不可达 / 召回为空 / 抛异常 — 任意一种都安全回退到白名单旧行为
+- 详细见 [docs/AI能力系统升级规划.md](docs/AI能力系统升级规划.md) §5
+
+### 🧬 AI 语义理解（让 Agent "看懂"接口而不是只"看到"）
+
+- 扫描出来的 `description` 往往只是方法名 / Swagger 一行空话，Agent 选不准
+- 三层语义全手动触发，按粒度生成：
+  - **项目级** — README + `pom.xml <description>` + Controller 索引 → 一页业务域说明
+  - **模块级** — 默认按 Controller 类聚合，支持手动合并 / 重命名（`scan_module.display_name`）
+  - **接口级** — 方法体 + 引用的 Service / Mapper / DTO 源码 → 业务语义 + 参数表 + 注意事项
+- `JavaSourceIndex` 顺藤摸到底（构造函数 / 字段引用），**不是只把方法签名喂给 LLM**
+- 接口级产出冗余写入 `tool_definition.ai_description`，`DynamicHttpAiTool.description()` 优先使用，Agent 看到的就是业务语义
+- 项目级互斥锁 + `force` 语义保留人工编辑版 + `token_usage` 入库便于核算
+- 详细见 [docs/AI语义理解-设计与落地.md](docs/AI语义理解-设计与落地.md)
+
+### 📊 Trace 回放与可观测性
+
+- `tool_call_log` 记录每次 Agent 执行的全部 Tool / Skill 调用（args / result / cost_ms / success / `traceId`）
+- `traceId` 通过 `ToolExecutionContextHolder`（ThreadLocal）从父 Agent 传递到子 Skill / 子 Agent，**整条业务流单一 traceId 贯穿**
+- 后端 API：`GET /api/traces/{traceId}` 看时间线、`GET /api/traces/recent` 看最近 N 条
+- 前端 `TraceTimeline.vue` 按 `agentName` 前缀 `skill:*` **自动折叠父子调用层级**，支持 `argsJson / resultSummary` JSON pretty-print
+- Skill 指标 API `GET /api/skills/{name}/metrics?days=7`：P50/P95 延迟 + Token + 调用次数 + 成功率 + 按日趋势
+- 入口：Agent 调试台右侧抽屉「查看 Trace」、Agent 列表「最近 Trace」页签、Studio 调试抽屉
+- 详细见 [docs/产品演进路线-Skill-AgentStudio-护栏.md](docs/产品演进路线-Skill-AgentStudio-护栏.md) Phase 2.0.1 节
+
+### 🛡️ 企业治理护栏（生产上线必备）
+
+- **`sideEffect` 五级标注**：`NONE / READ_ONLY / IDEMPOTENT_WRITE / WRITE / IRREVERSIBLE`
+- 扫描期 `SideEffectInferrer` 基于 HTTP method + path 关键词保守推断；`SideEffectBackfillJob` 启动期一次性回填历史 Tool
+- **IRREVERSIBLE 运行时闸口**：`ToolExecutionContext.allowIrreversible=false` 时，`AiToolAgentAdapter.checkSideEffectGate` 在执行前直接拦截不可逆 Tool
+- **Tool ACL（角色 × 能力）**：`tool_acl` 表（`role_code × target_kind × target_name → ALLOW/DENY`），`AgentFactory.createToolkit` 装配阶段就把被拒能力摘掉，**LLM 根本看不到**
+- 决策引擎四态：`ALLOW / DENY_EXPLICIT / DENY_NO_MATCH / SKIPPED`；DENY 优先、5 分钟本地缓存、SubAgentSkill 子链继承父 ctx 的 roles
+- 管理端三板斧：CRUD / 批量授权 / 决策诊断（dry-run 输入 roles+targets 看每项决策）
+- 详细见 [docs/Phase3.1-ToolACL-落地验收清单.md](docs/Phase3.1-ToolACL-落地验收清单.md)
+
+### 🎨 Agent Studio（可视化编排）
+
+- 基于 `@vue-flow/core` 的三栏画布（节点调色板 / 画布 / 属性面板），支持 `start / end / skill / tool / knowledge` 五类节点
+- 拖拽投放 + 连线 + 键盘删除；画布 JSON 与 `AgentDefinition` 双向互转（`utils/studio.ts`）
+- **调试抽屉**：在画布内通过发布端点 `gatewayChat(keySlug)` 真实走线上链路 → 拉 trace → 复用 `TraceTimeline.vue` 渲染
+- **Trace → Skill 一键抽取**：调试抽屉中多选 trace 子序列 → `POST /api/skill-mining/drafts/from-trace` → 进入 Skill 草稿评审
+- **发布 / 灰度 / 回滚**：版本号 + 灰度百分比 + 备注 + 发布人；`AgentVersions.vue` 列表查看快照 / 一键回滚
+- 与原 `AgentEdit.vue` 表单视图并存，列表页新增「Studio」/「版本」入口
+- 详细见 [docs/Phase3.0-AgentStudio-落地验收清单.md](docs/Phase3.0-AgentStudio-落地验收清单.md)
 
 ### 📚 RAG 知识引擎
 
@@ -51,76 +114,81 @@
 - 支持 PDF、Word、Excel、TXT 等多种文档格式
 - 基于 **Milvus** 的高性能向量检索，支持语义搜索与查重
 - 业务索引能力，支持结构化数据的语义搜索
+- 多知识库协同检索（KnowledgeBaseGroup）规划中
 
 ### 🔗 统一模型网关
 
 - 多模型 Provider 路由（通义千问 / DashScope / OpenAI 兼容接口）
 - 统一的 Chat & Embedding API，一次对接，随时切换模型
-- 内置 OpenAI 兼容代理，第三方工具可直接对接
+- 内置 OpenAI 兼容代理，第三方工具与 AgentScope 可直接对接
 - 流式 SSE 响应，实时输出
 
 ### 🛠️ 尽量不改动接入历史系统
 
 - **独创的 Skill SDK 体系** — 老系统无需改动或极少改动，通过 HTTP 桥接即可将业务 API 变为 Agent 可调用的 Tool
 - 标准化的 `AiTool` 接口契约，实现即注册，开箱即用
-- 已提供 **一条历史系统接入主线**
-  - **运行时 Web 扫描链路** — 管理后台录入项目名 / 域名 / 磁盘路径，后端扫描 OpenAPI 或 Controller，结果直接入库并注册为动态 Tool
+- **运行时 Web 扫描链路** — 管理后台录入项目名 / 域名 / 磁盘路径，后端扫描 OpenAPI 或 Controller，结果直接入库并注册为动态 Tool
+- 扫描完成后 `ScanModuleService.bootstrapFromTools` 按 Controller 类自动聚合形成模块视图，配合「AI 理解」Tab 一键生成业务语义
 
 ### 🖥️ 可视化管理后台
 
 - 基于 **Vue 3 + Element Plus** 的现代化管理界面
-- Agent 全生命周期管理：配置、调试、启停，支持 **AI 能力中台配置**（知识库组、Prompt 模板、输出 Schema、触发方式）
-- 意图类型支持预置 + 自定义扩展，列表多维筛选
-- 知识库管理、模型调试、Tool 管理、**扫描项目管理** 一站式搞定
-- 开箱即用，无需额外开发管理工具
+- Agent 生命周期：列表 / 表单视图 / **Agent Studio 画布** / **版本管理 + 一键回滚** / 调试台
+- Tool 与 Skill：Tool 管理、**Skill 管理（SUB_AGENT / INTERACTIVE_FORM）**、**Skill 草稿评审（Skill Mining）**、Tool 召回 rebuild
+- 治理：**Tool ACL（角色 × 能力）**、决策诊断、扫描项目管理 + **AI 理解 Tab**（项目 / 模块 / 接口三层语义）
+- 知识库管理、模型调试、Trace 时间线、Dashboard 一站式搞定
 
 ### 🚀 生产级部署方案
 
 - Docker Compose 一键启动全套基础设施（含 MySQL、Redis、Milvus、Nacos 等）
 - 提供 Kubernetes 部署清单，支持云原生部署
-- 服务间调用以 **OpenFeign** 为主；**Nacos** 可作为注册/配置中心逐步接入（能力与共享网关仍在演进中）
-- **统一 AI 入口网关**（如 Spring Cloud Gateway + 鉴权/限流）规划为独立工程，与业务微服务网关解耦
+- 服务间调用以 **OpenFeign** 为主；**Nacos** 可作为注册/配置中心逐步接入
+- **统一 AI 入口网关**（Spring Cloud Gateway + 鉴权/限流）规划为独立工程，与业务微服务网关解耦
 
 ---
 
 ## 🏗️ 架构总览
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     ai-admin-front (Vue 3)                      │
-│              统一管理后台 · Agent 调试 · 知识库 · 模型            │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-        ┌────────────────────┼────────────────────┐
-        ▼                    ▼                    ▼
-┌──────────────┐   ┌──────────────┐   ┌──────────────────┐
-│ ai-agent     │   │ ai-skills    │   │ ai-model         │
-│ -service     │   │ -service     │   │ -service         │
-│              │   │              │   │                  │
-│ 智能体编排    │──▶│ RAG 引擎     │   │ 模型网关          │
-│ 意图路由      │   │ 知识库管理    │   │ 多 Provider 路由  │
-│ Tool 调用     │   │ 向量检索      │   │ Chat / Embedding │
-│ 会话记忆      │   │ 文档 Pipeline │   │ SSE 流式         │
-└──────┬───────┘   └──────────────┘   └──────────────────┘
-       │
-       ▼
-┌──────────────────────────────────────┐
-│   ai-skill-sdk + dynamic tooling     │
-│                                      │
-│  AiTool 接口 · ToolRegistry          │
-│  DynamicHttpAiTool · Scanner Core    │
-│  ──── HTTP 桥接 / 运行时注册 ────      │
-└──────────────┬───────────────────────┘
-               │ HTTP
-               ▼
-┌──────────────────────────────────────┐
-│        历史业务系统 (JDK 1.8+)        │
-│   CRM · ERP · OA · 任意 Java 系统    │
-│        无需改动任何代码或微改动               │
-└──────────────────────────────────────┘
+```mermaid
+flowchart TB
+    Admin["ai-admin-front<br/>Studio / Skill / Trace / ACL / 知识库"]
+    Gateway["AgentGatewayController<br/>POST /api/v1/agents/{key}/chat"]
+    Internal["AgentService<br/>POST /api/agent/execute"]
+    Router["AgentRouter<br/>意图路由 + 版本灰度 + roles 透传"]
+    Factory["AgentFactory.createToolkit<br/>ACL 过滤 + sideEffect 闸口装配"]
+    Capability["ToolRegistry<br/>Tool + Skill 统一注册"]
+    Skill["Skill 三态<br/>SubAgent / InteractiveForm / AugmentedTool"]
+    Tool["AiTool<br/>DynamicHttpAiTool / 手写 Tool"]
+    Retrieval["ToolRetrievalService<br/>Milvus 语义召回 (top-K ∩ 白名单)"]
+    Trace[("tool_call_log<br/>traceId 贯穿父子调用")]
+    Skills["ai-skills-service<br/>RAG · Scanner · 语义理解上下文"]
+    Model["ai-model-service<br/>模型网关 (Chat / Embedding / SSE)"]
+    Legacy["历史业务系统<br/>CRM / ERP / OA"]
+
+    Admin --> Gateway
+    Admin --> Internal
+    Gateway --> Router
+    Internal --> Router
+    Router --> Factory
+    Factory --> Capability
+    Capability --> Skill
+    Capability --> Tool
+    Factory -.->|"top-K 召回"| Retrieval
+    Factory --> Trace
+    Skill --> Tool
+    Tool -- HTTP --> Legacy
+    Factory --> Skills
+    Factory --> Model
+    Skills --> Model
 ```
 
-**对外 API 形态（`ai-agent-service`）**：`/api/chat` 提供轻量对话、会话记忆与轻量 Tool Calling；`/api/agent/execute` 提供完整编排（意图识别、ReAct / Pipeline）；标准化 **AI 能力 REST**（`/api/ai/*`，供业务系统直接调用）在路线图中推进，与上述入口共享同一套模型、RAG 与 Tool 底座。
+**对外 API 形态（`ai-agent-service`）**：
+
+- `POST /api/chat` — 轻量对话、会话记忆与轻量 Tool Calling
+- `POST /api/agent/execute` / `POST /api/agent/execute/detailed` — 完整编排（意图识别、ReAct / Pipeline、SubAgentSkill 嵌套）
+- `POST /api/v1/agents/{key}/chat` — 通过 `keySlug` 暴露的发布端点，业务系统对接首选；走版本灰度解析 → 执行快照
+- `GET /api/traces/{id}` / `GET /api/skills/{name}/metrics` — Trace 回放与 Skill 指标（共享同一套 `tool_call_log` 数据底座）
+- 标准化 **AI 能力 REST**（`/api/ai/*`，供业务系统直接调用）在路线图中推进，与上述入口共享同一套模型、RAG、Tool 与 Skill 底座
 
 ---
 
@@ -130,14 +198,19 @@
 | 模块                    | 说明                                                  | 端口   |
 | --------------------- | --------------------------------------------------- | ---- |
 | **ai-common**         | 公共库 — DTO、异常定义、通用配置                                 | -    |
-| **ai-skill-sdk**      | Skill 开发 SDK — AiTool 接口、ToolParameter、ToolRegistry | -    |
-| **ai-model-service**  | 模型网关 — LLM Chat / Embedding，多 Provider 路由           | 8601 |
-| **ai-skills-service**   | 知识 / Tooling 基础层 — RAG、文档 Pipeline、向量检索、OpenAPI / Controller 扫描核心 | 8602 |
-| **ai-agent-service**  | 智能体编排 — AgentScope、意图识别、Tool 调用、会话记忆                | 8603 |
-| **ai-admin-front**    | 管理前端 — Vue 3 + Vite + Element Plus + TypeScript     | 3000 |
+| **ai-skill-sdk**      | Skill 开发 SDK — `AiTool` / `AiSkill` / `ToolRegistry` / `SkillKind` / `SkillMetadata` / `SideEffectLevel` / `HitlPolicy` | -    |
+| **ai-model-service**  | 模型网关 — LLM Chat / Embedding，多 Provider 路由，OpenAI 兼容代理 | 8601 |
+| **ai-skills-service** | 知识 / Tooling 基础层 — RAG、文档 Pipeline、向量检索、OpenAPI / Controller 扫描核心、`SemanticContextCollector` 提供语义理解上下文采集 | 8602 |
+| **ai-agent-service**  | 智能体编排 — AgentScope、意图识别、会话记忆、**Skill 三态执行**（SubAgent / InteractiveForm）、**Agent Studio 后端**（`AgentVersionService` / `AgentGatewayController`）、**Trace 回放**（`tool_call_log` + `/api/traces/*`）、**Tool ACL**（`ToolAclService`）、**Skill Mining**（`mining/`）、**AI 语义理解编排**（`SemanticGenerationOrchestrator`） | 8603 |
+| **ai-admin-front**    | 管理前端 — Vue 3 + Vite + Element Plus + TypeScript + `@vue-flow/core` | 3000 |
 | **deploy**            | 部署配置 — Docker Compose / Kubernetes                  | -    |
 
 仓库根目录 `pom.xml` 当前聚合 **5 个 Java 子模块**。扫描核心已并入 `ai-skills-service`；**`ai-admin-front`** 为同目录下的 **npm / Vite 工程**，不参与 Maven 聚合；**`deploy`** 为部署清单目录，同样不在聚合内。
+
+**SQL 迁移脚本**散落在各服务的 `sql/` 目录下，按 Phase 命名：
+- `ai-skills-service/sql/`：`init.sql`（冷启动）、`upgrade_v2.sql` ~ `semantic_docs_v6.sql` ~ `scan_project_tool_v7.sql`（按版本递增）
+- `ai-agent-service/sql/`：`tool_call_log_v8.sql`、`skill_phase2_0.sql`（Skill 三态）、`skill_interaction_phase2_x.sql`（InteractiveForm）、`skill_mining_phase2_1.sql`（草稿 + 评估快照）、`agent_studio_phase3_0.sql`（Studio + 版本灰度）、`tool_acl_phase3_1.sql`（角色 × 能力 ACL）、`tool_call_log_index_phase2_0_1.sql`（Trace 索引）、`backfill_side_effect.sql`（一次性回填脚本）
+- 根 `sql/init.sql`：聚合冷启动脚本，与各服务 phase 脚本保持同步
 
 ---
 
@@ -197,6 +270,18 @@ cd ai-admin-front && npm install && npm run dev
 ```
 
 访问 **[http://localhost:3000](http://localhost:3000)** 即可进入管理后台。
+
+### 7. 首次启动后回灌 Tool Retrieval 向量库
+
+`ai-agent-service` 启动期会自动检测 Milvus collection；若 schema 与代码不一致（例如旧 collection 缺 Phase 2.0 新增的 `kind` 字段），会自动 drop + 重建空表。**首次启动后必须手动调用一次回灌接口，否则 Tool 召回会一直空返回**：
+
+```bash
+curl -X POST http://localhost:8603/api/tools/retrieval/rebuild
+# 轮询任务进度
+curl http://localhost:8603/api/tools/retrieval/rebuild/status
+```
+
+启动日志会明确提示 `[ToolEmbedding] 旧 collection xxx 缺失 kind 字段，drop 重建；请调用 /api/tools/retrieval/rebuild 重灌数据`。后续 Tool / Skill 的新建 / 编辑 / 启停 / 删除 / AI 语义描述生成都会自动 upsert / delete，无需再次手动 rebuild。
 
 ---
 
@@ -270,6 +355,23 @@ public interface CrmFeignClient {
 - **没有必须生成 jar 的前置要求**
 - **更适合运维 / 联调 / 快速接入历史系统**
 
+### 扫描后一键生成 AI 理解（Phase 2.x，已实现）
+
+扫描出来的 `description` 往往只是方法名或 Swagger 一行空话，Agent 选不准。进入扫描项目详情页的 **「AI 理解」Tab** 即可一键生成三层语义：
+
+1. **项目级摘要**：基于 README + `pom.xml <description>` + Controller 索引，产出一页业务域说明
+2. **模块级说明**：默认按 Controller 类聚合（`scan_module`），支持手动合并多个 Controller、自定义 `display_name`
+3. **接口级语义**：方法体 + 引用的 Service / Mapper / DTO 源码，产出业务语义 + 参数表 + 注意事项
+
+接口级产出会冗余写入 `tool_definition.ai_description`，运行时 `DynamicHttpAiTool.description()` 优先返回 `ai_description`，**Agent 看到的就是 LLM 产出的业务语义，而不是原始方法名**。
+
+操作要点：
+- 「一键生成 AI 理解」走异步任务 + 进度条轮询；项目级互斥锁防止并发触发
+- 人工编辑过的文档 `status=edited`，重生成时默认保留；`force=true` 才覆盖
+- `semantic_doc.token_usage` 入库便于成本核算
+
+详见 [docs/AI语义理解-设计与落地.md](docs/AI语义理解-设计与落地.md)。
+
 ## 🛠️ 技术栈
 
 
@@ -290,39 +392,103 @@ public interface CrmFeignClient {
 
 ## 🗺️ 路线图
 
-### 已完成
+> 本节状态图标与 [docs/产品演进路线-Skill-AgentStudio-护栏.md](docs/产品演进路线-Skill-AgentStudio-护栏.md) 顶部进度看板严格对齐：✅ 已交付 / 🟡 已交付待验证 / 🔨 进行中 / ⏳ 规划中 / ⚠️ 已降级。
 
-- ✅ **AI Agent 编排引擎** — AgentScope + ReAct Agent + 意图路由；`/api/chat` 与 `/api/agent/execute` 等入口
-- ✅ **RAG 知识引擎** — 文档 Pipeline + Milvus 向量检索
-- ✅ **统一模型网关** — 多 Provider 路由 + SSE 流式；OpenAI 兼容代理供 AgentScope 使用
-- ✅ **调用链路** — Agent 侧 LLM / RAG 经 Feign 统一走 `ai-model-service`、`ai-skills-service`
-- ✅ **Skill SDK 体系** — `AiTool`（含 `parameters()`）+ `ToolRegistry` + Spring Boot 自动注册；动态 Tool 与手写 Tool 共用同一套运行时契约
-- ✅ **扫描项目 Web 化闭环** — `scan_project` + `tool_definition.project_id`、`/api/scan-projects/*`、管理端扫描项目列表 / 详情页、动态 Tool 直接入库
-- ✅ **会话记忆（Redis）** — 短期上下文窗口
-- ✅ **管理后台** — 知识库 / Agent / 模型 / Dashboard；**Tool 管理页**对接后端 REST
-- ✅ **AgentDefinition 全配置化** — `AgentRouter` / `AgentFactory` 消除硬编码；**IntentService** 意图候选随 Agent 定义动态生成；扩展字段（触发方式、知识库组、Prompt 模板 ID、输出 Schema、多 Agent 模型等）
-- ✅ **Tool 管理 REST API** — `GET/POST /api/tools`（列表、详情、测试执行）
-- ✅ **Docker / K8s 部署方案**
+### ✅ 已完成（Phase 0 ~ 3.1）
 
-### 进行中（高优先级 backlog）
+- ✅ **AI Agent 编排引擎** — AgentScope + Spring AI ReAct Agent + 意图路由；`/api/chat`、`/api/agent/execute`、`/api/agent/execute/detailed` 三入口
+- ✅ **RAG 知识引擎** — 文档 Pipeline + Milvus 向量检索 + 业务索引（结构化数据语义搜索）
+- ✅ **统一模型网关** — 多 Provider 路由（通义千问 / DashScope / OpenAI 兼容）+ SSE 流式 + OpenAI 兼容代理供 AgentScope 使用
+- ✅ **Skill SDK 体系** — `AiTool` / `AiSkill` / `ToolRegistry` / `SkillKind` / `SkillMetadata` / `SideEffectLevel` / `HitlPolicy` 完整契约
+- ✅ **扫描项目 Web 化闭环** — `scan_project` + `tool_definition.project_id` + `/api/scan-projects/*` + 管理端列表 / 详情页 + 动态 Tool 直接入库；`ScanModuleService.bootstrapFromTools` 扫描后自动按 Controller 类聚合模块
+- ✅ **AgentDefinition DB 化 + 版本灰度（Phase 3.0）** — `agent_definition` / `agent_version` 表；首次启动自动从 `agent_definitions.json` 迁移；`AgentVersionService.publish / rollback / resolveActiveSnapshot`（按 `userId` hash 落桶）
+- ✅ **Phase 1 Tool Retrieval + tool_call_log** — Milvus `tool_embeddings` 召回；`RetrievalScope`（project / module / kinds / enabled / agentVisible）；白名单 ∩ 召回双闸；完整降级矩阵；`tool_call_log.retrieval_trace_json` 沉淀语料
+- ✅ **Phase 2.0 SubAgentSkill MVP** — `AiSkill extends AiTool`；`SubAgentSkillExecutor` 嵌套深度上限 3 + `ToolExecutionContextHolder` 传 trace；扫描期 `SideEffectInferrer` 推断；`SkillController` CRUD + 测试；前端 Skill 管理页
+- ✅ **Phase 2.0.1 可信度补强** — `Mono.timeout + retryWhen` 真正消费 `timeoutMs / retryLimit`；`SkillTimeoutException` 结构化错误；`SideEffectBackfillJob` 启动期回填；`/api/skills/{name}/metrics` 指标 API；Skill 评估指标 SQL 口径文档化
+- ✅ **Trace 回放全链路** — `GET /api/traces/{traceId}` + `GET /api/traces/recent`；前端 `TraceTimeline.vue` 按 `skill:*` 前缀自动折叠父子层级；Agent 调试台抽屉、Agent 列表「最近 Trace」页签、Studio 调试抽屉三入口
+- 🟡 **Phase 2.1 Skill Mining 骨架** — `ToolChainAggregator` 聚合 + `PrefixSpanMiner`（distinct trace 支持度）+ `SkillDraftLlmWriter`（当前模板策略，预留 LLM 入口）+ `SkillMiningService`（precheck + 幂等 generate / publish）+ `SkillEvaluationScheduler`（每日 02:00 自动评估 + `ROLLBACK_CANDIDATE` 标记）+ 前端 `SkillMining.vue` 评审页；**等待真实 `tool_call_log` 数据验证**
+- ✅ **Phase 2.x InteractiveFormSkill** — 确定性槽填充 + `skill_interaction` 挂起 / 恢复表 + `expires_at` TTL + UI 原语协议（form / summary_card）+ `ChatRequest.uiSubmit` / `ChatResponse.uiRequest` + `AgentDebug.vue` `DynamicInteraction.vue` 渲染；PoC `create_team_interactive`
+- ✅ **Phase 3.0 Agent Studio v0** — `@vue-flow/core` 三栏画布 + 调试抽屉 + `gatewayChat(keySlug)` 真实链路调试 + 发布弹窗（版本号 / 灰度 / 备注 / 发布人）+ 一键回滚 + Trace → Skill 一键抽取 + IRREVERSIBLE 运行时闸口
+- ✅ **Phase 3.1 Tool ACL** — `tool_acl` 表 + `ToolAclService.decide` 四态判定（ALLOW / DENY_EXPLICIT / DENY_NO_MATCH / SKIPPED）+ DENY 优先 + 5min 本地缓存 + `AgentFactory.createToolkit` 装配过滤 + `ChatRequest.roles` 全链路透传 + SubAgentSkill 子链继承 roles + 管理端 CRUD / 批量授权 / 决策诊断三板斧
+- ✅ **AI 语义理解（Phase 2.x 叠加）** — 三层语义（项目 / 模块 / 接口）+ `JavaSourceIndex` 顺藤摸到底 + `tool_definition.ai_description` 直接喂 Agent + 项目级互斥锁 + `force` 保留人工编辑 + `token_usage` 入库
+- ✅ **会话记忆（Redis 短期窗口）** + **管理后台**（Agent / Skill / Skill Mining / Studio / 版本管理 / Tool / Tool ACL / 知识库 / 模型 / 扫描项目 + AI 理解 Tab / Trace / Dashboard）+ **Docker / K8s 部署方案**
 
-- 🔨 **AI 能力 REST（`/api/ai/*`）** — 面向业务系统的标准化能力面（生成、审查、抽取、检索、摘要、问答、数据查询等）
-- 🔨 **结构化输出** — TypedAgentResult + JSON Schema 约束
-- 🔨 **Prompt 模板管理** — 实体 + CRUD + 变量注入 + 管理端页面
-- 🔨 **多知识库协同检索** — KnowledgeBaseGroup、多 Collection 与结果融合
+### 🔨 进行中（高优先级 backlog）
 
-### 规划中（能力与治理持续迭代）
+- 🔨 **Skill Mining 真实数据验证 + LLM 反写** — 阈值调优（minSupport / days / limit）；草稿 Levenshtein + Jaccard 语义去重；`SkillDraftLlmWriter` 接 ChatClient 做 systemPrompt / description 反写
+- 🔨 **令牌桶限流（Redis）** — 不加限流，一个 prompt 错误可能把下游 HTTP 打挂；与 Phase 3.1 Tool ACL 同属 §3.2 Backlog P0，**Phase 3.1 后必须先补齐才能开放 Studio 发布端点**
+- 🔨 **Studio 培训物料** — 操作录屏 30s × 3 + 一份运营手册 PDF，画布交付后没培训运营不会用
+- 🔨 **AugmentedTool（Phase 2.2）** — 单 Tool 前 / 后处理装饰器，复用 `SubAgentSkillExecutor` 可靠性外壳
+- 🔨 **AI 能力 REST（`/api/ai/*`）** — 面向业务系统的标准化能力面（生成 / 审查 / 抽取 / 检索 / 摘要 / 问答 / 数据查询）
+- 🔨 **多知识库协同检索** — `KnowledgeBaseGroup` 多 Collection 与结果融合
 
-- **RAG Embedding 解耦** — `ai-skills-service` 侧 Embedding 调用统一改走 `ai-model-service`
-- **长期记忆** — 会话与偏好等 MySQL 持久化（当前以 Redis 短期记忆为主）
-- **AI Gateway（独立工程）** — 统一入口、鉴权、限流、熔断
-- **管理端深化** — 会话列表与历史、执行链可视化、登录与权限等（与后端 API 同步推进）
-- **源码级扫描增强** — Service 层 / JavaDoc 扫描（三级扫描策略的最后一层）
-- **扫描能力深化** — OpenAPI 更复杂契约支持、Service / JavaDoc 深扫、差异对比与增量更新
-- **RemoteToolProvider / MCP 兼容** — 跨语言 Tool 接入
-- **Tool 权限、限流、审计** — 企业级治理能力
-- **调用链追踪与可观测性** — AgentScope Hook、日志与指标持久化
-- **WorkflowEngine / 可视化编排** — 有状态流程、人机协同、DAG / 低代码编排（分阶段推进）
+### ⚠️ 已降级 / 中期 backlog（Phase 3.x ~ 4.x）
+
+- ⚠️ **HITL 执行流** — Demo / POC 阶段 ROI 低，`HitlPolicy` 字段保留，运行时暂不实现；Studio 发布到生产前再单独立项
+- ⏳ **画布条件边 / 并行 / 循环节点**（`canvas-control-flow`，§3.2 Backlog P1）
+- ⏳ **prompt diff 视图**（`prompt-diff`，回滚时运营看不到 prompt / tools 差异，§3.2 Backlog P1）
+- ⏳ **灰度策略增强**（A/B、按租户、按 header；当前只有 user-hash 一种，§3.2 Backlog P2）
+- ⏳ **跨 trace 对比 / 时间轴缩放**（`trace-advanced`，§3.2 Backlog P2）
+- ⏳ **RAG Embedding 解耦** — `ai-skills-service` 侧 Embedding 调用统一改走 `ai-model-service`
+- ⏳ **源码级扫描增强** — Service 层 / JavaDoc 深扫；差异对比；增量更新
+- ⏳ **RemoteToolProvider / MCP 兼容** — 跨语言 Tool 接入
+- ⏳ **AI Gateway（独立工程）** — 统一入口、鉴权、限流、熔断
+- ⏳ **Agent / Skill 市场**（`agent-marketplace`，§3.2 Backlog P3，跨项目复用）
+
+---
+
+### 🚀 未来规划（设计中，未开工）
+
+> 以下 7 项是基于现有架构的演进方向，**均处于规划阶段，未开工**。每项给出 3 行：痛点 → 方案要点 → 与现有模块关系。
+
+#### 1. 意图识别模块（IntentRecognition）
+
+- **痛点**：当前 `IntentService` 候选随 `AgentDefinition` 静态生成，每次都要用 LLM 兜底分类，成本高、延迟敏感场景下抖动明显
+- **方案要点**：独立 `intent-classifier` 子模块；离线训练小模型（FastText / 小 BERT）做本地快速分类，支持多标签 + 置信度阈值；置信度低于阈值再走 LLM 兜底；`tool_call_log.intent_type` 历史样本作为训练语料的天然来源
+- **与现有模块关系**：替换 `AgentRouter` 上游的意图识别步骤；保留原 LLM 兜底链路；与 Skill Mining 共享 `tool_call_log` 数据底座，形成"调用日志 → 训练样本 → 分类器 → 路由决策 → 调用日志"的闭环
+
+#### 2. 多用户记忆管理（MemoryHub）
+
+- **痛点**：当前仅 Redis 短期会话窗口，跨会话 / 跨 Agent 无法复用用户偏好与事实（昵称、常用部门、历史决策）；每次都要用户重新交代上下文
+- **方案要点**：分层记忆（Redis 短期 + MySQL `user_memory` / `user_fact` 长期 + Milvus 语义检索）；隐私分级（PUBLIC / PRIVATE / SENSITIVE）+ TTL 过期；显式记忆（用户主动说"记住"）+ 隐式记忆（LLM 抽取 + 人工确认）双通道
+- **与现有模块关系**：在 `AgentRouter` 注入前 hook，按当前用户 + 当前问题召回相关记忆，写入 `ToolExecutionContext.userMemorySnapshot`；与 Tool ACL 协同，敏感记忆按 `roles` 过滤；与 Skill Mining 共享 `traceId` 关联用户行为序列
+
+#### 3. 领域识别（DomainClassifier）
+
+- **痛点**：多业务线 Agent 共享同一 Tool 池子时，Tool Retrieval 会跨域召回（财务 Agent 召回 HR 工具）；Agent 选不准、Token 浪费
+- **方案要点**：基于扫描项目 + 知识库分组 + Skill 标签自动生成领域标签体系（`domain` 维度，如 `finance / hr / crm / legal`）；输入文本经轻量分类先确定领域 → 候选 Agent / Tool / Knowledge 子集；领域标签与 `scan_project` 一对多挂接
+- **与现有模块关系**：叠加在 Tool Retrieval 之前作为 `RetrievalScope.domain` 过滤维度（与 `kinds / project / module` 并列）；与多用户记忆联动（用户惯用领域作为软偏好）；与 Tool ACL 互补（ACL 是硬权限，Domain 是软路由）
+
+#### 4. 接口调用图谱（ApiCallGraph）
+
+- **痛点**：动态 Tool 上百个后看不出调用关系（哪个 Tool 经常和哪个 Tool 同链路？哪些 Tool 被孤立？）；Skill Mining 人工评审缺图视化，只能看文字序列
+- **方案要点**：双源聚合 — 运行时从 `tool_call_log.trace_id` 聚合 Tool 共现关系；静态从扫描的 Service / Mapper 调用关系（JavaParser 已支持）补全编译期依赖；前端 Cytoscape / G6 渲染交互式图谱，支持按 `project / module / domain` 过滤
+- **与现有模块关系**：消费 Phase 2.1 `ToolChainAggregator` 已聚合好的运行时序列；与 AI 语义理解的 `scan_module` 关联展示模块级调用关系；为 Skill Mining 评审提供"挖出来的子序列在图谱上长什么样"的直观视图
+
+#### 5. 企业问答自动化测试（QA Regression）
+
+- **痛点**：Prompt / Skill / `AgentDefinition` 改版后回归靠人工提问，无可量化指标；Studio 发布灰度敢上多少全凭直觉
+- **方案要点**：`qa_test_case` 表（输入 + 期望输出 + 期望 Tool 链 + 期望 sideEffect 范围）+ LLM-as-judge 评分（语义相似度 + 关键事实命中）+ 调度器跑回归集 + 失败 case 自动归档到 `qa_failure_archive`；与 Skill 评估指标共用 `tool_call_log` 数据底座（成功率 / 延迟 / Token）
+- **与现有模块关系**：复用 `AgentVersionService` 灰度发布前置门（发布前自动跑回归集，通过率不达阈值阻塞发布）；触发 `SkillEvaluationScheduler` 链路，把 QA 回归通过率作为 Skill 健康度的额外维度；与 Trace 回放共享 `traceId`，每条 case 的失败可一键打开时间线定位
+
+#### 6. 槽位提取器（SlotExtractor 库）
+
+- **痛点**：`InteractiveFormSkill` 当前依赖 LLM 抽时间 / 部门 / 人员等结构化槽位，命中率低、Token 高、复杂表达式（"上周三下午"、"生产一部三车间"）出错率明显
+- **方案要点**：独立 `slot-extractor` 模块，提供可注册扩展的提取器：
+  - `TimeSlotExtractor` — 绝对 / 相对时间（"明天 10 点"、"上周三"）+ 节假日 + 时间区间
+  - `DeptSlotExtractor` — 部门字典 + 拼音模糊匹配 + 上下级路径
+  - `UserSlotExtractor` — 人员字典 + 同名消歧（按部门 / 工号上下文）
+  - `MoneySlotExtractor` / `AddressSlotExtractor` / `PhoneSlotExtractor` 等
+- **与现有模块关系**：嵌入 `InteractiveFormSkillExecutor` 的 `prefill` 阶段 — 先确定性抽取，未命中再走 LLM；与 AI 语义理解的 `FieldSpec` 字典联动（部门 / 人员字典走 `InteractiveDictLookup` 同源）；提取结果写入 `tool_call_log.args_json` 便于后续调优
+
+#### 7. 对外协议与 CLI（MCP / A2A / CLI）
+
+- **痛点**：当前能力主要通过 HTTP 网关与内部管理端消费；**Dify、OpenClaw、Harmes** 等外部智能体平台与本地脚本更希望用 **MCP** 、 **CLI**发现与调用 Tool / Skill，或用 **A2A（Agent-to-Agent）** 把本仓 Agent 当作可编排节点，缺少一等公民的对外入口与统一鉴权 / 限流 / Trace 透传
+- **方案要点**：
+  - **MCP Server**：独立进程或挂载在网关侧，将 `ToolRegistry` 中已注册 Tool / Skill（含 `kind=SKILL`）暴露为 MCP `tools/list` + `tools/call`；支持按 `project` / `roles` 过滤可见集合；与现有 `ToolDefinition` 元数据、`ai_description` 对齐为 MCP tool schema
+  - **A2A 适配层**：实现与协议兼容的 **Agent Card + Task/Run/Stream** 语义，将 `POST /api/v1/agents/{key}/chat` 及内部编排映射为可被外部多 Agent 系统调用的远程 Agent；支持 `traceId` / `sessionId` 回传与异步任务轮询（视规范演进）
+  - **CLI（`eaf` 或同级命令）**：提供 `agent chat`、`tool call`、`skill test`、`scan trigger` 等子命令，走同一套 REST + `ChatRequest.roles`，便于对接OpenClaw、CI 与「无 UI」运维场景
+- **与现有模块关系**：复用 `AgentGatewayController` / `AgentRouter` / `AgentFactory.createToolkit`（含 Tool ACL、`allowIrreversible`）；Tool / Skill 执行仍落 `AiToolAgentAdapter` 与 `tool_call_log`；与路线图中「RemoteToolProvider / MCP 兼容（入站）」互补 — 本条侧重 **对外提供** 连接能力，入站侧后续可共用同一套协议适配与审计模型
 
 ---
 
@@ -352,10 +518,31 @@ public interface CrmFeignClient {
 
 ## 📚 架构与设计文档
 
-更完整的背景、现状与演进路径见仓库内文档（与 README 同步维护）：
+更完整的背景、现状与演进路径见仓库内文档（与 README 同步维护，每篇都按交付时间戳收口，README 的状态以这些文档为准）：
+
+**总览与背景**
 
 - [docs/背景、现状、目标.md](docs/背景、现状、目标.md) — 背景与动机、Tool 分层与调用链路、运行时 Web 扫描主线、分阶段实施与中台演进概要
-- [docs/AI能力系统升级规划.md](docs/AI能力系统升级规划.md) — 单仓模块划分、各服务职责、扫描项目 Web 化与 backlog 路线图
+- [docs/AI能力系统升级规划.md](docs/AI能力系统升级规划.md) — 单仓模块划分、各服务职责、扫描项目 Web 化、Phase 1 Tool Retrieval / Skill Mining 演进路径
+
+**产品演进路线（顶层）**
+
+- [docs/产品演进路线-Skill-AgentStudio-护栏.md](docs/产品演进路线-Skill-AgentStudio-护栏.md) — Phase 1 ~ 4 的完整规划，含进度看板表、每阶段决策与差异说明，是 README 路线图的源头
+
+**Phase 2 Skill 层验收清单**
+
+- [docs/Phase2.0-SubAgentSkill-落地验收清单.md](docs/Phase2.0-SubAgentSkill-落地验收清单.md) — `AiSkill` 契约、`SubAgentSkill` 三态枚举、扫描期 `SideEffectInferrer`、SkillController、前端 SkillList；含 28 用例 UT 清单与 6 项手工验收
+- [docs/Phase2.x-InteractiveFormSkill-落地验收清单.md](docs/Phase2.x-InteractiveFormSkill-落地验收清单.md) — `INTERACTIVE_FORM` 第四态、`skill_interaction` 挂起 / 恢复表、UI 原语协议、PoC `create_team_interactive`
+
+**Phase 3 Agent Studio 与护栏**
+
+- [docs/Phase3.0-AgentStudio-落地验收清单.md](docs/Phase3.0-AgentStudio-落地验收清单.md) — `agent_definition` / `agent_version` 双表、`@vue-flow/core` 三栏画布、调试抽屉 + 发布灰度 + 一键回滚、Trace → Skill 一键抽取、IRREVERSIBLE 闸口
+- [docs/Phase3.1-ToolACL-落地验收清单.md](docs/Phase3.1-ToolACL-落地验收清单.md) — `tool_acl` 表 + `ToolAclService.decide` 四态判定 + `AgentFactory.createToolkit` 装配过滤 + 管理端 CRUD / 批量授权 / 决策诊断
+
+**专题设计**
+
+- [docs/AI语义理解-设计与落地.md](docs/AI语义理解-设计与落地.md) — 三层语义（项目 / 模块 / 接口）、`SemanticContextCollector` 顺藤摸到底、`tool_definition.ai_description` 写回、`scan_module` 合并 / 重命名
+- [docs/Skill-评估指标口径.md](docs/Skill-评估指标口径.md) — `HitRate / ReplacementRate / SuccessRateDiff / TokenSavings` 四指标 SQL 口径，唯一实现点 `ToolCallLogService.computeCoverageMetrics`
 
 ---
 
@@ -363,15 +550,34 @@ public interface CrmFeignClient {
 
 ```
 EnterpriseAgentFramework/
-├── ai-common/              公共库（DTO、异常、通用配置）
-├── ai-skill-sdk/           Skill 开发 SDK（AiTool 接口、ToolParameter、ToolRegistry）
-├── ai-model-service/       模型网关（LLM Chat / Embedding，多 Provider 路由）
-├── ai-skills-service/        知识 / Tooling 基础层（知识库、文档 Pipeline、向量检索、扫描核心）
-├── ai-agent-service/       智能体编排（AgentScope、意图识别、Tool 调用、会话记忆）
-├── ai-admin-front/         管理前端（Vue 3 + Element Plus + TypeScript）
-├── deploy/                 部署配置（Docker Compose / Kubernetes）
-├── ai-skills-service/sql/    数据库初始化与升级脚本（含 tool_definition / scan_project）
-└── docs/                   架构与设计文档（见上一节链接）
+├── ai-common/                公共库（DTO、异常、通用配置）
+├── ai-skill-sdk/             Skill 开发 SDK
+│                             ├─ AiTool / ToolParameter / ToolRegistry  Tool 契约
+│                             └─ AiSkill / SkillKind / SkillMetadata   Skill 三态契约
+│                                / SideEffectLevel / HitlPolicy         + 治理元数据
+├── ai-model-service/         模型网关（LLM Chat / Embedding，多 Provider 路由，OpenAI 兼容代理）
+├── ai-skills-service/        知识 / Tooling 基础层
+│   ├── 业务能力              RAG · 文档 Pipeline · 向量检索 · 业务索引 · 扫描核心
+│   └── sql/                  init.sql / upgrade_v2.sql / tool_definition_v4.sql
+│                             scan_project_v5.sql / semantic_docs_v6.sql
+│                             scan_project_tool_v7.sql / business_index_v3.sql
+├── ai-agent-service/         智能体编排
+│   ├── 业务能力              AgentScope ReAct · IntentService · 会话记忆
+│   │                         Skill 三态执行器 · Agent Studio 后端 · Trace 回放
+│   │                         Tool ACL · Skill Mining · AI 语义理解编排
+│   └── sql/                  tool_call_log_v8.sql            Phase 1
+│                             skill_phase2_0.sql              Phase 2.0 SubAgent
+│                             skill_interaction_phase2_x.sql  Phase 2.x InteractiveForm
+│                             tool_call_log_index_phase2_0_1.sql  Phase 2.0.1 Trace 索引
+│                             skill_mining_phase2_1.sql       Phase 2.1 Skill Mining
+│                             agent_studio_phase3_0.sql       Phase 3.0 Studio + 版本灰度
+│                             tool_acl_phase3_1.sql           Phase 3.1 Tool ACL
+│                             backfill_side_effect.sql        一次性回填脚本
+├── ai-admin-front/           管理前端（Vue 3 + Vite + Element Plus + TypeScript + @vue-flow/core）
+├── deploy/                   部署配置（Docker Compose / Kubernetes / Dockerfile）
+├── sql/                      根级聚合冷启动脚本（init.sql 与各服务 phase 脚本同步）
+├── agent-definitions.json    Agent 定义旧 JSON 来源；Phase 3.0 已 DB 化，仍作为冷启动迁移源
+└── docs/                     架构与设计文档（共 9 篇，见上一节文档索引）
 ```
 
 根目录 Maven 聚合与各模块关系见上文「📦 模块说明」表格下方的说明。

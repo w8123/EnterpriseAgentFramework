@@ -10,8 +10,8 @@ export default defineConfig({
     },
   },
   server: {
-    // 3000 落在系统排除范围 2931–3030 内（Hyper-V/WSL 等常见），会 EACCES
-    port: 5173,
+    // 常见排除段：如 2931–3030、5100–5199（本机 netsh 可见），落在段内会 EACCES
+    port: 5200,
     proxy: {
       '/ai': {
         target: 'http://localhost:8602',

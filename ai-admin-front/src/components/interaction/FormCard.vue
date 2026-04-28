@@ -11,6 +11,23 @@
       >
         <el-option v-for="o in f.options" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
+      <el-select
+        v-else-if="f.type === 'multi_select'"
+        v-model="local[f.key]"
+        multiple
+        collapse-tags
+        collapse-tags-tooltip
+        filterable
+        clearable
+        style="width: 100%"
+        :placeholder="
+          (f.options?.length ?? 0) > 0
+            ? '请选择' + f.label + '（可多选）'
+            : '暂无选项（请检查 TOOL_CALL 配置或 Tool 返回值）'
+        "
+      >
+        <el-option v-for="o in f.options || []" :key="o.value" :label="o.label" :value="o.value" />
+      </el-select>
       <el-date-picker
         v-else-if="f.type === 'date'"
         v-model="local[f.key]"
@@ -43,10 +60,18 @@ const emit = defineEmits<{
 
 const local = reactive<Record<string, unknown>>({})
 
+function defaultEmpty(f: UiFieldPayload): unknown {
+  return f.type === 'multi_select' ? [] : ''
+}
+
 function sync() {
   for (const f of props.fields) {
     const v = props.prefilled?.[f.key]
-    local[f.key] = v !== undefined && v !== null ? v : local[f.key] ?? ''
+    if (v !== undefined && v !== null) {
+      local[f.key] = v
+    } else if (local[f.key] === undefined) {
+      local[f.key] = defaultEmpty(f)
+    }
   }
 }
 

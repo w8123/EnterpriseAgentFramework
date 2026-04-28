@@ -122,6 +122,9 @@ public class InteractiveFormSkillFactory {
             if (f.getLabel() == null || f.getLabel().isBlank()) {
                 throw new IllegalArgumentException("InteractiveFormSkill[" + skillName + "] field.label 不能为空");
             }
+            if (f.getChildren() != null && f.getChildren().isEmpty()) {
+                continue;
+            }
             boolean isGroup = f.getChildren() != null && !f.getChildren().isEmpty();
             if (isGroup) {
                 validateFieldTree(skillName, f.getChildren());

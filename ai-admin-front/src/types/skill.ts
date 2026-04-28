@@ -129,8 +129,8 @@ function normalizeFieldSpec(fr: unknown): FieldSpec {
   }
   const chRaw = x.children
   let children: FieldSpec[] | undefined
-  if (Array.isArray(chRaw) && chRaw.length > 0) {
-    children = (chRaw as unknown[]).map((c) => normalizeFieldSpec(c))
+  if (Array.isArray(chRaw)) {
+    children = chRaw.length > 0 ? (chRaw as unknown[]).map((c) => normalizeFieldSpec(c)) : []
   }
   return {
     key: String(x.key ?? ''),
@@ -155,9 +155,13 @@ function validateFieldTree(fields: FieldSpec[] | undefined, ctx: string, allKeys
     if (allKeys.has(k)) return `字段 key 在全树中重复：${k}`
     allKeys.add(k)
     if (!f.label?.trim()) return `「${k}」：label 不能为空`
+    const isEmptyObjectGroup = Array.isArray(f.children) && f.children.length === 0
+    if (isEmptyObjectGroup) {
+      continue
+    }
     const hasCh = f.children && f.children.length > 0
     if (hasCh) {
-      const sub = validateFieldTree(f.children, `「${k}」子字段`, allKeys)
+      const sub = validateFieldTree(f.children!, `「${k}」子字段`, allKeys)
       if (sub) return sub
       continue
     }
@@ -184,6 +188,20 @@ export function mapToolParameterToField(p: ToolParameter): FieldSpec {
       required: Boolean(p.required),
       source: emptyFieldSource('NONE'),
       children: kids,
+    }
+  }
+  const t = (p.type || '').toLowerCase()
+  const emptyBodyLike =
+    p.name === 'body_json' || t === 'object' || t === 'json' || t === 'map'
+  // 扫描器 body 占位在无子字段时应对应「空请求体」，产生 children: [] 而非整块 JSON 字符串表单项
+  if (emptyBodyLike && (!p.children || p.children.length === 0)) {
+    return {
+      key: p.name,
+      label: (p.description && p.description.trim()) || p.name,
+      type: 'text',
+      required: Boolean(p.required),
+      source: emptyFieldSource('NONE'),
+      children: [],
     }
   }
   return mapToolParameterLeaf(p)
@@ -290,11 +308,27 @@ export interface SkillPageResult {
   pages: number
 }
 
+/** 与后端 SkillController.SkillTestResultDTO 对齐 */
 export interface SkillTestResult {
   success: boolean
   result: string
   errorMessage?: string
   durationMs: number
+  /** InteractiveForm 挂起：需调用 test/resume 继续 */
+  interactionPending?: boolean
+  interactionId?: string | null
+  uiRequest?: Record<string, unknown> | null
+}
+
+/** 与后端 SkillController.PendingAdminTestInteractionDTO 对齐（管理端测试 userId=skill-admin-test） */
+export interface SkillAdminTestPendingItem {
+  interactionId: string
+  skillName: string
+  status: string
+  createdAt?: string | null
+  updatedAt?: string | null
+  expiresAt?: string | null
+  uiTitle?: string | null
 }
 
 export interface SkillMetricPoint {
