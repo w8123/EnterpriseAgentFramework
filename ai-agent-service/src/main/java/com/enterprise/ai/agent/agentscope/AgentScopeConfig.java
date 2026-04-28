@@ -2,6 +2,7 @@ package com.enterprise.ai.agent.agentscope;
 
 import com.enterprise.ai.agent.config.ToolCallLogProperties;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.formatter.openai.OpenAIMultiAgentFormatter;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.model.OpenAIChatModel;
@@ -38,7 +39,8 @@ public class AgentScopeConfig {
      */
     @Bean
     public Model agentScopeChatModel(ToolCallLogService toolCallLogService,
-                                     ToolCallLogProperties toolCallLogProperties) {
+                                     ToolCallLogProperties toolCallLogProperties,
+                                     ObjectMapper objectMapper) {
         String baseUrl = modelServiceUrl + "/model/openai-proxy/v1";
         log.info("[AgentScope] 初始化模型: baseUrl={}, model={}", baseUrl, modelName);
         Model inner = OpenAIChatModel.builder()
@@ -46,7 +48,7 @@ public class AgentScopeConfig {
                 .baseUrl(baseUrl)
                 .modelName(modelName)
                 .build();
-        return new TracingModel(inner, toolCallLogService, toolCallLogProperties);
+        return new TracingModel(inner, toolCallLogService, toolCallLogProperties, objectMapper);
     }
 
     /**
@@ -57,7 +59,8 @@ public class AgentScopeConfig {
      */
     @Bean
     public Model agentScopeMultiAgentModel(ToolCallLogService toolCallLogService,
-                                           ToolCallLogProperties toolCallLogProperties) {
+                                           ToolCallLogProperties toolCallLogProperties,
+                                           ObjectMapper objectMapper) {
         String baseUrl = modelServiceUrl + "/model/openai-proxy/v1";
         Model inner = OpenAIChatModel.builder()
                 .apiKey("proxy-via-model-service")
@@ -65,6 +68,6 @@ public class AgentScopeConfig {
                 .modelName(modelName)
                 .formatter(new OpenAIMultiAgentFormatter())
                 .build();
-        return new TracingModel(inner, toolCallLogService, toolCallLogProperties);
+        return new TracingModel(inner, toolCallLogService, toolCallLogProperties, objectMapper);
     }
 }

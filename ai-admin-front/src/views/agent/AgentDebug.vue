@@ -323,6 +323,7 @@ async function handleAgentExec(msg: string) {
     const { data } = await executeAgentDetailed({
       message: msg,
       sessionId: sessionId.value || undefined,
+      agentDefinitionId: agentId,
     })
     placeholder.loading = false
     placeholder.content = data.answer || '(无回答)'

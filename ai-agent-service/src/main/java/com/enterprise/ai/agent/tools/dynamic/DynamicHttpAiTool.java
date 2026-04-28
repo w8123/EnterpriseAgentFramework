@@ -2,6 +2,7 @@ package com.enterprise.ai.agent.tools.dynamic;
 
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
+import com.enterprise.ai.agent.tools.schema.LlmJsonSchemaProvider;
 import com.enterprise.ai.skill.AiTool;
 import com.enterprise.ai.skill.ToolParameter;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -13,13 +14,15 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
 @Slf4j
-public class DynamicHttpAiTool implements AiTool {
+public class DynamicHttpAiTool implements AiTool, LlmJsonSchemaProvider {
 
     private static final TypeReference<List<ToolDefinitionParameter>> PARAMETER_LIST_TYPE = new TypeReference<>() {
     };
@@ -89,6 +92,11 @@ public class DynamicHttpAiTool implements AiTool {
                         parameter.required()
                 ))
                 .toList();
+    }
+
+    @Override
+    public Map<String, Object> llmParametersJsonSchema() {
+        return buildRootParametersSchema(parameters);
     }
 
     @Override
@@ -177,6 +185,73 @@ public class DynamicHttpAiTool implements AiTool {
         } catch (Exception ex) {
             throw new IllegalArgumentException("Failed to parse tool parameters JSON", ex);
         }
+    }
+
+    /**
+     * 将带 {@link ToolDefinitionParameter#children()} 的树展开为 OpenAI 风格 JSON Schema（根为 object）。
+     */
+    static Map<String, Object> buildRootParametersSchema(List<ToolDefinitionParameter> params) {
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        Map<String, Object> properties = new LinkedHashMap<>();
+        List<String> required = new ArrayList<>();
+        if (params != null) {
+            for (ToolDefinitionParameter p : params) {
+                properties.put(p.name(), parameterToPropertySchema(p));
+                if (p.required()) {
+                    required.add(p.name());
+                }
+            }
+        }
+        schema.put("properties", properties);
+        schema.put("required", required);
+        return schema;
+    }
+
+    private static Map<String, Object> parameterToPropertySchema(ToolDefinitionParameter p) {
+        Map<String, Object> prop = new LinkedHashMap<>();
+        String jsonType = normalizeJsonSchemaType(p.type());
+        prop.put("type", jsonType);
+        if (p.description() != null && !p.description().isBlank()) {
+            prop.put("description", p.description());
+        }
+        List<ToolDefinitionParameter> children = p.children();
+        if (children == null || children.isEmpty()) {
+            return prop;
+        }
+        if ("object".equals(jsonType)) {
+            Map<String, Object> nestedProps = new LinkedHashMap<>();
+            List<String> nestedRequired = new ArrayList<>();
+            for (ToolDefinitionParameter c : children) {
+                nestedProps.put(c.name(), parameterToPropertySchema(c));
+                if (c.required()) {
+                    nestedRequired.add(c.name());
+                }
+            }
+            prop.put("properties", nestedProps);
+            if (!nestedRequired.isEmpty()) {
+                prop.put("required", nestedRequired);
+            }
+        } else if ("array".equals(jsonType)) {
+            ToolDefinitionParameter item = children.get(0);
+            prop.put("items", parameterToPropertySchema(item));
+        }
+        return prop;
+    }
+
+    private static String normalizeJsonSchemaType(String rawType) {
+        if (rawType == null || rawType.isBlank()) {
+            return "string";
+        }
+        String t = rawType.trim().toLowerCase(Locale.ROOT);
+        return switch (t) {
+            case "integer", "int", "long" -> "integer";
+            case "number", "float", "double" -> "number";
+            case "boolean", "bool" -> "boolean";
+            case "object", "json" -> "object";
+            case "array", "list" -> "array";
+            default -> "string";
+        };
     }
 
     private String joinPath(String left, String right) {

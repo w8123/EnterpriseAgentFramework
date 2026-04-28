@@ -6,6 +6,8 @@ export interface ChatRequest {
   sessionId?: string
   userId?: string
   intentHint?: string
+  /** 调试台：直执该 agent 定义，跳过意图路由 */
+  agentDefinitionId?: string
   roles?: string[]
   /** 恢复挂起的 InteractiveFormSkill */
   interactionId?: string

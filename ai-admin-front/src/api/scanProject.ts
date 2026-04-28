@@ -5,6 +5,7 @@ import type {
   PromotedGlobalTool,
   ScanProject,
   ScanProjectAuthSaveRequest,
+  ScanProjectBlockers,
   ScanProjectScanResult,
   ScanProjectUpsertRequest,
   ScanSettings,
@@ -17,6 +18,11 @@ export function getScanProjects() {
 
 export function getScanProjectDetail(id: number) {
   return agentRequest.get<ScanProject>(`/api/scan-projects/${id}`)
+}
+
+/** 删除/重扫前：是否仍被 Agent 引用本项目的全局 Tool、Skill */
+export function getScanProjectOperationBlockers(id: number) {
+  return agentRequest.get<ScanProjectBlockers>(`/api/scan-projects/${id}/operation-blockers`)
 }
 
 export function createScanProject(data: ScanProjectUpsertRequest) {

@@ -4,6 +4,7 @@ import com.enterprise.ai.agent.skill.ToolExecutionContextHolder;
 import com.enterprise.ai.agent.skill.interactive.InteractionSuspendedException;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
+import com.enterprise.ai.agent.tools.schema.LlmJsonSchemaProvider;
 import com.enterprise.ai.skill.AiSkill;
 import com.enterprise.ai.skill.AiTool;
 import com.enterprise.ai.skill.ToolParameter;
@@ -65,6 +66,9 @@ public class AiToolAgentAdapter implements AgentTool {
 
     @Override
     public Map<String, Object> getParameters() {
+        if (aiTool instanceof LlmJsonSchemaProvider schemaProvider) {
+            return schemaProvider.llmParametersJsonSchema();
+        }
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "object");
 

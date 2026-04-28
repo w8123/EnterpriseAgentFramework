@@ -4,6 +4,7 @@ import com.enterprise.ai.agent.skill.ToolExecutionContextHolder;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.enterprise.ai.agent.config.ToolCallLogProperties;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.message.ContentBlock;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.TextBlock;
@@ -36,13 +37,16 @@ public final class TracingModel implements Model {
     private final Model delegate;
     private final ToolCallLogService toolCallLogService;
     private final ToolCallLogProperties toolCallLogProperties;
+    private final ObjectMapper objectMapper;
 
     public TracingModel(Model delegate,
                         ToolCallLogService toolCallLogService,
-                        ToolCallLogProperties toolCallLogProperties) {
+                        ToolCallLogProperties toolCallLogProperties,
+                        ObjectMapper objectMapper) {
         this.delegate = Objects.requireNonNull(delegate);
         this.toolCallLogService = Objects.requireNonNull(toolCallLogService);
         this.toolCallLogProperties = Objects.requireNonNull(toolCallLogProperties);
+        this.objectMapper = Objects.requireNonNull(objectMapper);
     }
 
     @Override
@@ -155,9 +159,35 @@ public final class TracingModel implements Model {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("name", ts.getName());
             row.put("description", truncate(ts.getDescription(), 500));
+            row.put("strict", ts.getStrict());
+            putParametersSnapshot(row, ts);
             list.add(row);
         }
         return list;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void putParametersSnapshot(Map<String, Object> row, ToolSchema ts) {
+        Map<?, ?> raw = ts.getParameters();
+        if (raw == null || raw.isEmpty()) {
+            row.put("parameters", Map.of());
+            return;
+        }
+        Map<String, Object> params = (Map<String, Object>) (Map<?, ?>) raw;
+        int max = Math.max(0, toolCallLogProperties.getToolParametersSnapshotMaxChars());
+        try {
+            String json = objectMapper.writeValueAsString(params);
+            if (max <= 0 || json.length() <= max) {
+                row.put("parameters", params);
+            } else {
+                Map<String, Object> truncated = new LinkedHashMap<>();
+                truncated.put("_truncated", true);
+                truncated.put("preview", truncate(json, max));
+                row.put("parameters", truncated);
+            }
+        } catch (Exception ex) {
+            row.put("parameters", Map.of("_serializationError", ex.getClass().getSimpleName()));
+        }
     }
 
     private Map<String, Object> aggregateLlmOutput(List<ChatResponse> chunks) {

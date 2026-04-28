@@ -1,6 +1,9 @@
 package com.enterprise.ai.agent.service;
 
+import com.enterprise.ai.agent.agent.AgentDefinition;
+import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.agent.AgentOrchestrator;
+import com.enterprise.ai.agent.agentscope.AgentRouter;
 import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.model.ChatRequest;
 import com.enterprise.ai.agent.model.ChatResponse;
@@ -11,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -26,6 +30,8 @@ public class AgentService {
 
     private final AgentOrchestrator agentOrchestrator;
     private final InteractiveFormResumeService interactiveFormResumeService;
+    private final AgentRouter agentRouter;
+    private final AgentDefinitionService agentDefinitionService;
 
     /**
      * 执行复杂Agent任务
@@ -63,6 +69,24 @@ public class AgentService {
         }
         if (hasInteraction) {
             return interactiveFormResumeService.resume(request, sessionId);
+        }
+        String fixedAgentId = request.getAgentDefinitionId();
+        if (fixedAgentId != null && !fixedAgentId.isBlank()) {
+            Optional<AgentDefinition> def = agentDefinitionService.findById(fixedAgentId.trim());
+            if (def.isEmpty()) {
+                return AgentResult.builder()
+                        .success(false)
+                        .answer("未找到 Agent 定义: " + fixedAgentId)
+                        .build();
+            }
+            log.info("按 agentDefinitionId 直执（跳过意图路由）: id={}, name={}",
+                    fixedAgentId, def.get().getName());
+            return agentRouter.executeByDefinition(
+                    def.get(),
+                    sessionId,
+                    request.getUserId(),
+                    request.getMessage(),
+                    request.getRoles());
         }
         return agentOrchestrator.orchestrate(
                 sessionId,

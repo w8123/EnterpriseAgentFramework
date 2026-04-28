@@ -30,6 +30,13 @@ public class ChatRequest {
     private String intentHint;
 
     /**
+     * 管理端「Agent 调试」等场景：指定要执行的 {@code agent_definition.id}，将
+     * {@link com.enterprise.ai.agent.agentscope.AgentRouter#executeByDefinition} 直执该定义，
+     * 跳过意图识别 + 按 intentType 选 Agent（避免多 Agent 同 intent 时命中到「别的」Agent）。
+     */
+    private String agentDefinitionId;
+
+    /**
      * 调用者的角色编码列表（Phase 3.1 Tool ACL）。
      * <p>
      * 网关 / 前端可直接传入；空时后端会按旧行为跳过 ACL 并打 warn。

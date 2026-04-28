@@ -23,4 +23,10 @@ public class ToolCallLogProperties {
 
     /** 单条日志 args_json 的最大字符数。 */
     private int argsMaxChars = 4000;
+
+    /**
+     * LLM trace 中每个 tool 的 {@code parameters} 快照最大字符数（序列化 JSON 后截断），
+     * 避免单工具 schema 占满整条 {@code args_json}。
+     */
+    private int toolParametersSnapshotMaxChars = 2500;
 }

@@ -4,6 +4,9 @@
       <h2>扫描详情</h2>
       <div class="header-actions">
         <el-button @click="goBack">返回列表</el-button>
+        <el-button type="danger" plain :loading="deleteProjectLoading" @click="handleDeleteProject">
+          删除项目
+        </el-button>
         <el-button :loading="loading" @click="refreshAll">
           <el-icon><Refresh /></el-icon>刷新
         </el-button>
@@ -680,7 +683,9 @@ import { getDefaultScanSettings } from '@/types/scanProject'
 import type { ToolParameter, ToolTestResult, ToolUpsertRequest } from '@/types/tool'
 import type { ScanModule, SemanticDoc, SemanticTask } from '@/types/semanticDoc'
 import {
+  deleteScanProject,
   getScanProjectDetail,
+  getScanProjectOperationBlockers,
   getScanProjectTools,
   promoteScanModuleToolsToGlobal,
   promoteScanProjectToolToGlobal,
@@ -693,6 +698,10 @@ import {
   updateScanProjectScanSettings,
   updateScanProjectTool,
 } from '@/api/scanProject'
+import {
+  formatScanProjectBlockersMessage,
+  parseScanProjectBlockersFromError,
+} from '@/utils/scanProjectBlockers'
 import { startToolRetrievalRebuild } from '@/api/toolRetrieval'
 import {
   editSemanticDoc,
@@ -718,6 +727,7 @@ const tools = ref<ProjectToolInfo[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const rescanLoading = ref(false)
+const deleteProjectLoading = ref(false)
 const rebuildEmbeddingLoading = ref(false)
 /** 扫描详情各区块折叠；空数组=全部折叠 */
 const detailPanelActive = ref<string[]>([])
@@ -1076,17 +1086,81 @@ async function handleRebuildEmbeddings() {
   }
 }
 
+async function ensureScanOperationAllowed(): Promise<boolean> {
+  try {
+    const { data } = await getScanProjectOperationBlockers(projectId.value)
+    if (!data.blocked) {
+      return true
+    }
+    await ElMessageBox.alert(formatScanProjectBlockersMessage(data), '操作被阻止', {
+      type: 'warning',
+      confirmButtonText: '知道了',
+    })
+    return false
+  } catch {
+    ElMessage.error('检查引用关系失败')
+    return false
+  }
+}
+
 async function handleRescan() {
   rescanLoading.value = true
   try {
+    if (!(await ensureScanOperationAllowed())) {
+      return
+    }
     const { data } = await triggerRescan(projectId.value)
     ElMessage.success(`重新扫描完成，发现 ${data.toolCount} 个接口`)
     await refreshAll()
   } catch (error) {
+    const blockers = parseScanProjectBlockersFromError(error)
+    if (blockers?.blocked) {
+      await ElMessageBox.alert(formatScanProjectBlockersMessage(blockers), '操作被阻止', {
+        type: 'warning',
+        confirmButtonText: '知道了',
+      })
+      return
+    }
     ElMessage.error((error as Error).message || '重新扫描失败')
     await refreshAll()
   } finally {
     rescanLoading.value = false
+  }
+}
+
+async function handleDeleteProject() {
+  if (!project.value) {
+    return
+  }
+  if (!(await ensureScanOperationAllowed())) {
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认删除扫描项目「${project.value.name}」吗？将删除关联扫描行、挂到本项目的全局 Tool/Skill 及模块与语义数据。`,
+      '删除确认',
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  deleteProjectLoading.value = true
+  try {
+    await deleteScanProject(projectId.value)
+    ElMessage.success('已删除')
+    await router.push('/scan-project')
+  } catch (error) {
+    const blockers = parseScanProjectBlockersFromError(error)
+    if (blockers?.blocked) {
+      await ElMessageBox.alert(formatScanProjectBlockersMessage(blockers), '无法删除', {
+        type: 'warning',
+        confirmButtonText: '知道了',
+      })
+      return
+    }
+    ElMessage.error((error as Error).message || '删除失败')
+  } finally {
+    deleteProjectLoading.value = false
   }
 }
 

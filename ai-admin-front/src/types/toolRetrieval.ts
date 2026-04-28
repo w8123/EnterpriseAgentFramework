@@ -15,6 +15,8 @@ export interface ToolRetrievalSearchRequest {
   toolWhitelist?: number[]
   enabledOnly?: boolean
   agentVisibleOnly?: boolean
+  /** 覆盖后端 ai.tool-retrieval.min-score；0 表示不按阈值过滤 */
+  minScore?: number | null
 }
 
 export interface ToolRetrievalSearchResponse {

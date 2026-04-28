@@ -42,7 +42,8 @@ public class ToolRetrievalController {
                 request.enabledOnly() == null || request.enabledOnly(),
                 request.agentVisibleOnly() == null || request.agentVisibleOnly()
         );
-        List<ToolCandidate> candidates = toolRetrievalService.retrieve(request.query(), scope, topK);
+        List<ToolCandidate> candidates = toolRetrievalService.retrieve(
+                request.query(), scope, topK, null, request.minScore());
         return ResponseEntity.ok(new SearchResponse(candidates, null));
     }
 
@@ -74,7 +75,9 @@ public class ToolRetrievalController {
             List<Long> moduleIds,
             List<Long> toolWhitelist,
             Boolean enabledOnly,
-            Boolean agentVisibleOnly
+            Boolean agentVisibleOnly,
+            /** 覆盖 {@code ai.tool-retrieval.min-score}；0 表示不过滤低分命中。 */
+            Double minScore
     ) {
     }
 

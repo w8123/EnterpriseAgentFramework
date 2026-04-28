@@ -96,11 +96,16 @@ import type { ScanProject, ScanProjectUpsertRequest } from '@/types/scanProject'
 import {
   createScanProject,
   deleteScanProject,
+  getScanProjectOperationBlockers,
   getScanProjects,
   triggerRescan,
   triggerScan,
   updateScanProject,
 } from '@/api/scanProject'
+import {
+  formatScanProjectBlockersMessage,
+  parseScanProjectBlockersFromError,
+} from '@/utils/scanProjectBlockers'
 
 const router = useRouter()
 const projects = ref<ScanProject[]>([])
@@ -202,6 +207,14 @@ async function handleSave() {
 async function handleScan(id: number) {
   scanLoadingId.value = id
   try {
+    const { data: blockers } = await getScanProjectOperationBlockers(id)
+    if (blockers.blocked) {
+      await ElMessageBox.alert(formatScanProjectBlockersMessage(blockers), '操作被阻止', {
+        type: 'warning',
+        confirmButtonText: '知道了',
+      })
+      return
+    }
     const current = projects.value.find((item) => item.id === id)
     const request = current && current.toolCount > 0 ? triggerRescan(id) : triggerScan(id)
     const { data } = await request
@@ -209,6 +222,14 @@ async function handleScan(id: number) {
     await fetchProjects()
     goDetail(id)
   } catch (error) {
+    const bl = parseScanProjectBlockersFromError(error)
+    if (bl?.blocked) {
+      await ElMessageBox.alert(formatScanProjectBlockersMessage(bl), '操作被阻止', {
+        type: 'warning',
+        confirmButtonText: '知道了',
+      })
+      return
+    }
     ElMessage.error((error as Error).message || '扫描失败')
     await fetchProjects()
   } finally {
@@ -218,6 +239,14 @@ async function handleScan(id: number) {
 
 async function handleDelete(project: ScanProject) {
   try {
+    const { data: blockers } = await getScanProjectOperationBlockers(project.id)
+    if (blockers.blocked) {
+      await ElMessageBox.alert(formatScanProjectBlockersMessage(blockers), '无法删除', {
+        type: 'warning',
+        confirmButtonText: '知道了',
+      })
+      return
+    }
     await ElMessageBox.confirm(`确认删除扫描项目 ${project.name} 吗？关联扫描工具也会一并删除。`, '删除确认', {
       type: 'warning',
     })
@@ -225,9 +254,18 @@ async function handleDelete(project: ScanProject) {
     ElMessage.success('扫描项目已删除')
     await fetchProjects()
   } catch (error) {
-    if ((error as Error).message !== 'cancel') {
-      ElMessage.error((error as Error).message || '删除失败')
+    if ((error as Error).message === 'cancel') {
+      return
     }
+    const bl = parseScanProjectBlockersFromError(error)
+    if (bl?.blocked) {
+      await ElMessageBox.alert(formatScanProjectBlockersMessage(bl), '无法删除', {
+        type: 'warning',
+        confirmButtonText: '知道了',
+      })
+      return
+    }
+    ElMessage.error((error as Error).message || '删除失败')
   }
 }
 

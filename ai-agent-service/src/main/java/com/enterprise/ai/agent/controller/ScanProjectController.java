@@ -3,6 +3,8 @@ package com.enterprise.ai.agent.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.enterprise.ai.agent.scan.ScanModuleEntity;
 import com.enterprise.ai.agent.scan.ScanModuleService;
+import com.enterprise.ai.agent.scan.ScanProjectBlockers;
+import com.enterprise.ai.agent.scan.ScanProjectBlockedException;
 import com.enterprise.ai.agent.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.scan.ScanProjectService;
 import com.enterprise.ai.agent.scan.ScanProjectToolEntity;
@@ -105,10 +107,24 @@ public class ScanProjectController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable Long id) {
+    public ResponseEntity<?> delete(@PathVariable Long id) {
         try {
             scanProjectService.delete(id);
             return ResponseEntity.noContent().build();
+        } catch (ScanProjectBlockedException ex) {
+            return ResponseEntity.status(409).body(ex.getBlockers());
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    /**
+     * 删除项目或重新扫描前探测：是否存在仍引用本项目全局 Tool/Skill 的 Agent。
+     */
+    @GetMapping("/{id}/operation-blockers")
+    public ResponseEntity<ScanProjectBlockers> operationBlockers(@PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(scanProjectService.getOperationBlockers(id));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.notFound().build();
         }
@@ -134,6 +150,8 @@ public class ScanProjectController {
     public ResponseEntity<?> rescan(@PathVariable Long id) {
         try {
             return ResponseEntity.ok(toResultDto(scanProjectService.rescan(id)));
+        } catch (ScanProjectBlockedException ex) {
+            return ResponseEntity.status(409).body(ex.getBlockers());
         } catch (IllegalArgumentException ex) {
             if (ex.getMessage() != null && ex.getMessage().contains("不存在")) {
                 return ResponseEntity.notFound().build();

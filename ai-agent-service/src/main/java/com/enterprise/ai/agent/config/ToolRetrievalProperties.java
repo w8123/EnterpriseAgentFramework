@@ -20,8 +20,8 @@ public class ToolRetrievalProperties {
     /** 默认召回数。 */
     private int topK = 15;
 
-    /** 分数低于此阈值的命中会被丢弃（COSINE 相似度 0~1）。 */
-    private double minScore = 0.3;
+    /** 分数低于此阈值的命中会被丢弃（COSINE 相似度 0~1）。略长文档与短问句的余弦易落在 0.2~0.35，默认不宜过高。 */
+    private double minScore = 0.22;
 
     /** Milvus 异常时是否回退到白名单兜底。 */
     private boolean fallbackOnError = true;

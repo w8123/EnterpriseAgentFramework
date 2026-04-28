@@ -33,7 +33,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Tool 向量索引服务：管理 {@code tool_embeddings} Milvus collection 的生命周期与增删改。
  * <p>
- * 文本选取顺序：{@code ai_description > description > name}；空则跳过不入库。
+ * 入库文本：依次拼接非空的 {@code ai_description}、{@code description}、{@code name}（换行分隔），
+ * 以便「AI 理解」与「描述」均参与向量召回；三者皆空则跳过不入库。
  * <p>
  * 任何 Milvus 异常都只记日志 + 标记「不可用」，让检索侧走降级，不阻塞主链路。
  */
@@ -256,17 +257,23 @@ public class ToolEmbeddingService {
     }
 
     /**
-     * 决定入库文本：ai_description > description > name；都没有则返回 null。
+     * 决定入库向量所用文本：合并 AI 理解、描述与工具名（均为非空才拼接），供语义召回。
+     * <p>
+     * 原先仅有 ai_description 时不再独占一行逻辑，否则「描述」字段不会进入 Milvus，
+     * 与用户在前端看到的 Tool 描述不一致。
      */
     public static String buildText(ToolDefinitionEntity tool) {
         if (tool == null) {
             return null;
         }
-        if (hasText(tool.getAiDescription())) {
-            return tool.getAiDescription().trim();
-        }
         StringBuilder sb = new StringBuilder();
+        if (hasText(tool.getAiDescription())) {
+            sb.append(tool.getAiDescription().trim());
+        }
         if (hasText(tool.getDescription())) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
             sb.append(tool.getDescription().trim());
         }
         if (hasText(tool.getName())) {

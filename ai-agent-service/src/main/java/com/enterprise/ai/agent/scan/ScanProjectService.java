@@ -36,6 +36,7 @@ public class ScanProjectService {
     private final ScannerServiceClient scannerServiceClient;
     private final ScanModuleService scanModuleService;
     private final ObjectMapper objectMapper;
+    private final ScanProjectBlockerService scanProjectBlockerService;
 
     @Autowired(required = false)
     private SemanticDocService semanticDocService;
@@ -45,13 +46,15 @@ public class ScanProjectService {
                               ScanProjectToolService scanProjectToolService,
                               ScannerServiceClient scannerServiceClient,
                               ScanModuleService scanModuleService,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                              ScanProjectBlockerService scanProjectBlockerService) {
         this.projectMapper = projectMapper;
         this.toolDefinitionService = toolDefinitionService;
         this.scanProjectToolService = scanProjectToolService;
         this.scannerServiceClient = scannerServiceClient;
         this.scanModuleService = scanModuleService;
         this.objectMapper = objectMapper;
+        this.scanProjectBlockerService = scanProjectBlockerService;
     }
 
     public ScanProjectEntity create(ScanProjectUpsertRequest request) {
@@ -193,9 +196,25 @@ public class ScanProjectService {
         return scanProjectToolService.listByProject(projectId);
     }
 
+    /**
+     * 删除或重新扫描前的引用检测（全局 Tool/Skill 是否仍挂在 Agent 白名单上）。
+     */
+    public ScanProjectBlockers getOperationBlockers(Long projectId) {
+        getById(projectId);
+        return scanProjectBlockerService.analyze(projectId);
+    }
+
+    private void assertNotBlockedByAgentReferences(Long projectId) {
+        ScanProjectBlockers b = scanProjectBlockerService.analyze(projectId);
+        if (b.blocked()) {
+            throw new ScanProjectBlockedException(b);
+        }
+    }
+
     @Transactional
     public void delete(Long id) {
         getById(id);
+        assertNotBlockedByAgentReferences(id);
         scanProjectToolService.deleteByProject(id);
         toolDefinitionService.deleteByProjectId(id);
         if (semanticDocService != null) {
@@ -217,6 +236,7 @@ public class ScanProjectService {
     @Transactional
     public ScanResult rescan(Long projectId) {
         ScanProjectEntity project = getById(projectId);
+        assertNotBlockedByAgentReferences(projectId);
         return performScan(project, true);
     }
 

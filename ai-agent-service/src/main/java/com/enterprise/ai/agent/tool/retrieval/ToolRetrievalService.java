@@ -1,5 +1,6 @@
 package com.enterprise.ai.agent.tool.retrieval;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.enterprise.ai.agent.config.ToolRetrievalProperties;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
@@ -19,6 +20,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import io.milvus.client.MilvusServiceClient;
@@ -58,7 +60,7 @@ public class ToolRetrievalService {
      * 检索 top-K tool 候选。任何异常/未就绪情况返回空列表，由上层决定降级策略。
      */
     public List<ToolCandidate> retrieve(String query, RetrievalScope scope, int topK) {
-        return retrieve(query, scope, topK, null);
+        return retrieve(query, scope, topK, null, null);
     }
 
     /**
@@ -66,6 +68,15 @@ public class ToolRetrievalService {
      */
     public List<ToolCandidate> retrieve(String query, RetrievalScope scope, int topK,
                                         ToolExecutionContext auditContext) {
+        return retrieve(query, scope, topK, auditContext, null);
+    }
+
+    /**
+     * 同 {@link #retrieve(String, RetrievalScope, int, ToolExecutionContext)}，
+     * {@code minScoreOverride} 非空时覆盖配置的相似度下限（0 表示不按阈值过滤）；管理端检索测试可用。
+     */
+    public List<ToolCandidate> retrieve(String query, RetrievalScope scope, int topK,
+                                        ToolExecutionContext auditContext, Double minScoreOverride) {
         if (!properties.isEnabled()) {
             return List.of();
         }
@@ -113,13 +124,13 @@ public class ToolRetrievalService {
                 log.warn("[ToolRetrieval] Milvus 搜索异常: {}", resp.getException().toString());
                 logMilvusSpan(auditContext, query, expr, k, List.of(), searchMs,
                         "Milvus: " + resp.getException());
-                return List.of();
+                return finishWithOptionalKeywordFallback(query, effectiveScope, k, List.of());
             }
             SearchResultsWrapper wrapper = new SearchResultsWrapper(resp.getData().getResults());
             List<SearchResultsWrapper.IDScore> idScores = wrapper.getIDScore(0);
             if (idScores == null || idScores.isEmpty()) {
                 logMilvusSpan(auditContext, query, expr, k, List.of(), searchMs, null);
-                return List.of();
+                return finishWithOptionalKeywordFallback(query, effectiveScope, k, List.of());
             }
 
             List<Long> toolIds = idScores.stream()
@@ -129,12 +140,12 @@ public class ToolRetrievalService {
                     .stream()
                     .collect(Collectors.toMap(ToolDefinitionEntity::getId, t -> t, (a, b) -> a));
 
-            double minScore = properties.getMinScore();
+            double minScore = resolveMinScore(minScoreOverride);
             List<ToolCandidate> candidates = new ArrayList<>();
             List<?> rowRecords = wrapper.getRowRecords(0);
             for (int i = 0; i < idScores.size(); i++) {
                 SearchResultsWrapper.IDScore idScore = idScores.get(i);
-                if (idScore.getScore() < minScore) {
+                if (minScore > 0 && idScore.getScore() < minScore) {
                     continue;
                 }
                 ToolDefinitionEntity tool = byId.get(idScore.getLongID());
@@ -156,12 +167,140 @@ public class ToolRetrievalService {
                 ));
             }
             logMilvusSpan(auditContext, query, expr, k, candidates, searchMs, null);
-            return Collections.unmodifiableList(candidates);
+            return finishWithOptionalKeywordFallback(query, effectiveScope, k, candidates);
         } catch (Exception ex) {
-            log.warn("[ToolRetrieval] 检索异常，返回空结果: {}", ex.toString());
+            log.warn("[ToolRetrieval] 检索异常，尝试关键词兜底: {}", ex.toString());
             logRetrievalFailureSpan(auditContext, query, ex);
+            List<ToolCandidate> fb = keywordFallbackSearch(query, effectiveScope, k);
+            if (!fb.isEmpty()) {
+                log.debug("[ToolRetrieval] 异常后关键词兜底 {} 条", fb.size());
+                return Collections.unmodifiableList(fb);
+            }
             return List.of();
         }
+    }
+
+    private double resolveMinScore(Double override) {
+        if (override == null) {
+            return properties.getMinScore();
+        }
+        double v = override;
+        if (v < 0) {
+            return 0;
+        }
+        if (v > 1) {
+            return 1;
+        }
+        return v;
+    }
+
+    /**
+     * BUGFIX：向量分数低于阈值或 Milvus 无命中时仍可能「应召回」——例如用户粘贴长描述的一小段，
+     * 余弦相似度偏低。此时用语义字段子串匹配兜底（与 {@link ToolEmbeddingService#buildText} 数据源一致）。
+     */
+    private List<ToolCandidate> finishWithOptionalKeywordFallback(String query,
+                                                                  RetrievalScope scope,
+                                                                  int topK,
+                                                                  List<ToolCandidate> vectorHits) {
+        if (vectorHits != null && !vectorHits.isEmpty()) {
+            return Collections.unmodifiableList(vectorHits);
+        }
+        List<ToolCandidate> fb = keywordFallbackSearch(query, scope, topK);
+        if (fb.isEmpty()) {
+            return List.of();
+        }
+        log.debug("[ToolRetrieval] 向量阶段无可用命中，关键词兜底 {} 条", fb.size());
+        return Collections.unmodifiableList(fb);
+    }
+
+    private List<ToolCandidate> keywordFallbackSearch(String query, RetrievalScope scope, int topK) {
+        String q = query == null ? "" : query.trim();
+        if (q.length() < 2) {
+            return List.of();
+        }
+        String pattern = escapeForLike(q);
+        LambdaQueryWrapper<ToolDefinitionEntity> w = new LambdaQueryWrapper<>();
+        w.and(x -> x.like(ToolDefinitionEntity::getDescription, pattern)
+                .or()
+                .like(ToolDefinitionEntity::getAiDescription, pattern)
+                .or()
+                .like(ToolDefinitionEntity::getName, pattern));
+        applyScopeToKeywordQuery(w, scope);
+        int limit = Math.min(Math.max(topK, 1), 100);
+        w.last("LIMIT " + limit);
+        List<ToolDefinitionEntity> rows = toolDefinitionMapper.selectList(w);
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        final float fallbackScore = 0.92f;
+        List<ToolCandidate> out = new ArrayList<>(rows.size());
+        for (ToolDefinitionEntity tool : rows) {
+            String text = ToolEmbeddingService.buildText(tool);
+            out.add(new ToolCandidate(
+                    tool.getId(),
+                    tool.getName(),
+                    tool.getProjectId(),
+                    tool.getModuleId(),
+                    fallbackScore,
+                    text));
+        }
+        return out;
+    }
+
+    private static void applyScopeToKeywordQuery(LambdaQueryWrapper<ToolDefinitionEntity> w, RetrievalScope scope) {
+        if (scope == null) {
+            return;
+        }
+        if (scope.enabledOnly()) {
+            w.eq(ToolDefinitionEntity::getEnabled, true);
+        }
+        if (scope.agentVisibleOnly()) {
+            w.eq(ToolDefinitionEntity::getAgentVisible, true);
+        }
+        if (scope.toolWhitelist() != null && !scope.toolWhitelist().isEmpty()) {
+            w.in(ToolDefinitionEntity::getId, scope.toolWhitelist());
+        }
+        if (scope.projectIds() != null && !scope.projectIds().isEmpty()) {
+            w.in(ToolDefinitionEntity::getProjectId, scope.projectIds());
+        }
+        if (scope.moduleIds() != null && !scope.moduleIds().isEmpty()) {
+            w.in(ToolDefinitionEntity::getModuleId, scope.moduleIds());
+        }
+        Set<String> kinds = scope.kinds();
+        if (kinds != null && !kinds.isEmpty()) {
+            w.and(outer -> {
+                boolean first = true;
+                for (String raw : kinds) {
+                    if (raw == null || raw.isBlank()) {
+                        continue;
+                    }
+                    String k = raw.trim().toUpperCase();
+                    if (first) {
+                        if ("TOOL".equals(k)) {
+                            outer.nested(sub -> sub.isNull(ToolDefinitionEntity::getKind)
+                                    .or()
+                                    .eq(ToolDefinitionEntity::getKind, "TOOL"));
+                        } else {
+                            outer.eq(ToolDefinitionEntity::getKind, k);
+                        }
+                        first = false;
+                    } else if ("TOOL".equals(k)) {
+                        outer.or(sub -> sub.isNull(ToolDefinitionEntity::getKind)
+                                .or()
+                                .eq(ToolDefinitionEntity::getKind, "TOOL"));
+                    } else {
+                        outer.or().eq(ToolDefinitionEntity::getKind, k);
+                    }
+                }
+            });
+        }
+    }
+
+    private static String escapeForLike(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     private void logEmbeddingSpan(ToolExecutionContext ctx, String query, List<Float> vector, long elapsedMs) {

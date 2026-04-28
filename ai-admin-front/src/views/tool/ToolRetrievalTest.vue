@@ -29,6 +29,19 @@
         <el-form-item label="仅 Agent 可见">
           <el-switch v-model="form.agentVisibleOnly" />
         </el-form-item>
+        <el-form-item label="相似度下限">
+          <el-input-number
+            v-model="form.minScore"
+            :min="0"
+            :max="1"
+            :step="0.05"
+            :precision="2"
+            placeholder="默认用服务端配置"
+            controls-position="right"
+            style="width: 160px"
+          />
+          <span class="form-hint">0=不过滤；留空用服务端 min-score</span>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="searching" @click="handleSearch">检索</el-button>
         </el-form-item>
@@ -98,13 +111,15 @@ import {
   searchToolRetrieval,
   startToolRetrievalRebuild,
 } from '@/api/toolRetrieval'
-import type { ToolCandidate, ToolRebuildTask } from '@/types/toolRetrieval'
+import type { ToolCandidate, ToolRebuildTask, ToolRetrievalSearchRequest } from '@/types/toolRetrieval'
 
 const form = reactive({
   query: '',
   topK: 10,
   enabledOnly: false,
   agentVisibleOnly: false,
+  /** undefined：不传，走后端默认 min-score */
+  minScore: undefined as number | undefined,
 })
 
 const searching = ref(false)
@@ -126,12 +141,16 @@ async function handleSearch() {
   }
   searching.value = true
   try {
-    const { data } = await searchToolRetrieval({
+    const payload: ToolRetrievalSearchRequest = {
       query: form.query.trim(),
       topK: form.topK,
       enabledOnly: form.enabledOnly,
       agentVisibleOnly: form.agentVisibleOnly,
-    })
+    }
+    if (form.minScore !== undefined && form.minScore !== null) {
+      payload.minScore = form.minScore
+    }
+    const { data } = await searchToolRetrieval(payload)
     candidates.value = data?.candidates || []
     if (!candidates.value.length && data?.message) {
       ElMessage.info(data.message)
@@ -224,6 +243,11 @@ onUnmounted(stopPolling)
   display: flex;
   flex-wrap: wrap;
   gap: 8px 16px;
+}
+.form-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 .text-ellipsis {
   display: inline-block;

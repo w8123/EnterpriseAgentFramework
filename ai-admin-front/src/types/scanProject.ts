@@ -121,6 +121,14 @@ export interface ScanProjectScanResult {
   toolNames: string[]
 }
 
+/** GET /api/scan-projects/:id/operation-blockers；与 409 响应体结构一致 */
+export interface ScanProjectBlockers {
+  blocked: boolean
+  toolNames: string[]
+  skillNames: string[]
+  agents: { id: string; name: string }[]
+}
+
 export interface ProjectToolInfo extends ToolInfo {
   /** 扫描表 scan_project_tool.id，编辑/测试/语义生成/添加为 Tool 均依赖此字段 */
   scanToolId: number
