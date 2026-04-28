@@ -30,6 +30,11 @@ mysql -uroot -p < sql/init.sql
 | `ai-agent-service/sql/tool_call_log_index_phase2_0_1.sql` | §五 | Phase 2.0.1 为 `tool_call_log` 补 3 个索引 |
 | `ai-agent-service/sql/backfill_side_effect.sql` | §七 | Phase 2.0.1 历史 tool `side_effect` 回填 |
 | `ai-agent-service/sql/skill_mining_phase2_1.sql` | §六 | Phase 2.1 `skill_draft` + `skill_eval_snapshot` |
+| `ai-agent-service/sql/tool_acl_phase3_1.sql` | §九 | Phase 3.1 Tool ACL 黑白名单 |
+| `ai-agent-service/sql/slot_extractor_phase_p1.sql` | §十 | Phase P1 SlotExtractor 字典 + 调用日志 + 字段绑定 |
+| `ai-agent-service/sql/domain_classifier_phase_p1.sql` | §十一 | Phase P1 DomainClassifier 领域定义 + 归属挂接 |
+| `ai-agent-service/sql/mcp_phase_p2.sql` | §十二 | Phase P2 MCP Client / 调用日志 / 暴露白名单 |
+| `ai-agent-service/sql/a2a_phase_p2.sql` | §十三 | Phase P2 A2A Endpoint / 调用日志 |
 
 ## 部署场景
 

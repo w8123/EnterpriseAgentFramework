@@ -587,6 +587,204 @@ WHERE NOT EXISTS (SELECT 1 FROM `tool_acl` LIMIT 1);
 
 
 -- ============================================================================
+-- 七.b、Phase P1 —— SlotExtractor SPI（字典 + 调用日志 + 字段绑定）
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS `slot_dict_dept` (
+    `id`            BIGINT        NOT NULL AUTO_INCREMENT,
+    `parent_id`     BIGINT        DEFAULT NULL,
+    `name`          VARCHAR(128)  NOT NULL,
+    `pinyin`        VARCHAR(256)  DEFAULT NULL,
+    `aliases`       VARCHAR(512)  DEFAULT NULL,
+    `project_scope` VARCHAR(128)  DEFAULT NULL,
+    `enabled`       TINYINT(1)    NOT NULL DEFAULT 1,
+    `created_at`    DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`    DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_parent` (`parent_id`),
+    KEY `idx_name`   (`name`),
+    KEY `idx_pinyin` (`pinyin`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='SlotExtractor 部门字典 (Phase P1)';
+
+CREATE TABLE IF NOT EXISTS `slot_dict_user` (
+    `id`            BIGINT        NOT NULL AUTO_INCREMENT,
+    `dept_id`       BIGINT        DEFAULT NULL,
+    `name`          VARCHAR(128)  NOT NULL,
+    `pinyin`        VARCHAR(256)  DEFAULT NULL,
+    `employee_no`   VARCHAR(64)   DEFAULT NULL,
+    `aliases`       VARCHAR(512)  DEFAULT NULL,
+    `enabled`       TINYINT(1)    NOT NULL DEFAULT 1,
+    `created_at`    DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`    DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_dept`   (`dept_id`),
+    KEY `idx_name`   (`name`),
+    KEY `idx_pinyin` (`pinyin`),
+    KEY `idx_emp_no` (`employee_no`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='SlotExtractor 人员字典 (Phase P1)';
+
+CREATE TABLE IF NOT EXISTS `slot_extract_log` (
+    `id`             BIGINT        NOT NULL AUTO_INCREMENT,
+    `trace_id`       VARCHAR(64)   NOT NULL,
+    `skill_name`     VARCHAR(128)  DEFAULT NULL,
+    `field_key`      VARCHAR(128)  DEFAULT NULL,
+    `extractor_name` VARCHAR(64)   NOT NULL,
+    `hit`            TINYINT(1)    NOT NULL,
+    `value`          VARCHAR(2000) DEFAULT NULL,
+    `confidence`     DECIMAL(5,3)  DEFAULT NULL,
+    `evidence`       VARCHAR(2000) DEFAULT NULL,
+    `latency_ms`     BIGINT        DEFAULT NULL,
+    `created_at`     DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_trace`               (`trace_id`),
+    KEY `idx_extractor_create_time` (`extractor_name`, `created_at`),
+    KEY `idx_skill_field`         (`skill_name`, `field_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='SlotExtractor 调用日志 (Phase P1)';
+
+CREATE TABLE IF NOT EXISTS `field_extractor_binding` (
+    `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
+    `skill_name`           VARCHAR(128) NOT NULL,
+    `field_key`            VARCHAR(128) NOT NULL,
+    `extractor_names_json` VARCHAR(1024) DEFAULT NULL,
+    `created_at`           DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`           DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_skill_field` (`skill_name`, `field_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Skill 字段 ↔ 提取器白名单 (Phase P1)';
+
+
+-- ============================================================================
+-- 七.c、Phase P1 —— DomainClassifier（领域定义 + 归属挂接）
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS `domain_def` (
+    `id`             BIGINT        NOT NULL AUTO_INCREMENT,
+    `code`           VARCHAR(64)   NOT NULL,
+    `name`           VARCHAR(128)  NOT NULL,
+    `description`    VARCHAR(512)  DEFAULT NULL,
+    `keywords_json`  VARCHAR(2000) DEFAULT NULL,
+    `parent_code`    VARCHAR(64)   DEFAULT NULL,
+    `agent_visible`  TINYINT(1)    NOT NULL DEFAULT 1,
+    `enabled`        TINYINT(1)    NOT NULL DEFAULT 1,
+    `created_at`     DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`     DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_code` (`code`),
+    KEY `idx_parent_code` (`parent_code`),
+    KEY `idx_enabled`     (`enabled`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='领域定义 (Phase P1)';
+
+CREATE TABLE IF NOT EXISTS `domain_assignment` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT,
+    `target_kind`   VARCHAR(16)  NOT NULL                COMMENT 'PROJECT / TOOL / SKILL / AGENT',
+    `target_name`   VARCHAR(192) NOT NULL,
+    `domain_code`   VARCHAR(64)  NOT NULL,
+    `weight`        DECIMAL(5,3) NOT NULL DEFAULT 1.000,
+    `source`        VARCHAR(32)  NOT NULL DEFAULT 'MANUAL' COMMENT 'MANUAL / AUTO_FROM_PROJECT',
+    `created_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_kind_name_domain` (`target_kind`, `target_name`, `domain_code`),
+    KEY `idx_domain` (`domain_code`),
+    KEY `idx_target` (`target_kind`, `target_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool/Skill/Agent 领域挂接 (Phase P1)';
+
+CALL add_col_if_absent('scan_project', 'default_domain_code', 'VARCHAR(64) DEFAULT NULL COMMENT ''扫描项目默认领域 (Phase P1)''');
+
+
+-- ============================================================================
+-- 七.d、Phase P2 —— MCP Server（Client / 调用日志 / 暴露白名单）
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS `mcp_client` (
+    `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
+    `name`                 VARCHAR(128) NOT NULL,
+    `api_key_prefix`       VARCHAR(16)  NOT NULL,
+    `api_key_hash`         VARCHAR(128) NOT NULL,
+    `roles_json`           VARCHAR(1024) DEFAULT NULL,
+    `tool_whitelist_json`  TEXT          DEFAULT NULL,
+    `enabled`              TINYINT(1)   NOT NULL DEFAULT 1,
+    `expires_at`           DATETIME     DEFAULT NULL,
+    `last_used_at`         DATETIME     DEFAULT NULL,
+    `created_at`           DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`           DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_api_key_prefix` (`api_key_prefix`),
+    KEY `idx_enabled` (`enabled`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='MCP Client 凭证 (Phase P2)';
+
+CREATE TABLE IF NOT EXISTS `mcp_call_log` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT,
+    `client_id`     BIGINT       DEFAULT NULL,
+    `client_name`   VARCHAR(128) DEFAULT NULL,
+    `method`        VARCHAR(64)  NOT NULL,
+    `tool_name`     VARCHAR(128) DEFAULT NULL,
+    `success`       TINYINT(1)   NOT NULL DEFAULT 0,
+    `latency_ms`    BIGINT       DEFAULT NULL,
+    `request_body`  TEXT         DEFAULT NULL,
+    `response_body` TEXT         DEFAULT NULL,
+    `error_message` VARCHAR(2000) DEFAULT NULL,
+    `trace_id`      VARCHAR(64)  DEFAULT NULL,
+    `remote_ip`     VARCHAR(64)  DEFAULT NULL,
+    `created_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_client_created` (`client_id`, `created_at`),
+    KEY `idx_method`         (`method`, `created_at`),
+    KEY `idx_trace`          (`trace_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='MCP 调用审计 (Phase P2)';
+
+CREATE TABLE IF NOT EXISTS `mcp_visibility` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT,
+    `target_kind`   VARCHAR(16)  NOT NULL                COMMENT 'TOOL / SKILL',
+    `target_name`   VARCHAR(192) NOT NULL,
+    `exposed`       TINYINT(1)   NOT NULL DEFAULT 0,
+    `note`          VARCHAR(512) DEFAULT NULL,
+    `created_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_kind_name` (`target_kind`, `target_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='MCP 暴露白名单 (Phase P2)';
+
+
+-- ============================================================================
+-- 七.e、Phase P2 —— A2A 适配（AgentCard endpoint + 调用日志）
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS `a2a_endpoint` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+    `agent_id`    VARCHAR(64)  NOT NULL                 COMMENT 'agent_definition.id',
+    `agent_key`   VARCHAR(128) NOT NULL                 COMMENT 'agent_definition.key_slug 冗余',
+    `card_json`   TEXT         NOT NULL                 COMMENT 'A2A AgentCard JSON',
+    `enabled`     TINYINT(1)   NOT NULL DEFAULT 1,
+    `created_at`  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_agent_id`  (`agent_id`),
+    KEY `idx_agent_key` (`agent_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='A2A 暴露的 Agent (Phase P2)';
+
+CREATE TABLE IF NOT EXISTS `a2a_call_log` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT,
+    `endpoint_id`   BIGINT       DEFAULT NULL,
+    `agent_key`     VARCHAR(128) DEFAULT NULL,
+    `task_id`       VARCHAR(64)  DEFAULT NULL,
+    `method`        VARCHAR(32)  NOT NULL,
+    `success`       TINYINT(1)   NOT NULL DEFAULT 0,
+    `latency_ms`    BIGINT       DEFAULT NULL,
+    `request_body`  TEXT         DEFAULT NULL,
+    `response_body` TEXT         DEFAULT NULL,
+    `error_message` VARCHAR(2000) DEFAULT NULL,
+    `trace_id`      VARCHAR(64)  DEFAULT NULL,
+    `remote_ip`     VARCHAR(64)  DEFAULT NULL,
+    `created_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_agent_key_created` (`agent_key`, `created_at`),
+    KEY `idx_method`            (`method`, `created_at`),
+    KEY `idx_trace`             (`trace_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='A2A 调用审计 (Phase P2)';
+
+
+-- ============================================================================
 -- 八、初始化示例数据（可选；同名再跑不会插入重复行）
 -- ============================================================================
 

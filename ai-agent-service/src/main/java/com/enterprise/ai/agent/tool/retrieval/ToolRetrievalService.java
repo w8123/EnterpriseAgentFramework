@@ -1,7 +1,9 @@
 package com.enterprise.ai.agent.tool.retrieval;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.enterprise.ai.agent.config.DomainProperties;
 import com.enterprise.ai.agent.config.ToolRetrievalProperties;
+import com.enterprise.ai.agent.domain.DomainAssignmentService;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
@@ -41,19 +43,25 @@ public class ToolRetrievalService {
     private final ToolEmbeddingService embeddingService;
     private final ToolDefinitionMapper toolDefinitionMapper;
     private final ToolCallLogService toolCallLogService;
+    private final DomainAssignmentService domainAssignmentService;
+    private final DomainProperties domainProperties;
 
     public ToolRetrievalService(MilvusServiceClient milvus,
                                 EmbeddingClient embeddingClient,
                                 ToolRetrievalProperties properties,
                                 ToolEmbeddingService embeddingService,
                                 ToolDefinitionMapper toolDefinitionMapper,
-                                ToolCallLogService toolCallLogService) {
+                                ToolCallLogService toolCallLogService,
+                                DomainAssignmentService domainAssignmentService,
+                                DomainProperties domainProperties) {
         this.milvus = milvus;
         this.embeddingClient = embeddingClient;
         this.properties = properties;
         this.embeddingService = embeddingService;
         this.toolDefinitionMapper = toolDefinitionMapper;
         this.toolCallLogService = toolCallLogService;
+        this.domainAssignmentService = domainAssignmentService;
+        this.domainProperties = domainProperties;
     }
 
     /**
@@ -167,7 +175,8 @@ public class ToolRetrievalService {
                 ));
             }
             logMilvusSpan(auditContext, query, expr, k, candidates, searchMs, null);
-            return finishWithOptionalKeywordFallback(query, effectiveScope, k, candidates);
+            List<ToolCandidate> domainFiltered = applyDomainSoftFilter(candidates, effectiveScope);
+            return finishWithOptionalKeywordFallback(query, effectiveScope, k, domainFiltered);
         } catch (Exception ex) {
             log.warn("[ToolRetrieval] 检索异常，尝试关键词兜底: {}", ex.toString());
             logRetrievalFailureSpan(auditContext, query, ex);
@@ -455,6 +464,60 @@ public class ToolRetrievalService {
             return;
         }
         parts.add(field + " in [" + list + "]");
+    }
+
+    /**
+     * 领域软过滤：仅当 {@code scope.domains()} 非空时启用。
+     * <ul>
+     *     <li>若 candidate 在 {@code domain_assignment} 中关联了 {@code scope.domains()} 任意一个 domain → 保留；</li>
+     *     <li>若 candidate 没有任何 domain 归属 → 默认保留（避免历史 Tool 全部被过滤掉）；</li>
+     *     <li>若过滤后整体为空且 {@code ai.domain.soft-fallback=true} → 退回原始候选集。</li>
+     * </ul>
+     */
+    List<ToolCandidate> applyDomainSoftFilter(List<ToolCandidate> candidates, RetrievalScope scope) {
+        if (candidates == null || candidates.isEmpty()) return candidates;
+        if (scope == null || scope.domains() == null || scope.domains().isEmpty()) return candidates;
+        if (domainAssignmentService == null) return candidates;
+
+        List<String> names = new ArrayList<>();
+        for (ToolCandidate c : candidates) names.add(c.toolName());
+        Map<String, Set<String>> deptByName;
+        try {
+            // 简化处理：把 TOOL/SKILL 一起按 name 查（domain_assignment 用 (kind, name) 复合键，但不同 kind name 通常不冲突）
+            Map<String, Set<String>> tools = domainAssignmentService.domainsByTargetName("TOOL", names);
+            Map<String, Set<String>> skills = domainAssignmentService.domainsByTargetName("SKILL", names);
+            deptByName = new HashMap<>(tools);
+            for (Map.Entry<String, Set<String>> e : skills.entrySet()) {
+                deptByName.merge(e.getKey(), e.getValue(), (a, b) -> {
+                    Set<String> merged = new java.util.LinkedHashSet<>(a);
+                    merged.addAll(b);
+                    return merged;
+                });
+            }
+        } catch (Exception ex) {
+            log.debug("[DomainFilter] 查询 domain_assignment 失败，跳过过滤: {}", ex.toString());
+            return candidates;
+        }
+
+        List<ToolCandidate> kept = new ArrayList<>();
+        for (ToolCandidate c : candidates) {
+            Set<String> domains = deptByName.get(c.toolName());
+            if (domains == null || domains.isEmpty()) {
+                kept.add(c); // 未挂 domain 的视为通用工具，保留
+                continue;
+            }
+            boolean any = false;
+            for (String d : scope.domains()) {
+                if (domains.contains(d)) { any = true; break; }
+            }
+            if (any) kept.add(c);
+        }
+        boolean soft = domainProperties == null || domainProperties.isSoftFallback();
+        if (kept.isEmpty() && soft) {
+            log.debug("[DomainFilter] 过滤后为空，软回退到原始候选 {} 条", candidates.size());
+            return candidates;
+        }
+        return kept;
     }
 
     /**

@@ -6,6 +6,7 @@ import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.agentscope.adapter.AiToolAgentAdapter;
 import com.enterprise.ai.agent.config.LLMConfig;
 import com.enterprise.ai.agent.config.ToolRetrievalProperties;
+import com.enterprise.ai.agent.domain.DomainTagger;
 import com.enterprise.ai.agent.skill.SubAgentSkillExecutor;
 import com.enterprise.ai.agent.tool.governance.ToolRateLimiter;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
@@ -24,6 +25,7 @@ import io.agentscope.core.ReActAgent;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.tool.Toolkit;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
@@ -64,6 +66,10 @@ public class AgentFactory {
     private final ToolAclService toolAclService;
     private final ToolRateLimiter toolRateLimiter;
     private final int defaultMaxSteps;
+
+    /** 领域分类器，可选注入；为空时跳过领域过滤。 */
+    @Autowired(required = false)
+    private DomainTagger domainTagger;
 
     public AgentFactory(
             @Qualifier("agentScopeChatModel") Model singleAgentModel,
@@ -172,6 +178,14 @@ public class AgentFactory {
                 null, null,
                 whitelistIds == null || whitelistIds.isEmpty() ? null : whitelistIds,
                 true, true);
+        // Phase P1: 若领域分类器开启且能识别出领域，叠加到 scope 做软过滤
+        if (domainTagger != null) {
+            List<String> domains = domainTagger.tag(userMessage);
+            if (domains != null && !domains.isEmpty()) {
+                scope = scope.withDomains(new LinkedHashSet<>(domains));
+                log.debug("[AgentFactory] 用户消息识别为领域 {}", domains);
+            }
+        }
         List<ToolCandidate> candidates;
         try {
             candidates = toolRetrievalService.retrieve(userMessage, scope, retrievalProperties.getTopK(), context);
@@ -260,14 +274,19 @@ public class AgentFactory {
         Toolkit toolkit = new Toolkit();
         boolean insideChildSkill = SubAgentSkillExecutor.currentDepth() > 0;
         List<String> roles = context == null ? null : context.getRoles();
+        int registeredCount = 0;
         for (String toolName : toolNames) {
             if (!toolDefinitionService.isAgentCallable(toolName)) {
                 log.warn("[AgentFactory] 工具/Skill 未启用或不可见，跳过注册: {}", toolName);
                 continue;
             }
             if (!toolRegistry.contains(toolName)) {
-                log.warn("[AgentFactory] ToolRegistry 中未找到工具/Skill: {}", toolName);
-                continue;
+                log.warn("[AgentFactory] ToolRegistry 中未找到工具/Skill，尝试按 tool_definition 运行时注册: {}", toolName);
+                boolean registered = toolDefinitionService.ensureRegisteredForRuntime(toolName);
+                if (!registered || !toolRegistry.contains(toolName)) {
+                    log.warn("[AgentFactory] ToolRegistry 运行时注册后仍不可用，跳过装配: {}", toolName);
+                    continue;
+                }
             }
             AiTool aiTool = toolRegistry.get(toolName);
             boolean isSkill = aiTool instanceof AiSkill;
@@ -290,9 +309,12 @@ public class AgentFactory {
                     .map(ToolDefinitionEntity::getSideEffect)
                     .orElse(null);
             toolkit.registerAgentTool(new AiToolAgentAdapter(aiTool, context, toolCallLogService, sideEffect, toolRateLimiter));
+            registeredCount++;
             log.debug("[AgentFactory] 装配 {}: {} (sideEffect={}, aclDecision={})",
                     isSkill ? "SKILL" : "TOOL", toolName, sideEffect, decision);
         }
+        log.info("[AgentFactory] Toolkit 装配完成: requested={}, registered={}, traceId={}",
+                toolNames.size(), registeredCount, context == null ? null : context.getTraceId());
         return toolkit;
     }
 

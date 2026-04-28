@@ -131,6 +131,30 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Skill Mining' },
       },
       {
+        path: 'skill/slot/extractors',
+        name: 'SlotExtractorList',
+        component: () => import('@/views/skill/slot/SlotExtractorList.vue'),
+        meta: { title: '槽位提取器' },
+      },
+      {
+        path: 'skill/slot/dict-dept',
+        name: 'SlotDictDept',
+        component: () => import('@/views/skill/slot/SlotDictDept.vue'),
+        meta: { title: '部门字典' },
+      },
+      {
+        path: 'skill/slot/dict-user',
+        name: 'SlotDictUser',
+        component: () => import('@/views/skill/slot/SlotDictUser.vue'),
+        meta: { title: '人员字典' },
+      },
+      {
+        path: 'skill/slot/logs',
+        name: 'SlotExtractLogs',
+        component: () => import('@/views/skill/slot/SlotExtractLogs.vue'),
+        meta: { title: '槽位提取日志' },
+      },
+      {
         path: 'scan-project',
         name: 'ScanProjectList',
         component: () => import('@/views/scan/ScanProjectList.vue'),
@@ -143,12 +167,72 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '扫描详情' },
       },
 
+      // ── 对外开放 / MCP ──
+      {
+        path: 'mcp/visibility',
+        name: 'McpVisibilityBoard',
+        component: () => import('@/views/mcp/McpVisibilityBoard.vue'),
+        meta: { title: 'MCP 暴露白名单' },
+      },
+      {
+        path: 'mcp/clients',
+        name: 'McpClientList',
+        component: () => import('@/views/mcp/McpClientList.vue'),
+        meta: { title: 'MCP Client' },
+      },
+      {
+        path: 'mcp/monitor',
+        name: 'McpCallMonitor',
+        component: () => import('@/views/mcp/McpCallMonitor.vue'),
+        meta: { title: 'MCP 调用流水' },
+      },
+      {
+        path: 'mcp/onboarding',
+        name: 'McpOnboarding',
+        component: () => import('@/views/mcp/McpOnboarding.vue'),
+        meta: { title: 'MCP 接入向导' },
+      },
+
+      // ── 对外开放 / A2A ──
+      {
+        path: 'a2a/endpoints',
+        name: 'A2aEndpointList',
+        component: () => import('@/views/a2a/A2aEndpointList.vue'),
+        meta: { title: 'A2A 暴露 Agent' },
+      },
+      {
+        path: 'a2a/monitor',
+        name: 'A2aSessionMonitor',
+        component: () => import('@/views/a2a/A2aSessionMonitor.vue'),
+        meta: { title: 'A2A 会话监控' },
+      },
+
       // ── 设置 / 护栏 ──
       {
         path: 'settings/tool-acl',
         name: 'ToolAclList',
         component: () => import('@/views/settings/ToolAclList.vue'),
         meta: { title: 'Tool ACL' },
+      },
+
+      // ── 治理 / 领域 ──
+      {
+        path: 'domain',
+        name: 'DomainList',
+        component: () => import('@/views/domain/DomainList.vue'),
+        meta: { title: '领域定义' },
+      },
+      {
+        path: 'domain/board',
+        name: 'DomainAssignmentBoard',
+        component: () => import('@/views/domain/DomainAssignmentBoard.vue'),
+        meta: { title: '领域归属画布' },
+      },
+      {
+        path: 'domain/classifier-test',
+        name: 'DomainClassifierTest',
+        component: () => import('@/views/domain/DomainClassifierTest.vue'),
+        meta: { title: '分类器测试' },
       },
     ],
   },

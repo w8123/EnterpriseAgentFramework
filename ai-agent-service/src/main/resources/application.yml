@@ -114,6 +114,12 @@ ai:
     result-max-chars: 2000
     args-max-chars: 4000
     tool-parameters-snapshot-max-chars: 2500
+  tool-rate-limit:
+    enabled: ${TOOL_RATE_LIMIT_ENABLED:false}
+    capacity: ${TOOL_RATE_LIMIT_CAPACITY:120}
+    window-seconds: ${TOOL_RATE_LIMIT_WINDOW_SECONDS:60}
+    per-user: true
+    per-roles: false
 
 # ==================== 日志 ====================
 logging:

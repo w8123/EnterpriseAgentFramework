@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.agent.semantic.SemanticDocEntity;
 import com.enterprise.ai.agent.semantic.SemanticDocService;
 import com.enterprise.ai.agent.semantic.SemanticMarkdownUtil;
+import com.enterprise.ai.agent.domain.DomainAssignmentService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
@@ -12,6 +13,7 @@ import com.enterprise.ai.agent.tools.definition.ToolDefinitionUpsertRequest;
 import com.enterprise.ai.agent.tools.dynamic.DynamicHttpAiTool;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -26,6 +28,7 @@ import java.util.Optional;
 /**
  * 扫描项目内接口的持久化与「注册为全局 Tool」。
  */
+@Slf4j
 @Service
 public class ScanProjectToolService {
 
@@ -38,17 +41,20 @@ public class ScanProjectToolService {
     private final ToolDefinitionService toolDefinitionService;
     private final SemanticDocService semanticDocService;
     private final ObjectMapper objectMapper;
+    private final DomainAssignmentService domainAssignmentService;
 
     public ScanProjectToolService(ScanProjectToolMapper mapper,
                                   ScanProjectMapper projectMapper,
                                   ToolDefinitionService toolDefinitionService,
                                   SemanticDocService semanticDocService,
-                                  ObjectMapper objectMapper) {
+                                  ObjectMapper objectMapper,
+                                  DomainAssignmentService domainAssignmentService) {
         this.mapper = mapper;
         this.projectMapper = projectMapper;
         this.toolDefinitionService = toolDefinitionService;
         this.semanticDocService = semanticDocService;
         this.objectMapper = objectMapper;
+        this.domainAssignmentService = domainAssignmentService;
     }
 
     public List<ScanProjectToolEntity> listByProject(Long projectId) {
@@ -271,7 +277,25 @@ public class ScanProjectToolService {
         syncAiDescriptionToGlobalTool(st, created.getId());
         st.setGlobalToolDefinitionId(created.getId());
         mapper.updateById(st);
+        autoAssignProjectDomain(projectId, created.getName());
         return toolDefinitionService.findById(created.getId()).orElse(created);
+    }
+
+    /**
+     * Phase P1：扫描期 → 全局 Tool 时，若所属 project 配置了 default_domain_code，
+     * 自动写入 {@code domain_assignment} 一条 {@code source=AUTO_FROM_PROJECT} 的归属。
+     */
+    private void autoAssignProjectDomain(Long projectId, String toolName) {
+        if (domainAssignmentService == null || projectId == null || toolName == null) return;
+        try {
+            ScanProjectEntity proj = projectMapper.selectById(projectId);
+            if (proj == null || proj.getDefaultDomainCode() == null || proj.getDefaultDomainCode().isBlank()) {
+                return;
+            }
+            domainAssignmentService.upsert("TOOL", toolName, proj.getDefaultDomainCode(), 1.0, "AUTO_FROM_PROJECT");
+        } catch (Exception ex) {
+            log.debug("[ScanProjectToolService] AUTO_FROM_PROJECT 归属失败（已忽略）: {}", ex.toString());
+        }
     }
 
     /**

@@ -66,7 +66,7 @@ public class InteractiveFormSkillExecutor {
         }
 
         String userText = resolveUserText(args, ctx);
-        slotExtractionService.mergeFromUserText(slots, userText, spec, optionsByField);
+        slotExtractionService.mergeFromUserText(slots, userText, spec, optionsByField, skill.name(), ctx);
 
         List<String> missing = computeMissing(spec, slots);
         String interactionId = UUID.randomUUID().toString().replace("-", "");

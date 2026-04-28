@@ -578,6 +578,46 @@ public class ToolDefinitionService {
         }
     }
 
+    /**
+     * 运行时兜底注册：当 DB / Milvus 中有 Tool，但 {@link ToolRegistry} 缺失实例时由 AgentFactory 调用。
+     */
+    public boolean ensureRegisteredForRuntime(String name) {
+        ToolDefinitionEntity entity = findByName(name).orElse(null);
+        if (entity == null) {
+            log.warn("[ToolDefinitionService] 运行时注册失败：tool_definition 不存在: name={}", name);
+            return false;
+        }
+        if (!isRuntimeRegisterable(entity)) {
+            log.warn("[ToolDefinitionService] 运行时注册跳过：name={}, id={}, kind={}, source={}, enabled={}, "
+                            + "agentVisible={}, draft={}, httpMethod={}, baseUrl={}, contextPath={}, endpointPath={}",
+                    entity.getName(), entity.getId(), entity.getKind(), entity.getSource(), entity.getEnabled(),
+                    entity.getAgentVisible(), entity.getDraft(), entity.getHttpMethod(), entity.getBaseUrl(),
+                    entity.getContextPath(), entity.getEndpointPath());
+            return false;
+        }
+        try {
+            registerIfNeeded(entity);
+            boolean registered = toolRegistry.contains(entity.getName());
+            log.info("[ToolDefinitionService] 运行时注册{}: name={}, id={}, kind={}, source={}, projectId={}, "
+                            + "httpMethod={}, baseUrl={}, contextPath={}, endpointPath={}",
+                    registered ? "成功" : "未生效",
+                    entity.getName(), entity.getId(), entity.getKind(), entity.getSource(), entity.getProjectId(),
+                    entity.getHttpMethod(), entity.getBaseUrl(), entity.getContextPath(), entity.getEndpointPath());
+            return registered;
+        } catch (Exception ex) {
+            log.warn("[ToolDefinitionService] 运行时注册异常: name={}, id={}, kind={}, source={}, err={}",
+                    entity.getName(), entity.getId(), entity.getKind(), entity.getSource(), ex.toString(), ex);
+            return false;
+        }
+    }
+
+    private boolean isRuntimeRegisterable(ToolDefinitionEntity entity) {
+        return entity != null
+                && !Boolean.TRUE.equals(entity.getDraft())
+                && Boolean.TRUE.equals(entity.getEnabled())
+                && Boolean.TRUE.equals(entity.getAgentVisible());
+    }
+
     private void registerIfNeeded(ToolDefinitionEntity entity) {
         if (Boolean.TRUE.equals(entity.getDraft())) {
             if (KIND_SKILL.equalsIgnoreCase(entity.getKind())) {

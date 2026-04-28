@@ -2,41 +2,57 @@ package com.enterprise.ai.agent.skill.interactive;
 
 import com.enterprise.ai.agent.llm.LlmService;
 import com.enterprise.ai.agent.skill.slot.DeterministicSlotExtractor;
+import com.enterprise.ai.agent.skill.slot.extractor.ExtractContext;
+import com.enterprise.ai.agent.skill.slot.extractor.SlotExtractResult;
+import com.enterprise.ai.agent.skill.slot.extractor.SlotExtractor;
+import com.enterprise.ai.agent.skill.slot.extractor.SlotExtractorRegistry;
+import com.enterprise.ai.agent.skill.slot.log.SlotExtractLogService;
+import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * 槽位抽取：字典/选项精确与模糊匹配优先，LLM JSON 抽取兜底。
+ * 槽位抽取：SPI 提取器优先，字典/选项精确与模糊匹配次之，LLM JSON 抽取兜底。
+ * <p>Phase P1 起改造为基于 {@link SlotExtractorRegistry} 的 SPI 调度。</p>
  */
 @Slf4j
 @Service
 public class SlotExtractionService {
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    private static final double MIN_CONFIDENCE = 0.5;
 
     private final LlmService llmService;
     private final ObjectMapper objectMapper;
     private final DeterministicSlotExtractor deterministicSlotExtractor;
+    private final SlotExtractorRegistry extractorRegistry;
+    private final SlotExtractLogService slotExtractLogService;
 
     @Autowired
     public SlotExtractionService(LlmService llmService,
                                  ObjectMapper objectMapper,
-                                 DeterministicSlotExtractor deterministicSlotExtractor) {
+                                 DeterministicSlotExtractor deterministicSlotExtractor,
+                                 SlotExtractorRegistry extractorRegistry,
+                                 SlotExtractLogService slotExtractLogService) {
         this.llmService = llmService;
         this.objectMapper = objectMapper;
         this.deterministicSlotExtractor = deterministicSlotExtractor;
+        this.extractorRegistry = extractorRegistry;
+        this.slotExtractLogService = slotExtractLogService;
     }
 
     public SlotExtractionService(LlmService llmService, ObjectMapper objectMapper) {
-        this(llmService, objectMapper, new DeterministicSlotExtractor());
+        this(llmService, objectMapper, new DeterministicSlotExtractor(), null, null);
     }
 
     /**
@@ -46,17 +62,55 @@ public class SlotExtractionService {
                                   String userText,
                                   InteractiveFormSpec spec,
                                   Map<String, List<FieldOptionSpec>> optionsByField) {
+        mergeFromUserText(slots, userText, spec, optionsByField, null, null);
+    }
+
+    /**
+     * 同上，新增 skillName + ToolExecutionContext，用于 SlotExtractor SPI 上下文与日志归并。
+     * 若 {@code skillName} 或 {@code ctx} 为空，会退化为旧路径但仍走 SPI 注册中心。
+     */
+    public void mergeFromUserText(Map<String, Object> slots,
+                                  String userText,
+                                  InteractiveFormSpec spec,
+                                  Map<String, List<FieldOptionSpec>> optionsByField,
+                                  String skillName,
+                                  ToolExecutionContext ctx) {
         if (userText == null || userText.isBlank() || spec.getFields() == null) {
             return;
         }
-        // 1) 通用确定性抽取：时间 / 手机号 / 金额 / 数值等低歧义槽位
+        ExtractContext extractCtx = buildExtractContext(ctx);
+        String traceId = ctx == null ? null : ctx.getTraceId();
+
+        // 1) SPI 提取器：按 priority 顺序，命中即停
         for (InteractiveFormFieldTree.LeafBinding lb : InteractiveFormFieldTree.flattenLeaves(spec.getFields(), List.of())) {
             FieldSpec field = lb.field();
             if (slots.containsKey(field.getKey()) && slots.get(field.getKey()) != null) {
                 continue;
             }
-            deterministicSlotExtractor.extract(userText, field)
-                    .ifPresent(value -> slots.put(field.getKey(), value));
+            if (extractorRegistry == null) {
+                deterministicSlotExtractor.extract(userText, field)
+                        .ifPresent(value -> slots.put(field.getKey(), value));
+                continue;
+            }
+            List<String> binding = slotExtractLogService == null
+                    ? null : slotExtractLogService.resolveBinding(skillName, field.getKey());
+            for (SlotExtractor ex : extractorRegistry.findApplicable(field, extractCtx)) {
+                if (binding != null && !binding.isEmpty() && !binding.contains(ex.name())) {
+                    continue;
+                }
+                long t0 = System.currentTimeMillis();
+                Optional<SlotExtractResult> result = safeExtract(ex, userText, field, extractCtx);
+                long elapsed = System.currentTimeMillis() - t0;
+                if (slotExtractLogService != null) {
+                    slotExtractLogService.recordAsync(traceId, skillName, field.getKey(),
+                            ex.name(), userText, result, elapsed);
+                }
+                if (result.isPresent() && result.get().confidence() >= MIN_CONFIDENCE
+                        && result.get().value() != null) {
+                    slots.put(field.getKey(), result.get().value());
+                    break;
+                }
+            }
         }
         // 2) 确定性：对有候选项的字段做 label / value 匹配（仅叶子）
         for (InteractiveFormFieldTree.LeafBinding lb : InteractiveFormFieldTree.flattenLeaves(spec.getFields(), List.of())) {
@@ -175,6 +229,29 @@ public class SlotExtractionService {
         } catch (Exception ex) {
             log.debug("[SlotExtraction] JSON 解析失败: {}", ex.toString());
             return Map.of();
+        }
+    }
+
+    private ExtractContext buildExtractContext(ToolExecutionContext ctx) {
+        if (ctx == null) {
+            return ExtractContext.anonymous();
+        }
+        return ExtractContext.builder()
+                .userId(ctx.getUserId())
+                .userDeptId(null)
+                .traceId(ctx.getTraceId())
+                .now(LocalDateTime.now())
+                .sessionVars(Map.of())
+                .build();
+    }
+
+    private Optional<SlotExtractResult> safeExtract(SlotExtractor extractor, String userText,
+                                                    FieldSpec field, ExtractContext ctx) {
+        try {
+            return extractor.extract(userText, field, ctx);
+        } catch (Exception ex) {
+            log.warn("[SlotExtraction] 提取器 {} 抛异常，已忽略: {}", extractor.name(), ex.toString());
+            return Optional.empty();
         }
     }
 

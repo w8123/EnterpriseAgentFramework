@@ -16,6 +16,12 @@ public class ScanProjectEntity {
 
     private String name;
 
+    /**
+     * 项目默认领域 code（Phase P1）。扫描器在落 tool_definition 时，会通过 {@code domain_assignment} 自动写入
+     * {@code source=AUTO_FROM_PROJECT}，让该项目下所有 Tool 默认归属到该域。
+     */
+    private String defaultDomainCode;
+
     private String baseUrl;
 
     private String contextPath;
