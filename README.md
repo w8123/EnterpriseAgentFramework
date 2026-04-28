@@ -4,13 +4,8 @@
 
 **让每一个 Java 企业系统，都能拥有自己的 AI Agent**
 
-[Java](https://openjdk.org/)
-[Spring Boot](https://spring.io/projects/spring-boot)
-[Spring AI](https://spring.io/projects/spring-ai)
-[Vue](https://vuejs.org/)
-[License](LICENSE)
 
-[English](README_EN.md) | **中文**
+**中文**
 
 *一套开箱即用的企业级 AI Agent 基础设施平台 — 统一智能体编排、Skill 三态封装、Tool 治理护栏、RAG 知识引擎、模型网关与 Trace 全链路追踪，帮助 Java 企业在尽量不改动历史项目的前提下，快速落地 AI Agent 项目。*
 
@@ -44,7 +39,6 @@
 - **版本灰度发布**（`agent_version` 表）— 每次 Studio 发布生成不可变快照，按 `userId` hash 落桶实现按比例灰度，一键回滚
 - **双入口**：内部 `POST /api/agent/execute` 走 `agentId`；外部 `POST /api/v1/agents/{key}/chat` 通过 `keySlug` 暴露给业务系统
 - 内置 `AgentRouter` 意图路由 + 单 Agent / Pipeline 多 Agent 协作；完整会话记忆管理（Redis 短期窗口）
-- 详细见 [docs/Phase3.0-AgentStudio-落地验收清单.md](docs/Phase3.0-AgentStudio-落地验收清单.md)
 
 ### 🧠 Skill 层（多步业务流程的"能力原子"）
 
@@ -55,7 +49,13 @@
   - **WorkflowSkill** — 已并入 Agent Studio 的画布产物，不再独立立项
 - SDK 契约：`AiSkill extends AiTool`，对 LLM 透明；`SkillKind` / `SkillMetadata` / `SideEffectLevel` / `HitlPolicy` 完整治理元数据
 - 复用 `tool_definition.kind=SKILL` 一张表存 Tool + Skill，避免双 CRUD / 双向量池
-- 详细见 [docs/Phase2.0-SubAgentSkill-落地验收清单.md](docs/Phase2.0-SubAgentSkill-落地验收清单.md) 与 [docs/Phase2.x-InteractiveFormSkill-落地验收清单.md](docs/Phase2.x-InteractiveFormSkill-落地验收清单.md)
+
+### 🛠️ 尽量不改动接入历史系统
+
+- **独创的 Skill SDK 体系** — 老系统无需改动或极少改动，通过 HTTP 桥接即可将业务 API 变为 Agent 可调用的 Tool
+- 标准化的 `AiTool` 接口契约，实现即注册，开箱即用
+- **运行时 Web 扫描链路** — 管理后台录入项目名 / 域名 / 磁盘路径，后端扫描 OpenAPI 或 Controller，结果直接入库并注册为动态 Tool
+- 扫描完成后 `ScanModuleService.bootstrapFromTools` 按 Controller 类自动聚合形成模块视图，配合「AI 理解」Tab 一键生成业务语义
 
 ### 🔍 Tool Retrieval（语义召回，解决"工具爆炸"）
 
@@ -64,7 +64,6 @@
 - `RetrievalScope` 多维过滤（`project / module / kinds(TOOL/SKILL) / enabled / agentVisible`）
 - **白名单 ∩ 召回**双闸：召回结果与 `AgentDefinition.tools` 求交集，空则回退白名单（保守不阻塞主链路）
 - 完整降级矩阵：开关关闭 / Milvus 不可达 / 召回为空 / 抛异常 — 任意一种都安全回退到白名单旧行为
-- 详细见 [docs/AI能力系统升级规划.md](docs/AI能力系统升级规划.md) §5
 
 ### 🧬 AI 语义理解（让 Agent "看懂"接口而不是只"看到"）
 
@@ -76,7 +75,6 @@
 - `JavaSourceIndex` 顺藤摸到底（构造函数 / 字段引用），**不是只把方法签名喂给 LLM**
 - 接口级产出冗余写入 `tool_definition.ai_description`，`DynamicHttpAiTool.description()` 优先使用，Agent 看到的就是业务语义
 - 项目级互斥锁 + `force` 语义保留人工编辑版 + `token_usage` 入库便于核算
-- 详细见 [docs/AI语义理解-设计与落地.md](docs/AI语义理解-设计与落地.md)
 
 ### 📊 Trace 回放与可观测性
 
@@ -86,17 +84,15 @@
 - 前端 `TraceTimeline.vue` 按 `agentName` 前缀 `skill:*` **自动折叠父子调用层级**，支持 `argsJson / resultSummary` JSON pretty-print
 - Skill 指标 API `GET /api/skills/{name}/metrics?days=7`：P50/P95 延迟 + Token + 调用次数 + 成功率 + 按日趋势
 - 入口：Agent 调试台右侧抽屉「查看 Trace」、Agent 列表「最近 Trace」页签、Studio 调试抽屉
-- 详细见 [docs/产品演进路线-Skill-AgentStudio-护栏.md](docs/产品演进路线-Skill-AgentStudio-护栏.md) Phase 2.0.1 节
 
-### 🛡️ 企业治理护栏（生产上线必备）
+### 🛡️ 企业治理护栏
 
 - **`sideEffect` 五级标注**：`NONE / READ_ONLY / IDEMPOTENT_WRITE / WRITE / IRREVERSIBLE`
 - 扫描期 `SideEffectInferrer` 基于 HTTP method + path 关键词保守推断；`SideEffectBackfillJob` 启动期一次性回填历史 Tool
 - **IRREVERSIBLE 运行时闸口**：`ToolExecutionContext.allowIrreversible=false` 时，`AiToolAgentAdapter.checkSideEffectGate` 在执行前直接拦截不可逆 Tool
 - **Tool ACL（角色 × 能力）**：`tool_acl` 表（`role_code × target_kind × target_name → ALLOW/DENY`），`AgentFactory.createToolkit` 装配阶段就把被拒能力摘掉，**LLM 根本看不到**
-- 决策引擎四态：`ALLOW / DENY_EXPLICIT / DENY_NO_MATCH / SKIPPED`；DENY 优先、5 分钟本地缓存、SubAgentSkill 子链继承父 ctx 的 roles
-- 管理端三板斧：CRUD / 批量授权 / 决策诊断（dry-run 输入 roles+targets 看每项决策）
-- 详细见 [docs/Phase3.1-ToolACL-落地验收清单.md](docs/Phase3.1-ToolACL-落地验收清单.md)
+- 决策：`ALLOW / DENY_EXPLICIT / DENY_NO_MATCH / SKIPPED`；DENY 优先、5 分钟本地缓存、SubAgentSkill 子链继承父 ctx 的 roles
+- 管理：CRUD / 批量授权 / 决策诊断（dry-run 输入 roles+targets 看每项决策）
 
 ### 🎨 Agent Studio（可视化编排）
 
@@ -106,7 +102,6 @@
 - **Trace → Skill 一键抽取**：调试抽屉中多选 trace 子序列 → `POST /api/skill-mining/drafts/from-trace` → 进入 Skill 草稿评审
 - **发布 / 灰度 / 回滚**：版本号 + 灰度百分比 + 备注 + 发布人；`AgentVersions.vue` 列表查看快照 / 一键回滚
 - 与原 `AgentEdit.vue` 表单视图并存，列表页新增「Studio」/「版本」入口
-- 详细见 [docs/Phase3.0-AgentStudio-落地验收清单.md](docs/Phase3.0-AgentStudio-落地验收清单.md)
 
 ### 📚 RAG 知识引擎
 
@@ -123,13 +118,6 @@
 - 内置 OpenAI 兼容代理，第三方工具与 AgentScope 可直接对接
 - 流式 SSE 响应，实时输出
 
-### 🛠️ 尽量不改动接入历史系统
-
-- **独创的 Skill SDK 体系** — 老系统无需改动或极少改动，通过 HTTP 桥接即可将业务 API 变为 Agent 可调用的 Tool
-- 标准化的 `AiTool` 接口契约，实现即注册，开箱即用
-- **运行时 Web 扫描链路** — 管理后台录入项目名 / 域名 / 磁盘路径，后端扫描 OpenAPI 或 Controller，结果直接入库并注册为动态 Tool
-- 扫描完成后 `ScanModuleService.bootstrapFromTools` 按 Controller 类自动聚合形成模块视图，配合「AI 理解」Tab 一键生成业务语义
-
 ### 🖥️ 可视化管理后台
 
 - 基于 **Vue 3 + Element Plus** 的现代化管理界面
@@ -144,53 +132,6 @@
 - 提供 Kubernetes 部署清单，支持云原生部署
 - 服务间调用以 **OpenFeign** 为主；**Nacos** 可作为注册/配置中心逐步接入
 - **统一 AI 入口网关**（Spring Cloud Gateway + 鉴权/限流）规划为独立工程，与业务微服务网关解耦
-
----
-
-## 🏗️ 架构总览
-
-```mermaid
-flowchart TB
-    Admin["ai-admin-front<br/>Studio / Skill / Trace / ACL / 知识库"]
-    Gateway["AgentGatewayController<br/>POST /api/v1/agents/{key}/chat"]
-    Internal["AgentService<br/>POST /api/agent/execute"]
-    Router["AgentRouter<br/>意图路由 + 版本灰度 + roles 透传"]
-    Factory["AgentFactory.createToolkit<br/>ACL 过滤 + sideEffect 闸口装配"]
-    Capability["ToolRegistry<br/>Tool + Skill 统一注册"]
-    Skill["Skill 三态<br/>SubAgent / InteractiveForm / AugmentedTool"]
-    Tool["AiTool<br/>DynamicHttpAiTool / 手写 Tool"]
-    Retrieval["ToolRetrievalService<br/>Milvus 语义召回 (top-K ∩ 白名单)"]
-    Trace[("tool_call_log<br/>traceId 贯穿父子调用")]
-    Skills["ai-skills-service<br/>RAG · Scanner · 语义理解上下文"]
-    Model["ai-model-service<br/>模型网关 (Chat / Embedding / SSE)"]
-    Legacy["历史业务系统<br/>CRM / ERP / OA"]
-
-    Admin --> Gateway
-    Admin --> Internal
-    Gateway --> Router
-    Internal --> Router
-    Router --> Factory
-    Factory --> Capability
-    Capability --> Skill
-    Capability --> Tool
-    Factory -.->|"top-K 召回"| Retrieval
-    Factory --> Trace
-    Skill --> Tool
-    Tool -- HTTP --> Legacy
-    Factory --> Skills
-    Factory --> Model
-    Skills --> Model
-```
-
-**对外 API 形态（`ai-agent-service`）**：
-
-- `POST /api/chat` — 轻量对话、会话记忆与轻量 Tool Calling
-- `POST /api/agent/execute` / `POST /api/agent/execute/detailed` — 完整编排（意图识别、ReAct / Pipeline、SubAgentSkill 嵌套）
-- `POST /api/v1/agents/{key}/chat` — 通过 `keySlug` 暴露的发布端点，业务系统对接首选；走版本灰度解析 → 执行快照
-- `GET /api/traces/{id}` / `GET /api/skills/{name}/metrics` — Trace 回放与 Skill 指标（共享同一套 `tool_call_log` 数据底座）
-- 标准化 **AI 能力 REST**（`/api/ai/*`，供业务系统直接调用）在路线图中推进，与上述入口共享同一套模型、RAG、Tool 与 Skill 底座
-
----
 
 ## 📦 模块说明
 
@@ -269,76 +210,11 @@ cd ai-agent-service && mvn spring-boot:run
 cd ai-admin-front && npm install && npm run dev
 ```
 
-访问 **[http://localhost:3000](http://localhost:3000)** 即可进入管理后台。
-
-### 7. 首次启动后回灌 Tool Retrieval 向量库
-
-`ai-agent-service` 启动期会自动检测 Milvus collection；若 schema 与代码不一致（例如旧 collection 缺 Phase 2.0 新增的 `kind` 字段），会自动 drop + 重建空表。**首次启动后必须手动调用一次回灌接口，否则 Tool 召回会一直空返回**：
-
-```bash
-curl -X POST http://localhost:8603/api/tools/retrieval/rebuild
-# 轮询任务进度
-curl http://localhost:8603/api/tools/retrieval/rebuild/status
-```
-
-启动日志会明确提示 `[ToolEmbedding] 旧 collection xxx 缺失 kind 字段，drop 重建；请调用 /api/tools/retrieval/rebuild 重灌数据`。后续 Tool / Skill 的新建 / 编辑 / 启停 / 删除 / AI 语义描述生成都会自动 upsert / delete，无需再次手动 rebuild。
+访问 **[http://localhost:3000](http://localhost:5200)** 即可进入管理后台。
 
 ---
 
-## 🔧 如何接入你的历史系统
-
-Enterprise Agent Framework 的核心价值在于：**让老系统的业务能力成为 AI Agent 可调用的 Tool，且老系统零改动或微改动。**
-
-只需 3 步：
-
-### Step 1：实现 AiTool 接口
-
-```java
-@Component
-public class QueryCustomerTool implements AiTool {
-
-    @Autowired
-    private CrmFeignClient crmClient;
-
-    @Override
-    public String name() { return "query_customer"; }
-
-    @Override
-    public String description() {
-        return "查询客户信息，支持按姓名、手机号、客户编号检索";
-    }
-
-    @Override
-    public List<ToolParameter> parameters() {
-        return List.of(
-            ToolParameter.required("keyword", "string", "搜索关键词")
-        );
-    }
-
-    @Override
-    public Object execute(Map<String, Object> args) {
-        return crmClient.searchCustomer((String) args.get("keyword"));
-    }
-}
-```
-
-### Step 2：定义 Feign Client 桥接老系统
-
-```java
-@FeignClient(name = "legacy-crm", url = "${legacy.crm.url}")
-public interface CrmFeignClient {
-    @GetMapping("/api/customer/search")
-    Object searchCustomer(@RequestParam String keyword);
-}
-```
-
-### Step 3：注册到运行时 Tool 体系
-
-将实现类放入当前运行时模块或独立依赖模块并交给 Spring 托管，`ToolRegistry` 即可发现并注册该能力。
-
-**就是这么简单。** 你的 CRM / ERP / OA 系统不需要改动任何代码，Agent 就能通过自然语言调用它们的业务接口。
-
-### 运行时 Web 扫描接入（已实现）
+### 运行时 Web 扫描接入
 
 对于已经部署在服务器上的历史 Java 项目，现在优先推荐直接走管理后台的 **扫描项目** 流程：
 
