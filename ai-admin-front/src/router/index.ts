@@ -244,7 +244,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
-  document.title = `${(to.meta.title as string) || ''} - AI 管理平台`
+  document.title = `${(to.meta.title as string) || ''} - AI 能力中台`
   next()
 })
 

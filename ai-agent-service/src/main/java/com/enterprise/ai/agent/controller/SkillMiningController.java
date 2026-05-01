@@ -61,6 +61,18 @@ public class SkillMiningController {
         return ResponseEntity.ok(draft);
     }
 
+    @PostMapping("/demo-traces/generate")
+    public ResponseEntity<SkillMiningService.DemoTraceResult> generateDemoTraces(@RequestBody DemoTraceRequest req) {
+        return ResponseEntity.ok(skillMiningService.generateDemoTraces(
+                req.scenario(), req.traceCount(), req.successRate(), req.noiseRate()));
+    }
+
+    @PostMapping("/demo-traces/clear")
+    public ResponseEntity<Map<String, Object>> clearDemoTraces() {
+        int deleted = skillMiningService.deleteDemoTraces();
+        return ResponseEntity.ok(Map.of("deleted", deleted));
+    }
+
     public record GenerateRequest(int days, int minSupport, int limit) {
         public int days() { return days <= 0 ? 7 : days; }
         public int minSupport() { return minSupport <= 0 ? 3 : minSupport; }
@@ -70,4 +82,10 @@ public class SkillMiningController {
     public record StatusRequest(String status, String reviewNote) {}
 
     public record ExtractFromTraceRequest(String traceId, List<String> toolNames) {}
+
+    public record DemoTraceRequest(String scenario, int traceCount, double successRate, double noiseRate) {
+        public int traceCount() { return traceCount <= 0 ? 120 : traceCount; }
+        public double successRate() { return successRate <= 0 ? 0.92 : successRate; }
+        public double noiseRate() { return noiseRate < 0 ? 0.08 : noiseRate; }
+    }
 }

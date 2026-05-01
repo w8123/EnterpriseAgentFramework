@@ -110,4 +110,11 @@ defineExpose({ reset })
     font-size: 12px;
   }
 }
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .file-info .file-size {
+    color: #94a3b8;
+  }
+}
 </style>

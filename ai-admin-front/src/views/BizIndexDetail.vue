@@ -339,7 +339,7 @@ onMounted(() => {
 .stat-value {
   font-size: 28px;
   font-weight: 700;
-  color: #303133;
+  color: var(--text-primary);
 
   &.highlight {
     color: #409eff;
@@ -348,7 +348,7 @@ onMounted(() => {
 
 .stat-label {
   font-size: 13px;
-  color: #909399;
+  color: #64748b;
   margin-top: 4px;
 }
 
@@ -389,6 +389,32 @@ onMounted(() => {
       line-height: 1.6;
       white-space: pre-wrap;
       word-break: break-all;
+    }
+  }
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .stat-label {
+    color: #94a3b8;
+  }
+
+  .template-code {
+    background: #f5f7fa;
+    color: #d97706;
+  }
+
+  .code-block {
+    background: #f5f7fa;
+    border: 1px solid #ebeef5;
+
+    .code-header {
+      background: #e4e7ed;
+      color: #475569;
+    }
+
+    pre code {
+      color: #1e293b;
     }
   }
 }

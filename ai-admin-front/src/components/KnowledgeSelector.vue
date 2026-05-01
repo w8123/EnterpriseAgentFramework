@@ -41,7 +41,7 @@ onMounted(() => {
 })
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .kb-option {
   display: flex;
   justify-content: space-between;
@@ -55,5 +55,12 @@ onMounted(() => {
 .kb-code {
   font-size: 12px;
   color: #909399;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .kb-code {
+    color: #94a3b8;
+  }
 }
 </style>

@@ -224,4 +224,11 @@ onMounted(reload)
   h2 { margin: 0; font-size: 18px; }
 }
 .dim { color: #999; font-size: 12px; }
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .dim {
+    color: #c0c4cc;
+  }
+}
 </style>

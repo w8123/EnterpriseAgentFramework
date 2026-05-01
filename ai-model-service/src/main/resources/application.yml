@@ -6,7 +6,7 @@ spring:
     name: ai-model-service
   ai:
     dashscope:
-      api-key: ${DASHSCOPE_API_KEY:sk-your-key-here}
+      api-key: ${DASHSCOPE_API_KEY:sk-c1a339208eb24388bc736710c4daadd6}
       chat:
         options:
           model: qwen-max
@@ -37,6 +37,7 @@ model:
     frequency-penalty: 0
     presence-penalty: 0
   tongyi:
+    api-key: ${DASHSCOPE_API_KEY:sk-c1a339208eb24388bc736710c4daadd6}
     embedding:
       model: text-embedding-v2
       endpoint: https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding

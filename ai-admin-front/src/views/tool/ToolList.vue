@@ -733,7 +733,7 @@ onMounted(() => {
   justify-content: flex-end;
   margin-top: 16px;
   padding-top: 8px;
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .expand-content {
@@ -745,7 +745,7 @@ onMounted(() => {
 
   h4 {
     font-size: 13px;
-    color: #909399;
+    color: var(--text-secondary);
     margin-bottom: 8px;
   }
 }
@@ -781,7 +781,7 @@ onMounted(() => {
   box-sizing: border-box;
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .tool-meta {
@@ -790,7 +790,7 @@ onMounted(() => {
   gap: 8px 16px;
   margin-top: 12px;
   font-size: 13px;
-  color: #606266;
+  color: var(--text-secondary);
 }
 
 .tool-description-cell {
@@ -802,7 +802,7 @@ onMounted(() => {
   max-height: 60px;
   white-space: normal;
   word-break: break-word;
-  color: #606266;
+  color: var(--text-secondary);
 }
 
 .tool-description-tooltip-content {
@@ -814,7 +814,7 @@ onMounted(() => {
 
 .param-hint {
   font-size: 12px;
-  color: #909399;
+  color: #64748b;
   margin-top: 2px;
 }
 
@@ -837,8 +837,8 @@ onMounted(() => {
 }
 
 .result-content {
-  background: #fafafa;
-  border: 1px solid #ebeef5;
+  background: var(--bg-tertiary);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 4px;
   padding: 12px;
   font-size: 13px;
@@ -847,11 +847,12 @@ onMounted(() => {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-all;
+  color: var(--text-secondary);
 }
 
 .result-duration {
   font-size: 12px;
-  color: #909399;
+  color: #64748b;
   margin-top: 8px;
 }
 
@@ -865,31 +866,31 @@ onMounted(() => {
 }
 
 .ai-desc-text {
-  color: #606266;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
 .ai-table-cell {
   font-size: 13px;
-  color: #606266;
+  color: var(--text-secondary);
 }
 
 .tool-meta-ai-loading {
   margin: 8px 0;
   font-size: 13px;
-  color: #909399;
+  color: #64748b;
 }
 
 .expand-ai-doc-title {
   margin: 0 0 10px;
   font-size: 13px;
-  color: #909399;
+  color: #64748b;
 }
 
 .ai-doc-miss-hint {
   margin: 6px 0 0;
   font-size: 12px;
-  color: #909399;
+  color: #64748b;
   line-height: 1.5;
 }
 
@@ -911,7 +912,7 @@ onMounted(() => {
   }
 
   :deep(pre) {
-    background: #f6f7f9;
+    background: var(--bg-tertiary);
     border-radius: 4px;
     padding: 8px;
     overflow: auto;
@@ -924,9 +925,34 @@ onMounted(() => {
     table-layout: auto;
 
     th, td {
-      border: 1px solid #dcdfe6;
+      border: 1px solid rgba(255, 255, 255, 0.06);
       padding: 4px 8px;
       word-break: break-word;
+    }
+  }
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .pagination-wrap {
+    border-top: 1px solid #ebeef5;
+  }
+
+  .param-hint,
+  .result-duration,
+  .expand-content h4 {
+    color: #94a3b8;
+  }
+
+  .result-content {
+    border: 1px solid #ebeef5;
+  }
+
+  .markdown-preview {
+    :deep(table) {
+      th, td {
+        border: 1px solid #ebeef5;
+      }
     }
   }
 }

@@ -437,7 +437,7 @@ onMounted(loadAgent)
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #c0c4cc;
+  color: #475569;
 
   p {
     margin-top: 12px;
@@ -510,7 +510,7 @@ onMounted(loadAgent)
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #909399;
+    background: #64748b;
     animation: typing 1.2s infinite ease-in-out;
 
     &:nth-child(2) { animation-delay: 0.2s; }
@@ -549,7 +549,7 @@ onMounted(loadAgent)
   align-items: center;
   justify-content: center;
   height: 200px;
-  color: #c0c4cc;
+  color: #475569;
   font-size: 14px;
 }
 
@@ -558,7 +558,7 @@ onMounted(loadAgent)
 
   h4 {
     font-size: 13px;
-    color: #909399;
+    color: #64748b;
     margin-bottom: 8px;
   }
 }
@@ -569,13 +569,29 @@ onMounted(loadAgent)
 }
 
 .metadata-json {
-  background: #fafafa;
-  border: 1px solid #ebeef5;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 4px;
   padding: 12px;
   font-size: 12px;
   overflow-x: auto;
   max-height: 300px;
   overflow-y: auto;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .empty-detail {
+    color: #94a3b8;
+  }
+
+  .detail-section h4 {
+    color: #94a3b8;
+  }
+
+  .metadata-json {
+    background: #f5f7fa;
+    border: 1px solid #ebeef5;
+  }
 }
 </style>

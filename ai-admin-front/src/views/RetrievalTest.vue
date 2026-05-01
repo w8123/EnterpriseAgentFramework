@@ -191,7 +191,7 @@ onMounted(() => {
 .search-meta {
   margin-left: 16px;
   font-size: 13px;
-  color: #909399;
+  color: #64748b;
 }
 
 .result-list {
@@ -202,8 +202,8 @@ onMounted(() => {
 
 .result-item {
   padding: 16px;
-  background: #fafafa;
-  border: 1px solid #ebeef5;
+  background: var(--bg-tertiary);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 8px;
   transition: border-color 0.2s;
 
@@ -235,13 +235,13 @@ onMounted(() => {
 
 .file-name {
   font-size: 13px;
-  color: #606266;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .chunk-index {
   font-size: 12px;
-  color: #909399;
+  color: #64748b;
 }
 
 .result-score {
@@ -251,8 +251,20 @@ onMounted(() => {
 .result-content {
   font-size: 13px;
   line-height: 1.7;
-  color: #606266;
+  color: var(--text-secondary);
   word-break: break-all;
   white-space: pre-wrap;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .search-meta,
+  .chunk-index {
+    color: #94a3b8;
+  }
+
+  .result-item {
+    border: 1px solid #ebeef5;
+  }
 }
 </style>

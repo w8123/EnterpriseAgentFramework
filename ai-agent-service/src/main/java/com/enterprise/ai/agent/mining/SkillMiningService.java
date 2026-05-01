@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 @RequiredArgsConstructor
@@ -72,6 +74,34 @@ public class SkillMiningService {
 
     public List<SkillDraftEntity> listDrafts() {
         return draftMapper.selectList(new LambdaQueryWrapper<SkillDraftEntity>().orderByDesc(SkillDraftEntity::getId));
+    }
+
+    public DemoTraceResult generateDemoTraces(String scenario, int traceCount, double successRate, double noiseRate) {
+        String safeScenario = (scenario == null || scenario.isBlank()) ? "order_after_sale" : scenario.trim();
+        int safeTraceCount = Math.max(1, Math.min(traceCount <= 0 ? 120 : traceCount, 1000));
+        double safeSuccessRate = clamp(successRate <= 0 ? 0.92 : successRate);
+        double safeNoiseRate = clamp(noiseRate < 0 ? 0.08 : noiseRate);
+        List<String> sequence = demoSequence(safeScenario);
+        int inserted = 0;
+        for (int i = 0; i < safeTraceCount; i++) {
+            String traceId = "demo-" + safeScenario + "-" + UUID.randomUUID();
+            LocalDateTime base = LocalDateTime.now().minusMinutes(safeTraceCount - i);
+            int step = 0;
+            for (String toolName : sequence) {
+                insertDemoLog(traceId, safeScenario, toolName, base.plusSeconds(step++ * 2L), safeSuccessRate);
+                inserted++;
+                if (ThreadLocalRandom.current().nextDouble() < safeNoiseRate) {
+                    insertDemoLog(traceId, safeScenario, "demo_noise_lookup", base.plusSeconds(step++ * 2L), 0.98);
+                    inserted++;
+                }
+            }
+        }
+        return new DemoTraceResult(safeScenario, safeTraceCount, inserted, sequence);
+    }
+
+    public int deleteDemoTraces() {
+        return toolCallLogMapper.delete(new LambdaQueryWrapper<ToolCallLogEntity>()
+                .eq(ToolCallLogEntity::getUserId, "demo:skill-mining"));
     }
 
     /**
@@ -191,6 +221,41 @@ public class SkillMiningService {
         );
     }
 
+    private void insertDemoLog(String traceId, String scenario, String toolName, LocalDateTime createTime, double successRate) {
+        boolean success = ThreadLocalRandom.current().nextDouble() <= successRate;
+        ToolCallLogEntity log = new ToolCallLogEntity();
+        log.setTraceId(traceId);
+        log.setSessionId("demo-session");
+        log.setUserId("demo:skill-mining");
+        log.setAgentName("demo-skill-mining-agent");
+        log.setIntentType("DEMO_" + scenario.toUpperCase());
+        log.setToolName(toolName);
+        log.setArgsJson("{\"demo\":true,\"scenario\":\"" + scenario + "\"}");
+        log.setResultSummary(success ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"demo failure\"}");
+        log.setSuccess(success);
+        log.setErrorCode(success ? null : "DEMO_ERROR");
+        log.setElapsedMs(ThreadLocalRandom.current().nextInt(80, 900));
+        log.setTokenCost(ThreadLocalRandom.current().nextInt(80, 500));
+        log.setCreateTime(createTime);
+        toolCallLogMapper.insert(log);
+    }
+
+    private List<String> demoSequence(String scenario) {
+        return switch (scenario) {
+            case "user_profile_update" -> List.of("query_user_profile", "validate_user_status", "update_user_profile");
+            case "knowledge_to_ticket" -> List.of("knowledge_search", "classify_ticket", "create_ticket");
+            case "inventory_warning" -> List.of("query_inventory", "query_warning_threshold", "send_inventory_notice");
+            default -> List.of("query_order", "check_refund_policy", "create_refund_request");
+        };
+    }
+
+    private static double clamp(double value) {
+        if (value < 0) {
+            return 0;
+        }
+        return Math.min(value, 1);
+    }
+
     public record PrecheckResult(
             int days,
             int logCount,
@@ -199,4 +264,6 @@ public class SkillMiningService {
             boolean readyForMining,
             List<String> recommendedScenarios
     ) {}
+
+    public record DemoTraceResult(String scenario, int traceCount, int insertedLogCount, List<String> sequence) {}
 }

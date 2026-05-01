@@ -6,5 +6,7 @@ package com.enterprise.ai.text.tooling.scanner.manifest;
 public enum ParameterLocation {
     PATH,
     QUERY,
-    BODY
+    BODY,
+    /** HTTP 响应体（OpenAPI 2xx schema 展开），供下游投影图谱出参树 */
+    RESPONSE
 }

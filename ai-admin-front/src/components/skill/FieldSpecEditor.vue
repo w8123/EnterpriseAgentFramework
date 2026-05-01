@@ -334,4 +334,15 @@ function onDefaultValueInput(s: string) {
 .adv-collapse :deep(.el-collapse-item__content) {
   padding-bottom: 8px;
 }
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .subtle {
+    color: #94a3b8;
+  }
+
+  .adv-collapse :deep(.el-collapse-item__header) {
+    color: #475569;
+  }
+}
 </style>

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vue-tsc *)",
+      "Bash(npx vite *)",
+      "Bash(grep -v \"//\")",
+      "Bash(npx sass *)",
+      "Bash(node -e \"const g6 = require\\('@antv/g6'\\); console.log\\(Object.keys\\(g6\\).filter\\(k => typeof g6[k] === 'function' || typeof g6[k] === 'object'\\).slice\\(0, 30\\)\\)\")",
+      "Bash(node -e \"const g6 = require\\('@antv/g6'\\); console.log\\('Graph:', typeof g6.Graph\\); console.log\\('register:', typeof g6.register\\); console.log\\(Object.keys\\(g6\\).filter\\(k => k.includes\\('register'\\) || k.includes\\('Register'\\)\\)\\)\")"
+    ]
+  }
+}

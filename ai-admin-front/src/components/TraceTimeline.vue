@@ -171,26 +171,27 @@ function prettyJson(raw?: string | null): string {
 }
 .meta {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-muted);
 }
 .block {
   margin-bottom: 8px;
 }
 .child-node {
-  border-left: 2px solid #e4e7ed;
+  border-left: 2px solid var(--border-glass);
   padding-left: 12px;
   margin-bottom: 10px;
 }
 pre {
   margin-top: 4px;
-  background: #fafafa;
-  border: 1px solid #ebeef5;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-glass);
   border-radius: 4px;
   padding: 8px;
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 200px;
   overflow: auto;
+  color: var(--text-primary);
 }
 .pre-trace-span {
   max-height: 480px;

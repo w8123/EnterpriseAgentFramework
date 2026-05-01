@@ -1068,7 +1068,7 @@ onMounted(() => {
   justify-content: flex-end;
   margin-top: 16px;
   padding-top: 8px;
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .expand-content {
@@ -1076,7 +1076,7 @@ onMounted(() => {
 
   h4 {
     font-size: 13px;
-    color: #909399;
+    color: #64748b;
     margin-bottom: 8px;
   }
 }
@@ -1086,7 +1086,7 @@ onMounted(() => {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px 16px;
   font-size: 13px;
-  color: #606266;
+  color: var(--text-secondary);
 
   .span-2 {
     grid-column: span 2;
@@ -1096,8 +1096,8 @@ onMounted(() => {
 .prompt-preview {
   margin: 4px 0 0;
   padding: 8px 12px;
-  background: #f7f8fa;
-  border: 1px solid #ebeef5;
+  background: var(--bg-tertiary);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 4px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1109,7 +1109,7 @@ onMounted(() => {
 
 .param-hint {
   font-size: 12px;
-  color: #909399;
+  color: #64748b;
   margin-top: 2px;
 }
 
@@ -1130,8 +1130,8 @@ onMounted(() => {
 }
 
 .result-content {
-  background: #fafafa;
-  border: 1px solid #ebeef5;
+  background: var(--bg-tertiary);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 4px;
   padding: 12px;
   font-size: 13px;
@@ -1144,7 +1144,7 @@ onMounted(() => {
 
 .result-duration {
   font-size: 12px;
-  color: #909399;
+  color: #64748b;
   margin-top: 8px;
 }
 
@@ -1174,5 +1174,29 @@ onMounted(() => {
 
 .metric-cards {
   margin-bottom: 8px;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .pagination-wrap {
+    border-top: 1px solid #ebeef5;
+  }
+
+  .expand-content h4 {
+    color: #94a3b8;
+  }
+
+  .prompt-preview {
+    border: 1px solid #ebeef5;
+  }
+
+  .param-hint,
+  .result-duration {
+    color: #94a3b8;
+  }
+
+  .result-content {
+    border: 1px solid #ebeef5;
+  }
 }
 </style>

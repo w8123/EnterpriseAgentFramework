@@ -2,6 +2,7 @@ package com.enterprise.ai.agent.scan;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.enterprise.ai.agent.client.ScannerServiceClient;
+import com.enterprise.ai.agent.graph.ApiGraphService;
 import com.enterprise.ai.agent.semantic.SemanticDocService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
@@ -40,6 +41,9 @@ public class ScanProjectService {
 
     @Autowired(required = false)
     private SemanticDocService semanticDocService;
+
+    @Autowired(required = false)
+    private ApiGraphService apiGraphService;
 
     public ScanProjectService(ScanProjectMapper projectMapper,
                               ToolDefinitionService toolDefinitionService,
@@ -221,6 +225,9 @@ public class ScanProjectService {
             semanticDocService.deleteByProject(id);
         }
         scanModuleService.deleteByProject(id);
+        if (apiGraphService != null) {
+            apiGraphService.deleteByProject(id);
+        }
         projectMapper.deleteById(id);
     }
 
@@ -238,6 +245,144 @@ public class ScanProjectService {
         ScanProjectEntity project = getById(projectId);
         assertNotBlockedByAgentReferences(projectId);
         return performScan(project, true);
+    }
+
+    /**
+     * 针对单条扫描接口重新跑扫描器，按 HTTP 方法 + 路径（及必要时来源定位）匹配 manifest 中的端点，
+     * 用 {@link ScanProjectToolService#update} 覆盖当前行字段，保留主键、工具名、启用与可见性开关。
+     * 不修改项目 {@code last_scanned_at}（仍由全量重扫维护增量基线）。
+     */
+    @Transactional
+    public ScanProjectToolEntity rescanSingleTool(Long projectId, Long scanToolId) {
+        ScanProjectEntity project = getById(projectId);
+        ScanProjectToolEntity st = scanProjectToolService.findByProjectAndId(projectId, scanToolId)
+                .orElseThrow(() -> new IllegalArgumentException("扫描接口不存在: " + scanToolId));
+        ScanSettings settings = parseSettingsForProject(project);
+        // 单条刷新必须全量扫描，避免 OpenAPI mtime 增量返回空列表导致无法匹配
+        ScannerServiceClient.ManifestData manifest = scanManifest(project, null, settings);
+        List<ScannerServiceClient.ToolData> tools = manifest.getTools() == null ? List.of() : manifest.getTools();
+        ScannerServiceClient.ToolData matched = findManifestToolMatchingScanRow(project, st, tools);
+        if (matched == null) {
+            throw new IllegalArgumentException(
+                    "在当前源码或 OpenAPI 解析结果中未找到与该接口匹配的端点，请确认路径、方法或重新执行全量扫描");
+        }
+        String manifestBaseUrl = manifest.getProject() == null ? project.getBaseUrl() : manifest.getProject().getBaseUrl();
+        String manifestContextPath = normalizeContextPath(project.getContextPath());
+        var upsert = new ToolDefinitionUpsertRequest(
+                st.getName(),
+                matched.getDescription(),
+                (matched.getParameters() == null ? List.<ScannerServiceClient.ToolParameterData>of() : matched.getParameters()).stream()
+                        .map(ScanProjectService::toToolDefinitionParameter)
+                        .toList(),
+                "scanner",
+                matched.getSource() == null ? null : matched.getSource().getLocation(),
+                matched.getMethod(),
+                manifestBaseUrl,
+                manifestContextPath,
+                matched.getPath(),
+                matched.getRequestBodyType(),
+                matched.getResponseType(),
+                null,
+                Boolean.TRUE.equals(st.getEnabled()),
+                Boolean.TRUE.equals(st.getAgentVisible()),
+                Boolean.TRUE.equals(st.getLightweightEnabled())
+        );
+        ScanProjectToolEntity updated = scanProjectToolService.update(projectId, scanToolId, upsert);
+        scanModuleService.bootstrapFromTools(project.getId());
+        return updated;
+    }
+
+    /**
+     * 在 manifest 工具列表中定位与当前扫描行对应的条目：优先 HTTP 方法 + 规范化完整路径；
+     * 若无匹配且存在 {@code sourceLocation}，则按来源定位精确匹配。
+     */
+    private ScannerServiceClient.ToolData findManifestToolMatchingScanRow(ScanProjectEntity project,
+                                                                         ScanProjectToolEntity st,
+                                                                         List<ScannerServiceClient.ToolData> tools) {
+        String wantMethod = normalizeHttpMethod(st.getHttpMethod());
+        String wantPath = normalizePathForCompare(combineHttpPath(st.getContextPath(), st.getEndpointPath()));
+        String wantPathFromProject = normalizePathForCompare(
+                combineHttpPath(project.getContextPath(), st.getEndpointPath()));
+        ScannerServiceClient.ToolData firstPathMatch = null;
+        for (ScannerServiceClient.ToolData t : tools) {
+            if (t == null) {
+                continue;
+            }
+            if (!wantMethod.equals(normalizeHttpMethod(t.getMethod()))) {
+                continue;
+            }
+            String cand = normalizePathForCompare(combineHttpPath(project.getContextPath(), t.getPath()));
+            if (wantPath.equals(cand) || wantPathFromProject.equals(cand)) {
+                if (firstPathMatch == null) {
+                    firstPathMatch = t;
+                }
+            }
+        }
+        if (firstPathMatch != null) {
+            return firstPathMatch;
+        }
+        String src = st.getSourceLocation();
+        if (src == null || src.isBlank()) {
+            return null;
+        }
+        String wantLoc = src.trim();
+        for (ScannerServiceClient.ToolData t : tools) {
+            if (t == null || t.getSource() == null || t.getSource().getLocation() == null) {
+                continue;
+            }
+            if (wantLoc.equals(t.getSource().getLocation().trim())) {
+                return t;
+            }
+        }
+        return null;
+    }
+
+    private static String normalizeHttpMethod(String method) {
+        if (method == null || method.isBlank()) {
+            return "GET";
+        }
+        return method.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String combineHttpPath(String contextPath, String endpointPath) {
+        String ctx = contextPath == null ? "" : contextPath.trim();
+        String ep = endpointPath == null ? "" : endpointPath.trim();
+        if (!ctx.isEmpty() && !ctx.startsWith("/")) {
+            ctx = "/" + ctx;
+        }
+        if (!ep.isEmpty() && !ep.startsWith("/")) {
+            ep = "/" + ep;
+        }
+        if (ctx.isEmpty()) {
+            return ep.isEmpty() ? "/" : ep;
+        }
+        if (ep.isEmpty()) {
+            return ctx;
+        }
+        if (ctx.endsWith("/") && ep.startsWith("/")) {
+            return ctx.substring(0, ctx.length() - 1) + ep;
+        }
+        if (!ctx.endsWith("/") && !ep.startsWith("/")) {
+            return ctx + "/" + ep;
+        }
+        return ctx + ep;
+    }
+
+    private static String normalizePathForCompare(String path) {
+        if (path == null || path.isBlank()) {
+            return "/";
+        }
+        String p = path.trim();
+        if (!p.startsWith("/")) {
+            p = "/" + p;
+        }
+        while (p.contains("//")) {
+            p = p.replace("//", "/");
+        }
+        if (p.length() > 1 && p.endsWith("/")) {
+            p = p.substring(0, p.length() - 1);
+        }
+        return p;
     }
 
     private ScanResult performScan(ScanProjectEntity project, boolean deleteOldTools) {
@@ -258,6 +403,10 @@ public class ScanProjectService {
         project.setToolCount(toolNames.size());
         project.setLastScannedAt(java.time.LocalDateTime.now(ZoneId.systemDefault()));
         scanModuleService.bootstrapFromTools(project.getId());
+        if (apiGraphService != null) {
+            // 接口图谱节点 / MODEL_REF 自动边重建（旁路 hook，失败不影响扫描主链路）
+            apiGraphService.rebuildForProject(project.getId());
+        }
         updateStatus(project, "scanned", null);
         return new ScanResult(project.getId(), project.getName(), toolNames.size(), List.copyOf(toolNames));
     }

@@ -283,6 +283,13 @@ onMounted(fetchProjects)
 }
 
 .error-text {
-  color: #909399;
+  color: #64748b;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .error-text {
+    color: #94a3b8;
+  }
 }
 </style>

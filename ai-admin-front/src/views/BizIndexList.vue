@@ -271,8 +271,15 @@ onMounted(() => {
 <style scoped lang="scss">
 .form-tip {
   font-size: 12px;
-  color: #909399;
+  color: #64748b;
   margin-top: 4px;
   line-height: 1.4;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .form-tip {
+    color: #94a3b8;
+  }
 }
 </style>

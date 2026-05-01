@@ -465,13 +465,22 @@ onMounted(async () => {
 
 .tool-option-desc,
 .tool-hint {
-  color: #909399;
+  color: #64748b;
   font-size: 12px;
 }
 
 .tip-icon {
   margin-left: 6px;
-  color: #909399;
+  color: #64748b;
   cursor: help;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .tool-option-desc,
+  .tool-hint,
+  .tip-icon {
+    color: #94a3b8;
+  }
 }
 </style>

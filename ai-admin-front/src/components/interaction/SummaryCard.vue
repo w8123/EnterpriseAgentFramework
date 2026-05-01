@@ -29,7 +29,7 @@ defineEmits<{
 }>()
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .summary-card {
   margin-top: 8px;
 }
@@ -43,5 +43,12 @@ defineEmits<{
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .hint {
+    color: #94a3b8;
+  }
 }
 </style>

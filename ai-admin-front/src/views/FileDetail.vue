@@ -111,7 +111,7 @@ onMounted(() => {
     margin: 0;
     font-size: 20px;
     font-weight: 600;
-    color: #1d2129;
+    color: var(--text-primary);
   }
 }
 
@@ -124,7 +124,7 @@ onMounted(() => {
 .chunk-content-cell {
   font-size: 13px;
   line-height: 1.6;
-  color: #606266;
+  color: var(--text-secondary);
   word-break: break-all;
   white-space: pre-wrap;
 }
@@ -132,6 +132,13 @@ onMounted(() => {
 .vector-id-text {
   font-family: 'Courier New', monospace;
   font-size: 12px;
-  color: #909399;
+  color: #64748b;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .vector-id-text {
+    color: #94a3b8;
+  }
 }
 </style>

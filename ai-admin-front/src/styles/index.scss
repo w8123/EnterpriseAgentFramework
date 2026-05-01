@@ -1,3 +1,7 @@
+// ============================================
+// AI 能力中台 - 全局样式
+// ============================================
+
 * {
   margin: 0;
   padding: 0;
@@ -8,61 +12,230 @@ html,
 body,
 #app {
   height: 100%;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
-    Arial, sans-serif;
-  color: #303133;
-  background: #f5f7fa;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  color: var(--text-primary);
+  background: var(--bg-primary);
 }
 
-/* 全局滚动条样式 */
+// ── 全局滚动条 ──
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c0c4cc;
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 3px;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* 页面容器 */
+// ── 页面容器 ──
 .page-container {
   padding: 24px;
   min-height: calc(100vh - 60px);
+  animation: fadeIn 0.3s ease;
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 
   h2 {
-    font-size: 20px;
+    font-size: 22px;
     font-weight: 600;
-    color: #1d2129;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
   }
 }
 
-/* 卡片统一样式 */
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+// ── 卡片统一样式 ──
 .section-card {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  backdrop-filter: blur(12px);
+  border-radius: var(--radius-lg);
 
   .el-card__header {
-    padding: 14px 20px;
+    padding: 16px 24px;
     font-weight: 600;
     font-size: 15px;
-    color: #1d2129;
-    border-bottom: 1px solid #f0f0f0;
+    color: var(--text-primary);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    background: transparent;
+  }
+
+  .el-card__body {
+    padding: 20px 24px;
   }
 }
 
-/* Chunk 预览区域 */
+// ── 筛选栏 ──
+.filter-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+// ── 卡片网格 ──
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+// ── 玻璃态卡片 ──
+.glass-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(12px);
+  transition: all var(--transition-normal);
+  padding: 20px;
+
+  &:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--border-glass-hover);
+    box-shadow: var(--glow-card);
+    transform: translateY(-2px);
+  }
+}
+
+// ── 发光边框 ──
+.glow-border {
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: var(--accent-gradient);
+    opacity: 0;
+    transition: opacity var(--transition-normal);
+    z-index: -1;
+    filter: blur(8px);
+  }
+
+  &:hover::before {
+    opacity: 0.15;
+  }
+}
+
+// ── 渐变文字 ──
+.gradient-text {
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+// ── 动画 ──
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease;
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.4s ease;
+}
+
+// ── 交错动画 ──
+@for $i from 1 through 12 {
+  .stagger-#{$i} {
+    animation-delay: #{$i * 0.05}s;
+    animation-fill-mode: both;
+  }
+}
+
+// ── 骨架屏 ──
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0.03) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-sm);
+}
+
+// ── Chunk 预览区域 ──
 .chunk-list {
   max-height: 500px;
   overflow-y: auto;
@@ -71,13 +244,13 @@ body,
 .chunk-item {
   padding: 12px 16px;
   margin-bottom: 8px;
-  background: #fafafa;
-  border: 1px solid #ebeef5;
-  border-radius: 6px;
-  transition: border-color 0.2s;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition-fast);
 
   &:hover {
-    border-color: #409eff;
+    border-color: rgba(99, 102, 241, 0.3);
   }
 
   .chunk-header {
@@ -86,34 +259,288 @@ body,
     align-items: center;
     margin-bottom: 8px;
     font-size: 12px;
-    color: #909399;
+    color: var(--text-muted);
   }
 
   .chunk-content {
     font-size: 13px;
     line-height: 1.6;
-    color: #606266;
+    color: var(--text-secondary);
     word-break: break-all;
     white-space: pre-wrap;
   }
 }
 
-/* 上传区域 */
+// ── 上传区域 ──
 .upload-dragger {
   .el-upload-dragger {
-    border: 2px dashed #dcdfe6;
-    border-radius: 8px;
-    transition: border-color 0.3s;
+    border: 2px dashed rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-lg);
+    background: rgba(255, 255, 255, 0.02);
+    transition: all var(--transition-fast);
 
     &:hover {
-      border-color: #409eff;
+      border-color: rgba(99, 102, 241, 0.4);
+      background: rgba(99, 102, 241, 0.03);
     }
   }
 }
 
-/* 表单区域对齐 */
+// ── 表单区域 ──
 .form-section {
   .el-form-item {
     margin-bottom: 18px;
+  }
+}
+
+// ── 代码块 ──
+code {
+  background: rgba(99, 102, 241, 0.1);
+  color: #a5b4fc;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+pre {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  overflow-x: auto;
+
+  code {
+    background: transparent;
+    padding: 0;
+    color: var(--text-secondary);
+  }
+}
+
+// ── 工具标签 ──
+.tool-tag {
+  margin-right: 4px;
+  margin-bottom: 2px;
+}
+
+.more-tools {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.meta-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.meta-empty {
+  color: var(--text-muted);
+}
+
+// ── 空状态 ──
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+
+  .empty-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.3;
+  }
+
+  .empty-text {
+    font-size: 14px;
+  }
+}
+
+// ── 页面过渡 ──
+.page-enter-active,
+.page-leave-active {
+  transition: all 0.25s ease;
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+// ── Markdown 内容 ──
+.markdown-body {
+  color: var(--text-secondary);
+  line-height: 1.7;
+
+  h1, h2, h3, h4, h5, h6 {
+    color: var(--text-primary);
+    margin-top: 1em;
+    margin-bottom: 0.5em;
+  }
+
+  a {
+    color: #a5b4fc;
+  }
+
+  blockquote {
+    border-left: 3px solid rgba(99, 102, 241, 0.3);
+    color: var(--text-muted);
+  }
+
+  table {
+    border-color: rgba(255, 255, 255, 0.05);
+
+    th, td {
+      border-color: rgba(255, 255, 255, 0.05);
+    }
+
+    tr {
+      background: transparent;
+    }
+  }
+}
+
+// ── 状态指示灯 ──
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+
+  &.online {
+    background: #22d3ee;
+    box-shadow: 0 0 8px rgba(34, 211, 238, 0.5);
+  }
+
+  &.offline {
+    background: #f43f5e;
+    box-shadow: 0 0 8px rgba(244, 63, 94, 0.5);
+  }
+
+  &.warning {
+    background: #f59e0b;
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
+  }
+}
+
+// ============================================
+// 日间模式 - 自定义组件覆盖
+// ============================================
+
+[data-theme="light"] {
+  // 滚动条
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.12);
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.2);
+    }
+  }
+
+  // section-card 内部分割线
+  .section-card {
+    .el-card__header {
+      border-bottom: 1px solid #ebeef5;
+    }
+  }
+
+  // 骨架屏
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      #f0f2f5 25%,
+      #e4e7ed 50%,
+      #f0f2f5 75%
+    );
+  }
+
+  // Chunk 预览
+  .chunk-item {
+    background: #f9fafb;
+    border: 1px solid #ebeef5;
+
+    &:hover {
+      border-color: rgba(99, 102, 241, 0.3);
+    }
+  }
+
+  // 上传区域
+  .upload-dragger {
+    .el-upload-dragger {
+      border: 2px dashed #dcdfe6;
+      background: #fafafa;
+
+      &:hover {
+        border-color: rgba(99, 102, 241, 0.4);
+        background: rgba(99, 102, 241, 0.03);
+      }
+    }
+  }
+
+  // 代码块
+  code {
+    background: rgba(99, 102, 241, 0.08);
+    color: #6366f1;
+  }
+
+  pre {
+    background: #f5f7fa;
+    border: 1px solid #ebeef5;
+
+    code {
+      background: transparent;
+      color: var(--text-secondary);
+    }
+  }
+
+  // Markdown
+  .markdown-body {
+    color: var(--text-secondary);
+
+    a {
+      color: #6366f1;
+    }
+
+    blockquote {
+      border-left: 3px solid rgba(99, 102, 241, 0.3);
+      color: var(--text-muted);
+    }
+
+    table {
+      border-color: #ebeef5;
+
+      th, td {
+        border-color: #ebeef5;
+      }
+    }
+  }
+
+  // 状态指示灯
+  .status-dot {
+    &.online {
+      background: #0891b2;
+      box-shadow: 0 0 8px rgba(8, 145, 178, 0.4);
+    }
+
+    &.offline {
+      background: #e11d48;
+      box-shadow: 0 0 8px rgba(225, 29, 72, 0.4);
+    }
+
+    &.warning {
+      background: #d97706;
+      box-shadow: 0 0 8px rgba(217, 119, 6, 0.4);
+    }
+  }
+
+  // 空状态
+  .empty-state {
+    color: var(--text-muted);
   }
 }

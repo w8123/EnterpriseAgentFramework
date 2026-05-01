@@ -221,7 +221,7 @@ onMounted(() => {
     margin: 0;
     font-size: 20px;
     font-weight: 600;
-    color: #1d2129;
+    color: var(--text-primary);
   }
 }
 

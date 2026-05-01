@@ -68,10 +68,17 @@ function handleConfigChange() {
 }
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .strategy-desc {
   margin-top: 4px;
   font-size: 12px;
   color: #909399;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .strategy-desc {
+    color: #94a3b8;
+  }
 }
 </style>

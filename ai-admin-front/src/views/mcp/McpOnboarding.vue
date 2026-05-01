@@ -118,4 +118,13 @@ function copy(text: string) {
   h2 { margin: 0; font-size: 18px; } }
 pre { background: #2b2d3a; color: #fff; padding: 12px; border-radius: 6px; overflow: auto; font-size: 12px; }
 code { background: #f5f7fa; padding: 2px 6px; border-radius: 3px; }
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  pre {
+    background: #f5f7fa;
+    color: #1e293b;
+    border: 1px solid #ebeef5;
+  }
+}
 </style>

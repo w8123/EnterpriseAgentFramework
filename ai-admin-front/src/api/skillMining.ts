@@ -20,6 +20,13 @@ export interface SkillDraft {
   reviewNote?: string
 }
 
+export interface DemoTraceResult {
+  scenario: string
+  traceCount: number
+  insertedLogCount: number
+  sequence: string[]
+}
+
 export function getSkillMiningPrecheck(days = 7) {
   return agentRequest.get<SkillMiningPrecheck>('/api/skill-mining/precheck', { params: { days } })
 }
@@ -46,4 +53,17 @@ export function publishSkillDraft(id: number) {
  */
 export function extractDraftFromTrace(data: { traceId: string; toolNames?: string[] }) {
   return agentRequest.post<SkillDraft>('/api/skill-mining/drafts/from-trace', data)
+}
+
+export function generateDemoTraces(data: {
+  scenario?: string
+  traceCount?: number
+  successRate?: number
+  noiseRate?: number
+}) {
+  return agentRequest.post<DemoTraceResult>('/api/skill-mining/demo-traces/generate', data)
+}
+
+export function clearDemoTraces() {
+  return agentRequest.post<{ deleted: number }>('/api/skill-mining/demo-traces/clear')
 }

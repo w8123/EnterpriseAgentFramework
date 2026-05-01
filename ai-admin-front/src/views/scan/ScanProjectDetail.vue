@@ -432,10 +432,25 @@
                   <el-switch :model-value="row.lightweightEnabled" @change="handleFlagChange(row, 'lightweightEnabled', $event as boolean)" />
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="520" fixed="right">
+              <el-table-column label="操作" width="600" fixed="right">
                 <template #default="{ row }">
                   <div class="merged-ops-wrap">
                     <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
+                    <el-tooltip
+                      effect="dark"
+                      content="从源码或 OpenAPI 重新解析并更新本行（保留工具名与开关；已挂全局 Tool 时请再点「更新到Tool」同步）"
+                      placement="top"
+                    >
+                      <el-button
+                        link
+                        type="primary"
+                        size="small"
+                        :loading="rescanSourceLoading[row.scanToolId]"
+                        @click="handleRescanToolFromSource(row)"
+                      >
+                        扫描更新
+                      </el-button>
+                    </el-tooltip>
                     <el-button link type="primary" size="small" @click="openTest(row)">测试</el-button>
                     <el-button
                       v-if="!row.globalToolDefinitionId"
@@ -477,6 +492,30 @@
           </el-collapse-item>
         </el-collapse>
       </div>
+    </el-collapse-item>
+
+    <el-collapse-item v-if="project" class="scan-detail-top-item api-graph-card" name="apiGraph">
+      <template #title>
+        <div class="api-graph-header">
+          <span>接口图谱</span>
+          <el-tag size="small" type="info" class="api-graph-tag">手动连线 + 数据模型共享自动生成</el-tag>
+        </div>
+      </template>
+      <p class="api-graph-hint">
+        三色边语义：<span class="legend-blue">蓝-请求引用</span> ·
+        <span class="legend-green">绿-响应引用</span> ·
+        <span class="legend-purple">紫虚线-数据模型共享（自动）</span>。
+        扫描完成后会自动生成紫色虚线；蓝/绿引用关系需要运营开启「连线模式」后手动连线。
+      </p>
+      <ApiGraphCanvas
+        v-if="apiGraphMounted"
+        :project-id="projectId"
+      />
+      <el-empty
+        v-else
+        description="点击折叠卡展开后将懒加载图谱"
+        :image-size="80"
+      />
     </el-collapse-item>
     </el-collapse>
 
@@ -672,11 +711,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { marked } from 'marked'
+
+const ApiGraphCanvas = defineAsyncComponent(() => import('./ApiGraphCanvas.vue'))
 import type { ProviderInfo } from '@/types/model'
 import type { DescriptionSource, ParamDescriptionSource, ProjectToolInfo, ScanProject, ScanSettings } from '@/types/scanProject'
 import { getDefaultScanSettings } from '@/types/scanProject'
@@ -690,6 +731,7 @@ import {
   promoteScanModuleToolsToGlobal,
   promoteScanProjectToolToGlobal,
   pushScanProjectToolToGlobalTool,
+  rescanScanToolFromSource,
   unpromoteScanProjectToolFromGlobal,
   testScanProjectTool,
   toggleScanProjectTool,
@@ -731,6 +773,13 @@ const deleteProjectLoading = ref(false)
 const rebuildEmbeddingLoading = ref(false)
 /** 扫描详情各区块折叠；空数组=全部折叠 */
 const detailPanelActive = ref<string[]>([])
+/** 接口图谱懒加载：首次展开折叠卡时再 mount G6 实例（图较重，不展开则不创建画布） */
+const apiGraphMounted = ref(false)
+watch(detailPanelActive, (panels) => {
+  if (!apiGraphMounted.value && panels.includes('apiGraph')) {
+    apiGraphMounted.value = true
+  }
+})
 
 const formDialogVisible = ref(false)
 const editingScanToolId = ref<number | null>(null)
@@ -739,6 +788,8 @@ const pushToGlobalLoading = reactive<Record<number, boolean>>({})
 const unpromoteLoading = reactive<Record<number, boolean>>({})
 /** 扫描结果按模块「批量添加为 Tool」 loading，key 同 toolModuleGroups */
 const batchModulePromoteLoading = reactive<Record<string, boolean>>({})
+/** 单条「扫描更新」loading，按 scanToolId */
+const rescanSourceLoading = reactive<Record<number, boolean>>({})
 const form = reactive<ToolUpsertRequest>(createEmptyForm())
 const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
 const parameterLocations = ['QUERY', 'PATH', 'BODY']
@@ -1168,6 +1219,19 @@ function openEditDialog(tool: ProjectToolInfo) {
   editingScanToolId.value = tool.scanToolId
   applyForm(toUpsertRequest(tool))
   formDialogVisible.value = true
+}
+
+async function handleRescanToolFromSource(tool: ProjectToolInfo) {
+  rescanSourceLoading[tool.scanToolId] = true
+  try {
+    await rescanScanToolFromSource(projectId.value, tool.scanToolId)
+    ElMessage.success('已从源码更新该接口')
+    await refreshAll()
+  } catch {
+    // 错误文案由 axios 拦截器展示
+  } finally {
+    rescanSourceLoading[tool.scanToolId] = false
+  }
 }
 
 function addParameter() {
@@ -1801,7 +1865,7 @@ onUnmounted(stopPollingTask)
 
   h4 {
     font-size: 13px;
-    color: #909399;
+    color: #64748b;
     margin-bottom: 8px;
   }
 }
@@ -1812,7 +1876,7 @@ onUnmounted(stopPollingTask)
   gap: 8px 16px;
   margin-top: 12px;
   font-size: 13px;
-  color: #606266;
+  color: var(--text-secondary);
 }
 
 .parameter-editor {
@@ -1831,7 +1895,7 @@ onUnmounted(stopPollingTask)
 
 .param-hint {
   font-size: 12px;
-  color: #909399;
+  color: #64748b;
   margin-top: 2px;
 }
 
@@ -1840,8 +1904,8 @@ onUnmounted(stopPollingTask)
 }
 
 .result-content {
-  background: #fafafa;
-  border: 1px solid #ebeef5;
+  background: var(--bg-tertiary);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 4px;
   padding: 12px;
   font-size: 13px;
@@ -1854,13 +1918,13 @@ onUnmounted(stopPollingTask)
 
 .result-duration {
   font-size: 12px;
-  color: #909399;
+  color: #64748b;
   margin-top: 8px;
 }
 
 .auth-hint {
   font-size: 13px;
-  color: #909399;
+  color: #64748b;
   margin: 0 0 12px;
   line-height: 1.5;
 }
@@ -1889,7 +1953,7 @@ onUnmounted(stopPollingTask)
 
 .scan-settings-hint {
   font-size: 13px;
-  color: #909399;
+  color: #64748b;
   margin: 0 0 12px;
   line-height: 1.5;
 }
@@ -1969,7 +2033,7 @@ onUnmounted(stopPollingTask)
 
 .ai-settings-hint {
   font-size: 13px;
-  color: #909399;
+  color: #64748b;
   margin: 0 0 12px;
   line-height: 1.5;
 }
@@ -1985,7 +2049,7 @@ onUnmounted(stopPollingTask)
 .expand-merged .expand-ai-heading {
   margin: 16px 0 8px;
   font-size: 13px;
-  color: #909399;
+  color: #64748b;
 }
 
 .merged-ops-wrap {
@@ -2001,7 +2065,7 @@ onUnmounted(stopPollingTask)
   width: 1px;
   height: 14px;
   margin: 0 8px 0 4px;
-  background: #dcdfe6;
+  background: rgba(255, 255, 255, 0.08);
   vertical-align: middle;
   flex-shrink: 0;
 }
@@ -2022,7 +2086,7 @@ onUnmounted(stopPollingTask)
 }
 
 .token-sum {
-  color: #909399;
+  color: #64748b;
   font-size: 12px;
   margin-left: auto;
 }
@@ -2048,7 +2112,7 @@ onUnmounted(stopPollingTask)
   }
 
   :deep(pre) {
-    background: #f6f7f9;
+    background: var(--bg-tertiary);
     border-radius: 4px;
     padding: 10px;
     overflow: auto;
@@ -2058,7 +2122,7 @@ onUnmounted(stopPollingTask)
     border-collapse: collapse;
 
     th, td {
-      border: 1px solid #dcdfe6;
+      border: 1px solid rgba(255, 255, 255, 0.08);
       padding: 4px 8px;
     }
   }
@@ -2079,5 +2143,55 @@ onUnmounted(stopPollingTask)
 .source-class-tag {
   margin-right: 6px;
   margin-bottom: 4px;
+}
+
+.api-graph-card {
+  margin-top: 0;
+}
+
+.api-graph-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.api-graph-tag {
+  font-weight: 400;
+}
+
+.api-graph-hint {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0 0 12px;
+  line-height: 1.5;
+
+  .legend-blue {
+    color: #409eff;
+    font-weight: 600;
+  }
+
+  .legend-green {
+    color: #67c23a;
+    font-weight: 600;
+  }
+
+  .legend-purple {
+    color: #a05cff;
+    font-weight: 600;
+  }
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .param-hint,
+  .result-duration,
+  .expand-content h4,
+  .api-graph-hint {
+    color: #94a3b8;
+  }
+
+  .result-content {
+    border: 1px solid #ebeef5;
+  }
 }
 </style>

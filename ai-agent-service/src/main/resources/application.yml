@@ -6,9 +6,9 @@ spring:
     name: ai-agent-service
 
   datasource:
-    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/ai_text_service?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai}
-    username: ${MYSQL_USER:root}
-    password: ${MYSQL_PASSWORD:root}
+    url: ${AI_MYSQL_URL:jdbc:mysql://39.106.238.224:33106/ai_text_service?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai}
+    username: ${AI_MYSQL_USER:ai_text_service}
+    password: ${AI_MYSQL_PASSWORD:4LaGtyK6y2siSMir}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   data:
@@ -37,9 +37,9 @@ spring:
 # ==================== 服务间调用 ====================
 services:
   model-service:
-    url: ${MODEL_SERVICE_URL:http://localhost:8090}
+    url: ${MODEL_SERVICE_URL:http://localhost:8601}
   skills-service:
-    url: ${SKILLS_SERVICE_URL:http://localhost:8080}
+    url: ${SKILLS_SERVICE_URL:http://localhost:8602}
 
 # ==================== 极视角平台 ====================
 jishi:

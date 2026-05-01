@@ -785,6 +785,129 @@ CREATE TABLE IF NOT EXISTS `a2a_call_log` (
 
 
 -- ============================================================================
+-- 七.f、Phase 4.0 接口图谱（ApiCallGraph 一期）
+--   - api_graph_node：接口/字段/DTO/模块节点
+--   - api_graph_edge：接口间引用关系（请求引用蓝 / 响应引用绿 / 数据模型紫虚线）
+--   - api_graph_layout：画布坐标
+--   - 与 ai-agent-service/sql/api_graph_phase4_0.sql 一致；详见
+--     docs/接口图谱-设计与落地.md
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS `api_graph_node` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT,
+    `project_id`    BIGINT       NOT NULL,
+    `kind`          VARCHAR(16)  NOT NULL                       COMMENT 'API / FIELD_IN / FIELD_OUT / DTO / MODULE',
+    `ref_id`        BIGINT       DEFAULT NULL,
+    `parent_id`     BIGINT       DEFAULT NULL,
+    `label`         VARCHAR(255) NOT NULL,
+    `type_name`     VARCHAR(255) DEFAULT NULL,
+    `props_json`    TEXT         DEFAULT NULL,
+    `created_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_node_identity` (`project_id`, `kind`, `ref_id`, `parent_id`, `label`),
+    KEY `idx_project_kind` (`project_id`, `kind`),
+    KEY `idx_parent`       (`parent_id`),
+    KEY `idx_type`         (`project_id`, `type_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接口图谱节点 (Phase 4.0)';
+
+CREATE TABLE IF NOT EXISTS `api_graph_edge` (
+    `id`              BIGINT       NOT NULL AUTO_INCREMENT,
+    `project_id`      BIGINT       NOT NULL,
+    `source_node_id`  BIGINT       NOT NULL,
+    `target_node_id`  BIGINT       NOT NULL,
+    `kind`            VARCHAR(16)  NOT NULL                     COMMENT 'REQUEST_REF / RESPONSE_REF / MODEL_REF / BELONGS_TO',
+    `source`          VARCHAR(8)   NOT NULL DEFAULT 'manual'    COMMENT 'auto / manual',
+    `confidence`      DOUBLE       DEFAULT NULL,
+    `status`          VARCHAR(16)  NOT NULL DEFAULT 'CONFIRMED' COMMENT 'CANDIDATE / CONFIRMED / REJECTED',
+    `infer_strategy`  VARCHAR(32)  DEFAULT NULL                 COMMENT 'schema_match / dto_match / trace_value_match / llm_assisted',
+    `confirmed_by`    VARCHAR(64)  DEFAULT NULL,
+    `confirmed_at`    DATETIME     DEFAULT NULL,
+    `reject_reason`   VARCHAR(512) DEFAULT NULL,
+    `evidence_json`   TEXT         DEFAULT NULL,
+    `note`            VARCHAR(512) DEFAULT NULL,
+    `enabled`         TINYINT(1)   NOT NULL DEFAULT 1,
+    `created_at`      DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`      DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_edge_identity` (`project_id`, `kind`, `source_node_id`, `target_node_id`, `source`),
+    KEY `idx_project_kind` (`project_id`, `kind`),
+    KEY `idx_project_status` (`project_id`, `status`),
+    KEY `idx_source_node`  (`source_node_id`),
+    KEY `idx_target_node`  (`target_node_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接口图谱边 (Phase 4.0)';
+
+CALL add_col_if_absent('api_graph_edge', 'status', 'VARCHAR(16) NOT NULL DEFAULT ''CONFIRMED'' COMMENT ''CANDIDATE / CONFIRMED / REJECTED'' AFTER `confidence`');
+CALL add_col_if_absent('api_graph_edge', 'infer_strategy', 'VARCHAR(32) DEFAULT NULL COMMENT ''schema_match / dto_match / trace_value_match / llm_assisted'' AFTER `status`');
+CALL add_col_if_absent('api_graph_edge', 'confirmed_by', 'VARCHAR(64) DEFAULT NULL AFTER `infer_strategy`');
+CALL add_col_if_absent('api_graph_edge', 'confirmed_at', 'DATETIME DEFAULT NULL AFTER `confirmed_by`');
+CALL add_col_if_absent('api_graph_edge', 'reject_reason', 'VARCHAR(512) DEFAULT NULL AFTER `confirmed_at`');
+CALL add_idx_if_absent('api_graph_edge', 'idx_project_status', '`project_id`, `status`');
+
+CREATE TABLE IF NOT EXISTS `api_graph_layout` (
+    `id`         BIGINT     NOT NULL AUTO_INCREMENT,
+    `project_id` BIGINT     NOT NULL,
+    `node_id`    BIGINT     NOT NULL,
+    `x`          DOUBLE     NOT NULL DEFAULT 0,
+    `y`          DOUBLE     NOT NULL DEFAULT 0,
+    `ext_json`   TEXT       DEFAULT NULL,
+    `updated_at` DATETIME   DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_project_node` (`project_id`, `node_id`),
+    KEY `idx_project` (`project_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接口图谱画布布局 (Phase 4.0)';
+
+
+-- ============================================================================
+-- 七.g、Phase 4.2 生产护栏：统一治理决策日志
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS `guard_decision_log` (
+    `id`             BIGINT       NOT NULL AUTO_INCREMENT,
+    `trace_id`       VARCHAR(64)  DEFAULT NULL                 COMMENT '关联 traceId，可为空',
+    `decision_type`  VARCHAR(32)  NOT NULL                     COMMENT 'RATE_LIMIT / BREAKER / ACL / SIDE_EFFECT / PREFLIGHT',
+    `target_kind`    VARCHAR(32)  NOT NULL                     COMMENT 'AGENT / TOOL / SKILL / MCP_CLIENT / A2A_ENDPOINT / PROJECT',
+    `target_name`    VARCHAR(255) NOT NULL                     COMMENT '目标名称或 key',
+    `decision`       VARCHAR(16)  NOT NULL                     COMMENT 'ALLOW / DENY / WARN / SKIP / DRY_RUN',
+    `reason`         VARCHAR(512) DEFAULT NULL                 COMMENT '决策原因',
+    `metadata_json`  TEXT         DEFAULT NULL                 COMMENT '扩展上下文 JSON',
+    `created_at`     DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_trace` (`trace_id`),
+    KEY `idx_type_target` (`decision_type`, `target_kind`, `target_name`),
+    KEY `idx_decision_time` (`decision`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='生产护栏决策日志 (Phase 4.2)';
+
+
+-- ============================================================================
+-- 七.h、Phase P3 A2A Task Persistence
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS `a2a_task` (
+    `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
+    `task_id`            VARCHAR(64)  NOT NULL                     COMMENT 'A2A task id',
+    `endpoint_id`         BIGINT       DEFAULT NULL                 COMMENT 'a2a_endpoint.id',
+    `agent_key`           VARCHAR(128) NOT NULL,
+    `context_id`          VARCHAR(128) DEFAULT NULL,
+    `user_id`             VARCHAR(128) DEFAULT NULL,
+    `state`               VARCHAR(32)  NOT NULL                    COMMENT 'submitted / working / completed / failed / canceled',
+    `input_message_json`  TEXT         DEFAULT NULL,
+    `output_task_json`    MEDIUMTEXT   DEFAULT NULL,
+    `trace_id`            VARCHAR(64)  DEFAULT NULL,
+    `error_message`       VARCHAR(1024) DEFAULT NULL,
+    `started_at`          DATETIME     DEFAULT NULL,
+    `completed_at`        DATETIME     DEFAULT NULL,
+    `created_at`          DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`          DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_task_id` (`task_id`),
+    KEY `idx_endpoint_state` (`endpoint_id`, `state`),
+    KEY `idx_trace` (`trace_id`),
+    KEY `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='A2A 任务持久化 (Phase P3)';
+
+
+-- ============================================================================
 -- 八、初始化示例数据（可选；同名再跑不会插入重复行）
 -- ============================================================================
 

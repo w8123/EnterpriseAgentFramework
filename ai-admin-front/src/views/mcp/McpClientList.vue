@@ -265,4 +265,17 @@ onMounted(reload)
   code { flex: 1; word-break: break-all; user-select: all; }
 }
 pre { background: #2b2d3a; color: #fff; padding: 12px; border-radius: 6px; overflow: auto; }
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .dim {
+    color: #c0c4cc;
+  }
+
+  pre {
+    background: #f5f7fa;
+    color: #1e293b;
+    border: 1px solid #ebeef5;
+  }
+}
 </style>

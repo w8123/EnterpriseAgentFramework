@@ -81,7 +81,11 @@ export function findSemanticDoc(params: {
   /** level 为 scan_tool 时必填，对应 scan_project_tool.id */
   scanToolId?: number
 }) {
-  return agentRequest.get<SemanticDoc>('/api/semantic-docs', { params })
+  /** 后端在「资源不存在」时返回 404；此处视为空结果，避免 axios 全局拦截器弹错（语义文档尚未生成属常态） */
+  return agentRequest.get<SemanticDoc | null>('/api/semantic-docs', {
+    params,
+    validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
+  })
 }
 
 export function listProjectSemanticDocs(projectId: number) {

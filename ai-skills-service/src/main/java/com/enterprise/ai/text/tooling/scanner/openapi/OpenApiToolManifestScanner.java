@@ -15,12 +15,14 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 基于 OpenAPI/Swagger 文档生成运行时可消费的扫描结果。
@@ -73,7 +75,7 @@ public class OpenApiToolManifestScanner {
                     if (skipDep && operation.path("deprecated").asBoolean(false)) {
                         continue;
                     }
-                    tools.add(toToolDefinition(specPath, effectiveProject, apiPath, method, pathItem, operation));
+                    tools.add(toToolDefinition(specPath, effectiveProject, apiPath, method, root, pathItem, operation));
                 }
             }
         }
@@ -101,19 +103,42 @@ public class OpenApiToolManifestScanner {
             ProjectMetadata project,
             String apiPath,
             String method,
+            JsonNode docRoot,
             JsonNode pathItem,
             JsonNode operation
     ) {
         List<ToolParameterDefinition> parameters = parseParameters(pathItem, operation);
         String requestBodyType = extractRequestBodyType(operation);
         if (requestBodyType != null) {
+            JsonNode bodySchema = findJsonSchema(operation.path("requestBody").path("content"));
+            List<ToolParameterDefinition> bodyChildren = openApiSchemaToToolParameters(
+                    bodySchema, docRoot, ParameterLocation.BODY, 0);
             parameters.add(new ToolParameterDefinition(
                     "body_json",
                     "json",
                     "JSON 请求体，对应 " + requestBodyType,
                     operation.path("requestBody").path("required").asBoolean(false),
-                    ParameterLocation.BODY
+                    ParameterLocation.BODY,
+                    bodyChildren
             ));
+        }
+
+        JsonNode responseSchema = findFirst2xxResponseSchema(operation.path("responses"));
+        String responseType = extractResponseType(operation);
+        if (responseSchema != null && !responseSchema.isMissingNode()) {
+            List<ToolParameterDefinition> responseChildren = openApiSchemaToToolParameters(
+                    responseSchema, docRoot, ParameterLocation.RESPONSE, 0);
+            if (!responseChildren.isEmpty()) {
+                String rt = firstNonBlank(schemaTypeLabel(responseSchema), responseType, "object");
+                parameters.add(new ToolParameterDefinition(
+                        "返回值",
+                        rt,
+                        "HTTP 2xx 响应体",
+                        false,
+                        ParameterLocation.RESPONSE,
+                        responseChildren
+                ));
+            }
         }
 
         String normalizedMethod = method.toUpperCase(Locale.ROOT);
@@ -125,7 +150,7 @@ public class OpenApiToolManifestScanner {
                 normalizedMethod + " " + joinPath(project.contextPath(), apiPath),
                 parameters,
                 requestBodyType,
-                extractResponseType(operation),
+                responseType,
                 new ToolSource("openapi", specPath.getFileName() + "#/paths/" + encodeJsonPointer(apiPath) + "/" + method)
         );
     }
@@ -210,6 +235,101 @@ public class OpenApiToolManifestScanner {
             }
         }
         return null;
+    }
+
+    /**
+     * 解析 $ref（含链式），在 docRoot 上按 JSON Pointer 定位。
+     */
+    private JsonNode resolveSchemaRefs(JsonNode schema, JsonNode docRoot, Set<String> refStack) {
+        if (schema == null || schema.isMissingNode() || schema.isNull()) {
+            return null;
+        }
+        JsonNode refNode = schema.get("$ref");
+        if (refNode == null || !refNode.isTextual()) {
+            return schema;
+        }
+        String ref = refNode.asText();
+        if (!refStack.add(ref)) {
+            return null;
+        }
+        String pointer = ref.startsWith("#") ? ref.substring(1) : ref;
+        JsonNode target = docRoot.at(pointer);
+        if (target == null || target.isMissingNode() || target.isNull()) {
+            return schema;
+        }
+        return resolveSchemaRefs(target, docRoot, refStack);
+    }
+
+    private JsonNode findFirst2xxResponseSchema(JsonNode responses) {
+        if (responses == null || !responses.isObject()) {
+            return null;
+        }
+        Iterator<Map.Entry<String, JsonNode>> it = responses.fields();
+        while (it.hasNext()) {
+            Map.Entry<String, JsonNode> e = it.next();
+            if (!e.getKey().startsWith("2")) {
+                continue;
+            }
+            JsonNode schema = findJsonSchema(e.getValue().path("content"));
+            if (schema != null && !schema.isMissingNode() && !schema.isNull()) {
+                return schema;
+            }
+        }
+        return null;
+    }
+
+    private List<ToolParameterDefinition> openApiSchemaToToolParameters(
+            JsonNode schema,
+            JsonNode docRoot,
+            ParameterLocation location,
+            int depth) {
+        if (depth > 24 || schema == null || schema.isMissingNode() || schema.isNull()) {
+            return List.of();
+        }
+        JsonNode base = resolveSchemaRefs(schema, docRoot, new HashSet<>());
+        if (base == null || base.isMissingNode() || base.isNull()) {
+            return List.of();
+        }
+        String type = base.path("type").asText("");
+        if ("array".equals(type)) {
+            JsonNode items = base.get("items");
+            if (items == null || items.isMissingNode()) {
+                return List.of();
+            }
+            List<ToolParameterDefinition> nested = openApiSchemaToToolParameters(items, docRoot, location, depth + 1);
+            String itemType = firstNonBlank(schemaTypeLabel(items), extractSchemaType(items), "item");
+            return List.of(new ToolParameterDefinition("items", itemType, "", false, location, nested));
+        }
+        JsonNode props = base.get("properties");
+        if (props != null && props.isObject()) {
+            JsonNode req = base.get("required");
+            List<ToolParameterDefinition> out = new ArrayList<>();
+            Iterator<Map.Entry<String, JsonNode>> pit = props.fields();
+            while (pit.hasNext()) {
+                Map.Entry<String, JsonNode> e = pit.next();
+                String pname = e.getKey();
+                JsonNode pschema = e.getValue();
+                String ptype = firstNonBlank(schemaTypeLabel(pschema), extractSchemaType(pschema), "object");
+                boolean reqd = req != null && req.isArray() && containsRequiredName(req, pname);
+                String desc = firstNonBlank(pschema.path("description").asText(null), "");
+                List<ToolParameterDefinition> grandchildren = openApiSchemaToToolParameters(pschema, docRoot, location, depth + 1);
+                out.add(new ToolParameterDefinition(pname, ptype, desc, reqd, location, grandchildren));
+            }
+            return out;
+        }
+        return List.of();
+    }
+
+    private static boolean containsRequiredName(JsonNode reqArray, String name) {
+        if (reqArray == null || !reqArray.isArray()) {
+            return false;
+        }
+        for (JsonNode n : reqArray) {
+            if (n.isTextual() && name.equals(n.asText())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String resolveToolName(String apiPath, JsonNode operation, String method) {

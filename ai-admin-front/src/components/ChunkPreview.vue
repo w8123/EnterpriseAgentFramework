@@ -84,14 +84,14 @@ const averageLength = computed(() => {
 .chunk-item {
   padding: 12px 16px;
   margin-bottom: 8px;
-  background: #fafbfc;
-  border: 1px solid #ebeef5;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-glass);
   border-radius: 6px;
   transition: border-color 0.2s, box-shadow 0.2s;
 
   &:hover {
-    border-color: #409eff;
-    box-shadow: 0 2px 8px rgba(64, 158, 255, 0.08);
+    border-color: rgba(99, 102, 241, 0.4);
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.12);
   }
 }
 
@@ -104,14 +104,22 @@ const averageLength = computed(() => {
 
 .chunk-length {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-muted);
 }
 
 .chunk-content {
   font-size: 13px;
   line-height: 1.7;
-  color: #606266;
+  color: var(--text-secondary);
   word-break: break-all;
   white-space: pre-wrap;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .chunk-item:hover {
+    border-color: #409eff;
+    box-shadow: 0 2px 8px rgba(64, 158, 255, 0.08);
+  }
 }
 </style>

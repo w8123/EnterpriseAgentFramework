@@ -21,6 +21,8 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -183,6 +185,47 @@ public class ScanProjectController {
         }
     }
 
+    /**
+     * Scan 2.x 基础能力：基于当前已入库接口生成扫描质量 / 差异评审摘要。
+     */
+    @GetMapping("/{id}/diff-summary")
+    public ResponseEntity<?> diffSummary(@PathVariable Long id) {
+        try {
+            List<ScanProjectToolEntity> tools = scanProjectService.listTools(id);
+            Map<String, List<Long>> idsByStableKey = new LinkedHashMap<>();
+            int missingDescription = 0;
+            int missingAiDescription = 0;
+            int promoted = 0;
+            for (ScanProjectToolEntity tool : tools) {
+                idsByStableKey.computeIfAbsent(stableKey(tool), k -> new ArrayList<>()).add(tool.getId());
+                if (!StringUtils.hasText(tool.getDescription())) {
+                    missingDescription++;
+                }
+                if (!StringUtils.hasText(tool.getAiDescription())) {
+                    missingAiDescription++;
+                }
+                if (tool.getGlobalToolDefinitionId() != null) {
+                    promoted++;
+                }
+            }
+            List<DuplicateStableKeyDTO> duplicates = idsByStableKey.entrySet().stream()
+                    .filter(entry -> entry.getValue().size() > 1)
+                    .map(entry -> new DuplicateStableKeyDTO(entry.getKey(), entry.getValue()))
+                    .toList();
+            return ResponseEntity.ok(new ScanDiffSummaryDTO(
+                    id,
+                    tools.size(),
+                    promoted,
+                    missingDescription,
+                    missingAiDescription,
+                    duplicates.size(),
+                    duplicates
+            ));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
     @PutMapping("/{projectId}/scan-tools/{toolId}")
     public ResponseEntity<ProjectToolDTO> updateScanTool(@PathVariable Long projectId,
                                                          @PathVariable Long toolId,
@@ -213,6 +256,27 @@ public class ScanProjectController {
             return ResponseEntity.ok(toToolDtoSingle(updated, modulesById));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.notFound().build();
+        }
+    }
+
+    /**
+     * 从磁盘 / OpenAPI 重新解析并更新单条 {@code scan_project_tool}（主键与工具名不变，保留启用与可见性开关）。
+     */
+    @PostMapping("/{projectId}/scan-tools/{toolId}/rescan-from-source")
+    public ResponseEntity<?> rescanScanToolFromSource(@PathVariable Long projectId,
+                                                       @PathVariable Long toolId) {
+        try {
+            ScanProjectToolEntity updated = scanProjectService.rescanSingleTool(projectId, toolId);
+            Map<Long, ScanModuleEntity> modulesById = scanModuleService.listByProject(projectId).stream()
+                    .collect(Collectors.toMap(ScanModuleEntity::getId, Function.identity(), (a, b) -> a));
+            return ResponseEntity.ok(toToolDtoSingle(updated, modulesById));
+        } catch (IllegalArgumentException ex) {
+            if (ex.getMessage() != null && ex.getMessage().contains("不存在")) {
+                return ResponseEntity.notFound().build();
+            }
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
+        } catch (RuntimeException ex) {
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
         }
     }
 
@@ -342,6 +406,15 @@ public class ScanProjectController {
         return buildProjectToolDto(entity, modulesById, resolveGlobal(entity));
     }
 
+    private static String stableKey(ScanProjectToolEntity tool) {
+        String method = tool.getHttpMethod() == null ? "" : tool.getHttpMethod().trim().toUpperCase();
+        String path = tool.getEndpointPath() == null ? "" : tool.getEndpointPath().trim();
+        if (StringUtils.hasText(method) || StringUtils.hasText(path)) {
+            return method + " " + path;
+        }
+        return StringUtils.hasText(tool.getSourceLocation()) ? tool.getSourceLocation() : tool.getName();
+    }
+
     private ProjectToolDTO toToolDtoBatch(ScanProjectToolEntity entity,
                                          Map<Long, ScanModuleEntity> modulesById,
                                          Map<Long, ToolDefinitionEntity> globalById) {
@@ -459,6 +532,18 @@ public class ScanProjectController {
     }
 
     record ScanResultDTO(Long projectId, String projectName, int toolCount, List<String> toolNames) {
+    }
+
+    record ScanDiffSummaryDTO(Long projectId,
+                              int toolCount,
+                              int promotedCount,
+                              int missingDescriptionCount,
+                              int missingAiDescriptionCount,
+                              int duplicateStableKeyCount,
+                              List<DuplicateStableKeyDTO> duplicates) {
+    }
+
+    record DuplicateStableKeyDTO(String stableKey, List<Long> scanToolIds) {
     }
 
     record ProjectToolDTO(

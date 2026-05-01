@@ -45,6 +45,7 @@ public class A2aServerEndpoint {
 
     private final A2aEndpointService endpointService;
     private final A2aCallLogService callLogService;
+    private final A2aTaskService taskService;
     private final AgentDefinitionService agentDefinitionService;
     private final AgentVersionService versionService;
     private final AgentRouter agentRouter;
@@ -122,10 +123,13 @@ public class A2aServerEndpoint {
         String userId = optDeep(params, "metadata", "userId");
         if (userId == null) userId = "a2a-anonymous";
         String taskId = UUID.randomUUID().toString();
+        taskService.createWorking(taskId, endpoint.getId(), agentKey, contextId, userId,
+                params == null ? null : params.get("message"));
 
         // 解析 Agent Definition + 版本
         AgentDefinition head = agentDefinitionService.findByKeySlug(agentKey).orElse(null);
         if (head == null || !head.isEnabled()) {
+            taskService.fail(taskId, "agent not found or disabled");
             callLogService.log(endpoint.getId(), agentKey, taskId, "message/send", false,
                     System.currentTimeMillis() - start, params == null ? null : params.toString(),
                     null, "agent not found or disabled", null, remoteIp(req));
@@ -138,6 +142,7 @@ public class A2aServerEndpoint {
         try {
             result = agentRouter.executeByDefinition(snapshot, contextId, userId, userText, null);
         } catch (Exception e) {
+            taskService.fail(taskId, e.getMessage());
             callLogService.log(endpoint.getId(), agentKey, taskId, "message/send", false,
                     System.currentTimeMillis() - start, params == null ? null : params.toString(),
                     null, e.getMessage(), null, remoteIp(req));
@@ -145,6 +150,8 @@ public class A2aServerEndpoint {
         }
 
         Map<String, Object> task = buildTask(taskId, contextId, agentKey, userText, result);
+        String traceId = result.getMetadata() == null ? null : (String) result.getMetadata().get("traceId");
+        taskService.complete(taskId, task, traceId);
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("jsonrpc", "2.0");
         resp.put("id", id);
@@ -153,25 +160,18 @@ public class A2aServerEndpoint {
         callLogService.log(endpoint.getId(), agentKey, taskId, "message/send", true,
                 System.currentTimeMillis() - start, params == null ? null : params.toString(),
                 writeJson(task), null,
-                result.getMetadata() == null ? null : (String) result.getMetadata().get("traceId"),
+                traceId,
                 remoteIp(req));
         return resp;
     }
 
-    /**
-     * 注：本仓 ReAct 一次性执行模型不持久化 Task 状态，tasks/get 仅返回占位
-     * "completed" 状态以满足协议格式；若后续接入 Task Persistence，可改为查 a2a_call_log + tool_call_log 拼装。
-     */
     private Map<String, Object> handleTaskGet(Object id, JsonNode params) {
         String taskId = optString(params, "id");
-        Map<String, Object> task = new LinkedHashMap<>();
-        task.put("id", taskId);
-        task.put("kind", "task");
-        Map<String, Object> status = new LinkedHashMap<>();
-        status.put("state", "unknown");
-        status.put("message", Map.of("role", "agent",
-                "parts", List.of(Map.of("kind", "text", "text", "本服务为无状态执行，未持久化历史任务"))));
-        task.put("status", status);
+        Optional<A2aTaskEntity> stored = taskService.findByTaskId(taskId);
+        if (stored.isEmpty()) {
+            return error(id, -32004, "task not found: " + taskId);
+        }
+        Map<String, Object> task = taskService.outputTask(stored.get()).orElseGet(() -> buildTaskStatus(stored.get()));
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("jsonrpc", "2.0");
         resp.put("id", id);
@@ -180,12 +180,38 @@ public class A2aServerEndpoint {
     }
 
     private Map<String, Object> handleTaskCancel(Object id, JsonNode params) {
+        String taskId = optString(params, "id");
+        boolean canceled = taskService.cancel(taskId);
+        if (!canceled) {
+            return error(id, -32005, "task cannot be canceled or not found: " + taskId);
+        }
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("jsonrpc", "2.0");
         resp.put("id", id);
-        resp.put("result", Map.of("id", optString(params, "id"), "kind", "task",
+        resp.put("result", Map.of("id", taskId, "kind", "task",
                 "status", Map.of("state", "canceled")));
         return resp;
+    }
+
+    private Map<String, Object> buildTaskStatus(A2aTaskEntity entity) {
+        Map<String, Object> task = new LinkedHashMap<>();
+        task.put("id", entity.getTaskId());
+        task.put("kind", "task");
+        task.put("contextId", entity.getContextId());
+        Map<String, Object> status = new LinkedHashMap<>();
+        status.put("state", entity.getState());
+        if (entity.getErrorMessage() != null) {
+            status.put("message", Map.of("role", "agent",
+                    "parts", List.of(Map.of("kind", "text", "text", entity.getErrorMessage()))));
+        }
+        task.put("status", status);
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("agentKey", entity.getAgentKey());
+        if (entity.getTraceId() != null) {
+            metadata.put("traceId", entity.getTraceId());
+        }
+        task.put("metadata", metadata);
+        return task;
     }
 
     private Map<String, Object> buildTask(String taskId, String contextId, String agentKey,

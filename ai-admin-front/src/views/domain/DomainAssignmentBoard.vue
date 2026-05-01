@@ -278,4 +278,15 @@ onMounted(reload)
   .dom-code { color: #888; font-size: 12px; }
 }
 .dim { color: #999; padding: 8px; }
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .dom-code {
+    color: #94a3b8;
+  }
+
+  .dim {
+    color: #c0c4cc;
+  }
+}
 </style>

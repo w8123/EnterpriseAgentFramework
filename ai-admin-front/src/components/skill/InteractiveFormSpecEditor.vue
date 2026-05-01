@@ -339,4 +339,16 @@ function onJsonBlur() {
   font-family: ui-monospace, monospace;
   font-size: 12px;
 }
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .hint,
+  .collapse-title .sub {
+    color: #94a3b8;
+  }
+
+  .section-title {
+    color: #1e293b;
+  }
+}
 </style>

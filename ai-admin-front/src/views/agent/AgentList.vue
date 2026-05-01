@@ -2,12 +2,15 @@
   <div class="page-container">
     <div class="page-header">
       <h2>Agent 管理</h2>
-      <el-button type="primary" @click="handleCreate">
-        <el-icon><Plus /></el-icon>新建 Agent
-      </el-button>
+      <div class="header-actions">
+        <ViewToggle v-model="viewMode" />
+        <el-button type="primary" @click="handleCreate">
+          <el-icon><Plus /></el-icon>新建 Agent
+        </el-button>
+      </div>
     </div>
 
-    <el-card shadow="never">
+    <el-card shadow="never" class="section-card">
       <el-tabs v-model="activeView" class="top-tabs">
         <el-tab-pane label="Agent 列表" name="agents" />
         <el-tab-pane label="最近 Trace" name="traces" />
@@ -36,7 +39,62 @@
         </el-select>
       </div>
 
-      <el-table :data="filteredAgents" v-loading="loading" stripe>
+      <!-- 卡片视图 -->
+      <div v-if="viewMode === 'card'" class="card-grid">
+        <div
+          v-for="agent in filteredAgents"
+          :key="agent.id"
+          class="agent-card glass-card"
+          @click="handleEdit(agent.id)"
+        >
+          <div class="agent-card-header">
+            <div class="agent-card-icon">
+              <el-icon :size="20"><Cpu /></el-icon>
+            </div>
+            <div class="agent-card-title-area">
+              <h4 class="agent-card-name">{{ agent.name }}</h4>
+              <span class="agent-card-intent">{{ intentLabel(agent.intentType) }}</span>
+            </div>
+            <el-switch
+              :model-value="agent.enabled"
+              @change="(val: boolean) => handleToggle(agent, val)"
+              size="small"
+              @click.stop
+            />
+          </div>
+          <div class="agent-card-meta">
+            <el-tag :type="agent.type === 'pipeline' ? 'warning' : 'info'" size="small" effect="dark">
+              {{ agent.type }}
+            </el-tag>
+            <el-tag size="small" :type="triggerTagType(agent.triggerMode)" effect="dark">
+              {{ triggerLabel(agent.triggerMode) }}
+            </el-tag>
+            <span class="agent-card-model">{{ agent.modelName }}</span>
+          </div>
+          <div class="agent-card-tools" v-if="agent.tools?.length">
+            <el-tag
+              v-for="tool in agent.tools.slice(0, 3)"
+              :key="tool"
+              size="small"
+              class="tool-tag"
+            >{{ tool }}</el-tag>
+            <span v-if="agent.tools.length > 3" class="more-tools">+{{ agent.tools.length - 3 }}</span>
+          </div>
+          <div class="agent-card-footer">
+            <el-button link type="primary" size="small" @click.stop="handleEdit(agent.id)">编辑</el-button>
+            <el-button link type="warning" size="small" @click.stop="handleStudio(agent.id)">画布</el-button>
+            <el-button link type="success" size="small" @click.stop="handleDebug(agent.id)">调试</el-button>
+            <el-popconfirm title="确认删除该 Agent？" @confirm="handleDelete(agent.id)">
+              <template #reference>
+                <el-button link type="danger" size="small" @click.stop>删除</el-button>
+              </template>
+            </el-popconfirm>
+          </div>
+        </div>
+      </div>
+
+      <!-- 表格视图 -->
+      <el-table v-else :data="filteredAgents" v-loading="loading" stripe>
         <el-table-column prop="name" label="名称" min-width="140">
           <template #default="{ row }">
             <el-link type="primary" @click="handleEdit(row.id)">{{ row.name }}</el-link>
@@ -44,19 +102,19 @@
         </el-table-column>
         <el-table-column prop="intentType" label="意图类型" width="130">
           <template #default="{ row }">
-            <el-tag size="small">{{ intentLabel(row.intentType) }}</el-tag>
+            <el-tag size="small" effect="dark">{{ intentLabel(row.intentType) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="type" label="类型" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.type === 'pipeline' ? 'warning' : 'info'" size="small">
+            <el-tag :type="row.type === 'pipeline' ? 'warning' : 'info'" size="small" effect="dark">
               {{ row.type }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="triggerMode" label="触发方式" width="100" align="center">
           <template #default="{ row }">
-            <el-tag size="small" :type="triggerTagType(row.triggerMode)">
+            <el-tag size="small" :type="triggerTagType(row.triggerMode)" effect="dark">
               {{ triggerLabel(row.triggerMode) }}
             </el-tag>
           </template>
@@ -143,12 +201,13 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Cpu } from '@element-plus/icons-vue'
 import type { AgentDefinition } from '@/types/agent'
 import { INTENT_TYPES, TRIGGER_MODES } from '@/types/agent'
 import { getAgentList, deleteAgent, updateAgent } from '@/api/agent'
 import { getRecentTraces } from '@/api/trace'
 import type { TraceSummary } from '@/types/trace'
+import ViewToggle from '@/components/ViewToggle.vue'
 
 const router = useRouter()
 const agents = ref<AgentDefinition[]>([])
@@ -160,11 +219,8 @@ const activeView = ref<'agents' | 'traces'>('agents')
 const recentTraces = ref<TraceSummary[]>([])
 const traceLoading = ref(false)
 const traceFilter = ref({ userId: '', days: 7 })
+const viewMode = ref<'table' | 'card'>('table')
 
-/**
- * 合并预置意图类型与数据中出现的自定义意图，
- * 确保筛选下拉框能覆盖所有实际值。
- */
 const allIntentTypes = computed(() => {
   const presetValues = new Set<string>(INTENT_TYPES.map((t) => t.value))
   const custom = agents.value
@@ -239,25 +295,11 @@ function copyTraceId(traceId: string) {
   }
 }
 
-function handleCreate() {
-  router.push('/agent/new/edit')
-}
-
-function handleEdit(id: string) {
-  router.push(`/agent/${id}/edit`)
-}
-
-function handleDebug(id: string) {
-  router.push(`/agent/${id}/debug`)
-}
-
-function handleStudio(id: string) {
-  router.push(`/agent/${id}/studio`)
-}
-
-function handleVersions(id: string) {
-  router.push(`/agent/${id}/versions`)
-}
+function handleCreate() { router.push('/agent/new/edit') }
+function handleEdit(id: string) { router.push(`/agent/${id}/edit`) }
+function handleDebug(id: string) { router.push(`/agent/${id}/debug`) }
+function handleStudio(id: string) { router.push(`/agent/${id}/studio`) }
+function handleVersions(id: string) { router.push(`/agent/${id}/versions`) }
 
 async function handleToggle(agent: AgentDefinition, enabled: boolean) {
   try {
@@ -279,11 +321,8 @@ async function handleDelete(id: string) {
   }
 }
 
-onMounted(() => {
-  fetchData()
-})
+onMounted(() => { fetchData() })
 
-// 切到"最近 Trace"时再拉；避免用户从不点该 tab 也做了无用请求
 watch(activeView, (view) => {
   if (view === 'traces' && recentTraces.value.length === 0) {
     fetchRecentTraces()
@@ -292,28 +331,85 @@ watch(activeView, (view) => {
 </script>
 
 <style scoped lang="scss">
-.filter-bar {
+.agent-card {
+  cursor: pointer;
+  animation-fill-mode: both;
+}
+
+.agent-card-header {
   display: flex;
+  align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
-.tool-tag {
-  margin-right: 4px;
-  margin-bottom: 2px;
+.agent-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
 }
 
-.more-tools {
+.agent-card-title-area {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-card-intent {
   font-size: 12px;
-  color: #909399;
+  color: #64748b;
 }
 
-.meta-text {
+.agent-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.agent-card-model {
   font-size: 12px;
-  color: #606266;
+  color: var(--text-secondary);
 }
 
-.meta-empty {
-  color: #c0c4cc;
+.agent-card-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.agent-card-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .agent-card-intent {
+    color: #94a3b8;
+  }
+
+  .agent-card-footer {
+    border-top: 1px solid #ebeef5;
+  }
 }
 </style>

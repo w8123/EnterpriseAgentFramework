@@ -133,7 +133,7 @@ onMounted(fetchProviders)
 
 .models-label {
   font-size: 13px;
-  color: #909399;
+  color: #64748b;
   margin-bottom: 8px;
 }
 
@@ -149,5 +149,12 @@ onMounted(fetchProviders)
 .provider-actions {
   margin-top: 16px;
   text-align: right;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .models-label {
+    color: #94a3b8;
+  }
 }
 </style>

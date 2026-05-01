@@ -4,6 +4,7 @@
       <h2>Skill Mining</h2>
       <div class="header-actions">
         <el-button @click="loadAll" :loading="loading">刷新</el-button>
+        <el-button @click="generateDemo" :loading="demoGenerating">生成 Demo Trace</el-button>
         <el-button type="primary" @click="generate" :loading="generating">生成草稿</el-button>
       </div>
     </div>
@@ -56,6 +57,7 @@ import TraceTimeline from '@/components/TraceTimeline.vue'
 import { getTraceDetail } from '@/api/trace'
 import type { TraceNode } from '@/types/trace'
 import {
+  generateDemoTraces,
   generateSkillDrafts,
   getSkillMiningPrecheck,
   listSkillDrafts,
@@ -67,6 +69,7 @@ import {
 
 const loading = ref(false)
 const generating = ref(false)
+const demoGenerating = ref(false)
 const precheck = ref<SkillMiningPrecheck | null>(null)
 const drafts = ref<SkillDraft[]>([])
 const previewVisible = ref(false)
@@ -96,6 +99,24 @@ async function generate() {
     ElMessage.error('生成失败')
   } finally {
     generating.value = false
+  }
+}
+
+async function generateDemo() {
+  demoGenerating.value = true
+  try {
+    const { data } = await generateDemoTraces({
+      scenario: 'order_after_sale',
+      traceCount: 120,
+      successRate: 0.92,
+      noiseRate: 0.08,
+    })
+    ElMessage.success(`已生成 ${data.traceCount} 条 Demo Trace，写入 ${data.insertedLogCount} 条日志`)
+    await loadAll()
+  } catch {
+    ElMessage.error('生成 Demo Trace 失败')
+  } finally {
+    demoGenerating.value = false
   }
 }
 
@@ -140,13 +161,20 @@ onMounted(loadAll)
 
 <style scoped lang="scss">
 .header-actions { display: flex; gap: 8px; }
-.tips { margin-top: 12px; font-size: 13px; color: #606266; }
+.tips { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
 .spec {
   white-space: pre-wrap;
   word-break: break-all;
-  background: #fafafa;
-  border: 1px solid #ebeef5;
+  background: var(--bg-tertiary);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 4px;
   padding: 8px;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .spec {
+    border: 1px solid #ebeef5;
+  }
 }
 </style>

@@ -262,4 +262,12 @@ function onToolArgsBlur() {
 .mt8 {
   margin-top: 8px;
 }
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .hint,
+  .muted {
+    color: #94a3b8;
+  }
+}
 </style>

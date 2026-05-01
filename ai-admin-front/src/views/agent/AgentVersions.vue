@@ -234,7 +234,7 @@ onMounted(() => {
 
 .snapshot-pre {
   background: #f8fafc;
-  border: 1px solid #ebeef5;
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 4px;
   padding: 12px;
   max-height: 480px;
@@ -249,5 +249,12 @@ onMounted(() => {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 12px;
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .snapshot-pre {
+    border: 1px solid #ebeef5;
+  }
 }
 </style>

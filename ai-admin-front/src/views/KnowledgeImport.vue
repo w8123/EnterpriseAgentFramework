@@ -230,7 +230,7 @@ function handleReset() {
   gap: 8px;
   font-weight: 600;
   font-size: 15px;
-  color: #1d2129;
+  color: var(--text-primary);
 }
 
 .preview-card {

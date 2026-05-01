@@ -150,7 +150,7 @@
 
 **SQL 迁移脚本**散落在各服务的 `sql/` 目录下，按 Phase 命名：
 - `ai-skills-service/sql/`：`init.sql`（冷启动）、`upgrade_v2.sql` ~ `semantic_docs_v6.sql` ~ `scan_project_tool_v7.sql`（按版本递增）
-- `ai-agent-service/sql/`：`tool_call_log_v8.sql`、`skill_phase2_0.sql`（Skill 三态）、`skill_interaction_phase2_x.sql`（InteractiveForm）、`skill_mining_phase2_1.sql`（草稿 + 评估快照）、`agent_studio_phase3_0.sql`（Studio + 版本灰度）、`tool_acl_phase3_1.sql`（角色 × 能力 ACL）、`tool_call_log_index_phase2_0_1.sql`（Trace 索引）、`backfill_side_effect.sql`（一次性回填脚本）
+- `ai-agent-service/sql/`：`tool_call_log_v8.sql`、`skill_phase2_0.sql`（Skill 三态）、`skill_interaction_phase2_x.sql`（InteractiveForm）、`skill_mining_phase2_1.sql`（草稿 + 评估快照）、`agent_studio_phase3_0.sql`（Studio + 版本灰度）、`tool_acl_phase3_1.sql`（角色 × 能力 ACL）、`tool_call_log_index_phase2_0_1.sql`（Trace 索引）、`backfill_side_effect.sql`（一次性回填脚本）、`api_graph_phase4_0.sql`（Phase 4.0 接口图谱）
 - 根 `sql/init.sql`：聚合冷启动脚本，与各服务 phase 脚本保持同步
 
 ---
@@ -286,6 +286,7 @@ cd ai-admin-front && npm install && npm run dev
 - ✅ **Phase 2.x InteractiveFormSkill** — 确定性槽填充 + `skill_interaction` 挂起 / 恢复表 + `expires_at` TTL + UI 原语协议（form / summary_card）+ `ChatRequest.uiSubmit` / `ChatResponse.uiRequest` + `AgentDebug.vue` `DynamicInteraction.vue` 渲染；PoC `create_team_interactive`
 - ✅ **Phase 3.0 Agent Studio v0** — `@vue-flow/core` 三栏画布 + 调试抽屉 + `gatewayChat(keySlug)` 真实链路调试 + 发布弹窗（版本号 / 灰度 / 备注 / 发布人）+ 一键回滚 + Trace → Skill 一键抽取 + IRREVERSIBLE 运行时闸口
 - ✅ **Phase 3.1 Tool ACL** — `tool_acl` 表 + `ToolAclService.decide` 四态判定（ALLOW / DENY_EXPLICIT / DENY_NO_MATCH / SKIPPED）+ DENY 优先 + 5min 本地缓存 + `AgentFactory.createToolkit` 装配过滤 + `ChatRequest.roles` 全链路透传 + SubAgentSkill 子链继承 roles + 管理端 CRUD / 批量授权 / 决策诊断三板斧
+- 🟡 **Phase 4.0 接口图谱一期** — `api_graph_node / api_graph_edge / api_graph_layout` 三表 + `ApiGraphRepository` 抽象 + `MysqlApiGraphRepository` 默认实现；扫描完成 hook 自动投影 API/FIELD/DTO/MODULE 节点 + 推断 `MODEL_REF` 紫色虚线边；运营在 AntV G6 v5 画布上手动连接「请求引用」蓝线 / 「响应引用」绿线，支持节点/边类型过滤、布局持久化、PNG 导出；ScanProjectDetail 末尾折叠卡懒加载入口；二期叠加自动启发式推断 + 运行时挖掘 + AI 反哺
 - ✅ **AI 语义理解（Phase 2.x 叠加）** — 三层语义（项目 / 模块 / 接口）+ `JavaSourceIndex` 顺藤摸到底 + `tool_definition.ai_description` 直接喂 Agent + 项目级互斥锁 + `force` 保留人工编辑 + `token_usage` 入库
 - ✅ **会话记忆（Redis 短期窗口）** + **管理后台**（Agent / Skill / Skill Mining / Studio / 版本管理 / Tool / Tool ACL / 知识库 / 模型 / 扫描项目 + AI 理解 Tab / Trace / Dashboard）+ **Docker / K8s 部署方案**
 
@@ -335,11 +336,12 @@ cd ai-admin-front && npm install && npm run dev
 - **方案要点**：基于扫描项目 + 知识库分组 + Skill 标签自动生成领域标签体系（`domain` 维度，如 `finance / hr / crm / legal`）；输入文本经轻量分类先确定领域 → 候选 Agent / Tool / Knowledge 子集；领域标签与 `scan_project` 一对多挂接
 - **与现有模块关系**：叠加在 Tool Retrieval 之前作为 `RetrievalScope.domain` 过滤维度（与 `kinds / project / module` 并列）；与多用户记忆联动（用户惯用领域作为软偏好）；与 Tool ACL 互补（ACL 是硬权限，Domain 是软路由）
 
-#### 4. 接口调用图谱（ApiCallGraph）
+#### 4. 接口调用图谱（ApiCallGraph） — 🟡 一期已交付（Phase 4.0）
 
-- **痛点**：动态 Tool 上百个后看不出调用关系（哪个 Tool 经常和哪个 Tool 同链路？哪些 Tool 被孤立？）；Skill Mining 人工评审缺图视化，只能看文字序列
-- **方案要点**：双源聚合 — 运行时从 `tool_call_log.trace_id` 聚合 Tool 共现关系；静态从扫描的 Service / Mapper 调用关系（JavaParser 已支持）补全编译期依赖；前端 Cytoscape / G6 渲染交互式图谱，支持按 `project / module / domain` 过滤
-- **与现有模块关系**：消费 Phase 2.1 `ToolChainAggregator` 已聚合好的运行时序列；与 AI 语义理解的 `scan_module` 关联展示模块级调用关系；为 Skill Mining 评审提供"挖出来的子序列在图谱上长什么样"的直观视图
+- **痛点**：动态 Tool 上百个后看不出调用关系（哪个 Tool 经常和哪个 Tool 同链路？哪些 Tool 被孤立？）；扫描出来的接口参数来源散乱，运营梳理只能看文字
+- **一期方案（已交付）**：扫描完成后把 `scan_project_tool` + 嵌套 `ToolDefinitionParameter` 树投影成 `api_graph_node`（API / FIELD_IN / FIELD_OUT / DTO / MODULE）；同项目内引用同 DTO 的字段自动连接 `MODEL_REF` 紫色虚线边；运营在画布上手动连接「请求引用」蓝线 / 「响应引用」绿线；前端 AntV G6 v5 渲染交互式图谱，支持节点 / 边类型过滤、布局持久化、PNG 导出。所有图访问统一走 `ApiGraphRepository` 抽象，二期可平滑挂图 DB 副本（Nebula / Neo4j）
+- **二期规划（未启动）**：① 启发式自动推断蓝/绿边（同名+同类型字段）；② 运行时挖掘（`tool_call_log.args_json` 同 traceId 字段值匹配，反推真实跨接口数据流）；③ AI 反哺（`buildParamSourceHint` 把"userId 通常来源 user_login 出参"拼接到 `DynamicHttpAiTool.description()`，让 LLM 选 Tool 时直接看到参数依赖）
+- **与现有模块关系**：消费 Phase 2.1 `ToolChainAggregator` 已聚合好的运行时序列（二期）；与 AI 语义理解的 `scan_module` 关联展示模块级关系；详见 [docs/接口图谱-设计与落地.md](docs/接口图谱-设计与落地.md)
 
 #### 5. 企业问答自动化测试（QA Regression）
 
@@ -418,6 +420,7 @@ cd ai-admin-front && npm install && npm run dev
 **专题设计**
 
 - [docs/AI语义理解-设计与落地.md](docs/AI语义理解-设计与落地.md) — 三层语义（项目 / 模块 / 接口）、`SemanticContextCollector` 顺藤摸到底、`tool_definition.ai_description` 写回、`scan_module` 合并 / 重命名
+- [docs/接口图谱-设计与落地.md](docs/接口图谱-设计与落地.md) — Phase 4.0 接口图谱一期：节点投影、MODEL_REF 自动推断、画布手动连线、`ApiGraphRepository` 抽象与二期演进策略
 - [docs/Skill-评估指标口径.md](docs/Skill-评估指标口径.md) — `HitRate / ReplacementRate / SuccessRateDiff / TokenSavings` 四指标 SQL 口径，唯一实现点 `ToolCallLogService.computeCoverageMetrics`
 
 ---
@@ -448,6 +451,7 @@ EnterpriseAgentFramework/
 │                             skill_mining_phase2_1.sql       Phase 2.1 Skill Mining
 │                             agent_studio_phase3_0.sql       Phase 3.0 Studio + 版本灰度
 │                             tool_acl_phase3_1.sql           Phase 3.1 Tool ACL
+│                             api_graph_phase4_0.sql          Phase 4.0 接口图谱
 │                             backfill_side_effect.sql        一次性回填脚本
 ├── ai-admin-front/           管理前端（Vue 3 + Vite + Element Plus + TypeScript + @vue-flow/core）
 ├── deploy/                   部署配置（Docker Compose / Kubernetes / Dockerfile）

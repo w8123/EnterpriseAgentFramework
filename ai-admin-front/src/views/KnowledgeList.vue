@@ -2,14 +2,65 @@
   <div class="page-container">
     <div class="page-header">
       <h2>知识库管理</h2>
-      <el-button type="primary" @click="openCreateDialog">
-        <el-icon><Plus /></el-icon>
-        新建知识库
-      </el-button>
+      <div class="header-actions">
+        <ViewToggle v-model="viewMode" />
+        <el-button type="primary" @click="openCreateDialog">
+          <el-icon><Plus /></el-icon>
+          新建知识库
+        </el-button>
+      </div>
+    </div>
+
+    <!-- 卡片视图 -->
+    <div v-if="viewMode === 'card'" class="card-grid">
+      <div
+        v-for="kb in knowledgeStore.knowledgeList"
+        :key="kb.code"
+        class="kb-card glass-card"
+        @click="router.push(`/knowledge/${kb.code}`)"
+      >
+        <div class="kb-card-header">
+          <div class="kb-card-icon">
+            <el-icon :size="20"><Collection /></el-icon>
+          </div>
+          <div class="kb-card-title-area">
+            <h4 class="kb-card-name">{{ kb.name }}</h4>
+            <code class="kb-card-code">{{ kb.code }}</code>
+          </div>
+          <el-tag
+            :type="kb.status === 1 ? 'success' : 'danger'"
+            size="small"
+            effect="dark"
+          >{{ kb.status === 1 ? '启用' : '禁用' }}</el-tag>
+        </div>
+        <div class="kb-card-desc">{{ kb.description || '暂无描述' }}</div>
+        <div class="kb-card-meta">
+          <span class="kb-meta-item">
+            <el-icon><Document /></el-icon>
+            {{ kb.fileCount ?? 0 }} 文件
+          </span>
+          <span class="kb-meta-item">
+            <el-icon><Coin /></el-icon>
+            {{ kb.embeddingModel || '未配置模型' }}
+          </span>
+        </div>
+        <div class="kb-card-footer">
+          <el-button link type="primary" size="small" @click.stop="router.push(`/knowledge/${kb.code}`)">详情</el-button>
+          <el-button link type="primary" size="small" @click.stop="openEditDialog(kb)">编辑</el-button>
+          <el-popconfirm
+            title="确定删除此知识库？所有关联数据将被清除。"
+            @confirm="handleDelete(kb.code)"
+          >
+            <template #reference>
+              <el-button link type="danger" size="small" @click.stop>删除</el-button>
+            </template>
+          </el-popconfirm>
+        </div>
+      </div>
     </div>
 
     <!-- 知识库列表 -->
-    <el-card shadow="never" class="section-card">
+    <el-card v-else shadow="never" class="section-card">
       <el-table
         v-loading="knowledgeStore.loading"
         :data="knowledgeStore.knowledgeList"
@@ -123,13 +174,15 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Collection, Document, Coin } from '@element-plus/icons-vue'
+import ViewToggle from '@/components/ViewToggle.vue'
 import { useKnowledgeStore } from '@/store/knowledge'
 import { createKnowledge, updateKnowledge, deleteKnowledge } from '@/api/knowledge'
 import type { KnowledgeBase, KnowledgeBaseForm } from '@/types/knowledge'
 
 const router = useRouter()
 const knowledgeStore = useKnowledgeStore()
+const viewMode = ref<'table' | 'card'>('table')
 
 const dialogVisible = ref(false)
 const isEdit = ref(false)
@@ -207,3 +260,104 @@ onMounted(() => {
   knowledgeStore.fetchList()
 })
 </script>
+
+<style scoped lang="scss">
+.kb-card {
+  cursor: pointer;
+}
+
+.kb-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.kb-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #22d3ee, #06b6d4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.kb-card-title-area {
+  flex: 1;
+  min-width: 0;
+}
+
+.kb-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kb-card-code {
+  font-size: 11px;
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.kb-card-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kb-card-meta {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.kb-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #64748b;
+
+  .el-icon {
+    font-size: 14px;
+  }
+}
+
+.kb-card-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .kb-card-code {
+    color: #6366f1;
+    background: rgba(99, 102, 241, 0.08);
+  }
+
+  .kb-meta-item {
+    color: #94a3b8;
+  }
+
+  .kb-card-footer {
+    border-top: 1px solid #ebeef5;
+  }
+}
+</style>

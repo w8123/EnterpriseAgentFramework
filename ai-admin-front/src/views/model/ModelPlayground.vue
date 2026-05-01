@@ -266,7 +266,7 @@ onMounted(fetchProviders)
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #c0c4cc;
+  color: #475569;
   font-size: 14px;
 }
 
@@ -275,7 +275,7 @@ onMounted(fetchProviders)
 
   .msg-role {
     font-size: 12px;
-    color: #909399;
+    color: #64748b;
     margin-bottom: 4px;
   }
 
@@ -290,12 +290,12 @@ onMounted(fetchProviders)
 
   &.user .msg-text {
     background: #ecf5ff;
-    color: #303133;
+    color: var(--text-primary);
   }
 
   &.assistant .msg-text {
     background: #f4f4f5;
-    color: #303133;
+    color: var(--text-primary);
   }
 
   &.system .msg-text {
@@ -316,4 +316,5 @@ onMounted(fetchProviders)
   gap: 8px;
   margin-top: 8px;
 }
+
 </style>

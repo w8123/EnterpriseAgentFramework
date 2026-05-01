@@ -12,6 +12,19 @@ import type {
 } from '@/types/scanProject'
 import type { ToolTestResult, ToolUpsertRequest } from '@/types/tool'
 
+export interface ScanDiffSummary {
+  projectId: number
+  toolCount: number
+  promotedCount: number
+  missingDescriptionCount: number
+  missingAiDescriptionCount: number
+  duplicateStableKeyCount: number
+  duplicates: Array<{
+    stableKey: string
+    scanToolIds: number[]
+  }>
+}
+
 export function getScanProjects() {
   return agentRequest.get<ScanProject[]>('/api/scan-projects')
 }
@@ -53,8 +66,19 @@ export function triggerRescan(id: number) {
   return agentRequest.post<ScanProjectScanResult>(`/api/scan-projects/${id}/rescan`)
 }
 
+/** 单条接口：从源码/OpenAPI 重新解析并更新当前扫描行（主键与工具名不变） */
+export function rescanScanToolFromSource(projectId: number, scanToolId: number) {
+  return agentRequest.post<ProjectToolInfo>(
+    `/api/scan-projects/${projectId}/scan-tools/${scanToolId}/rescan-from-source`,
+  )
+}
+
 export function getScanProjectTools(id: number) {
   return agentRequest.get<ProjectToolInfo[]>(`/api/scan-projects/${id}/tools`)
+}
+
+export function getScanProjectDiffSummary(id: number) {
+  return agentRequest.get<ScanDiffSummary>(`/api/scan-projects/${id}/diff-summary`)
 }
 
 export function updateScanProjectTool(projectId: number, scanToolId: number, data: ToolUpsertRequest) {

@@ -688,7 +688,7 @@ watch(
   align-items: center;
   padding: 12px 20px;
   background: #fff;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 
   .header-left {
     display: flex;
@@ -716,7 +716,7 @@ watch(
 
 .palette {
   background: #fff;
-  border-right: 1px solid #ebeef5;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
   padding: 16px;
   overflow-y: auto;
 
@@ -744,14 +744,14 @@ watch(
     }
 
     &-desc {
-      color: #909399;
+      color: #64748b;
       font-size: 12px;
       margin-top: 4px;
     }
   }
 
   .palette-tips {
-    color: #909399;
+    color: #64748b;
     font-size: 12px;
     line-height: 1.8;
   }
@@ -769,7 +769,7 @@ watch(
 
 .property-panel {
   background: #fff;
-  border-left: 1px solid #ebeef5;
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
   padding: 16px;
   overflow-y: auto;
 }
@@ -786,7 +786,7 @@ watch(
   .node-kind {
     font-size: 10px;
     font-weight: 700;
-    color: #909399;
+    color: #64748b;
     margin-bottom: 2px;
     letter-spacing: 0.5px;
   }
@@ -798,7 +798,7 @@ watch(
 
   .node-desc {
     font-size: 11px;
-    color: #909399;
+    color: #64748b;
     margin-top: 4px;
   }
 }
@@ -819,7 +819,7 @@ watch(
 }
 
 .tool-node {
-  border-color: #909399;
+  border-color: #64748b;
 }
 
 .knowledge-node {
@@ -858,6 +858,28 @@ watch(
     font-size: 12px;
     white-space: pre-wrap;
     word-break: break-all;
+  }
+}
+
+// ── 日间模式覆盖 ──
+:global([data-theme="light"]) {
+  .studio-header {
+    border-bottom: 1px solid #ebeef5;
+  }
+
+  .palette {
+    border-right: 1px solid #ebeef5;
+  }
+
+  .property-panel {
+    border-left: 1px solid #ebeef5;
+  }
+
+  .palette-item-desc,
+  .palette-tips,
+  .node-kind,
+  .node-desc {
+    color: #94a3b8;
   }
 }
 </style>
