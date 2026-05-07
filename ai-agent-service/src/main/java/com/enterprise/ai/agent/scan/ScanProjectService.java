@@ -266,7 +266,7 @@ public class ScanProjectService {
             throw new IllegalArgumentException(
                     "在当前源码或 OpenAPI 解析结果中未找到与该接口匹配的端点，请确认路径、方法或重新执行全量扫描");
         }
-        String manifestBaseUrl = manifest.getProject() == null ? project.getBaseUrl() : manifest.getProject().getBaseUrl();
+        String manifestBaseUrl = resolveManifestBaseUrl(manifest, project);
         String manifestContextPath = normalizeContextPath(project.getContextPath());
         var upsert = new ToolDefinitionUpsertRequest(
                 st.getName(),
@@ -505,7 +505,7 @@ public class ScanProjectService {
         List<String> toolNames = new ArrayList<>();
         List<ScannerServiceClient.ToolData> tools = manifest.getTools() == null ? List.of() : manifest.getTools();
         boolean useProjectPrefix = !isControllerScannerManifest(tools);
-        String manifestBaseUrl = manifest.getProject() == null ? project.getBaseUrl() : manifest.getProject().getBaseUrl();
+        String manifestBaseUrl = resolveManifestBaseUrl(manifest, project);
         // 以项目表配置为准；扫描服务 manifest 中 project.contextPath 可能带默认值（如 /api），不可覆盖用户留空
         String manifestContextPath = normalizeContextPath(project.getContextPath());
         ScanSettings s = parseSettingsForProject(project);
@@ -539,6 +539,22 @@ public class ScanProjectService {
             toolNames.add(scopedName);
         }
         return toolNames;
+    }
+
+    /**
+     * manifest 里 {@code project.baseUrl} 可能为空；落库 / 单条刷新时回退扫描项目「项目域名」，避免 HTTP 调用无 authority。
+     */
+    private static String resolveManifestBaseUrl(ScannerServiceClient.ManifestData manifest, ScanProjectEntity project) {
+        if (manifest != null && manifest.getProject() != null) {
+            String m = manifest.getProject().getBaseUrl();
+            if (m != null && !m.isBlank()) {
+                return m.trim();
+            }
+        }
+        if (project == null || project.getBaseUrl() == null) {
+            return null;
+        }
+        return project.getBaseUrl().trim();
     }
 
     private Path resolveOpenApiSpec(Path scanRoot, String specFile) {

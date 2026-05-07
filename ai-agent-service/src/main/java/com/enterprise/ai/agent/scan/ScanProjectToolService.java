@@ -208,10 +208,32 @@ public class ScanProjectToolService {
     public Object execute(Long projectId, Long id, Map<String, Object> args) {
         ScanProjectToolEntity st = findByProjectAndId(projectId, id)
                 .orElseThrow(() -> new IllegalArgumentException("扫描接口不存在: " + id));
-        ToolDefinitionEntity proxy = ScanProjectToolAdapter.toDefinitionEntity(st);
         ScanProjectEntity project = projectMapper.selectById(projectId);
+        if (project == null) {
+            throw new IllegalStateException("扫描项目不存在: projectId=" + projectId);
+        }
+        ToolDefinitionEntity proxy = ScanProjectToolAdapter.toDefinitionEntity(st);
+        mergeScanToolBaseUrl(proxy, project);
+        if (!StringUtils.hasText(proxy.getBaseUrl())) {
+            throw new IllegalStateException(
+                    "无法发起 HTTP 调用：未配置 Base URL。请在扫描项目中填写「项目域名」并保存，"
+                            + "或在该接口编辑中填写 Base URL；若已配置项目域名，可重新执行一次扫描以回写接口行。");
+        }
         var extras = ScanProjectAuthSupport.invocationExtras(project);
         return new DynamicHttpAiTool(proxy, objectMapper, extras).execute(args == null ? Map.of() : args);
+    }
+
+    /**
+     * 若 {@code scan_project_tool.base_url} 为空，则使用所属扫描项目的「项目域名」，避免 RestClient 因 authority 为空报错。
+     */
+    private static void mergeScanToolBaseUrl(ToolDefinitionEntity proxy, ScanProjectEntity project) {
+        if (proxy == null || StringUtils.hasText(proxy.getBaseUrl())) {
+            return;
+        }
+        if (project == null || !StringUtils.hasText(project.getBaseUrl())) {
+            return;
+        }
+        proxy.setBaseUrl(project.getBaseUrl().trim());
     }
 
     /**

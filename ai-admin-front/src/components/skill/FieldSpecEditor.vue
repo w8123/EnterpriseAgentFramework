@@ -1,7 +1,7 @@
 <template>
   <div class="field-spec-editor" :class="{ nested: depth > 0 }">
-    <el-row :gutter="16">
-      <el-col :span="12">
+    <el-row v-if="!isBodyJsonGroupNode" :gutter="16">
+      <el-col v-if="!isBodyJsonNode" :span="12">
         <el-form-item label="key" required>
           <el-input
             :model-value="modelValue.key"
@@ -11,7 +11,7 @@
           />
         </el-form-item>
       </el-col>
-      <el-col :span="12">
+      <el-col v-if="!isBodyJsonNode" :span="12">
         <el-form-item label="label" required>
           <el-input
             :model-value="modelValue.label"
@@ -92,7 +92,7 @@
       />
     </template>
     <el-alert
-      v-else
+      v-else-if="!isBodyJsonNode"
       type="info"
       :closable="false"
       show-icon
@@ -102,9 +102,11 @@
     />
 
     <div v-if="depth < maxChildDepth" class="children-section">
-      <el-divider content-position="left">子字段 (children)</el-divider>
-      <div v-if="!readonly" class="children-toolbar">
-        <span class="subtle">用于嵌套参数（如 body 下的 DTO 字段）</span>
+      <el-divider v-if="isGroupNode && !isBodyJsonNode" content-position="left">子字段 (children)</el-divider>
+      <div
+        v-if="!readonly && !(parentHandlesBodyToolbar && isBodyJsonNode)"
+        class="children-toolbar"
+      >
         <el-button type="primary" link size="small" @click="addChild">新增子字段</el-button>
       </div>
       <el-collapse v-if="(modelValue.children?.length ?? 0) > 0" v-model="childOpenNames" class="child-collapse">
@@ -114,23 +116,27 @@
           :name="String(ci)"
         >
           <template #title>
-            <span>{{ ch.key || '(未命名)' }} <span class="subtle">({{ ch.label || '-' }})</span></span>
+            <div class="child-collapse-header-row">
+              <span class="child-collapse-title">
+                {{ ch.key || '(未命名)' }} <span class="subtle">({{ ch.label || '-' }})</span>
+              </span>
+              <div v-if="!readonly" class="child-collapse-header-actions" @click.stop>
+                <el-button link type="primary" size="small" :disabled="ci === 0" @click.stop="moveChild(ci, -1)">
+                  上移
+                </el-button>
+                <el-button
+                  link
+                  type="primary"
+                  size="small"
+                  :disabled="ci >= (modelValue.children?.length ?? 0) - 1"
+                  @click.stop="moveChild(ci, 1)"
+                >
+                  下移
+                </el-button>
+                <el-button link type="danger" size="small" @click.stop="removeChild(ci)">删除</el-button>
+              </div>
+            </div>
           </template>
-          <div v-if="!readonly" class="field-actions">
-            <el-button link type="primary" size="small" :disabled="ci === 0" @click.stop="moveChild(ci, -1)">
-              上移
-            </el-button>
-            <el-button
-              link
-              type="primary"
-              size="small"
-              :disabled="ci >= (modelValue.children?.length ?? 0) - 1"
-              @click.stop="moveChild(ci, 1)"
-            >
-              下移
-            </el-button>
-            <el-button link type="danger" size="small" @click.stop="removeChild(ci)">删除</el-button>
-          </div>
           <FieldSpecEditor
             :model-value="ch"
             :tool-options="toolOptions"
@@ -162,8 +168,10 @@ const props = withDefaults(
     readonly?: boolean
     /** 嵌套深度，根为 0 */
     depth?: number
+    /** 顶层 body_json：分隔线与「新增子字段」由 InteractiveFormSpecEditor 标题行承担 */
+    parentHandlesBodyToolbar?: boolean
   }>(),
-  { readonly: false, depth: 0 },
+  { readonly: false, depth: 0, parentHandlesBodyToolbar: false },
 )
 
 const emit = defineEmits<{
@@ -176,6 +184,10 @@ const childKeys = ref<string[]>([])
 
 /** children!=null 即为分组节点；[] 表示空嵌套对象（如无字段的 body_json），仍为分组而非叶子 */
 const isGroupNode = computed(() => props.modelValue.children != null)
+
+const isBodyJsonNode = computed(() => (props.modelValue.key || '').trim() === 'body_json')
+/** body_json 请求体分组：整块不展示 key/label 与通用分组说明 */
+const isBodyJsonGroupNode = computed(() => isBodyJsonNode.value && isGroupNode.value)
 
 watch(
   () => props.modelValue.children?.length ?? 0,
@@ -296,7 +308,7 @@ function onDefaultValueInput(s: string) {
 .children-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   margin-bottom: 8px;
 }
 
@@ -305,12 +317,45 @@ function onDefaultValueInput(s: string) {
   color: #909399;
 }
 
-.field-actions {
+.child-collapse {
   margin-bottom: 8px;
 }
 
-.child-collapse {
-  margin-bottom: 8px;
+.child-collapse :deep(.el-collapse-item__header) {
+  display: flex;
+  align-items: center;
+}
+
+.child-collapse :deep(.el-collapse-item__title) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.child-collapse-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding-right: 4px;
+  box-sizing: border-box;
+}
+
+.child-collapse-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.child-collapse-header-actions {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .adv-collapse {

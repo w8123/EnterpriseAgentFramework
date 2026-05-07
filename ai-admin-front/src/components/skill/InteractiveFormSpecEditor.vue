@@ -69,27 +69,42 @@
         :name="String(index)"
       >
         <template #title>
-          <span class="collapse-title">{{ field.key || '(未命名)' }} <span class="sub">({{ field.label || '-' }})</span></span>
+          <div class="collapse-header-row">
+            <span class="collapse-title">
+              <template v-if="isBodyJsonField(field)">Body</template>
+              <template v-else>
+                {{ field.key || '(未命名)' }} <span class="sub">({{ field.label || '-' }})</span>
+              </template>
+            </span>
+            <div v-if="!readonly" class="collapse-header-actions" @click.stop>
+              <template v-if="isBodyJsonField(field)">
+                <el-button link type="primary" size="small" @click.stop="addBodyJsonChild(index)">
+                  新增子字段
+                </el-button>
+              </template>
+              <template v-else>
+                <el-button link type="primary" size="small" :disabled="index === 0" @click.stop="moveField(index, -1)">
+                  上移
+                </el-button>
+                <el-button
+                  link
+                  type="primary"
+                  size="small"
+                  :disabled="index >= modelValue.fields.length - 1"
+                  @click.stop="moveField(index, 1)"
+                >
+                  下移
+                </el-button>
+                <el-button link type="danger" size="small" @click.stop="removeField(index)">删除</el-button>
+              </template>
+            </div>
+          </div>
         </template>
-        <div v-if="!readonly" class="field-actions">
-          <el-button link type="primary" size="small" :disabled="index === 0" @click.stop="moveField(index, -1)">
-            上移
-          </el-button>
-          <el-button
-            link
-            type="primary"
-            size="small"
-            :disabled="index >= modelValue.fields.length - 1"
-            @click.stop="moveField(index, 1)"
-          >
-            下移
-          </el-button>
-          <el-button link type="danger" size="small" @click.stop="removeField(index)">删除</el-button>
-        </div>
         <FieldSpecEditor
           :model-value="field"
           :tool-options="toolOptions"
           :readonly="readonly"
+          :parent-handles-body-toolbar="isBodyJsonField(field)"
           @update:model-value="(f) => replaceField(index, f)"
         />
       </el-collapse-item>
@@ -189,6 +204,27 @@ const jsonReadonlyText = computed(() => {
 function emitTop(p: Partial<InteractiveFormSpec>) {
   if (props.readonly) return
   emit('update:modelValue', { ...props.modelValue, ...p })
+}
+
+/** 扫描器生成的 JSON 请求体根节点，表单侧固定为「Body」展示且不参与排序/删除 */
+function isBodyJsonField(field: FieldSpec): boolean {
+  return (field.key || '').trim() === 'body_json'
+}
+
+/** 顶层 Body（body_json）分组：在折叠标题上「新增子字段」，与 FieldSpecEditor 内逻辑一致 */
+function addBodyJsonChild(index: number) {
+  if (props.readonly) return
+  const f = props.modelValue.fields[index]
+  if (!f || (f.key || '').trim() !== 'body_json') return
+  const cur = [...(f.children ?? [])]
+  cur.push({
+    key: `sub_${cur.length + 1}`,
+    label: '子字段',
+    type: 'text',
+    required: false,
+    source: emptyFieldSource('NONE'),
+  })
+  replaceField(index, { ...f, children: cur })
 }
 
 async function onTargetToolChange(name: string) {
@@ -316,10 +352,33 @@ function onJsonBlur() {
 
 .field-collapse :deep(.el-collapse-item__header) {
   font-weight: 500;
+  display: flex;
+  align-items: center;
+}
+
+.field-collapse :deep(.el-collapse-item__title) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.collapse-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding-right: 4px;
+  box-sizing: border-box;
 }
 
 .collapse-title {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .collapse-title .sub {
@@ -327,8 +386,11 @@ function onJsonBlur() {
   font-weight: normal;
 }
 
-.field-actions {
-  margin-bottom: 8px;
+.collapse-header-actions {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .json-collapse {

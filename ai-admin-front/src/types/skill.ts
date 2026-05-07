@@ -145,15 +145,22 @@ function normalizeFieldSpec(fr: unknown): FieldSpec {
   }
 }
 
-function validateFieldTree(fields: FieldSpec[] | undefined, ctx: string, allKeys: Set<string>): string | null {
+function validateFieldTree(
+  fields: FieldSpec[] | undefined,
+  ctx: string,
+  keyFirstSeen: Map<string, string>,
+): string | null {
   if (!fields?.length) return `${ctx}：至少需要一个字段`
   for (let i = 0; i < fields.length; i++) {
     const f = fields[i]
     const loc = `${ctx} 第 ${i + 1} 项`
     if (!f.key?.trim()) return `${loc}：key 不能为空`
     const k = f.key.trim()
-    if (allKeys.has(k)) return `字段 key 在全树中重复：${k}`
-    allKeys.add(k)
+    const prev = keyFirstSeen.get(k)
+    if (prev != null) {
+      return `字段 key 在全树中重复：${k}（首次：${prev}；再次：${loc}）。说明：分组父节点与任意子节点、或不同分支上的叶子也不能共用同一 key。`
+    }
+    keyFirstSeen.set(k, loc)
     if (!f.label?.trim()) return `「${k}」：label 不能为空`
     const isEmptyObjectGroup = Array.isArray(f.children) && f.children.length === 0
     if (isEmptyObjectGroup) {
@@ -161,7 +168,7 @@ function validateFieldTree(fields: FieldSpec[] | undefined, ctx: string, allKeys
     }
     const hasCh = f.children && f.children.length > 0
     if (hasCh) {
-      const sub = validateFieldTree(f.children!, `「${k}」子字段`, allKeys)
+      const sub = validateFieldTree(f.children!, `「${k}」子字段`, keyFirstSeen)
       if (sub) return sub
       continue
     }
@@ -177,9 +184,19 @@ function validateFieldTree(fields: FieldSpec[] | undefined, ctx: string, allKeys
   return null
 }
 
+/**
+ * 扫描器会把 HTTP 响应体展开为 location=RESPONSE 的参数子树（根名多为「返回值」），供图谱/文档；
+ * 交互式表单只收集调用 Tool 的入参，映射字段时应排除。
+ */
+export function isToolInputParameter(p: ToolParameter): boolean {
+  const loc = (p.location ?? '').trim().toUpperCase()
+  return loc !== 'RESPONSE'
+}
+
 /** 将 Tool 参数定义递归映射为 FieldSpec 树（与 mapToolToFields 一致逻辑，供测试或复用） */
 export function mapToolParameterToField(p: ToolParameter): FieldSpec {
-  const kids = p.children && p.children.length > 0 ? p.children.map(mapToolParameterToField) : undefined
+  const inputChildren = (p.children || []).filter(isToolInputParameter)
+  const kids = inputChildren.length > 0 ? inputChildren.map(mapToolParameterToField) : undefined
   if (kids && kids.length > 0) {
     return {
       key: p.name,
@@ -194,7 +211,7 @@ export function mapToolParameterToField(p: ToolParameter): FieldSpec {
   const emptyBodyLike =
     p.name === 'body_json' || t === 'object' || t === 'json' || t === 'map'
   // 扫描器 body 占位在无子字段时应对应「空请求体」，产生 children: [] 而非整块 JSON 字符串表单项
-  if (emptyBodyLike && (!p.children || p.children.length === 0)) {
+  if (emptyBodyLike && inputChildren.length === 0) {
     return {
       key: p.name,
       label: (p.description && p.description.trim()) || p.name,
@@ -236,7 +253,7 @@ function mapToolParameterLeaf(p: ToolParameter): FieldSpec {
 
 /** 根据已选 Tool 的 parameters 生成表单字段树（用于 targetTool 联动） */
 export function mapToolToFields(tool: ToolInfo): FieldSpec[] {
-  return (tool.parameters || []).map(mapToolParameterToField)
+  return (tool.parameters || []).filter(isToolInputParameter).map(mapToolParameterToField)
 }
 
 /** 返回错误文案；null 表示通过 */
@@ -244,8 +261,8 @@ export function validateInteractiveFormSpec(spec: InteractiveFormSpec | null): s
   if (!spec) return 'Spec 不能为空'
   if (!spec.targetTool?.trim()) return '请选择或填写 targetTool（最终调用的 Tool）'
   if (!spec.fields?.length) return '至少需要一个表单字段'
-  const allKeys = new Set<string>()
-  const treeErr = validateFieldTree(spec.fields, '顶层', allKeys)
+  const keyFirstSeen = new Map<string, string>()
+  const treeErr = validateFieldTree(spec.fields, '顶层', keyFirstSeen)
   if (treeErr) return treeErr
   const bs = spec.batchSize
   if (bs != null && (bs < 1 || bs > 10)) return 'batchSize 应在 1～10 之间'
