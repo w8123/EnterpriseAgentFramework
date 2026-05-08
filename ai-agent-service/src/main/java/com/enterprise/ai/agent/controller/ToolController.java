@@ -1,7 +1,11 @@
 package com.enterprise.ai.agent.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.enterprise.ai.agent.registry.AiRegistryService;
+import com.enterprise.ai.agent.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.scan.ScanProjectService;
+import com.enterprise.ai.agent.scan.ScanProjectToolEntity;
+import com.enterprise.ai.agent.scan.ScanProjectToolService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
@@ -14,6 +18,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Tool 管理 API — 暴露 ToolRegistry 中已注册工具的元信息与测试能力
@@ -26,6 +32,8 @@ public class ToolController {
 
     private final ToolDefinitionService toolDefinitionService;
     private final ScanProjectService scanProjectService;
+    private final ScanProjectToolService scanProjectToolService;
+    private final AiRegistryService aiRegistryService;
 
     @GetMapping
     public ResponseEntity<ToolListPageResponse> list(
@@ -37,10 +45,11 @@ public class ToolController {
             @RequestParam(required = false) Long projectId) {
         IPage<ToolDefinitionEntity> page = toolDefinitionService.page(
                 current, size, keyword, source, enabled, projectId);
+        Set<String> pending = projectId != null ? aiRegistryService.pendingCapabilityQualifiedNames(projectId) : Set.of();
         // 仅展示 TOOL；Skill 去 /api/skills 管理
         List<ToolInfoDTO> records = page.getRecords().stream()
                 .filter(e -> !ToolDefinitionService.KIND_SKILL.equalsIgnoreCase(e.getKind()))
-                .map(this::toDto)
+                .map(e -> toDto(e, pending))
                 .toList();
         return ResponseEntity.ok(new ToolListPageResponse(
                 records,
@@ -54,7 +63,12 @@ public class ToolController {
     @GetMapping("/{name}")
     public ResponseEntity<ToolInfoDTO> get(@PathVariable String name) {
         return toolDefinitionService.findByName(name)
-                .map(entity -> ResponseEntity.ok(toDto(entity)))
+                .map(entity -> {
+                    Set<String> pending = entity.getProjectId() != null
+                            ? aiRegistryService.pendingCapabilityQualifiedNames(entity.getProjectId())
+                            : Set.of();
+                    return ResponseEntity.ok(toDto(entity, pending));
+                })
                 .orElse(ResponseEntity.notFound().build());
     }
 
@@ -62,7 +76,9 @@ public class ToolController {
     public ResponseEntity<ToolInfoDTO> create(@RequestBody ToolUpsertRequest request) {
         try {
             ToolDefinitionEntity created = toolDefinitionService.create(request.toServiceRequest());
-            return ResponseEntity.ok(toDto(created));
+            return ResponseEntity.ok(toDto(created, created.getProjectId() != null
+                    ? aiRegistryService.pendingCapabilityQualifiedNames(created.getProjectId())
+                    : Set.of()));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().build();
         }
@@ -73,7 +89,9 @@ public class ToolController {
                                               @RequestBody ToolUpsertRequest request) {
         try {
             ToolDefinitionEntity updated = toolDefinitionService.update(name, request.toServiceRequest());
-            return ResponseEntity.ok(toDto(updated));
+            return ResponseEntity.ok(toDto(updated, updated.getProjectId() != null
+                    ? aiRegistryService.pendingCapabilityQualifiedNames(updated.getProjectId())
+                    : Set.of()));
         } catch (IllegalArgumentException ex) {
             if (ex.getMessage() != null && ex.getMessage().contains("不存在")) {
                 return ResponseEntity.notFound().build();
@@ -96,7 +114,11 @@ public class ToolController {
     public ResponseEntity<ToolInfoDTO> toggle(@PathVariable String name,
                                               @RequestBody ToolToggleRequest request) {
         try {
-            return ResponseEntity.ok(toDto(toolDefinitionService.toggle(name, request.enabled())));
+            ToolDefinitionEntity toggled = toolDefinitionService.toggle(name, request.enabled());
+            Set<String> pending = toggled.getProjectId() != null
+                    ? aiRegistryService.pendingCapabilityQualifiedNames(toggled.getProjectId())
+                    : Set.of();
+            return ResponseEntity.ok(toDto(toggled, pending));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.notFound().build();
         }
@@ -130,10 +152,29 @@ public class ToolController {
             long pages) {
     }
 
-    private ToolInfoDTO toDto(ToolDefinitionEntity entity) {
+    private ToolInfoDTO toDto(ToolDefinitionEntity entity, Set<String> pendingQualifiedNames) {
         List<ToolParameterDTO> params = toolDefinitionService.parseParameters(entity.getParametersJson()).stream()
                 .map(ToolParameterDTO::from)
                 .toList();
+        Long catalogScanToolId = null;
+        String catalogLinkStatus = null;
+        String catalogLinkMessage = null;
+        Long pid = entity.getProjectId();
+        Set<String> pending = pendingQualifiedNames == null ? Set.of() : pendingQualifiedNames;
+        if (pid != null && entity.getKind() != null
+                && ToolDefinitionService.KIND_TOOL.equalsIgnoreCase(entity.getKind())) {
+            ScanProjectEntity proj = scanProjectService.getById(pid);
+            Optional<ScanProjectToolEntity> row = scanProjectToolService.findByProjectAndGlobalToolId(pid, entity.getId());
+            if (row.isPresent()) {
+                catalogScanToolId = row.get().getId();
+                ScanProjectToolService.LinkState ls = scanProjectToolService.resolveLinkState(row.get(), entity, pending);
+                catalogLinkStatus = ls.status().name();
+                catalogLinkMessage = ls.message();
+            } else if (proj != null && ScanProjectToolService.isSdkBackedTool(proj, entity)) {
+                catalogLinkStatus = "NOT_IN_CATALOG";
+                catalogLinkMessage = "请在项目 API 目录页执行「对账同步」以生成镜像行";
+            }
+        }
         return new ToolInfoDTO(
                 entity.getName(),
                 entity.getKind() == null ? "TOOL" : entity.getKind(),
@@ -157,7 +198,10 @@ public class ToolController {
                 Boolean.TRUE.equals(entity.getLightweightEnabled()),
                 entity.getSideEffect(),
                 entity.getAiDescription(),
-                entity.getCapabilityMetadataJson()
+                entity.getCapabilityMetadataJson(),
+                catalogScanToolId,
+                catalogLinkStatus,
+                catalogLinkMessage
         );
     }
 
@@ -183,7 +227,10 @@ public class ToolController {
                        boolean lightweightEnabled,
                        String sideEffect,
                        String aiDescription,
-                       String capabilityMetadataJson) {
+                       String capabilityMetadataJson,
+                       Long catalogScanToolId,
+                       String catalogLinkStatus,
+                       String catalogLinkMessage) {
     }
 
     record ToolParameterDTO(String name,

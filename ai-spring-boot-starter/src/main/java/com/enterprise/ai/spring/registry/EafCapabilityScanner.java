@@ -21,9 +21,14 @@ public class EafCapabilityScanner {
 
     private final EafRegistryProperties properties;
 
-    public EafCapabilityScanner(RequestMappingHandlerMapping mapping, EafRegistryProperties properties) {
+    private final RuntimeCapabilityMetadataResolver metadataResolver;
+
+    public EafCapabilityScanner(RequestMappingHandlerMapping mapping,
+                                EafRegistryProperties properties,
+                                RuntimeCapabilityMetadataResolver metadataResolver) {
         this.mapping = mapping;
         this.properties = properties;
+        this.metadataResolver = metadataResolver;
     }
 
     public List<EafCapabilityDescriptor> scan() {
@@ -45,9 +50,8 @@ public class EafCapabilityScanner {
             String name = capability != null && !capability.name().isBlank()
                     ? capability.name()
                     : javaMethod.getName();
-            String description = capability != null && !capability.description().isBlank()
-                    ? capability.description()
-                    : name;
+            String description = metadataResolver.resolveMethodDescription(javaMethod, capability);
+            String title = metadataResolver.resolveMethodTitle(javaMethod, capability);
             Map<String, Object> metadata = new LinkedHashMap<>();
             if (capability != null) {
                 metadata.put("declared", true);
@@ -62,7 +66,7 @@ public class EafCapabilityScanner {
             }
             out.add(new EafCapabilityDescriptor(
                     name,
-                    capability == null ? "" : capability.title(),
+                    title,
                     description,
                     method,
                     properties.getProject().getBaseUrl(),
@@ -75,7 +79,7 @@ public class EafCapabilityScanner {
                     capability == null || capability.agentVisible(),
                     false,
                     properties.getProject().getVisibility(),
-                    parameters(handler),
+                    parameters(handler, javaMethod),
                     metadata
             ));
         });
@@ -114,7 +118,7 @@ public class EafCapabilityScanner {
         return null;
     }
 
-    private List<EafCapabilityParameter> parameters(HandlerMethod handler) {
+    private List<EafCapabilityParameter> parameters(HandlerMethod handler, Method javaMethod) {
         List<EafCapabilityParameter> params = new ArrayList<>();
         for (MethodParameter p : handler.getMethodParameters()) {
             AiParam aiParam = p.getParameterAnnotation(AiParam.class);
@@ -125,10 +129,11 @@ public class EafCapabilityScanner {
                 metadata.put("dictType", aiParam.dictType());
                 metadata.put("sensitive", aiParam.sensitive());
             }
+            String desc = metadataResolver.resolveParameterDescription(javaMethod, p, aiParam);
             params.add(new EafCapabilityParameter(
                     p.getParameterName(),
                     p.getParameterType().getTypeName(),
-                    aiParam == null ? p.getParameterName() : aiParam.description(),
+                    desc,
                     aiParam != null && aiParam.required(),
                     p.hasParameterAnnotation(RequestBody.class) ? "BODY" : "QUERY",
                     List.of(),

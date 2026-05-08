@@ -19,12 +19,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 扫描项目内接口的持久化与「注册为全局 Tool」。
@@ -133,6 +136,8 @@ public class ScanProjectToolService {
         }
         ToolDefinitionUpsertRequest merged = mergeRequestWithExistingChildren(request, existing);
         applyUpsert(existing, merged, false);
+        existing.setRemovedFromSource(false);
+        existing.setRemovedAt(null);
         mapper.updateById(existing);
         return existing;
     }
@@ -209,6 +214,9 @@ public class ScanProjectToolService {
     public Object execute(Long projectId, Long id, Map<String, Object> args) {
         ScanProjectToolEntity st = findByProjectAndId(projectId, id)
                 .orElseThrow(() -> new IllegalArgumentException("扫描接口不存在: " + id));
+        if (Boolean.TRUE.equals(st.getRemovedFromSource())) {
+            throw new IllegalArgumentException("该接口已从源码/SDK 中移除，无法执行测试调用");
+        }
         ScanProjectEntity project = projectMapper.selectById(projectId);
         if (project == null) {
             throw new IllegalStateException("扫描项目不存在: projectId=" + projectId);
@@ -235,6 +243,7 @@ public class ScanProjectToolService {
             w.eq(ScanProjectToolEntity::getModuleId, moduleId);
         }
         w.isNull(ScanProjectToolEntity::getGlobalToolDefinitionId);
+        w.and(q -> q.isNull(ScanProjectToolEntity::getRemovedFromSource).or().eq(ScanProjectToolEntity::getRemovedFromSource, false));
         List<Long> ids = mapper.selectList(w).stream().map(ScanProjectToolEntity::getId).toList();
         if (ids.isEmpty()) {
             return List.of();
@@ -250,6 +259,9 @@ public class ScanProjectToolService {
     public ToolDefinitionEntity promoteToGlobalTool(Long projectId, Long scanToolId) {
         ScanProjectToolEntity st = findByProjectAndId(projectId, scanToolId)
                 .orElseThrow(() -> new IllegalArgumentException("扫描接口不存在: " + scanToolId));
+        if (Boolean.TRUE.equals(st.getRemovedFromSource())) {
+            throw new IllegalArgumentException("该接口已从业务源码或 SDK 上报中移除（墓碑行），请先在业务系统恢复该能力并同步目录后，再添加为 Tool");
+        }
         if (st.getGlobalToolDefinitionId() != null) {
             return toolDefinitionService.findById(st.getGlobalToolDefinitionId())
                     .orElseThrow(() -> new IllegalStateException("关联的全局 Tool 已不存在，请重新扫描后再次添加"));
@@ -434,9 +446,13 @@ public class ScanProjectToolService {
             toolDefinitionService.deleteNonCodeToolById(gid);
         });
         st.setGlobalToolDefinitionId(null);
+        st.setRemovedFromSource(false);
+        st.setRemovedAt(null);
         // updateById 在默认策略下会忽略 null，导致库中 global_tool_definition_id 未清空，列表仍显示「已添加为 Tool」
         mapper.update(null, Wrappers.<ScanProjectToolEntity>lambdaUpdate()
                 .set(ScanProjectToolEntity::getGlobalToolDefinitionId, null)
+                .set(ScanProjectToolEntity::getRemovedFromSource, false)
+                .set(ScanProjectToolEntity::getRemovedAt, null)
                 .eq(ScanProjectToolEntity::getId, st.getId()));
         return st;
     }
@@ -448,6 +464,9 @@ public class ScanProjectToolService {
     public ToolDefinitionEntity pushScanToGlobalTool(Long projectId, Long scanToolId) {
         ScanProjectToolEntity st = findByProjectAndId(projectId, scanToolId)
                 .orElseThrow(() -> new IllegalArgumentException("扫描接口不存在: " + scanToolId));
+        if (Boolean.TRUE.equals(st.getRemovedFromSource())) {
+            throw new IllegalArgumentException("该接口已从源码/SDK 中移除，请使用业务侧恢复能力并同步目录后再更新全局 Tool");
+        }
         if (st.getGlobalToolDefinitionId() == null) {
             throw new IllegalArgumentException("该扫描接口未关联全局 Tool");
         }
@@ -583,5 +602,253 @@ public class ScanProjectToolService {
         } catch (Exception ex) {
             throw new IllegalStateException("无法序列化能力声明元数据", ex);
         }
+    }
+
+    public Optional<ScanProjectToolEntity> findByProjectAndGlobalToolId(Long projectId, Long globalToolDefinitionId) {
+        if (projectId == null || globalToolDefinitionId == null) {
+            return Optional.empty();
+        }
+        ScanProjectToolEntity e = mapper.selectOne(new LambdaQueryWrapper<ScanProjectToolEntity>()
+                .eq(ScanProjectToolEntity::getProjectId, projectId)
+                .eq(ScanProjectToolEntity::getGlobalToolDefinitionId, globalToolDefinitionId)
+                .last("LIMIT 1"));
+        return Optional.ofNullable(e);
+    }
+
+    /**
+     * 将 SDK 同步后的 {@link ToolDefinitionEntity} 镜像到 {@code scan_project_tool}，供管理端「项目 API 目录」统一展示。
+     */
+    @Transactional
+    public void syncMirrorFromSdkTool(Long projectId, ToolDefinitionEntity g, boolean markRemoved) {
+        if (g == null || projectId == null) {
+            return;
+        }
+        Optional<ScanProjectToolEntity> byGlobal = findByProjectAndGlobalToolId(projectId, g.getId());
+        ScanProjectToolEntity e = byGlobal.orElseGet(() -> findByProjectAndName(projectId, g.getName()).orElse(null));
+        if (e == null) {
+            e = new ScanProjectToolEntity();
+            e.setProjectId(projectId);
+            e.setModuleId(null);
+            e.setName(g.getName());
+            copyGlobalToolFieldsToScanRow(e, g);
+            e.setGlobalToolDefinitionId(g.getId());
+            e.setRemovedFromSource(markRemoved);
+            e.setRemovedAt(markRemoved ? LocalDateTime.now() : null);
+            mapper.insert(e);
+            return;
+        }
+        copyGlobalToolFieldsToScanRow(e, g);
+        e.setGlobalToolDefinitionId(g.getId());
+        e.setRemovedFromSource(markRemoved);
+        e.setRemovedAt(markRemoved ? LocalDateTime.now() : null);
+        mapper.updateById(e);
+    }
+
+    private void copyGlobalToolFieldsToScanRow(ScanProjectToolEntity e, ToolDefinitionEntity g) {
+        e.setDescription(StringUtils.hasText(g.getDescription()) ? g.getDescription() : "");
+        e.setParametersJson(g.getParametersJson());
+        e.setSource(StringUtils.hasText(g.getSource()) ? g.getSource().trim() : SOURCE_SCANNER);
+        e.setSourceLocation(g.getSourceLocation());
+        e.setHttpMethod(g.getHttpMethod());
+        e.setBaseUrl(g.getBaseUrl());
+        e.setContextPath(g.getContextPath());
+        e.setEndpointPath(g.getEndpointPath());
+        e.setRequestBodyType(g.getRequestBodyType());
+        e.setResponseType(g.getResponseType());
+        e.setAiDescription(g.getAiDescription());
+        e.setCapabilityMetadataJson(g.getCapabilityMetadataJson());
+        e.setEnabled(g.getEnabled() == null || Boolean.TRUE.equals(g.getEnabled()));
+        e.setAgentVisible(g.getAgentVisible() == null || Boolean.TRUE.equals(g.getAgentVisible()));
+        e.setLightweightEnabled(Boolean.TRUE.equals(g.getLightweightEnabled()));
+    }
+
+    /**
+     * 为尚未有镜像行的 SDK 能力补齐 {@code scan_project_tool}。
+     *
+     * @return 新插入的镜像行数量
+     */
+    @Transactional
+    public int ensureSdkMirrors(Long projectId) {
+        ScanProjectEntity project = projectMapper.selectById(projectId);
+        if (project == null || !StringUtils.hasText(project.getProjectCode())) {
+            return 0;
+        }
+        int added = 0;
+        for (ToolDefinitionEntity t : toolDefinitionService.listByProjectId(projectId)) {
+            if (t.getKind() != null && !ToolDefinitionService.KIND_TOOL.equalsIgnoreCase(t.getKind())) {
+                continue;
+            }
+            if (!isSdkBackedTool(project, t)) {
+                continue;
+            }
+            if (findByProjectAndGlobalToolId(projectId, t.getId()).isPresent()) {
+                continue;
+            }
+            syncMirrorFromSdkTool(projectId, t, false);
+            added++;
+        }
+        return added;
+    }
+
+    public static boolean isSdkBackedTool(ScanProjectEntity project, ToolDefinitionEntity existing) {
+        if (project == null || existing == null || !StringUtils.hasText(project.getProjectCode())) {
+            return false;
+        }
+        if (existing.getSourceLocation() == null) {
+            return false;
+        }
+        String prefix = "sdk:" + project.getProjectCode().trim() + ":";
+        return existing.getSourceLocation().startsWith(prefix)
+                && Objects.equals(existing.getProjectId(), project.getId());
+    }
+
+    public List<String> divergenceFieldNames(ScanProjectToolEntity st, ToolDefinitionEntity g) {
+        List<String> out = new ArrayList<>();
+        if (g == null) {
+            return out;
+        }
+        String kind = g.getKind();
+        if (kind == null || kind.isBlank()) {
+            kind = ToolDefinitionService.KIND_TOOL;
+        }
+        if (!ToolDefinitionService.KIND_TOOL.equalsIgnoreCase(kind)) {
+            out.add("kind");
+            return out;
+        }
+        if (!Objects.equals(trimOrNull(st.getDescription()), trimOrNull(g.getDescription()))) {
+            out.add("description");
+        }
+        if (!Objects.equals(parseParameters(st.getParametersJson()), parseParameters(g.getParametersJson()))) {
+            out.add("parameters");
+        }
+        if (!Objects.equals(trimOrNull(st.getSourceLocation()), trimOrNull(g.getSourceLocation()))) {
+            out.add("sourceLocation");
+        }
+        if (!Objects.equals(trimOrNull(st.getHttpMethod()), trimOrNull(g.getHttpMethod()))) {
+            out.add("httpMethod");
+        }
+        if (!Objects.equals(trimOrNull(st.getBaseUrl()), trimOrNull(g.getBaseUrl()))) {
+            out.add("baseUrl");
+        }
+        if (!Objects.equals(trimOrNull(st.getContextPath()), trimOrNull(g.getContextPath()))) {
+            out.add("contextPath");
+        }
+        if (!Objects.equals(trimOrNull(st.getEndpointPath()), trimOrNull(g.getEndpointPath()))) {
+            out.add("endpointPath");
+        }
+        if (!Objects.equals(trimOrNull(st.getRequestBodyType()), trimOrNull(g.getRequestBodyType()))) {
+            out.add("requestBodyType");
+        }
+        if (!Objects.equals(trimOrNull(st.getResponseType()), trimOrNull(g.getResponseType()))) {
+            out.add("responseType");
+        }
+        if (Boolean.TRUE.equals(st.getEnabled()) != Boolean.TRUE.equals(g.getEnabled())) {
+            out.add("enabled");
+        }
+        if (Boolean.TRUE.equals(st.getAgentVisible()) != Boolean.TRUE.equals(g.getAgentVisible())) {
+            out.add("agentVisible");
+        }
+        if (Boolean.TRUE.equals(st.getLightweightEnabled()) != Boolean.TRUE.equals(g.getLightweightEnabled())) {
+            out.add("lightweightEnabled");
+        }
+        if (!Objects.equals(st.getProjectId(), g.getProjectId())) {
+            out.add("projectId");
+        }
+        String inferred = declaredSideEffect(st.getCapabilityMetadataJson())
+                .orElseGet(() -> SideEffectInferrer.inferAsString(st.getHttpMethod(), st.getEndpointPath()));
+        String gSide = g.getSideEffect() == null || g.getSideEffect().isBlank()
+                ? "WRITE"
+                : g.getSideEffect().trim().toUpperCase(Locale.ROOT);
+        String iSide = inferred == null || inferred.isBlank()
+                ? "WRITE"
+                : inferred.trim().toUpperCase(Locale.ROOT);
+        if (!Objects.equals(iSide, gSide)) {
+            out.add("sideEffect");
+        }
+        if (!Objects.equals(trimOrNull(st.getAiDescription()), trimOrNull(g.getAiDescription()))) {
+            out.add("aiDescription");
+        }
+        if (!Objects.equals(trimOrNull(st.getCapabilityMetadataJson()), trimOrNull(g.getCapabilityMetadataJson()))) {
+            out.add("capabilityMetadata");
+        }
+        return out;
+    }
+
+    public LinkState resolveLinkState(ScanProjectToolEntity entity,
+                                      ToolDefinitionEntity global,
+                                      Set<String> pendingSdkQualifiedNames) {
+        String qn = global != null ? trimOrNull(global.getQualifiedName()) : null;
+        boolean sdkPending = qn != null && pendingSdkQualifiedNames != null && pendingSdkQualifiedNames.contains(qn);
+        if (Boolean.TRUE.equals(entity.getRemovedFromSource())) {
+            return new LinkState(ApiToolLinkStatus.API_REMOVED_STALE,
+                    "接口在 SDK/扫描源中已不存在，全局 Tool 可能仍存在（可能已被禁用）",
+                    List.of(), sdkPending);
+        }
+        Long gid = entity.getGlobalToolDefinitionId();
+        if (gid == null) {
+            return new LinkState(ApiToolLinkStatus.NOT_LINKED, null, List.of(), sdkPending);
+        }
+        if (global == null) {
+            return new LinkState(ApiToolLinkStatus.GLOBAL_MISSING,
+                    "关联的全局 Tool 已删除，请「从 Tool 中下架」后重新添加。",
+                    List.of(), sdkPending);
+        }
+        if (isScanDivergedFromGlobal(entity, global)) {
+            return new LinkState(ApiToolLinkStatus.PENDING_UPDATE,
+                    "项目 API 目录与全局 Tool 不一致，可执行「更新到 Tool」",
+                    divergenceFieldNames(entity, global), sdkPending);
+        }
+        return new LinkState(ApiToolLinkStatus.IN_SYNC, null, List.of(), sdkPending);
+    }
+
+    public ToolReconcileSummary reconcileCatalog(Long projectId, Set<String> pendingSdkQualifiedNames) {
+        int ensured = ensureSdkMirrors(projectId);
+        List<ScanProjectToolEntity> tools = listByProject(projectId);
+        Set<Long> globalIds = tools.stream()
+                .map(ScanProjectToolEntity::getGlobalToolDefinitionId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, ToolDefinitionEntity> globalById = toolDefinitionService.mapByIds(globalIds);
+        int notLinked = 0;
+        int inSync = 0;
+        int pendingUpdate = 0;
+        int apiRemovedStale = 0;
+        int globalMissing = 0;
+        int sdkReviewPendingRows = 0;
+        Set<String> pending = pendingSdkQualifiedNames == null ? Set.of() : pendingSdkQualifiedNames;
+        for (ScanProjectToolEntity e : tools) {
+            Long gid = e.getGlobalToolDefinitionId();
+            ToolDefinitionEntity g = gid == null ? null : globalById.get(gid);
+            if (g == null && gid != null) {
+                g = toolDefinitionService.findById(gid).orElse(null);
+            }
+            LinkState ls = resolveLinkState(e, g, pending);
+            if (ls.sdkCapabilityReviewPending()) {
+                sdkReviewPendingRows++;
+            }
+            switch (ls.status()) {
+                case NOT_LINKED -> notLinked++;
+                case IN_SYNC -> inSync++;
+                case PENDING_UPDATE -> pendingUpdate++;
+                case API_REMOVED_STALE -> apiRemovedStale++;
+                case GLOBAL_MISSING -> globalMissing++;
+            }
+        }
+        return new ToolReconcileSummary(ensured, notLinked, inSync, pendingUpdate, apiRemovedStale, globalMissing, sdkReviewPendingRows);
+    }
+
+    public record LinkState(ApiToolLinkStatus status,
+                            String message,
+                            List<String> diffFields,
+                            boolean sdkCapabilityReviewPending) {
+    }
+
+    public record ToolReconcileSummary(int sdkMirrorsEnsured,
+                                       int notLinked,
+                                       int inSync,
+                                       int pendingUpdate,
+                                       int apiRemovedStale,
+                                       int globalMissing,
+                                       int sdkReviewPendingRows) {
     }
 }

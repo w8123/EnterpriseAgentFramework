@@ -9,6 +9,9 @@ import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.scan.ScanProjectMapper;
 import com.enterprise.ai.agent.scan.ScanProjectService;
+import com.enterprise.ai.agent.scan.ScanProjectToolService;
+import com.enterprise.ai.agent.scan.ScanSettings;
+import com.enterprise.ai.agent.scan.ScanSettingsJson;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionUpsertRequest;
@@ -23,6 +26,7 @@ import com.enterprise.ai.agent.registry.RegistryContracts.FieldDiff;
 import com.enterprise.ai.agent.registry.RegistryContracts.InstanceHeartbeatRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.ProjectRegisterRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.RegistryProjectResponse;
+import com.enterprise.ai.agent.registry.RegistryContracts.SdkCapabilityDescriptionSettings;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -46,6 +50,7 @@ public class AiRegistryService {
 
     private final ScanProjectService scanProjectService;
     private final ScanProjectMapper scanProjectMapper;
+    private final ScanProjectToolService scanProjectToolService;
     private final ProjectInstanceMapper instanceMapper;
     private final CapabilitySyncLogMapper syncLogMapper;
     private final CapabilitySnapshotMapper snapshotMapper;
@@ -83,6 +88,74 @@ public class AiRegistryService {
         registrySecurityService.upsertCredential(project.getId(), project.getProjectCode(),
                 request.appKey(), request.appSecret());
         return toProjectResponse(project);
+    }
+
+    /**
+     * 供业务 SDK 拉取：与 scan_settings 一致，但剔除运行时不可用的 Javadoc 类源。
+     */
+    public SdkCapabilityDescriptionSettings getSdkCapabilityDescriptionSettings(String projectCode) {
+        ScanProjectEntity project = getProject(projectCode);
+        ScanSettings full = ScanSettingsJson.parseOrDefault(project.getScanSettings(), objectMapper);
+        return toSdkFilteredSettings(full);
+    }
+
+    private SdkCapabilityDescriptionSettings toSdkFilteredSettings(ScanSettings full) {
+        List<String> descOrder = filterSdkDescriptionOrder(full.getDescriptionSourceOrder());
+        List<String> paramOrder = filterSdkParamOrder(full.getParamDescriptionSourceOrder());
+        if (descOrder.isEmpty()) {
+            descOrder = List.of("SWAGGER_API_OPERATION", "OPENAPI_OPERATION", "METHOD_NAME");
+        }
+        if (paramOrder.isEmpty()) {
+            paramOrder = List.of("SCHEMA_ANNO", "PARAMETER_ANNO", "FIELD_NAME");
+        }
+        Map<String, Boolean> descEn = filterEnabledMap(full.getDescriptionSourceEnabled(), descOrder);
+        Map<String, Boolean> paramEn = filterEnabledMap(full.getParamDescriptionSourceEnabled(), paramOrder);
+        return new SdkCapabilityDescriptionSettings(descOrder, paramOrder, descEn, paramEn);
+    }
+
+    private static List<String> filterSdkDescriptionOrder(List<String> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (String k : raw) {
+            if (k == null || k.isBlank()) {
+                continue;
+            }
+            String u = k.trim().toUpperCase(Locale.ROOT);
+            if ("JAVADOC".equals(u) || "SRC_JAVADOC".equals(u)) {
+                continue;
+            }
+            out.add(k.trim());
+        }
+        return out;
+    }
+
+    private static List<String> filterSdkParamOrder(List<String> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (String k : raw) {
+            if (k == null || k.isBlank()) {
+                continue;
+            }
+            String u = k.trim().toUpperCase(Locale.ROOT);
+            if ("JAVADOC_PARAM".equals(u) || "PS_JD".equals(u)) {
+                continue;
+            }
+            out.add(k.trim());
+        }
+        return out;
+    }
+
+    private static Map<String, Boolean> filterEnabledMap(Map<String, Boolean> raw, List<String> order) {
+        Map<String, Boolean> out = new LinkedHashMap<>();
+        for (String k : order) {
+            Boolean v = raw == null ? null : raw.get(k);
+            out.put(k, v != Boolean.FALSE);
+        }
+        return out;
     }
 
     @Transactional
@@ -207,6 +280,8 @@ public class AiRegistryService {
                     capabilityName, existing.getName(), "DELETED", existing.getId(), List.of(), impact);
             if (apply) {
                 toolDefinitionService.toggle(existing.getName(), false);
+                ToolDefinitionEntity after = toolDefinitionService.findById(existing.getId()).orElse(existing);
+                scanProjectToolService.syncMirrorFromSdkTool(project.getId(), after, true);
                 recordApply(snapshot.getId(), diffItem.getId(), syncId, project, existing.getQualifiedName(),
                         "SOFT_DELETE", "SUCCESS", "SYNC", "SDK 已不再上报，自动禁用能力");
                 diffItem.setReviewStatus("APPLIED");
@@ -272,6 +347,8 @@ public class AiRegistryService {
         if ("DELETED".equals(item.getChangeType())) {
             if (existing != null) {
                 toolDefinitionService.toggle(existing.getName(), false);
+                ToolDefinitionEntity after = toolDefinitionService.findById(existing.getId()).orElse(existing);
+                scanProjectToolService.syncMirrorFromSdkTool(project.getId(), after, true);
             }
             recordApply(snapshot.getId(), item.getId(), item.getSyncId(), project, item.getQualifiedName(),
                     "SOFT_DELETE", "SUCCESS", operator, "已按评审禁用 SDK 移除能力");
@@ -405,11 +482,13 @@ public class AiRegistryService {
                                  String qualifiedName,
                                  String operator) {
         ToolDefinitionUpsertRequest upsert = toToolUpsert(project, c, storageName, qualifiedName);
+        ToolDefinitionEntity td;
         if (existing == null) {
-            toolDefinitionService.create(upsert);
+            td = toolDefinitionService.create(upsert);
         } else {
-            toolDefinitionService.update(existing.getName(), upsert);
+            td = toolDefinitionService.update(existing.getName(), upsert);
         }
+        scanProjectToolService.syncMirrorFromSdkTool(project.getId(), td, false);
         recordApply(snapshotId, diffItemId, syncId, project, qualifiedName,
                 "APPLY", "SUCCESS", operator, "能力定义已应用");
     }
@@ -565,12 +644,26 @@ public class AiRegistryService {
                 firstText(c.visibility(), project.getVisibility(), "PRIVATE"), qualifiedName);
     }
 
-    private boolean capabilityChanged(ToolDefinitionEntity existing, CapabilityRegistration c) {
-        if (!safeEquals(existing.getDescription(), firstText(c.description(), c.title(), c.name()))) return true;
-        if (!safeEquals(existing.getHttpMethod(), firstText(c.httpMethod(), "POST"))) return true;
-        if (!safeEquals(existing.getEndpointPath(), c.endpointPath())) return true;
-        if (!safeEquals(existing.getSideEffect(), firstText(c.sideEffect(), existing.getSideEffect()))) return true;
-        return false;
+    /**
+     * 当前项目最近一次能力快照中，仍处于待评审（PENDING）的差异项 qualifiedName 集合，
+     * 用于管理端统一展示「SDK 变更待应用/待忽略」。
+     */
+    public Set<String> pendingCapabilityQualifiedNames(long projectId) {
+        CapabilitySnapshotEntity latest = snapshotMapper.selectOne(Wrappers.<CapabilitySnapshotEntity>lambdaQuery()
+                .eq(CapabilitySnapshotEntity::getProjectId, projectId)
+                .orderByDesc(CapabilitySnapshotEntity::getId)
+                .last("LIMIT 1"));
+        if (latest == null) {
+            return Set.of();
+        }
+        return diffItemMapper.selectList(Wrappers.<CapabilityDiffItemEntity>lambdaQuery()
+                        .eq(CapabilityDiffItemEntity::getSnapshotId, latest.getId())
+                        .eq(CapabilityDiffItemEntity::getReviewStatus, "PENDING")
+                        .ne(CapabilityDiffItemEntity::getChangeType, "UNCHANGED"))
+                .stream()
+                .map(CapabilityDiffItemEntity::getQualifiedName)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
     }
 
     private void writeSyncLog(ScanProjectEntity project, String syncId, String source, String status,
@@ -652,9 +745,5 @@ public class AiRegistryService {
 
     private String defaultString(String value, String fallback) {
         return StringUtils.hasText(value) ? value.trim() : fallback;
-    }
-
-    private boolean safeEquals(String a, String b) {
-        return String.valueOf(a).equals(String.valueOf(b));
     }
 }

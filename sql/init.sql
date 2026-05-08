@@ -293,6 +293,8 @@ CREATE TABLE IF NOT EXISTS `scan_project_tool` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='扫描项目接口（未注册为全局 Tool 前）';
 
 CALL add_col_if_absent('scan_project_tool', 'capability_metadata_json', 'MEDIUMTEXT DEFAULT NULL COMMENT ''@AiCapability 能力声明元数据 JSON'' AFTER `ai_description`');
+CALL add_col_if_absent('scan_project_tool', 'removed_from_source', 'TINYINT NOT NULL DEFAULT 0 COMMENT ''1=扫描或 SDK 源中已无此接口（墓碑行，可能仍关联全局 Tool）'' AFTER `global_tool_definition_id`');
+CALL add_col_if_absent('scan_project_tool', 'removed_at', 'DATETIME DEFAULT NULL COMMENT ''标记为从源移除的时间'' AFTER `removed_from_source`');
 
 CREATE TABLE IF NOT EXISTS `semantic_doc` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',

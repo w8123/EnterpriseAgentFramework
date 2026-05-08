@@ -58,6 +58,15 @@ public class ScanProjectToolEntity {
     /** 已注册为全局 Tool 时非空，对应 {@code tool_definition.id} */
     private Long globalToolDefinitionId;
 
+    /**
+     * 为 true 表示当前磁盘扫描或 SDK 上报中已不再包含该接口（墓碑行），
+     * 若仍关联 {@link #globalToolDefinitionId} 则全局 Tool 可能仍存在或已被禁用。
+     */
+    private Boolean removedFromSource;
+
+    /** {@link #removedFromSource} 置为 true 的时间 */
+    private LocalDateTime removedAt;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

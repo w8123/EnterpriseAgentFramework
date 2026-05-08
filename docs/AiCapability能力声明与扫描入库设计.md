@@ -180,6 +180,10 @@ tool_definition.capability_metadata_json
 
 ## 五、与 Studio 和接口图谱的关系
 
+### 5.1 SDK 运行时扫描与平台「扫描设置」
+
+业务系统引入 `ai-spring-boot-starter` 后，无 `@AiCapability` 的 Controller 方法会按 **`scan_project.scan_settings`** 中的 **接口说明来源顺序 / 参数说明来源顺序**（与「扫描详情 → 扫描设置」同一配置）尝试 **Swagger `@ApiOperation`、OpenAPI `@Operation`、`@Schema`、`@Parameter`** 等**运行时可见注解**；**不在业务 YAML 中配置该顺序**。管理端可在 **注册中心 → 项目详情** 中编辑并保存同一套 `PATCH /api/scan-projects/{id}/scan-settings`。SDK 通过 **`GET /api/registry/projects/{projectCode}/capability-description-settings`**（与注册相同的签名校验）拉取子集；服务端会剔除 **Javadoc** 类源（SDK 无法从字节码读取 JavaDoc）。
+
 Agent Studio 使用能力声明做三件事：
 
 1. Tool 节点属性面板展示领域、标签、副作用、权限建议。

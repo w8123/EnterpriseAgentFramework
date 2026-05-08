@@ -153,6 +153,26 @@ export interface ProjectToolInfo extends ToolInfo {
   globalToolName?: string | null
   /** 扫描行与全局 Tool 在可同步字段上是否不一致（需「更新到Tool」） */
   globalToolOutOfSync?: boolean
+  /** SDK/扫描源中是否已不存在该接口（墓碑行） */
+  removedFromSource?: boolean
+  /** 与全局 Tool 关联健康状态，与后端 ApiToolLinkStatus 枚举一致 */
+  toolLinkStatus?: string
+  toolLinkMessage?: string | null
+  /** 与全局 Tool 不一致的字段名列表 */
+  toolSyncDiffFields?: string[]
+  /** 最近一次能力快照中存在待评审的 SDK diff（与 qualifiedName 匹配） */
+  sdkCapabilityReviewPending?: boolean
+}
+
+/** POST /api/scan-projects/:id/tools/reconcile 汇总 */
+export interface ToolReconcileSummary {
+  sdkMirrorsEnsured: number
+  notLinked: number
+  inSync: number
+  pendingUpdate: number
+  apiRemovedStale: number
+  globalMissing: number
+  sdkReviewPendingRows: number
 }
 
 /** POST .../promote-to-tool 响应 */

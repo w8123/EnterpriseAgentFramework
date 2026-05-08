@@ -23,18 +23,33 @@ import java.util.List;
 public class EafRegistryAutoConfiguration {
 
     @Bean
+    @ConditionalOnMissingBean
+    public SdkDescriptionSourceSettingsHolder sdkDescriptionSourceSettingsHolder() {
+        return new SdkDescriptionSourceSettingsHolder();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RuntimeCapabilityMetadataResolver runtimeCapabilityMetadataResolver(
+            SdkDescriptionSourceSettingsHolder holder) {
+        return new RuntimeCapabilityMetadataResolver(holder);
+    }
+
+    @Bean
     @ConditionalOnBean(RequestMappingHandlerMapping.class)
     @ConditionalOnMissingBean
     public EafCapabilityScanner eafCapabilityScanner(RequestMappingHandlerMapping mapping,
-                                                     EafRegistryProperties properties) {
-        return new EafCapabilityScanner(mapping, properties);
+                                                     EafRegistryProperties properties,
+                                                     RuntimeCapabilityMetadataResolver metadataResolver) {
+        return new EafCapabilityScanner(mapping, properties, metadataResolver);
     }
 
     @Bean
     @ConditionalOnMissingBean
     public EafRegistryClient eafRegistryClient(EafRegistryProperties properties,
-                                               EafCapabilityScanner scanner) {
-        return new EafRegistryClient(properties, scanner);
+                                               EafCapabilityScanner scanner,
+                                               SdkDescriptionSourceSettingsHolder descriptionSettingsHolder) {
+        return new EafRegistryClient(properties, scanner, descriptionSettingsHolder);
     }
 
     @Bean

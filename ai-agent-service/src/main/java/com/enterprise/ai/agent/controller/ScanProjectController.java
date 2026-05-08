@@ -1,6 +1,8 @@
 package com.enterprise.ai.agent.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.enterprise.ai.agent.registry.AiRegistryService;
+import com.enterprise.ai.agent.scan.ApiToolLinkStatus;
 import com.enterprise.ai.agent.scan.ScanModuleEntity;
 import com.enterprise.ai.agent.scan.ScanModuleService;
 import com.enterprise.ai.agent.scan.ScanProjectBlockers;
@@ -40,6 +42,7 @@ public class ScanProjectController {
     private final ToolDefinitionService toolDefinitionService;
     private final ScanModuleService scanModuleService;
     private final ScanProjectToolService scanProjectToolService;
+    private final AiRegistryService aiRegistryService;
 
     @PostMapping
     public ResponseEntity<ScanProjectDTO> create(@RequestBody ScanProjectUpsertRequest request) {
@@ -166,6 +169,25 @@ public class ScanProjectController {
         }
     }
 
+    @PostMapping("/{id}/tools/reconcile")
+    public ResponseEntity<ToolReconcileSummaryDTO> reconcileTools(@PathVariable Long id) {
+        try {
+            scanProjectService.getById(id);
+            Set<String> pending = aiRegistryService.pendingCapabilityQualifiedNames(id);
+            ScanProjectToolService.ToolReconcileSummary s = scanProjectToolService.reconcileCatalog(id, pending);
+            return ResponseEntity.ok(new ToolReconcileSummaryDTO(
+                    s.sdkMirrorsEnsured(),
+                    s.notLinked(),
+                    s.inSync(),
+                    s.pendingUpdate(),
+                    s.apiRemovedStale(),
+                    s.globalMissing(),
+                    s.sdkReviewPendingRows()));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
     @GetMapping("/{id}/tools")
     public ResponseEntity<List<ProjectToolDTO>> listTools(@PathVariable Long id) {
         try {
@@ -177,8 +199,9 @@ public class ScanProjectController {
                     .filter(Objects::nonNull)
                     .collect(Collectors.toSet());
             Map<Long, ToolDefinitionEntity> globalById = toolDefinitionService.mapByIds(globalIds);
+            Set<String> pending = aiRegistryService.pendingCapabilityQualifiedNames(id);
             return ResponseEntity.ok(tools.stream()
-                    .map(entity -> toToolDtoBatch(entity, modulesById, globalById))
+                    .map(entity -> toToolDtoBatch(entity, modulesById, globalById, pending))
                     .toList());
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.notFound().build();
@@ -408,7 +431,8 @@ public class ScanProjectController {
     }
 
     private ProjectToolDTO toToolDtoSingle(ScanProjectToolEntity entity, Map<Long, ScanModuleEntity> modulesById) {
-        return buildProjectToolDto(entity, modulesById, resolveGlobal(entity));
+        Set<String> pending = aiRegistryService.pendingCapabilityQualifiedNames(entity.getProjectId());
+        return buildProjectToolDto(entity, modulesById, resolveGlobal(entity), pending);
     }
 
     private static String stableKey(ScanProjectToolEntity tool) {
@@ -422,13 +446,14 @@ public class ScanProjectController {
 
     private ProjectToolDTO toToolDtoBatch(ScanProjectToolEntity entity,
                                          Map<Long, ScanModuleEntity> modulesById,
-                                         Map<Long, ToolDefinitionEntity> globalById) {
+                                         Map<Long, ToolDefinitionEntity> globalById,
+                                         Set<String> pendingSdkQualifiedNames) {
         Long gid = entity.getGlobalToolDefinitionId();
         ToolDefinitionEntity g = gid == null ? null : globalById.get(gid);
         if (g == null && gid != null) {
             g = toolDefinitionService.findById(gid).orElse(null);
         }
-        return buildProjectToolDto(entity, modulesById, g);
+        return buildProjectToolDto(entity, modulesById, g, pendingSdkQualifiedNames);
     }
 
     private ToolDefinitionEntity resolveGlobal(ScanProjectToolEntity entity) {
@@ -441,14 +466,18 @@ public class ScanProjectController {
 
     private ProjectToolDTO buildProjectToolDto(ScanProjectToolEntity entity,
                                               Map<Long, ScanModuleEntity> modulesById,
-                                              ToolDefinitionEntity global) {
+                                              ToolDefinitionEntity global,
+                                              Set<String> pendingSdkQualifiedNames) {
         List<ToolParameterDTO> parameters = toolDefinitionService.parseParameters(entity.getParametersJson()).stream()
                 .map(ToolParameterDTO::from)
                 .toList();
         Long moduleId = entity.getModuleId();
         String moduleDisplayName = resolveModuleDisplayName(moduleId, modulesById);
         String globalToolName = global != null ? global.getName() : null;
-        boolean globalToolOutOfSync = scanProjectToolService.isScanDivergedFromGlobal(entity, global);
+        ScanProjectToolService.LinkState link = scanProjectToolService.resolveLinkState(entity, global,
+                pendingSdkQualifiedNames == null ? Set.of() : pendingSdkQualifiedNames);
+        boolean globalToolOutOfSync = link.status() == ApiToolLinkStatus.PENDING_UPDATE;
+        boolean removedFromSource = Boolean.TRUE.equals(entity.getRemovedFromSource());
         return new ProjectToolDTO(
                 entity.getId(),
                 entity.getName(),
@@ -471,7 +500,12 @@ public class ScanProjectController {
                 globalToolOutOfSync,
                 moduleId,
                 moduleDisplayName,
-                entity.getCapabilityMetadataJson()
+                entity.getCapabilityMetadataJson(),
+                removedFromSource,
+                link.status().name(),
+                link.message(),
+                link.diffFields(),
+                link.sdkCapabilityReviewPending()
         );
     }
 
@@ -589,7 +623,23 @@ public class ScanProjectController {
             boolean globalToolOutOfSync,
             Long moduleId,
             String moduleDisplayName,
-            String capabilityMetadataJson
+            String capabilityMetadataJson,
+            boolean removedFromSource,
+            String toolLinkStatus,
+            String toolLinkMessage,
+            List<String> toolSyncDiffFields,
+            boolean sdkCapabilityReviewPending
+    ) {
+    }
+
+    record ToolReconcileSummaryDTO(
+            int sdkMirrorsEnsured,
+            int notLinked,
+            int inSync,
+            int pendingUpdate,
+            int apiRemovedStale,
+            int globalMissing,
+            int sdkReviewPendingRows
     ) {
     }
 

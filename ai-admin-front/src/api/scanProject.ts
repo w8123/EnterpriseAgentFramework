@@ -9,6 +9,7 @@ import type {
   ScanProjectScanResult,
   ScanProjectUpsertRequest,
   ScanSettings,
+  ToolReconcileSummary,
 } from '@/types/scanProject'
 import type { ToolTestResult, ToolUpsertRequest } from '@/types/tool'
 
@@ -75,6 +76,11 @@ export function rescanScanToolFromSource(projectId: number, scanToolId: number) 
 
 export function getScanProjectTools(id: number) {
   return agentRequest.get<ProjectToolInfo[]>(`/api/scan-projects/${id}/tools`)
+}
+
+/** 补齐 SDK 镜像行并汇总 API 与全局 Tool 关联状态 */
+export function reconcileScanProjectTools(projectId: number) {
+  return agentRequest.post<ToolReconcileSummary>(`/api/scan-projects/${projectId}/tools/reconcile`)
 }
 
 export function getScanProjectDiffSummary(id: number) {

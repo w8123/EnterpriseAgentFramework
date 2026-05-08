@@ -13,12 +13,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 验证 {@link ToolRetrievalService#buildExpression(RetrievalScope)} 能根据 scope
  * 组合出正确的 Milvus boolean 表达式 —— 特别是 Phase 2.0 新增的 {@code kind} 过滤。
  * <p>
- * 这里不需要真的 Milvus / Embedding 客户端，直接用 null 也能调到 buildExpression，
+ * 这里不需要真的 Milvus / Embedding / Domain 依赖，全部传 null 也能调到 buildExpression，
  * 因为它只读字段常量。
  */
 class ToolRetrievalServiceExpressionTest {
 
-    private final ToolRetrievalService service = new ToolRetrievalService(null, null, null, null, null, null);
+    private final ToolRetrievalService service =
+            new ToolRetrievalService(null, null, null, null, null, null, null, null);
 
     @Test
     void nullScopeReturnsNull() {

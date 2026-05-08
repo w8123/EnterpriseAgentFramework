@@ -143,4 +143,15 @@ public final class RegistryContracts {
             String note
     ) {
     }
+
+    /**
+     * SDK 运行时拉取的「接口/参数说明来源」子集；服务端已剔除仅离线源码可用的项（如 JAVADOC）。
+     */
+    public record SdkCapabilityDescriptionSettings(
+            List<String> descriptionSourceOrder,
+            List<String> paramDescriptionSourceOrder,
+            Map<String, Boolean> descriptionSourceEnabled,
+            Map<String, Boolean> paramDescriptionSourceEnabled
+    ) {
+    }
 }

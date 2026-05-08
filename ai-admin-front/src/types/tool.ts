@@ -37,6 +37,11 @@ export interface ToolInfo {
   enabled: boolean
   agentVisible: boolean
   lightweightEnabled: boolean
+  /** 项目 API 目录镜像行 ID（若有） */
+  catalogScanToolId?: number | null
+  /** 与 scan_project_tool 解析的关联状态；无项目镜像时为 null */
+  catalogLinkStatus?: string | null
+  catalogLinkMessage?: string | null
 }
 
 export interface ToolUpsertRequest {

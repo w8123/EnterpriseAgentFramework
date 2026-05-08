@@ -140,6 +140,25 @@
             {{ row.projectCode || projectCodeById(row.projectId) || '-' }}
           </template>
         </el-table-column>
+        <el-table-column label="API 目录" min-width="140" align="center">
+          <template #default="{ row }">
+            <template v-if="row.catalogLinkStatus">
+              <el-tag :type="catalogHealthTagType(row.catalogLinkStatus)" size="small">
+                {{ catalogHealthLabel(row.catalogLinkStatus) }}
+              </el-tag>
+              <el-button
+                v-if="row.projectId != null && row.catalogScanToolId != null"
+                link
+                type="primary"
+                size="small"
+                @click="goScanApiRow(row)"
+              >
+                打开目录
+              </el-button>
+            </template>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="可见性" width="110">
           <template #default="{ row }">
             <el-tag size="small">{{ row.visibility || 'PRIVATE' }}</el-tag>
@@ -402,7 +421,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { marked } from 'marked'
@@ -415,6 +434,7 @@ import { createTool, deleteTool, getTools, testTool, toggleTool, updateTool } fr
 import { useProjectStore } from '@/store/project'
 
 const route = useRoute()
+const router = useRouter()
 const projectStore = useProjectStore()
 const tools = ref<ToolInfo[]>([])
 const scanProjects = ref<ScanProject[]>([])
@@ -515,6 +535,34 @@ function sourceTagType(source: ToolInfo['source']) {
   if (source === 'code') return 'success'
   if (source === 'scanner') return 'warning'
   return 'info'
+}
+
+function catalogHealthLabel(status: string) {
+  const m: Record<string, string> = {
+    NOT_LINKED: '未添加',
+    IN_SYNC: '已同步',
+    PENDING_UPDATE: '待更新',
+    API_REMOVED_STALE: '源已移除',
+    GLOBAL_MISSING: '关联断开',
+    NOT_IN_CATALOG: '未镜像',
+  }
+  return m[status] || status
+}
+
+function catalogHealthTagType(status: string) {
+  if (status === 'IN_SYNC') return 'success'
+  if (status === 'PENDING_UPDATE') return 'warning'
+  if (status === 'API_REMOVED_STALE' || status === 'GLOBAL_MISSING') return 'danger'
+  return 'info'
+}
+
+function goScanApiRow(row: ToolInfo) {
+  if (row.projectId == null || row.catalogScanToolId == null) return
+  router.push({
+    name: 'ScanProjectDetail',
+    params: { id: String(row.projectId) },
+    query: { highlightScanToolId: String(row.catalogScanToolId) },
+  })
 }
 
 /** 来源项目列：展示后端返回的名称；缺失时用本地扫描项目列表补救 */
@@ -1037,6 +1085,11 @@ watch(
       word-break: break-word;
     }
   }
+}
+
+.text-muted {
+  color: var(--el-text-color-placeholder);
+  font-size: 13px;
 }
 
 // ── 日间模式覆盖 ──

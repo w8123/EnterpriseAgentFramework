@@ -5,7 +5,10 @@
         <h2>AI 注册中心项目</h2>
         <p>统一查看 SDK 注册、扫描接入和混合接入的业务项目。</p>
       </div>
-      <el-button type="primary" @click="openCreateDialog">创建注册项目</el-button>
+      <div class="page-header-actions">
+        <el-button :icon="Document" @click="guideDrawerVisible = true">项目接入指南</el-button>
+        <el-button type="primary" @click="openCreateDialog">创建注册项目</el-button>
+      </div>
     </div>
 
     <el-card>
@@ -86,12 +89,59 @@
         <el-button type="primary" :loading="saving" @click="saveProject">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="guideDrawerVisible" title="业务系统接入指南（EAF SDK）" size="560px" destroy-on-close>
+      <div class="guide-drawer">
+        <el-alert
+          type="info"
+          show-icon
+          :closable="false"
+          title="接入思路"
+          description="在本页创建「注册项目」后，业务系统引入 ai-spring-boot-starter，配置注册中心地址与项目信息；应用启动后会自动注册项目、上报心跳、扫描 Controller 能力并同步到平台。平台侧也可继续用「项目与 API 接入」做纯扫描。"
+        />
+
+        <h3 class="guide-h3">1. Maven 依赖</h3>
+        <p class="guide-p">在业务系统根 <code>pom.xml</code> 中引入（版本与 EAF 根工程 <code>1.0.0-SNAPSHOT</code> 对齐，或改为你们私服已发布的坐标）：</p>
+        <div class="guide-code-wrap">
+          <el-button class="guide-copy" size="small" text type="primary" @click="copyText(mavenSnippet)">复制</el-button>
+          <pre class="guide-pre">{{ mavenSnippet }}</pre>
+        </div>
+
+        <h3 class="guide-h3">2. Spring Boot 配置</h3>
+        <p class="guide-p">
+          将 <code>registry.url</code> 指向可访问的 <strong>ai-agent-service</strong> 根地址（示例 <code>http://localhost:8603</code>）。<code>project.code</code> 须与平台中<strong>项目编码</strong>一致；<code>app-key</code> / <code>app-secret</code> 与创建注册项目时填写的一致，用于注册与能力同步请求签名。
+        </p>
+        <div class="guide-code-wrap">
+          <el-button class="guide-copy" size="small" text type="primary" @click="copyText(yamlSnippet)">复制</el-button>
+          <pre class="guide-pre">{{ yamlSnippet }}</pre>
+        </div>
+
+        <h3 class="guide-h3">3. 能力声明（可选）</h3>
+        <p class="guide-p">在对外暴露的 Controller 方法上使用 <code>@AiCapability</code>、参数上使用 <code>@AiParam</code>，便于生成更准确的工具描述与参数 schema。未标注时 Starter 仍会按 Spring MVC 映射上报基础能力。</p>
+        <div class="guide-code-wrap">
+          <el-button class="guide-copy" size="small" text type="primary" @click="copyText(javaSnippet)">复制</el-button>
+          <pre class="guide-pre">{{ javaSnippet }}</pre>
+        </div>
+
+        <h3 class="guide-h3">4. 启动后自检</h3>
+        <ul class="guide-ul">
+          <li>管理端本页应能看到对应项目，<strong>详情</strong>中可查看实例心跳。</li>
+          <li>若开启 <code>expose-actuator-endpoint</code>，可在业务系统访问 <code>/actuator/eaf-capabilities</code> 查看本机解析到的能力列表。</li>
+          <li>在 <strong>能力变更评审</strong> 页可对 SDK 同步批次做 diff / 逐条 apply（与平台评审策略一致）。</li>
+        </ul>
+
+        <p class="guide-foot">
+          更完整的背景与 API 说明见仓库内 <code>docs/AI注册中心企业级改造设计.md</code> 与根目录 <code>README.md</code>。
+        </p>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getScanProjects, updateScanProject } from '@/api/scanProject'
 import { registerRegistryProject } from '@/api/registry'
@@ -106,6 +156,7 @@ const loading = ref(false)
 const saving = ref(false)
 const projects = ref<ScanProject[]>([])
 const dialogVisible = ref(false)
+const guideDrawerVisible = ref(false)
 const editingProject = ref<ScanProject | null>(null)
 const visibilityOptions: ProjectVisibility[] = ['PRIVATE', 'PROJECT', 'SHARED', 'PUBLIC']
 
@@ -120,6 +171,63 @@ const form = reactive<RegistryProjectRegisterRequest>({
 })
 
 onMounted(loadProjects)
+
+const mavenSnippet = `<!-- 与 Enterprise Agent Framework 根 pom 版本一致，或改为你们私服坐标 -->
+<dependency>
+  <groupId>com.enterprise.ai</groupId>
+  <artifactId>ai-spring-boot-starter</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+</dependency>`
+
+const yamlSnippet = `eaf:
+  registry:
+    enabled: true
+    # ai-agent-service 根地址，须从业务网络可达
+    url: http://localhost:8603
+    # 与「创建注册项目」时填写的 appKey / appSecret 一致；平台将用于签名校验
+    app-key: your-app-key
+    app-secret: your-app-secret
+    heartbeat-interval-ms: 30000
+  project:
+    # 须与本平台项目「项目编码」一致
+    code: your-project-code
+    name: 你的业务系统名称
+    base-url: http://localhost:8080
+    context-path: ""
+    environment: dev
+    visibility: PRIVATE
+  capability:
+    scan-controller: true
+    expose-actuator-endpoint: true
+    sync-on-startup: true`
+
+const javaSnippet = `import com.enterprise.ai.skill.AiCapability;
+import com.enterprise.ai.skill.AiParam;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/orders")
+public class OrderApi {
+
+    @AiCapability(
+        name = "queryOrder",
+        title = "查询订单",
+        description = "按订单号查询订单详情"
+    )
+    @GetMapping("/{orderNo}")
+    public OrderDTO get(@AiParam("订单号") @PathVariable String orderNo) {
+        return orderService.get(orderNo);
+    }
+}`
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已复制到剪贴板')
+  } catch {
+    ElMessage.warning('复制失败，请手动选择文本复制')
+  }
+}
 
 async function loadProjects() {
   loading.value = true
@@ -234,7 +342,70 @@ function goCapability(project: ScanProject, target: string) {
   }
 }
 
+.page-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .muted {
   color: var(--text-secondary);
+}
+
+.guide-drawer {
+  padding-right: 8px;
+}
+
+.guide-h3 {
+  margin: 20px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.guide-p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.guide-ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.guide-foot {
+  margin-top: 24px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.guide-code-wrap {
+  position: relative;
+}
+
+.guide-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+}
+
+.guide-pre {
+  margin: 0;
+  padding: 12px 12px 12px 12px;
+  max-height: 280px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

@@ -7,6 +7,9 @@
         <el-button type="danger" plain :loading="deleteProjectLoading" @click="handleDeleteProject">
           删除项目
         </el-button>
+        <el-button type="primary" plain :loading="reconcileLoading" @click="handleReconcile">
+          对账同步 API 与 Tool
+        </el-button>
         <el-button :loading="loading" @click="refreshAll">
           <el-icon><Refresh /></el-icon>刷新
         </el-button>
@@ -354,7 +357,7 @@
                   <el-tag size="small" type="info" class="module-tool-count">{{ g.tools.length }} 个接口</el-tag>
                 </div>
                 <el-button
-                  v-if="g.tools.length > 0 && g.tools.some((t) => !t.globalToolDefinitionId)"
+                  v-if="g.tools.length > 0 && g.tools.some((t) => !t.globalToolDefinitionId && !t.removedFromSource)"
                   type="primary"
                   size="small"
                   :loading="batchModulePromoteLoading[g.key] ?? false"
@@ -364,7 +367,12 @@
                 </el-button>
               </div>
             </template>
-            <el-table :data="g.tools" stripe class="nested-tools-table merged-interface-table">
+            <el-table
+              :data="g.tools"
+              stripe
+              class="nested-tools-table merged-interface-table"
+              :row-class-name="scanToolRowClassName"
+            >
               <el-table-column type="expand" width="44">
                 <template #default="{ row }">
                   <div class="expand-content expand-merged">
@@ -435,23 +443,55 @@
               </el-table-column>
               <el-table-column label="启用" width="78" align="center">
                 <template #default="{ row }">
-                  <el-switch :model-value="row.enabled" @change="handleEnabledChange(row, $event as boolean)" />
+                  <el-switch
+                    :model-value="row.enabled"
+                    :disabled="row.removedFromSource"
+                    @change="handleEnabledChange(row, $event as boolean)"
+                  />
                 </template>
               </el-table-column>
               <el-table-column label="Agent 可见" width="96" align="center">
                 <template #default="{ row }">
-                  <el-switch :model-value="row.agentVisible" @change="handleFlagChange(row, 'agentVisible', $event as boolean)" />
+                  <el-switch
+                    :model-value="row.agentVisible"
+                    :disabled="row.removedFromSource"
+                    @change="handleFlagChange(row, 'agentVisible', $event as boolean)"
+                  />
                 </template>
               </el-table-column>
               <el-table-column label="轻量调用" width="96" align="center">
                 <template #default="{ row }">
-                  <el-switch :model-value="row.lightweightEnabled" @change="handleFlagChange(row, 'lightweightEnabled', $event as boolean)" />
+                  <el-switch
+                    :model-value="row.lightweightEnabled"
+                    :disabled="row.removedFromSource"
+                    @change="handleFlagChange(row, 'lightweightEnabled', $event as boolean)"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column label="Tool 关联" min-width="150">
+                <template #default="{ row }">
+                  <div class="tool-link-cell">
+                    <el-tag :type="toolLinkTagType(row)" size="small">{{ toolLinkLabel(row) }}</el-tag>
+                    <el-tag v-if="row.sdkCapabilityReviewPending" size="small" type="warning" class="sdk-pending-tag">
+                      SDK 评审
+                    </el-tag>
+                    <el-button
+                      v-if="(row.toolSyncDiffFields?.length || 0) > 0"
+                      link
+                      type="primary"
+                      size="small"
+                      @click="openDiffDialog(row)"
+                    >
+                      差异
+                    </el-button>
+                  </div>
+                  <div v-if="row.toolLinkMessage" class="tool-link-hint">{{ row.toolLinkMessage }}</div>
                 </template>
               </el-table-column>
               <el-table-column label="操作" width="600" fixed="right">
                 <template #default="{ row }">
                   <div class="merged-ops-wrap">
-                    <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
+                    <el-button link type="primary" size="small" :disabled="row.removedFromSource" @click="openEditDialog(row)">编辑</el-button>
                     <el-tooltip
                       effect="dark"
                       content="从源码或 OpenAPI 重新解析并更新本行（保留工具名与开关；已挂全局 Tool 时请再点「更新到Tool」同步）"
@@ -461,15 +501,16 @@
                         link
                         type="primary"
                         size="small"
+                        :disabled="row.removedFromSource"
                         :loading="rescanSourceLoading[row.scanToolId]"
                         @click="handleRescanToolFromSource(row)"
                       >
                         扫描更新
                       </el-button>
                     </el-tooltip>
-                    <el-button link type="primary" size="small" @click="openTest(row)">测试</el-button>
+                    <el-button link type="primary" size="small" :disabled="row.removedFromSource" @click="openTest(row)">测试</el-button>
                     <el-button
-                      v-if="!row.globalToolDefinitionId"
+                      v-if="!row.globalToolDefinitionId && !row.removedFromSource"
                       link
                       type="success"
                       size="small"
@@ -724,6 +765,20 @@
         <el-button type="primary" :loading="testRunning" @click="handleTest">执行</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="diffDialogVisible" title="API 与全局 Tool 字段差异" width="560px" destroy-on-close>
+      <template v-if="diffDialogRow">
+        <p v-if="diffDialogRow.toolLinkMessage" class="diff-dialog-msg">{{ diffDialogRow.toolLinkMessage }}</p>
+        <p class="diff-dialog-sub">以下字段在「项目 API 目录行」与「全局 Tool」之间不一致：</p>
+        <div v-if="(diffDialogRow.toolSyncDiffFields?.length || 0) > 0" class="diff-field-tags">
+          <el-tag v-for="f in diffDialogRow.toolSyncDiffFields" :key="f" class="diff-field-tag" type="warning">{{ f }}</el-tag>
+        </div>
+        <el-empty v-else description="无结构化差异字段列表" :image-size="72" />
+      </template>
+      <template #footer>
+        <el-button type="primary" @click="diffDialogVisible = false">知道了</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -748,6 +803,7 @@ import {
   promoteScanModuleToolsToGlobal,
   promoteScanProjectToolToGlobal,
   pushScanProjectToolToGlobalTool,
+  reconcileScanProjectTools,
   rescanScanToolFromSource,
   unpromoteScanProjectToolFromGlobal,
   testScanProjectTool,
@@ -788,6 +844,9 @@ const saving = ref(false)
 const rescanLoading = ref(false)
 const deleteProjectLoading = ref(false)
 const rebuildEmbeddingLoading = ref(false)
+const reconcileLoading = ref(false)
+const diffDialogVisible = ref(false)
+const diffDialogRow = ref<ProjectToolInfo | null>(null)
 /** 扫描详情各区块折叠；空数组=全部折叠 */
 const detailPanelActive = ref<string[]>([])
 /** 接口图谱懒加载：首次展开折叠卡时再 mount G6 实例（图较重，不展开则不创建画布） */
@@ -1139,6 +1198,63 @@ async function refreshAll() {
     ElMessage.error('加载扫描详情失败')
   } finally {
     loading.value = false
+  }
+}
+
+function scanToolRowClassName({ row }: { row: ProjectToolInfo }) {
+  return row.removedFromSource ? 'row-api-tombstone' : ''
+}
+
+function toolLinkLabel(row: ProjectToolInfo) {
+  const m: Record<string, string> = {
+    NOT_LINKED: '未添加',
+    IN_SYNC: '已同步',
+    PENDING_UPDATE: '待更新',
+    API_REMOVED_STALE: '源已移除',
+    GLOBAL_MISSING: '关联断开',
+  }
+  const s = row.toolLinkStatus || 'NOT_LINKED'
+  return m[s] || s
+}
+
+function toolLinkTagType(row: ProjectToolInfo) {
+  switch (row.toolLinkStatus) {
+    case 'IN_SYNC':
+      return 'success'
+    case 'PENDING_UPDATE':
+      return 'warning'
+    case 'API_REMOVED_STALE':
+    case 'GLOBAL_MISSING':
+      return 'danger'
+    default:
+      return 'info'
+  }
+}
+
+function openDiffDialog(row: ProjectToolInfo) {
+  diffDialogRow.value = row
+  diffDialogVisible.value = true
+}
+
+async function handleReconcile() {
+  reconcileLoading.value = true
+  try {
+    const { data } = await reconcileScanProjectTools(projectId.value)
+    const msg = [
+      `镜像补齐 ${data.sdkMirrorsEnsured}`,
+      `未添加 ${data.notLinked}`,
+      `已同步 ${data.inSync}`,
+      `待更新 ${data.pendingUpdate}`,
+      `源已移除 ${data.apiRemovedStale}`,
+      `关联断开 ${data.globalMissing}`,
+      `SDK 待评审行 ${data.sdkReviewPendingRows}`,
+    ].join('，')
+    ElMessage.success(`对账完成：${msg}`)
+    await refreshAll()
+  } catch {
+    ElMessage.error('对账失败')
+  } finally {
+    reconcileLoading.value = false
   }
 }
 
@@ -2200,6 +2316,48 @@ onUnmounted(stopPollingTask)
     color: #a05cff;
     font-weight: 600;
   }
+}
+
+.tool-link-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.sdk-pending-tag {
+  margin-left: 2px;
+}
+
+.tool-link-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.35;
+}
+
+.diff-dialog-msg {
+  margin: 0 0 8px;
+  color: var(--el-text-color-regular);
+}
+
+.diff-dialog-sub {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.diff-field-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.diff-field-tag {
+  margin: 0;
+}
+
+:deep(.row-api-tombstone) > td {
+  background: var(--el-fill-color-light) !important;
 }
 
 // ── 日间模式覆盖 ──

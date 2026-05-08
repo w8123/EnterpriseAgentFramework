@@ -11,6 +11,7 @@ import com.enterprise.ai.agent.registry.RegistryContracts.CapabilitySyncResponse
 import com.enterprise.ai.agent.registry.RegistryContracts.InstanceHeartbeatRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.ProjectRegisterRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.RegistryProjectResponse;
+import com.enterprise.ai.agent.registry.RegistryContracts.SdkCapabilityDescriptionSettings;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -54,6 +55,22 @@ public class AiRegistryController {
             securityService.verifyIfConfigured(projectCode,
                     new RegistrySecurityService.RegistrySignatureHeaders(appKey, timestamp, nonce, signature));
             return ResponseEntity.ok(registryService.heartbeat(projectCode, request));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
+        }
+    }
+
+    @GetMapping("/projects/{projectCode}/capability-description-settings")
+    public ResponseEntity<?> getSdkCapabilityDescriptionSettings(@PathVariable String projectCode,
+                                                                 @RequestHeader(value = "X-EAF-App-Key", required = false) String appKey,
+                                                                 @RequestHeader(value = "X-EAF-Timestamp", required = false) String timestamp,
+                                                                 @RequestHeader(value = "X-EAF-Nonce", required = false) String nonce,
+                                                                 @RequestHeader(value = "X-EAF-Signature", required = false) String signature) {
+        try {
+            securityService.verifyIfConfigured(projectCode,
+                    new RegistrySecurityService.RegistrySignatureHeaders(appKey, timestamp, nonce, signature));
+            SdkCapabilityDescriptionSettings body = registryService.getSdkCapabilityDescriptionSettings(projectCode);
+            return ResponseEntity.ok(body);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
         }

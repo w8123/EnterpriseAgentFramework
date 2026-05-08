@@ -44,3 +44,4 @@ Thumbs.db
 .env.*.local
 **/application-local.yml
 **/application-secret.yml
+ai-admin-front/nul
