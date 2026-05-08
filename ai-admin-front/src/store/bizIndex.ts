@@ -11,7 +11,7 @@ export const useBizIndexStore = defineStore('bizIndex', () => {
     loading.value = true
     try {
       const { data } = await getBizIndexList()
-      bizIndexList.value = data.data || []
+      bizIndexList.value = Array.isArray(data) ? data : []
     } finally {
       loading.value = false
     }

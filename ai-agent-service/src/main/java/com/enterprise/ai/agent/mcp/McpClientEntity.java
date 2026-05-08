@@ -22,6 +22,14 @@ public class McpClientEntity {
     /** apiKey 前 8 字符，便于运营辨识；不参与鉴权。 */
     private String apiKeyPrefix;
 
+    private Long projectId;
+
+    private String projectCode;
+
+    private String environment;
+
+    private String tenantId;
+
     /** JSON 数组字符串：roles，调用时作为 ToolACL 决策依据。 */
     private String rolesJson;
 

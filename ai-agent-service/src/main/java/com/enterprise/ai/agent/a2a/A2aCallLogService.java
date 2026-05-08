@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 public class A2aCallLogService {
 
     private final A2aCallLogMapper logMapper;
+    private final A2aEndpointMapper endpointMapper;
 
     @Async
     public void log(Long endpointId, String agentKey, String taskId, String method,
@@ -27,6 +28,13 @@ public class A2aCallLogService {
             A2aCallLogEntity en = new A2aCallLogEntity();
             en.setEndpointId(endpointId);
             en.setAgentKey(agentKey);
+            A2aEndpointEntity endpoint = endpointId == null ? null : endpointMapper.selectById(endpointId);
+            if (endpoint != null) {
+                en.setProjectId(endpoint.getProjectId());
+                en.setProjectCode(endpoint.getProjectCode());
+                en.setEnvironment(endpoint.getEnvironment());
+                en.setTenantId(endpoint.getTenantId());
+            }
             en.setTaskId(taskId);
             en.setMethod(method);
             en.setSuccess(success);

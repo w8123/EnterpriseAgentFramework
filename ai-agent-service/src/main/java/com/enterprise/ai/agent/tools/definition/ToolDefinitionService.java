@@ -16,12 +16,14 @@ import com.enterprise.ai.agent.scan.SideEffectInferrer;
 import com.enterprise.ai.agent.tool.retrieval.ToolEmbeddingService;
 import com.enterprise.ai.agent.tools.ToolRegistry;
 import com.enterprise.ai.agent.tools.dynamic.DynamicHttpAiTool;
+import com.enterprise.ai.agent.tools.dynamic.DynamicHttpToolBaseUrlSupport;
 import com.enterprise.ai.skill.AiTool;
 import com.enterprise.ai.skill.ToolParameter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -194,6 +196,15 @@ public class ToolDefinitionService {
                 .last("limit 1")));
     }
 
+    public Optional<ToolDefinitionEntity> findByQualifiedName(String qualifiedName) {
+        if (!StringUtils.hasText(qualifiedName)) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(mapper.selectOne(new LambdaQueryWrapper<ToolDefinitionEntity>()
+                .eq(ToolDefinitionEntity::getQualifiedName, qualifiedName.trim())
+                .last("limit 1")));
+    }
+
     public Optional<ToolDefinitionEntity> findById(Long id) {
         if (id == null) {
             return Optional.empty();
@@ -358,7 +369,37 @@ public class ToolDefinitionService {
         if (SOURCE_CODE.equals(existing.getSource())) {
             return toolRegistry.execute(name, args == null ? Map.of() : args);
         }
-        return buildDynamicTool(existing).execute(args == null ? Map.of() : args);
+        ToolDefinitionEntity httpEntity = prepareHttpToolDefinitionForExecution(existing);
+        return buildDynamicTool(httpEntity).execute(args == null ? Map.of() : args);
+    }
+
+    /**
+     * 与扫描接口测试一致：带 {@code projectId} 时无效/空的 tool baseUrl 回退为扫描项目「项目域名」，
+     * 避免 RestClient 报 {@code Invalid URI host: null}。不修改持久化实体，必要时返回带覆盖 baseUrl 的副本。
+     */
+    private ToolDefinitionEntity prepareHttpToolDefinitionForExecution(ToolDefinitionEntity existing) {
+        ToolDefinitionEntity resolved = existing;
+        if (existing.getProjectId() != null) {
+            ScanProjectEntity project = scanProjectMapper.selectById(existing.getProjectId());
+            resolved = withMergedScanProjectBaseUrl(existing, project);
+        }
+        String base = resolved.getBaseUrl() == null ? "" : resolved.getBaseUrl().trim();
+        DynamicHttpToolBaseUrlSupport.requireValidRestClientBaseUrl(base);
+        return resolved;
+    }
+
+    /** 当扫描项目配置了有效「项目域名」时，用它覆盖工具行上无效/空的 baseUrl（仅内存副本）。 */
+    private ToolDefinitionEntity withMergedScanProjectBaseUrl(ToolDefinitionEntity entity,
+                                                              ScanProjectEntity project) {
+        String effective = DynamicHttpToolBaseUrlSupport.resolveEffectiveBaseUrl(entity.getBaseUrl(), project);
+        String orig = entity.getBaseUrl() == null ? "" : entity.getBaseUrl().trim();
+        if (effective.equals(orig)) {
+            return entity;
+        }
+        ToolDefinitionEntity copy = new ToolDefinitionEntity();
+        BeanUtils.copyProperties(entity, copy);
+        copy.setBaseUrl(effective);
+        return copy;
     }
 
     public List<String> listLightweightEnabledToolNames() {
@@ -401,6 +442,11 @@ public class ToolDefinitionService {
 
     public IPage<ToolDefinitionEntity> pageSkills(int current, int size, String keyword, Boolean enabled,
                                                   Boolean draft) {
+        return pageSkills(current, size, keyword, enabled, draft, null);
+    }
+
+    public IPage<ToolDefinitionEntity> pageSkills(int current, int size, String keyword, Boolean enabled,
+                                                  Boolean draft, Long projectId) {
         int pageNum = Math.max(1, current);
         int pageSize = Math.min(100, Math.max(1, size));
         Page<ToolDefinitionEntity> p = new Page<>(pageNum, pageSize, true);
@@ -417,6 +463,9 @@ public class ToolDefinitionService {
         }
         if (draft != null) {
             w.eq(ToolDefinitionEntity::getDraft, draft);
+        }
+        if (projectId != null) {
+            w.eq(ToolDefinitionEntity::getProjectId, projectId);
         }
         w.orderByAsc(ToolDefinitionEntity::getName);
         return mapper.selectPage(p, w);
@@ -456,7 +505,15 @@ public class ToolDefinitionService {
         entity.setParametersJson(serializeParameters(request.parameters()));
         entity.setSource(normalizeSource(request.source()));
         entity.setSourceLocation(request.sourceLocation());
-        entity.setProjectId(request.projectId());
+        entity.setProjectId(updating && request.projectId() == null ? entity.getProjectId() : request.projectId());
+        String requestedProjectCode = normalizeNullable(request.projectCode());
+        entity.setProjectCode(updating && requestedProjectCode == null ? entity.getProjectCode() : requestedProjectCode);
+        entity.setVisibility(updating && isBlank(request.visibility())
+                ? (isBlank(entity.getVisibility()) ? "PRIVATE" : entity.getVisibility())
+                : normalizeVisibility(request.visibility()));
+        String qn = resolveQualifiedName(request.qualifiedName(), entity.getProjectCode(),
+                updating ? entity.getName() : request.name());
+        entity.setQualifiedName(updating && qn == null ? entity.getQualifiedName() : qn);
         entity.setAgentVisible(request.agentVisible());
         entity.setLightweightEnabled(request.lightweightEnabled());
         entity.setSideEffect(normalizeSideEffect(request.sideEffect()));
@@ -571,6 +628,31 @@ public class ToolDefinitionService {
         return normalized;
     }
 
+    private String normalizeVisibility(String visibility) {
+        if (isBlank(visibility)) {
+            return "PRIVATE";
+        }
+        String normalized = visibility.trim().toUpperCase();
+        if (!Set.of("PRIVATE", "PROJECT", "SHARED", "PUBLIC").contains(normalized)) {
+            throw new IllegalArgumentException("未知 visibility: " + visibility);
+        }
+        return normalized;
+    }
+
+    private String normalizeNullable(String value) {
+        return isBlank(value) ? null : value.trim();
+    }
+
+    private String resolveQualifiedName(String requested, String projectCode, String name) {
+        if (StringUtils.hasText(requested)) {
+            return requested.trim();
+        }
+        if (StringUtils.hasText(projectCode) && StringUtils.hasText(name)) {
+            return projectCode.trim() + ":" + name.trim();
+        }
+        return null;
+    }
+
     private void loadEnabledConfigTools() {
         for (ToolDefinitionEntity entity : mapper.selectList(new LambdaQueryWrapper<ToolDefinitionEntity>()
                 .eq(ToolDefinitionEntity::getEnabled, true)
@@ -657,8 +739,9 @@ public class ToolDefinitionService {
     private DynamicHttpAiTool buildDynamicTool(ToolDefinitionEntity entity) {
         if (entity.getProjectId() != null) {
             ScanProjectEntity project = scanProjectMapper.selectById(entity.getProjectId());
+            ToolDefinitionEntity resolved = withMergedScanProjectBaseUrl(entity, project);
             var extras = ScanProjectAuthSupport.invocationExtras(project);
-            return new DynamicHttpAiTool(entity, objectMapper, extras);
+            return new DynamicHttpAiTool(resolved, objectMapper, extras);
         }
         return new DynamicHttpAiTool(entity, objectMapper);
     }

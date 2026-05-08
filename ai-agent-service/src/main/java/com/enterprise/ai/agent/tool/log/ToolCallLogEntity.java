@@ -30,6 +30,14 @@ public class ToolCallLogEntity {
 
     private String intentType;
 
+    private Long projectId;
+
+    private String projectCode;
+
+    private String environment;
+
+    private String tenantId;
+
     private String toolName;
 
     private String argsJson;

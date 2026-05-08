@@ -18,6 +18,14 @@ export interface FieldSourceSpec {
   labelField?: string
 }
 
+/** 编辑 Skill / 交互表单时「数据来源」单选项的展示文案（提交值仍为后端枚举） */
+export const FIELD_SOURCE_KIND_OPTIONS: { value: FieldSourceKind; label: string }[] = [
+  { value: 'NONE', label: '无（自由输入）' },
+  { value: 'STATIC', label: '静态选项' },
+  { value: 'DICT', label: '数据字典' },
+  { value: 'TOOL_CALL', label: '字典接口' },
+]
+
 export interface FieldSpec {
   key: string
   label: string
@@ -286,6 +294,10 @@ export interface SkillInfo {
   parameters: ToolParameter[]
   skillKind: string
   sideEffect?: string | null
+  projectId?: number | null
+  projectCode?: string | null
+  visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
+  qualifiedName?: string | null
   enabled: boolean
   agentVisible: boolean
   source?: string | null
@@ -301,6 +313,10 @@ export interface SkillUpsertRequest {
   parameters: ToolParameter[]
   skillKind: string
   sideEffect?: string | null
+  projectId?: number | null
+  projectCode?: string | null
+  visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
+  qualifiedName?: string | null
   enabled: boolean
   agentVisible: boolean
   spec: SubAgentSpec | Record<string, unknown>
@@ -315,6 +331,7 @@ export interface SkillListQuery {
   enabled?: boolean
   /** 仅草稿 / 非草稿；不传查全部 */
   draft?: boolean
+  projectId?: number
 }
 
 export interface SkillPageResult {

@@ -22,6 +22,14 @@ public class GuardDecisionLogEntity {
 
     private String traceId;
 
+    private Long projectId;
+
+    private String projectCode;
+
+    private String environment;
+
+    private String tenantId;
+
     private String decisionType;
 
     private String targetKind;

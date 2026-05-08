@@ -37,6 +37,15 @@
           <el-option label="已启用" :value="true" />
           <el-option label="已停用" :value="false" />
         </el-select>
+        <el-select v-model="filterProjectId" placeholder="按项目筛选" clearable filterable style="width: 220px">
+          <el-option
+            v-for="project in scanProjects"
+            :key="project.id"
+            :label="projectOptionLabel(project)"
+            :value="project.id"
+          />
+        </el-select>
+        <el-button type="primary" @click="fetchData">查询</el-button>
       </div>
 
       <!-- 卡片视图 -->
@@ -70,6 +79,10 @@
               {{ triggerLabel(agent.triggerMode) }}
             </el-tag>
             <span class="agent-card-model">{{ agent.modelName }}</span>
+          </div>
+          <div class="agent-card-meta">
+            <el-tag size="small" type="info">{{ agent.projectCode || projectCodeById(agent.projectId) || 'GLOBAL' }}</el-tag>
+            <el-tag size="small">{{ agent.visibility || 'PRIVATE' }}</el-tag>
           </div>
           <div class="agent-card-tools" v-if="agent.tools?.length">
             <el-tag
@@ -120,6 +133,16 @@
           </template>
         </el-table-column>
         <el-table-column prop="modelName" label="模型" width="120" />
+        <el-table-column label="项目" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.projectCode || projectCodeById(row.projectId) || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="可见性" width="110">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.visibility || 'PRIVATE' }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="Tools" min-width="160">
           <template #default="{ row }">
             <el-tag
@@ -199,22 +222,29 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus, Cpu } from '@element-plus/icons-vue'
 import type { AgentDefinition } from '@/types/agent'
 import { INTENT_TYPES, TRIGGER_MODES } from '@/types/agent'
 import { getAgentList, deleteAgent, updateAgent } from '@/api/agent'
+import { getScanProjects } from '@/api/scanProject'
 import { getRecentTraces } from '@/api/trace'
 import type { TraceSummary } from '@/types/trace'
+import type { ScanProject } from '@/types/scanProject'
 import ViewToggle from '@/components/ViewToggle.vue'
+import { useProjectStore } from '@/store/project'
 
+const route = useRoute()
 const router = useRouter()
+const projectStore = useProjectStore()
 const agents = ref<AgentDefinition[]>([])
+const scanProjects = ref<ScanProject[]>([])
 const loading = ref(false)
 const filterIntent = ref<string>('')
 const filterTrigger = ref<string>('')
 const filterEnabled = ref<boolean | ''>('')
+const filterProjectId = ref<number | undefined>(undefined)
 const activeView = ref<'agents' | 'traces'>('agents')
 const recentTraces = ref<TraceSummary[]>([])
 const traceLoading = ref(false)
@@ -258,10 +288,44 @@ function triggerTagType(mode: string): '' | 'success' | 'warning' | 'info' | 'da
   return map[mode] ?? ''
 }
 
+function projectOptionLabel(project?: ScanProject | null) {
+  if (!project) return ''
+  const code = project.projectCode ? ` / ${project.projectCode}` : ''
+  const env = project.environment ? ` · ${project.environment}` : ''
+  return `${project.name}${code}${env}`
+}
+
+function projectCodeById(projectId?: number | null) {
+  if (projectId == null) return null
+  return scanProjects.value.find((project) => project.id === projectId)?.projectCode || null
+}
+
+function syncProjectFilter() {
+  const queryProjectId = Number(route.query.projectId)
+  if (Number.isFinite(queryProjectId) && queryProjectId > 0) {
+    filterProjectId.value = queryProjectId
+    projectStore.setCurrentProject(queryProjectId)
+    return
+  }
+  filterProjectId.value = projectStore.currentProjectId ?? undefined
+}
+
+async function loadScanProjects() {
+  try {
+    const { data } = await getScanProjects()
+    scanProjects.value = Array.isArray(data) ? data : []
+    projectStore.projects = scanProjects.value
+  } catch {
+    scanProjects.value = []
+  }
+}
+
 async function fetchData() {
   loading.value = true
   try {
-    const { data } = await getAgentList()
+    const { data } = await getAgentList(
+      filterProjectId.value !== undefined ? { projectId: filterProjectId.value } : undefined,
+    )
     agents.value = Array.isArray(data) ? data : []
   } catch {
     agents.value = []
@@ -295,7 +359,12 @@ function copyTraceId(traceId: string) {
   }
 }
 
-function handleCreate() { router.push('/agent/new/edit') }
+function handleCreate() {
+  router.push({
+    path: '/agent/new/edit',
+    query: filterProjectId.value !== undefined ? { projectId: filterProjectId.value } : {},
+  })
+}
 function handleEdit(id: string) { router.push(`/agent/${id}/edit`) }
 function handleDebug(id: string) { router.push(`/agent/${id}/debug`) }
 function handleStudio(id: string) { router.push(`/agent/${id}/studio`) }
@@ -321,7 +390,19 @@ async function handleDelete(id: string) {
   }
 }
 
-onMounted(() => { fetchData() })
+onMounted(async () => {
+  await loadScanProjects()
+  syncProjectFilter()
+  fetchData()
+})
+
+watch(
+  () => projectStore.currentProjectId,
+  () => {
+    syncProjectFilter()
+    fetchData()
+  },
+)
 
 watch(activeView, (view) => {
   if (view === 'traces' && recentTraces.value.length === 0) {

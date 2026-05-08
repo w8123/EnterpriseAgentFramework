@@ -47,6 +47,42 @@
           </el-col>
         </el-row>
         <el-row :gutter="24">
+          <el-col :span="8">
+            <el-form-item label="所属项目">
+              <el-select
+                v-model="form.projectId"
+                clearable
+                filterable
+                placeholder="平台级 / 全局 Agent"
+                style="width: 100%"
+                @change="handleProjectChange"
+              >
+                <el-option
+                  v-for="project in scanProjects"
+                  :key="project.id"
+                  :label="projectOptionLabel(project)"
+                  :value="project.id"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="项目编码">
+              <el-input v-model="form.projectCode" disabled placeholder="选择项目后自动填充" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="可见性">
+              <el-select v-model="form.visibility" style="width: 100%">
+                <el-option label="PRIVATE" value="PRIVATE" />
+                <el-option label="PROJECT" value="PROJECT" />
+                <el-option label="SHARED" value="SHARED" />
+                <el-option label="PUBLIC" value="PUBLIC" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="24">
           <el-col :span="12">
             <el-form-item label="keySlug">
               <el-input
@@ -179,7 +215,7 @@
               <el-option
                 v-for="tool in availableTools"
                 :key="tool.name"
-                :label="tool.name"
+                :label="capabilityLabel(tool)"
                 :value="tool.name"
               >
                 <div class="tool-option">
@@ -210,7 +246,7 @@
               <el-option
                 v-for="sk in availableSkills"
                 :key="sk.name"
-                :label="sk.name"
+                :label="capabilityLabel(sk)"
                 :value="sk.name"
               >
                 <div class="tool-option">
@@ -261,7 +297,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ArrowLeft, QuestionFilled } from '@element-plus/icons-vue'
 import { INTENT_TYPES, TRIGGER_MODES } from '@/types/agent'
@@ -269,11 +305,15 @@ import type { AgentForm } from '@/types/agent'
 import { getAgent, createAgent, updateAgent } from '@/api/agent'
 import { getTools } from '@/api/tool'
 import { getSkills } from '@/api/skill'
+import { getScanProjects } from '@/api/scanProject'
 import type { ToolInfo } from '@/types/tool'
 import type { SkillInfo } from '@/types/skill'
+import type { ScanProject } from '@/types/scanProject'
+import { useProjectStore } from '@/store/project'
 
 const route = useRoute()
 const router = useRouter()
+const projectStore = useProjectStore()
 const agentId = route.params.id as string
 const isNew = agentId === 'new'
 
@@ -282,11 +322,16 @@ const pageLoading = ref(false)
 const saving = ref(false)
 const toolOptions = ref<ToolInfo[]>([])
 const skillOptions = ref<SkillInfo[]>([])
+const scanProjects = ref<ScanProject[]>([])
+const previousProjectId = ref<number | null>(null)
 
 const form = reactive<AgentForm>({
   keySlug: '',
   name: '',
   description: '',
+  projectId: null,
+  projectCode: null,
+  visibility: 'PRIVATE',
   intentType: 'GENERAL_CHAT',
   systemPrompt: '',
   tools: [],
@@ -331,6 +376,66 @@ function addPipelineId() {
   showPipelineInput.value = false
 }
 
+function projectOptionLabel(project?: ScanProject | null) {
+  if (!project) return ''
+  const code = project.projectCode ? ` / ${project.projectCode}` : ''
+  const env = project.environment ? ` · ${project.environment}` : ''
+  return `${project.name}${code}${env}`
+}
+
+function projectCodeById(projectId?: number | null) {
+  if (projectId == null) return null
+  return scanProjects.value.find((project) => project.id === projectId)?.projectCode || null
+}
+
+function capabilityLabel(item: ToolInfo | SkillInfo) {
+  const project = item.projectCode ? ` · ${item.projectCode}` : ''
+  const visibility = item.visibility ? ` · ${item.visibility}` : ''
+  return `${item.name}${project}${visibility}`
+}
+
+async function loadScanProjects() {
+  try {
+    const { data } = await getScanProjects()
+    scanProjects.value = Array.isArray(data) ? data : []
+    projectStore.projects = scanProjects.value
+  } catch {
+    scanProjects.value = []
+  }
+}
+
+function applyNewProjectDefault() {
+  if (!isNew) return
+  const queryProjectId = Number(route.query.projectId)
+  const defaultProjectId =
+    Number.isFinite(queryProjectId) && queryProjectId > 0
+      ? queryProjectId
+      : projectStore.currentProjectId
+  form.projectId = defaultProjectId ?? null
+  form.projectCode = projectCodeById(form.projectId)
+}
+
+async function handleProjectChange(projectId: number | null | undefined) {
+  const hasSelections = form.tools.length > 0 || form.skills.length > 0
+  if (hasSelections) {
+    try {
+      await ElMessageBox.confirm(
+        '切换项目会清空当前已选 Tool / Skill，避免跨项目引用误保存。是否继续？',
+        '切换项目',
+        { type: 'warning' },
+      )
+    } catch {
+      form.projectId = previousProjectId.value
+      return
+    }
+    form.tools = []
+    form.skills = []
+  }
+  form.projectCode = projectCodeById(projectId)
+  previousProjectId.value = projectId ?? null
+  await Promise.all([loadToolOptions(), loadSkillOptions()])
+}
+
 async function loadAgent() {
   if (isNew) return
   pageLoading.value = true
@@ -340,6 +445,9 @@ async function loadAgent() {
       keySlug: data.keySlug ?? '',
       name: data.name,
       description: data.description || '',
+      projectId: data.projectId ?? null,
+      projectCode: data.projectCode ?? projectCodeById(data.projectId) ?? null,
+      visibility: data.visibility || 'PRIVATE',
       intentType: data.intentType || '',
       systemPrompt: data.systemPrompt || '',
       tools: data.tools || [],
@@ -357,6 +465,7 @@ async function loadAgent() {
       extra: data.extra || {},
       allowIrreversible: data.allowIrreversible ?? false,
     })
+    previousProjectId.value = form.projectId ?? null
   } catch {
     ElMessage.error('加载 Agent 失败')
   } finally {
@@ -366,7 +475,11 @@ async function loadAgent() {
 
 async function loadToolOptions() {
   try {
-    const { data } = await getTools({ current: 1, size: 2000 })
+    const { data } = await getTools({
+      current: 1,
+      size: 2000,
+      ...(form.projectId != null ? { projectId: form.projectId } : {}),
+    })
     toolOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
   } catch {
     toolOptions.value = []
@@ -376,7 +489,11 @@ async function loadToolOptions() {
 
 async function loadSkillOptions() {
   try {
-    const { data } = await getSkills({ current: 1, size: 2000 })
+    const { data } = await getSkills({
+      current: 1,
+      size: 2000,
+      ...(form.projectId != null ? { projectId: form.projectId } : {}),
+    })
     skillOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
   } catch {
     skillOptions.value = []
@@ -406,8 +523,13 @@ async function handleSave() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadToolOptions(), loadSkillOptions()])
+  await loadScanProjects()
+  applyNewProjectDefault()
   await loadAgent()
+  if (!previousProjectId.value) {
+    previousProjectId.value = form.projectId ?? null
+  }
+  await Promise.all([loadToolOptions(), loadSkillOptions()])
 })
 </script>
 

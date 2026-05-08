@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <div class="page-header">
-      <h2>扫描项目</h2>
+      <h2>项目 / 扫描接入</h2>
       <div class="header-actions">
         <el-button type="primary" @click="openCreateDialog">
           <el-icon><Plus /></el-icon>新建项目
@@ -15,6 +15,18 @@
     <el-card shadow="never">
       <el-table :data="projects" v-loading="loading" stripe>
         <el-table-column prop="name" label="项目名" min-width="180" />
+        <el-table-column prop="projectCode" label="项目编码" min-width="150" show-overflow-tooltip />
+        <el-table-column label="项目形态" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag :type="kindTagType(row.projectKind)" size="small">{{ row.projectKind || 'SCAN' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="environment" label="环境" width="100" />
+        <el-table-column label="可见性" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.visibility || 'PRIVATE' }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="baseUrl" label="项目域名" min-width="220" />
         <el-table-column prop="scanPath" label="扫描路径" min-width="260" show-overflow-tooltip />
         <el-table-column label="扫描方式" width="110" align="center">
@@ -36,7 +48,14 @@
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="goDetail(row.id)">详情</el-button>
-            <el-button link type="primary" size="small" :loading="scanLoadingId === row.id" @click="handleScan(row.id)">
+            <el-button
+              link
+              type="primary"
+              size="small"
+              :disabled="row.projectKind === 'REGISTERED'"
+              :loading="scanLoadingId === row.id"
+              @click="handleScan(row.id)"
+            >
               {{ row.toolCount > 0 ? '重新扫描' : '扫描' }}
             </el-button>
             <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
@@ -55,6 +74,39 @@
         </el-form-item>
         <el-row :gutter="16">
           <el-col :span="12">
+            <el-form-item label="项目编码">
+              <el-input v-model="form.projectCode" placeholder="如 order-service" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="项目形态">
+              <el-select v-model="form.projectKind" style="width: 100%">
+                <el-option label="SCAN" value="SCAN" />
+                <el-option label="REGISTERED" value="REGISTERED" />
+                <el-option label="HYBRID" value="HYBRID" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="环境">
+              <el-input v-model="form.environment" placeholder="dev / test / prod" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="可见性">
+              <el-select v-model="form.visibility" style="width: 100%">
+                <el-option label="PRIVATE" value="PRIVATE" />
+                <el-option label="PROJECT" value="PROJECT" />
+                <el-option label="SHARED" value="SHARED" />
+                <el-option label="PUBLIC" value="PUBLIC" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
             <el-form-item label="项目域名" required>
               <el-input v-model="form.baseUrl" placeholder="http://localhost:8602" />
             </el-form-item>
@@ -65,8 +117,9 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="扫描路径" required>
+        <el-form-item label="扫描路径" :required="form.projectKind !== 'REGISTERED'">
           <el-input v-model="form.scanPath" placeholder="服务器上的绝对路径" />
+          <div v-if="form.projectKind === 'REGISTERED'" class="form-hint">REGISTERED 项目由 SDK 注册能力，可不配置扫描路径。</div>
         </el-form-item>
         <el-form-item label="扫描方式" required>
           <el-radio-group v-model="form.scanType">
@@ -120,6 +173,11 @@ const form = reactive<ScanProjectUpsertRequest>(createEmptyForm())
 function createEmptyForm(): ScanProjectUpsertRequest {
   return {
     name: '',
+    projectCode: '',
+    projectKind: 'SCAN',
+    environment: 'dev',
+    owner: '',
+    visibility: 'PRIVATE',
     baseUrl: '',
     contextPath: '',
     scanPath: '',
@@ -130,6 +188,11 @@ function createEmptyForm(): ScanProjectUpsertRequest {
 
 function applyForm(project: ScanProjectUpsertRequest) {
   form.name = project.name
+  form.projectCode = project.projectCode ?? null
+  form.projectKind = project.projectKind || 'SCAN'
+  form.environment = project.environment || 'dev'
+  form.owner = project.owner ?? null
+  form.visibility = project.visibility || 'PRIVATE'
   form.baseUrl = project.baseUrl
   form.contextPath = project.contextPath ?? ''
   form.scanPath = project.scanPath
@@ -141,6 +204,12 @@ function statusTagType(status: ScanProject['status']) {
   if (status === 'scanned') return 'success'
   if (status === 'failed') return 'danger'
   if (status === 'scanning') return 'warning'
+  return 'info'
+}
+
+function kindTagType(kind?: string) {
+  if (kind === 'REGISTERED') return 'success'
+  if (kind === 'HYBRID') return 'warning'
   return 'info'
 }
 
@@ -165,19 +234,12 @@ function openCreateDialog() {
 
 function openEditDialog(project: ScanProject) {
   editingId.value = project.id
-  applyForm({
-    name: project.name,
-    baseUrl: project.baseUrl,
-    contextPath: project.contextPath ?? '',
-    scanPath: project.scanPath,
-    scanType: project.scanType,
-    specFile: project.specFile || '',
-  })
+  applyForm(project)
   dialogVisible.value = true
 }
 
 async function handleSave() {
-  if (!form.name.trim() || !form.baseUrl.trim() || !form.scanPath.trim()) {
+  if (!form.name.trim() || !form.baseUrl.trim() || (form.projectKind !== 'REGISTERED' && !form.scanPath.trim())) {
     ElMessage.warning('请填写项目名称、域名和扫描路径')
     return
   }
@@ -286,9 +348,19 @@ onMounted(fetchProjects)
   color: #64748b;
 }
 
+.form-hint {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
 // ── 日间模式覆盖 ──
 :global([data-theme="light"]) {
   .error-text {
+    color: #94a3b8;
+  }
+
+  .form-hint {
     color: #94a3b8;
   }
 }

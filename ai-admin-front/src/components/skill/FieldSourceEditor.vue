@@ -6,10 +6,9 @@
         :disabled="readonly"
         @update:model-value="onKindChange"
       >
-        <el-radio-button value="NONE">NONE</el-radio-button>
-        <el-radio-button value="STATIC">STATIC</el-radio-button>
-        <el-radio-button value="DICT">DICT</el-radio-button>
-        <el-radio-button value="TOOL_CALL">TOOL_CALL</el-radio-button>
+        <el-radio-button v-for="opt in FIELD_SOURCE_KIND_OPTIONS" :key="opt.value" :value="opt.value">
+          {{ opt.label }}
+        </el-radio-button>
       </el-radio-group>
     </el-form-item>
 
@@ -117,7 +116,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { FieldOptionSpec, FieldSourceKind, FieldSourceSpec } from '@/types/skill'
-import { emptyFieldSource } from '@/types/skill'
+import { emptyFieldSource, FIELD_SOURCE_KIND_OPTIONS } from '@/types/skill'
 import type { ToolInfo } from '@/types/tool'
 
 const props = withDefaults(

@@ -90,7 +90,7 @@ async function fetchChunks() {
   loading.value = true
   try {
     const { data } = await getFileChunks(fileId)
-    chunkList.value = data.data || []
+    chunkList.value = Array.isArray(data) ? data : []
   } finally {
     loading.value = false
   }

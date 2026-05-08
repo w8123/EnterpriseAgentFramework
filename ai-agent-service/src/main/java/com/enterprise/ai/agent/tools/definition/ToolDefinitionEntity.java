@@ -49,6 +49,15 @@ public class ToolDefinitionEntity {
 
     private Long projectId;
 
+    /** 冗余项目编码，便于 SDK 注册、跨项目引用和后续脱离自增 ID 的导入导出。 */
+    private String projectCode;
+
+    /** 项目内能力可见性：PRIVATE / PROJECT / SHARED / PUBLIC。 */
+    private String visibility;
+
+    /** 稳定能力全名，建议形如 projectCode:name；旧数据可为空并按 name 兼容。 */
+    private String qualifiedName;
+
     private Long moduleId;
 
     private Boolean enabled;

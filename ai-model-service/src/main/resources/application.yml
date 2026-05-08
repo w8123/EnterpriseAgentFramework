@@ -6,7 +6,7 @@ spring:
     name: ai-model-service
   ai:
     dashscope:
-      api-key: ${DASHSCOPE_API_KEY:sk-c1a339208eb24388bc736710c4daadd6}
+      api-key: ${DASHSCOPE_API_KEY:your-api-key}
       chat:
         options:
           model: qwen-max
@@ -26,7 +26,7 @@ model:
   default-provider: tongyi
   # 小米 MiMo（OpenAI 兼容，请求头 api-key）。配置非空 api-key 后自动注册 provider「mimo」
   mimo:
-    api-key: ${MIMO_API_KEY:sk-ctg3qfd8m2tdo10qy1uor5x1arysho0zn02wkue1gzvmv9vb}
+    api-key: ${MIMO_API_KEY:your-api-key}
     base-url: https://api.xiaomimimo.com
     default-model: mimo-v2.5-pro
     models:
@@ -37,7 +37,7 @@ model:
     frequency-penalty: 0
     presence-penalty: 0
   tongyi:
-    api-key: ${DASHSCOPE_API_KEY:sk-c1a339208eb24388bc736710c4daadd6}
+    api-key: ${DASHSCOPE_API_KEY:your-api-key}
     embedding:
       model: text-embedding-v2
       endpoint: https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding

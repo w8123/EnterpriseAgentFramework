@@ -195,6 +195,15 @@ public class ScanProjectService {
                 .last("limit 1")));
     }
 
+    public java.util.Optional<ScanProjectEntity> findByProjectCode(String projectCode) {
+        if (projectCode == null || projectCode.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.ofNullable(projectMapper.selectOne(new LambdaQueryWrapper<ScanProjectEntity>()
+                .eq(ScanProjectEntity::getProjectCode, projectCode.trim())
+                .last("limit 1")));
+    }
+
     public List<ScanProjectToolEntity> listTools(Long projectId) {
         getById(projectId);
         return scanProjectToolService.listByProject(projectId);
@@ -708,7 +717,8 @@ public class ScanProjectService {
         if (request.baseUrl() == null || request.baseUrl().isBlank()) {
             throw new IllegalArgumentException("项目域名不能为空");
         }
-        if (request.scanPath() == null || request.scanPath().isBlank()) {
+        String kind = normalizeProjectKind(request.projectKind());
+        if (!"REGISTERED".equals(kind) && (request.scanPath() == null || request.scanPath().isBlank())) {
             throw new IllegalArgumentException("扫描路径不能为空");
         }
         normalizeScanType(request.scanType());
@@ -716,12 +726,49 @@ public class ScanProjectService {
 
     private ScanProjectEntity applyRequest(ScanProjectEntity entity, ScanProjectUpsertRequest request) {
         entity.setName(request.name().trim());
+        String code = request.projectCode() == null || request.projectCode().isBlank()
+                ? normalizeProjectCode(request.name())
+                : normalizeProjectCode(request.projectCode());
+        entity.setProjectCode(code);
+        entity.setProjectKind(normalizeProjectKind(request.projectKind()));
+        entity.setEnvironment(normalizeEnvironment(request.environment()));
+        entity.setOwner(request.owner() == null || request.owner().isBlank() ? null : request.owner().trim());
+        entity.setVisibility(normalizeVisibility(request.visibility()));
         entity.setBaseUrl(request.baseUrl().trim());
         entity.setContextPath(normalizeContextPath(request.contextPath()));
-        entity.setScanPath(request.scanPath().trim());
+        entity.setScanPath(request.scanPath() == null || request.scanPath().isBlank() ? "" : request.scanPath().trim());
         entity.setScanType(normalizeScanType(request.scanType()));
         entity.setSpecFile(request.specFile() == null || request.specFile().isBlank() ? null : request.specFile().trim());
         return entity;
+    }
+
+    private String normalizeProjectCode(String value) {
+        String source = value == null || value.isBlank() ? "project" : value.trim();
+        String normalized = source.toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9_-]+", "-")
+                .replaceAll("-+", "-")
+                .replaceAll("^-|-$", "");
+        return normalized.isBlank() ? "project" : normalized;
+    }
+
+    private String normalizeProjectKind(String value) {
+        String normalized = value == null || value.isBlank() ? "SCAN" : value.trim().toUpperCase(Locale.ROOT);
+        if (!List.of("SCAN", "REGISTERED", "HYBRID").contains(normalized)) {
+            throw new IllegalArgumentException("不支持的项目形态: " + value);
+        }
+        return normalized;
+    }
+
+    private String normalizeEnvironment(String value) {
+        return value == null || value.isBlank() ? "default" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeVisibility(String value) {
+        String normalized = value == null || value.isBlank() ? "PRIVATE" : value.trim().toUpperCase(Locale.ROOT);
+        if (!List.of("PRIVATE", "PROJECT", "SHARED", "PUBLIC").contains(normalized)) {
+            throw new IllegalArgumentException("不支持的可见性: " + value);
+        }
+        return normalized;
     }
 
     private void updateStatus(ScanProjectEntity project, String status, String errorMessage) {
@@ -742,6 +789,11 @@ public class ScanProjectService {
 
     public record ScanProjectUpsertRequest(
             String name,
+            String projectCode,
+            String projectKind,
+            String environment,
+            String owner,
+            String visibility,
             String baseUrl,
             String contextPath,
             String scanPath,

@@ -183,14 +183,14 @@ const searchExecuted = ref(false)
 
 async function loadDetail() {
   const { data } = await getBizIndexDetail(indexCode)
-  indexDetail.value = data.data
+  indexDetail.value = data
 }
 
 async function loadStats() {
   statsLoading.value = true
   try {
     const { data } = await getBizIndexStats(indexCode)
-    stats.value = data.data
+    stats.value = data
   } finally {
     statsLoading.value = false
   }
@@ -219,7 +219,7 @@ async function handleSearch() {
       topK: 10,
       scoreThreshold: 0.3,
     })
-    searchResults.value = data.data?.results || []
+    searchResults.value = data?.results ?? []
   } finally {
     searchLoading.value = false
   }

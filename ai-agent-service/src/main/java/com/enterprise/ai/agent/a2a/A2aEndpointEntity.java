@@ -18,6 +18,14 @@ public class A2aEndpointEntity {
 
     private String agentKey;
 
+    private Long projectId;
+
+    private String projectCode;
+
+    private String environment;
+
+    private String tenantId;
+
     /**
      * AgentCard JSON：name / description / version / capabilities / defaultInputModes / defaultOutputModes /
      * skills / examples 等。

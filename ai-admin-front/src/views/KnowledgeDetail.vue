@@ -149,7 +149,7 @@ function statusTagType(status: number): string {
 async function fetchKbInfo() {
   try {
     const { data } = await getKnowledgeList()
-    const list = data.data || []
+    const list = Array.isArray(data) ? data : []
     const found = list.find((kb: KnowledgeBase) => kb.code === kbCode)
     if (found) {
       kbInfo.value = found
@@ -166,7 +166,7 @@ async function fetchFiles() {
   filesLoading.value = true
   try {
     const { data } = await getKbFiles(kbCode)
-    fileList.value = data.data || []
+    fileList.value = Array.isArray(data) ? data : []
   } finally {
     filesLoading.value = false
   }

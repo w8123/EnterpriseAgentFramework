@@ -47,6 +47,22 @@
             <el-option label="否" :value="false" />
           </el-select>
         </el-form-item>
+        <el-form-item label="项目">
+          <el-select
+            v-model="filters.projectId"
+            clearable
+            filterable
+            placeholder="全部"
+            style="width: 220px"
+          >
+            <el-option
+              v-for="project in scanProjects"
+              :key="project.id"
+              :label="projectOptionLabel(project)"
+              :value="project.id"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSearch">查询</el-button>
           <el-button @click="resetFilters">重置</el-button>
@@ -109,6 +125,17 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="项目编码" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.projectCode || projectCodeById(row.projectId) || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="可见性" width="110">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.visibility || 'PRIVATE' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="qualifiedName" label="Qualified Name" min-width="180" show-overflow-tooltip />
         <el-table-column prop="description" label="描述" min-width="280" show-overflow-tooltip />
         <el-table-column label="启用" width="90" align="center">
           <template #default="{ row }">
@@ -173,6 +200,42 @@
           />
         </el-form-item>
         <el-row :gutter="16">
+          <el-col :span="8">
+            <el-form-item label="项目">
+              <el-select
+                v-model="form.projectId"
+                clearable
+                filterable
+                placeholder="全局 Skill"
+                style="width: 100%"
+                @change="handleFormProjectChange"
+              >
+                <el-option
+                  v-for="project in scanProjects"
+                  :key="project.id"
+                  :label="projectOptionLabel(project)"
+                  :value="project.id"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="可见性">
+              <el-select v-model="form.visibility" style="width: 100%">
+                <el-option label="PRIVATE" value="PRIVATE" />
+                <el-option label="PROJECT" value="PROJECT" />
+                <el-option label="SHARED" value="SHARED" />
+                <el-option label="PUBLIC" value="PUBLIC" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="Qualified Name">
+              <el-input :model-value="resolvedFormQualifiedName" disabled placeholder="保存后生成" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="形态">
               <el-select v-model="form.skillKind" style="width: 100%" @change="onSkillKindChange">
@@ -234,7 +297,7 @@
               <el-option
                 v-for="t in toolOptions"
                 :key="t.name"
-                :label="`${t.name} — ${t.description?.slice(0, 40) || ''}`"
+                :label="toolOptionLabel(t)"
                 :value="t.name"
               />
             </el-select>
@@ -469,8 +532,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
-import { computed } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { List, Plus, Refresh } from '@element-plus/icons-vue'
 import ParameterTable from '@/components/ParameterTable.vue'
@@ -490,6 +553,7 @@ import {
   updateSkill,
 } from '@/api/skill'
 import { getTools } from '@/api/tool'
+import { getScanProjects } from '@/api/scanProject'
 import type {
   InteractiveFormSpec,
   SkillAdminTestPendingItem,
@@ -507,14 +571,20 @@ import {
   validateInteractiveFormSpec,
 } from '@/types/skill'
 import type { ToolInfo } from '@/types/tool'
+import type { ScanProject } from '@/types/scanProject'
+import { useProjectStore } from '@/store/project'
 
+const route = useRoute()
+const projectStore = useProjectStore()
 const skills = ref<SkillInfo[]>([])
+const scanProjects = ref<ScanProject[]>([])
 const total = ref(0)
 const loading = ref(false)
 const filters = reactive({
   keyword: '',
   enabled: undefined as boolean | undefined,
   draft: undefined as boolean | undefined,
+  projectId: undefined as number | undefined,
 })
 const pagination = reactive({ current: 1, size: 20 })
 const saving = ref(false)
@@ -532,6 +602,11 @@ const isEditMode = computed(() => editingName.value !== null)
 const formDialogTitle = computed(() =>
   isEditMode.value ? `编辑 Skill — ${form.name}` : '新建 Skill',
 )
+const resolvedFormQualifiedName = computed(() => {
+  if (form.qualifiedName) return form.qualifiedName
+  if (form.projectCode && form.name) return `${form.projectCode}:${form.name}`
+  return ''
+})
 
 const testDialogVisible = ref(false)
 const testingSkill = ref<SkillInfo | null>(null)
@@ -571,6 +646,10 @@ function createEmptyForm(): SkillUpsertRequest {
     parameters: [],
     skillKind: 'SUB_AGENT',
     sideEffect: 'WRITE',
+    projectId: null,
+    projectCode: null,
+    visibility: 'PRIVATE',
+    qualifiedName: null,
     enabled: true,
     agentVisible: true,
     spec: {
@@ -607,6 +686,7 @@ function buildListParams() {
     ...(filters.keyword.trim() ? { keyword: filters.keyword.trim() } : {}),
     ...(filters.enabled !== undefined ? { enabled: filters.enabled } : {}),
     ...(filters.draft !== undefined ? { draft: filters.draft } : {}),
+    ...(filters.projectId !== undefined ? { projectId: filters.projectId } : {}),
   }
 }
 
@@ -644,13 +724,25 @@ function resetFilters() {
   filters.keyword = ''
   filters.enabled = undefined
   filters.draft = undefined
+  filters.projectId = projectStore.currentProjectId ?? undefined
   pagination.current = 1
   return fetchSkills()
 }
 
-async function loadToolOptions() {
+async function loadToolOptions(scopeProjectId?: number | null) {
+  const effectiveProjectId =
+    scopeProjectId !== undefined
+      ? scopeProjectId
+      : formDialogVisible.value
+        ? form.projectId
+        : filters.projectId ?? null
   try {
-    const { data } = await getTools({ current: 1, size: 200, enabled: true })
+    const { data } = await getTools({
+      current: 1,
+      size: 200,
+      enabled: true,
+      ...(effectiveProjectId != null ? { projectId: effectiveProjectId } : {}),
+    })
     if (data && 'records' in data) {
       toolOptions.value = data.records || []
     }
@@ -659,8 +751,63 @@ async function loadToolOptions() {
   }
 }
 
+async function loadScanProjects() {
+  try {
+    const { data } = await getScanProjects()
+    scanProjects.value = Array.isArray(data) ? data : []
+    projectStore.projects = scanProjects.value
+  } catch {
+    scanProjects.value = []
+  }
+}
+
+function projectOptionLabel(project?: ScanProject | null) {
+  if (!project) return ''
+  const code = project.projectCode ? ` / ${project.projectCode}` : ''
+  const env = project.environment ? ` · ${project.environment}` : ''
+  return `${project.name}${code}${env}`
+}
+
+function projectCodeById(projectId?: number | null) {
+  if (projectId == null) return null
+  return scanProjects.value.find((project) => project.id === projectId)?.projectCode || null
+}
+
+function toolOptionLabel(tool: ToolInfo) {
+  const project = tool.projectCode ? ` · ${tool.projectCode}` : ''
+  const visibility = tool.visibility ? ` · ${tool.visibility}` : ''
+  const desc = tool.description ? ` — ${tool.description.slice(0, 40)}` : ''
+  return `${tool.name}${project}${visibility}${desc}`
+}
+
+function syncFiltersWithProjectContext() {
+  const queryProjectId = Number(route.query.projectId)
+  if (Number.isFinite(queryProjectId) && queryProjectId > 0) {
+    filters.projectId = queryProjectId
+    projectStore.setCurrentProject(queryProjectId)
+    return
+  }
+  filters.projectId = projectStore.currentProjectId ?? undefined
+}
+
+function handleFormProjectChange(projectId: number | null | undefined, clearSelection = true) {
+  const project = scanProjects.value.find((item) => item.id === projectId)
+  form.projectCode = project?.projectCode || null
+  form.qualifiedName = null
+  if (clearSelection) {
+    if (form.skillKind === 'INTERACTIVE_FORM') {
+      interactiveSpec.value.targetTool = ''
+    } else {
+      const spec = form.spec as SubAgentSpec
+      spec.toolWhitelist = []
+    }
+  }
+  loadToolOptions(projectId ?? null)
+}
+
 async function onRefresh() {
-  await loadToolOptions()
+  await loadScanProjects()
+  await loadToolOptions(filters.projectId ?? null)
   return fetchSkills()
 }
 
@@ -670,6 +817,10 @@ function applyForm(data: SkillUpsertRequest) {
   form.parameters = [...(data.parameters || [])]
   form.skillKind = data.skillKind
   form.sideEffect = data.sideEffect ?? 'WRITE'
+  form.projectId = data.projectId ?? null
+  form.projectCode = data.projectCode ?? projectCodeById(data.projectId) ?? null
+  form.visibility = data.visibility || 'PRIVATE'
+  form.qualifiedName = data.qualifiedName || null
   form.enabled = data.enabled
   form.agentVisible = data.agentVisible
   if (data.skillKind === 'INTERACTIVE_FORM') {
@@ -704,6 +855,8 @@ function openCreateDialog() {
   editingName.value = null
   editingIsDraft.value = false
   applyForm(createEmptyForm())
+  form.projectId = projectStore.currentProjectId
+  handleFormProjectChange(form.projectId, false)
   formDialogVisible.value = true
 }
 
@@ -716,6 +869,10 @@ function openEditDialog(skill: SkillInfo) {
     parameters: skill.parameters || [],
     skillKind: skill.skillKind || 'SUB_AGENT',
     sideEffect: skill.sideEffect || 'WRITE',
+    projectId: skill.projectId ?? null,
+    projectCode: skill.projectCode ?? projectCodeById(skill.projectId) ?? null,
+    visibility: skill.visibility || 'PRIVATE',
+    qualifiedName: skill.qualifiedName || null,
     enabled: skill.enabled,
     agentVisible: skill.agentVisible,
     spec: skill.spec || {
@@ -728,6 +885,7 @@ function openEditDialog(skill: SkillInfo) {
     },
   })
   formDialogVisible.value = true
+  loadToolOptions(skill.projectId ?? null)
 }
 
 function buildSpecPayload(): Record<string, unknown> | SubAgentSpec {
@@ -1042,10 +1200,22 @@ async function openMetrics(skill: SkillInfo) {
   }
 }
 
-onMounted(() => {
-  loadToolOptions()
+onMounted(async () => {
+  await loadScanProjects()
+  syncFiltersWithProjectContext()
+  await loadToolOptions(filters.projectId ?? null)
   fetchSkills()
 })
+
+watch(
+  () => projectStore.currentProjectId,
+  () => {
+    syncFiltersWithProjectContext()
+    pagination.current = 1
+    loadToolOptions(filters.projectId ?? null)
+    fetchSkills()
+  },
+)
 </script>
 
 <style scoped lang="scss">

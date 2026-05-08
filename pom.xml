@@ -15,6 +15,7 @@
     <modules>
         <module>ai-common</module>
         <module>ai-skill-sdk</module>
+        <module>ai-spring-boot-starter</module>
         <module>ai-model-service</module>
         <module>ai-skills-service</module>
         <module>ai-agent-service</module>

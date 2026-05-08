@@ -6,6 +6,8 @@
         <el-button @click="router.push('/agent')" :icon="ArrowLeft" text>返回</el-button>
         <h2>Agent Studio — {{ form.name || '未命名' }}</h2>
         <el-tag v-if="form.keySlug" size="small" type="info">{{ form.keySlug }}</el-tag>
+        <el-tag size="small" type="success">{{ form.projectCode || 'GLOBAL' }}</el-tag>
+        <el-tag size="small">{{ form.visibility || 'PRIVATE' }}</el-tag>
       </div>
       <div class="header-right">
         <el-button @click="handleSwitchToForm" :icon="DocumentCopy">表单视图</el-button>
@@ -139,11 +141,12 @@
                 filterable
                 placeholder="选择 Tool"
                 style="width: 100%"
+                @change="handleNodeRefChange('tool')"
               >
                 <el-option
                   v-for="t in availableTools"
                   :key="t.name"
-                  :label="t.name"
+                  :label="capabilityLabel(t)"
                   :value="t.name"
                 />
               </el-select>
@@ -154,11 +157,12 @@
                 filterable
                 placeholder="选择 Skill"
                 style="width: 100%"
+                @change="handleNodeRefChange('skill')"
               >
                 <el-option
                   v-for="s in availableSkills"
                   :key="s.name"
-                  :label="s.name"
+                  :label="capabilityLabel(s)"
                   :value="s.name"
                 />
               </el-select>
@@ -406,6 +410,9 @@ const form = reactive<AgentForm>({
   keySlug: '',
   name: '',
   description: '',
+  projectId: null,
+  projectCode: null,
+  visibility: 'PRIVATE',
   intentType: 'GENERAL_CHAT',
   systemPrompt: '',
   tools: [],
@@ -459,6 +466,7 @@ const publishWarnings = computed(() => {
   if (form.allowIrreversible) {
     warnings.push('已允许 IRREVERSIBLE 工具调用，请确认 Tool ACL 与限流已配置。')
   }
+  warnings.push(...projectBoundaryWarnings())
   if (publishForm.rolloutPercent === 100) {
     warnings.push('本次为全量发布，会替换该 Agent 的历史 ACTIVE 全量版本。')
   }
@@ -579,6 +587,47 @@ function applyParamHint(hint: ApiGraphParamSourceHint) {
   }
 }
 
+function capabilityLabel(item: ToolInfo | SkillInfo) {
+  const project = item.projectCode ? ` · ${item.projectCode}` : ''
+  const visibility = item.visibility ? ` · ${item.visibility}` : ''
+  const desc = item.description ? ` — ${item.description.slice(0, 32)}` : ''
+  return `${item.name}${project}${visibility}${desc}`
+}
+
+function findCapability(kind: 'tool' | 'skill', name?: string) {
+  if (!name) return null
+  const source = kind === 'tool' ? toolOptions.value : skillOptions.value
+  return source.find((item) => item.name === name) || null
+}
+
+function handleNodeRefChange(kind: 'tool' | 'skill') {
+  if (!selectedNode.value) return
+  const capability = findCapability(kind, selectedNode.value.data.ref)
+  selectedNode.value.data.qualifiedName = capability?.qualifiedName || null
+  selectedNode.value.data.projectCode = capability?.projectCode || null
+  selectedNode.value.data.visibility = capability?.visibility || null
+  selectedNode.value.data.description = capability?.description || selectedNode.value.data.description || ''
+}
+
+function projectBoundaryWarnings() {
+  const warnings: string[] = []
+  for (const node of nodes.value) {
+    if (node.data.kind !== 'tool' && node.data.kind !== 'skill') continue
+    if (!node.data.ref) continue
+    const capability = findCapability(node.data.kind, node.data.ref)
+    if (!capability) {
+      warnings.push(`${node.data.kind.toUpperCase()} ${node.data.ref} 不在当前项目能力调色板中，请确认是否已下线或跨项目引用。`)
+      continue
+    }
+    const sameProject = !capability.projectId || capability.projectId === form.projectId
+    const shared = capability.visibility === 'SHARED' || capability.visibility === 'PUBLIC'
+    if (!sameProject && !shared) {
+      warnings.push(`${node.data.kind.toUpperCase()} ${node.data.ref} 属于 ${capability.projectCode || '其他项目'}，且不是 SHARED / PUBLIC。`)
+    }
+  }
+  return warnings
+}
+
 function onNodeClick(evt: { node: { id: string } }) {
   selectedNodeId.value = evt.node.id
 }
@@ -624,6 +673,9 @@ async function loadAgent() {
       keySlug: data.keySlug ?? '',
       name: data.name,
       description: data.description || '',
+      projectId: data.projectId ?? null,
+      projectCode: data.projectCode ?? null,
+      visibility: data.visibility || 'PRIVATE',
       intentType: data.intentType || '',
       systemPrompt: data.systemPrompt || '',
       tools: data.tools || [],
@@ -652,7 +704,11 @@ async function loadAgent() {
 
 async function loadToolOptions() {
   try {
-    const { data } = await getTools({ current: 1, size: 2000 })
+    const { data } = await getTools({
+      current: 1,
+      size: 2000,
+      ...(form.projectId != null ? { projectId: form.projectId } : {}),
+    })
     toolOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
   } catch {
     toolOptions.value = []
@@ -661,7 +717,11 @@ async function loadToolOptions() {
 
 async function loadSkillOptions() {
   try {
-    const { data } = await getSkills({ current: 1, size: 2000 })
+    const { data } = await getSkills({
+      current: 1,
+      size: 2000,
+      ...(form.projectId != null ? { projectId: form.projectId } : {}),
+    })
     skillOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
   } catch {
     skillOptions.value = []
@@ -816,8 +876,8 @@ function handleSwitchToForm() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadToolOptions(), loadSkillOptions()])
   await loadAgent()
+  await Promise.all([loadToolOptions(), loadSkillOptions()])
   await nextTick()
 })
 

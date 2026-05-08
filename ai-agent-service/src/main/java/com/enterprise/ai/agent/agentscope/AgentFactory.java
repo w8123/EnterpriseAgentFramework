@@ -122,7 +122,7 @@ public class AgentFactory {
         int maxSteps = definition.getMaxSteps() > 0 ? definition.getMaxSteps() : defaultMaxSteps;
 
         List<String> whitelist = mergeToolSkillWhitelist(definition.getTools(), definition.getSkills());
-        List<String> finalTools = resolveToolNames(whitelist, userMessage, context);
+        List<String> finalTools = resolveToolNames(definition, whitelist, userMessage, context);
 
         var builder = ReActAgent.builder()
                 .name(definition.getName())
@@ -162,6 +162,11 @@ public class AgentFactory {
      * - 白名单非空 → 返回白名单 ∩ 召回（无交集时降级为白名单）。
      */
     List<String> resolveToolNames(List<String> whitelist, String userMessage, ToolExecutionContext context) {
+        return resolveToolNames(null, whitelist, userMessage, context);
+    }
+
+    List<String> resolveToolNames(AgentDefinition definition, List<String> whitelist,
+                                  String userMessage, ToolExecutionContext context) {
         boolean retrievalEligible = retrievalProperties.isEnabled()
                 && userMessage != null && !userMessage.isBlank();
         if (!retrievalEligible) {
@@ -174,8 +179,11 @@ public class AgentFactory {
             return List.of();
         }
 
+        List<Long> projectIds = definition == null || definition.getProjectId() == null
+                ? null
+                : List.of(definition.getProjectId());
         RetrievalScope scope = new RetrievalScope(
-                null, null,
+                projectIds, null,
                 whitelistIds == null || whitelistIds.isEmpty() ? null : whitelistIds,
                 true, true);
         // Phase P1: 若领域分类器开启且能识别出领域，叠加到 scope 做软过滤
@@ -295,7 +303,8 @@ public class AgentFactory {
                 continue;
             }
             // Phase 3.1 Tool ACL：在装配阶段按 roles × tool_acl 过滤，被拦的能力完全不进 LLM 视野
-            ToolAclDecision decision = toolAclService.decide(roles, toolName, isSkill);
+            ToolAclDecision decision = toolAclService.decide(roles, toolName, isSkill,
+                    context == null ? null : context.getProjectCode());
             if (decision == ToolAclDecision.SKIPPED) {
                 // 兼容灰度期：roles 为空时只打 warn，不拦截
                 log.warn("[AgentFactory][ACL] roles 为空，跳过 ACL 校验（建议网关补上）: tool={}", toolName);

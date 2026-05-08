@@ -19,6 +19,14 @@ public class A2aCallLogEntity {
 
     private String agentKey;
 
+    private Long projectId;
+
+    private String projectCode;
+
+    private String environment;
+
+    private String tenantId;
+
     private String taskId;
 
     private String method;

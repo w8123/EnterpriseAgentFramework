@@ -36,7 +36,7 @@
             <el-option label="否" :value="false" />
           </el-select>
         </el-form-item>
-        <el-form-item label="来源项目">
+        <el-form-item label="项目">
           <el-select
             v-model="filters.projectId"
             clearable
@@ -47,7 +47,7 @@
             <el-option
               v-for="p in scanProjects"
               :key="p.id"
-              :label="`${p.name} (ID ${p.id})`"
+              :label="projectOptionLabel(p)"
               :value="p.id"
             />
           </el-select>
@@ -130,11 +130,22 @@
             <el-tag :type="sourceTagType(row.source)" size="small">{{ row.source }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="来源项目" min-width="140" show-overflow-tooltip>
+        <el-table-column label="项目" min-width="140" show-overflow-tooltip>
           <template #default="{ row }">
             {{ sourceProjectLabel(row) }}
           </template>
         </el-table-column>
+        <el-table-column label="项目编码" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.projectCode || projectCodeById(row.projectId) || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="可见性" width="110">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.visibility || 'PRIVATE' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="qualifiedName" label="Qualified Name" min-width="180" show-overflow-tooltip />
         <el-table-column label="端点" min-width="220">
           <template #default="{ row }">
             <span>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</span>
@@ -237,6 +248,43 @@
         <el-form-item label="描述">
           <el-input v-model="form.description" :disabled="isCodeTool" type="textarea" :rows="2" />
         </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="8">
+            <el-form-item label="项目">
+              <el-select
+                v-model="form.projectId"
+                :disabled="isCodeTool"
+                clearable
+                filterable
+                placeholder="全局 Tool"
+                style="width: 100%"
+                @change="handleFormProjectChange"
+              >
+                <el-option
+                  v-for="p in scanProjects"
+                  :key="p.id"
+                  :label="projectOptionLabel(p)"
+                  :value="p.id"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="可见性">
+              <el-select v-model="form.visibility" :disabled="isCodeTool" style="width: 100%">
+                <el-option label="PRIVATE" value="PRIVATE" />
+                <el-option label="PROJECT" value="PROJECT" />
+                <el-option label="SHARED" value="SHARED" />
+                <el-option label="PUBLIC" value="PUBLIC" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="Qualified Name">
+              <el-input :model-value="resolvedFormQualifiedName" disabled placeholder="保存后生成" />
+            </el-form-item>
+          </el-col>
+        </el-row>
         <el-row :gutter="16">
           <el-col :span="8">
             <el-form-item label="来源">
@@ -353,7 +401,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { marked } from 'marked'
@@ -363,7 +412,10 @@ import type { ScanProject } from '@/types/scanProject'
 import { getScanProjects } from '@/api/scanProject'
 import { findSemanticDoc } from '@/api/semanticDoc'
 import { createTool, deleteTool, getTools, testTool, toggleTool, updateTool } from '@/api/tool'
+import { useProjectStore } from '@/store/project'
 
+const route = useRoute()
+const projectStore = useProjectStore()
 const tools = ref<ToolInfo[]>([])
 const scanProjects = ref<ScanProject[]>([])
 const total = ref(0)
@@ -384,6 +436,11 @@ const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
 const isEditMode = computed(() => editingName.value !== null)
 const isCodeTool = computed(() => form.source === 'code')
 const formDialogTitle = computed(() => (isEditMode.value ? `编辑 Tool — ${form.name}` : '新建 Tool'))
+const resolvedFormQualifiedName = computed(() => {
+  if (form.qualifiedName) return form.qualifiedName
+  if (form.projectCode && form.name) return `${form.projectCode}:${form.name}`
+  return ''
+})
 
 const testDialogVisible = ref(false)
 const testingTool = ref<ToolInfo | null>(null)
@@ -445,6 +502,9 @@ function createEmptyForm(): ToolUpsertRequest {
     requestBodyType: '',
     responseType: '',
     projectId: null,
+    projectCode: null,
+    visibility: 'PRIVATE',
+    qualifiedName: null,
     enabled: true,
     agentVisible: true,
     lightweightEnabled: false,
@@ -468,9 +528,37 @@ function sourceProjectLabel(row: ToolInfo) {
   }
   const found = scanProjects.value.find((p) => p.id === pid)
   if (found) {
-    return `${found.name} (ID ${found.id})`
+    return projectOptionLabel(found)
   }
   return `ID ${pid}`
+}
+
+function projectOptionLabel(project?: ScanProject | null) {
+  if (!project) return ''
+  const code = project.projectCode ? ` / ${project.projectCode}` : ''
+  const env = project.environment ? ` · ${project.environment}` : ''
+  return `${project.name}${code}${env}`
+}
+
+function projectCodeById(projectId?: number | null) {
+  if (projectId == null) return null
+  return scanProjects.value.find((p) => p.id === projectId)?.projectCode || null
+}
+
+function syncFiltersWithProjectContext() {
+  const queryProjectId = Number(route.query.projectId)
+  if (Number.isFinite(queryProjectId) && queryProjectId > 0) {
+    filters.projectId = queryProjectId
+    projectStore.setCurrentProject(queryProjectId)
+    return
+  }
+  filters.projectId = projectStore.currentProjectId ?? undefined
+}
+
+function handleFormProjectChange(projectId: number | null | undefined) {
+  const project = scanProjects.value.find((p) => p.id === projectId)
+  form.projectCode = project?.projectCode || null
+  form.qualifiedName = null
 }
 
 function cloneParameters(parameters: ToolParameter[] = []): ToolParameter[] {
@@ -510,6 +598,9 @@ function toUpsertRequest(tool: ToolInfo): ToolUpsertRequest {
     requestBodyType: tool.requestBodyType || '',
     responseType: tool.responseType || '',
     projectId: tool.projectId ?? null,
+    projectCode: tool.projectCode ?? projectCodeById(tool.projectId) ?? null,
+    visibility: tool.visibility || 'PRIVATE',
+    qualifiedName: tool.qualifiedName || null,
     enabled: tool.enabled,
     agentVisible: tool.agentVisible,
     lightweightEnabled: tool.lightweightEnabled,
@@ -529,6 +620,9 @@ function applyForm(data: ToolUpsertRequest) {
   form.requestBodyType = data.requestBodyType || ''
   form.responseType = data.responseType || ''
   form.projectId = data.projectId ?? null
+  form.projectCode = data.projectCode ?? projectCodeById(data.projectId) ?? null
+  form.visibility = data.visibility || 'PRIVATE'
+  form.qualifiedName = data.qualifiedName || null
   form.enabled = data.enabled
   form.agentVisible = data.agentVisible
   form.lightweightEnabled = data.lightweightEnabled
@@ -581,7 +675,7 @@ function resetFilters() {
   filters.keyword = ''
   filters.source = undefined
   filters.enabled = undefined
-  filters.projectId = undefined
+  filters.projectId = projectStore.currentProjectId ?? undefined
   pagination.current = 1
   return fetchTools()
 }
@@ -590,6 +684,7 @@ async function loadScanProjects() {
   try {
     const { data } = await getScanProjects()
     scanProjects.value = Array.isArray(data) ? data : []
+    projectStore.projects = scanProjects.value
   } catch {
     scanProjects.value = []
   }
@@ -603,6 +698,8 @@ async function onRefresh() {
 function openCreateDialog() {
   editingName.value = null
   applyForm(createEmptyForm())
+  form.projectId = projectStore.currentProjectId
+  handleFormProjectChange(form.projectId)
   formDialogVisible.value = true
 }
 
@@ -707,10 +804,20 @@ async function handleTest() {
   }
 }
 
-onMounted(() => {
-  loadScanProjects()
+onMounted(async () => {
+  await loadScanProjects()
+  syncFiltersWithProjectContext()
   fetchTools()
 })
+
+watch(
+  () => projectStore.currentProjectId,
+  () => {
+    syncFiltersWithProjectContext()
+    pagination.current = 1
+    fetchTools()
+  },
+)
 </script>
 
 <style scoped lang="scss">

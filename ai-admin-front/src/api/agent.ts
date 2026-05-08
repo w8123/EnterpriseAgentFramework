@@ -8,8 +8,8 @@ import type {
 } from '@/types/agent'
 import type { ChatRequest, ChatResponse } from '@/types/chat'
 
-export function getAgentList() {
-  return agentRequest.get<AgentDefinition[]>('/api/agent/definitions')
+export function getAgentList(params?: { projectId?: number }) {
+  return agentRequest.get<AgentDefinition[]>('/api/agent/definitions', { params })
 }
 
 export function getAgent(id: string) {

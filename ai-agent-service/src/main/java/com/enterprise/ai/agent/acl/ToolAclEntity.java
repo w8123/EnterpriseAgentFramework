@@ -27,6 +27,11 @@ public class ToolAclEntity {
 
     private String roleCode;
 
+    /** 为空表示全局规则；非空时只在该项目上下文生效。 */
+    private Long projectId;
+
+    private String projectCode;
+
     private String targetKind;
 
     private String targetName;

@@ -11,6 +11,7 @@ import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionUpsertRequest;
 import com.enterprise.ai.agent.tools.dynamic.DynamicHttpAiTool;
+import com.enterprise.ai.agent.tools.dynamic.DynamicHttpToolBaseUrlSupport;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -213,27 +214,10 @@ public class ScanProjectToolService {
             throw new IllegalStateException("扫描项目不存在: projectId=" + projectId);
         }
         ToolDefinitionEntity proxy = ScanProjectToolAdapter.toDefinitionEntity(st);
-        mergeScanToolBaseUrl(proxy, project);
-        if (!StringUtils.hasText(proxy.getBaseUrl())) {
-            throw new IllegalStateException(
-                    "无法发起 HTTP 调用：未配置 Base URL。请在扫描项目中填写「项目域名」并保存，"
-                            + "或在该接口编辑中填写 Base URL；若已配置项目域名，可重新执行一次扫描以回写接口行。");
-        }
+        proxy.setBaseUrl(DynamicHttpToolBaseUrlSupport.resolveEffectiveBaseUrl(proxy.getBaseUrl(), project));
+        DynamicHttpToolBaseUrlSupport.requireValidRestClientBaseUrl(proxy.getBaseUrl());
         var extras = ScanProjectAuthSupport.invocationExtras(project);
         return new DynamicHttpAiTool(proxy, objectMapper, extras).execute(args == null ? Map.of() : args);
-    }
-
-    /**
-     * 若 {@code scan_project_tool.base_url} 为空，则使用所属扫描项目的「项目域名」，避免 RestClient 因 authority 为空报错。
-     */
-    private static void mergeScanToolBaseUrl(ToolDefinitionEntity proxy, ScanProjectEntity project) {
-        if (proxy == null || StringUtils.hasText(proxy.getBaseUrl())) {
-            return;
-        }
-        if (project == null || !StringUtils.hasText(project.getBaseUrl())) {
-            return;
-        }
-        proxy.setBaseUrl(project.getBaseUrl().trim());
     }
 
     /**
@@ -274,6 +258,9 @@ public class ScanProjectToolService {
         List<ToolDefinitionParameter> parameters = parseParameters(st.getParametersJson());
         String inferredSideEffect = declaredSideEffect(st.getCapabilityMetadataJson())
                 .orElseGet(() -> SideEffectInferrer.inferAsString(st.getHttpMethod(), st.getEndpointPath()));
+        ScanProjectEntity project = projectMapper.selectById(projectId);
+        String projectCode = project == null ? null : project.getProjectCode();
+        String visibility = project == null || project.getVisibility() == null ? "PRIVATE" : project.getVisibility();
         ToolDefinitionUpsertRequest req = new ToolDefinitionUpsertRequest(
                 globalName,
                 "TOOL",
@@ -288,6 +275,9 @@ public class ScanProjectToolService {
                 st.getRequestBodyType(),
                 st.getResponseType(),
                 projectId,
+                projectCode,
+                visibility,
+                projectCode == null || projectCode.isBlank() ? null : projectCode + ":" + globalName,
                 Boolean.TRUE.equals(st.getEnabled()),
                 Boolean.TRUE.equals(st.getAgentVisible()),
                 Boolean.TRUE.equals(st.getLightweightEnabled()),
@@ -466,6 +456,9 @@ public class ScanProjectToolService {
         List<ToolDefinitionParameter> parameters = parseParameters(st.getParametersJson());
         String inferredSideEffect = declaredSideEffect(st.getCapabilityMetadataJson())
                 .orElseGet(() -> SideEffectInferrer.inferAsString(st.getHttpMethod(), st.getEndpointPath()));
+        ScanProjectEntity project = projectMapper.selectById(projectId);
+        String projectCode = project == null ? g.getProjectCode() : project.getProjectCode();
+        String visibility = project == null || project.getVisibility() == null ? g.getVisibility() : project.getVisibility();
         ToolDefinitionUpsertRequest req = new ToolDefinitionUpsertRequest(
                 g.getName(),
                 "TOOL",
@@ -480,6 +473,9 @@ public class ScanProjectToolService {
                 st.getRequestBodyType(),
                 st.getResponseType(),
                 projectId,
+                projectCode,
+                visibility,
+                g.getQualifiedName(),
                 Boolean.TRUE.equals(st.getEnabled()),
                 Boolean.TRUE.equals(st.getAgentVisible()),
                 Boolean.TRUE.equals(st.getLightweightEnabled()),

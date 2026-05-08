@@ -20,7 +20,7 @@ const routes: RouteRecordRaw[] = [
         path: 'agent',
         name: 'AgentList',
         component: () => import('@/views/agent/AgentList.vue'),
-        meta: { title: 'Agent 管理' },
+        meta: { title: 'Agent' },
       },
       {
         path: 'agent/:id/edit',
@@ -110,7 +110,7 @@ const routes: RouteRecordRaw[] = [
         path: 'tool',
         name: 'ToolList',
         component: () => import('@/views/tool/ToolList.vue'),
-        meta: { title: 'Tool 管理' },
+        meta: { title: 'Tool' },
       },
       {
         path: 'tool/retrieval',
@@ -122,7 +122,7 @@ const routes: RouteRecordRaw[] = [
         path: 'skill',
         name: 'SkillList',
         component: () => import('@/views/skill/SkillList.vue'),
-        meta: { title: 'Skill 管理' },
+        meta: { title: 'Skill' },
       },
       {
         path: 'skill/mining',
@@ -155,16 +155,34 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '槽位提取日志' },
       },
       {
+        path: 'registry/projects',
+        name: 'RegistryProjectList',
+        component: () => import('@/views/registry/RegistryProjectList.vue'),
+        meta: { title: '注册中心 · 项目管理' },
+      },
+      {
+        path: 'registry/projects/:projectCode',
+        name: 'RegistryProjectDetail',
+        component: () => import('@/views/registry/RegistryProjectDetail.vue'),
+        meta: { title: '注册中心 · 项目详情' },
+      },
+      {
+        path: 'registry/capability-sync',
+        name: 'CapabilitySyncDebug',
+        component: () => import('@/views/registry/CapabilitySyncDebug.vue'),
+        meta: { title: '能力变更评审' },
+      },
+      {
         path: 'scan-project',
         name: 'ScanProjectList',
         component: () => import('@/views/scan/ScanProjectList.vue'),
-        meta: { title: '扫描项目' },
+        meta: { title: '项目与 API 接入' },
       },
       {
         path: 'scan-project/:id',
         name: 'ScanProjectDetail',
         component: () => import('@/views/scan/ScanProjectDetail.vue'),
-        meta: { title: '扫描详情' },
+        meta: { title: '项目与 API 详情' },
       },
 
       // ── 对外开放 / MCP ──
@@ -172,25 +190,25 @@ const routes: RouteRecordRaw[] = [
         path: 'mcp/visibility',
         name: 'McpVisibilityBoard',
         component: () => import('@/views/mcp/McpVisibilityBoard.vue'),
-        meta: { title: 'MCP 暴露白名单' },
+        meta: { title: '对外开放 · MCP 白名单' },
       },
       {
         path: 'mcp/clients',
         name: 'McpClientList',
         component: () => import('@/views/mcp/McpClientList.vue'),
-        meta: { title: 'MCP Client' },
+        meta: { title: '对外开放 · MCP Client' },
       },
       {
         path: 'mcp/monitor',
         name: 'McpCallMonitor',
         component: () => import('@/views/mcp/McpCallMonitor.vue'),
-        meta: { title: 'MCP 调用流水' },
+        meta: { title: '对外开放 · MCP 调用流水' },
       },
       {
         path: 'mcp/onboarding',
         name: 'McpOnboarding',
         component: () => import('@/views/mcp/McpOnboarding.vue'),
-        meta: { title: 'MCP 接入向导' },
+        meta: { title: '对外开放 · MCP 接入向导' },
       },
 
       // ── 对外开放 / A2A ──
@@ -198,13 +216,13 @@ const routes: RouteRecordRaw[] = [
         path: 'a2a/endpoints',
         name: 'A2aEndpointList',
         component: () => import('@/views/a2a/A2aEndpointList.vue'),
-        meta: { title: 'A2A 暴露 Agent' },
+        meta: { title: '对外开放 · A2A 暴露 Agent' },
       },
       {
         path: 'a2a/monitor',
         name: 'A2aSessionMonitor',
         component: () => import('@/views/a2a/A2aSessionMonitor.vue'),
-        meta: { title: 'A2A 会话监控' },
+        meta: { title: '对外开放 · A2A 会话监控' },
       },
 
       // ── 设置 / 护栏 ──

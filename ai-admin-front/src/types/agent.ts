@@ -1,15 +1,29 @@
 /** Agent 定义 */
+export interface CapabilityReference {
+  kind: 'TOOL' | 'SKILL'
+  projectCode?: string | null
+  name: string
+  qualifiedName?: string | null
+  definitionId?: number | null
+  version?: string | null
+}
+
 export interface AgentDefinition {
   id: string
   /** 人类可读 slug，对应 /api/v1/agents/{keySlug}/chat */
   keySlug: string
   name: string
   description: string
+  projectId?: number | null
+  projectCode?: string | null
+  visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
   intentType: string
   systemPrompt: string
   tools: string[]
+  toolRefs?: CapabilityReference[]
   /** 可调用的 Skill 名，与 tools 合并为运行时白名单 */
   skills?: string[]
+  skillRefs?: CapabilityReference[]
   modelName: string
   maxSteps: number
   enabled: boolean
@@ -34,10 +48,15 @@ export interface AgentForm {
   keySlug?: string
   name: string
   description: string
+  projectId?: number | null
+  projectCode?: string | null
+  visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
   intentType: string
   systemPrompt: string
   tools: string[]
+  toolRefs?: CapabilityReference[]
   skills: string[]
+  skillRefs?: CapabilityReference[]
   modelName: string
   maxSteps: number
   enabled: boolean

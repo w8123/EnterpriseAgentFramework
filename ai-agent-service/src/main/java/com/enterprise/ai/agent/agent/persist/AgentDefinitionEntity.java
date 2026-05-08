@@ -28,6 +28,13 @@ public class AgentDefinitionEntity {
 
     private String description;
 
+    private Long projectId;
+
+    private String projectCode;
+
+    /** 可见性：PRIVATE / PROJECT / SHARED / PUBLIC。 */
+    private String visibility;
+
     private String intentType;
 
     private String systemPrompt;
@@ -35,8 +42,14 @@ public class AgentDefinitionEntity {
     /** tools 白名单 JSON 数组字符串。 */
     private String toolsJson;
 
+    /** Tool 稳定引用 JSON 数组，兼容 toolsJson 裸名称。 */
+    private String toolRefsJson;
+
     /** Skill 白名单 JSON 数组字符串（kind=SKILL 的 tool_definition.name），运行时与 tools 合并装配。 */
     private String skillsJson;
+
+    /** Skill 稳定引用 JSON 数组，兼容 skillsJson 裸名称。 */
+    private String skillRefsJson;
 
     private String modelName;
 

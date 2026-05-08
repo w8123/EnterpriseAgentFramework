@@ -157,7 +157,7 @@ public class McpServerEndpoint {
             String name = tool.name();
             if (!exposed.contains(name)) continue;
             if (clientWhitelist != null && !clientWhitelist.isEmpty() && !clientWhitelist.contains(name)) continue;
-            ToolAclDecision decision = toolAclService.decide(roles, name, toolRegistry.isSkill(name));
+            ToolAclDecision decision = toolAclService.decide(roles, name, toolRegistry.isSkill(name), client.getProjectCode());
             if (decision != ToolAclDecision.ALLOW && decision != ToolAclDecision.SKIPPED) continue;
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("name", name);
@@ -211,7 +211,7 @@ public class McpServerEndpoint {
             throw new IllegalArgumentException("unknown tool: " + toolName);
         }
         List<String> roles = clientService.rolesOf(client);
-        ToolAclDecision decision = toolAclService.decide(roles, toolName, toolRegistry.isSkill(toolName));
+        ToolAclDecision decision = toolAclService.decide(roles, toolName, toolRegistry.isSkill(toolName), client.getProjectCode());
         if (decision == ToolAclDecision.DENY_EXPLICIT || decision == ToolAclDecision.DENY_NO_MATCH) {
             throw new IllegalStateException("ACL denied: " + decision);
         }
@@ -231,6 +231,10 @@ public class McpServerEndpoint {
             row.setClientName(client.getName());
             row.setMethod(method);
             row.setToolName(toolName);
+            row.setProjectId(client.getProjectId());
+            row.setProjectCode(client.getProjectCode());
+            row.setEnvironment(null);
+            row.setTenantId(null);
             row.setSuccess(success);
             row.setLatencyMs(elapsedMs);
             row.setRequestBody(toJson(reqBody));

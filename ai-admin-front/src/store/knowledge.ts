@@ -12,7 +12,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     loading.value = true
     try {
       const { data } = await getKnowledgeList()
-      knowledgeList.value = data.data || []
+      knowledgeList.value = Array.isArray(data) ? data : []
     } finally {
       loading.value = false
     }

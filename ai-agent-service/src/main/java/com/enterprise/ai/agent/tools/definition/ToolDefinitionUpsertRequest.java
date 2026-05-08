@@ -26,6 +26,9 @@ public record ToolDefinitionUpsertRequest(
         String requestBodyType,
         String responseType,
         Long projectId,
+        String projectCode,
+        String visibility,
+        String qualifiedName,
         boolean enabled,
         boolean agentVisible,
         boolean lightweightEnabled,
@@ -56,6 +59,34 @@ public record ToolDefinitionUpsertRequest(
         this(name, "TOOL", description, parameters, source, sourceLocation,
                 httpMethod, baseUrl, contextPath, endpointPath,
                 requestBodyType, responseType, projectId,
+                null, null, null,
+                enabled, agentVisible, lightweightEnabled,
+                null, null, null, false, null);
+    }
+
+    public ToolDefinitionUpsertRequest(
+            String name,
+            String description,
+            List<ToolDefinitionParameter> parameters,
+            String source,
+            String sourceLocation,
+            String httpMethod,
+            String baseUrl,
+            String contextPath,
+            String endpointPath,
+            String requestBodyType,
+            String responseType,
+            Long projectId,
+            String projectCode,
+            String visibility,
+            String qualifiedName,
+            boolean enabled,
+            boolean agentVisible,
+            boolean lightweightEnabled) {
+        this(name, "TOOL", description, parameters, source, sourceLocation,
+                httpMethod, baseUrl, contextPath, endpointPath,
+                requestBodyType, responseType, projectId,
+                projectCode, visibility, qualifiedName,
                 enabled, agentVisible, lightweightEnabled,
                 null, null, null, false, null);
     }
@@ -90,7 +121,7 @@ public record ToolDefinitionUpsertRequest(
         return new ToolDefinitionUpsertRequest(
                 name, "SKILL", description, parameters, source, sourceLocation,
                 null, null, null, null,
-                null, null, null,
+                null, null, null, null, null, null,
                 enabled, agentVisible, false,
                 sideEffect, skillKind, specJson, draft, null);
     }
@@ -100,7 +131,19 @@ public record ToolDefinitionUpsertRequest(
                 name, kind, description, parameters, source, sourceLocation,
                 httpMethod, baseUrl, contextPath, endpointPath,
                 requestBodyType, responseType, projectId,
+                projectCode, visibility, qualifiedName,
                 enabled, agentVisible, lightweightEnabled,
                 sideEffect, skillKind, specJson, draft, metadata);
+    }
+
+    public ToolDefinitionUpsertRequest withProjectScope(Long scopedProjectId, String scopedProjectCode,
+                                                        String scopedVisibility, String scopedQualifiedName) {
+        return new ToolDefinitionUpsertRequest(
+                name, kind, description, parameters, source, sourceLocation,
+                httpMethod, baseUrl, contextPath, endpointPath,
+                requestBodyType, responseType, scopedProjectId,
+                scopedProjectCode, scopedVisibility, scopedQualifiedName,
+                enabled, agentVisible, lightweightEnabled,
+                sideEffect, skillKind, specJson, draft, capabilityMetadata);
     }
 }

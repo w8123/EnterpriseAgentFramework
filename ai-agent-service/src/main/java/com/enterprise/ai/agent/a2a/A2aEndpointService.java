@@ -69,6 +69,10 @@ public class A2aEndpointService {
             A2aEndpointEntity en = new A2aEndpointEntity();
             en.setAgentId(def.getId());
             en.setAgentKey(def.getKeySlug());
+            en.setProjectId(def.getProjectId());
+            en.setProjectCode(def.getProjectCode());
+            en.setEnvironment(null);
+            en.setTenantId(null);
             en.setCardJson(cardJson);
             en.setEnabled(enabled == null ? true : enabled);
             en.setCreatedAt(now);
@@ -78,6 +82,8 @@ public class A2aEndpointService {
             return en;
         } else {
             existed.setAgentKey(def.getKeySlug());
+            existed.setProjectId(def.getProjectId());
+            existed.setProjectCode(def.getProjectCode());
             existed.setCardJson(cardJson);
             if (enabled != null) {
                 existed.setEnabled(enabled);

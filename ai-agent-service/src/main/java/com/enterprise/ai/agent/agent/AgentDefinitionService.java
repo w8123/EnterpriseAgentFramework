@@ -3,6 +3,8 @@ package com.enterprise.ai.agent.agent;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.agent.agent.persist.AgentDefinitionEntity;
 import com.enterprise.ai.agent.agent.persist.AgentDefinitionMapper;
+import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
+import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -43,13 +45,15 @@ public class AgentDefinitionService {
     private static final Pattern KEY_SLUG_PATTERN = Pattern.compile("^[a-z0-9][a-z0-9-_]{1,62}$");
 
     private final AgentDefinitionMapper mapper;
+    private final ToolDefinitionService toolDefinitionService;
     private final ObjectMapper domainObjectMapper;
 
     @Value("${agent.definitions.file:agent-definitions.json}")
     private String definitionsFile;
 
-    public AgentDefinitionService(AgentDefinitionMapper mapper) {
+    public AgentDefinitionService(AgentDefinitionMapper mapper, ToolDefinitionService toolDefinitionService) {
         this.mapper = mapper;
+        this.toolDefinitionService = toolDefinitionService;
         this.domainObjectMapper = new ObjectMapper();
         this.domainObjectMapper.registerModule(new JavaTimeModule());
         this.domainObjectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -69,8 +73,16 @@ public class AgentDefinitionService {
     }
 
     public List<AgentDefinition> list() {
-        return mapper.selectList(Wrappers.<AgentDefinitionEntity>lambdaQuery()
-                        .orderByDesc(AgentDefinitionEntity::getCreatedAt))
+        return list(null);
+    }
+
+    public List<AgentDefinition> list(Long projectId) {
+        var query = Wrappers.<AgentDefinitionEntity>lambdaQuery()
+                .orderByDesc(AgentDefinitionEntity::getCreatedAt);
+        if (projectId != null) {
+            query.eq(AgentDefinitionEntity::getProjectId, projectId);
+        }
+        return mapper.selectList(query)
                 .stream()
                 .map(this::toDomain)
                 .toList();
@@ -136,10 +148,15 @@ public class AgentDefinitionService {
 
         if (update.getName() != null) current.setName(update.getName());
         if (update.getDescription() != null) current.setDescription(update.getDescription());
+        if (update.getProjectId() != null) current.setProjectId(update.getProjectId());
+        if (update.getProjectCode() != null) current.setProjectCode(update.getProjectCode());
+        if (update.getVisibility() != null) current.setVisibility(update.getVisibility());
         if (update.getIntentType() != null) current.setIntentType(update.getIntentType());
         if (update.getSystemPrompt() != null) current.setSystemPrompt(update.getSystemPrompt());
         if (update.getTools() != null) current.setTools(update.getTools());
+        if (update.getToolRefs() != null) current.setToolRefs(update.getToolRefs());
         if (update.getSkills() != null) current.setSkills(update.getSkills());
+        if (update.getSkillRefs() != null) current.setSkillRefs(update.getSkillRefs());
         if (update.getModelName() != null) current.setModelName(update.getModelName());
         if (update.getMaxSteps() > 0) current.setMaxSteps(update.getMaxSteps());
         if (update.getType() != null) current.setType(update.getType());
@@ -290,10 +307,15 @@ public class AgentDefinitionService {
                 .keySlug(e.getKeySlug())
                 .name(e.getName())
                 .description(e.getDescription())
+                .projectId(e.getProjectId())
+                .projectCode(e.getProjectCode())
+                .visibility(e.getVisibility() == null ? "PRIVATE" : e.getVisibility())
                 .intentType(e.getIntentType())
                 .systemPrompt(e.getSystemPrompt())
                 .tools(parseList(e.getToolsJson()))
+                .toolRefs(parseCapabilityRefs(e.getToolRefsJson(), e.getToolsJson(), "TOOL"))
                 .skills(parseList(e.getSkillsJson()))
+                .skillRefs(parseCapabilityRefs(e.getSkillRefsJson(), e.getSkillsJson(), "SKILL"))
                 .modelName(e.getModelName())
                 .maxSteps(e.getMaxSteps() == null ? 5 : e.getMaxSteps())
                 .type(e.getType() == null ? "single" : e.getType())
@@ -318,10 +340,17 @@ public class AgentDefinitionService {
         e.setKeySlug(d.getKeySlug() == null || d.getKeySlug().isBlank() ? d.getId() : d.getKeySlug());
         e.setName(d.getName());
         e.setDescription(d.getDescription());
+        e.setProjectId(d.getProjectId());
+        e.setProjectCode(d.getProjectCode());
+        e.setVisibility(d.getVisibility() == null || d.getVisibility().isBlank() ? "PRIVATE" : d.getVisibility());
         e.setIntentType(d.getIntentType());
         e.setSystemPrompt(d.getSystemPrompt());
-        e.setToolsJson(writeList(d.getTools()));
-        e.setSkillsJson(writeList(d.getSkills()));
+        List<CapabilityReference> toolRefs = normalizeCapabilityRefs(d.getToolRefs(), d.getTools(), "TOOL", d.getProjectId());
+        List<CapabilityReference> skillRefs = normalizeCapabilityRefs(d.getSkillRefs(), d.getSkills(), "SKILL", d.getProjectId());
+        e.setToolsJson(writeList(namesFromRefs(toolRefs, d.getTools())));
+        e.setToolRefsJson(writeCapabilityRefs(toolRefs));
+        e.setSkillsJson(writeList(namesFromRefs(skillRefs, d.getSkills())));
+        e.setSkillRefsJson(writeCapabilityRefs(skillRefs));
         e.setModelName(d.getModelName());
         e.setMaxSteps(d.getMaxSteps() > 0 ? d.getMaxSteps() : 5);
         e.setType(d.getType() == null ? "single" : d.getType());
@@ -352,6 +381,92 @@ public class AgentDefinitionService {
         }
     }
 
+    private List<CapabilityReference> parseCapabilityRefs(String refsJson, String legacyNamesJson, String kind) {
+        if (refsJson != null && !refsJson.isBlank()) {
+            try {
+                return domainObjectMapper.readValue(refsJson, new TypeReference<List<CapabilityReference>>() {});
+            } catch (Exception e) {
+                log.warn("[AgentDef] 解析 CapabilityReference JSON 失败，回退裸 name: {}", e.getMessage());
+            }
+        }
+        return parseList(legacyNamesJson).stream()
+                .map(name -> CapabilityReference.builder()
+                        .kind(kind)
+                        .name(name)
+                        .qualifiedName(name)
+                        .build())
+                .toList();
+    }
+
+    private List<CapabilityReference> normalizeCapabilityRefs(List<CapabilityReference> refs,
+                                                              List<String> legacyNames,
+                                                              String kind,
+                                                              Long projectId) {
+        List<CapabilityReference> source = refs == null || refs.isEmpty()
+                ? legacyNamesToRefs(legacyNames, kind)
+                : refs;
+        return source.stream()
+                .map(ref -> enrichRef(ref, kind, projectId))
+                .toList();
+    }
+
+    private List<CapabilityReference> legacyNamesToRefs(List<String> names, String kind) {
+        if (names == null) {
+            return List.of();
+        }
+        return names.stream()
+                .filter(name -> name != null && !name.isBlank())
+                .map(name -> CapabilityReference.builder().kind(kind).name(name).qualifiedName(name).build())
+                .toList();
+    }
+
+    private CapabilityReference enrichRef(CapabilityReference ref, String kind, Long projectId) {
+        if (ref == null) {
+            return CapabilityReference.builder().kind(kind).build();
+        }
+        String lookup = firstNonBlank(ref.getQualifiedName(), ref.getName());
+        ToolDefinitionEntity tool = toolDefinitionService.findByQualifiedName(lookup)
+                .or(() -> toolDefinitionService.findByName(lookup))
+                .orElse(null);
+        if (tool == null && projectId != null && ref.getName() != null) {
+            String projectScopedQualifiedName = ref.getProjectCode() == null
+                    ? null
+                    : ref.getProjectCode() + ":" + ref.getName();
+            if (projectScopedQualifiedName != null) {
+                tool = toolDefinitionService.findByQualifiedName(projectScopedQualifiedName).orElse(null);
+            }
+        }
+        CapabilityReference out = new CapabilityReference();
+        out.setKind(firstNonBlank(ref.getKind(), kind));
+        out.setName(firstNonBlank(ref.getName(), tool == null ? null : tool.getName()));
+        out.setProjectCode(firstNonBlank(ref.getProjectCode(), tool == null ? null : tool.getProjectCode()));
+        out.setQualifiedName(firstNonBlank(ref.getQualifiedName(), tool == null ? null : tool.getQualifiedName(), out.getName()));
+        out.setDefinitionId(ref.getDefinitionId() != null ? ref.getDefinitionId() : tool == null ? null : tool.getId());
+        out.setVersion(ref.getVersion());
+        return out;
+    }
+
+    private List<String> namesFromRefs(List<CapabilityReference> refs, List<String> fallback) {
+        if (refs == null || refs.isEmpty()) {
+            return fallback == null ? List.of() : fallback;
+        }
+        return refs.stream()
+                .map(CapabilityReference::getName)
+                .filter(name -> name != null && !name.isBlank())
+                .toList();
+    }
+
+    private String writeCapabilityRefs(List<CapabilityReference> refs) {
+        if (refs == null || refs.isEmpty()) {
+            return null;
+        }
+        try {
+            return domainObjectMapper.writeValueAsString(refs);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private Map<String, Object> parseMap(String json) {
         if (json == null || json.isBlank()) {
             return Collections.emptyMap();
@@ -373,6 +488,15 @@ public class AgentDefinitionService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private String writeMap(Map<String, Object> map) {

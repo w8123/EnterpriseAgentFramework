@@ -33,6 +33,16 @@ public class AgentDefinition {
 
     private String description;
 
+    /** 所属业务项目；为空表示平台级或历史全局 Agent。 */
+    private Long projectId;
+
+    /** 所属业务项目编码，供 SDK / Gateway / A2A 稳定引用。 */
+    private String projectCode;
+
+    /** 可见性：PRIVATE / PROJECT / SHARED / PUBLIC。 */
+    @Builder.Default
+    private String visibility = "PRIVATE";
+
     /** 意图类型映射（如 KNOWLEDGE_QA、QUERY_DATA），用于意图路由 */
     private String intentType;
 
@@ -42,11 +52,19 @@ public class AgentDefinition {
     /** Agent 可使用的工具名列表 */
     private List<String> tools;
 
+    /** Agent 可使用的工具稳定引用；为空时从 tools 裸名称兼容解析。 */
+    @Builder.Default
+    private List<CapabilityReference> toolRefs = List.of();
+
     /**
      * Agent 可调用的 Skill 名列表（与 {@link #tools} 并列存储，运行时合并为 Toolkit 白名单）。
      */
     @Builder.Default
     private List<String> skills = List.of();
+
+    /** Agent 可调用的 Skill 稳定引用；为空时从 skills 裸名称兼容解析。 */
+    @Builder.Default
+    private List<CapabilityReference> skillRefs = List.of();
 
     /** 使用的模型名称（默认继承全局配置） */
     private String modelName;

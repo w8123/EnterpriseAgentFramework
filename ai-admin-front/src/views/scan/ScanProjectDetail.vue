@@ -17,13 +17,24 @@
       <el-collapse-item class="scan-detail-top-item" name="overview" title="项目概览">
         <div v-if="project" class="project-summary">
           <div><b>项目名称：</b>{{ project.name }}</div>
+          <div><b>项目编码：</b>{{ project.projectCode || '-' }}</div>
+          <div><b>项目形态：</b><el-tag>{{ project.projectKind || 'SCAN' }}</el-tag></div>
+          <div><b>环境：</b>{{ project.environment || '-' }}</div>
+          <div><b>负责人：</b>{{ project.owner || '-' }}</div>
+          <div><b>可见性：</b><el-tag>{{ project.visibility || 'PRIVATE' }}</el-tag></div>
           <div><b>项目域名：</b>{{ project.baseUrl }}</div>
           <div><b>Context Path：</b>{{ project.contextPath || '-' }}</div>
-          <div><b>扫描路径：</b>{{ project.scanPath }}</div>
+          <div><b>扫描路径：</b>{{ project.scanPath || '-' }}</div>
           <div><b>扫描方式：</b>{{ project.scanType }}</div>
           <div><b>状态：</b><el-tag :type="statusTagType(project.status)">{{ project.status }}</el-tag></div>
           <div><b>接口数：</b>{{ project.toolCount }}</div>
           <div><b>错误信息：</b>{{ project.errorMessage || '-' }}</div>
+          <div v-if="project.projectCode">
+            <b>注册中心：</b>
+            <el-button link type="primary" @click="router.push(`/registry/projects/${project.projectCode}`)">
+              查看实例
+            </el-button>
+          </div>
         </div>
       </el-collapse-item>
 
@@ -37,7 +48,12 @@
               content="将使用最近一次点「保存设置」保存的扫描项配置（含增量与描述来源顺序等）"
               placement="bottom"
             >
-              <el-button type="warning" :loading="rescanLoading" @click="handleRescan">重新扫描</el-button>
+              <el-button
+                type="warning"
+                :disabled="project?.projectKind === 'REGISTERED'"
+                :loading="rescanLoading"
+                @click="handleRescan"
+              >重新扫描</el-button>
             </el-tooltip>
             <el-button type="info" :loading="rebuildEmbeddingLoading" @click="handleRebuildEmbeddings">
               重建向量索引
@@ -1156,6 +1172,10 @@ async function ensureScanOperationAllowed(): Promise<boolean> {
 }
 
 async function handleRescan() {
+  if (project.value?.projectKind === 'REGISTERED') {
+    ElMessage.warning('REGISTERED 项目由 SDK 同步能力，不需要扫描')
+    return
+  }
   rescanLoading.value = true
   try {
     if (!(await ensureScanOperationAllowed())) {

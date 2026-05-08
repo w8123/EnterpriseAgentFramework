@@ -158,7 +158,7 @@ async function handleSearch() {
       topK: searchForm.topK,
       scoreThreshold: searchForm.scoreThreshold,
     })
-    result.value = data.data
+    result.value = data
   } finally {
     searching.value = false
   }
@@ -176,7 +176,7 @@ function resetForm() {
 async function fetchKnowledgeList() {
   try {
     const { data } = await getKnowledgeList()
-    knowledgeList.value = data.data || []
+    knowledgeList.value = Array.isArray(data) ? data : []
   } catch {
     // 错误已在拦截器中处理
   }

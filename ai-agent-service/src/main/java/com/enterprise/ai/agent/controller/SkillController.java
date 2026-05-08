@@ -67,8 +67,9 @@ public class SkillController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Boolean enabled,
-            @RequestParam(required = false) Boolean draft) {
-        IPage<ToolDefinitionEntity> page = toolDefinitionService.pageSkills(current, size, keyword, enabled, draft);
+            @RequestParam(required = false) Boolean draft,
+            @RequestParam(required = false) Long projectId) {
+        IPage<ToolDefinitionEntity> page = toolDefinitionService.pageSkills(current, size, keyword, enabled, draft, projectId);
         List<SkillInfoDTO> records = page.getRecords().stream()
                 .map(this::toDto)
                 .toList();
@@ -328,6 +329,10 @@ public class SkillController {
                 params,
                 entity.getSkillKind(),
                 entity.getSideEffect(),
+                entity.getProjectId(),
+                entity.getProjectCode(),
+                entity.getVisibility(),
+                entity.getQualifiedName(),
                 Boolean.TRUE.equals(entity.getEnabled()),
                 Boolean.TRUE.equals(entity.getAgentVisible()),
                 entity.getSource(),
@@ -375,6 +380,10 @@ public class SkillController {
                         List<SkillParameterDTO> parameters,
                         String skillKind,
                         String sideEffect,
+                        Long projectId,
+                        String projectCode,
+                        String visibility,
+                        String qualifiedName,
                         boolean enabled,
                         boolean agentVisible,
                         String source,
@@ -402,6 +411,10 @@ public class SkillController {
                               List<ToolDefinitionParameter> parameters,
                               String skillKind,
                               String sideEffect,
+                              Long projectId,
+                              String projectCode,
+                              String visibility,
+                              String qualifiedName,
                               boolean enabled,
                               boolean agentVisible,
                               JsonNode spec,
@@ -444,7 +457,7 @@ public class SkillController {
                         resolvedKind,
                         specJson,
                         isDraft
-                );
+                ).withProjectScope(projectId, projectCode, visibility, qualifiedName);
             } catch (JsonProcessingException e) {
                 throw new IllegalArgumentException("spec JSON 非法: " + e.getMessage());
             }

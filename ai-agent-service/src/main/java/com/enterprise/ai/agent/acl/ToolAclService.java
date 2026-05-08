@@ -72,6 +72,10 @@ public class ToolAclService {
      * @param isSkill   是否是 skill（用来判定 target_kind 匹配）
      */
     public ToolAclDecision decide(Collection<String> roles, String toolName, boolean isSkill) {
+        return decide(roles, toolName, isSkill, null);
+    }
+
+    public ToolAclDecision decide(Collection<String> roles, String toolName, boolean isSkill, String projectCode) {
         if (roles == null || roles.isEmpty()) {
             return ToolAclDecision.SKIPPED;
         }
@@ -86,6 +90,9 @@ public class ToolAclService {
             List<ToolAclEntity> rules = loadRulesByRole(role.trim());
             for (ToolAclEntity rule : rules) {
                 if (!Boolean.TRUE.equals(rule.getEnabled())) {
+                    continue;
+                }
+                if (!projectMatches(rule.getProjectCode(), projectCode)) {
                     continue;
                 }
                 if (!kindMatches(rule.getTargetKind(), isSkill)) {
@@ -105,6 +112,13 @@ public class ToolAclService {
             }
         }
         return hasAllow ? ToolAclDecision.ALLOW : ToolAclDecision.DENY_NO_MATCH;
+    }
+
+    private boolean projectMatches(String ruleProjectCode, String runtimeProjectCode) {
+        if (ruleProjectCode == null || ruleProjectCode.isBlank()) {
+            return true;
+        }
+        return runtimeProjectCode != null && ruleProjectCode.equalsIgnoreCase(runtimeProjectCode);
     }
 
     private boolean kindMatches(String ruleKind, boolean isSkill) {
@@ -206,6 +220,8 @@ public class ToolAclService {
         }
         normalize(input);
         existing.setRoleCode(input.getRoleCode());
+        existing.setProjectId(input.getProjectId());
+        existing.setProjectCode(input.getProjectCode());
         existing.setTargetKind(input.getTargetKind());
         existing.setTargetName(input.getTargetName());
         existing.setPermission(input.getPermission());

@@ -22,6 +22,14 @@ public class McpCallLogEntity {
 
     private String toolName;
 
+    private Long projectId;
+
+    private String projectCode;
+
+    private String environment;
+
+    private String tenantId;
+
     private Boolean success;
 
     private Long latencyMs;

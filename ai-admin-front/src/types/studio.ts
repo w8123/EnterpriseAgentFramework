@@ -19,6 +19,10 @@ export type CanvasNodeKind = 'start' | 'end' | 'skill' | 'tool' | 'knowledge'
 export interface CanvasNodeData {
   /** 对 skill / tool 节点：引用的 tool_definition.name */
   ref?: string
+  /** 稳定引用名，后续后端可优先按 qualifiedName 解析 */
+  qualifiedName?: string | null
+  projectCode?: string | null
+  visibility?: string | null
   /** 对 knowledge 节点：知识库组 ID */
   groupId?: string
   /** 展示用描述 */
@@ -39,6 +43,9 @@ export interface CanvasNode {
     label: string
     kind: CanvasNodeKind
     ref?: string
+    qualifiedName?: string | null
+    projectCode?: string | null
+    visibility?: string | null
     groupId?: string
     description?: string
     outputAlias?: string

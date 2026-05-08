@@ -23,8 +23,8 @@ public class AgentManageController {
     private final AgentDefinitionService definitionService;
 
     @GetMapping
-    public ResponseEntity<List<AgentDefinition>> list() {
-        return ResponseEntity.ok(definitionService.list());
+    public ResponseEntity<List<AgentDefinition>> list(@RequestParam(required = false) Long projectId) {
+        return ResponseEntity.ok(definitionService.list(projectId));
     }
 
     @GetMapping("/{id}")

@@ -80,6 +80,11 @@ export type ScanProjectAuthApiKeyIn = 'header' | 'query'
 export interface ScanProject {
   id: number
   name: string
+  projectCode?: string | null
+  projectKind?: 'SCAN' | 'REGISTERED' | 'HYBRID'
+  environment?: string
+  owner?: string | null
+  visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
   baseUrl: string
   contextPath: string
   scanPath: string
@@ -99,6 +104,11 @@ export interface ScanProject {
 
 export interface ScanProjectUpsertRequest {
   name: string
+  projectCode?: string | null
+  projectKind?: 'SCAN' | 'REGISTERED' | 'HYBRID'
+  environment?: string
+  owner?: string | null
+  visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
   baseUrl: string
   contextPath: string
   scanPath: string

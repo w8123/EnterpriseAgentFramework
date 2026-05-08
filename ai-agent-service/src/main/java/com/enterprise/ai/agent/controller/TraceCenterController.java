@@ -2,6 +2,7 @@ package com.enterprise.ai.agent.controller;
 
 import com.enterprise.ai.agent.governance.GuardDecisionLogEntity;
 import com.enterprise.ai.agent.governance.GuardDecisionLogService;
+import com.enterprise.ai.agent.governance.GuardRuntimeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +20,7 @@ import java.util.List;
 public class TraceCenterController {
 
     private final GuardDecisionLogService guardDecisionLogService;
+    private final GuardRuntimeService guardRuntimeService;
 
     @GetMapping("/guard-decisions")
     public ResponseEntity<List<GuardDecisionLogDTO>> guardDecisions(
@@ -37,6 +39,16 @@ public class TraceCenterController {
                 .map(GuardDecisionLogDTO::from)
                 .toList();
         return ResponseEntity.ok(rows);
+    }
+
+    @GetMapping("/preflight/agent")
+    public ResponseEntity<?> preflightAgent(@RequestParam String agentId,
+                                           @RequestParam(required = false) String operator) {
+        try {
+            return ResponseEntity.ok(guardRuntimeService.preflightAgent(agentId, operator));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(ex.getMessage()));
+        }
     }
 
     public record GuardDecisionLogDTO(Long id,
@@ -61,5 +73,8 @@ public class TraceCenterController {
                     entity.getCreatedAt()
             );
         }
+    }
+
+    public record ErrorResponse(String message) {
     }
 }

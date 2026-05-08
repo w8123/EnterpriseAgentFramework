@@ -381,6 +381,11 @@ public class ScanProjectController {
         return new ScanProjectDTO(
                 entity.getId(),
                 entity.getName(),
+                entity.getProjectCode(),
+                entity.getProjectKind(),
+                entity.getEnvironment(),
+                entity.getOwner(),
+                entity.getVisibility(),
                 entity.getBaseUrl(),
                 entity.getContextPath(),
                 entity.getScanPath(),
@@ -486,6 +491,11 @@ public class ScanProjectController {
 
     record ScanProjectUpsertRequest(
             String name,
+            String projectCode,
+            String projectKind,
+            String environment,
+            String owner,
+            String visibility,
             String baseUrl,
             String contextPath,
             String scanPath,
@@ -495,6 +505,11 @@ public class ScanProjectController {
         ScanProjectService.ScanProjectUpsertRequest toServiceRequest() {
             return new ScanProjectService.ScanProjectUpsertRequest(
                     name,
+                    projectCode,
+                    projectKind,
+                    environment,
+                    owner,
+                    visibility,
                     baseUrl,
                     contextPath,
                     scanPath,
@@ -507,6 +522,11 @@ public class ScanProjectController {
     record ScanProjectDTO(
             Long id,
             String name,
+            String projectCode,
+            String projectKind,
+            String environment,
+            String owner,
+            String visibility,
             String baseUrl,
             String contextPath,
             String scanPath,
