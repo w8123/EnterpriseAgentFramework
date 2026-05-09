@@ -11,6 +11,16 @@ import java.util.Optional;
  */
 public interface ApiGraphRepository {
 
+    /**
+     * 重建图谱前预加载本项目节点/边到内存索引，{@link #upsertNode}/{@link #upsertEdge} 不再逐条 SELECT。
+     * 须与 {@link #endRebuildCaches()} 在 finally 中成对调用。
+     */
+    default void beginRebuildCaches(Long projectId) {
+    }
+
+    default void endRebuildCaches() {
+    }
+
     // ---------- 节点 ----------
 
     /** 按 (project_id, kind, ref_id, parent_id, label) 唯一键 upsert，返回最终持久化实体。 */

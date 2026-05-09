@@ -9,6 +9,7 @@ import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionUpsertRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +45,10 @@ public class ScanProjectService {
 
     @Autowired(required = false)
     private ApiGraphService apiGraphService;
+
+    /** 扫描完成后是否自动重建接口图谱；默认关闭，需在管理端手动重建或设环境变量开启。 */
+    @Value("${ai.api-graph.rebuild-on-scan:false}")
+    private boolean apiGraphRebuildOnScan;
 
     public ScanProjectService(ScanProjectMapper projectMapper,
                               ToolDefinitionService toolDefinitionService,
@@ -403,8 +408,7 @@ public class ScanProjectService {
         project.setToolCount(toolNames.size());
         project.setLastScannedAt(java.time.LocalDateTime.now(ZoneId.systemDefault()));
         scanModuleService.bootstrapFromTools(project.getId());
-        if (apiGraphService != null) {
-            // 接口图谱节点 / MODEL_REF 自动边重建（旁路 hook，失败不影响扫描主链路）
+        if (apiGraphRebuildOnScan && apiGraphService != null) {
             apiGraphService.rebuildForProject(project.getId());
         }
         updateStatus(project, "scanned", null);

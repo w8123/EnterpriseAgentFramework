@@ -10,6 +10,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Feign 配置须使用 {@code contextId} 作为 spring.cloud.openfeign.client.config 下的 key（见 application.yml 中 {@code scannerServiceClient}）。
+ */
 @FeignClient(
         contextId = "scannerServiceClient",
         name = "ai-skills-service",

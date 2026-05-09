@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -80,25 +81,46 @@ public class ScanModuleService {
             grouped.computeIfAbsent(moduleName, key -> new ArrayList<>()).add(tool);
         }
 
-        Map<String, ScanModuleEntity> existingByName = new LinkedHashMap<>();
-        for (ScanModuleEntity existing : listByProject(projectId)) {
-            existingByName.put(existing.getName(), existing);
+        // MySQL 默认 UK (project_id, name) 多为 ci 排序规则：仅大小写不同的类名会判重，Java Map 需先合并
+        Map<String, List<ScanProjectToolEntity>> mergedByLower = new LinkedHashMap<>();
+        Map<String, String> preferredNameByLower = new LinkedHashMap<>();
+        for (Map.Entry<String, List<ScanProjectToolEntity>> e : grouped.entrySet()) {
+            String lower = e.getKey().toLowerCase(Locale.ROOT);
+            mergedByLower.computeIfAbsent(lower, k -> new ArrayList<>()).addAll(e.getValue());
+            preferredNameByLower.putIfAbsent(lower, e.getKey());
         }
 
-        for (Map.Entry<String, List<ScanProjectToolEntity>> entry : grouped.entrySet()) {
-            String moduleName = entry.getKey();
-            ScanModuleEntity module = existingByName.get(moduleName);
+        Map<String, ScanModuleEntity> existingByLower = new LinkedHashMap<>();
+        for (ScanModuleEntity existing : listByProject(projectId)) {
+            existingByLower.put(existing.getName().toLowerCase(Locale.ROOT), existing);
+        }
+
+        for (Map.Entry<String, List<ScanProjectToolEntity>> entry : mergedByLower.entrySet()) {
+            String lower = entry.getKey();
+            List<ScanProjectToolEntity> moduleTools = entry.getValue();
+            String nameForInsert = preferredNameByLower.get(lower);
+            ScanModuleEntity module = existingByLower.get(lower);
             if (module == null) {
                 module = new ScanModuleEntity();
                 module.setProjectId(projectId);
-                module.setName(moduleName);
-                module.setDisplayName(resolveModuleDisplayName(scanRoot, moduleName, entry.getValue().get(0), scanSettings));
-                module.setSourceClasses(serializeClasses(List.of(moduleName)));
-                moduleMapper.insert(module);
+                module.setName(nameForInsert);
+                module.setDisplayName(resolveModuleDisplayName(scanRoot, nameForInsert, moduleTools.get(0), scanSettings));
+                module.setSourceClasses(serializeClasses(List.of(nameForInsert)));
+                try {
+                    moduleMapper.insert(module);
+                } catch (DataIntegrityViolationException ex) {
+                    ScanModuleEntity existing = findModuleByProjectAndNameIgnoreCase(projectId, nameForInsert);
+                    if (existing == null) {
+                        throw ex;
+                    }
+                    module = existing;
+                    log.debug("[ScanModuleService] 模块已存在(UK/ci 或并发): projectId={}, name={}", projectId, nameForInsert);
+                }
+                existingByLower.put(lower, module);
             } else {
-                refreshDisplayNameIfDefault(scanRoot, moduleName, module, entry.getValue().get(0), scanSettings);
+                refreshDisplayNameIfDefault(scanRoot, module.getName(), module, moduleTools.get(0), scanSettings);
             }
-            for (ScanProjectToolEntity tool : entry.getValue()) {
+            for (ScanProjectToolEntity tool : moduleTools) {
                 if (!Objects.equals(tool.getModuleId(), module.getId())) {
                     tool.setModuleId(module.getId());
                     scanProjectToolMapper.updateById(tool);
@@ -106,12 +128,29 @@ public class ScanModuleService {
             }
         }
 
-        existingByName.values().stream()
-                .filter(existing -> !grouped.containsKey(existing.getName()))
-                .filter(existing -> !hasMultipleSourceClasses(existing))
-                .filter(existing -> scanProjectToolMapper.selectCount(new LambdaQueryWrapper<ScanProjectToolEntity>()
-                        .eq(ScanProjectToolEntity::getModuleId, existing.getId())) == 0)
-                .forEach(orphan -> moduleMapper.deleteById(orphan.getId()));
+        for (ScanModuleEntity existing : listByProject(projectId)) {
+            if (mergedByLower.containsKey(existing.getName().toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+            if (hasMultipleSourceClasses(existing)) {
+                continue;
+            }
+            long cnt = scanProjectToolMapper.selectCount(new LambdaQueryWrapper<ScanProjectToolEntity>()
+                    .eq(ScanProjectToolEntity::getModuleId, existing.getId()));
+            if (cnt == 0) {
+                moduleMapper.deleteById(existing.getId());
+            }
+        }
+    }
+
+    private ScanModuleEntity findModuleByProjectAndNameIgnoreCase(Long projectId, String moduleName) {
+        if (moduleName == null || moduleName.isBlank()) {
+            return null;
+        }
+        return moduleMapper.selectOne(new LambdaQueryWrapper<ScanModuleEntity>()
+                .eq(ScanModuleEntity::getProjectId, projectId)
+                .apply("LOWER(name) = LOWER({0})", moduleName)
+                .last("LIMIT 1"));
     }
 
     private Path resolveScanRoot(Long projectId) {

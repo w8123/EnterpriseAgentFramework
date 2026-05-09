@@ -5,7 +5,10 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -14,9 +17,26 @@ import java.util.Optional;
 @Repository
 public class MysqlApiGraphRepository implements ApiGraphRepository {
 
+    private record NodeKey(Long projectId, String kind, Long refId, Long parentId, String label) {
+        static NodeKey from(ApiGraphNodeEntity n) {
+            return new NodeKey(n.getProjectId(), n.getKind(), n.getRefId(), n.getParentId(), n.getLabel());
+        }
+    }
+
+    private record EdgeKey(Long projectId, String kind, Long sourceNodeId, Long targetNodeId, String source) {
+        static EdgeKey from(ApiGraphEdgeEntity e) {
+            return new EdgeKey(e.getProjectId(), e.getKind(), e.getSourceNodeId(), e.getTargetNodeId(), e.getSource());
+        }
+    }
+
     private final ApiGraphNodeMapper nodeMapper;
     private final ApiGraphEdgeMapper edgeMapper;
     private final ApiGraphLayoutMapper layoutMapper;
+
+    /** 非空时表示处于图谱全量投影阶段，upsert 走内存索引。 */
+    private Long rebuildProjectId;
+    private Map<NodeKey, ApiGraphNodeEntity> rebuildNodeByKey;
+    private Map<EdgeKey, ApiGraphEdgeEntity> rebuildEdgeByKey;
 
     public MysqlApiGraphRepository(ApiGraphNodeMapper nodeMapper,
                                    ApiGraphEdgeMapper edgeMapper,
@@ -27,7 +47,52 @@ public class MysqlApiGraphRepository implements ApiGraphRepository {
     }
 
     @Override
+    public void beginRebuildCaches(Long projectId) {
+        this.rebuildProjectId = projectId;
+        this.rebuildNodeByKey = new HashMap<>(8192);
+        for (ApiGraphNodeEntity n : nodeMapper.selectList(new LambdaQueryWrapper<ApiGraphNodeEntity>()
+                .eq(ApiGraphNodeEntity::getProjectId, projectId))) {
+            rebuildNodeByKey.put(NodeKey.from(n), n);
+        }
+        this.rebuildEdgeByKey = new HashMap<>(16384);
+        for (ApiGraphEdgeEntity e : edgeMapper.selectList(new LambdaQueryWrapper<ApiGraphEdgeEntity>()
+                .eq(ApiGraphEdgeEntity::getProjectId, projectId))) {
+            rebuildEdgeByKey.put(EdgeKey.from(e), e);
+        }
+    }
+
+    @Override
+    public void endRebuildCaches() {
+        this.rebuildProjectId = null;
+        this.rebuildNodeByKey = null;
+        this.rebuildEdgeByKey = null;
+    }
+
+    private boolean rebuildCachesActive(Long projectId) {
+        return rebuildProjectId != null
+                && rebuildNodeByKey != null
+                && rebuildEdgeByKey != null
+                && Objects.equals(rebuildProjectId, projectId);
+    }
+
+    @Override
     public ApiGraphNodeEntity upsertNode(ApiGraphNodeEntity node) {
+        if (rebuildCachesActive(node.getProjectId())) {
+            NodeKey key = NodeKey.from(node);
+            ApiGraphNodeEntity existing = rebuildNodeByKey.get(key);
+            if (existing != null) {
+                if (!Objects.equals(existing.getTypeName(), node.getTypeName())
+                        || !Objects.equals(existing.getPropsJson(), node.getPropsJson())) {
+                    existing.setTypeName(node.getTypeName());
+                    existing.setPropsJson(node.getPropsJson());
+                    nodeMapper.updateById(existing);
+                }
+                return existing;
+            }
+            nodeMapper.insert(node);
+            rebuildNodeByKey.put(key, node);
+            return node;
+        }
         Optional<ApiGraphNodeEntity> existing = findNode(
                 node.getProjectId(), node.getKind(), node.getRefId(), node.getParentId(), node.getLabel());
         if (existing.isPresent()) {
@@ -43,6 +108,10 @@ public class MysqlApiGraphRepository implements ApiGraphRepository {
 
     @Override
     public Optional<ApiGraphNodeEntity> findNode(Long projectId, String kind, Long refId, Long parentId, String label) {
+        if (rebuildCachesActive(projectId)) {
+            NodeKey key = new NodeKey(projectId, kind, refId, parentId, label);
+            return Optional.ofNullable(rebuildNodeByKey.get(key));
+        }
         LambdaQueryWrapper<ApiGraphNodeEntity> qw = new LambdaQueryWrapper<ApiGraphNodeEntity>()
                 .eq(ApiGraphNodeEntity::getProjectId, projectId)
                 .eq(ApiGraphNodeEntity::getKind, kind)
@@ -88,7 +157,17 @@ public class MysqlApiGraphRepository implements ApiGraphRepository {
             return 0;
         }
         deleteEdgesByNodeIds(orphans.stream().map(ApiGraphNodeEntity::getId).toList());
-        return nodeMapper.delete(qw);
+        int deleted = nodeMapper.delete(qw);
+        if (rebuildCachesActive(projectId)) {
+            if (keepIds == null || keepIds.isEmpty()) {
+                rebuildNodeByKey.entrySet().removeIf(e -> e.getKey().projectId().equals(projectId));
+                rebuildEdgeByKey.entrySet().removeIf(e -> e.getKey().projectId().equals(projectId));
+            } else {
+                rebuildNodeByKey.entrySet().removeIf(e ->
+                        e.getKey().projectId().equals(projectId) && !keepIds.contains(e.getValue().getId()));
+            }
+        }
+        return deleted;
     }
 
     @Override
@@ -99,7 +178,19 @@ public class MysqlApiGraphRepository implements ApiGraphRepository {
         if (kind != null) {
             qw.eq(ApiGraphEdgeEntity::getKind, kind);
         }
-        return edgeMapper.delete(qw);
+        int n = edgeMapper.delete(qw);
+        if (rebuildCachesActive(projectId)) {
+            rebuildEdgeByKey.entrySet().removeIf(e -> {
+                if (!e.getKey().projectId().equals(projectId)) {
+                    return false;
+                }
+                if (!ApiGraphEdgeKind.SOURCE_AUTO.equals(e.getKey().source())) {
+                    return false;
+                }
+                return kind == null || kind.equals(e.getKey().kind());
+            });
+        }
+        return n;
     }
 
     @Override
@@ -107,10 +198,15 @@ public class MysqlApiGraphRepository implements ApiGraphRepository {
         if (nodeIds == null || nodeIds.isEmpty()) {
             return 0;
         }
-        return edgeMapper.delete(new LambdaQueryWrapper<ApiGraphEdgeEntity>()
+        int r = edgeMapper.delete(new LambdaQueryWrapper<ApiGraphEdgeEntity>()
                 .in(ApiGraphEdgeEntity::getSourceNodeId, nodeIds)
                 .or()
                 .in(ApiGraphEdgeEntity::getTargetNodeId, nodeIds));
+        if (rebuildEdgeByKey != null && rebuildProjectId != null) {
+            rebuildEdgeByKey.entrySet().removeIf(e ->
+                    nodeIds.contains(e.getKey().sourceNodeId()) || nodeIds.contains(e.getKey().targetNodeId()));
+        }
+        return r;
     }
 
     @Override
@@ -119,12 +215,42 @@ public class MysqlApiGraphRepository implements ApiGraphRepository {
                 .eq(ApiGraphEdgeEntity::getProjectId, projectId));
         layoutMapper.delete(new LambdaQueryWrapper<ApiGraphLayoutEntity>()
                 .eq(ApiGraphLayoutEntity::getProjectId, projectId));
-        return nodeMapper.delete(new LambdaQueryWrapper<ApiGraphNodeEntity>()
+        int nodes = nodeMapper.delete(new LambdaQueryWrapper<ApiGraphNodeEntity>()
                 .eq(ApiGraphNodeEntity::getProjectId, projectId));
+        if (rebuildCachesActive(projectId)) {
+            rebuildNodeByKey.clear();
+            rebuildEdgeByKey.clear();
+        }
+        return nodes;
     }
 
     @Override
     public ApiGraphEdgeEntity upsertEdge(ApiGraphEdgeEntity edge) {
+        if (rebuildCachesActive(edge.getProjectId())) {
+            EdgeKey key = EdgeKey.from(edge);
+            ApiGraphEdgeEntity existing = rebuildEdgeByKey.get(key);
+            if (existing != null) {
+                existing.setConfidence(edge.getConfidence());
+                existing.setEvidenceJson(edge.getEvidenceJson());
+                existing.setStatus(edge.getStatus());
+                existing.setInferStrategy(edge.getInferStrategy());
+                existing.setConfirmedBy(edge.getConfirmedBy());
+                existing.setConfirmedAt(edge.getConfirmedAt());
+                existing.setRejectReason(edge.getRejectReason());
+                existing.setEnabled(edge.getEnabled() == null ? Boolean.TRUE : edge.getEnabled());
+                if (edge.getNote() != null) {
+                    existing.setNote(edge.getNote());
+                }
+                edgeMapper.updateById(existing);
+                return existing;
+            }
+            if (edge.getEnabled() == null) {
+                edge.setEnabled(Boolean.TRUE);
+            }
+            edgeMapper.insert(edge);
+            rebuildEdgeByKey.put(key, edge);
+            return edge;
+        }
         ApiGraphEdgeEntity existing = edgeMapper.selectOne(new LambdaQueryWrapper<ApiGraphEdgeEntity>()
                 .eq(ApiGraphEdgeEntity::getProjectId, edge.getProjectId())
                 .eq(ApiGraphEdgeEntity::getKind, edge.getKind())

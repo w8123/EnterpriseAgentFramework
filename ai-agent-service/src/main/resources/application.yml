@@ -27,12 +27,20 @@ spring:
         enabled: ${NACOS_ENABLED:false}
         file-extension: yml
     # LLM 单次可能超过 1～2 分钟，默认 Feign 读超时会报 Read timed out；调大以匹配长生成
+    # OpenFeign：有 contextId 时按 contextId 取配置，不按 name。ScannerServiceClient 的 contextId=scannerServiceClient，
+    # 仅配 ai-skills-service 不会作用于扫描客户端，仍会默认短读超时 → agent Read timed out，skills 侧「客户端中断连接」。
     openfeign:
       client:
         config:
           ai-model-service:
             connectTimeout: 10000
             readTimeout: ${FEIGN_MODEL_READ_TIMEOUT_MS:300000}
+          ai-skills-service:
+            connectTimeout: 10000
+            readTimeout: ${FEIGN_SKILLS_READ_TIMEOUT_MS:300000}
+          scannerServiceClient:
+            connectTimeout: 15000
+            readTimeout: ${FEIGN_SCANNER_READ_TIMEOUT_MS:900000}
 
 # ==================== 服务间调用 ====================
 services:
@@ -120,6 +128,9 @@ ai:
     window-seconds: ${TOOL_RATE_LIMIT_WINDOW_SECONDS:60}
     per-user: true
     per-roles: false
+  # 接口图谱：扫描完成后是否自动全量投影（默认 false，仅扫描时可关；需要画布跟随时设 true 或 API_GRAPH_REBUILD_ON_SCAN=true）
+  api-graph:
+    rebuild-on-scan: ${API_GRAPH_REBUILD_ON_SCAN:false}
 
 # ==================== 日志 ====================
 logging:

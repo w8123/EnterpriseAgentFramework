@@ -35,7 +35,7 @@ import java.util.Set;
  * 接口图谱核心服务。
  * <p>一期能力：</p>
  * <ul>
- *   <li>{@link #rebuildForProject} —— 扫描完成后投影 API / FIELD / DTO / MODULE 节点</li>
+ *   <li>{@link #rebuildForProject} —— 投影 API / FIELD / DTO / MODULE 节点（扫描后是否调用由 {@code ai.api-graph.rebuild-on-scan} 控制）</li>
  *   <li>{@link #inferModelRefEdges} —— 自动生成「数据模型共享」MODEL_REF 紫色虚线边</li>
  *   <li>{@link #upsertManualEdge} / {@link #deleteEdge} —— 运营手动连线 / 删边</li>
  *   <li>{@link #loadGraph} —— 拉取 {nodes, edges, layout} 给前端 G6 渲染</li>
@@ -105,7 +105,7 @@ public class ApiGraphService {
 
     /**
      * 管理端 / OpenAPI 「重建图谱」专用：失败抛出异常，便于接口返回明确错误。
-     * 扫描链路仍使用 {@link #rebuildForProject}。
+     * 扫描链路仅在 {@code ai.api-graph.rebuild-on-scan=true} 时调用 {@link #rebuildForProject}。
      */
     @Transactional
     public void rebuildGraphInteractive(Long projectId) {
@@ -129,6 +129,15 @@ public class ApiGraphService {
     }
 
     private void doRebuild(Long projectId) {
+        repository.beginRebuildCaches(projectId);
+        try {
+            doRebuildBody(projectId);
+        } finally {
+            repository.endRebuildCaches();
+        }
+    }
+
+    private void doRebuildBody(Long projectId) {
         List<ScanModuleEntity> modules = scanModuleService.listByProject(projectId);
         Map<Long, Long> moduleNodeIds = new LinkedHashMap<>();
         Set<Long> keepIds = new LinkedHashSet<>();
