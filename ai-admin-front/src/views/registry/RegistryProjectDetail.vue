@@ -19,15 +19,15 @@
           <el-descriptions :column="2" border>
             <el-descriptions-item label="项目编码">{{ project?.projectCode || projectCode }}</el-descriptions-item>
             <el-descriptions-item label="项目形态">
-              <el-tag>{{ project?.projectKind || 'REGISTERED' }}</el-tag>
+              <el-tag>{{ formatProjectKindLabel(project?.projectKind || 'REGISTERED') }}</el-tag>
             </el-descriptions-item>
             <el-descriptions-item label="环境">{{ project?.environment || '-' }}</el-descriptions-item>
             <el-descriptions-item label="可见性">
-              <el-tag>{{ project?.visibility || 'PRIVATE' }}</el-tag>
+              <el-tag>{{ formatVisibilityLabel(project?.visibility || 'PRIVATE') }}</el-tag>
             </el-descriptions-item>
             <el-descriptions-item label="负责人">{{ project?.owner || '-' }}</el-descriptions-item>
             <el-descriptions-item label="能力数">{{ project?.toolCount ?? '-' }}</el-descriptions-item>
-            <el-descriptions-item label="Base URL" :span="2">{{ project?.baseUrl || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="根地址" :span="2">{{ project?.baseUrl || '-' }}</el-descriptions-item>
             <el-descriptions-item label="Context Path" :span="2">{{ project?.contextPath || '-' }}</el-descriptions-item>
           </el-descriptions>
           <div class="quick-actions">
@@ -220,6 +220,7 @@ import type {
 import { getDefaultScanSettings } from '@/types/scanProject'
 import type { ProjectInstance } from '@/types/registry'
 import { useProjectStore } from '@/store/project'
+import { formatProjectKindLabel, formatVisibilityLabel } from '@/utils/projectLabels'
 
 const route = useRoute()
 const router = useRouter()

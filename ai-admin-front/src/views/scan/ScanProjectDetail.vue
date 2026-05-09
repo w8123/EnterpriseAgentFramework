@@ -21,15 +21,15 @@
         <div v-if="project" class="project-summary">
           <div><b>项目名称：</b>{{ project.name }}</div>
           <div><b>项目编码：</b>{{ project.projectCode || '-' }}</div>
-          <div><b>项目形态：</b><el-tag>{{ project.projectKind || 'SCAN' }}</el-tag></div>
+          <div><b>项目形态：</b><el-tag>{{ formatProjectKindLabel(project.projectKind || 'SCAN') }}</el-tag></div>
           <div><b>环境：</b>{{ project.environment || '-' }}</div>
           <div><b>负责人：</b>{{ project.owner || '-' }}</div>
-          <div><b>可见性：</b><el-tag>{{ project.visibility || 'PRIVATE' }}</el-tag></div>
+          <div><b>可见性：</b><el-tag>{{ formatVisibilityLabel(project.visibility || 'PRIVATE') }}</el-tag></div>
           <div><b>项目域名：</b>{{ project.baseUrl }}</div>
           <div><b>Context Path：</b>{{ project.contextPath || '-' }}</div>
           <div><b>扫描路径：</b>{{ project.scanPath || '-' }}</div>
-          <div><b>扫描方式：</b>{{ project.scanType }}</div>
-          <div><b>状态：</b><el-tag :type="statusTagType(project.status)">{{ project.status }}</el-tag></div>
+          <div><b>扫描方式：</b>{{ formatScanTypeLabel(project.scanType) }}</div>
+          <div><b>状态：</b><el-tag :type="statusTagType(project.status)">{{ formatScanStatusLabel(project.status) }}</el-tag></div>
           <div><b>接口数：</b>{{ project.toolCount }}</div>
           <div><b>错误信息：</b>{{ project.errorMessage || '-' }}</div>
           <div v-if="project.projectCode">
@@ -881,6 +881,12 @@ import {
   formatScanProjectBlockersMessage,
   parseScanProjectBlockersFromError,
 } from '@/utils/scanProjectBlockers'
+import {
+  formatProjectKindLabel,
+  formatScanStatusLabel,
+  formatScanTypeLabel,
+  formatVisibilityLabel,
+} from '@/utils/projectLabels'
 import { exportScanProjectToolsExcel, scanSensitiveTypeLabel } from '@/utils/scanProjectToolExport'
 import { startToolRetrievalRebuild } from '@/api/toolRetrieval'
 import {

@@ -22,20 +22,20 @@
         </el-table-column>
         <el-table-column label="形态" width="120">
           <template #default="{ row }">
-            <el-tag :type="kindTagType(row.projectKind)">{{ row.projectKind || 'SCAN' }}</el-tag>
+            <el-tag :type="kindTagType(row.projectKind)">{{ formatProjectKindLabel(row.projectKind || 'SCAN') }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="environment" label="环境" width="110" />
         <el-table-column prop="visibility" label="可见性" width="120">
           <template #default="{ row }">
-            <el-tag>{{ row.visibility || 'PRIVATE' }}</el-tag>
+            <el-tag>{{ formatVisibilityLabel(row.visibility || 'PRIVATE') }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="baseUrl" label="Base URL" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="baseUrl" label="根地址" min-width="220" show-overflow-tooltip />
         <el-table-column prop="toolCount" label="能力数" width="100" />
         <el-table-column prop="status" label="状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'failed' ? 'danger' : 'success'">{{ row.status }}</el-tag>
+            <el-tag :type="row.status === 'failed' ? 'danger' : 'success'">{{ formatScanStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="300" fixed="right">
@@ -74,10 +74,10 @@
         </el-form-item>
         <el-form-item label="可见性">
           <el-select v-model="form.visibility" style="width: 100%">
-            <el-option v-for="item in visibilityOptions" :key="item" :label="item" :value="item" />
+            <el-option v-for="opt in VISIBILITY_SELECT_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
         </el-form-item>
-        <el-form-item label="Base URL" required>
+        <el-form-item label="根地址（Base URL）" required>
           <el-input v-model="form.baseUrl" placeholder="http://localhost:8080" />
         </el-form-item>
         <el-form-item label="Context Path">
@@ -146,8 +146,14 @@ import { ElMessage } from 'element-plus'
 import { getScanProjects, updateScanProject } from '@/api/scanProject'
 import { registerRegistryProject } from '@/api/registry'
 import type { ScanProject } from '@/types/scanProject'
-import type { ProjectVisibility, RegistryProjectRegisterRequest } from '@/types/registry'
+import type { RegistryProjectRegisterRequest } from '@/types/registry'
 import { useProjectStore } from '@/store/project'
+import {
+  VISIBILITY_SELECT_OPTIONS,
+  formatProjectKindLabel,
+  formatScanStatusLabel,
+  formatVisibilityLabel,
+} from '@/utils/projectLabels'
 
 const router = useRouter()
 const projectStore = useProjectStore()
@@ -158,8 +164,6 @@ const projects = ref<ScanProject[]>([])
 const dialogVisible = ref(false)
 const guideDrawerVisible = ref(false)
 const editingProject = ref<ScanProject | null>(null)
-const visibilityOptions: ProjectVisibility[] = ['PRIVATE', 'PROJECT', 'SHARED', 'PUBLIC']
-
 const form = reactive<RegistryProjectRegisterRequest>({
   projectCode: '',
   name: '',
@@ -264,7 +268,7 @@ function openEditDialog(project: ScanProject) {
 
 async function saveProject() {
   if (!form.name || !form.projectCode || !form.baseUrl) {
-    ElMessage.warning('请填写项目名称、项目编码和 Base URL')
+    ElMessage.warning('请填写项目名称、项目编码和根地址')
     return
   }
   saving.value = true

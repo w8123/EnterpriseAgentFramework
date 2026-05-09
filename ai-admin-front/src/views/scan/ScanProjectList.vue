@@ -18,26 +18,26 @@
         <el-table-column prop="projectCode" label="项目编码" min-width="150" show-overflow-tooltip />
         <el-table-column label="项目形态" width="120" align="center">
           <template #default="{ row }">
-            <el-tag :type="kindTagType(row.projectKind)" size="small">{{ row.projectKind || 'SCAN' }}</el-tag>
+            <el-tag :type="kindTagType(row.projectKind)" size="small">{{ formatProjectKindLabel(row.projectKind || 'SCAN') }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="environment" label="环境" width="100" />
         <el-table-column label="可见性" width="110" align="center">
           <template #default="{ row }">
-            <el-tag size="small">{{ row.visibility || 'PRIVATE' }}</el-tag>
+            <el-tag size="small">{{ formatVisibilityLabel(row.visibility || 'PRIVATE') }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="baseUrl" label="项目域名" min-width="220" />
         <el-table-column prop="scanPath" label="扫描路径" min-width="260" show-overflow-tooltip />
         <el-table-column label="扫描方式" width="110" align="center">
           <template #default="{ row }">
-            <el-tag size="small">{{ row.scanType }}</el-tag>
+            <el-tag size="small">{{ formatScanTypeLabel(row.scanType) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="toolCount" label="接口数" width="90" align="center" />
         <el-table-column label="状态" width="110" align="center">
           <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status)" size="small">{{ row.status }}</el-tag>
+            <el-tag :type="statusTagType(row.status)" size="small">{{ formatScanStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="错误信息" min-width="220">
@@ -81,9 +81,12 @@
           <el-col :span="12">
             <el-form-item label="项目形态">
               <el-select v-model="form.projectKind" style="width: 100%">
-                <el-option label="SCAN" value="SCAN" />
-                <el-option label="REGISTERED" value="REGISTERED" />
-                <el-option label="HYBRID" value="HYBRID" />
+                <el-option
+                  v-for="opt in PROJECT_KIND_SELECT_OPTIONS"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
               </el-select>
             </el-form-item>
           </el-col>
@@ -97,10 +100,12 @@
           <el-col :span="12">
             <el-form-item label="可见性">
               <el-select v-model="form.visibility" style="width: 100%">
-                <el-option label="PRIVATE" value="PRIVATE" />
-                <el-option label="PROJECT" value="PROJECT" />
-                <el-option label="SHARED" value="SHARED" />
-                <el-option label="PUBLIC" value="PUBLIC" />
+                <el-option
+                  v-for="opt in VISIBILITY_SELECT_OPTIONS"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
               </el-select>
             </el-form-item>
           </el-col>
@@ -155,6 +160,14 @@ import {
   triggerScan,
   updateScanProject,
 } from '@/api/scanProject'
+import {
+  formatProjectKindLabel,
+  formatScanStatusLabel,
+  formatScanTypeLabel,
+  formatVisibilityLabel,
+  PROJECT_KIND_SELECT_OPTIONS,
+  VISIBILITY_SELECT_OPTIONS,
+} from '@/utils/projectLabels'
 import {
   formatScanProjectBlockersMessage,
   parseScanProjectBlockersFromError,

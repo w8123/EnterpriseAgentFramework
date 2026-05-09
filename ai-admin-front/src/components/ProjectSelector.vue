@@ -21,7 +21,7 @@
       >
         <div class="project-option">
           <span>{{ project.name }}</span>
-          <el-tag size="small" type="info">{{ project.projectKind || 'SCAN' }}</el-tag>
+          <el-tag size="small" type="info">{{ formatProjectKindLabel(project.projectKind || 'SCAN') }}</el-tag>
           <span class="project-code">{{ project.projectCode || `ID ${project.id}` }}</span>
         </div>
       </el-option>
@@ -32,6 +32,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useProjectStore } from '@/store/project'
+import { formatProjectKindLabel } from '@/utils/projectLabels'
 
 const projectStore = useProjectStore()
 
