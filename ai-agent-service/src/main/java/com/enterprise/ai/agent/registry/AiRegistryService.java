@@ -9,6 +9,8 @@ import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.scan.ScanProjectMapper;
 import com.enterprise.ai.agent.scan.ScanProjectService;
+import com.enterprise.ai.agent.scan.ScanModuleService;
+import com.enterprise.ai.agent.scan.ScanProjectToolEntity;
 import com.enterprise.ai.agent.scan.ScanProjectToolService;
 import com.enterprise.ai.agent.scan.ScanSettings;
 import com.enterprise.ai.agent.scan.ScanSettingsJson;
@@ -51,6 +53,7 @@ public class AiRegistryService {
     private final ScanProjectService scanProjectService;
     private final ScanProjectMapper scanProjectMapper;
     private final ScanProjectToolService scanProjectToolService;
+    private final ScanModuleService scanModuleService;
     private final ProjectInstanceMapper instanceMapper;
     private final CapabilitySyncLogMapper syncLogMapper;
     private final CapabilitySnapshotMapper snapshotMapper;
@@ -225,6 +228,9 @@ public class AiRegistryService {
                 ? request.syncId().trim()
                 : UUID.randomUUID().toString();
 
+        // 将存量仅存在于 tool_definition 的 SDK 能力补齐到 API 目录行，便于删除对账与差异基准一致
+        scanProjectToolService.ensureSdkMirrors(project.getId());
+
         int added = 0;
         int changed = 0;
         int unchanged = 0;
@@ -239,11 +245,38 @@ public class AiRegistryService {
             String capabilityName = normalizeCapabilityName(c.name());
             String storageName = storageName(project.getProjectCode(), capabilityName);
             String qualifiedName = project.getProjectCode() + ":" + capabilityName;
-            ToolDefinitionEntity existing = toolDefinitionService.findByQualifiedName(qualifiedName)
-                    .or(() -> toolDefinitionService.findByName(storageName))
+            String sdkLoc = "sdk:" + project.getProjectCode().trim() + ":" + capabilityName;
+
+            ScanProjectToolEntity catalogRow = scanProjectToolService.findByProjectAndSourceLocation(project.getId(), sdkLoc)
+                    .or(() -> scanProjectToolService.findByProjectAndName(project.getId(), storageName))
                     .orElse(null);
-            List<FieldDiff> fieldDiffs = fieldDiffs(existing, c);
-            String changeType = existing == null ? "ADDED" : fieldDiffs.isEmpty() ? "UNCHANGED" : "CHANGED";
+            ToolDefinitionEntity legacyGlobal = null;
+            if (catalogRow == null) {
+                legacyGlobal = toolDefinitionService.findByQualifiedName(qualifiedName)
+                        .or(() -> toolDefinitionService.findByName(storageName))
+                        .orElse(null);
+            }
+
+            List<FieldDiff> fieldDiffs;
+            Long existingToolIdForDiff;
+            if (catalogRow != null) {
+                fieldDiffs = fieldDiffsFromCatalog(catalogRow, c);
+                existingToolIdForDiff = catalogRow.getGlobalToolDefinitionId();
+            } else if (legacyGlobal != null) {
+                fieldDiffs = fieldDiffs(legacyGlobal, c);
+                existingToolIdForDiff = legacyGlobal.getId();
+            } else {
+                fieldDiffs = List.of();
+                existingToolIdForDiff = null;
+            }
+
+            String changeType;
+            if (catalogRow == null && legacyGlobal == null) {
+                changeType = "ADDED";
+            } else {
+                changeType = fieldDiffs.isEmpty() ? "UNCHANGED" : "CHANGED";
+            }
+
             if ("ADDED".equals(changeType)) {
                 added++;
             } else if ("CHANGED".equals(changeType)) {
@@ -253,43 +286,55 @@ public class AiRegistryService {
             }
             Map<String, Object> impact = analyzeImpact(project, capabilityName, storageName, qualifiedName);
             items.add(new CapabilityDiffItem(qualifiedName, capabilityName, changeType,
-                    existing == null ? null : existing.getId(), storageName, fieldDiffs, impact));
+                    existingToolIdForDiff, storageName, fieldDiffs, impact));
             CapabilityDiffItemEntity diffItem = insertDiffItem(snapshot, project, syncId, qualifiedName, capabilityName,
-                    storageName, changeType, existing == null ? null : existing.getId(), fieldDiffs, impact);
+                    storageName, changeType, existingToolIdForDiff, fieldDiffs, impact);
             if (apply && !"UNCHANGED".equals(changeType)) {
-                applyCapability(project, snapshot.getId(), diffItem.getId(), syncId, c, existing, storageName,
-                        qualifiedName, "SYNC");
+                applySdkCapabilityCatalogOnly(project, snapshot.getId(), diffItem.getId(), syncId, c,
+                        storageName, qualifiedName, capabilityName, "SYNC");
                 diffItem.setReviewStatus("APPLIED");
                 diffItem.setUpdatedAt(LocalDateTime.now());
                 diffItemMapper.updateById(diffItem);
                 applied++;
             }
         }
-        for (ToolDefinitionEntity existing : toolDefinitionService.listByProjectId(project.getId())) {
-            if (!isSdkRegisteredTool(project, existing) || reportedQualifiedNames.contains(existing.getQualifiedName())) {
+
+        String sdkPrefix = "sdk:" + project.getProjectCode().trim() + ":";
+        for (ScanProjectToolEntity row : scanProjectToolService.listByProject(project.getId())) {
+            String sl = row.getSourceLocation();
+            if (!StringUtils.hasText(sl) || !sl.startsWith(sdkPrefix)) {
+                continue;
+            }
+            String capSuffix = sl.substring(sdkPrefix.length()).trim();
+            if (!StringUtils.hasText(capSuffix)) {
+                continue;
+            }
+            String qn = project.getProjectCode().trim() + ":" + capSuffix;
+            if (reportedQualifiedNames.contains(qn)) {
                 continue;
             }
             deleted++;
-            String capabilityName = existing.getQualifiedName() != null && existing.getQualifiedName().contains(":")
-                    ? existing.getQualifiedName().substring(existing.getQualifiedName().indexOf(':') + 1)
-                    : existing.getName();
-            Map<String, Object> impact = analyzeImpact(project, capabilityName, existing.getName(), existing.getQualifiedName());
-            items.add(new CapabilityDiffItem(existing.getQualifiedName(), capabilityName, "DELETED",
-                    existing.getId(), existing.getName(), List.of(), impact));
-            CapabilityDiffItemEntity diffItem = insertDiffItem(snapshot, project, syncId, existing.getQualifiedName(),
-                    capabilityName, existing.getName(), "DELETED", existing.getId(), List.of(), impact);
+            Map<String, Object> impact = analyzeImpact(project, capSuffix, row.getName(), qn);
+            Long existingId = row.getGlobalToolDefinitionId();
+            items.add(new CapabilityDiffItem(qn, capSuffix, "DELETED",
+                    existingId, row.getName(), List.of(), impact));
+            CapabilityDiffItemEntity diffItem = insertDiffItem(snapshot, project, syncId, qn,
+                    capSuffix, row.getName(), "DELETED", existingId, List.of(), impact);
             if (apply) {
-                toolDefinitionService.toggle(existing.getName(), false);
-                ToolDefinitionEntity after = toolDefinitionService.findById(existing.getId()).orElse(existing);
-                scanProjectToolService.syncMirrorFromSdkTool(project.getId(), after, true);
-                recordApply(snapshot.getId(), diffItem.getId(), syncId, project, existing.getQualifiedName(),
-                        "SOFT_DELETE", "SUCCESS", "SYNC", "SDK 已不再上报，自动禁用能力");
+                scanProjectToolService.markCatalogRowRemoved(row);
+                recordApply(snapshot.getId(), diffItem.getId(), syncId, project, qn,
+                        "CATALOG_REMOVED", "SUCCESS", "SYNC", "SDK 已不再上报，API 目录已标记移除");
                 diffItem.setReviewStatus("APPLIED");
                 diffItem.setUpdatedAt(LocalDateTime.now());
                 diffItemMapper.updateById(diffItem);
                 applied++;
             }
         }
+
+        if (apply) {
+            scanModuleService.bootstrapFromTools(project.getId());
+        }
+
         updateSnapshotSummary(snapshot, capabilities.size(), added, changed, unchanged, deleted, apply, applied);
         CapabilitySyncResponse response = new CapabilitySyncResponse(syncId, project.getId(), project.getProjectCode(),
                 capabilities.size(), added, changed, unchanged, applied, items);
@@ -341,24 +386,19 @@ public class AiRegistryService {
             return toDiffItemDto(item);
         }
         CapabilityRegistration registration = findRegistration(snapshot, item.getQualifiedName());
-        ToolDefinitionEntity existing = item.getExistingToolId() == null
-                ? null
-                : toolDefinitionService.findById(item.getExistingToolId()).orElse(null);
         if ("DELETED".equals(item.getChangeType())) {
-            if (existing != null) {
-                toolDefinitionService.toggle(existing.getName(), false);
-                ToolDefinitionEntity after = toolDefinitionService.findById(existing.getId()).orElse(existing);
-                scanProjectToolService.syncMirrorFromSdkTool(project.getId(), after, true);
-            }
+            scanProjectToolService.tombstoneSdkCatalogByQualifiedName(project.getId(), project, item.getName());
             recordApply(snapshot.getId(), item.getId(), item.getSyncId(), project, item.getQualifiedName(),
-                    "SOFT_DELETE", "SUCCESS", operator, "已按评审禁用 SDK 移除能力");
+                    "CATALOG_REMOVED", "SUCCESS", operator, "API目录已标记移除；全局 Tool 请按需人工下架");
         } else {
             if (registration == null) {
                 throw new IllegalArgumentException("快照中找不到能力: " + item.getQualifiedName());
             }
-            applyCapability(project, snapshot.getId(), item.getId(), item.getSyncId(), registration, existing,
-                    item.getStorageName(), item.getQualifiedName(), operator);
+            applySdkCapabilityCatalogOnly(project, snapshot.getId(), item.getId(), item.getSyncId(), registration,
+                    item.getStorageName(), item.getQualifiedName(),
+                    normalizeCapabilityName(registration.name()), operator);
         }
+        scanModuleService.bootstrapFromTools(project.getId());
         item.setReviewStatus("APPLIED");
         item.setReviewNote(request == null ? null : request.note());
         item.setUpdatedAt(LocalDateTime.now());
@@ -472,25 +512,19 @@ public class AiRegistryService {
         }
     }
 
-    private void applyCapability(ScanProjectEntity project,
-                                 Long snapshotId,
-                                 Long diffItemId,
-                                 String syncId,
-                                 CapabilityRegistration c,
-                                 ToolDefinitionEntity existing,
-                                 String storageName,
-                                 String qualifiedName,
-                                 String operator) {
-        ToolDefinitionUpsertRequest upsert = toToolUpsert(project, c, storageName, qualifiedName);
-        ToolDefinitionEntity td;
-        if (existing == null) {
-            td = toolDefinitionService.create(upsert);
-        } else {
-            td = toolDefinitionService.update(existing.getName(), upsert);
-        }
-        scanProjectToolService.syncMirrorFromSdkTool(project.getId(), td, false);
+    private void applySdkCapabilityCatalogOnly(ScanProjectEntity project,
+                                               Long snapshotId,
+                                               Long diffItemId,
+                                               String syncId,
+                                               CapabilityRegistration c,
+                                               String storageName,
+                                               String qualifiedName,
+                                               String capabilityName,
+                                               String operator) {
+        ToolDefinitionUpsertRequest upsert = toSdkCatalogUpsert(project, c, storageName, qualifiedName, capabilityName);
+        scanProjectToolService.upsertSdkCapabilityCatalogRow(project.getId(), upsert);
         recordApply(snapshotId, diffItemId, syncId, project, qualifiedName,
-                "APPLY", "SUCCESS", operator, "能力定义已应用");
+                "APPLY", "SUCCESS", operator, "API目录已更新");
     }
 
     private void recordApply(Long snapshotId,
@@ -515,6 +549,37 @@ public class AiRegistryService {
         record.setMessage(message);
         record.setCreatedAt(LocalDateTime.now());
         applyRecordMapper.insert(record);
+    }
+
+    private List<FieldDiff> fieldDiffsFromCatalog(ScanProjectToolEntity row, CapabilityRegistration c) {
+        if (row == null) {
+            return List.of();
+        }
+        List<FieldDiff> diffs = new ArrayList<>();
+        addDiff(diffs, "description", row.getDescription(), firstText(c.description(), c.title(), c.name()));
+        addDiff(diffs, "httpMethod", row.getHttpMethod(), firstText(c.httpMethod(), "POST"));
+        addDiff(diffs, "baseUrl", row.getBaseUrl(), c.baseUrl());
+        addDiff(diffs, "contextPath", row.getContextPath(), c.contextPath());
+        addDiff(diffs, "endpointPath", row.getEndpointPath(), c.endpointPath());
+        addDiff(diffs, "requestBodyType", row.getRequestBodyType(), c.requestBodyType());
+        addDiff(diffs, "responseType", row.getResponseType(), c.responseType());
+        addDiff(diffs, "enabled", row.getEnabled(), c.enabled());
+        addDiff(diffs, "agentVisible", row.getAgentVisible(), c.agentVisible());
+        addDiff(diffs, "lightweightEnabled", row.getLightweightEnabled(), c.lightweightEnabled());
+        addDiff(diffs, "parameters", row.getParametersJson(), writeJson(c.parameters()));
+        addDiff(diffs, "metadata", row.getCapabilityMetadataJson(), writeJson(mergeSdkMetadata(c)));
+        return diffs;
+    }
+
+    private Object mergeSdkMetadata(CapabilityRegistration c) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        if (c.metadata() != null) {
+            m.putAll(c.metadata());
+        }
+        if (StringUtils.hasText(c.sideEffect())) {
+            m.put("sideEffect", c.sideEffect().trim());
+        }
+        return m.isEmpty() ? null : m;
     }
 
     private List<FieldDiff> fieldDiffs(ToolDefinitionEntity existing, CapabilityRegistration c) {
@@ -583,13 +648,6 @@ public class AiRegistryService {
         return values != null && values.stream().anyMatch(candidates::contains);
     }
 
-    private boolean isSdkRegisteredTool(ScanProjectEntity project, ToolDefinitionEntity existing) {
-        return existing.getProjectId() != null
-                && existing.getProjectId().equals(project.getId())
-                && existing.getSourceLocation() != null
-                && existing.getSourceLocation().startsWith("sdk:" + project.getProjectCode() + ":");
-    }
-
     private CapabilityRegistration findRegistration(CapabilitySnapshotEntity snapshot, String qualifiedName) {
         try {
             CapabilitySyncRequest request = objectMapper.readValue(snapshot.getPayloadJson(), CapabilitySyncRequest.class);
@@ -619,14 +677,17 @@ public class AiRegistryService {
                 entity.getReviewStatus(), entity.getReviewNote());
     }
 
-    private ToolDefinitionUpsertRequest toToolUpsert(ScanProjectEntity project, CapabilityRegistration c,
-                                                     String storageName, String qualifiedName) {
+    private ToolDefinitionUpsertRequest toSdkCatalogUpsert(ScanProjectEntity project, CapabilityRegistration c,
+                                                           String storageName, String qualifiedName,
+                                                           String capabilityName) {
+        Object meta = mergeSdkMetadata(c);
         return new ToolDefinitionUpsertRequest(
                 storageName,
+                "TOOL",
                 firstText(c.description(), c.title(), c.name()),
                 c.parameters() == null ? List.of() : c.parameters(),
                 "scanner",
-                "sdk:" + project.getProjectCode() + ":" + c.name(),
+                "sdk:" + project.getProjectCode().trim() + ":" + capabilityName,
                 firstText(c.httpMethod(), "POST"),
                 firstText(c.baseUrl(), project.getBaseUrl()),
                 firstText(c.contextPath(), project.getContextPath()),
@@ -639,9 +700,13 @@ public class AiRegistryService {
                 qualifiedName,
                 c.enabled() == null || Boolean.TRUE.equals(c.enabled()),
                 c.agentVisible() == null || Boolean.TRUE.equals(c.agentVisible()),
-                Boolean.TRUE.equals(c.lightweightEnabled())
-        ).withCapabilityMetadata(c.metadata()).withProjectScope(project.getId(), project.getProjectCode(),
-                firstText(c.visibility(), project.getVisibility(), "PRIVATE"), qualifiedName);
+                Boolean.TRUE.equals(c.lightweightEnabled()),
+                StringUtils.hasText(c.sideEffect()) ? c.sideEffect().trim() : null,
+                null,
+                null,
+                false,
+                meta
+        );
     }
 
     /**

@@ -2,6 +2,7 @@ package com.enterprise.ai.agent.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.enterprise.ai.agent.registry.AiRegistryService;
+import com.enterprise.ai.agent.registry.ProjectInstanceEntity;
 import com.enterprise.ai.agent.scan.ApiToolLinkStatus;
 import com.enterprise.ai.agent.scan.ScanModuleEntity;
 import com.enterprise.ai.agent.scan.ScanModuleService;
@@ -181,6 +182,7 @@ public class ScanProjectController {
             scanProjectService.getById(id);
             Set<String> pending = aiRegistryService.pendingCapabilityQualifiedNames(id);
             ScanProjectToolService.ToolReconcileSummary s = scanProjectToolService.reconcileCatalog(id, pending);
+            scanModuleService.bootstrapFromTools(id);
             return ResponseEntity.ok(new ToolReconcileSummaryDTO(
                     s.sdkMirrorsEnsured(),
                     s.notLinked(),
@@ -452,8 +454,56 @@ public class ScanProjectController {
                 entity.getAuthApiKeyName(),
                 entity.getAuthApiKeyValue(),
                 settings,
+                resolveProjectDescription(entity),
+                resolveSdkVersion(entity),
+                entity.getToolCount() == null ? 0 : entity.getToolCount(),
+                resolveRegistryStatusSummary(entity),
                 lastScanned
         );
+    }
+
+    private String resolveProjectDescription(ScanProjectEntity entity) {
+        List<String> parts = new ArrayList<>();
+        if (StringUtils.hasText(entity.getEnvironment())) {
+            parts.add(entity.getEnvironment().trim() + " 环境");
+        }
+        if (StringUtils.hasText(entity.getBaseUrl())) {
+            parts.add(entity.getBaseUrl().trim());
+        }
+        if (parts.isEmpty()) {
+            return "未配置项目描述";
+        }
+        return String.join(" · ", parts);
+    }
+
+    private String resolveSdkVersion(ScanProjectEntity entity) {
+        String kind = entity.getProjectKind();
+        if (!"REGISTERED".equalsIgnoreCase(kind) && !"HYBRID".equalsIgnoreCase(kind)) {
+            return null;
+        }
+        if (StringUtils.hasText(entity.getProjectCode())) {
+            try {
+                return aiRegistryService.listInstances(entity.getProjectCode()).stream()
+                        .map(ProjectInstanceEntity::getSdkVersion)
+                        .filter(StringUtils::hasText)
+                        .findFirst()
+                        .orElse("Starter");
+            } catch (IllegalArgumentException ignored) {
+                return "Starter";
+            }
+        }
+        return "Starter";
+    }
+
+    private String resolveRegistryStatusSummary(ScanProjectEntity entity) {
+        int apiCount = entity.getToolCount() == null ? 0 : entity.getToolCount();
+        if ("failed".equalsIgnoreCase(entity.getStatus())) {
+            return "异常";
+        }
+        if (apiCount > 0) {
+            return "已接入";
+        }
+        return "已创建";
     }
 
     private ScanResultDTO toResultDto(ScanProjectService.ScanResult result) {
@@ -619,6 +669,10 @@ public class ScanProjectController {
             String authApiKeyName,
             String authApiKeyValue,
             ScanSettings scanSettings,
+            String description,
+            String sdkVersion,
+            int apiCount,
+            String registryStatusSummary,
             String lastScannedAt
     ) {
     }

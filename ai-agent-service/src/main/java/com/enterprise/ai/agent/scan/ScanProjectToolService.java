@@ -110,6 +110,116 @@ public class ScanProjectToolService {
     }
 
     /**
+     * 按 SDK 上报的稳定定位键查找 API 目录行（{@code source_location} 形如 {@code sdk:<projectCode>:<capabilityName>}）。
+     */
+    public Optional<ScanProjectToolEntity> findByProjectAndSourceLocation(Long projectId, String sourceLocation) {
+        if (projectId == null || !StringUtils.hasText(sourceLocation)) {
+            return Optional.empty();
+        }
+        ScanProjectToolEntity e = mapper.selectOne(new LambdaQueryWrapper<ScanProjectToolEntity>()
+                .eq(ScanProjectToolEntity::getProjectId, projectId)
+                .eq(ScanProjectToolEntity::getSourceLocation, sourceLocation.trim())
+                .last("LIMIT 1"));
+        return Optional.ofNullable(e);
+    }
+
+    /**
+     * SDK 能力同步：仅写入/更新 {@code scan_project_tool}（API 目录），不创建 {@code tool_definition}。
+     * 已「添加为 Tool」时保留 {@link ScanProjectToolEntity#getGlobalToolDefinitionId()}，全局 Tool 由用户在目录页点「更新到 Tool」同步。
+     */
+    @Transactional
+    public ScanProjectToolEntity upsertSdkCapabilityCatalogRow(Long projectId, ToolDefinitionUpsertRequest request) {
+        if (request == null || !StringUtils.hasText(request.sourceLocation())) {
+            throw new IllegalArgumentException("SDK 目录同步缺少 sourceLocation");
+        }
+        String loc = request.sourceLocation().trim();
+        ScanProjectToolEntity existing = findByProjectAndSourceLocation(projectId, loc).orElse(null);
+        if (existing == null && StringUtils.hasText(request.name())) {
+            existing = findByProjectAndName(projectId, request.name().trim()).orElse(null);
+        }
+        if (existing == null) {
+            ScanProjectToolEntity e = new ScanProjectToolEntity();
+            e.setProjectId(projectId);
+            e.setModuleId(null);
+            applyUpsert(e, request, true);
+            e.setRemovedFromSource(false);
+            e.setRemovedAt(null);
+            e.setGlobalToolDefinitionId(null);
+            mapper.insert(e);
+            return e;
+        }
+        Long preserveGlobal = existing.getGlobalToolDefinitionId();
+        Long preserveModule = existing.getModuleId();
+        applyUpsert(existing, request, false);
+        existing.setGlobalToolDefinitionId(preserveGlobal);
+        if (preserveModule != null) {
+            existing.setModuleId(preserveModule);
+        }
+        existing.setRemovedFromSource(false);
+        existing.setRemovedAt(null);
+        mapper.updateById(existing);
+        return existing;
+    }
+
+    /**
+     * 将 SDK 已不再上报的接口在 API 目录中标记为墓碑（{@link ScanProjectToolEntity#setRemovedFromSource}），不修改全局 Tool。
+     *
+     * @param reportedQualifiedNames 本次上报中存在的能力 qualifiedName，形如 {@code projectCode:capabilityName}
+     */
+    @Transactional
+    public int tombstoneSdkCatalogRowsNotReported(Long projectId, ScanProjectEntity project,
+                                                   java.util.Set<String> reportedQualifiedNames) {
+        if (projectId == null || project == null || !StringUtils.hasText(project.getProjectCode())) {
+            return 0;
+        }
+        String prefix = "sdk:" + project.getProjectCode().trim() + ":";
+        String pc = project.getProjectCode().trim();
+        int n = 0;
+        for (ScanProjectToolEntity row : listByProject(projectId)) {
+            String sl = row.getSourceLocation();
+            if (!StringUtils.hasText(sl) || !sl.startsWith(prefix)) {
+                continue;
+            }
+            String capSuffix = sl.substring(prefix.length()).trim();
+            if (!StringUtils.hasText(capSuffix)) {
+                continue;
+            }
+            String qn = pc + ":" + capSuffix;
+            if (reportedQualifiedNames != null && reportedQualifiedNames.contains(qn)) {
+                continue;
+            }
+            markCatalogRowRemoved(row);
+            n++;
+        }
+        return n;
+    }
+
+    /**
+     * 能力评审「删除」应用：仅将 API 目录行标记为已从 SDK 移除。
+     */
+    @Transactional
+    public void tombstoneSdkCatalogByQualifiedName(Long projectId, ScanProjectEntity project, String capabilityName) {
+        if (projectId == null || project == null || !StringUtils.hasText(project.getProjectCode())
+                || !StringUtils.hasText(capabilityName)) {
+            return;
+        }
+        String prefix = "sdk:" + project.getProjectCode().trim() + ":";
+        String sdkLoc = prefix + capabilityName.trim();
+        findByProjectAndSourceLocation(projectId, sdkLoc).ifPresent(this::markCatalogRowRemoved);
+    }
+
+    /** 将目录行标记为已从 SDK/源码移除（墓碑），不修改全局 Tool。 */
+    @Transactional
+    public void markCatalogRowRemoved(ScanProjectToolEntity row) {
+        if (row == null || row.getId() == null) {
+            return;
+        }
+        row.setRemovedFromSource(true);
+        row.setRemovedAt(LocalDateTime.now());
+        mapper.updateById(row);
+    }
+
+    /**
      * 增量/合并扫描：同项目内同工具名则按请求覆盖（用于重新扫描不删库时的 upsert）。
      */
     @Transactional

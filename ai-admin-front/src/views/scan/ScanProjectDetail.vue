@@ -1,7 +1,10 @@
 <template>
   <div class="page-container">
     <div class="page-header">
-      <h2>扫描详情</h2>
+      <div class="page-header-title">
+        <h2>API 接口目录</h2>
+        <span class="page-header-sub">扫描项目详情 · SDK / 离线扫描接口统一在此管理与关联 Tool</span>
+      </div>
       <div class="header-actions">
         <el-button @click="goBack">返回列表</el-button>
         <el-button type="danger" plain :loading="deleteProjectLoading" @click="handleDeleteProject">
@@ -44,7 +47,7 @@
       <el-collapse-item v-if="project" class="scan-detail-top-item scan-settings-card" name="scanSettings">
         <template #title>
         <div class="scan-settings-header">
-          <span>扫描设置</span>
+          <span>扫描与接口说明设置（SDK 与离线扫描共用）</span>
           <div class="scan-settings-header-actions" @click.stop>
             <el-tooltip
               effect="dark"
@@ -65,6 +68,15 @@
         </div>
         </template>
       <el-alert
+        v-if="project?.projectKind === 'REGISTERED' || project?.projectKind === 'HYBRID'"
+        class="scan-settings-registry-alert"
+        type="success"
+        :closable="false"
+        show-icon
+        title="SDK / 注册中心项目"
+        description="此处配置保存在 scan_settings，业务系统 SDK 下次同步接口能力时按此解析说明与参数（运行时不用 Javadoc）。修改后无需离线「重新扫描」。若接口已发布为全局 Tool，请在下方列表中查看「Tool 关联」并按需点「更新到Tool」。"
+      />
+      <el-alert
         v-if="isOpenApiMode"
         class="scan-settings-mode-alert"
         type="info"
@@ -72,7 +84,10 @@
         show-icon
         title="当前为 OpenAPI/Auto-OpenAPI 方式：下方「描述来源」「仅 @RestController」「类名正则」等仅对 Controller 代码扫描有效；对 OpenAPI 可生效的项有 HTTP 方法、跳过 deprecated、新接口默认开关、增量等。"
       />
-      <p class="scan-settings-hint">先配置并保存，再点「重新扫描」使配置生效。增量重扫不删除已有接口，仅合入新变更文件解析出的端点并更新同名校验。</p>
+      <p v-if="project?.projectKind === 'REGISTERED'" class="scan-settings-hint">
+        先配置并保存。REGISTERED 项目接口由 SDK 同步至下方 API 目录；说明来源变更将在下次 SDK 能力同步时反映。全局 Tool 需在目录中手动「添加为 Tool」后才出现在 Tool 管理页。
+      </p>
+      <p v-else class="scan-settings-hint">先配置并保存，再点「重新扫描」使配置生效。增量重扫不删除已有接口，仅合入新变更文件解析出的端点并更新同名校验。</p>
       <el-form label-width="160px" class="scan-settings-form" @submit.prevent>
         <el-form-item label="接口说明来源（优先级上→下）" :class="{ 'is-disabled-form-item': isOpenApiMode }">
           <div v-if="!isOpenApiMode" class="order-list">
@@ -334,7 +349,7 @@
     <el-collapse-item v-if="project" class="scan-detail-top-item merged-tools-card" name="tools">
       <template #title>
         <div class="tools-header">
-          <span>扫描接口与 AI 语义</span>
+          <span>API 接口目录与 AI 语义</span>
           <div class="tools-actions" @click.stop>
             <el-button
               size="small"
@@ -360,7 +375,7 @@
       </template>
 
       <div v-loading="loading" class="tools-table-wrap">
-        <el-empty v-if="!loading && tools.length === 0" description="这个项目还没有扫描出任何接口" />
+        <el-empty v-if="!loading && tools.length === 0" description="暂无接口记录：离线项目请先扫描；SDK 注册项目在业务系统同步能力后将出现在此" />
         <el-collapse
           v-else-if="tools.length > 0"
           v-model="interfaceCollapseActive"
@@ -1096,7 +1111,11 @@ async function handleSaveScanSettings() {
       project.value = data
       syncScanSettingsFormFromProject()
     }
-    ElMessage.success('扫描设置已保存')
+    ElMessage.success(
+      project.value?.projectKind === 'REGISTERED' || project.value?.projectKind === 'HYBRID'
+        ? '扫描设置已保存。SDK 下次同步能力时将按新规则解析；已关联全局 Tool 的接口请在目录中使用「更新到Tool」。'
+        : '扫描设置已保存',
+    )
   } catch (e) {
     ElMessage.error((e as Error).message || '保存失败')
   } finally {
@@ -2094,6 +2113,34 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.page-header-title {
+  min-width: 0;
+
+  h2 {
+    margin: 0 0 4px;
+    font-size: 22px;
+  }
+}
+
+.page-header-sub {
+  display: block;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.scan-settings-registry-alert {
+  margin-bottom: 12px;
+}
+
 .header-actions {
   display: flex;
   gap: 8px;

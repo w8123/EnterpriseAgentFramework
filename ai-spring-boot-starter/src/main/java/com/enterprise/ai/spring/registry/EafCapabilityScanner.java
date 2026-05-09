@@ -64,6 +64,8 @@ public class EafCapabilityScanner {
                 metadata.put("retryLimit", capability.retryLimit());
                 metadata.put("source", "AiCapability");
             }
+            metadata.put("controllerClass", handler.getBeanType().getName());
+            metadata.put("controllerSimpleName", handler.getBeanType().getSimpleName());
             out.add(new EafCapabilityDescriptor(
                     name,
                     title,

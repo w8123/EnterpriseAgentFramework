@@ -182,21 +182,41 @@
     background: rgba(255, 255, 255, 0.015);
   }
 
-  // 表格固定列：确保不透明背景，防止文字重叠
-  // 使用 !important 覆盖 Element Plus 的 background: inherit（0,5,1 特异性）
+  // 表格固定列：不透明底；悬停/当前行也必须不透明（半透明会透出下层行）
   .el-table .el-table-fixed-column--left,
   .el-table .el-table-fixed-column--right {
     background-color: #12121a !important;
   }
+
+  .el-table th.el-table-fixed-column--left,
+  .el-table th.el-table-fixed-column--right {
+    background-color: #1c1c2a !important;
+  }
+
+  .el-table td.el-table-fixed-column--left,
+  .el-table td.el-table-fixed-column--right {
+    background-color: #12121a !important;
+  }
+
   .el-table--striped .el-table__body tr.el-table__row--striped .el-table-fixed-column--left,
   .el-table--striped .el-table__body tr.el-table__row--striped .el-table-fixed-column--right {
     background-color: #141420 !important;
   }
+
+  .el-table--striped .el-table__body tr.el-table__row--striped.hover-row > td.el-table-fixed-column--left,
+  .el-table--striped .el-table__body tr.el-table__row--striped.hover-row > td.el-table-fixed-column--right,
+  .el-table--striped .el-table__body tr.el-table__row--striped.current-row > td.el-table-fixed-column--left,
+  .el-table--striped .el-table__body tr.el-table__row--striped.current-row > td.el-table-fixed-column--right {
+    background-color: #262636 !important;
+  }
+
   .el-table__body tr.hover-row > td.el-table-fixed-column--left,
   .el-table__body tr.hover-row > td.el-table-fixed-column--right,
   .el-table__body tr.current-row > td.el-table-fixed-column--left,
-  .el-table__body tr.current-row > td.el-table-fixed-column--right {
-    background-color: rgba(99, 102, 241, 0.08) !important;
+  .el-table__body tr.current-row > td.el-table-fixed-column--right,
+  .el-table__body tr:hover > td.el-table-fixed-column--left,
+  .el-table__body tr:hover > td.el-table-fixed-column--right {
+    background-color: #252538 !important;
   }
 
   // 表格固定列阴影 / 补丁
@@ -590,6 +610,19 @@
   color: #fff;
 }
 
+// Radio（非 button 样式，如表单内 OpenAPI / Controller）
+.el-radio {
+  color: var(--text-secondary);
+}
+
+.el-radio__label {
+  color: var(--text-secondary);
+}
+
+.el-radio__input.is-checked + .el-radio__label {
+  color: var(--text-primary);
+}
+
 // Checkbox
 .el-checkbox__inner {
   background: rgba(255, 255, 255, 0.03);
@@ -886,20 +919,41 @@
     background-color: #ffffff;
   }
 
-  // 表格固定列：确保不透明背景，防止文字重叠
+  // 表格固定列：不透明；悬停/当前行用实色（避免 rgba 透出下层）
   .el-table .el-table-fixed-column--left,
   .el-table .el-table-fixed-column--right {
     background-color: #ffffff !important;
   }
+
+  .el-table th.el-table-fixed-column--left,
+  .el-table th.el-table-fixed-column--right {
+    background-color: #f9fafb !important;
+  }
+
+  .el-table td.el-table-fixed-column--left,
+  .el-table td.el-table-fixed-column--right {
+    background-color: #ffffff !important;
+  }
+
   .el-table--striped .el-table__body tr.el-table__row--striped .el-table-fixed-column--left,
   .el-table--striped .el-table__body tr.el-table__row--striped .el-table-fixed-column--right {
     background-color: #f9fafb !important;
   }
+
+  .el-table--striped .el-table__body tr.el-table__row--striped.hover-row > td.el-table-fixed-column--left,
+  .el-table--striped .el-table__body tr.el-table__row--striped.hover-row > td.el-table-fixed-column--right,
+  .el-table--striped .el-table__body tr.el-table__row--striped.current-row > td.el-table-fixed-column--left,
+  .el-table--striped .el-table__body tr.el-table__row--striped.current-row > td.el-table-fixed-column--right {
+    background-color: #e8eafd !important;
+  }
+
   .el-table__body tr.hover-row > td.el-table-fixed-column--left,
   .el-table__body tr.hover-row > td.el-table-fixed-column--right,
   .el-table__body tr.current-row > td.el-table-fixed-column--left,
-  .el-table__body tr.current-row > td.el-table-fixed-column--right {
-    background-color: rgba(99, 102, 241, 0.06) !important;
+  .el-table__body tr.current-row > td.el-table-fixed-column--right,
+  .el-table__body tr:hover > td.el-table-fixed-column--left,
+  .el-table__body tr:hover > td.el-table-fixed-column--right {
+    background-color: #eef0ff !important;
   }
 
   .el-table th.el-table__cell {
@@ -1333,6 +1387,14 @@
     background: var(--accent-gradient);
     border-color: transparent;
     color: #fff;
+  }
+
+  .el-radio__label {
+    color: var(--text-secondary);
+  }
+
+  .el-radio__input.is-checked + .el-radio__label {
+    color: var(--text-primary);
   }
 
   // Checkbox

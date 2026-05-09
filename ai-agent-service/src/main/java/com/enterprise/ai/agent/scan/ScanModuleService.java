@@ -303,9 +303,17 @@ public class ScanModuleService {
     /**
      * 从 {@link ScanProjectToolEntity#getSourceLocation()} 里尝试还原 Controller 类名。
      * Scanner 约定写法：{fileName}#{ClassName}#{methodName} 或 OpenAPI 场景只有 tag/file，回退取首段。
+     * SDK 上报约定：{@code sdk:<projectCode>:<capability>}，模块名来自能力元数据（{@code module} / Controller 短类名）或 URL 首段。
      */
     private String resolveControllerModuleName(ScanProjectToolEntity tool) {
         String loc = tool.getSourceLocation();
+        if (StringUtils.hasText(loc) && loc.startsWith("sdk:")) {
+            String fromMeta = sdkModuleNameFromMetadata(tool.getCapabilityMetadataJson());
+            if (StringUtils.hasText(fromMeta)) {
+                return fromMeta.trim();
+            }
+            return sdkModuleFallbackFromEndpoint(tool);
+        }
         if (StringUtils.hasText(loc)) {
             String[] parts = loc.split("#");
             if (parts.length >= 2 && StringUtils.hasText(parts[1])) {
@@ -321,5 +329,54 @@ public class ScanModuleService {
             }
         }
         return StringUtils.hasText(tool.getHttpMethod()) ? tool.getHttpMethod().toLowerCase(Locale.ROOT) + "_module" : "default";
+    }
+
+    /**
+     * SDK 同步写入的 {@code capability_metadata_json}：优先 {@code @AiCapability#module()}，其次 Controller 短类名 / domain。
+     */
+    private String sdkModuleNameFromMetadata(String capabilityMetadataJson) {
+        if (!StringUtils.hasText(capabilityMetadataJson)) {
+            return null;
+        }
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> m = objectMapper.readValue(capabilityMetadataJson, LinkedHashMap.class);
+            if (m == null) {
+                return null;
+            }
+            Object mod = m.get("module");
+            if (mod != null && StringUtils.hasText(String.valueOf(mod))) {
+                return String.valueOf(mod).trim();
+            }
+            Object simple = m.get("controllerSimpleName");
+            if (simple != null && StringUtils.hasText(String.valueOf(simple))) {
+                return String.valueOf(simple).trim();
+            }
+            Object domain = m.get("domain");
+            if (domain != null && StringUtils.hasText(String.valueOf(domain))) {
+                return String.valueOf(domain).trim();
+            }
+        } catch (Exception ex) {
+            log.debug("[ScanModuleService] parse SDK capability metadata for module: {}", ex.toString());
+        }
+        return null;
+    }
+
+    /** 无显式模块信息时，用路径第一段作为分组（与按 Controller 分包的习惯接近）。 */
+    private String sdkModuleFallbackFromEndpoint(ScanProjectToolEntity tool) {
+        String ep = tool.getEndpointPath();
+        if (!StringUtils.hasText(ep)) {
+            return "SDK能力";
+        }
+        String p = ep.trim();
+        if (!p.startsWith("/")) {
+            p = "/" + p;
+        }
+        for (String s : p.split("/")) {
+            if (StringUtils.hasText(s) && !s.startsWith("{") && !"*".equals(s)) {
+                return s.length() > 128 ? s.substring(0, 128) : s;
+            }
+        }
+        return "SDK能力";
     }
 }

@@ -1,5 +1,5 @@
 <template>
-  <el-container class="main-layout">
+  <el-container class="main-layout" :class="{ 'registry-shell': isRegistryShell, 'is-dark': theme === 'dark' }">
     <el-aside width="240px" class="sidebar">
       <div class="logo">
         <div class="logo-icon-wrap">
@@ -20,7 +20,7 @@
             <span>概览</span>
           </el-menu-item>
 
-          <!-- 2 AI 注册中心（项目目录 + 能力评审 + 扫描/API 接入） -->
+          <!-- 2 AI 注册中心（项目目录 + 能力评审） -->
           <el-sub-menu index="/registry-group">
             <template #title>
               <el-icon><Connection /></el-icon>
@@ -28,7 +28,6 @@
             </template>
             <el-menu-item index="/registry/projects">项目管理</el-menu-item>
             <el-menu-item index="/registry/capability-sync">能力变更评审</el-menu-item>
-            <el-menu-item index="/scan-project">项目与 API 接入</el-menu-item>
           </el-sub-menu>
 
           <!-- 3 Agent -->
@@ -148,7 +147,7 @@
               <el-button :icon="Bell" circle size="small" class="topbar-btn" />
             </el-badge>
           </el-tooltip>
-          <ProjectSelector />
+          <ProjectSelector :compact="isRegistryShell" />
           <el-avatar :size="32" class="user-avatar">
             <el-icon :size="16"><User /></el-icon>
           </el-avatar>
@@ -213,7 +212,7 @@ const activeMenu = computed(() => {
   if (path.startsWith('/tool')) return '/tool'
   if (path.startsWith('/registry/capability-sync')) return '/registry/capability-sync'
   if (path.startsWith('/registry/projects')) return '/registry/projects'
-  if (path.startsWith('/scan-project')) return '/scan-project'
+  if (path.startsWith('/scan-project')) return '/registry/projects'
   if (path.startsWith('/domain/board')) return '/domain/board'
   if (path.startsWith('/domain/classifier-test')) return '/domain/classifier-test'
   if (path.startsWith('/domain')) return '/domain'
@@ -227,6 +226,9 @@ const activeMenu = computed(() => {
 })
 
 const currentTitle = computed(() => (route.meta.title as string) || '')
+
+const isRegistryShell = computed(() => route.path.startsWith('/registry/projects') || route.path.startsWith('/scan-project'))
+
 </script>
 
 <style scoped lang="scss">
@@ -462,6 +464,101 @@ const currentTitle = computed(() => (route.meta.title as string) || '')
   }
 }
 
+.registry-shell {
+  .topbar {
+    height: 56px;
+    background: rgba(255, 255, 255, 0.92);
+    border-bottom: 1px solid #edf0f7;
+    box-shadow: 0 8px 24px rgba(17, 24, 39, 0.03);
+    backdrop-filter: blur(16px);
+  }
+
+  .breadcrumb-area {
+    :deep(.el-breadcrumb__inner),
+    :deep(.el-breadcrumb__separator) {
+      color: #667085;
+      font-weight: 600;
+    }
+
+    :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
+      color: #101828;
+    }
+  }
+
+  .topbar-search {
+    .search-input {
+      :deep(.el-input__wrapper) {
+        background: #f8f9fc;
+        border-radius: 8px;
+        box-shadow: 0 0 0 1px #e4e7ee inset;
+      }
+    }
+  }
+
+  .topbar-btn {
+    background: #fff;
+    border-color: #e4e7ee;
+    color: #667085;
+
+    &:hover {
+      background: #f5f3ff;
+      border-color: #ddd6fe;
+      color: #5b3df5;
+    }
+  }
+
+  .main-content {
+    padding: 0;
+    background: var(--bg-primary);
+
+    &::before {
+      display: none;
+    }
+  }
+}
+
+.main-layout.registry-shell.is-dark {
+  .topbar {
+    background: rgba(15, 15, 25, 0.72);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: none;
+    backdrop-filter: blur(16px);
+  }
+
+  .breadcrumb-area {
+    :deep(.el-breadcrumb__inner),
+    :deep(.el-breadcrumb__separator) {
+      color: #94a3b8;
+    }
+
+    :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
+      color: #e2e8f0;
+    }
+  }
+
+  .topbar-search {
+    .search-input {
+      :deep(.el-input__wrapper) {
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 8px;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+      }
+    }
+  }
+
+  .topbar-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+    color: #94a3b8;
+
+    &:hover {
+      background: rgba(99, 102, 241, 0.12);
+      border-color: rgba(99, 102, 241, 0.35);
+      color: #e2e8f0;
+    }
+  }
+}
+
 // ── 日间模式布局覆盖 ──
 :global([data-theme="light"]) {
   .sidebar {
@@ -525,6 +622,10 @@ const currentTitle = computed(() => (route.meta.title as string) || '')
       border-color: rgba(99, 102, 241, 0.25);
       color: #1e293b;
     }
+  }
+
+  .registry-shell .main-content {
+    background: #f7f8fc;
   }
 
   .main-content {

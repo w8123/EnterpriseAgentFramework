@@ -99,6 +99,14 @@ export interface ScanProject {
   authApiKeyValue?: string | null
   /** 与后端一致；缺省时前端用 getDefaultScanSettings() */
   scanSettings?: ScanSettings
+  /** 列表展示描述，由后端按项目环境、地址等统一生成 */
+  description?: string | null
+  /** SDK 注册项目最近心跳上报的 SDK 版本，无实例时为后端 fallback */
+  sdkVersion?: string | null
+  /** 列表展示 API 数量；默认等同 toolCount */
+  apiCount?: number
+  /** 列表展示状态摘要 */
+  registryStatusSummary?: string | null
   lastScannedAt?: string | null
 }
 

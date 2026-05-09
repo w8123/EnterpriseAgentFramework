@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <div class="page-header">
-      <h2>项目 / 扫描接入</h2>
+      <h2>项目接入 · API 接口目录</h2>
       <div class="header-actions">
         <el-button type="primary" @click="openCreateDialog">
           <el-icon><Plus /></el-icon>新建项目

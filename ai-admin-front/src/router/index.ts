@@ -175,7 +175,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'scan-project',
         name: 'ScanProjectList',
-        component: () => import('@/views/scan/ScanProjectList.vue'),
+        redirect: '/registry/projects',
         meta: { title: '项目与 API 接入' },
       },
       {

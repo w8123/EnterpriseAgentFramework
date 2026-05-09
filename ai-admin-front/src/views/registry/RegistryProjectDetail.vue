@@ -58,126 +58,20 @@
       </el-col>
     </el-row>
 
-    <el-card v-if="project?.id" class="section-card scan-settings-registry" shadow="never">
+    <el-card v-if="project?.id" class="section-card registry-scan-link-card" shadow="never">
       <template #header>
-        <span>接口与参数说明来源（SDK 与离线扫描共用）</span>
+        <span>接口与参数说明来源</span>
       </template>
       <el-alert
         type="info"
         :closable="false"
         show-icon
-        class="registry-scan-alert"
-        title="说明"
-        description="此处保存的配置写入项目 scan_settings。业务系统 SDK 启动/心跳前会拉取其中顺序（运行时不会使用 Javadoc 源）。离线 Controller 扫描仍可使用 Javadoc 相关项。"
+        title="配置入口已统一到 API 接口目录页"
+        description="「接口与参数说明来源」等与 SDK / 离线扫描共用的 scan_settings，请在「API 目录与 Tool 关联」页面顶部折叠面板「扫描与接口说明设置」中编辑并保存。保存后业务系统 SDK 下次同步能力时将按新规则解析。"
       />
-      <el-form label-width="180px" class="scan-settings-form-registry" @submit.prevent>
-        <el-form-item label="接口说明来源（上→下优先）">
-          <div class="order-list">
-            <div v-for="(k, i) in scanSettingsForm.descriptionSourceOrder" :key="k" class="order-item">
-              <span class="order-label">
-                <el-tooltip
-                  v-if="k === 'JAVADOC'"
-                  content="SDK 运行时不读取；仅离线源码扫描使用。"
-                  placement="top"
-                >
-                  <span>{{ descriptionSourceLabels[k] || k }}</span>
-                </el-tooltip>
-                <template v-else>{{ descriptionSourceLabels[k] || k }}</template>
-              </span>
-              <el-switch
-                :model-value="scanSettingsForm.descriptionSourceEnabled[k] !== false"
-                class="order-source-switch"
-                size="small"
-                @update:model-value="(v: boolean) => setDescriptionSourceEnabled(k, v)"
-                @click.stop
-              />
-              <el-button-group>
-                <el-button size="small" :disabled="i === 0" @click="moveDescriptionOrder(i, -1)">上移</el-button>
-                <el-button
-                  size="small"
-                  :disabled="i === scanSettingsForm.descriptionSourceOrder.length - 1"
-                  @click="moveDescriptionOrder(i, 1)"
-                >下移</el-button>
-              </el-button-group>
-            </div>
-          </div>
-        </el-form-item>
-        <el-form-item label="参数说明来源（上→下优先）">
-          <div class="order-list">
-            <div v-for="(k, i) in scanSettingsForm.paramDescriptionSourceOrder" :key="k" class="order-item">
-              <span class="order-label">
-                <el-tooltip
-                  v-if="k === 'JAVADOC_PARAM'"
-                  content="SDK 运行时不读取；仅离线源码扫描使用。"
-                  placement="top"
-                >
-                  <span>{{ paramSourceLabels[k] || k }}</span>
-                </el-tooltip>
-                <template v-else>{{ paramSourceLabels[k] || k }}</template>
-              </span>
-              <el-switch
-                :model-value="scanSettingsForm.paramDescriptionSourceEnabled[k] !== false"
-                class="order-source-switch"
-                size="small"
-                @update:model-value="(v: boolean) => setParamDescriptionSourceEnabled(k, v)"
-                @click.stop
-              />
-              <el-button-group>
-                <el-button size="small" :disabled="i === 0" @click="moveParamOrder(i, -1)">上移</el-button>
-                <el-button
-                  size="small"
-                  :disabled="i === scanSettingsForm.paramDescriptionSourceOrder.length - 1"
-                  @click="moveParamOrder(i, 1)"
-                >下移</el-button>
-              </el-button-group>
-            </div>
-          </div>
-        </el-form-item>
-        <el-form-item label="仅 @RestController">
-          <el-switch v-model="scanSettingsForm.onlyRestController" />
-        </el-form-item>
-        <el-form-item label="HTTP 方法白名单">
-          <el-select
-            v-model="scanSettingsForm.httpMethodWhitelist"
-            multiple
-            clearable
-            filterable
-            class="http-method-select-registry"
-            placeholder="留空=全部"
-          >
-            <el-option v-for="m in allHttpMethods" :key="m" :label="m" :value="m" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="类名包含正则">
-          <el-input v-model="scanSettingsForm.classIncludeRegex" clearable placeholder="留空=不限制" />
-        </el-form-item>
-        <el-form-item label="类名排除正则">
-          <el-input v-model="scanSettingsForm.classExcludeRegex" clearable placeholder="留空=不排除" />
-        </el-form-item>
-        <el-form-item label="跳过 deprecated 接口">
-          <el-switch v-model="scanSettingsForm.skipDeprecated" />
-        </el-form-item>
-        <el-form-item label="新发现接口默认">
-          <div class="switch-group-registry">
-            <el-switch v-model="scanSettingsForm.defaultFlags.enabled" />
-            <span>启用</span>
-            <el-switch v-model="scanSettingsForm.defaultFlags.agentVisible" />
-            <span>Agent 可见</span>
-            <el-switch v-model="scanSettingsForm.defaultFlags.lightweightEnabled" />
-            <span>轻量调用</span>
-          </div>
-        </el-form-item>
-        <el-form-item label="增量扫描">
-          <el-radio-group v-model="scanSettingsForm.incrementalMode" class="incr-radio-registry">
-            <el-radio-button label="OFF">关闭</el-radio-button>
-            <el-radio-button label="MTIME">仅变更文件</el-radio-button>
-            <el-radio-button label="GIT_DIFF">Git 差异</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="scanSettingsSaving" @click="handleSaveScanSettings">保存设置</el-button>
-        </el-form-item>
-      </el-form>
+      <div class="registry-scan-link-actions">
+        <el-button type="primary" @click="goApiCatalog">前往 API 接口目录页</el-button>
+      </div>
     </el-card>
 
     <el-card class="section-card" shadow="never">
@@ -205,19 +99,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { DocumentCopy } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { getScanProjects, getScanProjectDetail, updateScanProjectScanSettings } from '@/api/scanProject'
+import { getScanProjects, getScanProjectDetail } from '@/api/scanProject'
 import { listRegistryProjectInstances } from '@/api/registry'
-import type {
-  DescriptionSource,
-  ParamDescriptionSource,
-  ScanProject,
-  ScanSettings,
-} from '@/types/scanProject'
-import { getDefaultScanSettings } from '@/types/scanProject'
+import type { ScanProject } from '@/types/scanProject'
 import type { ProjectInstance } from '@/types/registry'
 import { useProjectStore } from '@/store/project'
 import { formatProjectKindLabel, formatVisibilityLabel } from '@/utils/projectLabels'
@@ -230,25 +118,6 @@ const projectCode = computed(() => String(route.params.projectCode || ''))
 const project = ref<ScanProject | null>(null)
 const instances = ref<ProjectInstance[]>([])
 const loadingInstances = ref(false)
-
-const scanSettingsForm = reactive<ScanSettings>(getDefaultScanSettings())
-const scanSettingsSaving = ref(false)
-
-const descriptionSourceLabels: Record<DescriptionSource, string> = {
-  JAVADOC: 'Javadoc',
-  SWAGGER_API_OPERATION: 'Swagger @ApiOperation',
-  OPENAPI_OPERATION: 'OpenAPI @Operation',
-  METHOD_NAME: '方法名兜底',
-}
-
-const paramSourceLabels: Record<ParamDescriptionSource, string> = {
-  JAVADOC_PARAM: 'Javadoc @param',
-  SCHEMA_ANNO: '@Schema / 模型',
-  PARAMETER_ANNO: '@Parameter 等',
-  FIELD_NAME: '形参/字段名',
-}
-
-const allHttpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const
 
 /** 与 ai-agent-service 实际监听地址一致，由 VITE_AI_AGENT_SERVICE_URL 注入，默认本地 8603 */
 const agentServiceBaseUrl = computed(() => {
@@ -300,124 +169,13 @@ async function refresh() {
     try {
       const { data: detail } = await getScanProjectDetail(found.id)
       project.value = detail
-      syncScanSettingsFormFromProject()
     } catch {
       project.value = found
-      syncScanSettingsFormFromProject()
     }
   } else {
     project.value = found
   }
   await loadInstances()
-}
-
-function syncScanSettingsFormFromProject() {
-  const p = project.value
-  if (!p) return
-  const s = p.scanSettings
-  const b = getDefaultScanSettings()
-  if (!s) {
-    Object.assign(scanSettingsForm, b)
-    return
-  }
-  const df = s.defaultFlags ?? b.defaultFlags
-  const dOrder = s.descriptionSourceOrder?.length
-    ? ([...s.descriptionSourceOrder] as DescriptionSource[])
-    : ([...b.descriptionSourceOrder] as DescriptionSource[])
-  const pOrder = s.paramDescriptionSourceOrder?.length
-    ? ([...s.paramDescriptionSourceOrder] as ParamDescriptionSource[])
-    : ([...b.paramDescriptionSourceOrder] as ParamDescriptionSource[])
-  Object.assign(scanSettingsForm, {
-    descriptionSourceOrder: dOrder,
-    paramDescriptionSourceOrder: pOrder,
-    descriptionSourceEnabled: buildSourceEnabledMap(dOrder, s.descriptionSourceEnabled),
-    paramDescriptionSourceEnabled: buildParamSourceEnabledMap(pOrder, s.paramDescriptionSourceEnabled),
-    onlyRestController: s.onlyRestController ?? b.onlyRestController,
-    httpMethodWhitelist: s.httpMethodWhitelist != null ? [...s.httpMethodWhitelist] : [],
-    classIncludeRegex: s.classIncludeRegex ?? '',
-    classExcludeRegex: s.classExcludeRegex ?? '',
-    skipDeprecated: s.skipDeprecated ?? false,
-    defaultFlags: { ...b.defaultFlags, ...df },
-    incrementalMode: s.incrementalMode ?? b.incrementalMode,
-  } as ScanSettings)
-}
-
-function buildSourceEnabledMap(
-  order: DescriptionSource[],
-  fromApi: ScanSettings['descriptionSourceEnabled'] | undefined,
-): ScanSettings['descriptionSourceEnabled'] {
-  const o: ScanSettings['descriptionSourceEnabled'] = {}
-  for (const k of order) {
-    o[k] = fromApi?.[k] !== false
-  }
-  return o
-}
-
-function buildParamSourceEnabledMap(
-  order: ParamDescriptionSource[],
-  fromApi: ScanSettings['paramDescriptionSourceEnabled'] | undefined,
-): ScanSettings['paramDescriptionSourceEnabled'] {
-  const o: ScanSettings['paramDescriptionSourceEnabled'] = {}
-  for (const k of order) {
-    o[k] = fromApi?.[k] !== false
-  }
-  return o
-}
-
-function setDescriptionSourceEnabled(k: DescriptionSource, v: boolean) {
-  scanSettingsForm.descriptionSourceEnabled[k] = v
-}
-
-function setParamDescriptionSourceEnabled(k: ParamDescriptionSource, v: boolean) {
-  scanSettingsForm.paramDescriptionSourceEnabled[k] = v
-}
-
-function moveDescriptionOrder(i: number, d: number) {
-  const arr = scanSettingsForm.descriptionSourceOrder
-  const j = i + d
-  if (j < 0 || j >= arr.length) return
-  const tmp = arr[i]!
-  arr[i] = arr[j]!
-  arr[j] = tmp
-}
-
-function moveParamOrder(i: number, d: number) {
-  const arr = scanSettingsForm.paramDescriptionSourceOrder
-  const j = i + d
-  if (j < 0 || j >= arr.length) return
-  const tmp = arr[i]!
-  arr[i] = arr[j]!
-  arr[j] = tmp
-}
-
-async function handleSaveScanSettings() {
-  if (!project.value?.id) return
-  const payload: ScanSettings = {
-    descriptionSourceOrder: [...scanSettingsForm.descriptionSourceOrder],
-    paramDescriptionSourceOrder: [...scanSettingsForm.paramDescriptionSourceOrder],
-    descriptionSourceEnabled: { ...scanSettingsForm.descriptionSourceEnabled },
-    paramDescriptionSourceEnabled: { ...scanSettingsForm.paramDescriptionSourceEnabled },
-    onlyRestController: scanSettingsForm.onlyRestController,
-    httpMethodWhitelist: [...scanSettingsForm.httpMethodWhitelist],
-    classIncludeRegex: scanSettingsForm.classIncludeRegex?.trim() ?? '',
-    classExcludeRegex: scanSettingsForm.classExcludeRegex?.trim() ?? '',
-    skipDeprecated: scanSettingsForm.skipDeprecated,
-    defaultFlags: { ...scanSettingsForm.defaultFlags },
-    incrementalMode: scanSettingsForm.incrementalMode,
-  }
-  scanSettingsSaving.value = true
-  try {
-    const { data } = await updateScanProjectScanSettings(project.value.id, payload)
-    if (data) {
-      project.value = data
-      syncScanSettingsFormFromProject()
-    }
-    ElMessage.success('扫描设置已保存')
-  } catch (e) {
-    ElMessage.error((e as Error).message || '保存失败')
-  } finally {
-    scanSettingsSaving.value = false
-  }
 }
 
 async function loadInstances() {
@@ -503,57 +261,7 @@ function goCapabilitySync() {
   gap: 8px;
 }
 
-.registry-scan-alert {
-  margin-bottom: 16px;
-}
-
-.scan-settings-form-registry {
-  max-width: 800px;
-}
-
-.order-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-  max-width: 640px;
-}
-
-.order-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-}
-
-.order-label {
-  flex: 1;
-  min-width: 0;
-  font-size: 14px;
-}
-
-.order-source-switch {
-  flex-shrink: 0;
-}
-
-.http-method-select-registry {
-  min-width: 280px;
-}
-
-.incr-radio-registry {
-  flex-wrap: wrap;
-}
-
-.switch-group-registry {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-
-.scan-settings-registry {
+.registry-scan-link-actions {
   margin-top: 16px;
 }
 </style>
