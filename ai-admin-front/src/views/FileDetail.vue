@@ -1,22 +1,25 @@
 <template>
   <div class="page-container">
-    <!-- 顶部：返回 + 标题 -->
     <div class="page-header">
       <div class="header-left">
         <el-button text @click="router.push(`/knowledge/${kbCode}`)">
           <el-icon><ArrowLeft /></el-icon>
           返回
         </el-button>
-        <h2>文件详情</h2>
-        <el-tag effect="plain" size="small" style="margin-left: 8px">{{ fileId }}</el-tag>
+        <div>
+          <h2>文件段落</h2>
+          <div class="subline">
+            <el-tag effect="plain" size="small">{{ fileId }}</el-tag>
+            <span>共 {{ chunkList.length }} 个段落</span>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- Chunk 列表 -->
     <el-card shadow="never" class="section-card">
       <template #header>
         <div class="card-header-row">
-          <span>Chunk 列表（共 {{ chunkList.length }} 个）</span>
+          <span>段落列表</span>
           <el-button size="small" @click="fetchChunks" :loading="loading">
             <el-icon><Refresh /></el-icon>
             刷新
@@ -26,13 +29,13 @@
 
       <el-table v-loading="loading" :data="chunkList" stripe style="width: 100%">
         <el-table-column prop="chunkIndex" label="序号" width="80" align="center" />
-        <el-table-column label="内容" min-width="400">
+        <el-table-column label="内容" min-width="420">
           <template #default="{ row }">
             <div class="chunk-content-cell">
               <span v-if="expandedIds.has(row.id)">{{ row.content }}</span>
-              <span v-else>{{ truncate(row.content, 150) }}</span>
+              <span v-else>{{ truncate(row.content, 180) }}</span>
               <el-button
-                v-if="row.content && row.content.length > 150"
+                v-if="row.content && row.content.length > 180"
                 type="primary"
                 link
                 size="small"
@@ -43,8 +46,20 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="length" label="长度" width="100" align="center" />
-        <el-table-column label="向量 ID" width="200" show-overflow-tooltip>
+        <el-table-column prop="length" label="长度" width="90" align="center" />
+        <el-table-column prop="hitCount" label="命中" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" effect="plain">{{ row.hitCount ?? 0 }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="enabled" label="状态" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.enabled === 0 ? 'info' : 'success'" size="small">
+              {{ row.enabled === 0 ? '停用' : '启用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="向量 ID" width="220" show-overflow-tooltip>
           <template #default="{ row }">
             <span class="vector-id-text">{{ row.vectorId || '-' }}</span>
           </template>
@@ -73,7 +88,7 @@ const expandedIds = ref<Set<number>>(new Set())
 
 function truncate(text: string, maxLen: number): string {
   if (!text) return ''
-  return text.length > maxLen ? text.slice(0, maxLen) + '...' : text
+  return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text
 }
 
 function toggleExpand(id: number) {
@@ -82,7 +97,6 @@ function toggleExpand(id: number) {
   } else {
     expandedIds.value.add(id)
   }
-  // 触发响应式更新
   expandedIds.value = new Set(expandedIds.value)
 }
 
@@ -96,16 +110,14 @@ async function fetchChunks() {
   }
 }
 
-onMounted(() => {
-  fetchChunks()
-})
+onMounted(fetchChunks)
 </script>
 
 <style scoped lang="scss">
 .header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 
   h2 {
     margin: 0;
@@ -113,6 +125,15 @@ onMounted(() => {
     font-weight: 600;
     color: var(--text-primary);
   }
+}
+
+.subline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .card-header-row {
@@ -123,9 +144,9 @@ onMounted(() => {
 
 .chunk-content-cell {
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.65;
   color: var(--text-secondary);
-  word-break: break-all;
+  word-break: break-word;
   white-space: pre-wrap;
 }
 
@@ -135,7 +156,6 @@ onMounted(() => {
   color: #64748b;
 }
 
-// ── 日间模式覆盖 ──
 :global([data-theme="light"]) {
   .vector-id-text {
     color: #94a3b8;

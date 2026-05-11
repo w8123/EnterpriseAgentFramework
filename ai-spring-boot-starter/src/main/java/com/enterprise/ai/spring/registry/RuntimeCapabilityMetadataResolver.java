@@ -7,6 +7,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.RequestBody;
 
 import java.lang.annotation.Annotation;
+import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
@@ -96,6 +97,74 @@ public class RuntimeCapabilityMetadataResolver {
         }
         String n = mp.getParameterName();
         return n != null ? n : "";
+    }
+
+    /**
+     * 解析 DTO 字段、Record 组件等与形参相同的「参数说明来源」顺序（无 Javadoc 源）。
+     */
+    public String resolveMemberDescription(AnnotatedElement element, String fallbackName) {
+        AiParam aiParam = element.getAnnotation(AiParam.class);
+        if (aiParam != null && StringUtils.hasText(aiParam.description())) {
+            return aiParam.description().trim();
+        }
+        for (String key : effectiveParamOrder()) {
+            switch (normalizeKey(key)) {
+                case "SCHEMA_ANNO" -> {
+                    Optional<String> s = schemaOnAnnotatedElement(element);
+                    if (s.isPresent()) {
+                        return s.get();
+                    }
+                }
+                case "PARAMETER_ANNO" -> {
+                    Optional<String> p = parameterDescriptionOnAnnotatedElement(element);
+                    if (p.isPresent()) {
+                        return p.get();
+                    }
+                }
+                case "FIELD_NAME" -> {
+                    if (StringUtils.hasText(fallbackName)) {
+                        return fallbackName;
+                    }
+                }
+                default -> {
+                }
+            }
+        }
+        return fallbackName != null ? fallbackName : "";
+    }
+
+    private static Optional<String> schemaOnAnnotatedElement(AnnotatedElement element) {
+        for (Annotation a : element.getAnnotations()) {
+            if ("Schema".equals(a.annotationType().getSimpleName())) {
+                Optional<String> d = invokeStringAttr(a, "description");
+                if (d.isPresent()) {
+                    return d;
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<String> parameterDescriptionOnAnnotatedElement(AnnotatedElement element) {
+        for (Annotation a : element.getAnnotations()) {
+            if ("Parameter".equals(a.annotationType().getSimpleName())) {
+                Optional<String> d = invokeStringAttr(a, "description");
+                if (d.isPresent()) {
+                    return d;
+                }
+                return invokeStringAttr(a, "name");
+            }
+        }
+        for (Annotation a : element.getAnnotations()) {
+            if ("ApiModelProperty".equals(a.annotationType().getSimpleName())) {
+                Optional<String> v = invokeStringAttr(a, "value");
+                if (v.isPresent()) {
+                    return v;
+                }
+                return invokeStringAttr(a, "notes");
+            }
+        }
+        return Optional.empty();
     }
 
     private List<String> effectiveDescOrder() {

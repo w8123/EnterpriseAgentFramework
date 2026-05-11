@@ -253,13 +253,13 @@
           <el-table-column prop="updatedAt" label="更新时间" width="180" />
           <el-table-column label="操作" width="300" fixed="right">
             <template #default="{ row }">
-              <el-button link type="primary" size="small" @click="handleEdit(row.id)">编辑</el-button>
-              <el-button link type="warning" size="small" @click="handleStudio(row.id)">画布编排</el-button>
-              <el-button link type="info" size="small" @click="handleVersions(row.id)">版本</el-button>
-              <el-button link type="success" size="small" @click="handleDebug(row.id)">调试</el-button>
+              <el-button link type="primary" size="small" @click.stop="handleEdit(row.id)">编辑</el-button>
+              <el-button link type="warning" size="small" @click.stop="handleStudio(row.id)">画布编排</el-button>
+              <el-button link type="info" size="small" @click.stop="handleVersions(row.id)">版本</el-button>
+              <el-button link type="success" size="small" @click.stop="handleDebug(row.id)">调试</el-button>
               <el-popconfirm title="确认删除该 Agent？" @confirm="handleDelete(row.id)">
                 <template #reference>
-                  <el-button link type="danger" size="small">删除</el-button>
+                  <el-button link type="danger" size="small" @click.stop>删除</el-button>
                 </template>
               </el-popconfirm>
             </template>

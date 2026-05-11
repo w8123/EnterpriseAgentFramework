@@ -1,0 +1,96 @@
+# coding=utf-8
+"""
+    @project: MaxKB
+    @Author：虎虎
+    @file： trigger_task.py
+    @date：2026/1/14 16:01
+    @desc:
+"""
+from django.utils.translation import gettext_lazy as _
+from drf_spectacular.utils import extend_schema
+from rest_framework.request import Request
+from rest_framework.views import APIView
+
+from common.auth import TokenAuth
+from common.auth.authentication import has_permissions
+from common import result
+from trigger.api.trigger_task import TriggerTaskRecordExecutionDetailsAPI, TriggerTaskRecordPageAPI, TriggerTaskAPI
+from trigger.serializers.trigger_task import TriggerTaskQuerySerializer, TriggerTaskRecordQuerySerializer, \
+    TriggerTaskRecordOperateSerializer
+from common.constants.permission_constants import PermissionConstants, RoleConstants
+
+
+class TriggerTaskView(APIView):
+    authentication_classes = [TokenAuth]
+
+    @extend_schema(
+        methods=['GET'],
+        description=_('Get the task list of triggers'),
+        summary=_('Get the task list of triggers'),
+        operation_id=_('Get the task list of triggers'),  # type: ignore
+        parameters=TriggerTaskAPI.get_parameters(),
+        responses=TriggerTaskAPI.get_response(),
+        tags=[_('Trigger')]  # type: ignore
+    )
+    @has_permissions(
+        PermissionConstants.TRIGGER_READ.get_workspace_permission_workspace_manage_role(),
+        RoleConstants.WORKSPACE_MANAGE.get_workspace_role(),
+    )
+    def get(self, request: Request, workspace_id: str, trigger_id: str):
+        return result.success(
+            TriggerTaskQuerySerializer(data={'workspace_id': workspace_id, 'trigger_id': trigger_id}).list())
+
+
+class TriggerTaskRecordView(APIView):
+    pass
+
+
+class TriggerTaskRecordExecutionDetailsView(APIView):
+    authentication_classes = [TokenAuth]
+
+    @extend_schema(
+        methods=['GET'],
+        description=_('Retrieve detailed records of tasks executed by the trigger.'),
+        summary=_('Retrieve detailed records of tasks executed by the trigger.'),
+        operation_id=_('Retrieve detailed records of tasks executed by the trigger.'),  # type: ignore
+        parameters=TriggerTaskRecordExecutionDetailsAPI.get_parameters(),
+        responses=TriggerTaskRecordExecutionDetailsAPI.get_response(),
+        tags=[_('Trigger')]  # type: ignore
+    )
+    @has_permissions(
+        PermissionConstants.TRIGGER_READ.get_workspace_permission_workspace_manage_role(),
+        RoleConstants.WORKSPACE_MANAGE.get_workspace_role(),
+    )
+    def get(self, request: Request, workspace_id: str, trigger_id: str, trigger_task_id: str,
+            trigger_task_record_id: str):
+        return result.success(
+            TriggerTaskRecordOperateSerializer(
+                data={'workspace_id': workspace_id, 'trigger_id': trigger_id, 'trigger_task_id': trigger_task_id,
+                      'trigger_task_record_id': trigger_task_record_id})
+            .get_execution_details())
+
+
+class TriggerTaskRecordPageView(APIView):
+    authentication_classes = [TokenAuth]
+
+    @extend_schema(
+        methods=['GET'],
+        description=_('Get a paginated list of execution records for trigger tasks.'),
+        summary=_('Get a paginated list of execution records for trigger tasks.'),
+        operation_id=_('Get a paginated list of execution records for trigger tasks.'),  # type: ignore
+        parameters=TriggerTaskRecordPageAPI.get_parameters(),
+        responses=TriggerTaskRecordPageAPI.get_response(),
+        tags=[_('Trigger')]  # type: ignore
+    )
+    @has_permissions(
+        PermissionConstants.TRIGGER_READ.get_workspace_permission_workspace_manage_role(),
+        RoleConstants.WORKSPACE_MANAGE.get_workspace_role(),
+    )
+    def get(self, request: Request, workspace_id: str, trigger_id: str, current_page: int, page_size: int):
+        return result.success(
+            TriggerTaskRecordQuerySerializer(
+                data={'workspace_id': workspace_id, 'trigger_id': trigger_id,
+                      'source_type': request.query_params.get('source_type'),
+                      'state': request.query_params.get('state'),
+                      'name': request.query_params.get('name')})
+            .page(current_page, page_size))

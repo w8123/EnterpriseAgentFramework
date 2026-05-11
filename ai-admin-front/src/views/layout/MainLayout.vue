@@ -17,48 +17,118 @@
           <!-- 1 概览 -->
           <el-menu-item index="/dashboard">
             <el-icon><DataAnalysis /></el-icon>
-            <span>概览</span>
+            <span class="menu-label">
+              <span class="menu-cn">概览</span>
+              <span class="menu-en">Dashboard</span>
+            </span>
           </el-menu-item>
 
           <!-- 2 AI 注册中心 -->
           <el-sub-menu index="/registry-group">
             <template #title>
               <el-icon><Connection /></el-icon>
-              <span>AI 注册中心</span>
+              <span class="menu-label">
+                <span class="menu-cn">注册中心</span>
+                <span class="menu-en">Registry</span>
+              </span>
             </template>
-            <el-menu-item index="/registry/projects">项目管理</el-menu-item>
-            <el-menu-item index="/registry/capability-sync">能力变更评审</el-menu-item>
+            <el-menu-item index="/registry/projects">
+              <span class="menu-label leaf">
+                <span class="menu-cn">项目管理</span>
+                <span class="menu-en">Projects</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/registry/capability-sync">
+              <span class="menu-label leaf">
+                <span class="menu-cn">能力变更评审</span>
+                <span class="menu-en">Capability Review</span>
+              </span>
+            </el-menu-item>
           </el-sub-menu>
 
           <!-- 3 Agent -->
           <el-menu-item index="/agent">
             <el-icon><Cpu /></el-icon>
-            <span>Agent</span>
+            <span class="menu-label">
+              <span class="menu-cn">智能体</span>
+              <span class="menu-en">Agent</span>
+            </span>
           </el-menu-item>
 
-          <!-- 4 Skill -->
-          <el-sub-menu index="/skill-group">
+          <!-- 4 能力（Capability） -->
+          <el-sub-menu index="/capability-group">
             <template #title>
               <el-icon><Aim /></el-icon>
-              <span>Skill</span>
+              <span class="menu-label">
+                <span class="menu-cn">能力</span>
+                <span class="menu-en">Capability</span>
+              </span>
             </template>
-            <el-menu-item index="/skill">Skill 管理</el-menu-item>
-            <el-menu-item index="/skill/mining">Skill Mining</el-menu-item>
-            <el-menu-item index="/skill/slot/extractors">槽位提取器</el-menu-item>
-            <el-menu-item index="/skill/slot/dict-dept">部门字典</el-menu-item>
-            <el-menu-item index="/skill/slot/dict-user">人员字典</el-menu-item>
-            <el-menu-item index="/skill/slot/logs">槽位调用日志</el-menu-item>
+            <el-menu-item index="/capability">
+              <span class="menu-label leaf">
+                <span class="menu-cn">能力管理</span>
+                <span class="menu-en">Capabilities</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/capability/mining">
+              <span class="menu-label leaf">
+                <span class="menu-cn">能力挖掘</span>
+                <span class="menu-en">Mining</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/capability/slot/extractors">
+              <span class="menu-label leaf">
+                <span class="menu-cn">槽位提取器</span>
+                <span class="menu-en">Slot Extractors</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/capability/slot/dict-dept">
+              <span class="menu-label leaf">
+                <span class="menu-cn">部门字典</span>
+                <span class="menu-en">Departments</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/capability/slot/dict-user">
+              <span class="menu-label leaf">
+                <span class="menu-cn">人员字典</span>
+                <span class="menu-en">Users</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/capability/slot/logs">
+              <span class="menu-label leaf">
+                <span class="menu-cn">槽位调用日志</span>
+                <span class="menu-en">Slot Logs</span>
+              </span>
+            </el-menu-item>
           </el-sub-menu>
 
           <!-- 5 Tool -->
           <el-sub-menu index="/tool-group">
             <template #title>
               <el-icon><SetUp /></el-icon>
-              <span>Tool</span>
+              <span class="menu-label">
+                <span class="menu-cn">工具</span>
+                <span class="menu-en">Tool</span>
+              </span>
             </template>
-            <el-menu-item index="/tool">Tool 列表</el-menu-item>
-            <el-menu-item index="/tool/retrieval">Tool 检索测试</el-menu-item>
-            <el-menu-item index="/settings/tool-acl">Tool ACL</el-menu-item>
+            <el-menu-item index="/tool">
+              <span class="menu-label leaf">
+                <span class="menu-cn">工具列表</span>
+                <span class="menu-en">Tool List</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/tool/retrieval">
+              <span class="menu-label leaf">
+                <span class="menu-cn">工具检索测试</span>
+                <span class="menu-en">Retrieval Test</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/settings/tool-acl">
+              <span class="menu-label leaf">
+                <span class="menu-cn">工具权限</span>
+                <span class="menu-en">Tool ACL</span>
+              </span>
+            </el-menu-item>
           </el-sub-menu>
 
           <div class="menu-divider" />
@@ -67,22 +137,58 @@
           <el-sub-menu index="/knowledge-group">
             <template #title>
               <el-icon><Collection /></el-icon>
-              <span>知识与检索</span>
+              <span class="menu-label">
+                <span class="menu-cn">知识检索</span>
+                <span class="menu-en">Knowledge</span>
+              </span>
             </template>
-            <el-menu-item index="/knowledge">知识库管理</el-menu-item>
-            <el-menu-item index="/knowledge/import">文件入库</el-menu-item>
-            <el-menu-item index="/retrieval">检索测试</el-menu-item>
-            <el-menu-item index="/biz-index">业务索引</el-menu-item>
+            <el-menu-item index="/knowledge">
+              <span class="menu-label leaf">
+                <span class="menu-cn">知识库管理</span>
+                <span class="menu-en">Knowledge Bases</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/knowledge/import">
+              <span class="menu-label leaf">
+                <span class="menu-cn">文件入库</span>
+                <span class="menu-en">Import</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/retrieval">
+              <span class="menu-label leaf">
+                <span class="menu-cn">检索测试</span>
+                <span class="menu-en">Retrieval</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/biz-index">
+              <span class="menu-label leaf">
+                <span class="menu-cn">业务索引</span>
+                <span class="menu-en">Business Index</span>
+              </span>
+            </el-menu-item>
           </el-sub-menu>
 
           <!-- 7 模型管理 -->
           <el-sub-menu index="/model-group">
             <template #title>
               <el-icon><Coin /></el-icon>
-              <span>模型管理</span>
+              <span class="menu-label">
+                <span class="menu-cn">模型管理</span>
+                <span class="menu-en">Models</span>
+              </span>
             </template>
-            <el-menu-item index="/model">Provider 管理</el-menu-item>
-            <el-menu-item index="/model/playground">模型调试台</el-menu-item>
+            <el-menu-item index="/model">
+              <span class="menu-label leaf">
+                <span class="menu-cn">提供方管理</span>
+                <span class="menu-en">Providers</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/model/playground">
+              <span class="menu-label leaf">
+                <span class="menu-cn">模型调试台</span>
+                <span class="menu-en">Playground</span>
+              </span>
+            </el-menu-item>
           </el-sub-menu>
 
           <div class="menu-divider" />
@@ -91,25 +197,76 @@
           <el-sub-menu index="/open-group">
             <template #title>
               <el-icon><Share /></el-icon>
-              <span>对外开放</span>
+              <span class="menu-label">
+                <span class="menu-cn">对外开放</span>
+                <span class="menu-en">Open API</span>
+              </span>
             </template>
-            <el-menu-item index="/mcp/visibility">MCP · 暴露白名单</el-menu-item>
-            <el-menu-item index="/mcp/clients">MCP · Client 凭证</el-menu-item>
-            <el-menu-item index="/mcp/monitor">MCP · 调用流水</el-menu-item>
-            <el-menu-item index="/mcp/onboarding">MCP · 接入向导</el-menu-item>
-            <el-menu-item index="/a2a/endpoints">A2A · 暴露 Agent</el-menu-item>
-            <el-menu-item index="/a2a/monitor">A2A · 会话监控</el-menu-item>
+            <el-menu-item index="/mcp/visibility">
+              <span class="menu-label leaf">
+                <span class="menu-cn">暴露白名单</span>
+                <span class="menu-en">MCP Visibility</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/mcp/clients">
+              <span class="menu-label leaf">
+                <span class="menu-cn">客户端凭证</span>
+                <span class="menu-en">MCP Clients</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/mcp/monitor">
+              <span class="menu-label leaf">
+                <span class="menu-cn">调用流水</span>
+                <span class="menu-en">MCP Monitor</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/mcp/onboarding">
+              <span class="menu-label leaf">
+                <span class="menu-cn">接入向导</span>
+                <span class="menu-en">MCP Onboarding</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/a2a/endpoints">
+              <span class="menu-label leaf">
+                <span class="menu-cn">智能体暴露</span>
+                <span class="menu-en">A2A Endpoints</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/a2a/monitor">
+              <span class="menu-label leaf">
+                <span class="menu-cn">会话监控</span>
+                <span class="menu-en">A2A Monitor</span>
+              </span>
+            </el-menu-item>
           </el-sub-menu>
 
           <!-- 9 治理与运维 -->
           <el-sub-menu index="/domain-group">
             <template #title>
               <el-icon><Compass /></el-icon>
-              <span>治理与运维</span>
+              <span class="menu-label">
+                <span class="menu-cn">治理运维</span>
+                <span class="menu-en">Governance</span>
+              </span>
             </template>
-            <el-menu-item index="/domain">领域定义</el-menu-item>
-            <el-menu-item index="/domain/board">归属画布</el-menu-item>
-            <el-menu-item index="/domain/classifier-test">分类器测试</el-menu-item>
+            <el-menu-item index="/domain">
+              <span class="menu-label leaf">
+                <span class="menu-cn">领域定义</span>
+                <span class="menu-en">Domains</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/domain/board">
+              <span class="menu-label leaf">
+                <span class="menu-cn">归属画布</span>
+                <span class="menu-en">Assignment Board</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/domain/classifier-test">
+              <span class="menu-label leaf">
+                <span class="menu-cn">分类器测试</span>
+                <span class="menu-en">Classifier Test</span>
+              </span>
+            </el-menu-item>
           </el-sub-menu>
         </el-menu>
       </el-scrollbar>
@@ -133,21 +290,12 @@
               @click="toggleTheme"
             />
           </el-tooltip>
-          <div class="topbar-search">
-            <el-input
-              placeholder="搜索功能..."
-              size="small"
-              :prefix-icon="Search"
-              clearable
-              class="search-input"
-            />
-          </div>
           <el-tooltip content="通知" placement="bottom">
             <el-badge :value="3" :max="99" class="notify-badge">
               <el-button :icon="Bell" circle size="small" class="topbar-btn" />
             </el-badge>
           </el-tooltip>
-          <ProjectSelector :compact="isRegistryShell" />
+          <ProjectSelector v-if="!isProjectManagementPage" :compact="isRegistryShell" />
           <el-avatar :size="32" class="user-avatar">
             <el-icon :size="16"><User /></el-icon>
           </el-avatar>
@@ -166,9 +314,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
+import { useProjectStore } from '@/store/project'
 import ProjectSelector from '@/components/ProjectSelector.vue'
 import {
   Aim,
@@ -179,7 +328,6 @@ import {
   DataAnalysis,
   Cpu,
   Coin,
-  Search,
   SetUp,
   Share,
   User,
@@ -190,6 +338,7 @@ import {
 const { theme, toggleTheme } = useTheme()
 
 const route = useRoute()
+const projectStore = useProjectStore()
 
 /** 默认展开的侧边栏分组，可按需填入 index，如 '/registry-group' */
 const defaultOpenMenuGroups: string[] = []
@@ -203,12 +352,19 @@ const activeMenu = computed(() => {
   if (path.startsWith('/model')) return '/model'
   if (path.startsWith('/tool/retrieval')) return '/tool/retrieval'
   if (path.startsWith('/settings/tool-acl')) return '/settings/tool-acl'
-  if (path.startsWith('/skill/mining')) return '/skill/mining'
-  if (path.startsWith('/skill/slot/extractors')) return '/skill/slot/extractors'
-  if (path.startsWith('/skill/slot/dict-dept')) return '/skill/slot/dict-dept'
-  if (path.startsWith('/skill/slot/dict-user')) return '/skill/slot/dict-user'
-  if (path.startsWith('/skill/slot/logs')) return '/skill/slot/logs'
-  if (path.startsWith('/skill')) return '/skill'
+  if (path.startsWith('/capability/mining')) return '/capability/mining'
+  if (path.startsWith('/capability/slot/extractors')) return '/capability/slot/extractors'
+  if (path.startsWith('/capability/slot/dict-dept')) return '/capability/slot/dict-dept'
+  if (path.startsWith('/capability/slot/dict-user')) return '/capability/slot/dict-user'
+  if (path.startsWith('/capability/slot/logs')) return '/capability/slot/logs'
+  if (path.startsWith('/capability')) return '/capability'
+  // 旧书签 /skill/* 重定向后通常已进入 /capability；此处兜底避免闪烁
+  if (path.startsWith('/skill/mining')) return '/capability/mining'
+  if (path.startsWith('/skill/slot/extractors')) return '/capability/slot/extractors'
+  if (path.startsWith('/skill/slot/dict-dept')) return '/capability/slot/dict-dept'
+  if (path.startsWith('/skill/slot/dict-user')) return '/capability/slot/dict-user'
+  if (path.startsWith('/skill/slot/logs')) return '/capability/slot/logs'
+  if (path.startsWith('/skill')) return '/capability'
   if (path.startsWith('/tool')) return '/tool'
   if (path.startsWith('/registry/capability-sync')) return '/registry/capability-sync'
   if (path.startsWith('/registry/projects')) return '/registry/projects'
@@ -227,7 +383,21 @@ const activeMenu = computed(() => {
 
 const currentTitle = computed(() => (route.meta.title as string) || '')
 
-const isRegistryShell = computed(() => route.path.startsWith('/registry/projects') || route.path.startsWith('/scan-project'))
+const isProjectManagementPage = computed(() =>
+  route.path.startsWith('/registry/projects') || route.path.startsWith('/scan-project'),
+)
+
+const isRegistryShell = computed(() => isProjectManagementPage.value)
+
+watch(
+  isProjectManagementPage,
+  (onProjectManagementPage) => {
+    if (onProjectManagementPage && projectStore.currentProjectId !== null) {
+      projectStore.setCurrentProject(null)
+    }
+  },
+  { immediate: true },
+)
 
 </script>
 
@@ -356,7 +526,8 @@ const isRegistryShell = computed(() => route.path.startsWith('/registry/projects
   :deep(.el-sub-menu__title) {
     isolation: isolate;
 
-    span {
+    > span:not(.menu-label),
+    .menu-label span {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -364,8 +535,8 @@ const isRegistryShell = computed(() => route.path.startsWith('/registry/projects
   }
 
   :deep(.el-menu-item) {
-    height: 44px;
-    line-height: 44px;
+    height: 48px;
+    line-height: 1.15;
     margin: 4px 0;
     padding-right: 12px;
     border-radius: 8px;
@@ -439,8 +610,8 @@ const isRegistryShell = computed(() => route.path.startsWith('/registry/projects
   }
 
   :deep(.el-sub-menu__title) {
-    height: 44px;
-    line-height: 44px;
+    height: 48px;
+    line-height: 1.15;
     margin: 4px 0;
     padding-right: 12px;
     border-radius: 8px;
@@ -516,9 +687,9 @@ const isRegistryShell = computed(() => route.path.startsWith('/registry/projects
 
   :deep(.el-sub-menu .el-menu-item) {
     padding-left: 34px !important;
-    height: 36px;
-    line-height: 36px;
-    margin: 2px 0 2px 8px;
+    height: 42px;
+    line-height: 1.15;
+    margin: 3px 0 3px 8px;
     font-size: 12.5px;
     font-weight: 600;
     color: #8fa0ba;
@@ -527,7 +698,7 @@ const isRegistryShell = computed(() => route.path.startsWith('/registry/projects
 
     &::before {
       left: -18px;
-      top: 12px;
+      top: 18px;
       bottom: auto;
       width: 6px;
       height: 6px;
@@ -558,6 +729,65 @@ const isRegistryShell = computed(() => route.path.startsWith('/registry/projects
   }
 }
 
+.menu-label {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+}
+
+.menu-cn,
+.menu-en {
+  display: block;
+  min-width: 0;
+}
+
+.menu-cn {
+  color: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.menu-en {
+  color: rgba(148, 163, 184, 0.72);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.menu-label.leaf {
+  gap: 2px;
+
+  .menu-cn {
+    font-size: 12.5px;
+    font-weight: 700;
+  }
+
+  .menu-en {
+    font-size: 9.5px;
+    color: rgba(148, 163, 184, 0.64);
+  }
+}
+
+.sidebar-menu {
+  :deep(.el-menu-item:hover),
+  :deep(.el-sub-menu__title:hover),
+  :deep(.el-sub-menu.is-opened > .el-sub-menu__title) {
+    .menu-en {
+      color: rgba(219, 234, 254, 0.76);
+    }
+  }
+
+  :deep(.el-menu-item.is-active) {
+    .menu-en {
+      color: rgba(255, 255, 255, 0.78);
+    }
+  }
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -578,22 +808,6 @@ const isRegistryShell = computed(() => route.path.startsWith('/registry/projects
   display: flex;
   align-items: center;
   gap: 16px;
-}
-
-.topbar-search {
-  .search-input {
-    width: 200px;
-    transition: width 0.3s ease;
-
-    &:focus-within {
-      width: 280px;
-    }
-
-    :deep(.el-input__wrapper) {
-      background: rgba(255, 255, 255, 0.04);
-      border-radius: 8px;
-    }
-  }
 }
 
 .topbar-btn {
@@ -665,16 +879,6 @@ const isRegistryShell = computed(() => route.path.startsWith('/registry/projects
     }
   }
 
-  .topbar-search {
-    .search-input {
-      :deep(.el-input__wrapper) {
-        background: #f8f9fc;
-        border-radius: 8px;
-        box-shadow: 0 0 0 1px #e4e7ee inset;
-      }
-    }
-  }
-
   .topbar-btn {
     background: #fff;
     border-color: #e4e7ee;
@@ -713,16 +917,6 @@ const isRegistryShell = computed(() => route.path.startsWith('/registry/projects
 
     :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
       color: #e2e8f0;
-    }
-  }
-
-  .topbar-search {
-    .search-input {
-      :deep(.el-input__wrapper) {
-        background: rgba(255, 255, 255, 0.04);
-        border-radius: 8px;
-        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
-      }
     }
   }
 

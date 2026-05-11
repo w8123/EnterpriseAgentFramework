@@ -70,7 +70,7 @@
               <div class="topo-node-icon skill-bg">
                 <el-icon :size="20"><SetUp /></el-icon>
               </div>
-              <span class="topo-node-name">Skills Service</span>
+              <span class="topo-node-name">知识库服务</span>
               <span class="topo-node-status">
                 <span class="status-dot" :class="serviceHealth['ai-skills-service'] || 'offline'" />
                 {{ serviceHealth['ai-skills-service'] === 'online' ? '正常' : '异常' }}

@@ -5,12 +5,27 @@ export interface KnowledgeBase {
   code: string
   description: string
   embeddingModel: string
+  workspaceId: string
+  projectCode: string
+  scope: string
   dimension: number
   chunkSize: number
   chunkOverlap: number
   splitType: string
+  searchMode: string
+  topK: number
+  similarityThreshold: number
+  directReturnEnabled: boolean
+  directReturnThreshold: number
+  rerankEnabled: boolean
+  vectorWeight: number
+  keywordWeight: number
   status: number
   fileCount: number
+  chunkCount: number
+  questionCount: number
+  tagCount: number
+  hitCount: number
   createTime: string
   updateTime: string
 }
@@ -21,6 +36,17 @@ export interface KnowledgeBaseForm {
   code: string
   description: string
   embeddingModel: string
+  workspaceId?: string
+  projectCode?: string
+  scope?: string
+  searchMode?: string
+  topK?: number
+  similarityThreshold?: number
+  directReturnEnabled?: boolean
+  directReturnThreshold?: number
+  rerankEnabled?: boolean
+  vectorWeight?: number
+  keywordWeight?: number
 }
 
 /** 文件信息 */
@@ -44,6 +70,8 @@ export interface ChunkDetail {
   chunkIndex: number
   length: number
   vectorId: string
+  hitCount: number
+  enabled: number
   createTime: string
 }
 
@@ -52,6 +80,14 @@ export interface KbConfig {
   chunkSize: number
   chunkOverlap: number
   splitType: string
+  searchMode?: string
+  topK?: number
+  similarityThreshold?: number
+  directReturnEnabled?: boolean
+  directReturnThreshold?: number
+  rerankEnabled?: boolean
+  vectorWeight?: number
+  keywordWeight?: number
 }
 
 /** 检索测试请求 */
@@ -60,23 +96,82 @@ export interface RetrievalTestRequest {
   knowledgeBaseCodes?: string[]
   topK?: number
   scoreThreshold?: number
+  searchMode?: string
+  rerankEnabled?: boolean
+  directReturnEnabled?: boolean
+  directReturnThreshold?: number
+  vectorWeight?: number
+  keywordWeight?: number
+  recordHit?: boolean
 }
 
 /** 检索结果条目 */
 export interface RetrievalItem {
   chunkId: string
+  chunkDbId: number
   content: string
   score: number
+  vectorScore: number
+  keywordScore: number
+  rerankScore: number
   fileName: string
   fileId: string
   knowledgeBaseCode: string
   chunkIndex: number
+  hitCount: number
+  directReturn: boolean
+  reason: string
 }
 
 /** 检索测试响应 */
 export interface RetrievalTestResponse {
   query: string
+  searchMode: string
   totalResults: number
   costMs: number
+  directReturn: boolean
+  directReturnContent?: string
   items: RetrievalItem[]
+}
+
+export interface KnowledgeStats {
+  knowledgeBaseCode: string
+  fileCount: number
+  chunkCount: number
+  activeChunkCount: number
+  questionCount: number
+  tagCount: number
+  hitCount: number
+}
+
+export interface KnowledgeTag {
+  id: number
+  targetType: string
+  targetId: string
+  tagKey: string
+  tagValue: string
+  createTime: string
+}
+
+export interface KnowledgeTagForm {
+  targetType?: string
+  targetId?: string
+  tagKey: string
+  tagValue: string
+}
+
+export interface KnowledgeQuestion {
+  id: number
+  chunkId?: number
+  question: string
+  hitCount: number
+  source: string
+  createTime: string
+  updateTime: string
+}
+
+export interface KnowledgeQuestionForm {
+  chunkId?: number
+  question: string
+  source?: string
 }

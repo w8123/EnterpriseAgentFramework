@@ -153,6 +153,66 @@ CREATE TABLE IF NOT EXISTS `user_file_permission` (
     KEY `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户文件权限';
 
+-- Knowledge operations upgrade: enterprise scope, retrieval policy, direct return and rerank switches.
+CALL add_col_if_absent('knowledge_base', 'workspace_id', 'VARCHAR(64) NOT NULL DEFAULT ''default'' COMMENT ''workspace isolation key'' AFTER `embedding_model`');
+CALL add_col_if_absent('knowledge_base', 'project_code', 'VARCHAR(64) DEFAULT NULL COMMENT ''owning EAF project code'' AFTER `workspace_id`');
+CALL add_col_if_absent('knowledge_base', 'scope', 'VARCHAR(20) NOT NULL DEFAULT ''WORKSPACE'' COMMENT ''SHARED / WORKSPACE / PROJECT'' AFTER `project_code`');
+CALL add_col_if_absent('knowledge_base', 'search_mode', 'VARCHAR(20) NOT NULL DEFAULT ''hybrid'' COMMENT ''vector / keyword / hybrid'' AFTER `split_type`');
+CALL add_col_if_absent('knowledge_base', 'top_k', 'INT NOT NULL DEFAULT 5 COMMENT ''default retrieval topK'' AFTER `search_mode`');
+CALL add_col_if_absent('knowledge_base', 'similarity_threshold', 'FLOAT NOT NULL DEFAULT 0.5 COMMENT ''default retrieval threshold'' AFTER `top_k`');
+CALL add_col_if_absent('knowledge_base', 'direct_return_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''enable direct paragraph return'' AFTER `similarity_threshold`');
+CALL add_col_if_absent('knowledge_base', 'direct_return_threshold', 'FLOAT NOT NULL DEFAULT 0.9 COMMENT ''direct return threshold'' AFTER `direct_return_enabled`');
+CALL add_col_if_absent('knowledge_base', 'rerank_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''enable rerank'' AFTER `direct_return_threshold`');
+CALL add_col_if_absent('knowledge_base', 'vector_weight', 'FLOAT NOT NULL DEFAULT 0.7 COMMENT ''hybrid vector weight'' AFTER `rerank_enabled`');
+CALL add_col_if_absent('knowledge_base', 'keyword_weight', 'FLOAT NOT NULL DEFAULT 0.3 COMMENT ''hybrid keyword weight'' AFTER `vector_weight`');
+CALL add_col_if_absent('chunk', 'title', 'VARCHAR(256) DEFAULT NULL COMMENT ''paragraph title'' AFTER `content`');
+CALL add_col_if_absent('chunk', 'hit_count', 'INT NOT NULL DEFAULT 0 COMMENT ''retrieval hit count'' AFTER `collection_name`');
+CALL add_col_if_absent('chunk', 'enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''paragraph enabled flag'' AFTER `hit_count`');
+CALL add_idx_if_absent('chunk', 'idx_kb_enabled', '`knowledge_base_id`, `enabled`');
+
+CREATE TABLE IF NOT EXISTS `knowledge_tag` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `knowledge_base_id` BIGINT NOT NULL,
+    `target_type` VARCHAR(32) NOT NULL DEFAULT 'KNOWLEDGE',
+    `target_id` VARCHAR(128) DEFAULT NULL,
+    `tag_key` VARCHAR(64) NOT NULL,
+    `tag_value` VARCHAR(128) NOT NULL,
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_kb_target` (`knowledge_base_id`, `target_type`, `target_id`),
+    KEY `idx_tag` (`tag_key`, `tag_value`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='knowledge operation tags';
+
+CREATE TABLE IF NOT EXISTS `knowledge_question` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `knowledge_base_id` BIGINT NOT NULL,
+    `chunk_id` BIGINT DEFAULT NULL,
+    `question` VARCHAR(512) NOT NULL,
+    `hit_count` INT NOT NULL DEFAULT 0,
+    `source` VARCHAR(32) NOT NULL DEFAULT 'MANUAL',
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_kb_chunk` (`knowledge_base_id`, `chunk_id`),
+    KEY `idx_question` (`question`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='knowledge question to paragraph mapping';
+
+CREATE TABLE IF NOT EXISTS `knowledge_hit_log` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `knowledge_base_id` BIGINT NOT NULL,
+    `chunk_id` BIGINT DEFAULT NULL,
+    `query_text` VARCHAR(1024) NOT NULL,
+    `search_mode` VARCHAR(20) DEFAULT NULL,
+    `score` FLOAT DEFAULT NULL,
+    `direct_return` TINYINT(1) NOT NULL DEFAULT 0,
+    `trace_id` VARCHAR(128) DEFAULT NULL,
+    `user_id` VARCHAR(128) DEFAULT NULL,
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_kb_time` (`knowledge_base_id`, `create_time`),
+    KEY `idx_trace` (`trace_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='knowledge retrieval hit log';
+
 
 -- ============================================================================
 -- 二、业务语义索引模块（历史 v3）

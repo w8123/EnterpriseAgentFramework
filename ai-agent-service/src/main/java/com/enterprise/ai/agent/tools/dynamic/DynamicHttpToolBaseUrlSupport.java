@@ -23,19 +23,29 @@ public final class DynamicHttpToolBaseUrlSupport {
      * 工具自身 base 已有效则用之；否则若存在扫描项目且其「项目域名」非空则回退为项目域名。
      */
     public static String resolveEffectiveBaseUrl(String toolBaseUrl, ScanProjectEntity project) {
-        if (isValidRestClientBaseUrl(toolBaseUrl)) {
-            return toolBaseUrl.trim();
+        String normalizedToolBaseUrl = normalizeHttpBaseUrl(toolBaseUrl);
+        if (isValidRestClientBaseUrl(normalizedToolBaseUrl)) {
+            return normalizedToolBaseUrl;
         }
         if (project != null && StringUtils.hasText(project.getBaseUrl())) {
-            return project.getBaseUrl().trim();
+            return normalizeHttpBaseUrl(project.getBaseUrl());
         }
-        return toolBaseUrl == null ? "" : toolBaseUrl.trim();
+        return normalizedToolBaseUrl;
     }
 
     public static void requireValidRestClientBaseUrl(String baseUrl) {
-        if (!isValidRestClientBaseUrl(baseUrl)) {
+        if (!isValidRestClientBaseUrl(normalizeHttpBaseUrl(baseUrl))) {
             throw new IllegalStateException(INVALID_BASE_URL_MESSAGE);
         }
+    }
+
+    public static String normalizeHttpBaseUrl(String baseUrl) {
+        if (!StringUtils.hasText(baseUrl)) {
+            return "";
+        }
+        return baseUrl.trim()
+                .replaceFirst("^http:(?!//)", "http://")
+                .replaceFirst("^https:(?!//)", "https://");
     }
 
     public static boolean isValidRestClientBaseUrl(String baseUrl) {

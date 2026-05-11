@@ -17,7 +17,7 @@
       type="warning"
       show-icon
       :closable="false"
-      title="默认所有 Tool/Skill 不对外暴露；勾选后才允许通过 MCP 协议访问"
+      title="默认所有 Tool / 粗粒度能力不对外暴露；勾选后才允许通过 MCP 协议访问"
       description="对外暴露 = Cursor/Claude Desktop/Dify 等 MCP Client 可在 tools/list 看到该能力。即使勾选，仍需 ToolACL 决策通过、且在 Client 自己的 toolWhitelist 内。"
       style="margin-bottom: 12px"
     />
@@ -64,7 +64,7 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item label="名称">
-          <el-input v-model="addForm.name" placeholder="tool/skill 名" style="width: 240px" />
+          <el-input v-model="addForm.name" placeholder="tool / 能力名" style="width: 240px" />
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="addForm.note" placeholder="审批单号" style="width: 200px" />

@@ -417,7 +417,7 @@ const overviewItems = computed(() => [
 
 const quickEntries = computed(() => [
   {
-    title: 'API 目录与 Tool 关联',
+    title: 'API 目录',
     desc: '管理 API 与 Tool 的关联关系',
     icon: Link,
     tone: 'purple',
@@ -441,12 +441,12 @@ const quickEntries = computed(() => [
     action: () => goCapability('/tool'),
   },
   {
-    title: '查看 Skill',
-    desc: '管理项目下的 Skill 列表',
+      title: '查看能力',
+      desc: '管理项目下的粗粒度能力列表',
     icon: Collection,
     tone: 'violet',
     disabled: !project.value?.id,
-    action: () => goCapability('/skill'),
+    action: () => goCapability('/capability'),
   },
   {
     title: '查看 Agent',
@@ -587,7 +587,7 @@ async function handleDeleteProject() {
   if (!(await ensureScanOperationAllowed())) return
   try {
     await ElMessageBox.confirm(
-      `确认删除项目「${p.name}」吗？将删除关联扫描行、挂到本项目的全局 Tool/Skill、模块与语义数据等（若仍存在引用则被阻止）。`,
+      `确认删除项目「${p.name}」吗？将删除关联扫描行、挂到本项目的全局 Tool / 粗粒度能力、模块与语义数据等（若仍存在引用则被阻止）。`,
       '删除确认',
       { type: 'warning' },
     )

@@ -15,8 +15,11 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 能力挖掘 API。兼容 {@code /api/skill-mining}；推荐 {@code /api/capability-mining}。
+ */
 @RestController
-@RequestMapping("/api/skill-mining")
+@RequestMapping({"/api/skill-mining", "/api/capability-mining"})
 @RequiredArgsConstructor
 public class SkillMiningController {
 

@@ -1,0 +1,143 @@
+# coding=utf-8
+"""
+    @project: MaxKB
+    @Author：虎虎
+    @file： event_trigger.py
+    @date：2026/1/15 11:08
+    @desc:
+"""
+
+from django.db.models import QuerySet
+from django.utils.translation import gettext as _, gettext_lazy
+from drf_spectacular.utils import extend_schema, OpenApiExample
+from rest_framework import serializers
+from rest_framework.request import Request
+from rest_framework.views import APIView
+
+from common import result
+from common.auth import WebhookAuth
+from common.exception.app_exception import AppApiException, AppAuthenticationFailed
+from common.log.log import _get_ip_address
+from common.result import Result
+from common.utils.logger import maxkb_logger
+from trigger.handler.base_trigger import BaseTrigger
+from trigger.models import TriggerTask, Trigger
+from trigger.serializers.trigger import TriggerResponse
+from trigger.serializers.trigger_task import TriggerTaskResponse
+
+
+def valid_parameter_type(value, _type, desc):
+    if _type == 'int':
+        instance_type = int | float
+    elif _type == 'boolean':
+        instance_type = bool
+    elif _type == 'float':
+        instance_type = float | int
+    elif _type == 'dict':
+        instance_type = dict
+    elif _type == 'array':
+        instance_type = list
+    elif _type == 'string':
+        instance_type = str
+    else:
+        maxkb_logger.error(_(
+            'Field: {name} Type: {_type} Value: {value} Unsupported this type'
+        ).format(name=desc, _type=_type, value=value))
+        return
+    if not isinstance(value, instance_type):
+        raise Exception(_(
+            'Field: {name} Type: {_type} Value: {value} Type error'
+        ).format(name=desc, _type=_type, value=value))
+
+
+def get_parameters(body_setting, request: Request):
+    parameters = {}
+    for body in body_setting:
+        value = request.data.get(body.get('field'))
+        required = body.get('required')
+        if value is None and required:
+            raise AppApiException(500, f'{body.get("desc")} is required')
+        if value is None and not required:
+            parameters[body.get('field')] = None
+            continue
+        _type = body.get('type')
+        valid_parameter_type(value, _type, body.get("desc"))
+        parameters[body.get('field')] = value
+    ip_address = _get_ip_address(request)
+    parameters['ip_address'] = ip_address or '-'
+    return parameters
+
+
+class EventTriggerRequest(serializers.Serializer):
+    pass
+
+
+class EventTriggerView(APIView):
+    authentication_classes = [WebhookAuth]
+
+    @extend_schema(
+        methods=['POST'],
+        description=gettext_lazy('Event Trigger WebHook'),
+        summary=gettext_lazy('Event Trigger WebHook'),
+        operation_id=gettext_lazy('Event Trigger WebHook'),  # type: ignore
+        request={
+            'application/json': {
+                'schema': {
+                    'type': 'object',
+                    'example': {}
+                }
+            }
+        },
+        tags=[gettext_lazy('Trigger')],  # type: ignore
+        examples=[
+            OpenApiExample(
+                'Example Request',
+                description='Send an empty JSON object as request body',
+                value={},
+                request_only=True,  # 仅用于请求示例
+                response_only=False,
+            )
+        ]
+
+    )
+    def post(self, request: Request, trigger_id: str):
+        trigger = QuerySet(Trigger).filter(id=trigger_id).first()
+        if trigger:
+            return EventTrigger.execute(TriggerResponse(trigger).data, request)
+        return Result(code=404, message="404")
+
+
+class EventTrigger(BaseTrigger):
+    """
+    事件触发器
+    """
+
+    @staticmethod
+    def execute(trigger, request=None, **kwargs):
+        trigger_setting = trigger.get('trigger_setting')
+        token = trigger_setting.get('token')
+        if not token:
+            raise AppAuthenticationFailed(1002, _('Authentication information is incorrect'))
+        request_token = request.META.get('HTTP_AUTHORIZATION')
+        if not request_token or token != request_token.replace('Bearer ', ''):
+            raise AppAuthenticationFailed(1002, _('Authentication information is incorrect'))
+        is_active = trigger.get('is_active')
+        if not is_active:
+            return Result(code=404, message="404", response_status=404)
+        body = trigger_setting.get('body')
+        parameters = get_parameters(body, request)
+        trigger_task_list = [TriggerTaskResponse(trigger_task).data for trigger_task in
+                             QuerySet(TriggerTask).filter(trigger__id=trigger.get('id'), is_active=True)]
+        from trigger.handler.simple_tools import execute
+        for trigger_task in trigger_task_list:
+            execute(trigger_task, body=parameters)
+        return result.success(True)
+
+    def support(self, trigger, **kwargs):
+        return trigger.get('trigger_type') == 'EVENT'
+
+    def deploy(self, trigger, **kwargs):
+        return True
+
+    def undeploy(self, trigger, **kwargs):
+        return True

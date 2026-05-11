@@ -47,19 +47,19 @@
         </el-table-column>
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="goDetail(row.id)">详情</el-button>
+            <el-button link type="primary" size="small" @click.stop="goDetail(row.id)">详情</el-button>
             <el-button
               link
               type="primary"
               size="small"
               :disabled="row.projectKind === 'REGISTERED'"
               :loading="scanLoadingId === row.id"
-              @click="handleScan(row.id)"
+              @click.stop="handleScan(row.id)"
             >
               {{ row.toolCount > 0 ? '重新扫描' : '扫描' }}
             </el-button>
-            <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
-            <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
+            <el-button link type="primary" size="small" @click.stop="openEditDialog(row)">编辑</el-button>
+            <el-button link type="danger" size="small" @click.stop="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>

@@ -11,9 +11,12 @@ import java.time.LocalDateTime;
 public class ChunkVO {
     private Long id;
     private String fileId;
+    private String title;
     private String content;
     private Integer chunkIndex;
     private Integer length;
     private String vectorId;
+    private Integer hitCount;
+    private Integer enabled;
     private LocalDateTime createTime;
 }

@@ -58,10 +58,10 @@
         <el-table-column prop="lastUsedAt" label="上次调用" width="180" />
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" link @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" link @click.stop="openEdit(row)">编辑</el-button>
             <el-popconfirm :title="`确认删除 ${row.name}？`" @confirm="handleDelete(row.id)">
               <template #reference>
-                <el-button size="small" link type="danger">删除</el-button>
+                <el-button size="small" link type="danger" @click.stop>删除</el-button>
               </template>
             </el-popconfirm>
           </template>

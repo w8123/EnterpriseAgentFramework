@@ -258,20 +258,13 @@ public class ToolDefinitionService {
         ToolDefinitionEntity existing = findByName(name)
                 .orElseThrow(() -> new IllegalArgumentException("工具不存在: " + name));
 
-        if (SOURCE_CODE.equals(existing.getSource())) {
-            existing.setEnabled(request.enabled());
-            existing.setAgentVisible(request.agentVisible());
-            existing.setLightweightEnabled(request.lightweightEnabled());
-            mapper.updateById(existing);
-            toolEmbeddingService.upsert(existing);
-            return existing;
-        }
-
         ToolDefinitionEntity updated = applyRequest(existing, request, true);
         updated.setId(existing.getId());
         updated.setSource(existing.getSource());
         mapper.updateById(updated);
-        registerIfNeeded(updated);
+        if (!SOURCE_CODE.equals(existing.getSource())) {
+            registerIfNeeded(updated);
+        }
         toolEmbeddingService.upsert(updated);
         return updated;
     }

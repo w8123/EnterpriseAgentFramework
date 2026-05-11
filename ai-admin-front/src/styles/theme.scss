@@ -363,17 +363,29 @@
 }
 
 // 按钮
-.el-button--primary {
+.el-button--primary:not(.is-link):not(.is-text) {
+  --el-button-text-color: #ffffff;
+  --el-button-hover-text-color: #ffffff;
+  --el-button-active-text-color: #ffffff;
+  --el-button-disabled-text-color: rgba(255, 255, 255, 0.72);
   background: var(--accent-gradient);
   border: none;
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(15, 23, 42, 0.18);
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
 
+  .el-icon {
+    color: currentColor;
+  }
+
   &:hover {
+    color: #ffffff;
     box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
     filter: brightness(1.1);
   }
 
   &:active {
+    color: #ffffff;
     filter: brightness(0.95);
   }
 }
@@ -1138,17 +1150,29 @@
   }
 
   // 按钮
-  .el-button--primary {
+  .el-button--primary:not(.is-link):not(.is-text) {
+    --el-button-text-color: #ffffff;
+    --el-button-hover-text-color: #ffffff;
+    --el-button-active-text-color: #ffffff;
+    --el-button-disabled-text-color: rgba(255, 255, 255, 0.72);
     background: var(--accent-gradient);
     border: none;
+    color: #ffffff;
+    text-shadow: 0 1px 1px rgba(15, 23, 42, 0.18);
     box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
 
+    .el-icon {
+      color: currentColor;
+    }
+
     &:hover {
+      color: #ffffff;
       box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
       filter: brightness(1.1);
     }
 
     &:active {
+      color: #ffffff;
       filter: brightness(0.95);
     }
   }

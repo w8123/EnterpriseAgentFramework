@@ -7,6 +7,11 @@ import com.enterprise.ai.domain.dto.KbConfigRequest;
 import com.enterprise.ai.domain.dto.KnowledgeBaseRequest;
 import com.enterprise.ai.domain.dto.KnowledgeBaseVO;
 import com.enterprise.ai.domain.dto.KnowledgeImportRequest;
+import com.enterprise.ai.domain.dto.KnowledgeQuestionDTO;
+import com.enterprise.ai.domain.dto.KnowledgeQuestionRequest;
+import com.enterprise.ai.domain.dto.KnowledgeStatsVO;
+import com.enterprise.ai.domain.dto.KnowledgeTagDTO;
+import com.enterprise.ai.domain.dto.KnowledgeTagRequest;
 import com.enterprise.ai.domain.dto.PipelineResult;
 import com.enterprise.ai.pipeline.PipelineContext;
 import com.enterprise.ai.service.KnowledgeService;
@@ -64,6 +69,48 @@ public class KnowledgeController {
     @GetMapping("/kb/{kbCode}/files")
     public ApiResult<List<FileInfoVO>> getFiles(@PathVariable String kbCode) {
         return ApiResult.ok(knowledgeService.getFilesByKbCode(kbCode));
+    }
+
+    @GetMapping("/kb/{kbCode}/stats")
+    public ApiResult<KnowledgeStatsVO> getStats(@PathVariable String kbCode) {
+        return ApiResult.ok(knowledgeService.getStats(kbCode));
+    }
+
+    @GetMapping("/kb/{kbCode}/tags")
+    public ApiResult<List<KnowledgeTagDTO>> listTags(@PathVariable String kbCode,
+                                                     @RequestParam(required = false) String targetType,
+                                                     @RequestParam(required = false) String targetId) {
+        return ApiResult.ok(knowledgeService.listTags(kbCode, targetType, targetId));
+    }
+
+    @PostMapping("/kb/{kbCode}/tags")
+    public ApiResult<KnowledgeTagDTO> createTag(@PathVariable String kbCode,
+                                                @Valid @RequestBody KnowledgeTagRequest request) {
+        return ApiResult.ok(knowledgeService.createTag(kbCode, request));
+    }
+
+    @DeleteMapping("/kb/{kbCode}/tags/{tagId}")
+    public ApiResult<Void> deleteTag(@PathVariable String kbCode, @PathVariable Long tagId) {
+        knowledgeService.deleteTag(kbCode, tagId);
+        return ApiResult.ok();
+    }
+
+    @GetMapping("/kb/{kbCode}/questions")
+    public ApiResult<List<KnowledgeQuestionDTO>> listQuestions(@PathVariable String kbCode,
+                                                               @RequestParam(required = false) Long chunkId) {
+        return ApiResult.ok(knowledgeService.listQuestions(kbCode, chunkId));
+    }
+
+    @PostMapping("/kb/{kbCode}/questions")
+    public ApiResult<KnowledgeQuestionDTO> createQuestion(@PathVariable String kbCode,
+                                                          @Valid @RequestBody KnowledgeQuestionRequest request) {
+        return ApiResult.ok(knowledgeService.createQuestion(kbCode, request));
+    }
+
+    @DeleteMapping("/kb/{kbCode}/questions/{questionId}")
+    public ApiResult<Void> deleteQuestion(@PathVariable String kbCode, @PathVariable Long questionId) {
+        knowledgeService.deleteQuestion(kbCode, questionId);
+        return ApiResult.ok();
     }
 
     /**

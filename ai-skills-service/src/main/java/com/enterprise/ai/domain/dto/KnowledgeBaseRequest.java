@@ -19,5 +19,27 @@ public class KnowledgeBaseRequest {
 
     private String embeddingModel;
 
+    private String workspaceId;
+
+    private String projectCode;
+
+    private String scope;
+
     private Integer dimension;
+
+    private String searchMode;
+
+    private Integer topK;
+
+    private Float similarityThreshold;
+
+    private Boolean directReturnEnabled;
+
+    private Float directReturnThreshold;
+
+    private Boolean rerankEnabled;
+
+    private Float vectorWeight;
+
+    private Float keywordWeight;
 }

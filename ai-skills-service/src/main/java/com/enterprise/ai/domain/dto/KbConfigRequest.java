@@ -20,4 +20,20 @@ public class KbConfigRequest {
 
     /** 切分策略: FIXED / PARAGRAPH / SEMANTIC */
     private String splitType;
+
+    private String searchMode;
+
+    private Integer topK;
+
+    private Float similarityThreshold;
+
+    private Boolean directReturnEnabled;
+
+    private Float directReturnThreshold;
+
+    private Boolean rerankEnabled;
+
+    private Float vectorWeight;
+
+    private Float keywordWeight;
 }

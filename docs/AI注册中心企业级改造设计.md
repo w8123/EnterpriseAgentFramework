@@ -1,10 +1,12 @@
 # AI 注册中心企业级改造设计
 
+> **命名说明**：本文档中部分历史表述仍写为「Skill」；与代码、数据库中的 `skill` 一样，属 **legacy naming**。产品语义已统一为 **Capability / 粗粒度能力**（Tool / Agent 命名不变）。
+
 > 本文沉淀 2026-05-08 关于 Enterprise Agent Framework 下一阶段方向的讨论与首轮改造结果。核心结论：项目不应只停留在“平台侧扫描 Java 项目”，而应升级为面向企业多业务系统的 **AI 能力注册中心 + Agent 治理运行平台**。
 
 ## 一、背景与判断
 
-当前系统已经具备扫描项目、动态 Tool、`@AiCapability` 能力声明、Agent Studio、Skill、Tool ACL、Trace、MCP / A2A 等基础能力。原有主链路是：
+当前系统已经具备扫描项目、动态 Tool、`@AiCapability` 能力声明、Agent Studio、粗粒度能力（Capability）、Tool ACL、Trace、MCP / A2A 等基础能力。原有主链路是：
 
 ```text
 管理端录入项目 -> 平台扫描 OpenAPI / Controller -> 生成 Tool -> Agent Studio 编排 -> Agent 调用业务系统
@@ -15,8 +17,8 @@
 ```text
 业务系统引入 EAF Starter / SDK
   -> 启动时主动注册项目、实例、接口能力和能力元数据
-  -> 平台按项目隔离管理 Tool / Skill / Agent / Knowledge / ACL / Trace
-  -> 业务系统也可以反向调用平台发布的 Agent / Skill
+  -> 平台按项目隔离管理 Tool / 能力 / Agent / Knowledge / ACL / Trace
+  -> 业务系统也可以反向调用平台发布的 Agent / 能力
 ```
 
 因此后续产品定位应从“扫描已有 Java 项目”升级为：

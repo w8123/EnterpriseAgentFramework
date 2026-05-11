@@ -12,7 +12,7 @@
       type="info"
       show-icon
       :closable="false"
-      title="左：领域树。中：当前领域已挂的 Tool/Skill/Agent/Project。右：候选目标，勾选后批量挂接。"
+      title="左：领域树。中：当前领域已挂的 Tool / 能力 / Agent / Project。右：候选目标，勾选后批量挂接。"
       description="挂接 source = AUTO_FROM_PROJECT 的条目由扫描器自动生成；删除后下次扫描会被重新写入，建议直接调整 scan_project.default_domain_code。"
       style="margin-bottom: 12px"
     />
@@ -33,7 +33,7 @@
               <div class="dom-name">{{ d.name }}</div>
               <code class="dom-code">{{ d.code }}</code>
               <el-tag size="small">{{ coverageMap[d.code]?.toolCount ?? 0 }} T</el-tag>
-              <el-tag size="small" type="success">{{ coverageMap[d.code]?.skillCount ?? 0 }} S</el-tag>
+              <el-tag size="small" type="success">{{ coverageMap[d.code]?.skillCount ?? 0 }} 能</el-tag>
             </div>
           </el-scrollbar>
         </el-card>
@@ -52,7 +52,9 @@
             <el-table v-else :data="assignments" size="small" stripe>
               <el-table-column prop="targetKind" label="类型" width="80">
                 <template #default="{ row }">
-                  <el-tag size="small" :type="kindTagType(row.targetKind)">{{ row.targetKind }}</el-tag>
+                  <el-tag size="small" :type="kindTagType(row.targetKind)">{{
+                    formatTargetKind(row.targetKind)
+                  }}</el-tag>
                 </template>
               </el-table-column>
               <el-table-column prop="targetName" label="目标" min-width="160" show-overflow-tooltip />
@@ -78,8 +80,8 @@
           <template #header>
             <span>候选目标</span>
             <el-radio-group v-model="targetKind" size="small" style="margin-left: 12px">
-              <el-radio-button label="TOOL" />
-              <el-radio-button label="SKILL" />
+              <el-radio-button label="TOOL">Tool</el-radio-button>
+              <el-radio-button label="SKILL">能力</el-radio-button>
             </el-radio-group>
             <el-input
               v-model="searchText"
@@ -144,7 +146,7 @@ import {
   listDomains,
 } from '@/api/domain'
 import { getTools } from '@/api/tool'
-import { getSkills } from '@/api/skill'
+import { listCapabilities } from '@/api/capability'
 import type {
   DomainAssignment,
   DomainCoverageRow,
@@ -165,7 +167,7 @@ interface Candidate {
 }
 
 const tools = ref<Candidate[]>([])
-const skills = ref<Candidate[]>([])
+const capabilityCandidates = ref<Candidate[]>([])
 const targetKind = ref<'TOOL' | 'SKILL'>('TOOL')
 const searchText = ref('')
 const checked = ref<Candidate[]>([])
@@ -177,7 +179,7 @@ async function reload() {
       listDomains(),
       getDomainCoverage(),
       getTools({ current: 1, size: 500 }),
-      getSkills({ current: 1, size: 500 }),
+      listCapabilities({ current: 1, size: 500 }),
     ])
     domains.value = d.data ?? []
     const m: Record<string, DomainCoverageRow> = {}
@@ -188,7 +190,7 @@ async function reload() {
       description: row.description ?? row.aiDescription,
       domains: [],
     }))
-    skills.value = (s.data?.records ?? []).map((row: any) => ({
+    capabilityCandidates.value = (s.data?.records ?? []).map((row: any) => ({
       name: row.name,
       description: row.description,
       domains: [],
@@ -208,7 +210,7 @@ async function loadAssignments(code: string) {
   // 把"已挂到当前领域"的标记同步到候选列表，便于直观判断
   const set = new Set(assignments.value.map((a) => `${a.targetKind}:${a.targetName}`))
   for (const t of tools.value) t.domains = set.has(`TOOL:${t.name}`) ? [code] : []
-  for (const s of skills.value) s.domains = set.has(`SKILL:${s.name}`) ? [code] : []
+  for (const s of capabilityCandidates.value) s.domains = set.has(`SKILL:${s.name}`) ? [code] : []
 }
 
 function selectDomain(code: string) {
@@ -217,7 +219,7 @@ function selectDomain(code: string) {
 }
 
 const candidates = computed<Candidate[]>(() =>
-  targetKind.value === 'TOOL' ? tools.value : skills.value,
+  targetKind.value === 'TOOL' ? tools.value : capabilityCandidates.value,
 )
 
 const filteredCandidates = computed<Candidate[]>(() => {
@@ -248,6 +250,11 @@ async function handleUnassign(row: DomainAssignment) {
   await deleteAssignment(row.id)
   ElMessage.success('已解绑')
   await loadAssignments(selectedCode.value)
+}
+
+function formatTargetKind(kind: string): string {
+  if (kind === 'SKILL') return '能力'
+  return kind
 }
 
 function kindTagType(kind: string): 'success' | 'warning' | 'info' | '' {

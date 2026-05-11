@@ -36,22 +36,6 @@
             <el-option label="否" :value="false" />
           </el-select>
         </el-form-item>
-        <el-form-item label="项目">
-          <el-select
-            v-model="filters.projectId"
-            clearable
-            filterable
-            placeholder="全部"
-            style="width: 200px"
-          >
-            <el-option
-              v-for="p in scanProjects"
-              :key="p.id"
-              :label="projectOptionLabel(p)"
-              :value="p.id"
-            />
-          </el-select>
-        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSearch">查询</el-button>
           <el-button @click="resetFilters">重置</el-button>
@@ -164,7 +148,7 @@
             <el-tag size="small">{{ row.visibility || 'PRIVATE' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="qualifiedName" label="Qualified Name" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="qualifiedName" label="全限定名" min-width="180" show-overflow-tooltip />
         <el-table-column label="端点" min-width="220">
           <template #default="{ row }">
             <span>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</span>
@@ -229,15 +213,16 @@
         </el-table-column>
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
-            <el-button link type="primary" size="small" @click="openTest(row)">测试</el-button>
-            <el-button
-              link
-              type="danger"
-              size="small"
-              :disabled="row.source === 'code'"
-              @click="handleDelete(row)"
-            >删除</el-button>
+            <div class="operation-actions">
+              <button type="button" class="table-action-link" @click.stop="openEditDialog(row)">编辑</button>
+              <button type="button" class="table-action-link" @click.stop="openTest(row)">测试</button>
+              <button
+                type="button"
+                class="table-action-link danger"
+                :disabled="row.source === 'code'"
+                @click.stop="handleDelete(row)"
+              >删除</button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -259,130 +244,239 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="formDialogVisible" :title="formDialogTitle" width="760px">
-      <el-form label-width="120px">
-        <el-form-item label="工具名">
-          <el-input v-model="form.name" :disabled="isCodeTool || isEditMode" placeholder="snake_case" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="form.description" :disabled="isCodeTool" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-row :gutter="16">
-          <el-col :span="8">
-            <el-form-item label="项目">
-              <el-select
-                v-model="form.projectId"
-                :disabled="isCodeTool"
-                clearable
-                filterable
-                placeholder="全局 Tool"
-                style="width: 100%"
-                @change="handleFormProjectChange"
-              >
-                <el-option
-                  v-for="p in scanProjects"
-                  :key="p.id"
-                  :label="projectOptionLabel(p)"
-                  :value="p.id"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="可见性">
-              <el-select v-model="form.visibility" :disabled="isCodeTool" style="width: 100%">
-                <el-option label="PRIVATE" value="PRIVATE" />
-                <el-option label="PROJECT" value="PROJECT" />
-                <el-option label="SHARED" value="SHARED" />
-                <el-option label="PUBLIC" value="PUBLIC" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="Qualified Name">
-              <el-input :model-value="resolvedFormQualifiedName" disabled placeholder="保存后生成" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="8">
-            <el-form-item label="来源">
-              <el-input :model-value="form.source" disabled />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="HTTP 方法">
-              <el-select v-model="form.httpMethod" :disabled="isCodeTool" style="width: 100%">
-                <el-option v-for="method in httpMethods" :key="method" :label="method" :value="method" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="请求体类型">
-              <el-input v-model="form.requestBodyType" :disabled="isCodeTool" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="Base URL">
-              <el-input v-model="form.baseUrl" :disabled="isCodeTool" placeholder="http://localhost:8602" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="Context Path">
-              <el-input
-                v-model="form.contextPath"
-                :disabled="isCodeTool"
-                placeholder="留空表示无应用前缀；若 Endpoint 已含 /api/v1 等则勿再填 /api"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="Endpoint Path">
-              <el-input v-model="form.endpointPath" :disabled="isCodeTool" placeholder="/customer/search" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="响应类型">
-              <el-input v-model="form.responseType" :disabled="isCodeTool" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="来源定位">
-          <el-input v-model="form.sourceLocation" :disabled="isCodeTool" placeholder="类名/扫描位置" />
-        </el-form-item>
+    <el-dialog
+      v-model="formDialogVisible"
+      :title="formDialogTitle"
+      width="1180px"
+      top="3vh"
+      append-to-body
+      class="tool-editor-dialog"
+    >
+      <div class="tool-editor">
+        <aside class="tool-editor-rail">
+          <button
+            v-for="(step, index) in toolEditorSteps"
+            :key="step.key"
+            type="button"
+            class="tool-editor-step"
+            :class="{ active: activeToolStep === index }"
+            @click="activeToolStep = index"
+          >
+            <span class="step-index">{{ index + 1 }}</span>
+            <span>
+              <b>{{ step.title }}</b>
+              <small>{{ step.desc }}</small>
+            </span>
+          </button>
+        </aside>
 
-        <el-form-item label="参数定义">
-          <ParameterTable
-            v-model="form.parameters as any"
-            :disabled="isCodeTool"
-            :show-location="true"
-          />
-        </el-form-item>
-
-        <el-form-item label="运行控制">
-          <div class="switch-group">
-            <el-switch v-model="form.enabled" />
-            <span>启用</span>
-            <el-switch v-model="form.agentVisible" />
-            <span>Agent 可见</span>
-            <el-switch v-model="form.lightweightEnabled" />
-            <span>轻量调用可见</span>
+        <section class="tool-editor-main">
+          <div class="tool-editor-summary">
+            <div>
+              <p class="summary-eyebrow">{{ form.source || 'manual' }} Tool</p>
+              <h3>{{ form.name || '未命名 Tool' }}</h3>
+              <p>{{ form.description || '描述这个 Tool 能做什么，方便 Agent 正确选择。' }}</p>
+            </div>
+            <div class="summary-tags">
+              <el-tag size="small" :type="sourceTagType(form.source)" effect="plain">{{ form.source }}</el-tag>
+              <el-tag size="small" effect="plain">{{ form.visibility || 'PRIVATE' }}</el-tag>
+              <el-tag size="small" effect="plain">{{ form.httpMethod || 'GET' }}</el-tag>
+            </div>
           </div>
-        </el-form-item>
-      </el-form>
+
+          <el-alert
+            v-if="isCodeTool"
+            class="tool-editor-alert"
+            type="info"
+            :closable="false"
+            show-icon
+            title="代码注册 Tool 不能改名或删除；描述、参数说明、可见性和运行开关可以在管理端维护。"
+          />
+
+          <el-form label-width="108px" class="tool-editor-form">
+            <div v-show="activeToolStep === 0" class="tool-editor-panel">
+              <div class="panel-heading">
+                <h4>身份信息</h4>
+                <p>定义 Tool 的名称、描述、项目归属和命名空间。</p>
+              </div>
+              <el-form-item label="工具名">
+                <el-input v-model="form.name" :disabled="isEditMode" placeholder="snake_case，如 query_user_profile" />
+              </el-form-item>
+              <el-form-item label="描述">
+                <el-input
+                  v-model="form.description"
+                  type="textarea"
+                  :rows="4"
+                  placeholder="说明它查询/写入什么业务对象、何时使用、关键参数是什么。"
+                />
+              </el-form-item>
+              <el-row :gutter="16">
+                <el-col :span="12">
+                  <el-form-item label="项目">
+                    <el-select
+                      v-model="form.projectId"
+                      clearable
+                      filterable
+                      placeholder="全局 Tool"
+                      style="width: 100%"
+                      @change="handleFormProjectChange"
+                    >
+                      <el-option
+                        v-for="p in scanProjects"
+                        :key="p.id"
+                        :label="projectOptionLabel(p)"
+                        :value="p.id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="可见性">
+                    <el-select v-model="form.visibility" style="width: 100%">
+                      <el-option label="PRIVATE" value="PRIVATE" />
+                      <el-option label="PROJECT" value="PROJECT" />
+                      <el-option label="SHARED" value="SHARED" />
+                      <el-option label="PUBLIC" value="PUBLIC" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <div class="meta-readonly">
+                <span>全限定名</span>
+                <code>{{ resolvedFormQualifiedName || '保存后生成' }}</code>
+              </div>
+              <div class="meta-readonly">
+                <span>来源定位</span>
+                <code>{{ form.sourceLocation || '未填写' }}</code>
+              </div>
+            </div>
+
+            <div v-show="activeToolStep === 1" class="tool-editor-panel">
+              <div class="panel-heading with-preview">
+                <div>
+                  <h4>调用配置</h4>
+                  <p>配置实际请求地址、HTTP 方法以及请求/响应类型。</p>
+                </div>
+                <div class="endpoint-preview">
+                  <span>{{ form.httpMethod || 'GET' }}</span>
+                  <code>{{ endpointPreview }}</code>
+                </div>
+              </div>
+              <el-row :gutter="16">
+                <el-col :span="8">
+                  <el-form-item label="来源">
+                    <el-input :model-value="form.source" disabled />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="8">
+                  <el-form-item label="HTTP 方法">
+                    <el-select v-model="form.httpMethod" style="width: 100%">
+                      <el-option v-for="method in httpMethods" :key="method" :label="method" :value="method" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="8">
+                  <el-form-item label="请求体类型">
+                    <el-input v-model="form.requestBodyType" placeholder="如 application/json" />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-form-item label="Base URL">
+                <el-input v-model="form.baseUrl" placeholder="http://localhost:8602" />
+              </el-form-item>
+              <el-row :gutter="16">
+                <el-col :span="12">
+                  <el-form-item label="Context Path">
+                    <el-input
+                      v-model="form.contextPath"
+                      placeholder="留空表示无应用前缀"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="Endpoint">
+                    <el-input v-model="form.endpointPath" placeholder="/customer/search" />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-form-item label="响应类型">
+                <el-input v-model="form.responseType" placeholder="如 UserProfileResponse / JSON" />
+              </el-form-item>
+            </div>
+
+            <div v-show="activeToolStep === 2" class="tool-editor-panel">
+              <div class="panel-heading with-preview">
+                <div>
+                  <h4>参数定义</h4>
+                  <p>声明 Agent 调用 Tool 时需要传入的参数、位置、类型和说明。</p>
+                </div>
+                <div class="parameter-stats">
+                  <span>{{ form.parameters.length }} 个参数</span>
+                  <span>{{ requiredParameterCount }} 个必填</span>
+                </div>
+              </div>
+              <ParameterTable
+                v-model="form.parameters as any"
+                :show-location="true"
+              />
+            </div>
+
+            <div v-show="activeToolStep === 3" class="tool-editor-panel">
+              <div class="panel-heading">
+                <h4>运行控制</h4>
+                <p>控制 Tool 是否启用、是否进入 Agent 工具集，以及是否允许轻量调用。</p>
+              </div>
+              <div class="control-grid">
+                <div class="control-card">
+                  <span>启用</span>
+                  <el-switch v-model="form.enabled" />
+                </div>
+                <div class="control-card">
+                  <span>Agent 可见</span>
+                  <el-switch v-model="form.agentVisible" />
+                </div>
+                <div class="control-card">
+                  <span>轻量调用可见</span>
+                  <el-switch v-model="form.lightweightEnabled" />
+                </div>
+              </div>
+              <div class="publish-checklist">
+                <div>
+                  <b>工具名</b>
+                  <span>{{ form.name || '未填写' }}</span>
+                </div>
+                <div>
+                  <b>描述</b>
+                  <span>{{ form.description ? '已填写' : '未填写' }}</span>
+                </div>
+                <div>
+                  <b>请求地址</b>
+                  <span>{{ endpointPreview || '未配置' }}</span>
+                </div>
+                <div>
+                  <b>参数</b>
+                  <span>{{ form.parameters.length }} 个</span>
+                </div>
+              </div>
+            </div>
+          </el-form>
+        </section>
+      </div>
 
       <template #footer>
+        <div class="editor-footer">
+          <el-button :disabled="activeToolStep === 0" @click="activeToolStep -= 1">上一步</el-button>
+          <el-button :disabled="activeToolStep >= toolEditorSteps.length - 1" @click="activeToolStep += 1">
+            下一步
+          </el-button>
+        </div>
         <el-button @click="formDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
     </el-dialog>
 
     <!-- 测试弹窗 -->
-    <el-dialog v-model="testDialogVisible" :title="`测试工具 — ${testingTool?.name}`" width="600px">
+    <el-dialog v-model="testDialogVisible" :title="`测试工具 — ${testingTool?.name}`" width="600px" append-to-body>
       <el-form v-if="testingTool" label-width="120px">
         <el-form-item
           v-for="param in testingTool.parameters"
@@ -444,23 +538,34 @@ const filters = reactive({
   keyword: '',
   source: undefined as string | undefined,
   enabled: undefined as boolean | undefined,
-  projectId: undefined as number | undefined,
 })
 const pagination = reactive({ current: 1, size: 20 })
 const saving = ref(false)
 
 const formDialogVisible = ref(false)
 const editingName = ref<string | null>(null)
+const activeToolStep = ref(0)
 const form = reactive<ToolUpsertRequest>(createEmptyForm())
 const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
 const isEditMode = computed(() => editingName.value !== null)
 const isCodeTool = computed(() => form.source === 'code')
 const formDialogTitle = computed(() => (isEditMode.value ? `编辑 Tool — ${form.name}` : '新建 Tool'))
+const toolEditorSteps = [
+  { key: 'identity', title: '身份信息', desc: '名称、描述与项目' },
+  { key: 'endpoint', title: '调用配置', desc: 'HTTP 地址与类型' },
+  { key: 'parameters', title: '参数定义', desc: 'Agent 入参 Schema' },
+  { key: 'release', title: '运行控制', desc: '启用与可见性' },
+]
 const resolvedFormQualifiedName = computed(() => {
   if (form.qualifiedName) return form.qualifiedName
   if (form.projectCode && form.name) return `${form.projectCode}:${form.name}`
   return ''
 })
+const endpointPreview = computed(() => {
+  const parts = [form.baseUrl, form.contextPath, form.endpointPath].filter(Boolean)
+  return parts.join('').replace(/([^:]\/)\/+/g, '$1') || '未配置请求地址'
+})
+const requiredParameterCount = computed(() => countRequiredParameters(form.parameters || []))
 
 const testDialogVisible = ref(false)
 const testingTool = ref<ToolInfo | null>(null)
@@ -593,14 +698,12 @@ function projectCodeById(projectId?: number | null) {
   return scanProjects.value.find((p) => p.id === projectId)?.projectCode || null
 }
 
-function syncFiltersWithProjectContext() {
+/** 深链 ?projectId= 与顶部项目选择器对齐；列表范围仅随顶栏 currentProjectId 变化 */
+function syncProjectFromRoute() {
   const queryProjectId = Number(route.query.projectId)
   if (Number.isFinite(queryProjectId) && queryProjectId > 0) {
-    filters.projectId = queryProjectId
     projectStore.setCurrentProject(queryProjectId)
-    return
   }
-  filters.projectId = projectStore.currentProjectId ?? undefined
 }
 
 function handleFormProjectChange(projectId: number | null | undefined) {
@@ -630,6 +733,13 @@ function parameterRows(parameters: ToolParameter[] | null | undefined, prefix = 
     if (nested) row.children = nested
     return row
   })
+}
+
+function countRequiredParameters(parameters: ToolParameter[]): number {
+  return parameters.reduce((sum, parameter) => {
+    const childCount = parameter.children ? countRequiredParameters(parameter.children) : 0
+    return sum + (parameter.required ? 1 : 0) + childCount
+  }, 0)
 }
 
 function toUpsertRequest(tool: ToolInfo): ToolUpsertRequest {
@@ -677,13 +787,14 @@ function applyForm(data: ToolUpsertRequest) {
 }
 
 function buildListParams() {
+  const pid = projectStore.currentProjectId
   return {
     current: pagination.current,
     size: pagination.size,
     ...(filters.keyword.trim() ? { keyword: filters.keyword.trim() } : {}),
     ...(filters.source ? { source: filters.source } : {}),
     ...(filters.enabled !== undefined ? { enabled: filters.enabled } : {}),
-    ...(filters.projectId !== undefined ? { projectId: filters.projectId } : {}),
+    ...(pid != null ? { projectId: pid } : {}),
   }
 }
 
@@ -723,7 +834,6 @@ function resetFilters() {
   filters.keyword = ''
   filters.source = undefined
   filters.enabled = undefined
-  filters.projectId = projectStore.currentProjectId ?? undefined
   pagination.current = 1
   return fetchTools()
 }
@@ -745,6 +855,7 @@ async function onRefresh() {
 
 function openCreateDialog() {
   editingName.value = null
+  activeToolStep.value = 0
   applyForm(createEmptyForm())
   form.projectId = projectStore.currentProjectId
   handleFormProjectChange(form.projectId)
@@ -753,6 +864,7 @@ function openCreateDialog() {
 
 function openEditDialog(tool: ToolInfo) {
   editingName.value = tool.name
+  activeToolStep.value = 0
   applyForm(toUpsertRequest(tool))
   formDialogVisible.value = true
 }
@@ -854,14 +966,13 @@ async function handleTest() {
 
 onMounted(async () => {
   await loadScanProjects()
-  syncFiltersWithProjectContext()
+  syncProjectFromRoute()
   fetchTools()
 })
 
 watch(
   () => projectStore.currentProjectId,
   () => {
-    syncFiltersWithProjectContext()
     pagination.current = 1
     fetchTools()
   },
@@ -987,6 +1098,312 @@ watch(
   gap: 10px;
 }
 
+.tool-editor {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 18px;
+  min-height: 620px;
+}
+
+.tool-editor-rail {
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.035), rgba(15, 23, 42, 0.01));
+}
+
+.tool-editor-step {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.18s ease;
+
+  & + & {
+    margin-top: 6px;
+  }
+
+  b {
+    display: block;
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 1.3;
+  }
+
+  small {
+    display: block;
+    margin-top: 3px;
+    color: #64748b;
+    line-height: 1.35;
+  }
+
+  &:hover,
+  &.active {
+    border-color: rgba(99, 102, 241, 0.35);
+    background: rgba(99, 102, 241, 0.08);
+  }
+}
+
+.step-index {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--el-color-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tool-editor-main,
+.tool-editor-form {
+  min-width: 0;
+}
+
+.tool-editor-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(20, 184, 166, 0.06));
+
+  h3 {
+    margin: 2px 0 6px;
+    font-size: 20px;
+    line-height: 1.25;
+  }
+
+  p {
+    margin: 0;
+    color: #64748b;
+    line-height: 1.6;
+  }
+}
+
+.summary-eyebrow {
+  margin: 0 !important;
+  color: var(--el-color-primary) !important;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.summary-tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.tool-editor-alert {
+  margin-bottom: 14px;
+}
+
+.tool-editor-panel {
+  min-height: 450px;
+  padding: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.panel-heading {
+  margin-bottom: 18px;
+
+  &.with-preview {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: flex-start;
+  }
+
+  h4 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 17px;
+    line-height: 1.3;
+  }
+
+  p {
+    margin: 6px 0 0;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+}
+
+.endpoint-preview {
+  min-width: 280px;
+  max-width: 420px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.08);
+
+  span {
+    padding: 3px 7px;
+    border-radius: 6px;
+    background: rgba(99, 102, 241, 0.16);
+    color: var(--el-color-primary);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  code {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+  }
+}
+
+.meta-readonly {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: 8px;
+  color: #64748b;
+
+  & + & {
+    margin-top: 10px;
+  }
+
+  code {
+    min-width: 0;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.parameter-stats {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  span {
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--el-color-primary);
+    font-size: 12px;
+    font-weight: 700;
+  }
+}
+
+.control-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.control-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  font-weight: 600;
+}
+
+.publish-checklist {
+  margin-top: 16px;
+  display: grid;
+  gap: 10px;
+
+  div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: rgba(148, 163, 184, 0.08);
+  }
+
+  span {
+    color: #64748b;
+    text-align: right;
+    word-break: break-word;
+  }
+}
+
+.editor-footer {
+  display: inline-flex;
+  gap: 8px;
+  margin-right: auto;
+}
+
+:deep(.tool-editor-dialog .el-dialog__body) {
+  padding-top: 10px;
+}
+
+:deep(.tool-editor-dialog .el-dialog__footer) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.operation-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.table-action-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--el-color-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+
+  &:hover {
+    color: var(--el-color-primary-light-3);
+  }
+
+  &:disabled {
+    color: var(--el-text-color-disabled);
+    cursor: not-allowed;
+  }
+
+  &.danger {
+    color: var(--el-color-danger);
+
+    &:hover:not(:disabled) {
+      color: var(--el-color-danger-light-3);
+    }
+  }
+}
+
 .test-result-area {
   margin-top: 12px;
 }
@@ -1106,6 +1523,21 @@ watch(
 
   .result-content {
     border: 1px solid #ebeef5;
+  }
+
+  .tool-editor-rail,
+  .tool-editor-summary,
+  .tool-editor-panel,
+  .control-card {
+    border-color: #e5e7eb;
+  }
+
+  .tool-editor-panel {
+    background: #fff;
+  }
+
+  .control-card {
+    background: #f8fafc;
   }
 
   .markdown-preview {

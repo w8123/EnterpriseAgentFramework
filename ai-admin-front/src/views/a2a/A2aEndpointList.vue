@@ -37,8 +37,8 @@
         <el-table-column prop="updatedAt" label="更新时间" width="180" />
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEditDialog(row)">编辑 AgentCard</el-button>
-            <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-button link type="primary" @click.stop="openEditDialog(row)">编辑 AgentCard</el-button>
+            <el-button link type="danger" @click.stop="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>

@@ -17,7 +17,7 @@ export default defineConfig({
         target: 'http://localhost:8602',
         changeOrigin: true,
       },
-      /** ai-agent-service：统一走 8603，避免新增 /api/skills、/api/tool-acl 等路径漏配代理 */
+      /** ai-agent-service：统一走 8603，避免新增 /api/capabilities、/api/tool-acl 等路径漏配代理 */
       '/api': {
         target: 'http://localhost:8603',
         changeOrigin: true,

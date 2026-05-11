@@ -44,7 +44,7 @@
       <el-collapse-item v-if="project" class="scan-detail-top-item scan-settings-card" name="scanSettings">
         <template #title>
         <div class="scan-settings-header">
-          <span>扫描与接口说明设置（SDK 与离线扫描共用）</span>
+          <span>扫描与接口说明设置</span>
           <div class="scan-settings-header-actions" @click.stop>
             <el-tooltip
               effect="dark"
@@ -562,7 +562,7 @@
                   <div v-if="row.toolLinkMessage" class="tool-link-hint">{{ row.toolLinkMessage }}</div>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="600" fixed="right">
+              <el-table-column label="操作" width="520" fixed="right" align="right" header-align="right">
                 <template #default="{ row }">
                   <div class="merged-ops-wrap">
                     <el-button link type="primary" size="small" :disabled="row.removedFromSource" @click="openEditDialog(row)">编辑</el-button>
@@ -2416,6 +2416,7 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 2px 2px;
   line-height: 1.5;
 }

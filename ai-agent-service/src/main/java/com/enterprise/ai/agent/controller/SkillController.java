@@ -35,14 +35,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Skill 管理 API — Phase 2.0 仅实现 {@code SUB_AGENT} 形态。
+ * 能力（Capability）管理 API — Phase 2.0 仅实现 {@code SUB_AGENT} 形态。
  * <p>
- * 与 {@link ToolController} 分离是为了让前端有独立的"粗粒度能力"入口，
- * 底层还是同一张 {@code tool_definition} 表（kind=SKILL）。
+ * 与 {@link ToolController} 分离是为了让前端有独立的粗粒度能力入口，
+ * 底层仍是同一张 {@code tool_definition} 表（kind=SKILL，legacy 存储值）。
+ * <p>
+ * 兼容路径：{@code /api/skills}（历史）；推荐路径：{@code /api/capabilities}。
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/skills")
+@RequestMapping({"/api/skills", "/api/capabilities"})
 @RequiredArgsConstructor
 public class SkillController {
 
@@ -435,7 +437,7 @@ public class SkillController {
                 }
                 if (!isDraft) {
                     if (specJson == null || specJson.isBlank()) {
-                        throw new IllegalArgumentException("Skill 必须提供 spec");
+                        throw new IllegalArgumentException("能力必须提供 spec");
                     }
                     if (InteractiveFormSkillFactory.SKILL_KIND_INTERACTIVE_FORM.equalsIgnoreCase(resolvedKind)) {
                         InteractiveFormSpec parsed = ifFactory.parseSpec(specJson);

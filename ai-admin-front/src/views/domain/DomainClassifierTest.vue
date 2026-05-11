@@ -53,7 +53,7 @@
             </el-table-column>
             <el-table-column prop="name" label="名称" width="140" />
             <el-table-column prop="toolCount" label="TOOL" align="center" width="80" />
-            <el-table-column prop="skillCount" label="SKILL" align="center" width="80" />
+            <el-table-column prop="skillCount" label="能力" align="center" width="80" />
             <el-table-column prop="agentCount" label="AGENT" align="center" width="80" />
             <el-table-column prop="projectCount" label="PROJECT" align="center" width="90" />
           </el-table>

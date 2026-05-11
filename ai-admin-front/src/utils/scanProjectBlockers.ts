@@ -2,14 +2,14 @@ import type { ScanProjectBlockers } from '@/types/scanProject'
 
 export function formatScanProjectBlockersMessage(b: ScanProjectBlockers): string {
   const lines: string[] = [
-    '本扫描项目已「添加为 Tool/Skill」并仍被以下 Agent 的 tools / skills 白名单引用。请先在「Agent 管理」中移除对应工具名或 Skill 名，再执行删除或重新扫描。',
+    '本扫描项目已「添加为 Tool / 粗粒度能力」并仍被以下 Agent 的 tools / skills（legacy 字段）白名单引用。请先在「Agent 管理」中移除对应工具名或能力名，再执行删除或重新扫描。',
     '',
   ]
   if (b.toolNames?.length) {
     lines.push(`· 工具名：${b.toolNames.join('、')}`)
   }
   if (b.skillNames?.length) {
-    lines.push(`· Skill 名：${b.skillNames.join('、')}`)
+    lines.push(`· 能力名：${b.skillNames.join('、')}`)
   }
   if (b.agents?.length) {
     lines.push(`· 涉及 Agent：${b.agents.map((a) => a.name).join('、')}`)

@@ -12,6 +12,7 @@ import com.enterprise.ai.agent.semantic.SemanticDocService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionUpsertRequest;
+import com.enterprise.ai.agent.tools.dynamic.DynamicHttpToolBaseUrlSupport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -238,7 +239,7 @@ public class ScanProjectService {
     }
 
     /**
-     * 删除或重新扫描前的引用检测（全局 Tool/Skill 是否仍挂在 Agent 白名单上）。
+     * 删除或重新扫描前的引用检测（全局 Tool / 粗粒度能力是否仍挂在 Agent 白名单上）。
      */
     public ScanProjectBlockers getOperationBlockers(Long projectId) {
         getById(projectId);
@@ -751,6 +752,8 @@ public class ScanProjectService {
         if (request.baseUrl() == null || request.baseUrl().isBlank()) {
             throw new IllegalArgumentException("项目域名不能为空");
         }
+        DynamicHttpToolBaseUrlSupport.requireValidRestClientBaseUrl(
+                DynamicHttpToolBaseUrlSupport.normalizeHttpBaseUrl(request.baseUrl()));
         String kind = normalizeProjectKind(request.projectKind());
         if (!"REGISTERED".equals(kind) && (request.scanPath() == null || request.scanPath().isBlank())) {
             throw new IllegalArgumentException("扫描路径不能为空");
@@ -768,7 +771,7 @@ public class ScanProjectService {
         entity.setEnvironment(normalizeEnvironment(request.environment()));
         entity.setOwner(request.owner() == null || request.owner().isBlank() ? null : request.owner().trim());
         entity.setVisibility(normalizeVisibility(request.visibility()));
-        entity.setBaseUrl(request.baseUrl().trim());
+        entity.setBaseUrl(DynamicHttpToolBaseUrlSupport.normalizeHttpBaseUrl(request.baseUrl()));
         entity.setContextPath(normalizeContextPath(request.contextPath()));
         entity.setScanPath(request.scanPath() == null || request.scanPath().isBlank() ? "" : request.scanPath().trim());
         entity.setScanType(normalizeScanType(request.scanType()));

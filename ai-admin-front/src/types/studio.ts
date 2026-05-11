@@ -3,13 +3,13 @@
  *
  * Canvas 上的节点分成几类：
  * - start / end: 起止锚点（仅一个），描述 Agent 的输入/输出
- * - skill: 对应 tool_definition.kind = SKILL（引用 Skill 名）
+ * - skill: 画布持久化节点类型（legacy），语义为粗粒度能力；对应 tool_definition.kind = SKILL
  * - tool:  对应 tool_definition.kind = TOOL（引用 Tool 名）
  * - knowledge: 关联知识库组（主要用于 RAG 语义，落库到 knowledgeBaseGroupId 字段）
  *
  * Phase 3.0 MVP 的转换策略：
  * - 画布保存到 `canvas_json` 列（只存布局）；
- * - 同时把 skill/tool 节点的 "ref" 展平成 `AgentDefinition.tools`（执行器真正使用的白名单）；
+ * - 同时把 skill/tool 节点的 "ref" 展平成 `AgentDefinition.tools`（执行器使用的白名单）；skills 列表与之对齐；
  * - 知识库节点映射到 `AgentDefinition.knowledgeBaseGroupId`；
  * - 连线当前只做可视化，不参与执行（执行仍由 ReAct + Tool Retrieval 驱动）。
  */

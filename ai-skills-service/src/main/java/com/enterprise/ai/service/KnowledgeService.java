@@ -66,4 +66,18 @@ public interface KnowledgeService {
 
     /** 检索测试（纯检索，不调用LLM） */
     RetrievalTestResponse retrievalTest(RetrievalTestRequest request);
+
+    KnowledgeStatsVO getStats(String kbCode);
+
+    List<KnowledgeTagDTO> listTags(String kbCode, String targetType, String targetId);
+
+    KnowledgeTagDTO createTag(String kbCode, KnowledgeTagRequest request);
+
+    void deleteTag(String kbCode, Long tagId);
+
+    List<KnowledgeQuestionDTO> listQuestions(String kbCode, Long chunkId);
+
+    KnowledgeQuestionDTO createQuestion(String kbCode, KnowledgeQuestionRequest request);
+
+    void deleteQuestion(String kbCode, Long questionId);
 }

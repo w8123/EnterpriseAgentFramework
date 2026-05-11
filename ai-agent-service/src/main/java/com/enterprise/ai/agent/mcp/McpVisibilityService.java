@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * MCP 暴露白名单：默认所有 Tool/Skill 都不暴露，必须在管理端勾选后才允许通过 MCP 协议访问。
+ * MCP 暴露白名单：默认所有 Tool 与粗粒度能力（kind=SKILL）都不暴露，必须在管理端勾选后才允许通过 MCP 协议访问。
  */
 @Service
 @RequiredArgsConstructor

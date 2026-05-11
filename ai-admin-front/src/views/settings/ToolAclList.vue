@@ -90,13 +90,13 @@
             <el-table-column prop="updatedAt" label="更新时间" width="170" />
             <el-table-column label="操作" width="160" fixed="right">
               <template #default="{ row }">
-                <el-button size="small" link @click="openEditDialog(row)">编辑</el-button>
+                <el-button size="small" link @click.stop="openEditDialog(row)">编辑</el-button>
                 <el-popconfirm
                   :title="`确认删除规则 #${row.id}？`"
                   @confirm="handleDelete(row.id)"
                 >
                   <template #reference>
-                    <el-button size="small" link type="danger">删除</el-button>
+                    <el-button size="small" link type="danger" @click.stop>删除</el-button>
                   </template>
                 </el-popconfirm>
               </template>
@@ -130,7 +130,7 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item label="能力" required>
-          <el-input v-model="editing.targetName" placeholder="tool/skill 名，或 * 表示通配" />
+          <el-input v-model="editing.targetName" placeholder="tool / 能力名，或 * 表示通配" />
         </el-form-item>
         <el-form-item label="决策" required>
           <el-radio-group v-model="editing.permission">
@@ -176,7 +176,7 @@
             v-model="batchForm.skillsRaw"
             type="textarea"
             :rows="3"
-            placeholder="每行一个 skill 名"
+            placeholder="每行一个能力名（后端 kind 仍为 SKILL）"
           />
         </el-form-item>
         <el-form-item label="备注">
@@ -431,7 +431,7 @@ async function handleBatchGrant() {
     ...parseLines(batchForm.skillsRaw, 'SKILL'),
   ]
   if (targets.length === 0) {
-    ElMessage.warning('请至少填写一个 tool 或 skill')
+    ElMessage.warning('请至少填写一个 tool 或能力条目')
     return
   }
   saving.value = true

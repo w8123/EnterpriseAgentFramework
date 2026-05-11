@@ -1,0 +1,89 @@
+# coding=utf-8
+"""
+    @project: maxkb
+    @Author：虎
+    @file： html_split_handle.py
+    @date：2024/5/23 10:58
+    @desc:
+"""
+import re
+import traceback
+from typing import List
+
+from bs4 import BeautifulSoup
+from charset_normalizer import detect
+from markdownify import markdownify
+
+from common.handle.base_split_handle import BaseSplitHandle
+from common.utils.logger import maxkb_logger
+from common.utils.split_model import SplitModel
+
+default_pattern_list = [re.compile('(?<=^)# .*|(?<=\\n)# .*'),
+                        re.compile('(?<=\\n)(?<!#)## (?!#).*|(?<=^)(?<!#)## (?!#).*'),
+                        re.compile("(?<=\\n)(?<!#)### (?!#).*|(?<=^)(?<!#)### (?!#).*"),
+                        re.compile("(?<=\\n)(?<!#)#### (?!#).*|(?<=^)(?<!#)#### (?!#).*"),
+                        re.compile("(?<=\\n)(?<!#)##### (?!#).*|(?<=^)(?<!#)##### (?!#).*"),
+                        re.compile("(?<=\\n)(?<!#)###### (?!#).*|(?<=^)(?<!#)###### (?!#).*")]
+
+
+def get_encoding(buffer):
+    beautiful_soup = BeautifulSoup(buffer, "html.parser")
+    meta_list = beautiful_soup.find_all('meta')
+    charset_list = [meta.attrs.get('charset') for meta in meta_list if
+                    meta.attrs is not None and 'charset' in meta.attrs]
+    if len(charset_list) > 0:
+        charset = charset_list[0]
+        return charset
+    return detect(buffer)['encoding']
+
+
+class HTMLSplitHandle(BaseSplitHandle):
+    def support(self, file, get_buffer):
+        file_name: str = file.name.lower()
+        if file_name.endswith(".html") or file_name.endswith(".HTML"):
+            return True
+        return False
+
+    def _remove_anchor_links(self, html: str) -> str:
+        soup = BeautifulSoup(html, 'html.parser')
+        for a in soup.find_all('a', href=re.compile('^#')):
+            a.unwrap()
+        return str(soup)
+
+    def handle(self, file, pattern_list: List, with_filter: bool, limit: int, get_buffer, save_image):
+        buffer = get_buffer(file)
+        if type(limit) is str:
+            limit = int(limit)
+        if type(with_filter) is str:
+            with_filter = with_filter.lower() == 'true'
+        if pattern_list is not None and len(pattern_list) > 0:
+            split_model = SplitModel(pattern_list, with_filter, limit)
+        else:
+            split_model = SplitModel(default_pattern_list, with_filter=with_filter, limit=limit)
+        try:
+            encoding = get_encoding(buffer)
+            content = buffer.decode(encoding)
+            content = self._remove_anchor_links(content)
+            content = markdownify(content, heading_style='ATX')
+        except BaseException as e:
+            maxkb_logger.error(f"Error processing HTML file {file.name}: {e}, {traceback.format_exc()}")
+
+            return {
+                'name': file.name, 'content': []
+            }
+        return {
+            'name': file.name,
+            'content': split_model.parse(content)
+        }
+
+    def get_content(self, file, save_image):
+        buffer = file.read()
+
+        try:
+            encoding = get_encoding(buffer)
+            content = buffer.decode(encoding)
+            content = self._remove_anchor_links(content)
+            return markdownify(content, heading_style='ATX')
+        except BaseException as e:
+            maxkb_logger.error(f'Exception: {e}', exc_info=True)
+            return f'{e}'

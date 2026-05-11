@@ -22,4 +22,22 @@ public class RetrievalTestRequest {
 
     /** 相似度分数阈值 */
     private Float scoreThreshold;
+
+    private String searchMode;
+
+    private Boolean rerankEnabled;
+
+    private Boolean directReturnEnabled;
+
+    private Float directReturnThreshold;
+
+    private Float vectorWeight;
+
+    private Float keywordWeight;
+
+    private Boolean recordHit;
+
+    private String traceId;
+
+    private String userId;
 }

@@ -9,7 +9,7 @@ export interface ChatRequest {
   /** 调试台：直执该 agent 定义，跳过意图路由 */
   agentDefinitionId?: string
   roles?: string[]
-  /** 恢复挂起的 InteractiveFormSkill */
+  /** 恢复挂起的交互式表单能力（Interactive Form Capability） */
   interactionId?: string
   uiSubmit?: UiSubmitPayload
 }

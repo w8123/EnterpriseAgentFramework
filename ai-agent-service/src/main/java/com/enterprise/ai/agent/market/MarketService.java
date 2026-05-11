@@ -56,12 +56,12 @@ public class MarketService {
     public MarketItemEntity submitSkill(String qualifiedName, String version, String submittedBy) {
         ToolDefinitionEntity skill = toolDefinitionService.findByQualifiedName(qualifiedName)
                 .or(() -> toolDefinitionService.findByName(qualifiedName))
-                .orElseThrow(() -> new IllegalArgumentException("Skill 不存在: " + qualifiedName));
+                .orElseThrow(() -> new IllegalArgumentException("粗粒度能力不存在: " + qualifiedName));
         if (!"SKILL".equalsIgnoreCase(skill.getKind())) {
-            throw new IllegalArgumentException("只能上架 Skill 资产");
+            throw new IllegalArgumentException("只能上架 kind=SKILL 的能力资产（legacy 存储类型）");
         }
         if (!isMarketVisible(skill.getVisibility())) {
-            throw new IllegalArgumentException("只有 SHARED / PUBLIC Skill 可以上架");
+            throw new IllegalArgumentException("只有 SHARED / PUBLIC 能力可以上架");
         }
         MarketItemEntity item = baseItem("SKILL", String.valueOf(skill.getId()), skill.getQualifiedName(),
                 skill.getProjectId(), skill.getProjectCode(), skill.getName(), skill.getDescription(), version,

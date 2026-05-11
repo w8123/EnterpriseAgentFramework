@@ -21,7 +21,7 @@ export interface AgentDefinition {
   systemPrompt: string
   tools: string[]
   toolRefs?: CapabilityReference[]
-  /** 可调用的 Skill 名，与 tools 合并为运行时白名单 */
+  /** 可调用的粗粒度能力名（后端字段 skills / skillsJson），与 tools 合并为运行时白名单 */
   skills?: string[]
   skillRefs?: CapabilityReference[]
   modelName: string

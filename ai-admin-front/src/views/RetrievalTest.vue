@@ -39,6 +39,17 @@
             <el-form-item label="TopK">
               <el-input-number v-model="searchForm.topK" :min="1" :max="50" style="width: 100%" />
             </el-form-item>
+            <el-form-item label="检索模式">
+              <el-segmented
+                v-model="searchForm.searchMode"
+                :options="[
+                  { label: '混合', value: 'hybrid' },
+                  { label: '向量', value: 'vector' },
+                  { label: '关键词', value: 'keyword' },
+                ]"
+                style="width: 100%"
+              />
+            </el-form-item>
             <el-form-item label="分数阈值">
               <el-slider v-model="searchForm.scoreThreshold" :min="0" :max="1" :step="0.05"
                 show-input :show-input-controls="false" input-size="small" />
@@ -120,6 +131,11 @@ const searchForm = reactive({
   knowledgeBaseCodes: [] as string[],
   topK: 5,
   scoreThreshold: 0.3,
+  searchMode: 'hybrid',
+  rerankEnabled: true,
+  directReturnEnabled: true,
+  directReturnThreshold: 0.9,
+  recordHit: false,
 })
 
 function truncate(text: string, maxLen: number): string {
@@ -157,8 +173,13 @@ async function handleSearch() {
         ? searchForm.knowledgeBaseCodes : undefined,
       topK: searchForm.topK,
       scoreThreshold: searchForm.scoreThreshold,
+      searchMode: searchForm.searchMode,
+      rerankEnabled: searchForm.rerankEnabled,
+      directReturnEnabled: searchForm.directReturnEnabled,
+      directReturnThreshold: searchForm.directReturnThreshold,
+      recordHit: searchForm.recordHit,
     })
-    result.value = data
+    result.value = data as unknown as RetrievalTestResponse
   } finally {
     searching.value = false
   }
@@ -169,6 +190,11 @@ function resetForm() {
   searchForm.knowledgeBaseCodes = []
   searchForm.topK = 5
   searchForm.scoreThreshold = 0.3
+  searchForm.searchMode = 'hybrid'
+  searchForm.rerankEnabled = true
+  searchForm.directReturnEnabled = true
+  searchForm.directReturnThreshold = 0.9
+  searchForm.recordHit = false
   result.value = null
   expandedIds.value = new Set()
 }

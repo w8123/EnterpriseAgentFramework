@@ -50,7 +50,7 @@
               <el-descriptions-item label="项目编码">{{ result.projectCode }}</el-descriptions-item>
             </el-descriptions>
             <el-table :data="result.items" row-key="qualifiedName" max-height="520">
-              <el-table-column prop="qualifiedName" label="Qualified Name" min-width="220" show-overflow-tooltip />
+              <el-table-column prop="qualifiedName" label="全限定名" min-width="220" show-overflow-tooltip />
               <el-table-column prop="storageName" label="Storage Name" min-width="180" show-overflow-tooltip />
               <el-table-column prop="changeType" label="变化" width="130">
                 <template #default="{ row }">

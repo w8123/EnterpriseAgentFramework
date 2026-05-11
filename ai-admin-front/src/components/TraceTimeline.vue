@@ -104,8 +104,7 @@ interface NodeGroup {
  * - 第一条节点一定是父级（哪怕它自己是 skill:xxx，也没有更早的父可以归）；
  * - 父节点保留 tool / agent / 延迟 / token 头信息，子链单独一个折叠块展示。
  *
- * 设计动机：SubAgentSkillExecutor 里把子 context.agentName 强制设成
- * "skill:" + skillName，同一个 traceId 下父子节点只差前缀，这里用前缀判定足够。
+ * 设计动机：子 Agent 执行器将子 context.agentName 设为运行时前缀 {@code skill:} + 能力名（legacy 前缀）；同一 traceId 下父子节点只差此前缀，这里用前缀判定足够。
  */
 const groupedNodes = computed<NodeGroup[]>(() => {
   const groups: NodeGroup[] = []

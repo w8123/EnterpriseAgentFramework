@@ -7,6 +7,11 @@ import type {
   KbConfig,
   RetrievalTestRequest,
   RetrievalTestResponse,
+  KnowledgeStats,
+  KnowledgeTag,
+  KnowledgeTagForm,
+  KnowledgeQuestion,
+  KnowledgeQuestionForm,
 } from '@/types/knowledge'
 import type { ApiResult } from '@/types/import'
 
@@ -36,6 +41,34 @@ export function getKbFiles(kbCode: string) {
 
 export function updateKbConfig(kbCode: string, data: KbConfig) {
   return request.put<ApiResult<void>>(`/knowledge/kb/${kbCode}/config`, data)
+}
+
+export function getKnowledgeStats(kbCode: string) {
+  return request.get<ApiResult<KnowledgeStats>>(`/knowledge/kb/${kbCode}/stats`)
+}
+
+export function getKnowledgeTags(kbCode: string, params?: { targetType?: string; targetId?: string }) {
+  return request.get<ApiResult<KnowledgeTag[]>>(`/knowledge/kb/${kbCode}/tags`, { params })
+}
+
+export function createKnowledgeTag(kbCode: string, data: KnowledgeTagForm) {
+  return request.post<ApiResult<KnowledgeTag>>(`/knowledge/kb/${kbCode}/tags`, data)
+}
+
+export function deleteKnowledgeTag(kbCode: string, tagId: number) {
+  return request.delete<ApiResult<void>>(`/knowledge/kb/${kbCode}/tags/${tagId}`)
+}
+
+export function getKnowledgeQuestions(kbCode: string, params?: { chunkId?: number }) {
+  return request.get<ApiResult<KnowledgeQuestion[]>>(`/knowledge/kb/${kbCode}/questions`, { params })
+}
+
+export function createKnowledgeQuestion(kbCode: string, data: KnowledgeQuestionForm) {
+  return request.post<ApiResult<KnowledgeQuestion>>(`/knowledge/kb/${kbCode}/questions`, data)
+}
+
+export function deleteKnowledgeQuestion(kbCode: string, questionId: number) {
+  return request.delete<ApiResult<void>>(`/knowledge/kb/${kbCode}/questions/${questionId}`)
 }
 
 // ==================== 文件管理 ====================

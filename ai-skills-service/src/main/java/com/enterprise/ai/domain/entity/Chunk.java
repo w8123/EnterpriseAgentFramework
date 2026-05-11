@@ -21,6 +21,8 @@ public class Chunk {
     /** 文本内容 */
     private String content;
 
+    private String title;
+
     /** chunk 在文件内的序号 */
     private Integer chunkIndex;
 
@@ -29,6 +31,10 @@ public class Chunk {
 
     /** 关联的 collection 名称 */
     private String collectionName;
+
+    private Integer hitCount;
+
+    private Integer enabled;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;

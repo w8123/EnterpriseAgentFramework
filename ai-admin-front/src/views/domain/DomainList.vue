@@ -12,7 +12,7 @@
       type="info"
       show-icon
       :closable="false"
-      title="领域 = Tool/Skill 的业务标签集合，分类器在召回前做软过滤"
+      title="领域 = Tool / 粗粒度能力的业务标签集合，分类器在召回前做软过滤"
       description="关键词以 JSON 数组形式存储；命中后由 KeywordDomainClassifier 按命中长度加权排序。后端开关：ai.domain.enabled / ai.domain.soft-fallback。"
       style="margin-bottom: 12px"
     />
@@ -54,13 +54,13 @@
         </el-table-column>
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" link @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" link @click.stop="openEdit(row)">编辑</el-button>
             <el-popconfirm
               :title="`确认删除领域 ${row.code}？同时会移除其归属关系！`"
               @confirm="handleDelete(row.id)"
             >
               <template #reference>
-                <el-button size="small" link type="danger">删除</el-button>
+                <el-button size="small" link type="danger" @click.stop>删除</el-button>
               </template>
             </el-popconfirm>
           </template>

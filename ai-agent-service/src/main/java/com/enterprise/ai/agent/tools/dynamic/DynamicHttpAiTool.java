@@ -57,9 +57,9 @@ public class DynamicHttpAiTool implements AiTool, LlmJsonSchemaProvider {
                              HttpInvocationExtras invocationExtras) {
         this.definition = Objects.requireNonNull(definition, "definition must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
-        String baseUrl = definition.getBaseUrl();
+        String baseUrl = DynamicHttpToolBaseUrlSupport.normalizeHttpBaseUrl(definition.getBaseUrl());
         this.restClient = RestClient.builder()
-                .baseUrl(baseUrl == null ? "" : baseUrl)
+                .baseUrl(baseUrl)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
         this.parameters = parseParameters(definition.getParametersJson());

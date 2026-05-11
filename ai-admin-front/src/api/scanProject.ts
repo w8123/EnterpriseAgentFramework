@@ -36,7 +36,7 @@ export function getScanProjectDetail(id: number) {
   return agentRequest.get<ScanProject>(`/api/scan-projects/${id}`)
 }
 
-/** 删除/重扫前：是否仍被 Agent 引用本项目的全局 Tool、Skill */
+/** 删除/重扫前：是否仍被 Agent 引用本项目的全局 Tool、粗粒度能力（kind=SKILL，legacy） */
 export function getScanProjectOperationBlockers(id: number) {
   return agentRequest.get<ScanProjectBlockers>(`/api/scan-projects/${id}/operation-blockers`)
 }

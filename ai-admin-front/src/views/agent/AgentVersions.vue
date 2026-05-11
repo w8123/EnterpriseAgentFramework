@@ -40,13 +40,13 @@
               link
               type="primary"
               size="small"
-              @click="showSnapshot(row)"
+              @click.stop="showSnapshot(row)"
             >查看快照</el-button>
             <el-button
               link
               type="primary"
               size="small"
-              @click="showDiff(row)"
+              @click.stop="showDiff(row)"
             >Diff</el-button>
             <el-popconfirm
               :title="`确认回滚到 ${row.version}？其它 ACTIVE 版本会被置为 RETIRED`"
@@ -59,6 +59,7 @@
                   type="warning"
                   size="small"
                   :disabled="row.status === 'ACTIVE' && row.rolloutPercent === 100"
+                  @click.stop
                 >回滚</el-button>
               </template>
             </el-popconfirm>

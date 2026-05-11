@@ -8,7 +8,7 @@
       type="info"
       show-icon
       :closable="false"
-      title="一句话理解：把本仓的 Tool/Skill 通过 MCP 协议暴露，Cursor / Claude Desktop / Dify 等可一行配置接入"
+      title="一句话理解：把本仓的 Tool / 粗粒度能力通过 MCP 协议暴露，Cursor / Claude Desktop / Dify 等可一行配置接入"
       description="先在『MCP 暴露白名单』勾选要暴露的 Tool；再在『MCP Client』生成 API Key；最后把 Key 填到客户端配置即可。"
       style="margin-bottom: 12px"
     />

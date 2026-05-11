@@ -229,10 +229,10 @@
         </el-form-item>
       </el-card>
 
-      <!-- Skill 配置 -->
+      <!-- 能力配置（后端 Agent 字段仍为 skills） -->
       <el-card shadow="never" class="section-card">
-        <template #header>Skill 配置</template>
-        <el-form-item label="可用 Skill" label-width="100px">
+        <template #header>能力配置</template>
+        <el-form-item label="可用能力" label-width="100px">
           <div class="tool-select-area">
             <el-select
               v-model="form.skills"
@@ -241,10 +241,10 @@
               collapse-tags
               collapse-tags-tooltip
               style="width: 100%"
-              placeholder="选择已启用且对 Agent 可见的 Skill（作为工具调用）"
+              placeholder="选择已启用且对 Agent 可见的粗粒度能力（运行时与 Tool 一并作为可调项）"
             >
               <el-option
-                v-for="sk in availableSkills"
+                v-for="sk in availableCapabilities"
                 :key="sk.name"
                 :label="capabilityLabel(sk)"
                 :value="sk.name"
@@ -256,7 +256,7 @@
               </el-option>
             </el-select>
             <div class="tool-hint">
-              仅展示已启用、非草稿且对 Agent 可见的 Skill；保存后与「Tool 配置」一并注入模型可调用的能力列表。
+              仅展示已启用、非草稿且对 Agent 可见的能力；保存后与「Tool 配置」一并注入模型可调用的列表。
             </div>
           </div>
         </el-form-item>
@@ -304,10 +304,10 @@ import { INTENT_TYPES, TRIGGER_MODES } from '@/types/agent'
 import type { AgentForm } from '@/types/agent'
 import { getAgent, createAgent, updateAgent } from '@/api/agent'
 import { getTools } from '@/api/tool'
-import { getSkills } from '@/api/skill'
+import { listCapabilities } from '@/api/capability'
 import { getScanProjects } from '@/api/scanProject'
 import type { ToolInfo } from '@/types/tool'
-import type { SkillInfo } from '@/types/skill'
+import type { CapabilityInfo } from '@/types/capability'
 import type { ScanProject } from '@/types/scanProject'
 import { useProjectStore } from '@/store/project'
 
@@ -321,7 +321,7 @@ const formRef = ref<FormInstance>()
 const pageLoading = ref(false)
 const saving = ref(false)
 const toolOptions = ref<ToolInfo[]>([])
-const skillOptions = ref<SkillInfo[]>([])
+const capabilityOptions = ref<CapabilityInfo[]>([])
 const scanProjects = ref<ScanProject[]>([])
 const previousProjectId = ref<number | null>(null)
 
@@ -358,8 +358,8 @@ const availableTools = computed(() =>
   toolOptions.value.filter((tool) => tool.enabled && tool.agentVisible),
 )
 
-const availableSkills = computed(() =>
-  skillOptions.value.filter(
+const availableCapabilities = computed(() =>
+  capabilityOptions.value.filter(
     (sk) => sk.enabled && sk.agentVisible && !sk.draft,
   ),
 )
@@ -388,7 +388,7 @@ function projectCodeById(projectId?: number | null) {
   return scanProjects.value.find((project) => project.id === projectId)?.projectCode || null
 }
 
-function capabilityLabel(item: ToolInfo | SkillInfo) {
+function capabilityLabel(item: ToolInfo | CapabilityInfo) {
   const project = item.projectCode ? ` · ${item.projectCode}` : ''
   const visibility = item.visibility ? ` · ${item.visibility}` : ''
   return `${item.name}${project}${visibility}`
@@ -420,7 +420,7 @@ async function handleProjectChange(projectId: number | null | undefined) {
   if (hasSelections) {
     try {
       await ElMessageBox.confirm(
-        '切换项目会清空当前已选 Tool / Skill，避免跨项目引用误保存。是否继续？',
+        '切换项目会清空当前已选 Tool / 能力，避免跨项目引用误保存。是否继续？',
         '切换项目',
         { type: 'warning' },
       )
@@ -433,7 +433,7 @@ async function handleProjectChange(projectId: number | null | undefined) {
   }
   form.projectCode = projectCodeById(projectId)
   previousProjectId.value = projectId ?? null
-  await Promise.all([loadToolOptions(), loadSkillOptions()])
+  await Promise.all([loadToolOptions(), loadCapabilityOptions()])
 }
 
 async function loadAgent() {
@@ -487,17 +487,17 @@ async function loadToolOptions() {
   }
 }
 
-async function loadSkillOptions() {
+async function loadCapabilityOptions() {
   try {
-    const { data } = await getSkills({
+    const { data } = await listCapabilities({
       current: 1,
       size: 2000,
       ...(form.projectId != null ? { projectId: form.projectId } : {}),
     })
-    skillOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
+    capabilityOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
   } catch {
-    skillOptions.value = []
-    ElMessage.error('加载 Skill 选项失败')
+    capabilityOptions.value = []
+    ElMessage.error('加载能力选项失败')
   }
 }
 
@@ -529,7 +529,7 @@ onMounted(async () => {
   if (!previousProjectId.value) {
     previousProjectId.value = form.projectId ?? null
   }
-  await Promise.all([loadToolOptions(), loadSkillOptions()])
+  await Promise.all([loadToolOptions(), loadCapabilityOptions()])
 })
 </script>
 

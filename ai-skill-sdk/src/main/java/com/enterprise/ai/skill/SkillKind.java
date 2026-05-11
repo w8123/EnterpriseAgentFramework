@@ -1,7 +1,8 @@
 package com.enterprise.ai.skill;
 
 /**
- * Skill 形态。Phase 2.0 实现 {@link #SUB_AGENT}；Phase 2.x 实现 {@link #INTERACTIVE_FORM}；
+ * 粗粒度能力形态（runtime）。数据库存储与旧代码仍使用枚举名 {@code SkillKind}；产品语义为 Capability。
+ * Phase 2.0 实现 {@link #SUB_AGENT}；Phase 2.x 实现 {@link #INTERACTIVE_FORM}；
  * {@link #WORKFLOW} / {@link #AUGMENTED_TOOL} 占位待 Phase 2.2+。
  */
 public enum SkillKind {

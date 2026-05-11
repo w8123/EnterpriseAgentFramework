@@ -696,8 +696,28 @@ pre {
 }
 
 .main-content > .page-container .el-button--primary:not(.is-link):not(.is-text) {
+  --el-button-text-color: #ffffff;
+  --el-button-hover-text-color: #ffffff;
+  --el-button-active-text-color: #ffffff;
+  --el-button-disabled-text-color: rgba(255, 255, 255, 0.72);
   background: linear-gradient(135deg, #4f46e5, #2563eb);
+  border-color: transparent;
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(15, 23, 42, 0.18);
   box-shadow: 0 10px 22px rgba(79, 70, 229, 0.20);
+
+  .el-icon {
+    color: currentColor;
+  }
+
+  &:hover,
+  &:focus {
+    color: #ffffff;
+  }
+
+  &:active {
+    color: #ffffff;
+  }
 }
 
 .main-content > .page-container .el-button--danger:not(.is-link):not(.is-text) {
@@ -785,6 +805,20 @@ pre {
 .main-content > .page-container .el-dialog,
 .el-dialog {
   border-radius: 8px;
+}
+
+.el-overlay.el-modal-dialog {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: auto;
+}
+
+.el-overlay.el-modal-dialog > .el-overlay-dialog {
+  position: fixed;
+  inset: 0;
+  overflow: auto;
 }
 
 .main-content > .page-container .el-empty {

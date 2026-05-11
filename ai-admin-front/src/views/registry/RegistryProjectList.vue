@@ -2,7 +2,7 @@
   <div class="registry-project-page" :class="{ 'is-dark': theme === 'dark' }">
     <div class="page-hero">
       <div>
-        <h1>AI 项目管理</h1>
+        <h1>项目管理</h1>
         <p>统一管理 AI 项目的注册、SDK 接入、API 接入与能力扫描</p>
       </div>
       <div class="hero-actions">
@@ -32,7 +32,11 @@
 
     <div class="metric-grid">
       <div v-for="metric in metrics" :key="metric.label" class="metric-card">
-        <div class="metric-icon" :class="metric.tone">{{ metric.icon }}</div>
+        <div class="metric-icon" :class="metric.tone" aria-hidden="true">
+          <el-icon>
+            <component :is="metric.icon" />
+          </el-icon>
+        </div>
         <div>
           <span>{{ metric.label }}</span>
           <strong>{{ metric.value }}</strong>
@@ -323,7 +327,16 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus, Refresh, Search, Close } from '@element-plus/icons-vue'
+import {
+  Box,
+  Close,
+  Connection,
+  FolderChecked,
+  Plus,
+  Refresh,
+  RefreshRight,
+  Search,
+} from '@element-plus/icons-vue'
 import {
   createScanProject,
   getScanProjectDetail,
@@ -474,15 +487,15 @@ const metrics = computed(() => {
   const scannedCount = projects.value.filter((project) => project.lastScannedAt).length
   const ownerCount = ownerOptions.value.length
   return [
-    { label: '已注册项目数', value: total, caption: '统一项目目录', delta: ownerCount ? `${ownerCount} 位负责人` : '', icon: 'P', tone: 'purple' },
-    { label: '已接入 API 数', value: apiCount, caption: '来自 SDK 与扫描', delta: apiCount ? '已同步目录' : '', icon: 'API', tone: 'blue' },
-    { label: '已生成 SDK 数', value: sdkCount, caption: 'SDK / 混合接入', delta: sdkCount ? '可生成接入配置' : '', icon: 'SDK', tone: 'green' },
+    { label: '已注册项目数', value: total, caption: '统一项目目录', delta: ownerCount ? `${ownerCount} 位负责人` : '', icon: FolderChecked, tone: 'purple' },
+    { label: '已接入 API 数', value: apiCount, caption: '来自 SDK 与扫描', delta: apiCount ? '已同步目录' : '', icon: Connection, tone: 'blue' },
+    { label: '已生成 SDK 数', value: sdkCount, caption: 'SDK / 混合接入', delta: sdkCount ? '可生成接入配置' : '', icon: Box, tone: 'green' },
     {
       label: '最近扫描情况',
       value: `${scannedCount} / ${failedCount}`,
       caption: '扫描项目 / 异常项目',
       delta: failedCount ? `异常 ${failedCount}` : '稳定',
-      icon: '!',
+      icon: RefreshRight,
       tone: 'orange',
     },
   ]
@@ -1029,28 +1042,39 @@ function goDetail(project: ScanProject) {
   place-items: center;
   width: 48px;
   height: 48px;
-  border-radius: 50%;
-  font-size: 13px;
-  font-weight: 800;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  font-size: 22px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 10px 22px rgba(16, 24, 40, 0.06);
+
+  .el-icon {
+    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.7));
+  }
 
   &.purple {
     color: #6d28d9;
-    background: #f3e8ff;
+    border-color: #eadcff;
+    background: linear-gradient(135deg, #f7f0ff, #ede9fe);
   }
 
   &.blue {
     color: #2563eb;
-    background: #dbeafe;
+    border-color: #d8e6ff;
+    background: linear-gradient(135deg, #eff6ff, #dbeafe);
   }
 
   &.green {
     color: #16a34a;
-    background: #dcfce7;
+    border-color: #cdefd8;
+    background: linear-gradient(135deg, #ecfdf3, #dcfce7);
   }
 
   &.orange {
     color: #ea580c;
-    background: #ffedd5;
+    border-color: #fedfc2;
+    background: linear-gradient(135deg, #fff7ed, #ffedd5);
   }
 }
 
@@ -1494,23 +1518,35 @@ function goDetail(project: ScanProject) {
   }
 
   .metric-icon {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 12px 26px rgba(0, 0, 0, 0.18);
+
+    .el-icon {
+      filter: drop-shadow(0 0 10px currentColor);
+    }
+
     &.purple {
       color: #c4b5fd;
+      border-color: rgba(196, 181, 253, 0.18);
       background: rgba(124, 58, 237, 0.18);
     }
 
     &.blue {
       color: #93c5fd;
+      border-color: rgba(147, 197, 253, 0.18);
       background: rgba(37, 99, 235, 0.18);
     }
 
     &.green {
       color: #86efac;
+      border-color: rgba(134, 239, 172, 0.16);
       background: rgba(22, 163, 74, 0.16);
     }
 
     &.orange {
       color: #fdba74;
+      border-color: rgba(253, 186, 116, 0.18);
       background: rgba(234, 88, 12, 0.16);
     }
   }

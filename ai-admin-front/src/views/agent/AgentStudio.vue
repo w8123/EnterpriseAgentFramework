@@ -13,7 +13,7 @@
         <el-button @click="handleSwitchToForm" :icon="DocumentCopy">表单视图</el-button>
         <el-button @click="handleDebug" :icon="VideoPlay">调试</el-button>
         <el-button @click="handleExtractCanvasSkill" :icon="Collection" :loading="canvasExtracting">
-          画布转 Skill 草稿
+          画布转能力草稿
         </el-button>
         <el-button type="success" @click="handleSave" :loading="saving">保存草稿</el-button>
         <el-button type="primary" @click="publishDialogOpen = true">发布 / 灰度</el-button>
@@ -72,8 +72,8 @@
           </template>
           <template #node-skill="nodeProps">
             <div class="studio-node skill-node">
-              <div class="node-kind">SKILL</div>
-              <div class="node-label">{{ nodeProps.data.ref || '未选择 Skill' }}</div>
+              <div class="node-kind">能力</div>
+              <div class="node-label">{{ nodeProps.data.ref || '未选择能力' }}</div>
               <div class="node-desc">{{ nodeProps.data.description }}</div>
             </div>
           </template>
@@ -126,7 +126,7 @@
         </div>
 
         <div v-else>
-          <el-divider>{{ selectedNode.data.kind.toUpperCase() }} 节点属性</el-divider>
+          <el-divider>{{ selectedNode.data.kind === 'skill' ? '能力' : selectedNode.data.kind.toUpperCase() }} 节点属性</el-divider>
           <el-form label-width="100px" size="small">
             <el-form-item label="ID">
               <el-input v-model="selectedNode.id" disabled />
@@ -151,16 +151,16 @@
                 />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="selectedNode.data.kind === 'skill'" label="引用 Skill">
+            <el-form-item v-if="selectedNode.data.kind === 'skill'" label="引用能力">
               <el-select
                 v-model="selectedNode.data.ref"
                 filterable
-                placeholder="选择 Skill"
+                placeholder="选择能力"
                 style="width: 100%"
                 @change="handleNodeRefChange('skill')"
               >
                 <el-option
-                  v-for="s in availableSkills"
+                  v-for="s in availableCapabilities"
                   :key="s.name"
                   :label="capabilityLabel(s)"
                   :value="s.name"
@@ -307,10 +307,10 @@
               <el-divider>Trace 详情（traceId: {{ currentTraceId }}）</el-divider>
               <div class="trace-toolbar">
                 <el-select
-                  v-model="skillPickTools"
+                  v-model="traceToolPick"
                   multiple
                   filterable
-                  placeholder="选中若干 tool 作为 Skill 序列（留空=全量）"
+                  placeholder="选中若干 Tool 作为能力草稿序列（留空=全量）"
                   style="width: 100%"
                 >
                   <el-option
@@ -325,9 +325,9 @@
                   size="small"
                   :icon="Collection"
                   :disabled="!traceToolNames.length"
-                  @click="handleExtractSkill"
+                  @click="handleExtractCapabilityDraft"
                   :loading="extracting"
-                >抽取为 Skill 草稿</el-button>
+                >抽取为能力草稿</el-button>
               </div>
               <TraceTimeline :nodes="traceNodes" />
             </div>
@@ -358,15 +358,15 @@ import type { AgentForm } from '@/types/agent'
 import type { CanvasNode, CanvasEdge, CanvasNodeKind } from '@/types/studio'
 import { getAgent, updateAgent, publishAgentVersion, gatewayChat } from '@/api/agent'
 import { getTools } from '@/api/tool'
-import { getSkills } from '@/api/skill'
+import { listCapabilities } from '@/api/capability'
 import type { ToolInfo } from '@/types/tool'
-import type { SkillInfo } from '@/types/skill'
+import type { CapabilityInfo } from '@/types/capability'
 import type { ChatResponse } from '@/types/chat'
 import { canvasToDefinition, definitionToCanvas, kindColor } from '@/utils/studio'
 import TraceTimeline from '@/components/TraceTimeline.vue'
 import { getTraceDetail } from '@/api/trace'
 import type { TraceNode } from '@/types/trace'
-import { extractDraftFromTrace, extractDraftFromCanvas } from '@/api/skillMining'
+import { extractDraftFromTrace, extractDraftFromCanvas } from '@/api/capabilityMining'
 import { getApiGraphParamHints } from '@/api/apiGraph'
 import type { ApiGraphParamSourceHint } from '@/api/apiGraph'
 
@@ -386,7 +386,7 @@ const debugMessage = ref('这是一条测试消息')
 const debugResult = ref<ChatResponse | null>(null)
 const currentTraceId = ref<string>('')
 const traceNodes = ref<TraceNode[]>([])
-const skillPickTools = ref<string[]>([])
+const traceToolPick = ref<string[]>([])
 const extracting = ref(false)
 const canvasExtracting = ref(false)
 const traceToolNames = computed(() => {
@@ -397,13 +397,13 @@ const traceToolNames = computed(() => {
 })
 
 const toolOptions = ref<ToolInfo[]>([])
-const skillOptions = ref<SkillInfo[]>([])
+const capabilityOptions = ref<CapabilityInfo[]>([])
 const paramHints = ref<ApiGraphParamSourceHint[]>([])
 const availableTools = computed(() =>
   toolOptions.value.filter((t) => t.enabled && t.agentVisible),
 )
-const availableSkills = computed(() =>
-  skillOptions.value.filter((s) => s.enabled && s.agentVisible && !s.draft),
+const availableCapabilities = computed(() =>
+  capabilityOptions.value.filter((s) => s.enabled && s.agentVisible && !s.draft),
 )
 
 const form = reactive<AgentForm>({
@@ -461,7 +461,7 @@ const publishWarnings = computed(() => {
     warnings.push('System Prompt 较短，建议补充角色、边界和失败处理策略。')
   }
   if (toolCount + skillCount === 0) {
-    warnings.push('画布中没有可调用 Tool/Skill，本版本只能进行纯对话。')
+    warnings.push('画布中没有可调用 Tool / 能力，本版本只能进行纯对话。')
   }
   if (form.allowIrreversible) {
     warnings.push('已允许 IRREVERSIBLE 工具调用，请确认 Tool ACL 与限流已配置。')
@@ -494,7 +494,7 @@ const variablePreview = computed(() => {
 })
 
 const paletteItems: { kind: CanvasNodeKind; label: string; hint: string }[] = [
-  { kind: 'skill', label: 'Skill 节点', hint: '引用已注册的 SubAgentSkill' },
+  { kind: 'skill', label: '能力节点', hint: '引用已注册的粗粒度能力（画布存储类型仍为 skill）' },
   { kind: 'tool', label: 'Tool 节点', hint: '引用原子工具（HTTP/Code）' },
   { kind: 'knowledge', label: 'Knowledge 节点', hint: '关联知识库组（RAG）' },
 ]
@@ -587,7 +587,7 @@ function applyParamHint(hint: ApiGraphParamSourceHint) {
   }
 }
 
-function capabilityLabel(item: ToolInfo | SkillInfo) {
+function capabilityLabel(item: ToolInfo | CapabilityInfo) {
   const project = item.projectCode ? ` · ${item.projectCode}` : ''
   const visibility = item.visibility ? ` · ${item.visibility}` : ''
   const desc = item.description ? ` — ${item.description.slice(0, 32)}` : ''
@@ -596,7 +596,7 @@ function capabilityLabel(item: ToolInfo | SkillInfo) {
 
 function findCapability(kind: 'tool' | 'skill', name?: string) {
   if (!name) return null
-  const source = kind === 'tool' ? toolOptions.value : skillOptions.value
+  const source = kind === 'tool' ? toolOptions.value : capabilityOptions.value
   return source.find((item) => item.name === name) || null
 }
 
@@ -609,6 +609,10 @@ function handleNodeRefChange(kind: 'tool' | 'skill') {
   selectedNode.value.data.description = capability?.description || selectedNode.value.data.description || ''
 }
 
+function nodeKindWarnLabel(kind: string) {
+  return kind === 'skill' ? '能力' : kind.toUpperCase()
+}
+
 function projectBoundaryWarnings() {
   const warnings: string[] = []
   for (const node of nodes.value) {
@@ -616,13 +620,17 @@ function projectBoundaryWarnings() {
     if (!node.data.ref) continue
     const capability = findCapability(node.data.kind, node.data.ref)
     if (!capability) {
-      warnings.push(`${node.data.kind.toUpperCase()} ${node.data.ref} 不在当前项目能力调色板中，请确认是否已下线或跨项目引用。`)
+      warnings.push(
+        `${nodeKindWarnLabel(node.data.kind)} ${node.data.ref} 不在当前项目能力调色板中，请确认是否已下线或跨项目引用。`,
+      )
       continue
     }
     const sameProject = !capability.projectId || capability.projectId === form.projectId
     const shared = capability.visibility === 'SHARED' || capability.visibility === 'PUBLIC'
     if (!sameProject && !shared) {
-      warnings.push(`${node.data.kind.toUpperCase()} ${node.data.ref} 属于 ${capability.projectCode || '其他项目'}，且不是 SHARED / PUBLIC。`)
+      warnings.push(
+        `${nodeKindWarnLabel(node.data.kind)} ${node.data.ref} 属于 ${capability.projectCode || '其他项目'}，且不是 SHARED / PUBLIC。`,
+      )
     }
   }
   return warnings
@@ -715,16 +723,16 @@ async function loadToolOptions() {
   }
 }
 
-async function loadSkillOptions() {
+async function loadCapabilityOptions() {
   try {
-    const { data } = await getSkills({
+    const { data } = await listCapabilities({
       current: 1,
       size: 2000,
       ...(form.projectId != null ? { projectId: form.projectId } : {}),
     })
-    skillOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
+    capabilityOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
   } catch {
-    skillOptions.value = []
+    capabilityOptions.value = []
   }
 }
 
@@ -819,16 +827,14 @@ function handleDebug() {
   debugOpen.value = true
 }
 
-async function handleExtractSkill() {
+async function handleExtractCapabilityDraft() {
   if (!currentTraceId.value) {
     ElMessage.warning('请先执行调试获取 trace')
     return
   }
-  const picks = skillPickTools.value.length
-    ? skillPickTools.value
-    : traceToolNames.value
+  const picks = traceToolPick.value.length ? traceToolPick.value : traceToolNames.value
   if (picks.length < 2) {
-    ElMessage.warning('选中 tool 数量不足 2，无法抽取 Skill')
+    ElMessage.warning('选中 Tool 数量不足 2，无法抽取能力草稿')
     return
   }
   extracting.value = true
@@ -837,7 +843,7 @@ async function handleExtractSkill() {
       traceId: currentTraceId.value,
       toolNames: picks,
     })
-    ElMessage.success(`已生成 Skill 草稿：${data.name}（ID ${data.id}）`)
+    ElMessage.success(`已生成能力草稿：${data.name}（ID ${data.id}）`)
   } catch (err) {
     ElMessage.error('抽取失败：' + (err as Error).message)
   } finally {
@@ -850,7 +856,7 @@ async function handleExtractCanvasSkill() {
     .filter((n) => n.data.kind === 'tool' && n.data.ref)
     .map((n) => n.data.ref as string)
   if (toolNames.length < 2) {
-    ElMessage.warning('画布中至少需要 2 个 Tool 节点才能抽取 Skill 草稿')
+    ElMessage.warning('画布中至少需要 2 个 Tool 节点才能抽取能力草稿')
     return
   }
   canvasExtracting.value = true
@@ -861,7 +867,7 @@ async function handleExtractCanvasSkill() {
       toolNames,
       canvasJson: JSON.stringify(snapshot),
     })
-    ElMessage.success(`已从画布生成 Skill 草稿：${data.name}（ID ${data.id}）`)
+    ElMessage.success(`已从画布生成能力草稿：${data.name}（ID ${data.id}）`)
   } catch (err) {
     ElMessage.error('画布抽取失败：' + (err as Error).message)
   } finally {
@@ -877,7 +883,7 @@ function handleSwitchToForm() {
 
 onMounted(async () => {
   await loadAgent()
-  await Promise.all([loadToolOptions(), loadSkillOptions()])
+  await Promise.all([loadToolOptions(), loadCapabilityOptions()])
   await nextTick()
 })
 

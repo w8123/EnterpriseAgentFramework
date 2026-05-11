@@ -1,0 +1,54 @@
+FROM python:3.11-slim-trixie AS python-stage
+RUN python3 -m venv /opt/py3
+
+FROM ghcr.io/1panel-dev/maxkb-vector-model:v2.0.3 AS vector-model
+
+FROM postgres:17.9-trixie
+COPY --from=python-stage /usr/local /usr/local
+COPY --from=python-stage /opt/py3 /opt/py3
+COPY --chmod=500 installer/*.sh /usr/bin/
+COPY installer/init.sql /docker-entrypoint-initdb.d/
+
+ARG DEPENDENCIES="                    \
+        curl                          \
+        ca-certificates               \
+        vim                           \
+        wait-for-it                   \
+        redis-server                  \
+        postgresql-17-pgvector        \
+        postgresql-17-age"
+
+RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    echo "Asia/Shanghai" > /etc/timezone && \
+    echo "deb http://deb.debian.org/debian testing main" >> /etc/apt/sources.list && \
+    printf "Package: redis-server\nPin: release a=testing\nPin-Priority: 501\n" > /etc/apt/preferences.d/redis && \
+    apt-get update && apt-get install -y --no-install-recommends $DEPENDENCIES && \
+    find /etc/ -type f ! -path '/etc/resolv.conf' ! -path '/etc/hosts' | xargs chmod g-rx && \
+    curl -L --connect-timeout 120 -m 1800 https://resource.fit2cloud.com/maxkb/ffmpeg/get-ffmpeg-linux | sh && \
+    mkdir -p /opt/maxkb-app/sandbox/lib && chmod -R 550 /opt/maxkb-app/sandbox && \
+    useradd --no-create-home --home /opt/maxkb-app/sandbox -s /usr/sbin/nologin sandbox -g root && \
+    chmod g-rwx /usr/local/bin/* /usr/bin/* /bin/* /usr/sbin/* /sbin/* /usr/lib/postgresql/17/bin/* && \
+    chmod g+xr /usr/bin/ld.so /usr/local/bin/python* && \
+    chmod -R g-rwx /tmp /var/tmp /var/lock && \
+    chmod g+rx /tmp && \
+    apt-get clean all && \
+    rm -rf /var/lib/postgresql /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/locale/* /usr/share/lintian/* /usr/share/linda/* /var/cache/* /var/log/* /var/tmp/* /tmp/*
+COPY --from=vector-model --chmod=700 /opt/maxkb-app/model /opt/maxkb-app/model
+
+ENV PATH=/opt/py3/bin:$PATH \
+    PGDATA=/opt/maxkb/data/postgresql/pgdata \
+    POSTGRES_USER=root \
+    POSTGRES_PASSWORD=Password123@postgres \
+    POSTGRES_MAX_CONNECTIONS=1000 \
+    REDIS_PASSWORD=Password123@redis \
+    LANG=en_US.UTF-8 \
+    PYTHONUNBUFFERED=1 \
+    MAXKB_CONFIG_TYPE=ENV \
+    MAXKB_LOG_LEVEL=INFO \
+    MAXKB_SANDBOX=1 \
+    MAXKB_SANDBOX_HOME=/opt/maxkb-app/sandbox \
+    MAXKB_SANDBOX_PYTHON_PACKAGE_PATHS="/opt/py3/lib/python3.11/site-packages,/opt/maxkb-app/sandbox/python-packages,/opt/maxkb/python-packages" \
+    MAXKB_SANDBOX_PYTHON_BANNED_HOSTS="127.0.0.0/8,localhost,host.docker.internal,172.17.0.0/16,maxkb,pgsql,redis,172.31.250.192/26,0.0.0.0/32,::/0" \
+    MAXKB_ADMIN_PATH=/admin
+
+EXPOSE 6379
