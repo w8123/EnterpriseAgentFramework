@@ -14,16 +14,16 @@ export default defineConfig({
     port: 5200,
     proxy: {
       '/ai': {
-        target: 'http://localhost:8602',
+        target: 'http://localhost:18602',
         changeOrigin: true,
       },
-      /** ai-agent-service：统一走 8603，避免新增 /api/capabilities、/api/tool-acl 等路径漏配代理 */
+      /** ai-agent-service：统一走 18603，避免新增 /api/capabilities、/api/tool-acl 等路径漏配代理 */
       '/api': {
-        target: 'http://localhost:8603',
+        target: 'http://localhost:18603',
         changeOrigin: true,
       },
       '^/model/(providers|chat)(/.*)?$': {
-        target: 'http://localhost:8601',
+        target: 'http://localhost:18601',
         changeOrigin: true,
       },
     },

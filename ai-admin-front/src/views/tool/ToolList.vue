@@ -382,7 +382,7 @@
                 </el-col>
               </el-row>
               <el-form-item label="Base URL">
-                <el-input v-model="form.baseUrl" placeholder="http://localhost:8602" />
+                <el-input v-model="form.baseUrl" placeholder="http://localhost:18602" />
               </el-form-item>
               <el-row :gutter="16">
                 <el-col :span="12">

@@ -1,29 +1,61 @@
 <template>
   <div class="debug-container">
-    <!-- 顶部 Agent 信息 -->
-    <div class="debug-header">
-      <el-button @click="router.push('/agent')" :icon="ArrowLeft" text>返回</el-button>
-      <h3>{{ agentName || 'Agent 调试台' }}</h3>
-      <div class="session-info">
-        <el-tag v-if="sessionId" size="small" type="info">Session: {{ sessionId }}</el-tag>
+    <section class="debug-header">
+      <div class="header-main">
+        <el-button class="back-button" :icon="ArrowLeft" text @click="router.push('/agent')">
+          返回
+        </el-button>
+        <div class="agent-mark">
+          <el-icon><Cpu /></el-icon>
+        </div>
+        <div class="title-block">
+          <div class="eyebrow">Agent Debug Console</div>
+          <h2>{{ agentName || 'Agent 调试台' }}</h2>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <el-tag v-if="sessionId" class="session-tag" size="large" effect="plain">
+          Session {{ sessionId }}
+        </el-tag>
         <el-button
           v-if="sessionId"
-          size="small"
+          :icon="Delete"
+          plain
           type="warning"
-          text
           @click="handleClearSession"
-        >清除会话</el-button>
+        >
+          清除会话
+        </el-button>
       </div>
-    </div>
+    </section>
 
-    <div class="debug-body">
-      <!-- 左侧：对话区域 -->
-      <div class="chat-panel">
-        <div class="chat-messages" ref="messagesRef">
-          <div v-if="messages.length === 0" class="chat-empty">
-            <el-icon :size="48" color="#c0c4cc"><ChatDotRound /></el-icon>
-            <p>输入消息开始调试对话</p>
+    <section class="debug-body">
+      <main class="chat-panel">
+        <div class="chat-toolbar">
+          <div>
+            <span class="toolbar-label">调试模式</span>
+            <el-radio-group v-model="chatMode" size="small" class="mode-toggle">
+              <el-radio-button value="chat">轻量对话</el-radio-button>
+              <el-radio-button value="stream">流式对话</el-radio-button>
+              <el-radio-button value="agent">Agent 执行</el-radio-button>
+            </el-radio-group>
           </div>
+          <div class="run-state" :class="{ active: streaming || sending }">
+            <span />
+            {{ streaming || sending ? '运行中' : '就绪' }}
+          </div>
+        </div>
+
+        <div ref="messagesRef" class="chat-messages">
+          <div v-if="messages.length === 0" class="chat-empty">
+            <div class="empty-orbit">
+              <el-icon><ChatDotRound /></el-icon>
+            </div>
+            <h3>开始一次调试</h3>
+            <p>选择执行模式后输入问题，右侧会同步展示执行细节。</p>
+          </div>
+
           <div
             v-for="msg in messages"
             :key="msg.id"
@@ -31,31 +63,40 @@
             :class="msg.role"
           >
             <div class="message-avatar">
-              <el-icon v-if="msg.role === 'user'" :size="20"><User /></el-icon>
-              <el-icon v-else :size="20"><Cpu /></el-icon>
+              <el-icon v-if="msg.role === 'user'"><User /></el-icon>
+              <el-icon v-else><Cpu /></el-icon>
             </div>
             <div class="message-content">
+              <div class="message-role">{{ msg.role === 'user' ? 'You' : 'Agent' }}</div>
               <div class="message-text" v-if="msg.loading">
                 <span class="typing-indicator">
                   <span></span><span></span><span></span>
                 </span>
               </div>
               <div class="message-text" v-else>{{ msg.content }}</div>
+
               <DynamicInteraction
                 v-if="msg.role === 'assistant' && msg.uiRequest"
+                class="interaction-card"
                 :payload="msg.uiRequest"
                 @action="(act, vals) => handleUiAction(msg.uiRequest!, act, vals)"
               />
+
               <div v-if="msg.toolCalls?.length" class="message-meta">
                 <el-tag
                   v-for="tc in msg.toolCalls"
                   :key="tc"
                   size="small"
                   type="success"
-                >{{ tc }}</el-tag>
+                  effect="light"
+                >
+                  {{ tc }}
+                </el-tag>
               </div>
               <div v-if="msg.traceId" class="message-meta">
-                <el-button link type="primary" size="small" @click="openTrace(msg.traceId)">查看 Trace</el-button>
+                <el-button :icon="Connection" link type="primary" size="small" @click="openTrace(msg.traceId)">
+                  查看 Trace
+                </el-button>
               </div>
             </div>
           </div>
@@ -65,40 +106,53 @@
           <el-input
             v-model="inputMessage"
             type="textarea"
-            :rows="2"
-            placeholder="输入消息... (Ctrl+Enter 发送)"
-            @keydown="handleKeydown"
+            :autosize="{ minRows: 2, maxRows: 5 }"
+            placeholder="输入消息...（Ctrl+Enter 发送）"
+            resize="none"
             :disabled="streaming"
+            @keydown="handleKeydown"
           />
           <div class="input-actions">
-            <el-radio-group v-model="chatMode" size="small">
-              <el-radio-button value="chat">轻量对话</el-radio-button>
-              <el-radio-button value="stream">流式对话</el-radio-button>
-              <el-radio-button value="agent">Agent 执行</el-radio-button>
-            </el-radio-group>
-            <div>
-              <el-button v-if="streaming" type="danger" size="small" @click="stopStream">
+            <span class="input-hint">Enter 换行，Ctrl+Enter 发送</span>
+            <div class="send-actions">
+              <el-button v-if="streaming" :icon="CircleClose" type="danger" plain @click="stopStream">
                 停止
               </el-button>
-              <el-button type="primary" @click="handleSend" :loading="sending" :disabled="streaming">
+              <el-button
+                :icon="Promotion"
+                type="primary"
+                :loading="sending"
+                :disabled="streaming"
+                @click="handleSend"
+              >
                 发送
               </el-button>
             </div>
           </div>
         </div>
-      </div>
+      </main>
 
-      <!-- 右侧：执行详情 -->
-      <div class="detail-panel">
-        <el-tabs v-model="activeTab">
+      <aside class="detail-panel">
+        <div class="detail-header">
+          <div>
+            <span class="toolbar-label">执行洞察</span>
+            <h3>{{ activeTab === 'agent-detail' ? 'Agent 详情' : '执行详情' }}</h3>
+          </div>
+          <el-tag :type="lastAgentResult?.success === false ? 'danger' : 'info'" effect="light">
+            {{ lastAgentResult ? (lastAgentResult.success ? '成功' : '失败') : '待执行' }}
+          </el-tag>
+        </div>
+
+        <el-tabs v-model="activeTab" class="detail-tabs">
           <el-tab-pane label="执行详情" name="exec">
             <div v-if="!lastResult" class="empty-detail">
+              <el-icon><Document /></el-icon>
               <p>发送消息后查看执行详情</p>
             </div>
             <template v-else>
               <div class="detail-section">
                 <h4>意图识别</h4>
-                <el-tag>{{ lastResult.intentType || '未知' }}</el-tag>
+                <el-tag effect="light">{{ lastResult.intentType || '未知' }}</el-tag>
               </div>
               <div v-if="lastResult.reasoningSteps?.length" class="detail-section">
                 <h4>推理步骤</h4>
@@ -115,26 +169,39 @@
               </div>
               <div v-if="lastResult.toolCalls?.length" class="detail-section">
                 <h4>Tool 调用</h4>
-                <el-tag
-                  v-for="tc in lastResult.toolCalls"
-                  :key="tc"
-                  type="success"
-                  class="detail-tag"
-                >{{ tc }}</el-tag>
+                <div class="tag-row">
+                  <el-tag
+                    v-for="tc in lastResult.toolCalls"
+                    :key="tc"
+                    type="success"
+                    effect="light"
+                  >
+                    {{ tc }}
+                  </el-tag>
+                </div>
               </div>
             </template>
           </el-tab-pane>
+
           <el-tab-pane label="Agent 详情" name="agent-detail">
             <div v-if="!lastAgentResult" class="empty-detail">
-              <p>使用"Agent 执行"模式查看完整链路</p>
+              <el-icon><DataLine /></el-icon>
+              <p>使用 Agent 执行模式查看完整链路</p>
             </div>
             <template v-else>
-              <div class="detail-section">
-                <h4>执行状态</h4>
-                <el-tag :type="lastAgentResult.success ? 'success' : 'danger'">
-                  {{ lastAgentResult.success ? '成功' : '失败' }}
-                </el-tag>
+              <div class="metric-grid">
+                <div class="metric-card">
+                  <span>状态</span>
+                  <strong :class="lastAgentResult.success ? 'success' : 'danger'">
+                    {{ lastAgentResult.success ? '成功' : '失败' }}
+                  </strong>
+                </div>
+                <div class="metric-card">
+                  <span>步骤数</span>
+                  <strong>{{ lastAgentResult.steps?.length || 0 }}</strong>
+                </div>
               </div>
+
               <div v-if="lastAgentResult.steps?.length" class="detail-section">
                 <h4>执行步骤</h4>
                 <el-timeline>
@@ -148,6 +215,7 @@
                   </el-timeline-item>
                 </el-timeline>
               </div>
+
               <div v-if="lastAgentResult.metadata" class="detail-section">
                 <h4>元数据</h4>
                 <pre class="metadata-json">{{ JSON.stringify(lastAgentResult.metadata, null, 2) }}</pre>
@@ -155,8 +223,8 @@
             </template>
           </el-tab-pane>
         </el-tabs>
-      </div>
-    </div>
+      </aside>
+    </section>
 
     <el-drawer v-model="traceDrawerVisible" :title="`Trace 回放 - ${activeTraceId}`" size="45%">
       <TraceTimeline :nodes="traceNodes" />
@@ -165,10 +233,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, nextTick } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, User, Cpu, ChatDotRound } from '@element-plus/icons-vue'
+import {
+  ArrowLeft,
+  ChatDotRound,
+  CircleClose,
+  Connection,
+  Cpu,
+  DataLine,
+  Delete,
+  Document,
+  Promotion,
+  User,
+} from '@element-plus/icons-vue'
 import TraceTimeline from '@/components/TraceTimeline.vue'
 import DynamicInteraction from '@/components/interaction/DynamicInteraction.vue'
 import type { ChatMessage, ChatResponse } from '@/types/chat'
@@ -387,48 +466,173 @@ onMounted(loadAgent)
   display: flex;
   flex-direction: column;
   height: calc(100vh - 56px);
-  padding: 0;
+  min-height: 0;
+  padding: 22px 26px 24px;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(79, 70, 229, 0.12), transparent 28%),
+    radial-gradient(circle at 88% 4%, rgba(14, 165, 233, 0.09), transparent 24%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
 }
 
 .debug-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 24px;
-  background: #fff;
-  border-bottom: 1px solid #e5e6eb;
-  flex-shrink: 0;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 88px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  border: 1px solid #e3e8f2;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.07);
+}
 
-  h3 {
-    margin: 0;
-    font-size: 16px;
-  }
+.header-main,
+.header-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
 
-  .session-info {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+.header-main {
+  gap: 14px;
+}
+
+.header-actions {
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.back-button {
+  color: #475569;
+  font-weight: 700;
+}
+
+.agent-mark {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  color: #fff;
+  background: linear-gradient(135deg, #4f46e5, #2563eb 58%, #0891b2);
+  box-shadow: 0 14px 28px rgba(37, 99, 235, 0.24);
+
+  .el-icon {
+    font-size: 22px;
   }
 }
 
+.title-block {
+  min-width: 0;
+
+  h2 {
+    margin: 4px 0 0;
+    color: #101828;
+    font-size: 22px;
+    line-height: 1.2;
+    font-weight: 800;
+    letter-spacing: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.eyebrow,
+.toolbar-label {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.session-tag {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .debug-body {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 392px;
+  gap: 16px;
+  min-height: 0;
   flex: 1;
+}
+
+.chat-panel,
+.detail-panel {
+  min-height: 0;
+  border: 1px solid #e3e8f2;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.07);
   overflow: hidden;
 }
 
 .chat-panel {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #e5e6eb;
+}
+
+.chat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 68px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #edf1f7;
+  background: linear-gradient(180deg, #ffffff, #fbfcff);
+}
+
+.mode-toggle {
+  margin-top: 8px;
+}
+
+.run-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+
+  span {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #94a3b8;
+  }
+
+  &.active {
+    color: #2563eb;
+
+    span {
+      background: #2563eb;
+      box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.12);
+    }
+  }
 }
 
 .chat-messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 20px;
+  padding: 26px 28px;
+  background:
+    linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+    #f8fafc;
+  background-size: 28px 28px;
 }
 
 .chat-empty {
@@ -437,18 +641,46 @@ onMounted(loadAgent)
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #475569;
+  min-height: 320px;
+  color: #64748b;
+  text-align: center;
+
+  h3 {
+    margin: 16px 0 6px;
+    color: #101828;
+    font-size: 20px;
+    font-weight: 800;
+  }
 
   p {
-    margin-top: 12px;
+    max-width: 360px;
     font-size: 14px;
+    line-height: 1.7;
+  }
+}
+
+.empty-orbit {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  color: #2563eb;
+  background:
+    linear-gradient(135deg, rgba(79, 70, 229, 0.10), rgba(14, 165, 233, 0.08)),
+    #ffffff;
+  box-shadow: 0 18px 36px rgba(37, 99, 235, 0.12);
+
+  .el-icon {
+    font-size: 34px;
   }
 }
 
 .message-item {
   display: flex;
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 
   &.user {
     flex-direction: row-reverse;
@@ -457,54 +689,90 @@ onMounted(loadAgent)
       align-items: flex-end;
     }
 
-    .message-text {
-      background: #409eff;
+    .message-role {
+      text-align: right;
+    }
+
+    .message-avatar {
       color: #fff;
-      border-radius: 12px 2px 12px 12px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    }
+
+    .message-text {
+      color: #fff;
+      border-color: transparent;
+      background: linear-gradient(135deg, #4f46e5, #2563eb);
+      box-shadow: 0 12px 24px rgba(37, 99, 235, 0.18);
     }
   }
 
-  &.assistant .message-text {
-    background: #f4f4f5;
-    border-radius: 2px 12px 12px 12px;
+  &.assistant {
+    .message-avatar {
+      color: #1e293b;
+      background: #e9edf5;
+    }
   }
 }
 
 .message-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #e5e6eb;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
+
+  .el-icon {
+    font-size: 19px;
+  }
 }
 
 .message-content {
   display: flex;
   flex-direction: column;
-  max-width: 70%;
+  width: fit-content;
+  max-width: min(760px, 74%);
+  min-width: 0;
+}
+
+.message-role {
+  margin: 0 0 6px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .message-text {
-  padding: 10px 14px;
+  padding: 13px 16px;
+  border: 1px solid #e6eaf2;
+  border-radius: 8px;
+  color: #1e293b;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.75;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
+.interaction-card {
+  margin-top: 10px;
+}
+
 .message-meta {
   display: flex;
-  gap: 4px;
-  margin-top: 6px;
+  gap: 6px;
+  margin-top: 8px;
   flex-wrap: wrap;
 }
 
 .typing-indicator {
   display: inline-flex;
-  gap: 4px;
+  align-items: center;
+  gap: 5px;
+  min-width: 38px;
+  min-height: 18px;
 
   span {
     width: 6px;
@@ -513,85 +781,323 @@ onMounted(loadAgent)
     background: #64748b;
     animation: typing 1.2s infinite ease-in-out;
 
-    &:nth-child(2) { animation-delay: 0.2s; }
-    &:nth-child(3) { animation-delay: 0.4s; }
+    &:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+
+    &:nth-child(3) {
+      animation-delay: 0.4s;
+    }
   }
 }
 
 @keyframes typing {
-  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-  40% { opacity: 1; transform: scale(1); }
+  0%,
+  80%,
+  100% {
+    opacity: 0.32;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
 }
 
 .chat-input {
-  padding: 16px 20px;
-  background: #fff;
-  border-top: 1px solid #e5e6eb;
+  padding: 16px 18px;
+  border-top: 1px solid #edf1f7;
+  background: #ffffff;
+
+  :deep(.el-textarea__inner) {
+    min-height: 64px !important;
+    border-radius: 8px;
+    box-shadow: 0 0 0 1px #dfe5ef inset;
+    font-size: 14px;
+
+    &:focus {
+      box-shadow: 0 0 0 1px #4f46e5 inset, 0 0 0 4px rgba(79, 70, 229, 0.10);
+    }
+  }
 }
 
 .input-actions {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-top: 10px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.input-hint {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.send-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .detail-panel {
-  width: 380px;
-  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 18px;
   overflow-y: auto;
-  padding: 16px;
-  background: #fff;
+}
+
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #edf1f7;
+
+  h3 {
+    margin: 5px 0 0;
+    color: #101828;
+    font-size: 18px;
+    line-height: 1.25;
+    font-weight: 800;
+  }
+}
+
+.detail-tabs {
+  margin-top: 8px;
+
+  :deep(.el-tabs__item) {
+    font-weight: 800;
+  }
 }
 
 .empty-detail {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 200px;
-  color: #475569;
-  font-size: 14px;
+  min-height: 220px;
+  color: #94a3b8;
+  text-align: center;
+
+  .el-icon {
+    margin-bottom: 10px;
+    font-size: 34px;
+  }
+
+  p {
+    font-size: 14px;
+    font-weight: 700;
+  }
 }
 
 .detail-section {
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 
   h4 {
+    margin: 0 0 10px;
+    color: #475569;
     font-size: 13px;
-    color: #64748b;
-    margin-bottom: 8px;
+    font-weight: 800;
+  }
+
+  :deep(.el-timeline) {
+    padding-left: 4px;
+  }
+
+  :deep(.el-timeline-item__content) {
+    color: #334155;
+    line-height: 1.65;
   }
 }
 
-.detail-tag {
-  margin-right: 6px;
-  margin-bottom: 4px;
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 8px 0 22px;
+}
+
+.metric-card {
+  padding: 14px;
+  border: 1px solid #e6eaf2;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+
+  span {
+    display: block;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  strong {
+    display: block;
+    margin-top: 8px;
+    color: #101828;
+    font-size: 20px;
+    line-height: 1;
+    font-weight: 900;
+
+    &.success {
+      color: #059669;
+    }
+
+    &.danger {
+      color: #e11d48;
+    }
+  }
 }
 
 .metadata-json {
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
-  padding: 12px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid #dce3ee;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #dbeafe;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   font-size: 12px;
-  overflow-x: auto;
-  max-height: 300px;
-  overflow-y: auto;
+  line-height: 1.65;
 }
 
-// ── 日间模式覆盖 ──
-:global([data-theme="light"]) {
-  .empty-detail {
-    color: #94a3b8;
+:deep(.el-button) {
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+:deep(.el-button--primary:not(.is-link):not(.is-text)) {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, #4f46e5, #2563eb);
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.20);
+}
+
+:deep(.el-radio-button__inner) {
+  font-weight: 700;
+}
+
+:deep(.el-tag) {
+  border-radius: 7px;
+  font-weight: 700;
+}
+
+:global([data-theme="dark"]) {
+  .debug-container {
+    background:
+      radial-gradient(circle at 10% 0%, rgba(79, 70, 229, 0.20), transparent 30%),
+      radial-gradient(circle at 88% 4%, rgba(14, 165, 233, 0.12), transparent 24%),
+      linear-gradient(180deg, #0d1020, #090d18);
   }
 
-  .detail-section h4 {
-    color: #94a3b8;
+  .debug-header,
+  .chat-panel,
+  .detail-panel {
+    border-color: rgba(148, 163, 184, 0.14);
+    background: rgba(15, 23, 42, 0.82);
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
   }
 
-  .metadata-json {
-    background: #f5f7fa;
-    border: 1px solid #ebeef5;
+  .title-block h2,
+  .detail-header h3,
+  .chat-empty h3 {
+    color: #f8fafc;
+  }
+
+  .chat-toolbar,
+  .chat-input {
+    border-color: rgba(148, 163, 184, 0.12);
+    background: rgba(15, 23, 42, 0.76);
+  }
+
+  .chat-messages {
+    background:
+      linear-gradient(90deg, rgba(148, 163, 184, 0.055) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+      rgba(2, 6, 23, 0.38);
+  }
+
+  .message-item.assistant .message-avatar {
+    color: #dbeafe;
+    background: rgba(148, 163, 184, 0.16);
+  }
+
+  .message-text {
+    color: #e2e8f0;
+    border-color: rgba(148, 163, 184, 0.14);
+    background: rgba(15, 23, 42, 0.86);
+  }
+
+  .detail-header {
+    border-color: rgba(148, 163, 184, 0.12);
+  }
+
+  .detail-section {
+    h4 {
+      color: #cbd5e1;
+    }
+
+    :deep(.el-timeline-item__content) {
+      color: #cbd5e1;
+    }
+  }
+
+  .metric-card {
+    border-color: rgba(148, 163, 184, 0.14);
+    background: rgba(15, 23, 42, 0.70);
+
+    strong {
+      color: #f8fafc;
+    }
+  }
+}
+
+@media (max-width: 1180px) {
+  .debug-body {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-panel {
+    min-height: 360px;
+  }
+}
+
+@media (max-width: 760px) {
+  .debug-container {
+    height: auto;
+    min-height: calc(100vh - 56px);
+    padding: 16px;
+  }
+
+  .debug-header,
+  .chat-toolbar,
+  .input-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .header-actions,
+  .send-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .message-content {
+    max-width: calc(100vw - 118px);
+  }
+
+  .chat-messages {
+    padding: 20px 16px;
+    min-height: 420px;
   }
 }
 </style>

@@ -260,7 +260,7 @@
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="项目域名" required>
-              <el-input v-model="scanForm.baseUrl" placeholder="http://localhost:8602" />
+              <el-input v-model="scanForm.baseUrl" placeholder="http://localhost:18602" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -523,10 +523,10 @@ watch([accessBannerVisible, activeTab, () => filteredProjects.value.length], () 
   nextTick(scheduleUpdateProjectTableMaxHeight)
 })
 
-/** 与 RegistryProjectDetail 一致：VITE_AI_AGENT_SERVICE_URL，默认本地 8603 */
+/** 与 RegistryProjectDetail 一致：VITE_AI_AGENT_SERVICE_URL，默认本地 18603 */
 const agentServiceBaseUrl = computed(() => {
   const raw = import.meta.env.VITE_AI_AGENT_SERVICE_URL?.trim()
-  const fallback = 'http://localhost:8603'
+  const fallback = 'http://localhost:18603'
   if (!raw) return fallback
   return raw.replace(/\/$/, '')
 })

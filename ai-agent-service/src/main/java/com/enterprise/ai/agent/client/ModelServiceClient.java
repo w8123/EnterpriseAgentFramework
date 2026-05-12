@@ -21,7 +21,7 @@ import java.util.Map;
  */
 @FeignClient(
         name = "ai-model-service",
-        url = "${services.model-service.url:http://localhost:8601}",
+        url = "${services.model-service.url:http://localhost:18601}",
         path = "/model"
 )
 public interface ModelServiceClient {

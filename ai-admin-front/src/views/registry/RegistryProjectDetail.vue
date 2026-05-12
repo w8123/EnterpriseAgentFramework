@@ -365,10 +365,10 @@ function emptyEditForm(): ScanProjectUpsertRequest {
 
 const editForm = reactive<ScanProjectUpsertRequest>(emptyEditForm())
 
-/** 与 ai-agent-service 实际监听地址一致，由 VITE_AI_AGENT_SERVICE_URL 注入，默认本地 8603 */
+/** 与 ai-agent-service 实际监听地址一致，由 VITE_AI_AGENT_SERVICE_URL 注入，默认本地 18603 */
 const agentServiceBaseUrl = computed(() => {
   const raw = import.meta.env.VITE_AI_AGENT_SERVICE_URL?.trim()
-  const fallback = 'http://localhost:8603'
+  const fallback = 'http://localhost:18603'
   if (!raw) return fallback
   return raw.replace(/\/$/, '')
 })

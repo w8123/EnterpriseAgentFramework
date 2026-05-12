@@ -16,7 +16,7 @@ import java.util.Map;
 @FeignClient(
         contextId = "scannerServiceClient",
         name = "ai-skills-service",
-        url = "${services.skills-service.url:http://localhost:8602}",
+        url = "${services.skills-service.url:http://localhost:18602}",
         path = "/ai/scanner"
 )
 public interface ScannerServiceClient {

@@ -113,7 +113,7 @@
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="项目域名" required>
-              <el-input v-model="form.baseUrl" placeholder="http://localhost:8602" />
+              <el-input v-model="form.baseUrl" placeholder="http://localhost:18602" />
             </el-form-item>
           </el-col>
           <el-col :span="12">

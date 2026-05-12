@@ -323,9 +323,9 @@ async function fetchStats() {
 
 async function checkHealth() {
   const services = [
-    { name: 'ai-agent-service', url: 'http://localhost:8603', healthPath: '/actuator/health' },
-    { name: 'ai-skills-service', url: 'http://localhost:8602', healthPath: '/ai/actuator/health' },
-    { name: 'ai-model-service', url: 'http://localhost:8601', healthPath: '/actuator/health' },
+    { name: 'ai-agent-service', url: 'http://localhost:18603', healthPath: '/actuator/health' },
+    { name: 'ai-skills-service', url: 'http://localhost:18602', healthPath: '/ai/actuator/health' },
+    { name: 'ai-model-service', url: 'http://localhost:18601', healthPath: '/actuator/health' },
   ]
 
   for (const svc of services) {

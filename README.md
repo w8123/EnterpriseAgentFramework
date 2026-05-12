@@ -107,7 +107,7 @@ flowchart LR
 3. 平台扫描 OpenAPI / Spring Controller / DTO / Service 上下文。
 4. 生成 `scan_project_tool` 和动态 `tool_definition`。
 5. 在 Agent Studio 中把接口能力编排成 Agent。
-
+![项目详情](docs/系统截图/项目详情.png)
 ![扫描历史项目](docs/系统截图/扫描历史项目.png)
 
 ### 2. 新系统或核心系统：Starter 主动注册
