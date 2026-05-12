@@ -26,6 +26,16 @@ public class KnowledgeTag {
 
     private String tagValue;
 
+    private String tagGroup;
+
+    private String color;
+
+    private String description;
+
+    private Long parentId;
+
+    private Integer sortOrder;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 }

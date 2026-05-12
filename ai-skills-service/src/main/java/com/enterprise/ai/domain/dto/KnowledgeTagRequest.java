@@ -13,4 +13,14 @@ public class KnowledgeTagRequest {
 
     @NotBlank
     private String tagValue;
+
+    private String tagGroup;
+
+    private String color;
+
+    private String description;
+
+    private Long parentId;
+
+    private Integer sortOrder;
 }

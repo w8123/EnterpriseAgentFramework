@@ -9,9 +9,14 @@ import type {
   RetrievalTestResponse,
   KnowledgeStats,
   KnowledgeTag,
+  KnowledgeTagBatchForm,
   KnowledgeTagForm,
+  KnowledgeTagStats,
   KnowledgeQuestion,
   KnowledgeQuestionForm,
+  ChunkUpdateForm,
+  KnowledgeHitLog,
+  KnowledgeOpsDashboard,
 } from '@/types/knowledge'
 import type { ApiResult } from '@/types/import'
 
@@ -47,12 +52,32 @@ export function getKnowledgeStats(kbCode: string) {
   return request.get<ApiResult<KnowledgeStats>>(`/knowledge/kb/${kbCode}/stats`)
 }
 
+export function getKnowledgeOpsDashboard(kbCode: string) {
+  return request.get<ApiResult<KnowledgeOpsDashboard>>(`/knowledge/kb/${kbCode}/ops-dashboard`)
+}
+
+export function getKbChunks(kbCode: string, params?: { keyword?: string; enabled?: number; tagKey?: string; tagValue?: string; limit?: number }) {
+  return request.get<ApiResult<ChunkDetail[]>>(`/knowledge/kb/${kbCode}/chunks`, { params })
+}
+
+export function getKnowledgeHitLogs(kbCode: string, params?: { limit?: number; lowConfidenceOnly?: boolean }) {
+  return request.get<ApiResult<KnowledgeHitLog[]>>(`/knowledge/kb/${kbCode}/hit-logs`, { params })
+}
+
 export function getKnowledgeTags(kbCode: string, params?: { targetType?: string; targetId?: string }) {
   return request.get<ApiResult<KnowledgeTag[]>>(`/knowledge/kb/${kbCode}/tags`, { params })
 }
 
+export function getKnowledgeTagStats(kbCode: string) {
+  return request.get<ApiResult<KnowledgeTagStats[]>>(`/knowledge/kb/${kbCode}/tag-stats`)
+}
+
 export function createKnowledgeTag(kbCode: string, data: KnowledgeTagForm) {
   return request.post<ApiResult<KnowledgeTag>>(`/knowledge/kb/${kbCode}/tags`, data)
+}
+
+export function batchCreateKnowledgeTags(kbCode: string, data: KnowledgeTagBatchForm) {
+  return request.post<ApiResult<KnowledgeTag[]>>(`/knowledge/kb/${kbCode}/tags/batch`, data)
 }
 
 export function deleteKnowledgeTag(kbCode: string, tagId: number) {
@@ -75,6 +100,22 @@ export function deleteKnowledgeQuestion(kbCode: string, questionId: number) {
 
 export function getFileChunks(fileId: string) {
   return request.get<ApiResult<ChunkDetail[]>>(`/file/${fileId}/chunks`)
+}
+
+export function updateChunk(chunkId: number, data: ChunkUpdateForm) {
+  return request.put<ApiResult<ChunkDetail>>(`/knowledge/chunks/${chunkId}`, data)
+}
+
+export function toggleChunk(chunkId: number, enabled: number) {
+  return request.post<ApiResult<ChunkDetail>>(`/knowledge/chunks/${chunkId}/toggle`, null, {
+    params: { enabled },
+  })
+}
+
+export function reembedChunk(chunkId: number) {
+  return request.post<ApiResult<void>>(`/knowledge/chunks/${chunkId}/reembed`, null, {
+    timeout: 120000,
+  })
 }
 
 export function deleteFile(fileId: string) {

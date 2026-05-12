@@ -149,7 +149,7 @@ async function triggerPreview() {
       chunkSize: importStore.chunkConfig.chunkSize,
       chunkOverlap: importStore.chunkConfig.chunkOverlap,
     })
-    const result = data
+    const result = data as unknown as import('@/types/import').ChunkPreviewResponse
     importStore.setPreviewResult(result.chunks, result.totalChunks)
     importStore.fileStatus = 'uploaded'
   } catch {
@@ -204,7 +204,7 @@ async function handleImport() {
       },
     })
 
-    const result = data
+    const result = data as unknown as import('@/types/import').PipelineResult
     ElMessage.success(
       `入库成功！共 ${result.chunkCount} 个 Chunk，${result.vectorCount} 个向量`,
     )

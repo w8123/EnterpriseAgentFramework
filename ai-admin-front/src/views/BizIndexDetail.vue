@@ -183,14 +183,14 @@ const searchExecuted = ref(false)
 
 async function loadDetail() {
   const { data } = await getBizIndexDetail(indexCode)
-  indexDetail.value = data
+  indexDetail.value = data as unknown as BizIndex
 }
 
 async function loadStats() {
   statsLoading.value = true
   try {
     const { data } = await getBizIndexStats(indexCode)
-    stats.value = data
+    stats.value = data as unknown as BizIndexStats
   } finally {
     statsLoading.value = false
   }
@@ -219,7 +219,7 @@ async function handleSearch() {
       topK: 10,
       scoreThreshold: 0.3,
     })
-    searchResults.value = data?.results ?? []
+    searchResults.value = (data as unknown as { results?: BizSearchItem[] })?.results ?? []
   } finally {
     searchLoading.value = false
   }

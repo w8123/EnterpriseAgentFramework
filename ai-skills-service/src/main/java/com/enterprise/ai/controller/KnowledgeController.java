@@ -1,17 +1,23 @@
 package com.enterprise.ai.controller;
 
 import com.enterprise.ai.common.dto.ApiResult;
+import com.enterprise.ai.domain.dto.ChunkUpdateRequest;
+import com.enterprise.ai.domain.dto.ChunkVO;
 import com.enterprise.ai.domain.dto.ChunkPreviewResponse;
 import com.enterprise.ai.domain.dto.FileInfoVO;
 import com.enterprise.ai.domain.dto.KbConfigRequest;
 import com.enterprise.ai.domain.dto.KnowledgeBaseRequest;
 import com.enterprise.ai.domain.dto.KnowledgeBaseVO;
+import com.enterprise.ai.domain.dto.KnowledgeHitLogDTO;
 import com.enterprise.ai.domain.dto.KnowledgeImportRequest;
+import com.enterprise.ai.domain.dto.KnowledgeOpsDashboardVO;
 import com.enterprise.ai.domain.dto.KnowledgeQuestionDTO;
 import com.enterprise.ai.domain.dto.KnowledgeQuestionRequest;
 import com.enterprise.ai.domain.dto.KnowledgeStatsVO;
+import com.enterprise.ai.domain.dto.KnowledgeTagBatchRequest;
 import com.enterprise.ai.domain.dto.KnowledgeTagDTO;
 import com.enterprise.ai.domain.dto.KnowledgeTagRequest;
+import com.enterprise.ai.domain.dto.KnowledgeTagStatsDTO;
 import com.enterprise.ai.domain.dto.PipelineResult;
 import com.enterprise.ai.pipeline.PipelineContext;
 import com.enterprise.ai.service.KnowledgeService;
@@ -76,6 +82,28 @@ public class KnowledgeController {
         return ApiResult.ok(knowledgeService.getStats(kbCode));
     }
 
+    @GetMapping("/kb/{kbCode}/ops-dashboard")
+    public ApiResult<KnowledgeOpsDashboardVO> getOpsDashboard(@PathVariable String kbCode) {
+        return ApiResult.ok(knowledgeService.getOpsDashboard(kbCode));
+    }
+
+    @GetMapping("/kb/{kbCode}/chunks")
+    public ApiResult<List<ChunkVO>> listChunks(@PathVariable String kbCode,
+                                               @RequestParam(required = false) String keyword,
+                                               @RequestParam(required = false) Integer enabled,
+                                               @RequestParam(required = false) String tagKey,
+                                               @RequestParam(required = false) String tagValue,
+                                               @RequestParam(required = false) Integer limit) {
+        return ApiResult.ok(knowledgeService.listChunks(kbCode, keyword, enabled, tagKey, tagValue, limit));
+    }
+
+    @GetMapping("/kb/{kbCode}/hit-logs")
+    public ApiResult<List<KnowledgeHitLogDTO>> listHitLogs(@PathVariable String kbCode,
+                                                           @RequestParam(required = false) Integer limit,
+                                                           @RequestParam(required = false) Boolean lowConfidenceOnly) {
+        return ApiResult.ok(knowledgeService.listHitLogs(kbCode, limit, lowConfidenceOnly));
+    }
+
     @GetMapping("/kb/{kbCode}/tags")
     public ApiResult<List<KnowledgeTagDTO>> listTags(@PathVariable String kbCode,
                                                      @RequestParam(required = false) String targetType,
@@ -83,10 +111,21 @@ public class KnowledgeController {
         return ApiResult.ok(knowledgeService.listTags(kbCode, targetType, targetId));
     }
 
+    @GetMapping("/kb/{kbCode}/tag-stats")
+    public ApiResult<List<KnowledgeTagStatsDTO>> listTagStats(@PathVariable String kbCode) {
+        return ApiResult.ok(knowledgeService.listTagStats(kbCode));
+    }
+
     @PostMapping("/kb/{kbCode}/tags")
     public ApiResult<KnowledgeTagDTO> createTag(@PathVariable String kbCode,
                                                 @Valid @RequestBody KnowledgeTagRequest request) {
         return ApiResult.ok(knowledgeService.createTag(kbCode, request));
+    }
+
+    @PostMapping("/kb/{kbCode}/tags/batch")
+    public ApiResult<List<KnowledgeTagDTO>> batchCreateTags(@PathVariable String kbCode,
+                                                            @Valid @RequestBody KnowledgeTagBatchRequest request) {
+        return ApiResult.ok(knowledgeService.batchCreateTags(kbCode, request));
     }
 
     @DeleteMapping("/kb/{kbCode}/tags/{tagId}")
@@ -124,6 +163,24 @@ public class KnowledgeController {
     }
 
     // ==================== Chunk 预览 ====================
+
+    @PutMapping("/chunks/{chunkId}")
+    public ApiResult<ChunkVO> updateChunk(@PathVariable Long chunkId,
+                                          @RequestBody ChunkUpdateRequest request) {
+        return ApiResult.ok(knowledgeService.updateChunk(chunkId, request));
+    }
+
+    @PostMapping("/chunks/{chunkId}/toggle")
+    public ApiResult<ChunkVO> toggleChunk(@PathVariable Long chunkId,
+                                          @RequestParam(defaultValue = "1") Integer enabled) {
+        return ApiResult.ok(knowledgeService.toggleChunk(chunkId, enabled));
+    }
+
+    @PostMapping("/chunks/{chunkId}/reembed")
+    public ApiResult<Void> reembedChunk(@PathVariable Long chunkId) {
+        knowledgeService.reembedChunk(chunkId);
+        return ApiResult.ok();
+    }
 
     @PostMapping("/preview")
     public ApiResult<ChunkPreviewResponse> preview(

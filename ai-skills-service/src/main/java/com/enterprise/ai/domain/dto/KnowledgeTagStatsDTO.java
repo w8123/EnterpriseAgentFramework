@@ -1,14 +1,11 @@
 package com.enterprise.ai.domain.dto;
 
+import lombok.Builder;
 import lombok.Data;
 
-import java.time.LocalDateTime;
-
 @Data
-public class KnowledgeTagDTO {
-    private Long id;
-    private String targetType;
-    private String targetId;
+@Builder
+public class KnowledgeTagStatsDTO {
     private String tagKey;
     private String tagValue;
     private String tagGroup;
@@ -16,5 +13,8 @@ public class KnowledgeTagDTO {
     private String description;
     private Long parentId;
     private Integer sortOrder;
-    private LocalDateTime createTime;
+    private Integer totalCount;
+    private Integer knowledgeCount;
+    private Integer fileCount;
+    private Integer chunkCount;
 }

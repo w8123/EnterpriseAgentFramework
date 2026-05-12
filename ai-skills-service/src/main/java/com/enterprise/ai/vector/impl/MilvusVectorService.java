@@ -177,6 +177,19 @@ public class MilvusVectorService implements VectorService {
     }
 
     @Override
+    public void deleteById(String collectionName, String id) {
+        String expr = "id == \"" + id + "\"";
+        R<MutationResult> result = milvusClient.delete(DeleteParam.newBuilder()
+                .withCollectionName(collectionName)
+                .withExpr(expr)
+                .build());
+        if (result.getException() != null) {
+            throw new RuntimeException("Milvus delete by id failed", result.getException());
+        }
+        log.info("Deleted vector id={} from {}", id, collectionName);
+    }
+
+    @Override
     public void dropCollection(String collectionName) {
         milvusClient.dropCollection(
                 DropCollectionParam.newBuilder().withCollectionName(collectionName).build());

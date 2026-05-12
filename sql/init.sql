@@ -168,7 +168,13 @@ CALL add_col_if_absent('knowledge_base', 'keyword_weight', 'FLOAT NOT NULL DEFAU
 CALL add_col_if_absent('chunk', 'title', 'VARCHAR(256) DEFAULT NULL COMMENT ''paragraph title'' AFTER `content`');
 CALL add_col_if_absent('chunk', 'hit_count', 'INT NOT NULL DEFAULT 0 COMMENT ''retrieval hit count'' AFTER `collection_name`');
 CALL add_col_if_absent('chunk', 'enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''paragraph enabled flag'' AFTER `hit_count`');
+CALL add_idx_if_absent('knowledge_base', 'idx_kb_workspace_scope', '`workspace_id`, `scope`');
+CALL add_idx_if_absent('knowledge_base', 'idx_kb_project_code', '`project_code`');
 CALL add_idx_if_absent('chunk', 'idx_kb_enabled', '`knowledge_base_id`, `enabled`');
+CALL add_idx_if_absent('chunk', 'idx_kb_hit_count', '`knowledge_base_id`, `hit_count`');
+CALL add_idx_if_absent('chunk', 'idx_file_chunk_index', '`file_id`, `chunk_index`');
+CALL add_idx_if_absent('chunk', 'idx_kb_created', '`knowledge_base_id`, `create_time`');
+CALL add_idx_if_absent('file_info', 'idx_kb_file_created', '`knowledge_base_id`, `create_time`');
 
 CREATE TABLE IF NOT EXISTS `knowledge_tag` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
@@ -177,11 +183,28 @@ CREATE TABLE IF NOT EXISTS `knowledge_tag` (
     `target_id` VARCHAR(128) DEFAULT NULL,
     `tag_key` VARCHAR(64) NOT NULL,
     `tag_value` VARCHAR(128) NOT NULL,
+    `tag_group` VARCHAR(64) NOT NULL DEFAULT '默认',
+    `color` VARCHAR(32) NOT NULL DEFAULT '#409EFF',
+    `description` VARCHAR(512) DEFAULT NULL,
+    `parent_id` BIGINT DEFAULT NULL,
+    `sort_order` INT NOT NULL DEFAULT 0,
     `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_kb_target` (`knowledge_base_id`, `target_type`, `target_id`),
-    KEY `idx_tag` (`tag_key`, `tag_value`)
+    KEY `idx_tag` (`tag_key`, `tag_value`),
+    KEY `idx_kb_tag_library` (`knowledge_base_id`, `tag_group`, `tag_key`, `tag_value`),
+    KEY `idx_kb_target_tag` (`knowledge_base_id`, `target_type`, `tag_key`, `tag_value`),
+    KEY `idx_parent` (`parent_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='knowledge operation tags';
+
+CALL add_col_if_absent('knowledge_tag', 'tag_group', 'VARCHAR(64) NOT NULL DEFAULT ''默认'' COMMENT ''tag group'' AFTER `tag_value`');
+CALL add_col_if_absent('knowledge_tag', 'color', 'VARCHAR(32) NOT NULL DEFAULT ''#409EFF'' COMMENT ''display color'' AFTER `tag_group`');
+CALL add_col_if_absent('knowledge_tag', 'description', 'VARCHAR(512) DEFAULT NULL COMMENT ''tag description'' AFTER `color`');
+CALL add_col_if_absent('knowledge_tag', 'parent_id', 'BIGINT DEFAULT NULL COMMENT ''parent tag id'' AFTER `description`');
+CALL add_col_if_absent('knowledge_tag', 'sort_order', 'INT NOT NULL DEFAULT 0 COMMENT ''display order'' AFTER `parent_id`');
+CALL add_idx_if_absent('knowledge_tag', 'idx_kb_tag_library', '`knowledge_base_id`, `tag_group`, `tag_key`, `tag_value`');
+CALL add_idx_if_absent('knowledge_tag', 'idx_kb_target_tag', '`knowledge_base_id`, `target_type`, `tag_key`, `tag_value`');
+CALL add_idx_if_absent('knowledge_tag', 'idx_parent', '`parent_id`');
 
 CREATE TABLE IF NOT EXISTS `knowledge_question` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
@@ -212,6 +235,9 @@ CREATE TABLE IF NOT EXISTS `knowledge_hit_log` (
     KEY `idx_kb_time` (`knowledge_base_id`, `create_time`),
     KEY `idx_trace` (`trace_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='knowledge retrieval hit log';
+
+CALL add_idx_if_absent('knowledge_hit_log', 'idx_chunk_time', '`chunk_id`, `create_time`');
+CALL add_idx_if_absent('knowledge_hit_log', 'idx_kb_score_time', '`knowledge_base_id`, `score`, `create_time`');
 
 
 -- ============================================================================

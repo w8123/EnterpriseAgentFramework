@@ -66,6 +66,7 @@ export interface FileInfo {
 export interface ChunkDetail {
   id: number
   fileId: string
+  title?: string
   content: string
   chunkIndex: number
   length: number
@@ -134,6 +135,12 @@ export interface RetrievalTestResponse {
   items: RetrievalItem[]
 }
 
+export interface ChunkUpdateForm {
+  title?: string
+  content?: string
+  enabled?: number
+}
+
 export interface KnowledgeStats {
   knowledgeBaseCode: string
   fileCount: number
@@ -150,6 +157,11 @@ export interface KnowledgeTag {
   targetId: string
   tagKey: string
   tagValue: string
+  tagGroup: string
+  color: string
+  description?: string
+  parentId?: number
+  sortOrder?: number
   createTime: string
 }
 
@@ -158,6 +170,37 @@ export interface KnowledgeTagForm {
   targetId?: string
   tagKey: string
   tagValue: string
+  tagGroup?: string
+  color?: string
+  description?: string
+  parentId?: number
+  sortOrder?: number
+}
+
+export interface KnowledgeTagBatchForm {
+  targetType: string
+  targetIds: string[]
+  tagKey: string
+  tagValue: string
+  tagGroup?: string
+  color?: string
+  description?: string
+  parentId?: number
+  sortOrder?: number
+}
+
+export interface KnowledgeTagStats {
+  tagKey: string
+  tagValue: string
+  tagGroup: string
+  color: string
+  description?: string
+  parentId?: number
+  sortOrder?: number
+  totalCount: number
+  knowledgeCount: number
+  fileCount: number
+  chunkCount: number
 }
 
 export interface KnowledgeQuestion {
@@ -174,4 +217,43 @@ export interface KnowledgeQuestionForm {
   chunkId?: number
   question: string
   source?: string
+}
+
+export interface KnowledgeHitLog {
+  id: number
+  chunkId?: number
+  queryText: string
+  searchMode?: string
+  score?: number
+  directReturn: boolean
+  fileId?: string
+  fileName?: string
+  chunkIndex?: number
+  userId?: string
+  traceId?: string
+  createTime: string
+}
+
+export interface PipelineStepStatus {
+  name: string
+  label: string
+  status: 'done' | 'running' | 'failed'
+  durationMs?: number
+}
+
+export interface PipelineFileStatus {
+  fileId: string
+  fileName: string
+  status: number
+  chunkCount: number
+  steps: PipelineStepStatus[]
+}
+
+export interface KnowledgeOpsDashboard {
+  stats: KnowledgeStats
+  recentFiles: PipelineFileStatus[]
+  hotChunks: ChunkDetail[]
+  zeroHitChunks: ChunkDetail[]
+  recentHits: KnowledgeHitLog[]
+  lowConfidenceHits: KnowledgeHitLog[]
 }

@@ -292,12 +292,142 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 new LambdaQueryWrapper<Chunk>()
                         .eq(Chunk::getFileId, fileId)
                         .orderByAsc(Chunk::getChunkIndex));
-        return chunks.stream().map(c -> {
-            ChunkVO vo = new ChunkVO();
-            BeanUtils.copyProperties(c, vo);
-            vo.setLength(c.getContent() != null ? c.getContent().length() : 0);
-            return vo;
-        }).collect(Collectors.toList());
+        return chunks.stream().map(this::toChunkVO).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ChunkVO> listChunks(String kbCode, String keyword, Integer enabled, String tagKey, String tagValue, Integer limit) {
+        KnowledgeBase kb = findKbByCode(kbCode);
+        LambdaQueryWrapper<Chunk> query = new LambdaQueryWrapper<Chunk>()
+                .eq(Chunk::getKnowledgeBaseId, kb.getId())
+                .orderByDesc(Chunk::getHitCount)
+                .orderByAsc(Chunk::getChunkIndex);
+        if (keyword != null && !keyword.isBlank()) {
+            query.and(w -> w.like(Chunk::getContent, keyword).or().like(Chunk::getTitle, keyword));
+        }
+        if (enabled != null) {
+            query.eq(Chunk::getEnabled, enabled);
+        }
+        if ((tagKey != null && !tagKey.isBlank()) || (tagValue != null && !tagValue.isBlank())) {
+            LambdaQueryWrapper<KnowledgeTag> tagQuery = new LambdaQueryWrapper<KnowledgeTag>()
+                    .eq(KnowledgeTag::getKnowledgeBaseId, kb.getId())
+                    .eq(KnowledgeTag::getTargetType, "CHUNK");
+            if (tagKey != null && !tagKey.isBlank()) {
+                tagQuery.eq(KnowledgeTag::getTagKey, tagKey);
+            }
+            if (tagValue != null && !tagValue.isBlank()) {
+                tagQuery.eq(KnowledgeTag::getTagValue, tagValue);
+            }
+            List<Long> chunkIds = knowledgeTagRepository.selectList(tagQuery).stream()
+                    .map(KnowledgeTag::getTargetId)
+                    .filter(Objects::nonNull)
+                    .map(this::parseLongOrNull)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .collect(Collectors.toList());
+            if (chunkIds.isEmpty()) {
+                return List.of();
+            }
+            query.in(Chunk::getId, chunkIds);
+        }
+        query.last("LIMIT " + Math.max(1, Math.min(limit != null ? limit : 200, 500)));
+        return chunkRepository.selectList(query).stream().map(this::toChunkVO).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ChunkVO updateChunk(Long chunkId, ChunkUpdateRequest request) {
+        Chunk chunk = findChunk(chunkId);
+        if (request.getTitle() != null) {
+            chunk.setTitle(request.getTitle());
+        }
+        if (request.getContent() != null) {
+            if (request.getContent().isBlank()) {
+                throw new IllegalArgumentException("chunk content cannot be blank");
+            }
+            chunk.setContent(request.getContent());
+        }
+        if (request.getEnabled() != null) {
+            chunk.setEnabled(request.getEnabled() == 0 ? 0 : 1);
+        }
+        chunkRepository.updateById(chunk);
+        return toChunkVO(chunk);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ChunkVO toggleChunk(Long chunkId, Integer enabled) {
+        Chunk chunk = findChunk(chunkId);
+        chunk.setEnabled(enabled != null && enabled == 0 ? 0 : 1);
+        chunkRepository.updateById(chunk);
+        return toChunkVO(chunk);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void reembedChunk(Long chunkId) {
+        Chunk chunk = findChunk(chunkId);
+        KnowledgeBase kb = knowledgeBaseRepository.selectById(chunk.getKnowledgeBaseId());
+        if (kb == null) {
+            throw new IllegalArgumentException("knowledge base not found for chunk: " + chunkId);
+        }
+        String vectorId = chunk.getVectorId();
+        if (vectorId == null || vectorId.isBlank()) {
+            vectorId = chunk.getFileId() + "_chunk_" + chunk.getChunkIndex();
+            chunk.setVectorId(vectorId);
+        }
+        vectorService.ensureCollection(kb.getCode(), kb.getDimension() != null ? kb.getDimension() : dimension);
+        try {
+            vectorService.deleteById(kb.getCode(), vectorId);
+        } catch (Exception e) {
+            log.warn("Delete old vector failed, will insert replacement. vectorId={}, error={}", vectorId, e.getMessage());
+        }
+        List<Float> vector = embeddingService.embed(chunk.getContent());
+        vectorService.insert(kb.getCode(), List.of(vectorId), List.of(vector), List.of(chunk.getFileId()), List.of(chunk.getContent()));
+        chunk.setCollectionName(kb.getCode());
+        chunkRepository.updateById(chunk);
+    }
+
+    @Override
+    public List<KnowledgeHitLogDTO> listHitLogs(String kbCode, Integer limit, Boolean lowConfidenceOnly) {
+        KnowledgeBase kb = findKbByCode(kbCode);
+        LambdaQueryWrapper<KnowledgeHitLog> query = new LambdaQueryWrapper<KnowledgeHitLog>()
+                .eq(KnowledgeHitLog::getKnowledgeBaseId, kb.getId())
+                .orderByDesc(KnowledgeHitLog::getCreateTime)
+                .last("LIMIT " + Math.max(1, Math.min(limit != null ? limit : 50, 200)));
+        if (Boolean.TRUE.equals(lowConfidenceOnly)) {
+            query.lt(KnowledgeHitLog::getScore, valueOrDefault(kb.getSimilarityThreshold(), defaultScoreThreshold));
+        }
+        List<KnowledgeHitLog> logs = knowledgeHitLogRepository.selectList(query);
+        return toHitLogDTOs(logs);
+    }
+
+    @Override
+    public KnowledgeOpsDashboardVO getOpsDashboard(String kbCode) {
+        KnowledgeBase kb = findKbByCode(kbCode);
+        List<FileInfo> recentFiles = fileInfoRepository.selectList(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getKnowledgeBaseId, kb.getId())
+                .orderByDesc(FileInfo::getCreateTime)
+                .last("LIMIT 8"));
+        List<ChunkVO> hotChunks = chunkRepository.selectList(new LambdaQueryWrapper<Chunk>()
+                        .eq(Chunk::getKnowledgeBaseId, kb.getId())
+                        .orderByDesc(Chunk::getHitCount)
+                        .last("LIMIT 8"))
+                .stream().map(this::toChunkVO).collect(Collectors.toList());
+        List<ChunkVO> zeroHitChunks = chunkRepository.selectList(new LambdaQueryWrapper<Chunk>()
+                        .eq(Chunk::getKnowledgeBaseId, kb.getId())
+                        .and(w -> w.eq(Chunk::getHitCount, 0).or().isNull(Chunk::getHitCount))
+                        .orderByDesc(Chunk::getCreateTime)
+                        .last("LIMIT 8"))
+                .stream().map(this::toChunkVO).collect(Collectors.toList());
+        return KnowledgeOpsDashboardVO.builder()
+                .stats(getStats(kbCode))
+                .recentFiles(recentFiles.stream().map(this::toPipelineFileStatus).collect(Collectors.toList()))
+                .hotChunks(hotChunks)
+                .zeroHitChunks(zeroHitChunks)
+                .recentHits(listHitLogs(kbCode, 8, false))
+                .lowConfidenceHits(listHitLogs(kbCode, 8, true))
+                .build();
     }
 
     @Override
@@ -443,6 +573,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                     for (VectorSearchResult sr : results) {
                         if (sr.getScore() >= threshold) {
                             Chunk chunk = findChunkByVectorIdOrFields(kb.getId(), sr.getId(), sr.getFields());
+                            if (chunk != null && chunk.getEnabled() != null && chunk.getEnabled() == 0) {
+                                continue;
+                            }
                             RetrievalTestResponse.RetrievalItem item = chunk != null
                                     ? buildRetrievalItem(kb, chunk)
                                     : RetrievalTestResponse.RetrievalItem.builder()
@@ -476,16 +609,46 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
 
         // 按分数降序排列，取 topK
+        Map<String, KnowledgeBase> kbMap = knowledgeBases.stream()
+                .collect(Collectors.toMap(KnowledgeBase::getCode, kb -> kb, (a, b) -> a));
+        Map<String, RetrievalTestResponse.RetrievalItem> merged = new LinkedHashMap<>();
+        for (RetrievalTestResponse.RetrievalItem item : allItems) {
+            String key = item.getChunkDbId() != null ? "db:" + item.getChunkDbId() : "vec:" + item.getChunkId();
+            RetrievalTestResponse.RetrievalItem existing = merged.get(key);
+            if (existing == null) {
+                merged.put(key, item);
+            } else {
+                if (item.getVectorScore() != null) existing.setVectorScore(item.getVectorScore());
+                if (item.getKeywordScore() != null) existing.setKeywordScore(item.getKeywordScore());
+            }
+        }
+        allItems = new ArrayList<>(merged.values());
+        for (RetrievalTestResponse.RetrievalItem item : allItems) {
+            KnowledgeBase kb = kbMap.get(item.getKnowledgeBaseCode());
+            float vectorWeight = request.getVectorWeight() != null ? request.getVectorWeight()
+                    : (kb != null ? valueOrDefault(kb.getVectorWeight(), 0.7f) : 0.7f);
+            float keywordWeight = request.getKeywordWeight() != null ? request.getKeywordWeight()
+                    : (kb != null ? valueOrDefault(kb.getKeywordWeight(), 0.3f) : 0.3f);
+            boolean useRerank = request.getRerankEnabled() != null ? request.getRerankEnabled()
+                    : kb == null || Boolean.TRUE.equals(kb.getRerankEnabled());
+            scoreItem(request, kb, searchMode, vectorWeight, keywordWeight, useRerank, item);
+        }
+        allItems = allItems.stream()
+                .filter(item -> item.getScore() != null && item.getScore() >= threshold)
+                .collect(Collectors.toList());
+
         allItems.sort(Comparator.comparingDouble(RetrievalTestResponse.RetrievalItem::getScore).reversed());
         List<RetrievalTestResponse.RetrievalItem> topItems = allItems.stream()
                 .limit(topK).collect(Collectors.toList());
 
         // 补充文件名和chunkIndex
         enrichRetrievalItems(topItems);
-        topItems.forEach(item -> item.setDirectReturn(isDirectReturn(request, null,
-                item.getScore() != null ? item.getScore() : 0f)));
         if (Boolean.TRUE.equals(request.getRecordHit())) {
-            recordHits(request, topItems);
+            if (topItems.isEmpty()) {
+                recordMisses(request, knowledgeBases);
+            } else {
+                recordHits(request, topItems);
+            }
         }
         RetrievalTestResponse.RetrievalItem direct = topItems.stream()
                 .filter(item -> Boolean.TRUE.equals(item.getDirectReturn()))
@@ -525,6 +688,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         KnowledgeBase kb = findKbByCode(kbCode);
         LambdaQueryWrapper<KnowledgeTag> query = new LambdaQueryWrapper<KnowledgeTag>()
                 .eq(KnowledgeTag::getKnowledgeBaseId, kb.getId())
+                .orderByAsc(KnowledgeTag::getTagGroup)
+                .orderByAsc(KnowledgeTag::getSortOrder)
                 .orderByDesc(KnowledgeTag::getCreateTime);
         if (targetType != null && !targetType.isBlank()) {
             query.eq(KnowledgeTag::getTargetType, targetType);
@@ -533,6 +698,38 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             query.eq(KnowledgeTag::getTargetId, targetId);
         }
         return knowledgeTagRepository.selectList(query).stream().map(this::toTagDTO).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<KnowledgeTagStatsDTO> listTagStats(String kbCode) {
+        KnowledgeBase kb = findKbByCode(kbCode);
+        List<KnowledgeTag> tags = knowledgeTagRepository.selectList(new LambdaQueryWrapper<KnowledgeTag>()
+                .eq(KnowledgeTag::getKnowledgeBaseId, kb.getId()));
+        Map<String, List<KnowledgeTag>> grouped = tags.stream()
+                .collect(Collectors.groupingBy(tag -> tag.getTagKey() + "\u0001" + tag.getTagValue()));
+        return grouped.values().stream()
+                .map(items -> {
+                    KnowledgeTag first = items.get(0);
+                    return KnowledgeTagStatsDTO.builder()
+                            .tagKey(first.getTagKey())
+                            .tagValue(first.getTagValue())
+                            .tagGroup(first.getTagGroup())
+                            .color(first.getColor())
+                            .description(first.getDescription())
+                            .parentId(first.getParentId())
+                            .sortOrder(first.getSortOrder())
+                            .totalCount(items.size())
+                            .knowledgeCount(countTagTargets(items, "KNOWLEDGE"))
+                            .fileCount(countTagTargets(items, "FILE"))
+                            .chunkCount(countTagTargets(items, "CHUNK"))
+                            .build();
+                })
+                .sorted(Comparator
+                        .comparing((KnowledgeTagStatsDTO item) -> defaultString(item.getTagGroup(), "默认"))
+                        .thenComparing(item -> item.getSortOrder() != null ? item.getSortOrder() : 0)
+                        .thenComparing(KnowledgeTagStatsDTO::getTagKey)
+                        .thenComparing(KnowledgeTagStatsDTO::getTagValue))
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -545,8 +742,60 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         tag.setTargetId(request.getTargetId());
         tag.setTagKey(request.getTagKey());
         tag.setTagValue(request.getTagValue());
+        tag.setTagGroup(defaultString(request.getTagGroup(), "默认"));
+        tag.setColor(defaultString(request.getColor(), "#409EFF"));
+        tag.setDescription(request.getDescription());
+        tag.setParentId(request.getParentId());
+        tag.setSortOrder(request.getSortOrder() != null ? request.getSortOrder() : 0);
         knowledgeTagRepository.insert(tag);
         return toTagDTO(tag);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public List<KnowledgeTagDTO> batchCreateTags(String kbCode, KnowledgeTagBatchRequest request) {
+        KnowledgeBase kb = findKbByCode(kbCode);
+        String targetType = defaultString(request.getTargetType(), "").toUpperCase(Locale.ROOT);
+        if (!"FILE".equals(targetType) && !"CHUNK".equals(targetType)) {
+            throw new IllegalArgumentException("batch tag only supports FILE or CHUNK targets");
+        }
+        List<String> targetIds = request.getTargetIds().stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(id -> !id.isBlank())
+                .distinct()
+                .collect(Collectors.toList());
+        if (targetIds.isEmpty()) {
+            throw new IllegalArgumentException("targetIds cannot be empty");
+        }
+        validateTagTargets(kb.getId(), targetType, targetIds);
+
+        List<KnowledgeTagDTO> created = new ArrayList<>();
+        for (String targetId : targetIds) {
+            Long exists = knowledgeTagRepository.selectCount(new LambdaQueryWrapper<KnowledgeTag>()
+                    .eq(KnowledgeTag::getKnowledgeBaseId, kb.getId())
+                    .eq(KnowledgeTag::getTargetType, targetType)
+                    .eq(KnowledgeTag::getTargetId, targetId)
+                    .eq(KnowledgeTag::getTagKey, request.getTagKey())
+                    .eq(KnowledgeTag::getTagValue, request.getTagValue()));
+            if (exists != null && exists > 0) {
+                continue;
+            }
+            KnowledgeTag tag = new KnowledgeTag();
+            tag.setKnowledgeBaseId(kb.getId());
+            tag.setTargetType(targetType);
+            tag.setTargetId(targetId);
+            tag.setTagKey(request.getTagKey());
+            tag.setTagValue(request.getTagValue());
+            tag.setTagGroup(defaultString(request.getTagGroup(), "默认"));
+            tag.setColor(defaultString(request.getColor(), "#409EFF"));
+            tag.setDescription(request.getDescription());
+            tag.setParentId(request.getParentId());
+            tag.setSortOrder(request.getSortOrder() != null ? request.getSortOrder() : 0);
+            knowledgeTagRepository.insert(tag);
+            created.add(toTagDTO(tag));
+        }
+        return created;
     }
 
     @Override
@@ -613,6 +862,126 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     /**
      * 将 splitType 枚举值映射到策略工厂可识别的策略名称
      */
+    private Chunk findChunk(Long chunkId) {
+        Chunk chunk = chunkRepository.selectById(chunkId);
+        if (chunk == null) {
+            throw new IllegalArgumentException("chunk not found: " + chunkId);
+        }
+        return chunk;
+    }
+
+    private ChunkVO toChunkVO(Chunk c) {
+        ChunkVO vo = new ChunkVO();
+        BeanUtils.copyProperties(c, vo);
+        vo.setLength(c.getContent() != null ? c.getContent().length() : 0);
+        return vo;
+    }
+
+    private List<KnowledgeHitLogDTO> toHitLogDTOs(List<KnowledgeHitLog> logs) {
+        if (logs == null || logs.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> chunkIds = logs.stream()
+                .map(KnowledgeHitLog::getChunkId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, Chunk> chunkMap = chunkIds.isEmpty()
+                ? Map.of()
+                : chunkRepository.selectList(new LambdaQueryWrapper<Chunk>().in(Chunk::getId, chunkIds))
+                        .stream().collect(Collectors.toMap(Chunk::getId, c -> c));
+        Set<String> fileIds = chunkMap.values().stream()
+                .map(Chunk::getFileId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<String, String> fileNameMap = fileIds.isEmpty()
+                ? Map.of()
+                : fileInfoRepository.selectList(new LambdaQueryWrapper<FileInfo>().in(FileInfo::getFileId, fileIds))
+                        .stream().collect(Collectors.toMap(FileInfo::getFileId, FileInfo::getFileName, (a, b) -> a));
+        return logs.stream().map(log -> {
+            Chunk chunk = log.getChunkId() != null ? chunkMap.get(log.getChunkId()) : null;
+            return KnowledgeHitLogDTO.builder()
+                    .id(log.getId())
+                    .chunkId(log.getChunkId())
+                    .queryText(log.getQueryText())
+                    .searchMode(log.getSearchMode())
+                    .score(log.getScore())
+                    .directReturn(log.getDirectReturn() != null && log.getDirectReturn() == 1)
+                    .fileId(chunk != null ? chunk.getFileId() : null)
+                    .fileName(chunk != null ? fileNameMap.get(chunk.getFileId()) : null)
+                    .chunkIndex(chunk != null ? chunk.getChunkIndex() : null)
+                    .userId(log.getUserId())
+                    .traceId(log.getTraceId())
+                    .createTime(log.getCreateTime())
+                    .build();
+        }).collect(Collectors.toList());
+    }
+
+    private KnowledgeOpsDashboardVO.PipelineFileStatus toPipelineFileStatus(FileInfo file) {
+        String finalStatus = file.getStatus() != null && file.getStatus() == 2 ? "failed"
+                : file.getStatus() != null && file.getStatus() == 1 ? "done" : "running";
+        List<KnowledgeOpsDashboardVO.PipelineStepStatus> steps = List.of(
+                pipelineStep("PARSE", "文档解析", finalStatus),
+                pipelineStep("CLEAN", "文本清洗", finalStatus),
+                pipelineStep("SPLIT", "段落切分", finalStatus),
+                pipelineStep("EMBEDDING", "向量生成", finalStatus),
+                pipelineStep("INDEXING", "索引入库", finalStatus)
+        );
+        return KnowledgeOpsDashboardVO.PipelineFileStatus.builder()
+                .fileId(file.getFileId())
+                .fileName(file.getFileName())
+                .status(file.getStatus())
+                .chunkCount(file.getChunkCount())
+                .steps(steps)
+                .build();
+    }
+
+    private KnowledgeOpsDashboardVO.PipelineStepStatus pipelineStep(String name, String label, String status) {
+        return KnowledgeOpsDashboardVO.PipelineStepStatus.builder()
+                .name(name)
+                .label(label)
+                .status(status)
+                .build();
+    }
+
+    private void validateTagTargets(Long kbId, String targetType, List<String> targetIds) {
+        if ("FILE".equals(targetType)) {
+            Long count = fileInfoRepository.selectCount(new LambdaQueryWrapper<FileInfo>()
+                    .eq(FileInfo::getKnowledgeBaseId, kbId)
+                    .in(FileInfo::getFileId, targetIds));
+            if (count == null || count != targetIds.size()) {
+                throw new IllegalArgumentException("some files do not belong to knowledge base");
+            }
+            return;
+        }
+        List<Long> chunkIds = targetIds.stream()
+                .map(this::parseLongOrNull)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (chunkIds.size() != targetIds.size()) {
+            throw new IllegalArgumentException("chunk targetIds must be numeric ids");
+        }
+        Long count = chunkRepository.selectCount(new LambdaQueryWrapper<Chunk>()
+                .eq(Chunk::getKnowledgeBaseId, kbId)
+                .in(Chunk::getId, chunkIds));
+        if (count == null || count != targetIds.size()) {
+            throw new IllegalArgumentException("some chunks do not belong to knowledge base");
+        }
+    }
+
+    private Long parseLongOrNull(String value) {
+        try {
+            return value == null || value.isBlank() ? null : Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private int countTagTargets(List<KnowledgeTag> tags, String targetType) {
+        return (int) tags.stream()
+                .filter(tag -> targetType.equals(tag.getTargetType()))
+                .count();
+    }
+
     private String mapSplitType(String splitType) {
         if (splitType == null) return "fixed_length";
         return switch (splitType.toUpperCase()) {
@@ -690,6 +1059,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
         LambdaQueryWrapper<Chunk> query = new LambdaQueryWrapper<Chunk>()
                 .eq(Chunk::getKnowledgeBaseId, knowledgeBaseId)
+                .ne(Chunk::getEnabled, 0)
                 .and(wrapper -> {
                     for (String term : terms) {
                         wrapper.or().like(Chunk::getContent, term);
@@ -775,6 +1145,20 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             log.setSearchMode(request.getSearchMode());
             log.setScore(item.getScore());
             log.setDirectReturn(Boolean.TRUE.equals(item.getDirectReturn()) ? 1 : 0);
+            log.setTraceId(request.getTraceId());
+            log.setUserId(request.getUserId());
+            knowledgeHitLogRepository.insert(log);
+        }
+    }
+
+    private void recordMisses(RetrievalTestRequest request, List<KnowledgeBase> knowledgeBases) {
+        for (KnowledgeBase kb : knowledgeBases) {
+            KnowledgeHitLog log = new KnowledgeHitLog();
+            log.setKnowledgeBaseId(kb.getId());
+            log.setQueryText(request.getQuery());
+            log.setSearchMode(request.getSearchMode());
+            log.setScore(0f);
+            log.setDirectReturn(0);
             log.setTraceId(request.getTraceId());
             log.setUserId(request.getUserId());
             knowledgeHitLogRepository.insert(log);

@@ -38,5 +38,7 @@ public interface VectorService {
     /**
      * 删除整个 collection
      */
+    void deleteById(String collectionName, String id);
+
     void dropCollection(String collectionName);
 }

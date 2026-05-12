@@ -55,6 +55,18 @@ public interface KnowledgeService {
     /** 获取文件的 chunk 列表 */
     List<ChunkVO> getChunksByFileId(String fileId);
 
+    List<ChunkVO> listChunks(String kbCode, String keyword, Integer enabled, String tagKey, String tagValue, Integer limit);
+
+    ChunkVO updateChunk(Long chunkId, ChunkUpdateRequest request);
+
+    ChunkVO toggleChunk(Long chunkId, Integer enabled);
+
+    void reembedChunk(Long chunkId);
+
+    List<KnowledgeHitLogDTO> listHitLogs(String kbCode, Integer limit, Boolean lowConfidenceOnly);
+
+    KnowledgeOpsDashboardVO getOpsDashboard(String kbCode);
+
     /** 按文件ID删除（自动查找所属知识库，同时删除向量） */
     void deleteFileById(String fileId);
 
@@ -71,7 +83,11 @@ public interface KnowledgeService {
 
     List<KnowledgeTagDTO> listTags(String kbCode, String targetType, String targetId);
 
+    List<KnowledgeTagStatsDTO> listTagStats(String kbCode);
+
     KnowledgeTagDTO createTag(String kbCode, KnowledgeTagRequest request);
+
+    List<KnowledgeTagDTO> batchCreateTags(String kbCode, KnowledgeTagBatchRequest request);
 
     void deleteTag(String kbCode, Long tagId);
 

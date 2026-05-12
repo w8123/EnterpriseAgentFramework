@@ -6,6 +6,51 @@
 CREATE DATABASE IF NOT EXISTS `ai_text_service` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `ai_text_service`;
 
+DROP PROCEDURE IF EXISTS add_col_if_absent;
+DROP PROCEDURE IF EXISTS add_idx_if_absent;
+
+DELIMITER $$
+
+CREATE PROCEDURE add_col_if_absent(
+    IN p_table VARCHAR(64),
+    IN p_column VARCHAR(64),
+    IN p_definition TEXT
+)
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = p_table
+          AND column_name = p_column
+    ) THEN
+        SET @sql = CONCAT('ALTER TABLE `', p_table, '` ADD COLUMN `', p_column, '` ', p_definition);
+        PREPARE stmt FROM @sql;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END IF;
+END$$
+
+CREATE PROCEDURE add_idx_if_absent(
+    IN p_table VARCHAR(64),
+    IN p_index VARCHAR(64),
+    IN p_columns VARCHAR(255)
+)
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.statistics
+        WHERE table_schema = DATABASE()
+          AND table_name = p_table
+          AND index_name = p_index
+    ) THEN
+        SET @sql = CONCAT('CREATE INDEX `', p_index, '` ON `', p_table, '` (', p_columns, ')');
+        PREPARE stmt FROM @sql;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END IF;
+END$$
+
+DELIMITER ;
+
 -- -----------------------------------------------------------
 -- 1. 知识库表
 -- -----------------------------------------------------------
@@ -61,6 +106,99 @@ CREATE TABLE IF NOT EXISTS `chunk` (
 -- -----------------------------------------------------------
 -- 4. 用户文件权限表
 -- -----------------------------------------------------------
+-- Knowledge operations upgrade: enterprise scope, retrieval policy, paragraph operations and hit analysis.
+CALL add_col_if_absent('knowledge_base', 'workspace_id', 'VARCHAR(64) NOT NULL DEFAULT ''default'' COMMENT ''workspace isolation key'' AFTER `embedding_model`');
+CALL add_col_if_absent('knowledge_base', 'project_code', 'VARCHAR(64) DEFAULT NULL COMMENT ''owning EAF project code'' AFTER `workspace_id`');
+CALL add_col_if_absent('knowledge_base', 'scope', 'VARCHAR(20) NOT NULL DEFAULT ''WORKSPACE'' COMMENT ''SHARED / WORKSPACE / PROJECT'' AFTER `project_code`');
+CALL add_col_if_absent('knowledge_base', 'chunk_size', 'INT DEFAULT 500 COMMENT ''chunk size'' AFTER `dimension`');
+CALL add_col_if_absent('knowledge_base', 'chunk_overlap', 'INT DEFAULT 50 COMMENT ''chunk overlap'' AFTER `chunk_size`');
+CALL add_col_if_absent('knowledge_base', 'split_type', 'VARCHAR(32) DEFAULT ''FIXED'' COMMENT ''FIXED / PARAGRAPH / SEMANTIC'' AFTER `chunk_overlap`');
+CALL add_col_if_absent('knowledge_base', 'search_mode', 'VARCHAR(20) NOT NULL DEFAULT ''hybrid'' COMMENT ''vector / keyword / hybrid'' AFTER `split_type`');
+CALL add_col_if_absent('knowledge_base', 'top_k', 'INT NOT NULL DEFAULT 5 COMMENT ''default retrieval topK'' AFTER `search_mode`');
+CALL add_col_if_absent('knowledge_base', 'similarity_threshold', 'FLOAT NOT NULL DEFAULT 0.5 COMMENT ''default retrieval threshold'' AFTER `top_k`');
+CALL add_col_if_absent('knowledge_base', 'direct_return_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''enable direct paragraph return'' AFTER `similarity_threshold`');
+CALL add_col_if_absent('knowledge_base', 'direct_return_threshold', 'FLOAT NOT NULL DEFAULT 0.9 COMMENT ''direct return threshold'' AFTER `direct_return_enabled`');
+CALL add_col_if_absent('knowledge_base', 'rerank_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''enable rerank'' AFTER `direct_return_threshold`');
+CALL add_col_if_absent('knowledge_base', 'vector_weight', 'FLOAT NOT NULL DEFAULT 0.7 COMMENT ''hybrid vector weight'' AFTER `rerank_enabled`');
+CALL add_col_if_absent('knowledge_base', 'keyword_weight', 'FLOAT NOT NULL DEFAULT 0.3 COMMENT ''hybrid keyword weight'' AFTER `vector_weight`');
+CALL add_col_if_absent('file_info', 'file_size', 'BIGINT DEFAULT 0 COMMENT ''file size'' AFTER `file_type`');
+CALL add_col_if_absent('file_info', 'raw_text', 'LONGTEXT DEFAULT NULL COMMENT ''parsed raw text'' AFTER `status`');
+CALL add_col_if_absent('chunk', 'title', 'VARCHAR(256) DEFAULT NULL COMMENT ''paragraph title'' AFTER `content`');
+CALL add_col_if_absent('chunk', 'hit_count', 'INT NOT NULL DEFAULT 0 COMMENT ''retrieval hit count'' AFTER `collection_name`');
+CALL add_col_if_absent('chunk', 'enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''paragraph enabled flag'' AFTER `hit_count`');
+
+CALL add_idx_if_absent('knowledge_base', 'idx_kb_workspace_scope', '`workspace_id`, `scope`');
+CALL add_idx_if_absent('knowledge_base', 'idx_kb_project_code', '`project_code`');
+CALL add_idx_if_absent('chunk', 'idx_kb_enabled', '`knowledge_base_id`, `enabled`');
+CALL add_idx_if_absent('chunk', 'idx_kb_hit_count', '`knowledge_base_id`, `hit_count`');
+CALL add_idx_if_absent('chunk', 'idx_file_chunk_index', '`file_id`, `chunk_index`');
+CALL add_idx_if_absent('chunk', 'idx_kb_created', '`knowledge_base_id`, `create_time`');
+CALL add_idx_if_absent('file_info', 'idx_kb_file_created', '`knowledge_base_id`, `create_time`');
+
+CREATE TABLE IF NOT EXISTS `knowledge_tag` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `knowledge_base_id` BIGINT NOT NULL,
+    `target_type` VARCHAR(32) NOT NULL DEFAULT 'KNOWLEDGE',
+    `target_id` VARCHAR(128) DEFAULT NULL,
+    `tag_key` VARCHAR(64) NOT NULL,
+    `tag_value` VARCHAR(128) NOT NULL,
+    `tag_group` VARCHAR(64) NOT NULL DEFAULT '默认',
+    `color` VARCHAR(32) NOT NULL DEFAULT '#409EFF',
+    `description` VARCHAR(512) DEFAULT NULL,
+    `parent_id` BIGINT DEFAULT NULL,
+    `sort_order` INT NOT NULL DEFAULT 0,
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_kb_target` (`knowledge_base_id`, `target_type`, `target_id`),
+    KEY `idx_tag` (`tag_key`, `tag_value`),
+    KEY `idx_kb_tag_library` (`knowledge_base_id`, `tag_group`, `tag_key`, `tag_value`),
+    KEY `idx_kb_target_tag` (`knowledge_base_id`, `target_type`, `tag_key`, `tag_value`),
+    KEY `idx_parent` (`parent_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='knowledge operation tags';
+
+CALL add_col_if_absent('knowledge_tag', 'tag_group', 'VARCHAR(64) NOT NULL DEFAULT ''默认'' COMMENT ''tag group'' AFTER `tag_value`');
+CALL add_col_if_absent('knowledge_tag', 'color', 'VARCHAR(32) NOT NULL DEFAULT ''#409EFF'' COMMENT ''display color'' AFTER `tag_group`');
+CALL add_col_if_absent('knowledge_tag', 'description', 'VARCHAR(512) DEFAULT NULL COMMENT ''tag description'' AFTER `color`');
+CALL add_col_if_absent('knowledge_tag', 'parent_id', 'BIGINT DEFAULT NULL COMMENT ''parent tag id'' AFTER `description`');
+CALL add_col_if_absent('knowledge_tag', 'sort_order', 'INT NOT NULL DEFAULT 0 COMMENT ''display order'' AFTER `parent_id`');
+CALL add_idx_if_absent('knowledge_tag', 'idx_kb_tag_library', '`knowledge_base_id`, `tag_group`, `tag_key`, `tag_value`');
+CALL add_idx_if_absent('knowledge_tag', 'idx_kb_target_tag', '`knowledge_base_id`, `target_type`, `tag_key`, `tag_value`');
+CALL add_idx_if_absent('knowledge_tag', 'idx_parent', '`parent_id`');
+
+CREATE TABLE IF NOT EXISTS `knowledge_question` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `knowledge_base_id` BIGINT NOT NULL,
+    `chunk_id` BIGINT DEFAULT NULL,
+    `question` VARCHAR(512) NOT NULL,
+    `hit_count` INT NOT NULL DEFAULT 0,
+    `source` VARCHAR(32) NOT NULL DEFAULT 'MANUAL',
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_kb_chunk` (`knowledge_base_id`, `chunk_id`),
+    KEY `idx_question` (`question`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='knowledge question to paragraph mapping';
+
+CREATE TABLE IF NOT EXISTS `knowledge_hit_log` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `knowledge_base_id` BIGINT NOT NULL,
+    `chunk_id` BIGINT DEFAULT NULL,
+    `query_text` VARCHAR(1024) NOT NULL,
+    `search_mode` VARCHAR(20) DEFAULT NULL,
+    `score` FLOAT DEFAULT NULL,
+    `direct_return` TINYINT(1) NOT NULL DEFAULT 0,
+    `trace_id` VARCHAR(128) DEFAULT NULL,
+    `user_id` VARCHAR(128) DEFAULT NULL,
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_kb_time` (`knowledge_base_id`, `create_time`),
+    KEY `idx_chunk_time` (`chunk_id`, `create_time`),
+    KEY `idx_trace` (`trace_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='knowledge retrieval hit log';
+
+CALL add_idx_if_absent('knowledge_hit_log', 'idx_chunk_time', '`chunk_id`, `create_time`');
+CALL add_idx_if_absent('knowledge_hit_log', 'idx_kb_score_time', '`knowledge_base_id`, `score`, `create_time`');
+
 CREATE TABLE IF NOT EXISTS `user_file_permission` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `user_id`         VARCHAR(128) NOT NULL                COMMENT '用户ID',
@@ -130,3 +268,6 @@ INSERT INTO `knowledge_base` (`name`, `code`, `description`, `embedding_model`, 
 VALUES
     ('通用知识库', 'kb_general', '通用文档知识库', 'text-embedding-v2', 1536, 1),
     ('合同知识库', 'kb_contract', '合同相关文档', 'text-embedding-v2', 1536, 1);
+
+DROP PROCEDURE IF EXISTS add_col_if_absent;
+DROP PROCEDURE IF EXISTS add_idx_if_absent;
