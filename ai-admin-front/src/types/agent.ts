@@ -10,6 +10,8 @@ export interface CapabilityReference {
 
 export type AgentRuntimeType = 'AGENTSCOPE' | 'LANGGRAPH4J' | 'OPENAI_AGENTS' | 'CURSOR_CODE_AGENT'
 export type AgentRuntimePlacement = 'CENTRAL' | 'EMBEDDED' | 'HYBRID'
+export type AgentMode = 'AUTONOMOUS' | 'WORKFLOW' | 'CODE' | 'EXTERNAL'
+export type AgentConfigurationSurface = 'FORM' | 'STUDIO' | 'CODE_WORKSPACE' | 'EXTERNAL_CONSOLE' | string
 
 export interface AgentGraphSpec {
   code?: string
@@ -118,12 +120,22 @@ export interface AgentGraphEdgeLayout {
   style?: string
 }
 
+export interface AgentGraphNodeTypeDescriptor {
+  type: AgentGraphNode['type']
+  canvasKind: string
+  canvasCategory: string
+  family: 'LLM' | 'TOOL' | 'FLOW' | string
+  retryable: boolean
+  aliases: string[]
+}
+
 export interface AgentDefinition {
   id: string
   /** 人类可读 slug，对应 /api/v1/agents/{keySlug}/chat */
   keySlug: string
   name: string
   description: string
+  agentMode?: AgentMode
   projectId?: number | null
   projectCode?: string | null
   visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
@@ -138,6 +150,7 @@ export interface AgentDefinition {
   runtimeType?: AgentRuntimeType
   runtimePlacement?: AgentRuntimePlacement
   runtimeConfig?: Record<string, unknown>
+  defaultResourceConfig?: Record<string, unknown>
   graphSpec?: AgentGraphSpec | null
   maxSteps: number
   enabled: boolean
@@ -162,6 +175,7 @@ export interface AgentForm {
   keySlug?: string
   name: string
   description: string
+  agentMode?: AgentMode
   projectId?: number | null
   projectCode?: string | null
   visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
@@ -175,6 +189,7 @@ export interface AgentForm {
   runtimeType?: AgentRuntimeType
   runtimePlacement: AgentRuntimePlacement
   runtimeConfig: Record<string, unknown>
+  defaultResourceConfig: Record<string, unknown>
   graphSpec?: AgentGraphSpec | null
   maxSteps: number
   enabled: boolean
@@ -194,6 +209,10 @@ export interface AgentRuntimeCapability {
   runtimeType: AgentRuntimeType
   displayName: string
   description?: string
+  agentMode?: AgentMode
+  configurationSurface?: AgentConfigurationSurface
+  primaryAction?: string
+  resourcePolicy?: string
   available: boolean
   unavailableReason?: string
   supportedModelTypes?: string[]
@@ -350,6 +369,23 @@ export interface AgentResult {
   toolResults?: Record<string, unknown>
   metadata?: Record<string, unknown>
   uiRequest?: UiRequestPayload
+}
+
+export interface PendingHumanApproval {
+  interactionId: string
+  traceId?: string
+  sessionId?: string
+  userId?: string
+  agentId?: number
+  nodeId: string
+  status: string
+  createdAt?: string
+  updatedAt?: string
+  expiresAt?: string
+  title?: string
+  message?: string
+  uiRequest?: UiRequestPayload
+  state?: Record<string, unknown>
 }
 
 export interface StepRecord {

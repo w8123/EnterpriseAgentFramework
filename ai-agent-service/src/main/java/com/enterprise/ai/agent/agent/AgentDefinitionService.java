@@ -150,6 +150,7 @@ public class AgentDefinitionService {
 
         if (update.getName() != null) current.setName(update.getName());
         if (update.getDescription() != null) current.setDescription(update.getDescription());
+        if (update.getAgentMode() != null) current.setAgentMode(update.getAgentMode());
         if (update.getProjectId() != null) current.setProjectId(update.getProjectId());
         if (update.getProjectCode() != null) current.setProjectCode(update.getProjectCode());
         if (update.getVisibility() != null) current.setVisibility(update.getVisibility());
@@ -163,7 +164,8 @@ public class AgentDefinitionService {
         if (update.getRuntimeType() != null) current.setRuntimeType(update.getRuntimeType());
         if (update.getRuntimePlacement() != null) current.setRuntimePlacement(update.getRuntimePlacement());
         if (update.getRuntimeConfig() != null) current.setRuntimeConfig(update.getRuntimeConfig());
-        if (update.getGraphSpec() != null) current.setGraphSpec(update.getGraphSpec());
+        if (update.getDefaultResourceConfig() != null) current.setDefaultResourceConfig(update.getDefaultResourceConfig());
+        if (update.getGraphSpec() != null || update.getRuntimeType() != null) current.setGraphSpec(update.getGraphSpec());
         if (update.getMaxSteps() > 0) current.setMaxSteps(update.getMaxSteps());
         if (update.getType() != null) current.setType(update.getType());
         if (update.getPipelineAgentIds() != null) current.setPipelineAgentIds(update.getPipelineAgentIds());
@@ -321,6 +323,8 @@ public class AgentDefinitionService {
                 .keySlug(e.getKeySlug())
                 .name(e.getName())
                 .description(e.getDescription())
+                .agentMode(e.getAgentMode() == null || e.getAgentMode().isBlank()
+                        ? modeFromRuntime(e.getRuntimeType()) : e.getAgentMode())
                 .projectId(e.getProjectId())
                 .projectCode(e.getProjectCode())
                 .visibility(e.getVisibility() == null ? "PRIVATE" : e.getVisibility())
@@ -336,6 +340,7 @@ public class AgentDefinitionService {
                 .runtimePlacement(e.getRuntimePlacement() == null || e.getRuntimePlacement().isBlank()
                         ? "CENTRAL" : e.getRuntimePlacement())
                 .runtimeConfig(parseMap(e.getRuntimeConfigJson()))
+                .defaultResourceConfig(parseMap(e.getDefaultResourceConfigJson()))
                 .graphSpec(parseGraphSpec(e.getGraphSpecJson()))
                 .maxSteps(e.getMaxSteps() == null ? 5 : e.getMaxSteps())
                 .type(e.getType() == null ? "single" : e.getType())
@@ -360,6 +365,7 @@ public class AgentDefinitionService {
         e.setKeySlug(d.getKeySlug() == null || d.getKeySlug().isBlank() ? d.getId() : d.getKeySlug());
         e.setName(d.getName());
         e.setDescription(d.getDescription());
+        e.setAgentMode(normalizeAgentMode(d.getAgentMode(), d.getRuntimeType()));
         e.setProjectId(d.getProjectId());
         e.setProjectCode(d.getProjectCode());
         e.setVisibility(d.getVisibility() == null || d.getVisibility().isBlank() ? "PRIVATE" : d.getVisibility());
@@ -375,6 +381,7 @@ public class AgentDefinitionService {
         e.setRuntimeType(d.getRuntimeType() == null || d.getRuntimeType().isBlank() ? "AGENTSCOPE" : d.getRuntimeType());
         e.setRuntimePlacement(normalizeRuntimePlacement(d.getRuntimePlacement()));
         e.setRuntimeConfigJson(writeMap(d.getRuntimeConfig()));
+        e.setDefaultResourceConfigJson(writeMap(d.getDefaultResourceConfig()));
         e.setGraphSpecJson(writeGraphSpec(d.getGraphSpec()));
         e.setMaxSteps(d.getMaxSteps() > 0 ? d.getMaxSteps() : 5);
         e.setType(d.getType() == null ? "single" : d.getType());
@@ -565,6 +572,27 @@ public class AgentDefinitionService {
         return switch (normalized) {
             case "EMBEDDED", "HYBRID" -> normalized;
             default -> "CENTRAL";
+        };
+    }
+
+    private String normalizeAgentMode(String agentMode, String runtimeType) {
+        if (agentMode != null && !agentMode.isBlank()) {
+            String normalized = agentMode.trim().toUpperCase(Locale.ROOT);
+            return switch (normalized) {
+                case "WORKFLOW", "CODE", "EXTERNAL" -> normalized;
+                default -> "AUTONOMOUS";
+            };
+        }
+        return modeFromRuntime(runtimeType);
+    }
+
+    private String modeFromRuntime(String runtimeType) {
+        String normalized = runtimeType == null ? "" : runtimeType.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "LANGGRAPH4J" -> "WORKFLOW";
+            case "CURSOR_CODE_AGENT" -> "CODE";
+            case "OPENAI_AGENTS" -> "EXTERNAL";
+            default -> "AUTONOMOUS";
         };
     }
 }

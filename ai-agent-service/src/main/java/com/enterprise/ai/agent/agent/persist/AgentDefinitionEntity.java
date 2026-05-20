@@ -28,6 +28,9 @@ public class AgentDefinitionEntity {
 
     private String description;
 
+    /** AUTONOMOUS / WORKFLOW / CODE / EXTERNAL. */
+    private String agentMode;
+
     private Long projectId;
 
     private String projectCode;
@@ -59,6 +62,9 @@ public class AgentDefinitionEntity {
 
     /** Runtime 专属配置 JSON，由具体 Runtime Adapter 解释。 */
     private String runtimeConfigJson;
+
+    /** Runtime default resources JSON; node-level resources belong in graphSpec. */
+    private String defaultResourceConfigJson;
 
     /** Platform GraphSpec JSON, independent from runtime config and canvas layout. */
     private String graphSpecJson;

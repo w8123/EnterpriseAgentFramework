@@ -1,6 +1,7 @@
 package com.enterprise.ai.agent.agent;
 
 import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.runtime.AgentRuntimeRequest;
 import com.enterprise.ai.agent.runtime.AgentRuntimeSelector;
 import com.enterprise.ai.agent.runtime.AgentRuntimeValidationResult;
@@ -26,12 +27,6 @@ public class AgentReleaseValidationService {
 
     private static final String START = "START";
     private static final String END = "END";
-    private static final Set<String> SUPPORTED_NODE_TYPES = Set.of(
-            "LLM", "TOOL", "CAPABILITY", "IF_ELSE", "VARIABLE_ASSIGN", "TEMPLATE",
-            "ANSWER", "CODE", "INTENT_CLASSIFIER", "VARIABLE_AGGREGATOR",
-            "HUMAN_APPROVAL", "LOOP", "KNOWLEDGE_WRITE", "DOCUMENT_EXTRACT", "MCP_CALL",
-            "PARAMETER_EXTRACT", "HTTP_REQUEST", "KNOWLEDGE_RETRIEVAL"
-    );
     private static final Set<String> SUPPORTED_HTTP_METHODS = Set.of("GET", "POST", "PUT", "PATCH", "DELETE");
     private static final Set<String> SUPPORTED_EDGE_CONDITIONS = Set.of(
             "always", "default", "else", "success", "error", "failure", "empty", "not_empty"
@@ -184,9 +179,9 @@ public class AgentReleaseValidationService {
                               AgentDefinition definition,
                               AgentReleaseValidationResult.Builder report) {
         String id = trim(node.getId());
-        String type = normalize(node.getType(), "");
+        String type = AgentGraphNodeType.normalize(node.getType());
         Map<String, Object> config = config(node);
-        if (!SUPPORTED_NODE_TYPES.contains(type)) {
+        if (!AgentGraphNodeType.supports(node.getType())) {
             report.error("GRAPH_NODE_TYPE_UNSUPPORTED", id, "Unsupported graph node type: " + node.getType());
             return;
         }

@@ -5,6 +5,8 @@ import type {
   AgentResult,
   AgentRuntimeCapability,
   AgentRuntimeValidationResult,
+  AgentGraphNodeTypeDescriptor,
+  PendingHumanApproval,
   AgentReleaseValidationResult,
   AgentReleaseEvent,
   AgentNodeDebugRequest,
@@ -38,6 +40,10 @@ export function getAgentRuntimes() {
   return agentRequest.get<AgentRuntimeCapability[]>('/api/agent/definitions/runtimes')
 }
 
+export function getAgentGraphNodeTypes() {
+  return agentRequest.get<AgentGraphNodeTypeDescriptor[]>('/api/agent/definitions/graph-node-types')
+}
+
 export function validateAgentRuntime(data: Partial<AgentForm>) {
   return agentRequest.post<AgentRuntimeValidationResult>('/api/agent/definitions/runtime-validation', data)
 }
@@ -48,6 +54,27 @@ export function debugAgentNode(data: AgentNodeDebugRequest) {
 
 export function executeAgent(data: ChatRequest) {
   return agentRequest.post<ChatResponse>('/api/agent/execute', data)
+}
+
+export function listPendingHumanApprovals(params?: { agentId?: number | string; userId?: string; limit?: number }) {
+  return agentRequest.get<PendingHumanApproval[]>('/api/agent/interactions/human-approvals', { params })
+}
+
+export function submitHumanApproval(
+  interactionId: string,
+  data: { action?: string; values?: Record<string, unknown>; userId?: string; sessionId?: string },
+) {
+  return agentRequest.post<AgentResult>(
+    `/api/agent/interactions/human-approvals/${encodeURIComponent(interactionId)}/submit`,
+    data,
+  )
+}
+
+export function cancelHumanApproval(interactionId: string, userId?: string) {
+  return agentRequest.delete<AgentResult>(
+    `/api/agent/interactions/human-approvals/${encodeURIComponent(interactionId)}`,
+    { params: { userId } },
+  )
 }
 
 export function executeAgentDetailed(data: ChatRequest) {

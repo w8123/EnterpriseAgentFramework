@@ -2,6 +2,7 @@ package com.enterprise.ai.agent.controller;
 
 import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.agent.AgentDefinitionService;
+import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.runtime.AgentRuntimeCapability;
 import com.enterprise.ai.agent.runtime.AgentRuntimeRequest;
 import com.enterprise.ai.agent.runtime.AgentRuntimeSelector;
@@ -37,6 +38,11 @@ public class AgentManageController {
     @GetMapping("/runtimes")
     public ResponseEntity<List<AgentRuntimeCapability>> runtimes() {
         return ResponseEntity.ok(runtimeSelector.capabilities());
+    }
+
+    @GetMapping("/graph-node-types")
+    public ResponseEntity<List<AgentGraphNodeType.Descriptor>> graphNodeTypes() {
+        return ResponseEntity.ok(AgentGraphNodeType.catalog());
     }
 
     @PostMapping("/runtime-validation")
@@ -98,6 +104,7 @@ public class AgentManageController {
                 .keySlug(current.getKeySlug())
                 .name(current.getName())
                 .description(current.getDescription())
+                .agentMode(current.getAgentMode())
                 .projectId(current.getProjectId())
                 .projectCode(current.getProjectCode())
                 .visibility(current.getVisibility())
@@ -111,6 +118,7 @@ public class AgentManageController {
                 .runtimeType(current.getRuntimeType())
                 .runtimePlacement(current.getRuntimePlacement())
                 .runtimeConfig(current.getRuntimeConfig())
+                .defaultResourceConfig(current.getDefaultResourceConfig())
                 .graphSpec(current.getGraphSpec())
                 .maxSteps(current.getMaxSteps())
                 .enabled(current.isEnabled())
@@ -128,10 +136,12 @@ public class AgentManageController {
                 .updatedAt(current.getUpdatedAt())
                 .build();
         if (update.getProjectCode() != null) merged.setProjectCode(update.getProjectCode());
+        if (update.getAgentMode() != null) merged.setAgentMode(update.getAgentMode());
         if (update.getModelInstanceId() != null) merged.setModelInstanceId(update.getModelInstanceId());
         if (update.getRuntimeType() != null) merged.setRuntimeType(update.getRuntimeType());
         if (update.getRuntimePlacement() != null) merged.setRuntimePlacement(update.getRuntimePlacement());
         if (update.getRuntimeConfig() != null) merged.setRuntimeConfig(update.getRuntimeConfig());
+        if (update.getDefaultResourceConfig() != null) merged.setDefaultResourceConfig(update.getDefaultResourceConfig());
         if (update.getGraphSpec() != null) merged.setGraphSpec(update.getGraphSpec());
         if (update.getTools() != null) merged.setTools(update.getTools());
         if (update.getToolRefs() != null) merged.setToolRefs(update.getToolRefs());

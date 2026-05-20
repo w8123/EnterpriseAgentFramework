@@ -634,6 +634,7 @@ CREATE TABLE IF NOT EXISTS `agent_definition` (
     `key_slug`                VARCHAR(64)  NOT NULL                     COMMENT '人类可读 slug，对应 /api/v1/agents/{key}/chat',
     `name`                    VARCHAR(128) NOT NULL                     COMMENT '展示名',
     `description`             VARCHAR(512) DEFAULT NULL,
+    `agent_mode`              VARCHAR(32)  NOT NULL DEFAULT 'AUTONOMOUS' COMMENT 'Agent 产品形态: AUTONOMOUS / WORKFLOW / CODE / EXTERNAL',
     `intent_type`             VARCHAR(64)  DEFAULT NULL                 COMMENT '意图类型',
     `system_prompt`           TEXT         DEFAULT NULL,
     `tools_json`              TEXT         DEFAULT NULL                 COMMENT 'tools 白名单 JSON',
@@ -641,6 +642,7 @@ CREATE TABLE IF NOT EXISTS `agent_definition` (
     `runtime_type`            VARCHAR(32)  NOT NULL DEFAULT 'AGENTSCOPE' COMMENT 'Agent Runtime 类型',
     `runtime_placement`       VARCHAR(24)  NOT NULL DEFAULT 'CENTRAL' COMMENT '运行位置: CENTRAL / EMBEDDED / HYBRID',
     `runtime_config_json`     MEDIUMTEXT   DEFAULT NULL                 COMMENT 'Runtime 专属配置 JSON',
+    `default_resource_config_json` MEDIUMTEXT DEFAULT NULL               COMMENT 'Runtime 默认资源 JSON；流程节点资源写入 graph_spec_json',
     `graph_spec_json`         MEDIUMTEXT   DEFAULT NULL                 COMMENT 'Platform GraphSpec JSON',
     `max_steps`               INT          NOT NULL DEFAULT 5,
     `type`                    VARCHAR(32)  NOT NULL DEFAULT 'single',
@@ -663,16 +665,19 @@ CREATE TABLE IF NOT EXISTS `agent_definition` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 定义（Phase 3.0）';
 
 CALL add_col_if_absent('agent_definition', 'key_slug',           'VARCHAR(64) NOT NULL DEFAULT '''' COMMENT ''人类可读 slug'' AFTER `id`');
+CALL add_col_if_absent('agent_definition', 'agent_mode',         'VARCHAR(32) NOT NULL DEFAULT ''AUTONOMOUS'' COMMENT ''Agent 产品形态: AUTONOMOUS / WORKFLOW / CODE / EXTERNAL'' AFTER `description`');
 CALL add_col_if_absent('agent_definition', 'canvas_json',        'MEDIUMTEXT DEFAULT NULL COMMENT ''Agent Studio 画布 JSON''');
 CALL add_col_if_absent('agent_definition', 'allow_irreversible', 'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''允许调用 IRREVERSIBLE 副作用 Tool''');
 CALL add_col_if_absent('agent_definition', 'runtime_type',       'VARCHAR(32) NOT NULL DEFAULT ''AGENTSCOPE'' COMMENT ''Agent Runtime 类型'' AFTER `model_instance_id`');
 CALL add_col_if_absent('agent_definition', 'runtime_placement',  'VARCHAR(24) NOT NULL DEFAULT ''CENTRAL'' COMMENT ''运行位置: CENTRAL / EMBEDDED / HYBRID'' AFTER `runtime_type`');
 CALL add_col_if_absent('agent_definition', 'runtime_config_json','MEDIUMTEXT DEFAULT NULL COMMENT ''Runtime 专属配置 JSON'' AFTER `runtime_placement`');
+CALL add_col_if_absent('agent_definition', 'default_resource_config_json','MEDIUMTEXT DEFAULT NULL COMMENT ''Runtime 默认资源 JSON；流程节点资源写入 graph_spec_json'' AFTER `runtime_config_json`');
 CALL add_col_if_absent('agent_definition', 'graph_spec_json',    'MEDIUMTEXT DEFAULT NULL COMMENT ''Platform GraphSpec JSON'' AFTER `runtime_config_json`');
 CALL add_idx_if_absent('agent_definition', 'uk_agent_key_slug',  'key_slug');
 CALL add_idx_if_absent('agent_definition', 'idx_agent_intent',   'intent_type');
 CALL add_idx_if_absent('agent_definition', 'idx_agent_enabled',  'enabled');
 CALL add_idx_if_absent('agent_definition', 'idx_agent_runtime',  '`runtime_type`, `enabled`');
+CALL add_idx_if_absent('agent_definition', 'idx_agent_mode',     '`agent_mode`, `enabled`');
 CALL add_idx_if_absent('agent_definition', 'idx_agent_runtime_placement',  '`runtime_placement`, `enabled`');
 
 CREATE TABLE IF NOT EXISTS `agent_version` (

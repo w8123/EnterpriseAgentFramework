@@ -1,346 +1,218 @@
 <template>
   <div class="agent-page page-container">
-    <section class="agent-hero">
-      <div class="hero-copy">
+    <section class="agent-header">
+      <div>
         <div class="eyebrow">
           <el-icon><Cpu /></el-icon>
           Agent Operations
         </div>
-        <h1>Agent 管理</h1>
-        <p>集中管理业务智能体、触发方式、能力白名单、运行状态和最近调用链路。</p>
+        <h1>智能体管理</h1>
       </div>
 
-      <div class="hero-stats">
+      <div class="header-stats">
         <div class="stat-item">
-          <span class="stat-label">全部 Agent</span>
+          <span>全部</span>
           <strong>{{ agents.length }}</strong>
         </div>
         <div class="stat-item">
-          <span class="stat-label">已启用</span>
+          <span>启用</span>
           <strong>{{ enabledCount }}</strong>
         </div>
         <div class="stat-item">
-          <span class="stat-label">项目级</span>
-          <strong>{{ projectAgentCount }}</strong>
+          <span>流程型</span>
+          <strong>{{ workflowAgentCount }}</strong>
         </div>
         <div class="stat-item">
-          <span class="stat-label">SDK 同步</span>
-          <strong>{{ sdkAgentCount }}</strong>
+          <span>待发布</span>
+          <strong>{{ pendingPublishCount }}</strong>
         </div>
       </div>
 
-      <div class="hero-actions">
+      <div class="header-actions">
         <ViewToggle v-model="viewMode" />
-        <el-button type="primary" :icon="Plus" @click="handleCreate">新建 Agent</el-button>
+        <el-button :icon="Connection" @click="router.push('/runops')">运行中心</el-button>
+        <el-button type="primary" :icon="Plus" @click="handleCreate">新建智能体</el-button>
       </div>
     </section>
 
-    <el-card shadow="never" class="agent-shell">
-      <div class="shell-header">
-        <el-tabs v-model="activeView" class="top-tabs">
-          <el-tab-pane label="Agent 列表" name="agents" />
-          <el-tab-pane label="最近 Trace" name="traces" />
-        </el-tabs>
-
-        <div class="shell-hint" v-if="activeView === 'agents'">
-          当前筛选 {{ filteredAgents.length }} / {{ agents.length }}
-        </div>
+    <section class="agent-shell">
+      <div class="filter-panel">
+        <el-input
+          v-model="filterKeyword"
+          :prefix-icon="Search"
+          placeholder="搜索名称、描述、keySlug 或 ID"
+          clearable
+          class="filter-control is-keyword"
+        />
+        <el-select v-model="filterRuntime" placeholder="运行时" clearable class="filter-control">
+          <el-option
+            v-for="runtime in runtimeFilterOptions"
+            :key="runtime.value"
+            :label="runtime.label"
+            :value="runtime.value"
+          />
+        </el-select>
+        <el-select v-model="filterEnabled" placeholder="状态" clearable class="filter-control is-narrow">
+          <el-option label="已启用" :value="true" />
+          <el-option label="已停用" :value="false" />
+        </el-select>
+        <el-select
+          v-model="filterProjectId"
+          placeholder="所属项目"
+          clearable
+          filterable
+          class="filter-control is-wide"
+        >
+          <el-option
+            v-for="project in scanProjects"
+            :key="project.id"
+            :label="projectOptionLabel(project)"
+            :value="project.id"
+          />
+        </el-select>
+        <el-button :icon="Search" @click="fetchData">查询</el-button>
+        <el-button :icon="Refresh" :loading="loading" @click="fetchData">刷新</el-button>
+        <span class="filter-count">当前筛选 {{ filteredAgents.length }} / {{ agents.length }}</span>
       </div>
 
-      <template v-if="activeView === 'agents'">
-        <div class="filter-panel">
-          <el-select v-model="filterIntent" placeholder="意图类型" clearable class="filter-control">
-            <el-option
-              v-for="t in allIntentTypes"
-              :key="t.value"
-              :label="t.label"
-              :value="t.value"
-            />
-          </el-select>
-          <el-select v-model="filterTrigger" placeholder="触发方式" clearable class="filter-control">
-            <el-option
-              v-for="m in TRIGGER_MODES"
-              :key="m.value"
-              :label="m.label"
-              :value="m.value"
-            />
-          </el-select>
-          <el-select v-model="filterEnabled" placeholder="状态" clearable class="filter-control is-narrow">
-            <el-option label="已启用" :value="true" />
-            <el-option label="已停用" :value="false" />
-          </el-select>
-          <el-select
-            v-model="filterProjectId"
-            placeholder="所属项目"
-            clearable
-            filterable
-            class="filter-control is-wide"
-          >
-            <el-option
-              v-for="project in scanProjects"
-              :key="project.id"
-              :label="projectOptionLabel(project)"
-              :value="project.id"
-            />
-          </el-select>
-          <el-button :icon="Search" @click="fetchData">查询</el-button>
-        </div>
-
-        <div v-if="viewMode === 'card'" v-loading="loading" class="agent-card-grid">
-          <article
-            v-for="agent in filteredAgents"
-            :key="agent.id"
-            class="agent-card"
-            @click="handleEdit(agent.id)"
-          >
-            <div class="agent-card-top">
-              <div class="agent-avatar" :class="{ pipeline: agent.type === 'pipeline' }">
-                <el-icon><Cpu /></el-icon>
-              </div>
-              <div class="agent-title-area">
-                <h3>{{ agent.name }}</h3>
-                <span>{{ agent.keySlug || agent.id }}</span>
-              </div>
-              <el-switch
-                :model-value="agent.enabled"
-                size="small"
-                @change="(val: boolean) => handleToggle(agent, val)"
-                @click.stop
-              />
+      <div v-if="viewMode === 'card'" v-loading="loading" class="agent-card-grid">
+        <article
+          v-for="agent in filteredAgents"
+          :key="agent.id"
+          class="agent-card"
+          @click="handleEdit(agent.id)"
+        >
+          <div class="agent-card-top">
+            <div class="agent-avatar" :class="runtimeAvatarClass(agent)">
+              <el-icon><component :is="runtimeIcon(agent)" /></el-icon>
             </div>
+            <div class="agent-title-area">
+              <h3>{{ agent.name }}</h3>
+              <span>{{ agent.keySlug || agent.id }}</span>
+            </div>
+            <el-switch
+              :model-value="agent.enabled"
+              size="small"
+              @change="(val: boolean) => handleToggle(agent, val)"
+              @click.stop
+            />
+          </div>
 
-            <p class="agent-description">{{ agent.description || '暂无描述' }}</p>
+          <p class="agent-description">{{ agent.description || '暂无描述' }}</p>
 
-            <div class="agent-tags">
-              <el-tag size="small" effect="plain">{{ intentLabel(agent.intentType) }}</el-tag>
-              <el-tag :type="agent.type === 'pipeline' ? 'warning' : 'info'" size="small" effect="plain">
-                {{ agent.type }}
-              </el-tag>
-              <el-tag size="small" :type="triggerTagType(agent.triggerMode)" effect="plain">
-                {{ triggerLabel(agent.triggerMode) }}
-              </el-tag>
-              <el-tag size="small" type="success" effect="plain">{{ agent.runtimeType || 'AGENTSCOPE' }}</el-tag>
-              <el-tag size="small" effect="plain">{{ agent.visibility || 'PRIVATE' }}</el-tag>
-              <el-tag v-if="isSdkManaged(agent)" size="small" type="warning" effect="plain">SDK 同步</el-tag>
-              <el-tooltip v-if="isSdkManaged(agent)" :content="sdkPublishState(agent).hint" placement="top">
+          <div class="agent-card-meta">
+            <el-tag size="small" :type="runtimeTagType(agent)" effect="plain">
+              {{ runtimeModeLabel(agent) }}
+            </el-tag>
+            <el-tag size="small" effect="plain">
+              {{ agent.projectCode || projectCodeById(agent.projectId) || '全局' }}
+            </el-tag>
+            <el-tag size="small" :type="agent.enabled ? 'success' : 'info'" effect="plain">
+              {{ agent.enabled ? '启用' : '停用' }}
+            </el-tag>
+            <template v-if="isSdkManaged(agent)">
+              <el-tooltip :content="sdkPublishState(agent).hint" placement="top">
                 <el-tag size="small" :type="sdkPublishState(agent).type" effect="dark">
                   {{ sdkPublishState(agent).label }}
                 </el-tag>
               </el-tooltip>
-            </div>
-
-            <div class="agent-meta-grid">
-              <div>
-                <span>模型</span>
-                <strong>{{ agent.modelInstanceId || '-' }}</strong>
-              </div>
-              <div>
-                <span>项目</span>
-                <strong>{{ agent.projectCode || projectCodeById(agent.projectId) || 'GLOBAL' }}</strong>
-              </div>
-              <div>
-                <span>步数</span>
-                <strong>{{ agent.maxSteps ?? '-' }}</strong>
-              </div>
-              <div>
-                <span>知识库组</span>
-                <strong>{{ agent.knowledgeBaseGroupId || '-' }}</strong>
-              </div>
-              <div v-if="isSdkManaged(agent)">
-                <span>最近同步</span>
-                <strong>{{ formatDateTime(sdkLastSyncedAt(agent)) }}</strong>
-              </div>
-              <div v-if="isSdkManaged(agent)">
-                <span>发布版本</span>
-                <strong>{{ latestPublishedVersion(agent)?.version || '-' }}</strong>
-              </div>
-            </div>
-
-            <div class="capability-strip">
-              <template v-if="capabilityNames(agent).length">
-                <el-tag
-                  v-for="name in capabilityNames(agent).slice(0, 4)"
-                  :key="name"
-                  size="small"
-                  class="tool-tag"
-                >
-                  {{ name }}
-                </el-tag>
-                <span v-if="capabilityNames(agent).length > 4" class="more-tools">
-                  +{{ capabilityNames(agent).length - 4 }}
-                </span>
-              </template>
-              <span v-else class="meta-empty">未配置能力</span>
-            </div>
-
-            <div class="agent-card-footer">
-              <el-button link type="primary" size="small" @click.stop="handleEdit(agent.id)">编辑</el-button>
-              <el-button link type="warning" size="small" @click.stop="handleStudio(agent.id)">画布</el-button>
-              <el-button link type="info" size="small" @click.stop="handleVersions(agent.id)">版本</el-button>
-              <el-button link type="success" size="small" @click.stop="handleDebug(agent.id)">调试</el-button>
-              <el-popconfirm title="确认删除该 Agent？" @confirm="handleDelete(agent.id)">
-                <template #reference>
-                  <el-button link type="danger" size="small" @click.stop>删除</el-button>
-                </template>
-              </el-popconfirm>
-            </div>
-          </article>
-
-          <el-empty v-if="!loading && filteredAgents.length === 0" description="暂无符合条件的 Agent" />
-        </div>
-
-        <el-table v-else :data="filteredAgents" v-loading="loading" class="agent-table" stripe>
-          <el-table-column prop="name" label="名称" min-width="180" fixed="left">
-            <template #default="{ row }">
-              <div class="name-cell">
-                <div class="mini-avatar">
-                  <el-icon><Cpu /></el-icon>
-                </div>
-                <div>
-                  <el-link type="primary" @click="handleEdit(row.id)">{{ row.name }}</el-link>
-                  <small>{{ row.keySlug || row.id }}</small>
-                </div>
-              </div>
             </template>
-          </el-table-column>
-          <el-table-column prop="intentType" label="意图类型" width="140">
-            <template #default="{ row }">
-              <el-tag size="small" effect="plain">{{ intentLabel(row.intentType) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="type" label="类型" width="110">
-            <template #default="{ row }">
-              <el-tag :type="row.type === 'pipeline' ? 'warning' : 'info'" size="small" effect="plain">
-                {{ row.type }}
+          </div>
+
+          <div class="agent-card-footer" @click.stop>
+            <el-button link type="primary" size="small" @click="handleEdit(agent.id)">编辑</el-button>
+            <el-button link type="warning" size="small" @click="handleStudio(agent.id)">画布</el-button>
+            <el-button link type="success" size="small" @click="handleDebug(agent.id)">调试</el-button>
+            <el-button link type="info" size="small" @click="handleVersions(agent.id)">版本</el-button>
+            <el-button link type="danger" size="small" @click="handleDelete(agent.id)">删除</el-button>
+          </div>
+        </article>
+
+        <el-empty v-if="!loading && filteredAgents.length === 0" description="暂无符合条件的智能体" />
+      </div>
+
+      <el-table v-else :data="filteredAgents" v-loading="loading" class="agent-table" stripe>
+        <el-table-column prop="name" label="名称" min-width="210" fixed="left">
+          <template #default="{ row }">
+            <div class="name-cell">
+              <div class="mini-avatar" :class="runtimeAvatarClass(row)">
+                <el-icon><component :is="runtimeIcon(row)" /></el-icon>
+              </div>
+              <div>
+                <el-link type="primary" @click="handleEdit(row.id)">{{ row.name }}</el-link>
+                <p>{{ row.description || '暂无描述' }}</p>
+                <small>{{ row.keySlug || row.id }}</small>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="运行时" width="116">
+          <template #default="{ row }">
+            <el-tag size="small" :type="runtimeTagType(row)" effect="plain">
+              {{ runtimeModeLabel(row) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="项目" width="120" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.projectCode || projectCodeById(row.projectId) || '全局' }}
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="enabled" label="状态" width="82" align="center">
+          <template #default="{ row }">
+            <el-switch
+              :model-value="row.enabled"
+              size="small"
+              @change="(val: boolean) => handleToggle(row, val)"
+            />
+          </template>
+        </el-table-column>
+
+        <el-table-column label="发布状态" width="126">
+          <template #default="{ row }">
+            <div v-if="isSdkManaged(row)" class="publish-state-cell">
+              <el-tag size="small" :type="sdkPublishState(row).type" effect="dark">
+                {{ sdkPublishState(row).label }}
               </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="triggerMode" label="触发方式" width="120" align="center">
-            <template #default="{ row }">
-              <el-tag size="small" :type="triggerTagType(row.triggerMode)" effect="plain">
-                {{ triggerLabel(row.triggerMode) }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="modelInstanceId" label="模型实例" width="160" show-overflow-tooltip />
-          <el-table-column label="运行时" width="130">
-            <template #default="{ row }">
-              <el-tag size="small" type="success" effect="plain">{{ row.runtimeType || 'AGENTSCOPE' }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="项目" min-width="150" show-overflow-tooltip>
-            <template #default="{ row }">
-              {{ row.projectCode || projectCodeById(row.projectId) || '-' }}
-            </template>
-          </el-table-column>
-          <el-table-column label="可见性" width="110">
-            <template #default="{ row }">
-              <el-tag size="small" effect="plain">{{ row.visibility || 'PRIVATE' }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="能力" min-width="190">
-            <template #default="{ row }">
-              <el-tag
-                v-for="name in capabilityNames(row).slice(0, 3)"
-                :key="name"
-                size="small"
-                class="tool-tag"
-              >
-                {{ name }}
-              </el-tag>
-              <span v-if="capabilityNames(row).length > 3" class="more-tools">
-                +{{ capabilityNames(row).length - 3 }}
-              </span>
-              <span v-if="capabilityNames(row).length === 0" class="meta-empty">-</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="知识库组" width="130">
-            <template #default="{ row }">
-              <span v-if="row.knowledgeBaseGroupId" class="meta-text">{{ row.knowledgeBaseGroupId }}</span>
-              <span v-else class="meta-empty">-</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="maxSteps" label="步数" width="80" align="center" />
-          <el-table-column prop="enabled" label="状态" width="90" align="center">
-            <template #default="{ row }">
-              <el-switch
-                :model-value="row.enabled"
-                size="small"
-                @change="(val: boolean) => handleToggle(row, val)"
-              />
-            </template>
-          </el-table-column>
-          <el-table-column prop="updatedAt" label="更新时间" width="180" />
-          <el-table-column label="发布状态" width="180">
-            <template #default="{ row }">
-              <div v-if="isSdkManaged(row)" class="publish-state-cell">
-                <el-tag size="small" :type="sdkPublishState(row).type" effect="dark">
-                  {{ sdkPublishState(row).label }}
-                </el-tag>
-                <small>{{ sdkPublishState(row).shortHint }}</small>
-              </div>
-              <span v-else class="meta-empty">-</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="300" fixed="right">
-            <template #default="{ row }">
+              <small>{{ sdkPublishState(row).shortHint }}</small>
+            </div>
+            <span v-else class="meta-empty">-</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="updatedAt" label="更新时间" width="138">
+          <template #default="{ row }">
+            {{ formatDateTime(row.updatedAt) }}
+          </template>
+        </el-table-column>
+
+        <el-table-column label="操作" width="238" fixed="right">
+          <template #default="{ row }">
+            <div class="row-actions">
               <el-button link type="primary" size="small" @click.stop="handleEdit(row.id)">编辑</el-button>
-              <el-button link type="warning" size="small" @click.stop="handleStudio(row.id)">画布编排</el-button>
-              <el-button link type="info" size="small" @click.stop="handleVersions(row.id)">版本</el-button>
+              <el-button link type="warning" size="small" @click.stop="handleStudio(row.id)">画布</el-button>
               <el-button link type="success" size="small" @click.stop="handleDebug(row.id)">调试</el-button>
-              <el-popconfirm title="确认删除该 Agent？" @confirm="handleDelete(row.id)">
-                <template #reference>
-                  <el-button link type="danger" size="small" @click.stop>删除</el-button>
-                </template>
-              </el-popconfirm>
-            </template>
-          </el-table-column>
-        </el-table>
-      </template>
-
-      <template v-else>
-        <div class="filter-panel trace-filter">
-          <el-input v-model="traceFilter.userId" placeholder="按 userId 过滤" clearable class="filter-control" />
-          <el-select v-model="traceFilter.days" class="filter-control is-narrow">
-            <el-option :value="1" label="近 1 天" />
-            <el-option :value="7" label="近 7 天" />
-            <el-option :value="14" label="近 14 天" />
-          </el-select>
-          <el-button :icon="Search" @click="fetchRecentTraces">查询</el-button>
-        </div>
-        <el-table :data="recentTraces" v-loading="traceLoading" class="agent-table" stripe>
-          <el-table-column prop="traceId" label="traceId" min-width="260" show-overflow-tooltip />
-          <el-table-column prop="agentName" label="Agent" width="160" />
-          <el-table-column prop="intentType" label="Intent" width="140" />
-          <el-table-column prop="callCount" label="调用数" width="90" />
-          <el-table-column label="成功率" width="110">
-            <template #default="{ row }">
-              <span class="success-rate">{{ row.callCount ? ((row.successCount / row.callCount) * 100).toFixed(1) : '0.0' }}%</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="startedAt" label="开始时间" width="190" />
-          <el-table-column label="操作" width="120">
-            <template #default="{ row }">
-              <el-button link type="primary" @click="copyTraceId(row.traceId)">复制 ID</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </template>
-    </el-card>
+              <el-button link type="info" size="small" @click.stop="handleVersions(row.id)">版本</el-button>
+              <el-button link type="danger" size="small" @click.stop="handleDelete(row.id)">删除</el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Cpu, Plus, Search } from '@element-plus/icons-vue'
-import type { AgentDefinition, AgentVersion } from '@/types/agent'
-import { INTENT_TYPES, TRIGGER_MODES } from '@/types/agent'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Connection, Cpu, EditPen, Plus, Refresh, Search, Share } from '@element-plus/icons-vue'
+import type { AgentDefinition, AgentMode, AgentVersion } from '@/types/agent'
 import { deleteAgent, getAgentList, listAgentVersions, updateAgent } from '@/api/agent'
 import { getScanProjects } from '@/api/scanProject'
-import { getRecentTraces } from '@/api/trace'
-import type { TraceSummary } from '@/types/trace'
 import type { ScanProject } from '@/types/scanProject'
 import ViewToggle from '@/components/ViewToggle.vue'
 import { useProjectStore } from '@/store/project'
@@ -348,63 +220,86 @@ import { useProjectStore } from '@/store/project'
 const route = useRoute()
 const router = useRouter()
 const projectStore = useProjectStore()
+
 const agents = ref<AgentDefinition[]>([])
 const agentVersions = ref<Record<string, AgentVersion[]>>({})
 const scanProjects = ref<ScanProject[]>([])
 const loading = ref(false)
-const filterIntent = ref<string>('')
-const filterTrigger = ref<string>('')
+const filterKeyword = ref('')
+const filterRuntime = ref('')
 const filterEnabled = ref<boolean | ''>('')
 const filterProjectId = ref<number | undefined>(undefined)
-const activeView = ref<'agents' | 'traces'>('agents')
-const recentTraces = ref<TraceSummary[]>([])
-const traceLoading = ref(false)
-const traceFilter = ref({ userId: '', days: 7 })
 const viewMode = ref<'table' | 'card'>('table')
 
-const allIntentTypes = computed(() => {
-  const presetValues = new Set<string>(INTENT_TYPES.map((t) => t.value))
-  const custom = agents.value
-    .map((a) => a.intentType)
-    .filter((v) => v && !presetValues.has(v))
-    .filter((v, i, arr) => arr.indexOf(v) === i)
-    .map((v) => ({ value: v, label: v }))
-  return [...INTENT_TYPES, ...custom]
+const enabledCount = computed(() => agents.value.filter((agent) => agent.enabled).length)
+const workflowAgentCount = computed(() => agents.value.filter((agent) => modeForAgent(agent) === 'WORKFLOW').length)
+const pendingPublishCount = computed(() =>
+  agents.value.filter((agent) => isSdkManaged(agent) && sdkPublishState(agent).type !== 'success').length,
+)
+
+const runtimeFilterOptions = computed(() => {
+  const options = new Map<string, string>()
+  agents.value.forEach((agent) => {
+    const runtime = agent.runtimeType || 'AGENTSCOPE'
+    options.set(runtime, runtimeModeLabel(agent))
+  })
+  return Array.from(options.entries()).map(([value, label]) => ({ value, label }))
 })
 
-const enabledCount = computed(() => agents.value.filter((agent) => agent.enabled).length)
-const projectAgentCount = computed(() => agents.value.filter((agent) => agent.projectId || agent.projectCode).length)
-const sdkAgentCount = computed(() => agents.value.filter((agent) => isSdkManaged(agent)).length)
-
 const filteredAgents = computed(() => {
-  return agents.value.filter((a) => {
-    if (filterIntent.value && a.intentType !== filterIntent.value) return false
-    if (filterTrigger.value && a.triggerMode !== filterTrigger.value) return false
-    if (filterEnabled.value !== '' && a.enabled !== filterEnabled.value) return false
-    return true
+  const keyword = filterKeyword.value.trim().toLowerCase()
+  return agents.value.filter((agent) => {
+    if (filterRuntime.value && (agent.runtimeType || 'AGENTSCOPE') !== filterRuntime.value) return false
+    if (filterEnabled.value !== '' && agent.enabled !== filterEnabled.value) return false
+    if (!keyword) return true
+    const haystack = [
+      agent.name,
+      agent.description,
+      agent.keySlug,
+      agent.id,
+    ].filter(Boolean).join(' ').toLowerCase()
+    return haystack.includes(keyword)
   })
 })
 
-function intentLabel(type: string) {
-  return INTENT_TYPES.find((t) => t.value === type)?.label || type
+function modeForAgent(agent: AgentDefinition): AgentMode {
+  if (agent.agentMode) return agent.agentMode
+  if (agent.runtimeType === 'LANGGRAPH4J') return 'WORKFLOW'
+  if (agent.runtimeType === 'CURSOR_CODE_AGENT') return 'CODE'
+  if (agent.runtimeType === 'OPENAI_AGENTS') return 'EXTERNAL'
+  return 'AUTONOMOUS'
 }
 
-function triggerLabel(mode: string) {
-  return TRIGGER_MODES.find((m) => m.value === mode)?.label || mode || '全部'
+function runtimeModeLabel(agent: AgentDefinition) {
+  const mode = modeForAgent(agent)
+  if (mode === 'WORKFLOW') return '流程工作流'
+  if (mode === 'CODE') return '代码工程'
+  if (mode === 'EXTERNAL') return '外部托管'
+  return '自主对话'
 }
 
-function triggerTagType(mode: string): '' | 'success' | 'warning' | 'info' | 'danger' {
-  const map: Record<string, '' | 'success' | 'warning' | 'info' | 'danger'> = {
-    all: '',
-    chat: 'success',
-    api: 'warning',
-    event: 'info',
+function runtimeTagType(agent: AgentDefinition): '' | 'success' | 'warning' | 'info' | 'danger' {
+  const mode = modeForAgent(agent)
+  if (mode === 'WORKFLOW') return 'warning'
+  if (mode === 'CODE') return 'info'
+  if (mode === 'EXTERNAL') return 'danger'
+  return 'success'
+}
+
+function runtimeIcon(agent: AgentDefinition) {
+  const mode = modeForAgent(agent)
+  if (mode === 'WORKFLOW') return Connection
+  if (mode === 'CODE') return EditPen
+  if (mode === 'EXTERNAL') return Share
+  return Cpu
+}
+
+function runtimeAvatarClass(agent: AgentDefinition) {
+  return {
+    workflow: modeForAgent(agent) === 'WORKFLOW',
+    code: modeForAgent(agent) === 'CODE',
+    external: modeForAgent(agent) === 'EXTERNAL',
   }
-  return map[mode] ?? ''
-}
-
-function capabilityNames(agent: AgentDefinition) {
-  return [...(agent.tools || []), ...(agent.skills || [])]
 }
 
 function sdkGraphMeta(agent: AgentDefinition): Record<string, unknown> {
@@ -449,14 +344,14 @@ function sdkPublishState(agent: AgentDefinition) {
   if (hashDiffers || timeDiffers) {
     return {
       type: 'warning' as const,
-      label: '草稿待发布',
+      label: '待发布',
       shortHint: latest.version,
-      hint: `SDK 草稿晚于最新发布版本 ${latest.version}，需要重新发布后生产入口才会生效。`,
+      hint: `SDK 草稿晚于最新发布版本 ${latest.version}，重新发布后生产入口才会生效。`,
     }
   }
   return {
     type: 'success' as const,
-    label: '已发布同步',
+    label: '已同步',
     shortHint: latest.version,
     hint: `最新发布版本 ${latest.version} 已包含当前 SDK 图。`,
   }
@@ -485,7 +380,10 @@ function dateMs(value?: string | null) {
 }
 
 function formatDateTime(value?: string | null) {
-  return value || '-'
+  if (!value) return '-'
+  const parsed = Date.parse(value)
+  if (!Number.isFinite(parsed)) return value
+  return new Date(parsed).toLocaleString()
 }
 
 function projectOptionLabel(project?: ScanProject | null) {
@@ -554,37 +452,13 @@ async function loadAgentVersions(list: AgentDefinition[]) {
   agentVersions.value = Object.fromEntries(pairs)
 }
 
-async function fetchRecentTraces() {
-  traceLoading.value = true
-  try {
-    const { data } = await getRecentTraces({
-      userId: traceFilter.value.userId || undefined,
-      days: traceFilter.value.days,
-      limit: 50,
-    })
-    recentTraces.value = Array.isArray(data) ? data : []
-  } catch {
-    recentTraces.value = []
-    ElMessage.error('加载 Trace 失败')
-  } finally {
-    traceLoading.value = false
-  }
-}
-
-function copyTraceId(traceId: string) {
-  if (!traceId) return
-  if (typeof window !== 'undefined' && window.navigator?.clipboard) {
-    window.navigator.clipboard.writeText(traceId)
-    ElMessage.success('traceId 已复制')
-  }
-}
-
 function handleCreate() {
   router.push({
     path: '/agent/new/edit',
     query: filterProjectId.value !== undefined ? { projectId: filterProjectId.value } : {},
   })
 }
+
 function handleEdit(id: string) { router.push(`/agent/${id}/edit`) }
 function handleDebug(id: string) { router.push(`/agent/${id}/debug`) }
 function handleStudio(id: string) { router.push(`/agent/${id}/studio`) }
@@ -602,11 +476,14 @@ async function handleToggle(agent: AgentDefinition, enabled: boolean) {
 
 async function handleDelete(id: string) {
   try {
+    await ElMessageBox.confirm('确认删除该智能体？', '删除智能体', { type: 'warning' })
     await deleteAgent(id)
     ElMessage.success('删除成功')
     fetchData()
-  } catch {
-    ElMessage.error('删除失败')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error('删除失败')
+    }
   }
 }
 
@@ -623,216 +500,235 @@ watch(
     fetchData()
   },
 )
-
-watch(activeView, (view) => {
-  if (view === 'traces' && recentTraces.value.length === 0) {
-    fetchRecentTraces()
-  }
-})
 </script>
 
 <style scoped lang="scss">
 .agent-page {
-  padding: 24px 32px 36px;
+  padding: 14px 16px 24px;
 }
 
-.agent-hero {
+.agent-header,
+.agent-shell {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 10px;
+  background: var(--bg-card);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.08);
+}
+
+.agent-header {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
   align-items: center;
-  gap: 24px;
-  margin-bottom: 18px;
-  padding: 24px;
-  border: 1px solid rgba(99, 102, 241, 0.18);
-  border-radius: 12px;
-  background:
-    linear-gradient(135deg, rgba(99, 102, 241, 0.13), rgba(34, 211, 238, 0.05)),
-    var(--bg-card);
-  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.12);
+  gap: 16px;
+  margin-bottom: 12px;
+  padding: 16px 18px;
 }
 
 .eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   color: #818cf8;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 
-.hero-copy {
-  h1 {
-    margin: 0;
-    color: var(--text-primary);
-    font-size: 28px;
-    line-height: 1.2;
-    font-weight: 760;
-    letter-spacing: 0;
-  }
-
-  p {
-    margin: 8px 0 0;
-    color: var(--text-secondary);
-    font-size: 14px;
-  }
+h1,
+h2 {
+  margin: 0;
+  color: var(--text-primary);
+  letter-spacing: 0;
 }
 
-.hero-stats {
+h1 {
+  font-size: 24px;
+  line-height: 32px;
+}
+
+h2 {
+  font-size: 17px;
+  line-height: 24px;
+}
+
+p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.header-stats {
   display: grid;
-  grid-template-columns: repeat(4, 104px);
-  gap: 10px;
+  grid-template-columns: repeat(4, 86px);
+  gap: 8px;
 }
 
 .stat-item {
-  min-height: 74px;
-  padding: 14px;
+  min-height: 58px;
+  padding: 10px 12px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(148, 163, 184, 0.06);
 
-  .stat-label {
+  span {
     display: block;
-    margin-bottom: 8px;
     color: var(--text-secondary);
     font-size: 12px;
   }
 
   strong {
+    display: block;
+    margin-top: 6px;
     color: var(--text-primary);
-    font-size: 24px;
+    font-size: 22px;
     line-height: 1;
   }
 }
 
-.hero-actions {
+.header-actions,
+.filter-panel,
+.row-actions,
+.agent-card-footer {
   display: flex;
   align-items: center;
-  gap: 12px;
+}
+
+.header-actions {
+  gap: 10px;
 }
 
 .agent-shell {
-  border-radius: 12px;
   overflow: hidden;
 }
 
-.agent-shell :deep(.el-card__body) {
-  padding: 0;
-}
-
-.shell-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 0 22px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
-}
-
-.top-tabs {
-  :deep(.el-tabs__header) {
-    margin: 0;
-  }
-
-  :deep(.el-tabs__nav-wrap::after) {
-    display: none;
-  }
-
-  :deep(.el-tabs__item) {
-    height: 54px;
-    font-weight: 700;
-  }
-}
-
-.shell-hint {
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
 .filter-panel {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  padding: 18px 22px;
+  padding: 12px 16px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
   background: rgba(148, 163, 184, 0.04);
 }
 
 .filter-control {
-  width: 180px;
+  width: 150px;
+
+  &.is-keyword {
+    width: 280px;
+  }
 
   &.is-narrow {
-    width: 140px;
+    width: 112px;
   }
 
   &.is-wide {
-    width: 240px;
+    width: 210px;
+  }
+}
+
+.filter-count {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.agent-table {
+  :deep(th.el-table__cell) {
+    height: 46px;
+    font-weight: 700;
+  }
+
+  :deep(td.el-table__cell) {
+    height: 58px;
+  }
+}
+
+.name-cell,
+.agent-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mini-avatar,
+.agent-avatar {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, #10b981, #6366f1);
+  flex-shrink: 0;
+
+  &.workflow {
+    background: linear-gradient(135deg, #f59e0b, #8b5cf6);
+  }
+
+  &.code {
+    background: linear-gradient(135deg, #0ea5e9, #6366f1);
+  }
+
+  &.external {
+    background: linear-gradient(135deg, #ef4444, #8b5cf6);
+  }
+}
+
+.mini-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+}
+
+.agent-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 9px;
+}
+
+.name-cell > div:last-child,
+.agent-title-area {
+  min-width: 0;
+  flex: 1;
+}
+
+.name-cell {
+  p,
+  small {
+    display: block;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small {
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 12px;
   }
 }
 
 .agent-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 18px;
-  padding: 22px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  padding: 20px;
 }
 
 .agent-card {
-  min-height: 290px;
+  min-height: 220px;
   display: flex;
   flex-direction: column;
-  padding: 18px;
+  padding: 16px;
   border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--bg-card);
   cursor: pointer;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 
   &:hover {
     border-color: rgba(129, 140, 248, 0.56);
-    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.16);
-    transform: translateY(-2px);
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.14);
+    transform: translateY(-1px);
   }
-}
-
-.agent-card-top,
-.name-cell {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.agent-avatar,
-.mini-avatar {
-  display: grid;
-  place-items: center;
-  color: #fff;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-}
-
-.agent-avatar {
-  width: 46px;
-  height: 46px;
-  border-radius: 10px;
-  flex-shrink: 0;
-
-  &.pipeline {
-    background: linear-gradient(135deg, #f59e0b, #ef4444);
-  }
-}
-
-.mini-avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
-  flex-shrink: 0;
-}
-
-.agent-title-area,
-.name-cell > div:last-child {
-  min-width: 0;
-  flex: 1;
 }
 
 .agent-title-area {
@@ -840,7 +736,7 @@ watch(activeView, (view) => {
     margin: 0;
     color: var(--text-primary);
     font-size: 16px;
-    font-weight: 730;
+    line-height: 22px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -857,17 +753,8 @@ watch(activeView, (view) => {
   }
 }
 
-.name-cell {
-  small {
-    display: block;
-    margin-top: 3px;
-    color: var(--text-muted);
-    font-size: 12px;
-  }
-}
-
 .agent-description {
-  min-height: 40px;
+  min-height: 42px;
   margin: 14px 0;
   color: var(--text-secondary);
   font-size: 13px;
@@ -878,87 +765,23 @@ watch(activeView, (view) => {
   overflow: hidden;
 }
 
-.agent-tags,
-.capability-strip {
+.agent-card-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
 
-.agent-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin: 16px 0;
-
-  div {
-    min-width: 0;
-    padding: 10px;
-    border-radius: 8px;
-    background: rgba(148, 163, 184, 0.07);
-  }
-
-  span,
-  strong {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  span {
-    margin-bottom: 5px;
-    color: var(--text-muted);
-    font-size: 12px;
-  }
-
-  strong {
-    color: var(--text-primary);
-    font-size: 13px;
-    font-weight: 650;
-  }
-}
-
-.capability-strip {
-  min-height: 26px;
-  margin-top: auto;
-}
-
 .agent-card-footer {
-  display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: auto;
   padding-top: 14px;
   border-top: 1px solid rgba(148, 163, 184, 0.14);
 }
 
-.agent-table {
-  :deep(th.el-table__cell) {
-    height: 46px;
-    font-weight: 700;
-  }
-
-  :deep(td.el-table__cell) {
-    height: 54px;
-  }
-}
-
-.tool-tag {
-  margin-right: 4px;
-  margin-bottom: 2px;
-}
-
-.more-tools,
-.meta-text {
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.meta-empty {
-  color: var(--text-muted);
-  font-size: 12px;
+.row-actions {
+  gap: 2px;
 }
 
 .publish-state-cell {
@@ -968,7 +791,7 @@ watch(activeView, (view) => {
   gap: 4px;
 
   small {
-    max-width: 140px;
+    max-width: 130px;
     color: var(--text-muted);
     font-size: 12px;
     overflow: hidden;
@@ -977,22 +800,39 @@ watch(activeView, (view) => {
   }
 }
 
-.success-rate {
-  color: var(--success-color);
-  font-weight: 700;
+.meta-empty {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 @media (max-width: 1280px) {
-  .agent-hero {
+  .agent-header {
     grid-template-columns: 1fr;
   }
 
-  .hero-stats {
+  .header-stats {
+    grid-template-columns: repeat(4, minmax(86px, 1fr));
+  }
+
+  .header-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 760px) {
+  .agent-page {
+    padding: 16px;
+  }
+
+  .header-stats {
     grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
 
-  .hero-actions {
-    justify-content: flex-start;
+  .filter-control,
+  .filter-control.is-keyword,
+  .filter-control.is-wide,
+  .filter-control.is-narrow {
+    width: 100%;
   }
 }
 </style>

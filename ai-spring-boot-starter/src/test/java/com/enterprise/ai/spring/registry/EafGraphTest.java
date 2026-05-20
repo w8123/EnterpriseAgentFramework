@@ -220,22 +220,79 @@ class EafGraphTest {
                 .aggregateItem("intent", "nodeOutput.transform.intent")
                 .aggregateItem("draft", "nodeOutput.transform.draft")
                 .outputAlias("summary")
+                .humanApproval("approval", "确认 {{ summary.intent }}")
+                .approver("ops")
+                .loop("retry", 2)
+                .breakWhen("success")
+                .knowledgeWrite("write", "kb-orders")
+                .knowledgeContent("const:确认记录", "summary.draft")
+                .knowledgeTag("workflow")
+                .documentExtract("extract")
+                .documentField("orderId", "regex:order (\\d+)")
+                .mcpCall("mcp", "filesystem.read_file")
+                .mcpServer("local")
                 .answer("reply", "Intent {{ summary.intent }}: {{ summary.draft }}")
                 .edge("planner", "intent").always()
                 .edge("intent", "transform").when("route:refund")
                 .edge("transform", "summary").always()
-                .edge("summary", "reply").always()
+                .edge("summary", "approval").always()
+                .edge("approval", "retry").when("route:approved")
+                .edge("retry", "write").when("route:continue")
+                .edge("write", "extract").always()
+                .edge("extract", "mcp").always()
+                .edge("mcp", "reply").always()
                 .build();
 
         List<Map<String, Object>> nodes = (List<Map<String, Object>>) graph.graphSpec().get("nodes");
         assertTrue(nodes.stream().anyMatch(node -> "INTENT_CLASSIFIER".equals(node.get("type"))));
         assertTrue(nodes.stream().anyMatch(node -> "CODE".equals(node.get("type"))));
         assertTrue(nodes.stream().anyMatch(node -> "VARIABLE_AGGREGATOR".equals(node.get("type"))));
+        assertTrue(nodes.stream().anyMatch(node -> "HUMAN_APPROVAL".equals(node.get("type"))));
+        assertTrue(nodes.stream().anyMatch(node -> "LOOP".equals(node.get("type"))));
+        assertTrue(nodes.stream().anyMatch(node -> "KNOWLEDGE_WRITE".equals(node.get("type"))));
+        assertTrue(nodes.stream().anyMatch(node -> "DOCUMENT_EXTRACT".equals(node.get("type"))));
+        assertTrue(nodes.stream().anyMatch(node -> "MCP_CALL".equals(node.get("type"))));
+        Map<String, Object> intent = nodes.stream()
+                .filter(node -> "INTENT_CLASSIFIER".equals(node.get("type")))
+                .findFirst()
+                .orElseThrow();
+        List<Map<String, Object>> intentOutputs = (List<Map<String, Object>>) intent.get("outputs");
+        assertTrue(intentOutputs.stream().anyMatch(port -> "refund".equals(port.get("id"))));
+        assertTrue(intentOutputs.stream().anyMatch(port -> "else".equals(port.get("id"))));
         Map<String, Object> answer = nodes.stream()
                 .filter(node -> "ANSWER".equals(node.get("type")))
                 .findFirst()
                 .orElseThrow();
         assertEquals("Intent {{ summary.intent }}: {{ summary.draft }}",
                 ((Map<String, Object>) answer.get("config")).get("template"));
+        List<Map<String, Object>> edges = (List<Map<String, Object>>) graph.graphSpec().get("edges");
+        Map<String, Object> classifierEdge = edges.stream()
+                .filter(edge -> "intent".equals(edge.get("from")) && "transform".equals(edge.get("to")))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("refund", classifierEdge.get("sourceHandle"));
+    }
+
+    @Test
+    void sdkNodeCatalogIncludesAdvancedNodeTypes() {
+        assertEquals("INTENT_CLASSIFIER", EafGraphNodeType.normalize("classifier"));
+        assertEquals("KNOWLEDGE_WRITE", EafGraphNodeType.normalize("knowledgeWrite"));
+        assertTrue(EafGraph.supportedNodeTypes().contains("HUMAN_APPROVAL"));
+        assertTrue(EafGraph.supportedNodeTypes().contains("MCP_CALL"));
+    }
+
+    @Test
+    void classifierEdgesRequireConcreteRoute() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> EafGraph.agent("bad_classifier")
+                .modelInstanceId("llm-1")
+                .llm("planner")
+                .intentClassifier("intent")
+                .intentClass("refund", "Refund")
+                .answer("reply", "{{ lastOutput }}")
+                .edge("planner", "intent").always()
+                .edge("intent", "reply").always()
+                .build());
+
+        assertTrue(error.getMessage().contains("intent classifier edge must use a class route"));
     }
 }

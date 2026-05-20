@@ -20,7 +20,10 @@
         </el-tooltip>
       </div>
       <div class="header-right">
-        <span class="save-state">{{ saveStateText }}</span>
+        <span class="save-state" :class="saveStateClass">
+          <i></i>
+          <span>{{ saveBadgeText }}</span>
+        </span>
         <el-button @click="handleDebug" :icon="VideoPlay">调试</el-button>
         <el-dropdown trigger="click" @command="handleHeaderCommand">
           <el-button :icon="MoreFilled">更多</el-button>
@@ -267,7 +270,6 @@
           <template #node-condition="nodeProps">
             <div class="studio-node condition-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
               <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
               <div class="node-icon"><el-icon><Switch /></el-icon></div>
               <div class="node-head">
                 <span class="node-kind">条件</span>
@@ -407,15 +409,30 @@
           <template #node-classifier="nodeProps">
             <div class="studio-node classifier-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
               <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
               <div class="node-icon"><el-icon><Switch /></el-icon></div>
               <div class="node-head">
                 <span class="node-kind">意图</span>
                 <span class="node-state">分类</span>
               </div>
               <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="condition-routes">
-                <span v-for="item in nodeProps.data.classifierConfig?.classes || []" :key="item.id" class="condition-route">{{ item.label || item.id }}</span>
+              <div class="classifier-routes">
+                <div
+                  v-for="route in classifierRouteRows(nodeProps.data)"
+                  :key="route.id"
+                  class="classifier-route-row"
+                  :class="{ 'is-default': route.isDefault }"
+                >
+                  <div class="classifier-route-copy">
+                    <strong>{{ route.label }}</strong>
+                    <span>{{ route.meta }}</span>
+                  </div>
+                  <Handle
+                    type="source"
+                    :id="route.handleId"
+                    :position="Position.Right"
+                    class="classifier-route-handle"
+                  />
+                </div>
               </div>
               <div class="node-port-row">{{ portSummary(nodeProps.data.outputs, '分支') }}</div>
               <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" @click.stop="openNodeTrace(nodeProps.id)">
@@ -658,7 +675,10 @@
               <em>{{ runtimeContextEntries.length }}</em>
             </button>
           </div>
-          <span class="status-autosave">{{ saveStateText }}</span>
+          <span class="status-autosave" :class="saveStateClass">
+            <i></i>
+            <span>{{ saveBadgeText }}</span>
+          </span>
           <button class="status-collapse" @click="inspectorExpanded = !inspectorExpanded">
             {{ inspectorExpanded ? '收起面板' : '展开检查' }}
           </button>
@@ -762,37 +782,189 @@
           </el-form>
         </div>
 
-        <div v-else>
-          <el-divider>{{ nodeKindLabel(selectedNode.data.kind) }} 公共配置</el-divider>
-          <el-form label-width="100px" size="small">
-            <el-form-item label="ID">
+        <div v-else class="node-property-overview">
+          <div class="node-property-head">
+            <div class="node-property-icon" :style="{ background: kindColor(selectedNode.data.kind).bg, color: kindColor(selectedNode.data.kind).border }">
+              <el-icon><component :is="nodeIconMap[selectedNode.data.kind] || Operation" /></el-icon>
+            </div>
+            <div class="node-property-title">
+              <div>
+                <strong>{{ selectedNode.data.label || selectedNode.id }}</strong>
+                <el-tag size="small" effect="plain">{{ nodeKindLabel(selectedNode.data.kind) }}</el-tag>
+              </div>
+              <span>{{ selectedNode.data.description || '配置该节点的运行行为、变量、输出与测试。' }}</span>
+            </div>
+          </div>
+
+          <div class="node-property-actions">
+            <el-button size="small" type="primary" plain :icon="Operation" @click="openPropertyDetail('base')">基础</el-button>
+            <el-button size="small" type="primary" plain :icon="SetUp" @click="openPropertyDetail('node')">配置</el-button>
+            <el-button
+              size="small"
+              plain
+              :icon="Delete"
+              type="danger"
+              @click="deleteSelectedNode"
+              :disabled="studioReadOnly || selectedNode.data.kind === 'start' || selectedNode.data.kind === 'end'"
+            >
+              删除
+            </el-button>
+          </div>
+
+          <button class="property-section-card" @click="openPropertyDetail('base')">
+            <span class="section-card-icon"><el-icon><Operation /></el-icon></span>
+            <span class="section-card-main">
+              <strong>基础</strong>
+              <em>节点名称、描述、状态等</em>
+            </span>
+            <span class="section-card-meta">
+              <el-tag size="small" :type="selectedNode.data.source === 'SDK' ? 'warning' : 'success'">
+                {{ sourceLabel(selectedNode.data.source) }}
+              </el-tag>
+              <el-icon><ArrowRight /></el-icon>
+            </span>
+          </button>
+
+          <button class="property-section-card" @click="openPropertyDetail('node')">
+            <span class="section-card-icon"><el-icon><SetUp /></el-icon></span>
+            <span class="section-card-main">
+              <strong>节点配置</strong>
+              <em>{{ nodeKindLabel(selectedNode.data.kind) }} 专属参数、变量与输出</em>
+            </span>
+            <span class="section-card-meta">
+              <el-tag size="small">{{ portSummary(selectedNode.data.inputs, '输入') }}</el-tag>
+              <el-tag size="small">{{ portSummary(selectedNode.data.outputs, '输出') }}</el-tag>
+              <el-icon><ArrowRight /></el-icon>
+            </span>
+          </button>
+
+          <button
+            v-if="selectedNode.data.kind !== 'start' && selectedNode.data.kind !== 'end'"
+            class="property-section-card"
+            @click="openPropertyDetail('debug')"
+          >
+            <span class="section-card-icon"><el-icon><VideoPlay /></el-icon></span>
+            <span class="section-card-main">
+              <strong>节点测试</strong>
+              <em>测试消息、模拟状态与输出状态</em>
+            </span>
+            <span class="section-card-meta">
+              <el-tag
+                v-if="nodeDebugResult?.nodeId === selectedNode.id"
+                size="small"
+                :type="nodeDebugResult.success ? 'success' : 'danger'"
+              >
+                {{ nodeDebugResult.success ? '通过' : '失败' }}
+              </el-tag>
+              <el-icon><ArrowRight /></el-icon>
+            </span>
+          </button>
+
+          <button class="property-section-card" @click="openPropertyDetail('trace')">
+            <span class="section-card-icon"><el-icon><Document /></el-icon></span>
+            <span class="section-card-main">
+              <strong>运行记录</strong>
+              <em>{{ selectedNodeTrace ? '查看上次运行输入、输出与状态' : '暂无节点运行记录' }}</em>
+            </span>
+            <span class="section-card-meta">
+              <el-tag v-if="selectedNodeTrace" size="small" :type="nodeTraceTagType(selectedNodeTrace.status)">
+                {{ nodeTraceStatusText(selectedNodeTrace.status) }}
+              </el-tag>
+              <el-icon><ArrowRight /></el-icon>
+            </span>
+          </button>
+        </div>
+        </div>
+      </aside>
+    </div>
+
+    <el-dialog
+      v-model="propertyDetailOpen"
+      class="node-property-dialog"
+      width="920px"
+      align-center
+      destroy-on-close
+    >
+      <template #header>
+        <div class="node-dialog-header">
+          <div class="node-dialog-icon" :style="{ '--node-accent': selectedNode ? kindColor(selectedNode.data.kind).border : '#4f46e5' }">
+            <el-icon v-if="selectedNode"><component :is="nodeIconMap[selectedNode.data.kind] || Operation" /></el-icon>
+            <el-icon v-else><SetUp /></el-icon>
+          </div>
+          <div class="node-dialog-title">
+            <strong>{{ selectedNode?.data.label || selectedNode?.id || '节点' }}</strong>
+            <span>{{ propertyDetailSectionLabel }} · {{ selectedNode ? studioNodeLabel(selectedNode.data.kind) : '节点配置' }}</span>
+          </div>
+          <div v-if="selectedNode" class="node-dialog-tags">
+            <el-tag size="small" :type="selectedNode.data.source === 'SDK' ? 'warning' : 'success'">
+              {{ sourceLabel(selectedNode.data.source) }}
+            </el-tag>
+            <el-tag size="small" effect="plain">{{ categoryLabel(selectedNode.data.category) }}</el-tag>
+          </div>
+        </div>
+      </template>
+      <template v-if="selectedNode">
+        <el-form v-if="propertyDetailSection === 'base'" class="node-base-form" label-width="88px" size="small">
+          <section class="node-detail-card">
+            <div class="node-detail-card-head">
+              <div>
+                <strong>身份信息</strong>
+                <span>用于画布展示、运行日志和上游节点引用</span>
+              </div>
+              <el-tag size="small" effect="plain">{{ studioNodeLabel(selectedNode.data.kind) }}</el-tag>
+            </div>
+            <el-form-item label="节点 ID">
               <el-input v-model="selectedNode.id" disabled />
             </el-form-item>
             <el-form-item label="名称">
-              <el-input v-model="selectedNode.data.label" />
+              <el-input v-model="selectedNode.data.label" placeholder="给节点起一个清晰的业务名称" />
             </el-form-item>
             <el-form-item label="描述">
-              <el-input v-model="selectedNode.data.description" type="textarea" :rows="3" />
+              <el-input v-model="selectedNode.data.description" type="textarea" :rows="4" placeholder="说明这个节点在流程中的职责，便于协作和调试" />
             </el-form-item>
             <el-form-item v-if="selectedNode.data.kind !== 'start' && selectedNode.data.kind !== 'end'" label="输出别名">
               <el-input v-model="selectedNode.data.outputAlias" placeholder="如 customer / params / context" />
             </el-form-item>
-            <el-form-item label="节点状态">
-              <div class="node-contract-preview">
+          </section>
+
+          <section class="node-detail-card compact-card">
+            <div class="node-detail-card-head">
+              <div>
+                <strong>节点契约</strong>
+                <span>展示节点来源、类别和输入输出端口</span>
+              </div>
+            </div>
+            <div class="node-contract-grid">
+              <div class="contract-chip">
+                <span>来源</span>
                 <el-tag size="small" :type="selectedNode.data.source === 'SDK' ? 'warning' : 'success'">
                   {{ sourceLabel(selectedNode.data.source) }}
                 </el-tag>
-                <el-tag size="small">{{ categoryLabel(selectedNode.data.category) }}</el-tag>
-                <el-tag size="small">{{ portSummary(selectedNode.data.inputs, '输入') }}</el-tag>
-                <el-tag size="small">{{ portSummary(selectedNode.data.outputs, '输出') }}</el-tag>
               </div>
-            </el-form-item>
-            <el-form-item v-if="selectedNode.data.kind !== 'start' && selectedNode.data.kind !== 'end' && selectedNode.data.errorPolicy && selectedNode.data.retry" label="失败策略">
-              <el-select v-model="selectedNode.data.errorPolicy.strategy" style="width: 130px">
-                <el-option label="终止" value="TERMINATE" />
-                <el-option label="继续" value="CONTINUE" />
-                <el-option label="兜底" value="FALLBACK" />
-              </el-select>
+              <div class="contract-chip">
+                <span>类别</span>
+                <el-tag size="small">{{ categoryLabel(selectedNode.data.category) }}</el-tag>
+              </div>
+              <div class="contract-chip">
+                <span>输入</span>
+                <el-tag size="small" effect="plain">{{ portSummary(selectedNode.data.inputs, '输入') }}</el-tag>
+              </div>
+              <div class="contract-chip">
+                <span>输出</span>
+                <el-tag size="small" effect="plain">{{ portSummary(selectedNode.data.outputs, '输出') }}</el-tag>
+              </div>
+            </div>
+          </section>
+
+          <section
+            v-if="selectedNode.data.kind !== 'start' && selectedNode.data.kind !== 'end' && selectedNode.data.errorPolicy && selectedNode.data.retry"
+            class="node-detail-card compact-card"
+          >
+            <div class="node-detail-card-head">
+              <div>
+                <strong>异常治理</strong>
+                <span>配置失败后的处理方式和重试节奏</span>
+              </div>
               <el-switch
                 v-model="selectedNode.data.retry.enabled"
                 class="retry-switch"
@@ -800,58 +972,78 @@
                 active-text="重试"
                 inactive-text="不重试"
               />
-            </el-form-item>
-            <el-form-item v-if="selectedNode.data.retry?.enabled && selectedNode.data.retry" label="重试">
-              <el-input-number v-model="selectedNode.data.retry.maxAttempts" :min="1" :max="5" size="small" />
-              <el-input-number v-model="selectedNode.data.retry.backoffMs" :min="0" :step="200" size="small" class="retry-delay" />
-            </el-form-item>
-            <NodeConfigPanel
-              :data="selectedNode.data"
-              :model-options="modelOptions"
-              :knowledge-options="knowledgeOptions"
-              :tool-options="availableTools"
-              :capability-options="availableCapabilities"
-              :variable-options="graphVariables.map((item) => item.name)"
-              :credential-options="credentialOptions"
-              :param-source-hints="paramHints"
-              :project-id="form.projectId"
-              :project-code="form.projectCode"
-              @credential-created="handleCredentialCreated"
-            />
-            <div v-if="selectedNode.data.kind !== 'start' && selectedNode.data.kind !== 'end'" class="node-debug-box">
-              <div class="node-debug-head">
-                <strong>节点测试</strong>
-                <el-tag v-if="nodeDebugResult?.nodeId === selectedNode.id" size="small" :type="nodeDebugResult.success ? 'success' : 'danger'">
-                  {{ nodeDebugResult.success ? '通过' : '失败' }}
-                </el-tag>
-              </div>
-              <el-form-item label="测试消息">
-                <el-input v-model="nodeDebugMessage" />
-              </el-form-item>
-              <el-form-item label="模拟状态">
-                <el-input v-model="nodeDebugStateText" type="textarea" :rows="5" />
-              </el-form-item>
-              <el-button type="primary" size="small" :loading="nodeDebugLoading" @click="handleRunNodeDebug">
-                测试此节点
-              </el-button>
-              <div v-if="nodeDebugResult?.nodeId === selectedNode.id" class="node-trace-block">
-                <span>输出状态</span>
-                <pre>{{ JSON.stringify(nodeDebugResult.outputState || {}, null, 2) }}</pre>
-              </div>
             </div>
-          </el-form>
+            <div class="governance-row">
+              <el-form-item label="失败策略">
+                <el-select v-model="selectedNode.data.errorPolicy.strategy" style="width: 160px">
+                  <el-option label="终止" value="TERMINATE" />
+                  <el-option label="继续" value="CONTINUE" />
+                  <el-option label="兜底" value="FALLBACK" />
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="selectedNode.data.retry?.enabled && selectedNode.data.retry" label="次数">
+                <el-input-number v-model="selectedNode.data.retry.maxAttempts" :min="1" :max="5" size="small" />
+              </el-form-item>
+              <el-form-item v-if="selectedNode.data.retry?.enabled && selectedNode.data.retry" label="间隔">
+                <el-input-number v-model="selectedNode.data.retry.backoffMs" :min="0" :step="200" size="small" class="retry-delay" />
+              </el-form-item>
+            </div>
+          </section>
+        </el-form>
 
+        <NodeConfigPanel
+          v-else-if="propertyDetailSection === 'node'"
+          :data="selectedNode.data"
+          :model-options="modelOptions"
+          :knowledge-options="knowledgeOptions"
+          :tool-options="availableTools"
+          :capability-options="availableCapabilities"
+          :variable-options="graphVariables.map((item) => item.name)"
+          :credential-options="credentialOptions"
+          :param-source-hints="paramHints"
+          :project-id="form.projectId"
+          :project-code="form.projectCode"
+          @credential-created="handleCredentialCreated"
+        />
+
+        <el-form v-else-if="propertyDetailSection === 'debug'" label-width="100px" size="small">
+          <div class="node-debug-box">
+            <div class="node-debug-head">
+              <strong>节点测试</strong>
+              <el-tag v-if="nodeDebugResult?.nodeId === selectedNode.id" size="small" :type="nodeDebugResult.success ? 'success' : 'danger'">
+                {{ nodeDebugResult.success ? '通过' : '失败' }}
+              </el-tag>
+            </div>
+            <el-form-item label="测试消息">
+              <el-input v-model="nodeDebugMessage" />
+            </el-form-item>
+            <el-form-item label="模拟状态">
+              <el-input v-model="nodeDebugStateText" type="textarea" :rows="5" />
+            </el-form-item>
+            <el-button type="primary" size="small" :loading="nodeDebugLoading" @click="handleRunNodeDebug">
+              测试此节点
+            </el-button>
+            <div v-if="nodeDebugResult?.nodeId === selectedNode.id" class="node-trace-block">
+              <span>输出状态</span>
+              <pre>{{ JSON.stringify(nodeDebugResult.outputState || {}, null, 2) }}</pre>
+            </div>
+          </div>
+        </el-form>
+
+        <div v-else>
           <div v-if="selectedNodeTrace" class="node-trace-panel">
             <div class="node-trace-head">
               <strong>上次运行</strong>
-              <el-tag size="small" :type="selectedNodeTrace.status === 'success' ? 'success' : 'danger'">
-                {{ selectedNodeTrace.status === 'success' ? '成功' : '失败' }}
+              <el-tag size="small" :type="nodeTraceTagType(selectedNodeTrace.status)">
+                {{ nodeTraceStatusText(selectedNodeTrace.status) }}
               </el-tag>
             </div>
             <div class="node-trace-meta">
               <span>{{ selectedNodeTrace.spanType || selectedNodeTrace.toolName || 'span' }}</span>
               <span>{{ formatElapsed(selectedNodeTrace.elapsedMs) }}</span>
               <span v-if="selectedNodeTrace.errorCode">{{ selectedNodeTrace.errorCode }}</span>
+              <span v-if="selectedNodeTrace.route">route: {{ selectedNodeTrace.route }}</span>
+              <span v-if="selectedNodeTrace.interactionId">interaction: {{ selectedNodeTrace.interactionId }}</span>
             </div>
             <div v-if="selectedNodeTrace.input" class="node-trace-block">
               <span>输入</span>
@@ -862,18 +1054,10 @@
               <pre>{{ prettyTracePayload(selectedNodeTrace.output) }}</pre>
             </div>
           </div>
-
-          <el-button
-            type="danger"
-            size="small"
-            :icon="Delete"
-            @click="deleteSelectedNode"
-            :disabled="studioReadOnly || selectedNode.data.kind === 'start' || selectedNode.data.kind === 'end'"
-          >删除节点</el-button>
+          <el-empty v-else description="暂无节点运行记录" />
         </div>
-        </div>
-      </aside>
-    </div>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="nodeSearchOpen" title="添加节点" width="620px" class="node-search-dialog">
       <el-input
@@ -973,6 +1157,40 @@
           <el-button type="primary" :loading="debugLoading" @click="handleRunDebug">
             通过发布端点执行
           </el-button>
+          <el-button :loading="recentRunsLoading" @click="loadRecentStudioRuns">
+            刷新最近运行
+          </el-button>
+        </div>
+        <div class="trace-replay-panel">
+          <div class="trace-replay-row">
+            <el-input
+              v-model="replayTraceInput"
+              clearable
+              placeholder="输入 traceId 回放到画布"
+              @keyup.enter="handleLoadTraceReplay()"
+            />
+            <el-button type="primary" plain :loading="traceReplayLoading" @click="handleLoadTraceReplay()">
+              回放
+            </el-button>
+            <el-button :disabled="!currentTraceId" @click="clearTraceReplay">
+              清除
+            </el-button>
+          </div>
+          <el-select
+            v-model="selectedRecentTraceId"
+            filterable
+            clearable
+            placeholder="选择最近运行"
+            style="width: 100%"
+            @change="handleRecentTraceChange"
+          >
+            <el-option
+              v-for="run in studioRecentRuns"
+              :key="run.traceId"
+              :label="recentRunLabel(run)"
+              :value="run.traceId"
+            />
+          </el-select>
         </div>
         <el-divider>结果</el-divider>
         <div class="result-section">
@@ -1009,6 +1227,12 @@
             </div>
             <div v-if="currentTraceId" class="result-section">
               <el-divider>链路详情（追踪 ID: {{ currentTraceId }}）</el-divider>
+              <div v-if="workflowReplaySummary.length" class="runtime-insights workflow-replay-summary">
+                <div v-for="item in workflowReplaySummary" :key="item.label" class="runtime-insight">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
               <div v-if="nodeTraceList.length" class="node-run-summary">
                 <button
                   v-for="item in nodeTraceList"
@@ -1107,18 +1331,28 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/minimap/dist/style.css'
 
-import type { AgentForm, AgentReleaseValidationItem, AgentVersion, AgentDefinition, AgentNodeDebugResult } from '@/types/agent'
+import type { AgentForm, AgentReleaseValidationItem, AgentVersion, AgentDefinition, AgentNodeDebugResult, AgentGraphNodeTypeDescriptor } from '@/types/agent'
 import type { CanvasNode, CanvasEdge, CanvasNodeKind } from '@/types/studio'
-import { getAgent, updateAgent, publishAgentVersion, validateAgentRelease, gatewayChat, listAgentVersions, debugAgentNode } from '@/api/agent'
+import { getAgent, updateAgent, publishAgentVersion, validateAgentRelease, gatewayChat, listAgentVersions, debugAgentNode, getAgentGraphNodeTypes } from '@/api/agent'
 import { getTools } from '@/api/tool'
 import { listCapabilities } from '@/api/capability'
 import type { ToolInfo } from '@/types/tool'
 import type { CapabilityInfo } from '@/types/capability'
 import type { ChatResponse } from '@/types/chat'
 import { canvasToDefinition, createDefaultNodeData, definitionToCanvas, kindColor } from '@/utils/studio'
+import {
+  STUDIO_NODE_GROUPS,
+  STUDIO_NODE_REGISTRY,
+  enabledStudioNodeKinds,
+  studioNodeCapabilityMap,
+  studioNodeDefaultLabel,
+  studioNodeLabel,
+} from '@/utils/studioNodeRegistry'
 import TraceTimeline from '@/components/TraceTimeline.vue'
 import { getTraceDetail } from '@/api/trace'
 import type { TraceNode } from '@/types/trace'
+import { getRecentRunOps, getRunOpsDetail } from '@/api/runops'
+import type { RunDetail, RunSpan, RunSummary, WorkflowPathItem } from '@/types/runops'
 import { extractDraftFromTrace, extractDraftFromCanvas } from '@/api/capabilityMining'
 import { getApiGraphParamHints } from '@/api/apiGraph'
 import type { ApiGraphParamSourceHint } from '@/api/apiGraph'
@@ -1153,6 +1387,12 @@ const nodeDebugStateText = ref('{\n  "input": "这是一条节点测试消息"\n
 const nodeDebugResult = ref<AgentNodeDebugResult | null>(null)
 const currentTraceId = ref<string>('')
 const traceNodes = ref<TraceNode[]>([])
+const runOpsDetail = ref<RunDetail | null>(null)
+const replayTraceInput = ref('')
+const selectedRecentTraceId = ref('')
+const traceReplayLoading = ref(false)
+const recentRunsLoading = ref(false)
+const recentRuns = ref<RunSummary[]>([])
 const traceToolPick = ref<string[]>([])
 const extracting = ref(false)
 const canvasExtracting = ref(false)
@@ -1165,18 +1405,49 @@ const traceToolNames = computed(() => {
 
 type NodeTraceState = {
   nodeId: string
-  status: 'success' | 'error'
+  status: 'success' | 'error' | 'waiting'
   elapsedMs?: number
   spanType?: string
   toolName?: string
   input?: string
   output?: string
   errorCode?: string
+  route?: string
+  interactionId?: string
   createdAt?: string
 }
 
 const nodeTraceStates = computed<Record<string, NodeTraceState>>(() => {
   const states: Record<string, NodeTraceState> = {}
+  const runSpans = runOpsDetail.value?.spans ?? []
+  if (runSpans.length) {
+    const orderedSpans = [...runSpans].sort((a, b) => dateMs(a.startedAt) - dateMs(b.startedAt))
+    for (const item of orderedSpans) {
+      const next = spanToNodeTraceState(item)
+      if (!next) {
+        continue
+      }
+      const previous = states[next.nodeId]
+      states[next.nodeId] = preferNodeTraceState(previous, next)
+    }
+    for (const item of workflowPath.value) {
+      const nodeId = (item.fromNodeId || '').trim()
+      if (!nodeId) {
+        continue
+      }
+      const previous = states[nodeId]
+      const next: NodeTraceState = {
+        nodeId,
+        status: workflowItemStatus(item),
+        spanType: 'FLOW_NODE',
+        route: item.route || item.condition,
+        interactionId: item.interactionId,
+        createdAt: item.startedAt,
+      }
+      states[nodeId] = preferNodeTraceState(previous, next)
+    }
+    return states
+  }
   const ordered = [...traceNodes.value].sort((a, b) => dateMs(a.createdAt) - dateMs(b.createdAt))
   for (const item of ordered) {
     const nodeId = (item.nodeId || '').trim()
@@ -1195,9 +1466,46 @@ const nodeTraceStates = computed<Record<string, NodeTraceState>>(() => {
       createdAt: item.createdAt,
     }
     const previous = states[nodeId]
-    states[nodeId] = previous?.status === 'error' && next.status === 'success' ? previous : next
+    states[nodeId] = preferNodeTraceState(previous, next)
   }
   return states
+})
+const workflowPath = computed<WorkflowPathItem[]>(() => runOpsDetail.value?.workflowPath ?? [])
+const workflowPathSourceNodeIds = computed(() => {
+  const ids = new Set<string>()
+  for (const item of workflowPath.value) {
+    if (item.fromNodeId) ids.add(item.fromNodeId)
+  }
+  return ids
+})
+const workflowHitEdgeKeys = computed(() => {
+  const keys = new Set<string>()
+  for (const item of workflowPath.value) {
+    if (item.fromNodeId && item.toNodeId) {
+      keys.add(edgeKey(item.fromNodeId, item.toNodeId))
+    }
+  }
+  return keys
+})
+const workflowReplaySummary = computed(() => {
+  if (!workflowPath.value.length) return []
+  const waiting = workflowPath.value.filter((item) => workflowItemStatus(item) === 'waiting').length
+  const errors = workflowPath.value.filter((item) => workflowItemStatus(item) === 'error').length
+  return [
+    { label: 'RunOps path', value: String(workflowPath.value.length) },
+    { label: 'Waiting', value: String(waiting) },
+    { label: 'Errors', value: String(errors) },
+  ]
+})
+const studioRecentRuns = computed(() => {
+  const currentAgentId = isNew ? '' : String(agentId)
+  const currentAgentName = (form.name || '').trim()
+  const matched = recentRuns.value.filter((run) => {
+    if (currentAgentId && String(run.agentId || '') === currentAgentId) return true
+    if (currentAgentName && run.agentName === currentAgentName) return true
+    return !currentAgentId && !currentAgentName
+  })
+  return matched.length ? matched : recentRuns.value
 })
 const nodeTraceList = computed(() =>
   Object.values(nodeTraceStates.value).sort((a, b) => {
@@ -1248,6 +1556,7 @@ const form = reactive<AgentForm>({
   runtimeType: 'AGENTSCOPE',
   runtimePlacement: 'CENTRAL',
   runtimeConfig: {},
+  defaultResourceConfig: {},
   graphSpec: null,
   maxSteps: 5,
   enabled: true,
@@ -1319,6 +1628,9 @@ const paletteExpanded = ref(false)
 const activePaletteGroup = ref('')
 const inspectorExpanded = ref(false)
 const propertyPanelCollapsed = ref(true)
+type PropertyDetailSection = 'base' | 'node' | 'debug' | 'trace'
+const propertyDetailOpen = ref(false)
+const propertyDetailSection = ref<PropertyDetailSection>('base')
 const copiedNode = ref<CanvasNode | null>(null)
 const historyPast = ref<string[]>([])
 const historyFuture = ref<string[]>([])
@@ -1327,6 +1639,25 @@ const historyReady = ref(false)
 const selectedNode = computed(() =>
   nodes.value.find((n) => n.id === selectedNodeId.value) ?? null,
 )
+const propertyDetailTitle = computed(() => {
+  const nodeLabel = selectedNode.value?.data.label || selectedNode.value?.id || '节点'
+  const sectionLabel: Record<PropertyDetailSection, string> = {
+    base: '基础',
+    node: '节点配置',
+    debug: '节点测试',
+    trace: '运行记录',
+  }
+  return `${nodeLabel} · ${sectionLabel[propertyDetailSection.value]}`
+})
+const propertyDetailSectionLabel = computed(() => {
+  const sectionLabel: Record<PropertyDetailSection, string> = {
+    base: '基础设置',
+    node: '节点配置',
+    debug: '节点测试',
+    trace: '运行记录',
+  }
+  return sectionLabel[propertyDetailSection.value]
+})
 const selectedEdge = computed(() =>
   edges.value.find((edge) => edge.id === selectedEdgeId.value) ?? null,
 )
@@ -1337,6 +1668,8 @@ const selectedEdgeRouteOptions = computed(() => {
   const source = selectedEdgeSourceNode.value
   return sourceRouteOptions(source)
 })
+const graphNodeTypeCapabilities = ref<AgentGraphNodeTypeDescriptor[]>([])
+const graphNodeTypeCapabilitiesLoaded = ref(false)
 const selectedEdgeConditionOptions = computed(() => [
   { label: '默认', value: 'always' },
   { label: '成功', value: 'success' },
@@ -1426,6 +1759,16 @@ const lastSavedAt = computed(() => {
   return '--:--'
 })
 const saveStateText = computed(() => lastSavedAt.value === '--:--' ? '尚未保存' : `已保存 ${lastSavedAt.value}`)
+
+const saveBadgeText = computed(() => {
+  if (saving.value) return '保存中'
+  return lastSavedAt.value === '--:--' ? '待保存' : `已保存 ${lastSavedAt.value}`
+})
+const saveStateClass = computed(() => ({
+  'is-saving': saving.value,
+  'is-pending': !saving.value && lastSavedAt.value === '--:--',
+  'is-saved': !saving.value && lastSavedAt.value !== '--:--',
+}))
 
 type GraphLintItem = {
   level: 'error' | 'warning'
@@ -1636,55 +1979,66 @@ const variablePreview = computed(() => {
 type PaletteItem = { kind: CanvasNodeKind; label: string; meta: string; icon: Component; hint: string }
 type PaletteGroup = { title: string; icon: Component; items: PaletteItem[] }
 
-const paletteGroups: PaletteGroup[] = [
-  {
-    title: '推理与能力',
-    icon: Cpu,
-    items: [
-      { kind: 'llm', label: '大模型节点', meta: '推理', icon: Cpu, hint: '模型推理、规划、总结，进入图规范的大模型节点。' },
-      { kind: 'skill', label: '能力节点', meta: '能力', icon: Briefcase, hint: '引用已注册的粗粒度能力，适合复用业务流程。' },
-      { kind: 'tool', label: '工具节点', meta: '原子工具', icon: Tools, hint: '引用原子工具，支持入参映射与输出别名。' },
-    ],
-  },
-  {
-    title: '流程控制与变量',
-    icon: Operation,
-    items: [
-      { kind: 'condition', label: '条件分支', meta: '条件', icon: Switch, hint: '根据上游输出或错误状态选择不同出边。' },
-      { kind: 'classifier', label: '意图分类', meta: '路由', icon: Switch, hint: '按用户输入或上游输出命中业务意图分支。' },
-      { kind: 'approval', label: '人工确认', meta: '审批', icon: Finished, hint: '在关键动作前创建人工确认点，支持批准、拒绝和超时分支。' },
-      { kind: 'loop', label: '循环控制', meta: '循环', icon: RefreshRight, hint: '控制列表迭代或重复尝试，输出继续/结束分支。' },
-      { kind: 'variable', label: '变量赋值', meta: '状态', icon: SetUp, hint: '把输入、上游输出或常量写入流程变量。' },
-      { kind: 'aggregate', label: '变量聚合', meta: '聚合', icon: SetUp, hint: '把多个变量聚合成对象、数组或文本。' },
-      { kind: 'code', label: '代码转换', meta: '表达式', icon: Document, hint: '安全表达式模式，生成结构化输出字段。' },
-      { kind: 'documentExtract', label: '文档抽取', meta: '抽取', icon: Files, hint: '从文档文本或接口响应中抽取结构化字段。' },
-      { kind: 'parameter', label: '参数提取', meta: '提取', icon: MagicStick, hint: '从输入或上游输出抽取结构化参数。' },
-      { kind: 'template', label: '模板转换', meta: '模板', icon: Document, hint: '用 {{ variable }} 渲染文本，可作为最终回答。' },
-      { kind: 'answer', label: '回复节点', meta: '输出', icon: Finished, hint: '组装最终回复并写入 answer。' },
-    ],
-  },
-  {
-    title: '集成与检索',
-    icon: Connection,
-    items: [
-      { kind: 'http', label: '接口请求', meta: '接口', icon: Link, hint: '调用外部 HTTP API，并把响应写回流程变量。' },
-      { kind: 'mcp', label: 'MCP 调用', meta: '协议', icon: Connection, hint: '通过 MCP 工具桥接外部上下文和动作。' },
-    ],
-  },
-  {
-    title: '知识与上下文',
-    icon: Collection,
-    items: [
-      { kind: 'knowledge', label: '知识节点', meta: '检索', icon: Coin, hint: '关联知识库组，作为检索上下文进入流程。' },
-      { kind: 'knowledgeWrite', label: '知识写入', meta: '沉淀', icon: Collection, hint: '把流程结果沉淀为知识库草稿或发布内容。' },
-    ],
-  },
-]
+const nodeIconMap: Record<CanvasNodeKind, Component> = {
+  start: ArrowLeft,
+  end: Finished,
+  llm: Cpu,
+  skill: Briefcase,
+  tool: Tools,
+  knowledge: Coin,
+  condition: Switch,
+  variable: SetUp,
+  template: Document,
+  parameter: MagicStick,
+  http: Link,
+  answer: Finished,
+  code: Document,
+  classifier: Switch,
+  aggregate: SetUp,
+  approval: Finished,
+  loop: RefreshRight,
+  knowledgeWrite: Collection,
+  documentExtract: Files,
+  mcp: Connection,
+}
+
+const groupIconMap: Record<string, Component> = {
+  Cpu,
+  Operation,
+  Connection,
+  Collection,
+}
+
+const graphNodeCapabilityByKind = computed(() => studioNodeCapabilityMap(graphNodeTypeCapabilities.value))
+const enabledPaletteKinds = computed(() =>
+  enabledStudioNodeKinds(graphNodeTypeCapabilities.value, graphNodeTypeCapabilitiesLoaded.value),
+)
+
+const paletteGroups = computed<PaletteGroup[]>(() => STUDIO_NODE_GROUPS.map((group) => ({
+  title: group.title,
+  icon: groupIconMap[group.icon] || Operation,
+  items: Object.values(STUDIO_NODE_REGISTRY)
+    .filter((item) =>
+      item.group === group.title
+      && item.category !== 'system'
+      && enabledPaletteKinds.value.has(item.kind),
+    )
+    .map((item) => {
+      const capability = graphNodeCapabilityByKind.value[item.kind]
+      return {
+        kind: item.kind,
+        label: item.label,
+        meta: capability?.type || item.meta,
+        icon: nodeIconMap[item.kind],
+        hint: item.hint,
+      }
+    }),
+})).filter((group) => group.items.length))
 
 const filteredPaletteGroups = computed(() => {
   const keyword = nodeSearchKeyword.value.trim().toLowerCase()
-  if (!keyword) return paletteGroups
-  return paletteGroups
+  if (!keyword) return paletteGroups.value
+  return paletteGroups.value
     .map((group) => ({
       ...group,
       items: group.items.filter((item) =>
@@ -1731,33 +2085,11 @@ function handleAddNode(kind: CanvasNodeKind) {
 
 function addCanvasNode(kind: CanvasNodeKind, position: { x: number; y: number }) {
   const id = `${kind}-${Date.now()}`
-  const labelMap: Record<CanvasNodeKind, string> = {
-    start: '开始',
-    end: '结束',
-    llm: '大模型',
-    skill: '新能力',
-    tool: '新工具',
-    knowledge: '知识库',
-    condition: '条件分支',
-    variable: '变量赋值',
-    parameter: '参数提取',
-    template: '模板转换',
-    http: '接口请求',
-    answer: '回复节点',
-    code: '代码转换',
-    classifier: '意图分类',
-    aggregate: '变量聚合',
-    approval: '人工确认',
-    loop: '循环控制',
-    knowledgeWrite: '知识写入',
-    documentExtract: '文档抽取',
-    mcp: 'MCP 调用',
-  }
   nodes.value.push({
     id,
     type: kind,
     position,
-    data: createDefaultNodeData(kind, labelMap[kind] || `新${kind}`, form),
+    data: createDefaultNodeData(kind, studioNodeDefaultLabel(kind), form),
   })
   selectedNodeId.value = id
   selectedEdgeId.value = null
@@ -1802,29 +2134,7 @@ function categoryLabel(value?: string | null) {
 }
 
 function nodeKindLabel(kind?: string | null) {
-  const labels: Record<string, string> = {
-    start: '开始',
-    end: '结束',
-    llm: '大模型',
-    skill: '能力',
-    tool: '工具',
-    knowledge: '知识检索',
-    condition: '条件分支',
-    variable: '变量',
-    template: '模板',
-    parameter: '参数',
-    http: '接口请求',
-    answer: '回复',
-    code: '代码',
-    classifier: '意图分类',
-    aggregate: '变量聚合',
-    approval: '人工确认',
-    loop: '循环控制',
-    knowledgeWrite: '知识写入',
-    documentExtract: '文档抽取',
-    mcp: 'MCP 调用',
-  }
-  return labels[String(kind || '')] || kind || '节点'
+  return studioNodeLabel(kind)
 }
 
 function currentSnapshotText() {
@@ -1904,18 +2214,37 @@ function defaultOutputAlias(kind: CanvasNodeKind, index: number) {
   return ''
 }
 
-function onConnect(connection: { source?: string | null; target?: string | null }) {
+function onConnect(connection: { source?: string | null; target?: string | null; sourceHandle?: string | null; targetHandle?: string | null }) {
   if (studioReadOnly.value || !connection.source || !connection.target) {
     return
   }
-  const condition = 'always'
+  const source = nodes.value.find((node) => node.id === connection.source)
+  const sourceHandle = connection.sourceHandle || undefined
+  const targetHandle = connection.targetHandle || undefined
+  if (source?.data.kind === 'classifier' && !sourceHandle) {
+    ElMessage.warning('意图分类节点只能从具体分类分支拖出连线')
+    return
+  }
+  const condition = connectionCondition(source, sourceHandle)
   edges.value.push(decorateEdge({
     id: `e-${connection.source}-${connection.target}-${Date.now()}`,
     source: connection.source,
     target: connection.target,
+    sourceHandle,
+    targetHandle,
     condition,
     label: condition,
   }))
+}
+
+function connectionCondition(source?: CanvasNode | null, sourceHandle?: string) {
+  if (!sourceHandle) return 'always'
+  if (['condition', 'classifier', 'approval', 'loop'].includes(source?.data.kind || '')) {
+    const normalized = sourceHandle.trim()
+    if (!normalized) return 'always'
+    return normalized === 'else' || normalized === 'default' ? 'else' : `route:${normalized}`
+  }
+  return 'always'
 }
 
 function decorateEdge(edge: CanvasEdge): CanvasEdge {
@@ -1982,11 +2311,21 @@ function isRouteCondition(condition?: string) {
   return normalized === 'else' || normalized === 'default' || normalized.startsWith('route:')
 }
 
+function edgeKey(source?: string, target?: string) {
+  return `${source || ''}->${target || ''}`
+}
+
 function edgeRuntimeClass(edge: CanvasEdge, rawCondition?: string) {
   const condition = (rawCondition || edge.condition || edge.label || '').trim()
   const source = nodes.value.find((node) => node.id === edge.source)
   const route = lastRouteForNode(edge.source)
   const classes: string[] = []
+  const key = edgeKey(edge.source, edge.target)
+  if (workflowHitEdgeKeys.value.has(key)) {
+    classes.push('edge-route-hit')
+  } else if (workflowPath.value.length && workflowPathSourceNodeIds.value.has(edge.source)) {
+    classes.push('edge-route-miss')
+  }
   if ((source?.data.kind === 'condition' || source?.data.kind === 'classifier' || source?.data.kind === 'approval' || source?.data.kind === 'loop') && route) {
     const expected = condition.toLowerCase().startsWith('route:')
       ? condition.slice('route:'.length).trim()
@@ -2012,7 +2351,10 @@ function lastRouteForNode(nodeId: string) {
     const route = nodeDebugResult.value.lastRoute || String(nodeDebugResult.value.outputState?.lastRoute || '')
     if (route) return route
   }
+  const fromWorkflow = workflowPath.value.find((item) => item.fromNodeId === nodeId && item.route)?.route
+  if (fromWorkflow) return fromWorkflow
   const trace = nodeTraceStates.value[nodeId]
+  if (trace?.route) return trace.route
   if (!trace?.output) return ''
   try {
     const parsed = JSON.parse(trace.output)
@@ -2042,14 +2384,25 @@ function nodeDebugState(nodeId: string) {
 function nodeRunClass(nodeId: string) {
   const state = nodeDebugState(nodeId)
   if (!state) return ''
+  if (state.status === 'waiting') return 'run-waiting'
   return state.status === 'success' ? 'run-success' : 'run-error'
 }
 
 function nodeRunLabel(nodeId: string) {
   const state = nodeDebugState(nodeId)
   if (!state) return ''
-  const prefix = state.status === 'success' ? '成功' : '失败'
+  const prefix = nodeTraceStatusText(state.status)
   return `${prefix} ${formatElapsed(state.elapsedMs)}`
+}
+
+function nodeTraceStatusText(status: NodeTraceState['status']) {
+  if (status === 'waiting') return '等待'
+  return status === 'success' ? '成功' : '失败'
+}
+
+function nodeTraceTagType(status: NodeTraceState['status']) {
+  if (status === 'waiting') return 'warning'
+  return status === 'success' ? 'success' : 'danger'
 }
 
 function openNodeTrace(nodeId: string) {
@@ -2258,6 +2611,39 @@ function conditionRoutePills(data: CanvasNode['data']) {
   return outputNames.length ? outputNames : ['成功', '失败', '否则']
 }
 
+function classifierRouteRows(data: CanvasNode['data']) {
+  const config = data.classifierConfig
+  const rows = (config?.classes || [])
+    .filter((item) => item.id?.trim())
+    .map((item) => {
+      const keywords = (item.keywords || []).filter(Boolean)
+      return {
+        id: item.id.trim(),
+        handleId: item.id.trim(),
+        label: item.label || item.id,
+        meta: keywords.length ? keywords.slice(0, 3).join(' / ') : item.id,
+        isDefault: false,
+      }
+    })
+  const defaultRoute = (config?.defaultRoute || 'else').trim()
+  if (defaultRoute && !rows.some((row) => row.handleId === defaultRoute)) {
+    rows.push({
+      id: `default-${defaultRoute}`,
+      handleId: defaultRoute,
+      label: defaultRoute === 'else' ? '默认分支' : defaultRoute,
+      meta: '未命中分类时进入',
+      isDefault: true,
+    })
+  }
+  return rows.length ? rows : [{
+    id: 'default-else',
+    handleId: 'else',
+    label: '默认分支',
+    meta: '未命中分类时进入',
+    isDefault: true,
+  }]
+}
+
 async function refreshParamHints() {
   paramHints.value = []
   const tool = selectedToolInfo.value
@@ -2346,6 +2732,12 @@ function onNodeDoubleClick(evt: { node: { id: string } }) {
   selectedEdgeId.value = null
 }
 
+function openPropertyDetail(section: PropertyDetailSection) {
+  if (!selectedNode.value) return
+  propertyDetailSection.value = section
+  propertyDetailOpen.value = true
+}
+
 function onEdgeClick(evt: { edge: { id: string } }) {
   selectedEdgeId.value = evt.edge.id
   selectedNodeId.value = null
@@ -2354,6 +2746,7 @@ function onEdgeClick(evt: { edge: { id: string } }) {
 function clearSelection() {
   selectedNodeId.value = null
   selectedEdgeId.value = null
+  propertyDetailOpen.value = false
 }
 
 function syncSelectedEdgeLabel() {
@@ -2388,6 +2781,7 @@ function deleteSelectedNode() {
   nodes.value = nodes.value.filter((n) => n.id !== id)
   edges.value = edges.value.filter((e) => e.source !== id && e.target !== id)
   selectedNodeId.value = null
+  propertyDetailOpen.value = false
 }
 
 async function loadAgent() {
@@ -2426,6 +2820,7 @@ async function loadAgent() {
       runtimeType: data.runtimeType || 'AGENTSCOPE',
       runtimePlacement: data.runtimePlacement || 'CENTRAL',
       runtimeConfig: data.runtimeConfig || {},
+      defaultResourceConfig: data.defaultResourceConfig || {},
       graphSpec: data.graphSpec || null,
       maxSteps: data.maxSteps || 5,
       enabled: data.enabled ?? true,
@@ -2447,6 +2842,17 @@ async function loadAgent() {
     await loadVersions()
   } catch {
     ElMessage.error('加载 Agent 失败')
+  }
+}
+
+async function loadGraphNodeTypes() {
+  try {
+    const { data } = await getAgentGraphNodeTypes()
+    graphNodeTypeCapabilities.value = Array.isArray(data) ? data : []
+    graphNodeTypeCapabilitiesLoaded.value = true
+  } catch {
+    graphNodeTypeCapabilities.value = []
+    graphNodeTypeCapabilitiesLoaded.value = false
   }
 }
 
@@ -2492,11 +2898,26 @@ async function loadCapabilityOptions() {
 async function loadModelOptions() {
   try {
     const { data } = await getModelInstances({ modelType: 'LLM' })
-    const list = data?.data
-    modelOptions.value = Array.isArray(list) ? list.filter((item) => item.status === 'ACTIVE') : []
+    const list = normalizeModelInstanceList(data)
+    modelOptions.value = list.filter((item) => isActiveModelInstance(item))
   } catch {
     modelOptions.value = []
   }
+}
+
+function normalizeModelInstanceList(payload: unknown): ModelInstance[] {
+  if (Array.isArray(payload)) {
+    return payload as ModelInstance[]
+  }
+  if (payload !== null && typeof payload === 'object' && 'data' in payload) {
+    const wrapped = (payload as { data?: unknown }).data
+    return Array.isArray(wrapped) ? (wrapped as ModelInstance[]) : []
+  }
+  return []
+}
+
+function isActiveModelInstance(item: ModelInstance) {
+  return String(item.status ?? '').toUpperCase() === 'ACTIVE'
 }
 
 async function loadKnowledgeOptions() {
@@ -2618,6 +3039,52 @@ function dateMs(value?: string | null) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function spanToNodeTraceState(span: RunSpan): NodeTraceState | null {
+  const nodeId = (span.nodeId || '').trim()
+  if (!nodeId) return null
+  const metadata = span.metadata || {}
+  return {
+    nodeId,
+    status: spanStatus(span.status),
+    elapsedMs: span.latencyMs,
+    spanType: span.spanType,
+    toolName: span.toolName,
+    input: span.inputSummary,
+    output: span.outputSummary,
+    errorCode: span.errorCode,
+    route: stringMeta(metadata, 'lastRoute') || stringMeta(metadata, 'route'),
+    interactionId: stringMeta(metadata, 'interactionId'),
+    createdAt: span.startedAt,
+  }
+}
+
+function spanStatus(status?: string): NodeTraceState['status'] {
+  const normalized = (status || '').trim().toUpperCase()
+  if (normalized === 'WAITING') return 'waiting'
+  if (normalized === 'ERROR' || normalized === 'FAILED' || normalized === 'FAILURE') return 'error'
+  return 'success'
+}
+
+function workflowItemStatus(item: WorkflowPathItem): NodeTraceState['status'] {
+  const status = (item.status || item.workflowStatus || '').trim().toUpperCase()
+  if (status === 'WAITING') return 'waiting'
+  if (status === 'ERROR' || status === 'FAILED' || status === 'FAILURE') return 'error'
+  return 'success'
+}
+
+function preferNodeTraceState(previous: NodeTraceState | undefined, next: NodeTraceState) {
+  if (!previous) return next
+  if (previous.status === 'error' && next.status !== 'error') return previous
+  if (next.status === 'waiting') return { ...previous, ...next }
+  if (previous.status === 'waiting' && next.status === 'success') return previous
+  return next.createdAt && previous.createdAt && dateMs(previous.createdAt) > dateMs(next.createdAt) ? previous : { ...previous, ...next }
+}
+
+function stringMeta(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key]
+  return value === null || value === undefined ? '' : String(value)
+}
+
 function sdkSourceHashFromVersion(version: AgentVersion) {
   const snapshot = parseVersionSnapshot(version)
   const value = snapshot?.extra?.sdkGraph
@@ -2677,6 +3144,85 @@ async function handleRunNodeDebug() {
   }
 }
 
+async function loadTraceArtifacts(traceId: string) {
+  const [trace, runOps] = await Promise.allSettled([
+    getTraceDetail(traceId),
+    getRunOpsDetail(traceId),
+  ])
+  if (trace.status === 'fulfilled') {
+    traceNodes.value = trace.value.data?.nodes ?? []
+  } else {
+    traceNodes.value = []
+  }
+  if (runOps.status === 'fulfilled') {
+    runOpsDetail.value = runOps.value.data ?? null
+  } else {
+    runOpsDetail.value = null
+  }
+  refreshEdgeRuntimeClasses()
+}
+
+async function loadRecentStudioRuns() {
+  recentRunsLoading.value = true
+  try {
+    const { data } = await getRecentRunOps({ days: 7, limit: 100 })
+    recentRuns.value = data ?? []
+  } catch {
+    ElMessage.error('加载最近运行失败')
+  } finally {
+    recentRunsLoading.value = false
+  }
+}
+
+async function handleLoadTraceReplay(traceId = replayTraceInput.value) {
+  const value = String(traceId || '').trim()
+  if (!value) {
+    ElMessage.warning('请输入 traceId')
+    return
+  }
+  traceReplayLoading.value = true
+  currentTraceId.value = value
+  replayTraceInput.value = value
+  selectedRecentTraceId.value = value
+  debugResult.value = null
+  try {
+    await loadTraceArtifacts(value)
+    if (!runOpsDetail.value && !traceNodes.value.length) {
+      ElMessage.warning('未读取到这次运行的链路数据')
+    } else {
+      ElMessage.success('已回放到画布')
+    }
+  } catch (err) {
+    ElMessage.error('回放失败：' + (err as Error).message)
+  } finally {
+    traceReplayLoading.value = false
+  }
+}
+
+function handleRecentTraceChange(value: string | number | boolean | undefined) {
+  const traceId = String(value || '').trim()
+  if (traceId) {
+    handleLoadTraceReplay(traceId)
+  }
+}
+
+function clearTraceReplay() {
+  currentTraceId.value = ''
+  replayTraceInput.value = ''
+  selectedRecentTraceId.value = ''
+  traceNodes.value = []
+  runOpsDetail.value = null
+  debugResult.value = null
+  refreshEdgeRuntimeClasses()
+}
+
+function recentRunLabel(run: RunSummary) {
+  const status = run.status || '-'
+  const name = run.agentName || run.agentId || 'Agent'
+  const time = run.startedAt ? run.startedAt.replace('T', ' ').slice(0, 19) : '-'
+  return `${status} · ${name} · ${time} · ${run.traceId}`
+}
+
 async function handleRunDebug() {
   const key = form.keySlug || agentId
   if (!debugMessage.value) {
@@ -2686,6 +3232,7 @@ async function handleRunDebug() {
   debugLoading.value = true
   currentTraceId.value = ''
   traceNodes.value = []
+  runOpsDetail.value = null
   try {
     const { data } = await gatewayChat(key, {
       message: debugMessage.value,
@@ -2695,10 +3242,10 @@ async function handleRunDebug() {
     const traceId = (data.metadata?.traceId as string) || ''
     if (traceId) {
       currentTraceId.value = traceId
+      replayTraceInput.value = traceId
+      selectedRecentTraceId.value = traceId
       try {
-        const trace = await getTraceDetail(traceId)
-        traceNodes.value = trace.data?.nodes ?? []
-        refreshEdgeRuntimeClasses()
+        await loadTraceArtifacts(traceId)
       } catch {
         // 如果 trace 还没写入，给用户一个 retry 提示即可。
       }
@@ -2712,6 +3259,9 @@ async function handleRunDebug() {
 
 function handleDebug() {
   debugOpen.value = true
+  if (!recentRuns.value.length) {
+    loadRecentStudioRuns()
+  }
 }
 
 async function handleExtractCapabilityDraft() {
@@ -2850,7 +3400,7 @@ function handleStudioShortcut(event: KeyboardEvent) {
 }
 
 onMounted(async () => {
-  await loadAgent()
+  await Promise.all([loadGraphNodeTypes(), loadAgent()])
   await Promise.all([loadToolOptions(), loadCapabilityOptions(), loadModelOptions(), loadKnowledgeOptions(), loadCredentialOptions()])
   await nextTick()
   pushHistorySnapshot()
@@ -2874,6 +3424,9 @@ watch(
   ([nodeId, edgeId]) => {
     if (nodeId || edgeId) {
       propertyPanelCollapsed.value = false
+    }
+    if (!nodeId || edgeId) {
+      propertyDetailOpen.value = false
     }
   },
 )
@@ -3037,7 +3590,66 @@ watch(
 
   .header-right {
     display: flex;
+    align-items: center;
     gap: 8px;
+  }
+}
+
+.save-state,
+.status-autosave {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.9);
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+
+  i {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: #94a3b8;
+    box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.12);
+  }
+
+  &.is-pending {
+    border-color: #fed7aa;
+    background: #fff7ed;
+    color: #c2410c;
+
+    i {
+      background: #f97316;
+      box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.16);
+    }
+  }
+
+  &.is-saving {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+
+    i {
+      background: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    }
+  }
+
+  &.is-saved {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+    color: #15803d;
+
+    i {
+      background: #22c55e;
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
+    }
   }
 }
 
@@ -3107,12 +3719,12 @@ watch(
 .studio-body {
   flex: 1;
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) 340px;
+  grid-template-columns: 72px minmax(0, 1fr) 430px;
   overflow: hidden;
   transition: grid-template-columns 0.2s ease;
 
   &.palette-open {
-    grid-template-columns: 320px minmax(0, 1fr) 340px;
+    grid-template-columns: 320px minmax(0, 1fr) 430px;
   }
 
   &.property-collapsed {
@@ -3605,6 +4217,366 @@ watch(
   }
 }
 
+.node-property-overview {
+  display: grid;
+  gap: 16px;
+}
+
+.node-property-head {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 8px 2px 14px;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.node-property-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 10px;
+  font-size: 18px;
+}
+
+.node-property-title {
+  min-width: 0;
+
+  > div {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+  }
+
+  strong,
+  span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  strong {
+    color: #0f172a;
+    font-size: 16px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  span {
+    margin-top: 6px;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+  }
+}
+
+.node-property-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.property-section-card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  min-height: 74px;
+  padding: 14px 12px;
+  border: 1px solid #e4eaf3;
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    border-color: #bfd0ff;
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+  }
+}
+
+.section-card-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid #e1e8f5;
+  border-radius: 8px;
+  background: #f8fbff;
+  color: #3157ff;
+  font-size: 16px;
+}
+
+.section-card-main {
+  min-width: 0;
+
+  strong,
+  em {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  em {
+    margin-top: 6px;
+    color: #64748b;
+    font-size: 12px;
+    font-style: normal;
+  }
+}
+
+.section-card-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+  color: #64748b;
+}
+
+:global(.node-property-dialog.el-dialog) {
+  max-width: calc(100vw - 48px);
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 18px;
+  background: #f8fafc;
+  box-shadow: 0 30px 80px rgba(15, 23, 42, 0.28);
+}
+
+:global(.node-property-dialog.el-dialog .el-dialog__header) {
+  margin: 0;
+  padding: 18px 22px 16px;
+  border-bottom: 1px solid #e6edf7;
+  background:
+    linear-gradient(135deg, rgba(79, 70, 229, 0.08), rgba(14, 165, 233, 0.05) 44%, rgba(255, 255, 255, 0.88)),
+    #ffffff;
+}
+
+:global(.node-property-dialog.el-dialog .el-dialog__headerbtn) {
+  top: 18px;
+  right: 18px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  transition: background 0.16s ease;
+
+  &:hover {
+    background: #eef2ff;
+  }
+}
+
+:global(.node-property-dialog.el-dialog .el-dialog__body) {
+  max-height: min(74vh, 760px);
+  overflow: auto;
+  padding: 18px 22px 22px;
+}
+
+.node-dialog-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding-right: 34px;
+}
+
+.node-dialog-icon {
+  --node-accent: #4f46e5;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--node-accent) 28%, #ffffff);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 75% 18%, color-mix(in srgb, var(--node-accent) 22%, transparent), transparent 46%),
+    #ffffff;
+  color: var(--node-accent);
+  font-size: 19px;
+  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.12);
+}
+
+.node-dialog-title {
+  min-width: 0;
+
+  strong,
+  span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: #0f172a;
+    font-size: 18px;
+    font-weight: 850;
+    letter-spacing: 0;
+  }
+
+  span {
+    margin-top: 5px;
+    color: #64748b;
+    font-size: 12px;
+  }
+}
+
+.node-dialog-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.node-base-form {
+  display: grid;
+  gap: 14px;
+}
+
+.node-detail-card {
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.82), rgba(255, 255, 255, 0.98)),
+    #ffffff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.045);
+
+  &.compact-card {
+    padding: 14px 16px;
+  }
+
+  :deep(.el-form-item) {
+    margin-bottom: 14px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  :deep(.el-form-item__label) {
+    color: #475569;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 42px;
+  }
+
+  :deep(.el-input__wrapper),
+  :deep(.el-select__wrapper) {
+    min-height: 42px;
+    border-radius: 11px;
+    box-shadow: 0 0 0 1px #dbe3ef inset;
+  }
+
+  :deep(.el-input__inner),
+  :deep(.el-select__placeholder),
+  :deep(.el-select__selected-item) {
+    color: #334155;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  :deep(.el-textarea__inner) {
+    min-height: 128px;
+    padding: 13px 15px;
+    border-radius: 13px;
+    color: #334155;
+    font-size: 14px;
+    line-height: 1.7;
+    box-shadow: 0 0 0 1px #dbe3ef inset;
+  }
+
+  :deep(.el-input.is-disabled .el-input__wrapper) {
+    background: #f8fafc;
+    box-shadow: 0 0 0 1px #e5eaf2 inset;
+  }
+}
+
+.node-detail-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+
+  strong,
+  span {
+    display: block;
+  }
+
+  strong {
+    color: #0f172a;
+    font-size: 15px;
+    font-weight: 850;
+  }
+
+  span {
+    margin-top: 4px;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+}
+
+.node-contract-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.contract-chip {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid #e8eef7;
+  border-radius: 12px;
+  background: #f8fbff;
+
+  > span {
+    display: block;
+    margin-bottom: 7px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 750;
+  }
+}
+
+.governance-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+
+  :deep(.el-form-item) {
+    margin-bottom: 0;
+  }
+
+  :deep(.el-input-number) {
+    width: 148px;
+  }
+
+  :deep(.el-input-number .el-input__wrapper) {
+    min-height: 42px;
+  }
+}
+
 .readonly-alert {
   margin-bottom: 12px;
 }
@@ -3763,6 +4735,14 @@ watch(
     border-color: rgba(239, 68, 68, 0.58);
     box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2), 0 16px 38px rgba(15, 23, 42, 0.13);
   }
+
+  &.run-waiting {
+    --node-color: #f59e0b;
+    --node-soft: rgba(245, 158, 11, 0.1);
+    --node-line: rgba(245, 158, 11, 0.26);
+    border-color: rgba(245, 158, 11, 0.62);
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2), 0 16px 38px rgba(15, 23, 42, 0.13);
+  }
 }
 
 .node-runtime {
@@ -3791,6 +4771,10 @@ watch(
   background: #ef4444;
 }
 
+.run-waiting .node-runtime .runtime-dot {
+  background: #f59e0b;
+}
+
 .condition-routes {
   display: flex;
   flex-wrap: wrap;
@@ -3810,6 +4794,64 @@ watch(
   font-size: 11px;
   font-weight: 800;
   line-height: 22px;
+}
+
+.classifier-routes {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.classifier-route-row {
+  position: relative;
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  padding: 8px 28px 8px 10px;
+  border: 1px solid rgba(249, 115, 22, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 247, 237, 0.88);
+}
+
+.classifier-route-row.is-default {
+  border-style: dashed;
+  background: rgba(248, 250, 252, 0.94);
+}
+
+.classifier-route-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.classifier-route-copy strong {
+  overflow: hidden;
+  color: #9a3412;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.classifier-route-copy span {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:global(.vue-flow__handle.classifier-route-handle) {
+  top: 50%;
+  right: -9px;
+  width: 13px;
+  height: 13px;
+  border: 3px solid #dbeafe;
+  background: #2563eb;
+  transform: translateY(-50%);
 }
 
 .start-node {
@@ -3894,6 +4936,8 @@ watch(
   --node-color: #ea580c;
   --node-soft: rgba(234, 88, 12, 0.1);
   --node-line: rgba(234, 88, 12, 0.24);
+  min-width: 278px;
+  max-width: 320px;
 }
 
 .aggregate-node {
@@ -4261,8 +5305,6 @@ watch(
 
 .status-autosave {
   justify-self: center;
-  color: #64748b;
-  font-size: 12px;
 }
 
 .status-collapse {
@@ -4346,7 +5388,25 @@ watch(
 .debug-actions {
   margin-top: 12px;
   display: flex;
+  gap: 8px;
   justify-content: flex-end;
+}
+
+.trace-replay-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter);
+}
+
+.trace-replay-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .trace-toolbar {
@@ -4401,6 +5461,16 @@ watch(
     background: #fef2f2;
     color: #991b1b;
   }
+
+  &.waiting {
+    border-color: #fde68a;
+    background: #fffbeb;
+    color: #92400e;
+  }
+}
+
+.workflow-replay-summary {
+  margin-bottom: 12px;
 }
 
 .result-section {

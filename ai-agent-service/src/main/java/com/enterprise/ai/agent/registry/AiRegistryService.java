@@ -7,6 +7,7 @@ import com.enterprise.ai.agent.acl.ToolAclMapper;
 import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.agent.CapabilityReference;
+import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.AgentGraphSpec;
 import com.enterprise.ai.agent.runtime.AgentRuntimeAdapter;
 import com.enterprise.ai.agent.scan.ScanProjectEntity;
@@ -431,6 +432,7 @@ public class AiRegistryService {
                 .projectId(project.getId())
                 .projectCode(project.getProjectCode())
                 .visibility(firstText(registration == null ? null : registration.visibility(), project.getVisibility(), "PROJECT"))
+                .agentMode("WORKFLOW")
                 .intentType(existing == null ? "GENERAL_CHAT" : existing.getIntentType())
                 .systemPrompt(firstText(registration == null ? null : registration.systemPrompt(),
                         existing == null ? null : existing.getSystemPrompt(), ""))
@@ -439,6 +441,7 @@ public class AiRegistryService {
                         spec.getRuntimeHint(), AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE))
                 .runtimePlacement("CENTRAL")
                 .runtimeConfig(Map.of())
+                .defaultResourceConfig(Map.of())
                 .graphSpec(spec)
                 .canvasJson(canvasJsonFromGraphSpec(spec))
                 .tools(toolNames(spec, "TOOL"))
@@ -495,6 +498,103 @@ public class AiRegistryService {
         if (spec.getFinish() == null || spec.getFinish().isEmpty()) {
             spec.setFinish(List.of(lastExecutableNodeId(spec)));
         }
+        normalizeIntentClassifierRoutes(spec);
+    }
+
+    private void normalizeIntentClassifierRoutes(AgentGraphSpec spec) {
+        if (spec == null || spec.getNodes() == null) {
+            return;
+        }
+        Map<String, AgentGraphSpec.Node> nodeById = spec.getNodes().stream()
+                .filter(node -> StringUtils.hasText(node.getId()))
+                .collect(Collectors.toMap(AgentGraphSpec.Node::getId, node -> node, (left, right) -> left, LinkedHashMap::new));
+        for (AgentGraphSpec.Node node : spec.getNodes()) {
+            if ("INTENT_CLASSIFIER".equalsIgnoreCase(node.getType())) {
+                node.setOutputs(intentClassifierPorts(node));
+            }
+        }
+        if (spec.getEdges() == null) {
+            return;
+        }
+        for (AgentGraphSpec.Edge edge : spec.getEdges()) {
+            AgentGraphSpec.Node source = nodeById.get(edge.getFrom());
+            if (source == null || !"INTENT_CLASSIFIER".equalsIgnoreCase(source.getType())) {
+                continue;
+            }
+            String defaultRoute = intentClassifierDefaultRoute(source);
+            String handle = firstText(edge.getSourceHandle(), routeHandleFromCondition(edge.getCondition(), defaultRoute));
+            if (!StringUtils.hasText(handle)) {
+                throw new IllegalArgumentException("意图分类节点边必须指定具体分类分支: " + edge.getFrom() + " -> " + edge.getTo());
+            }
+            if (StringUtils.hasText(handle)) {
+                edge.setSourceHandle(handle);
+            }
+            if (!StringUtils.hasText(edge.getCondition()) || "always".equalsIgnoreCase(edge.getCondition())) {
+                edge.setCondition(routeConditionFromHandle(handle, defaultRoute));
+            }
+        }
+    }
+
+    private List<AgentGraphSpec.Port> intentClassifierPorts(AgentGraphSpec.Node node) {
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        List<AgentGraphSpec.Port> ports = new ArrayList<>();
+        Set<String> seen = new java.util.LinkedHashSet<>();
+        Object classes = config.get("classes");
+        if (classes instanceof List<?> classList) {
+            for (Object item : classList) {
+                if (!(item instanceof Map<?, ?> itemMap)) {
+                    continue;
+                }
+                String id = firstText(stringValue(itemMap.get("id")), "");
+                if (!StringUtils.hasText(id) || !seen.add(id)) {
+                    continue;
+                }
+                String label = firstText(stringValue(itemMap.get("label")), id);
+                ports.add(intentClassifierPort(id, label));
+            }
+        }
+        String defaultRoute = intentClassifierDefaultRoute(node);
+        if (StringUtils.hasText(defaultRoute) && seen.add(defaultRoute)) {
+            ports.add(intentClassifierPort(defaultRoute, "else".equals(defaultRoute) ? "else" : defaultRoute));
+        }
+        return ports.isEmpty() ? List.of(intentClassifierPort("else", "else")) : ports;
+    }
+
+    private AgentGraphSpec.Port intentClassifierPort(String id, String name) {
+        return AgentGraphSpec.Port.builder()
+                .id(id)
+                .name(name)
+                .type("boolean")
+                .required(false)
+                .build();
+    }
+
+    private String intentClassifierDefaultRoute(AgentGraphSpec.Node node) {
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        return firstText(stringValue(config.get("defaultRoute")), "else");
+    }
+
+    private String routeHandleFromCondition(String condition, String defaultRoute) {
+        if (!StringUtils.hasText(condition)) {
+            return null;
+        }
+        String trimmed = condition.trim();
+        String normalized = trimmed.toLowerCase(Locale.ROOT);
+        if (normalized.startsWith("route:")) {
+            return trimmed.substring("route:".length()).trim();
+        }
+        if ("else".equals(normalized) || "default".equals(normalized)) {
+            return firstText(defaultRoute, "else");
+        }
+        return null;
+    }
+
+    private String routeConditionFromHandle(String handle, String defaultRoute) {
+        String trimmed = firstText(handle, defaultRoute, "else");
+        if ("else".equalsIgnoreCase(trimmed) || "default".equalsIgnoreCase(trimmed)) {
+            return "else";
+        }
+        return "route:" + trimmed;
     }
 
     private String canvasJsonFromGraphSpec(AgentGraphSpec spec) {
@@ -552,6 +652,12 @@ public class AiRegistryService {
             edge.put("target", target);
             edge.put("condition", condition);
             edge.put("label", condition);
+            if (StringUtils.hasText(graphEdge.getSourceHandle())) {
+                edge.put("sourceHandle", graphEdge.getSourceHandle());
+            }
+            if (StringUtils.hasText(graphEdge.getTargetHandle())) {
+                edge.put("targetHandle", graphEdge.getTargetHandle());
+            }
             edge.put("type", "smoothstep");
             edge.put("markerEnd", "arrowclosed");
             edge.put("interactionWidth", 18);
@@ -575,6 +681,12 @@ public class AiRegistryService {
         } else if ("condition".equals(kind)) {
             data.put("conditionConfig", Map.of(
                     "groups", config.getOrDefault("conditionGroups", List.of()),
+                    "defaultRoute", firstText(stringValue(config.get("defaultRoute")), "else")
+            ));
+        } else if ("classifier".equals(kind)) {
+            data.put("classifierConfig", Map.of(
+                    "inputExpression", firstText(stringValue(config.get("inputExpression")), "input"),
+                    "classes", config.getOrDefault("classes", List.of()),
                     "defaultRoute", firstText(stringValue(config.get("defaultRoute")), "else")
             ));
         } else if ("variable".equals(kind)) {
@@ -653,12 +765,9 @@ public class AiRegistryService {
     }
 
     private String canvasCategory(String kind) {
-        return switch (kind) {
-            case "llm", "skill", "tool" -> "action";
-            case "condition", "variable", "parameter", "template" -> "flow";
-            case "knowledge", "http" -> "integration";
-            default -> "system";
-        };
+        return AgentGraphNodeType.find(kind)
+                .map(AgentGraphNodeType::canvasCategory)
+                .orElse("system");
     }
 
     private Map<String, Object> canvasNode(String id, String type, int x, int y, Map<String, Object> data) {
@@ -674,17 +783,9 @@ public class AiRegistryService {
         if (node == null || !StringUtils.hasText(node.getType())) {
             return "tool";
         }
-        return switch (node.getType().trim().toUpperCase(Locale.ROOT)) {
-            case "LLM" -> "llm";
-            case "CAPABILITY" -> "skill";
-            case "IF_ELSE" -> "condition";
-            case "VARIABLE_ASSIGN" -> "variable";
-            case "TEMPLATE" -> "template";
-            case "PARAMETER_EXTRACT" -> "parameter";
-            case "HTTP_REQUEST" -> "http";
-            case "KNOWLEDGE_RETRIEVAL" -> "knowledge";
-            default -> "tool";
-        };
+        return AgentGraphNodeType.find(node.getType())
+                .map(AgentGraphNodeType::canvasKind)
+                .orElse("tool");
     }
 
     private String canvasEndpoint(String endpoint) {

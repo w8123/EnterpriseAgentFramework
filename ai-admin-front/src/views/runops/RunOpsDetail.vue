@@ -7,7 +7,7 @@
           <h2>运行详情</h2>
           <p class="trace-id">{{ traceId }}</p>
         </div>
-        <el-tag v-if="summary" :type="summary.status === 'SUCCESS' ? 'success' : 'danger'">
+        <el-tag v-if="summary" :type="spanTimelineType(summary.status)">
           {{ summary.status }}
         </el-tag>
       </div>
@@ -157,12 +157,30 @@
 
       <el-tabs>
         <el-tab-pane label="执行链路">
+          <section v-if="detail.workflowPath?.length" class="workflow-path">
+            <div v-for="item in detail.workflowPath" :key="item.spanId || item.fromNodeId" class="path-item">
+              <div class="path-node">
+                <strong>{{ item.fromNodeId || '-' }}</strong>
+                <el-tag size="small" :type="pathStatusType(item)">{{ pathStatusLabel(item) }}</el-tag>
+              </div>
+              <div class="path-edge">
+                <span>{{ item.toNodeId ? '-> ' + item.toNodeId : 'END' }}</span>
+                <el-tag v-if="item.condition" size="small" effect="plain">{{ item.condition }}</el-tag>
+                <el-tag v-if="item.route" size="small" type="success" effect="plain">route: {{ item.route }}</el-tag>
+              </div>
+              <div class="path-meta">
+                <span v-if="item.interactionId">interaction {{ item.interactionId }}</span>
+                <span v-if="item.startedAt">{{ item.startedAt }}</span>
+              </div>
+            </div>
+          </section>
+          <el-empty v-else description="暂无工作流路径" />
           <el-timeline class="span-timeline">
             <el-timeline-item
               v-for="span in detail.spans"
               :key="span.id"
               :timestamp="span.startedAt"
-              :type="span.status === 'SUCCESS' ? 'success' : 'danger'"
+              :type="spanTimelineType(span.status)"
               placement="top"
             >
               <div class="span-item">
@@ -172,9 +190,18 @@
                     <span>{{ span.spanType }} · {{ span.runtimeType || '-' }}</span>
                   </div>
                   <div class="span-tags">
-                    <el-tag size="small" :type="span.status === 'SUCCESS' ? 'success' : 'danger'">{{ span.status }}</el-tag>
+                    <el-tag size="small" :type="spanTimelineType(span.status)">{{ span.status }}</el-tag>
+                    <el-tag v-if="span.metadata?.lastRoute" size="small" type="success" effect="plain">
+                      route: {{ span.metadata.lastRoute }}
+                    </el-tag>
+                    <el-tag v-if="span.metadata?.interactionId" size="small" type="warning" effect="plain">
+                      {{ span.metadata.interactionId }}
+                    </el-tag>
                     <el-tag size="small" effect="plain">{{ span.latencyMs ?? 0 }} ms</el-tag>
                   </div>
+                </div>
+                <div v-if="span.metadata?.workflowStatus === 'WAITING'" class="waiting-text">
+                  等待人工处理：{{ span.metadata?.interactionId || '-' }}
                 </div>
                 <div v-if="span.errorMessage" class="error-text">{{ span.errorCode }}：{{ span.errorMessage }}</div>
                 <div class="io-grid">
@@ -279,7 +306,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { compareRunOpsTrace, getRunOpsDetail, replayRunOpsTrace } from '@/api/runops'
-import type { ReplayRequest, RunComparison, RunDetail, RunGuardDecision, RunSpan, RunToolCall } from '@/types/runops'
+import type { ReplayRequest, RunComparison, RunDetail, RunGuardDecision, RunSpan, RunToolCall, WorkflowPathItem } from '@/types/runops'
 
 const route = useRoute()
 const router = useRouter()
@@ -395,6 +422,21 @@ function toolDigest(tool?: RunToolCall) {
 function guardDigest(guard?: RunGuardDecision) {
   if (!guard) return '缺失'
   return `${guard.decision || '-'} · ${guard.reason || '-'}`
+}
+
+function spanTimelineType(status?: string) {
+  if (status === 'SUCCESS') return 'success'
+  if (status === 'WAITING') return 'warning'
+  return 'danger'
+}
+
+function pathStatusType(item: WorkflowPathItem) {
+  return spanTimelineType(item.workflowStatus || item.status)
+}
+
+function pathStatusLabel(item: WorkflowPathItem) {
+  if (item.workflowStatus === 'WAITING' || item.status === 'WAITING') return 'WAITING'
+  return item.status || '-'
 }
 
 function actionKey() {
@@ -590,6 +632,41 @@ onMounted(loadDetail)
   padding: 12px 8px;
 }
 
+.workflow-path {
+  display: grid;
+  gap: 10px;
+  padding: 12px 8px 18px;
+}
+
+.path-item {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(220px, 1.2fr) minmax(180px, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+}
+
+.path-node,
+.path-edge,
+.path-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.path-node strong {
+  color: var(--text-primary);
+}
+
+.path-edge,
+.path-meta {
+  color: var(--text-secondary);
+}
+
 .span-item {
   padding: 14px;
 }
@@ -615,6 +692,11 @@ onMounted(loadDetail)
 .error-text {
   margin-top: 10px;
   color: var(--el-color-danger);
+}
+
+.waiting-text {
+  margin-top: 10px;
+  color: var(--el-color-warning-dark-2);
 }
 
 .io-grid {
@@ -665,6 +747,7 @@ onMounted(loadDetail)
   .compare-summary,
   .diff-detail-grid,
   .snapshot-grid,
+  .path-item,
   .io-grid {
     grid-template-columns: 1fr;
   }

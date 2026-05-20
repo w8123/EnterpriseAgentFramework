@@ -222,6 +222,35 @@
               </div>
             </template>
           </el-tab-pane>
+          <el-tab-pane :label="`Approvals (${pendingApprovals.length})`" name="approvals">
+            <div class="approval-toolbar">
+              <span class="toolbar-label">Human approvals</span>
+              <el-button size="small" :loading="approvalLoading" @click="loadPendingApprovals">Refresh</el-button>
+            </div>
+            <div v-if="!pendingApprovals.length" class="empty-detail compact">
+              <el-icon><DataLine /></el-icon>
+              <p>No pending human approvals</p>
+            </div>
+            <div v-else class="approval-list">
+              <div v-for="item in pendingApprovals" :key="item.interactionId" class="approval-item">
+                <div class="approval-title">
+                  <strong>{{ item.title || item.nodeId || 'Human approval' }}</strong>
+                  <el-tag size="small" effect="light">{{ item.status }}</el-tag>
+                </div>
+                <p v-if="item.message" class="approval-message">{{ item.message }}</p>
+                <div class="approval-meta">
+                  <span>{{ item.nodeId }}</span>
+                  <span v-if="item.traceId">Trace {{ item.traceId }}</span>
+                </div>
+                <DynamicInteraction
+                  v-if="item.uiRequest"
+                  class="interaction-card"
+                  :payload="item.uiRequest"
+                  @action="(act, vals) => handlePendingApprovalAction(item.interactionId, act, vals)"
+                />
+              </div>
+            </div>
+          </el-tab-pane>
         </el-tabs>
       </aside>
     </section>
@@ -252,10 +281,10 @@ import TraceTimeline from '@/components/TraceTimeline.vue'
 import DynamicInteraction from '@/components/interaction/DynamicInteraction.vue'
 import type { ChatMessage, ChatResponse } from '@/types/chat'
 import type { UiRequestPayload } from '@/types/interaction'
-import type { AgentResult } from '@/types/agent'
+import type { AgentResult, PendingHumanApproval } from '@/types/agent'
 import type { TraceNode } from '@/types/trace'
 import { sendChat, clearSession } from '@/api/chat'
-import { getAgent, executeAgentDetailed } from '@/api/agent'
+import { getAgent, executeAgentDetailed, listPendingHumanApprovals, submitHumanApproval } from '@/api/agent'
 import { getTraceDetail } from '@/api/trace'
 import { useSSE } from '@/composables/useSSE'
 
@@ -277,6 +306,8 @@ const lastAgentResult = ref<AgentResult | null>(null)
 const traceDrawerVisible = ref(false)
 const activeTraceId = ref('')
 const traceNodes = ref<TraceNode[]>([])
+const pendingApprovals = ref<PendingHumanApproval[]>([])
+const approvalLoading = ref(false)
 
 const { content: streamContent, isStreaming: streaming, start: startSSE, stop: stopStream } = useSSE()
 
@@ -318,6 +349,18 @@ async function loadAgent() {
     agentName.value = data.name || agentId
   } catch {
     agentName.value = agentId
+  }
+}
+
+async function loadPendingApprovals() {
+  approvalLoading.value = true
+  try {
+    const { data } = await listPendingHumanApprovals({ agentId, limit: 50 })
+    pendingApprovals.value = data || []
+  } catch {
+    ElMessage.error('加载审批列表失败')
+  } finally {
+    approvalLoading.value = false
   }
 }
 
@@ -409,6 +452,9 @@ async function handleAgentExec(msg: string) {
     placeholder.traceId = (data.metadata?.traceId as string) || undefined
     placeholder.uiRequest = data.uiRequest
     lastAgentResult.value = data
+    if (data.uiRequest?.component === 'confirm') {
+      await loadPendingApprovals()
+    }
   } catch {
     placeholder.loading = false
     placeholder.content = '执行失败，请重试'
@@ -435,12 +481,32 @@ async function handleUiAction(payload: UiRequestPayload, action: string, values:
     placeholder.traceId = (data.metadata?.traceId as string) || undefined
     placeholder.uiRequest = data.uiRequest
     lastAgentResult.value = data
+    await loadPendingApprovals()
   } catch {
     placeholder.loading = false
     placeholder.content = '交互提交失败，请重试'
   } finally {
     sending.value = false
     scrollToBottom()
+  }
+}
+
+async function handlePendingApprovalAction(interactionId: string, action: string, values: Record<string, unknown>) {
+  const routeAction = values?.confirm === false ? 'reject' : action
+  try {
+    const { data } = await submitHumanApproval(interactionId, {
+      action: routeAction,
+      values,
+      sessionId: sessionId.value || undefined,
+    })
+    messages.value.push(createMsg('assistant', data.answer || 'Approval submitted', {
+      traceId: (data.metadata?.traceId as string) || undefined,
+    }))
+    lastAgentResult.value = data
+    await loadPendingApprovals()
+    scrollToBottom()
+  } catch {
+    ElMessage.error('审批提交失败')
   }
 }
 
@@ -458,7 +524,10 @@ async function handleClearSession() {
   }
 }
 
-onMounted(loadAgent)
+onMounted(() => {
+  loadAgent()
+  loadPendingApprovals()
+})
 </script>
 
 <style scoped lang="scss">
@@ -955,6 +1024,58 @@ onMounted(loadAgent)
       color: #e11d48;
     }
   }
+}
+
+.approval-toolbar,
+.approval-title,
+.approval-meta {
+  display: flex;
+  align-items: center;
+}
+
+.approval-toolbar {
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.empty-detail.compact {
+  min-height: 150px;
+}
+
+.approval-list {
+  display: grid;
+  gap: 12px;
+}
+
+.approval-item {
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.approval-title {
+  justify-content: space-between;
+  gap: 10px;
+
+  strong {
+    color: #0f172a;
+  }
+}
+
+.approval-message {
+  margin: 8px 0 0;
+  color: #475569;
+  line-height: 1.55;
+}
+
+.approval-meta {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 8px;
+  color: #94a3b8;
+  font-size: 12px;
 }
 
 .metadata-json {

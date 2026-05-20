@@ -16,6 +16,18 @@ public class AgentRuntimeCapability {
 
     private String description;
 
+    /** Product-facing shape: AUTONOMOUS / WORKFLOW / CODE / EXTERNAL. */
+    private String agentMode;
+
+    /** Preferred editor surface: FORM / STUDIO / CODE_WORKSPACE / EXTERNAL_CONSOLE. */
+    private String configurationSurface;
+
+    /** Short label for the primary action in the admin UI. */
+    private String primaryAction;
+
+    /** Human-readable resource ownership hint, e.g. AGENT_DEFAULTS or NODE_LEVEL. */
+    private String resourcePolicy;
+
     private boolean available;
 
     private String unavailableReason;

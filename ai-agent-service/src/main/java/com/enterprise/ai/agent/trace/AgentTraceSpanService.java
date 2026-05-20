@@ -51,7 +51,7 @@ public class AgentTraceSpanService {
         entity.setToolName(record.toolName());
         entity.setModelInstanceId(record.modelInstanceId());
         entity.setProjectCode(definition == null ? context == null ? null : context.getProjectCode() : definition.getProjectCode());
-        entity.setStatus(record.success() ? "SUCCESS" : "ERROR");
+        entity.setStatus(firstNonBlank(record.status(), record.success() ? "SUCCESS" : "ERROR"));
         entity.setInputSummary(truncate(stringify(record.input()), SUMMARY_LIMIT));
         entity.setOutputSummary(truncate(stringify(record.output()), SUMMARY_LIMIT));
         entity.setMetadataJson(truncate(toJson(record.metadata()), METADATA_LIMIT));
@@ -124,6 +124,7 @@ public class AgentTraceSpanService {
             String modelInstanceId,
             Object input,
             Object output,
+            String status,
             boolean success,
             String errorCode,
             String errorMessage,

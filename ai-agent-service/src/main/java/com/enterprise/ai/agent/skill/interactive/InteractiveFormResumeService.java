@@ -13,8 +13,13 @@ import org.springframework.stereotype.Service;
 public class InteractiveFormResumeService {
 
     private final InteractiveFormSkillExecutor interactiveFormSkillExecutor;
+    private final HumanApprovalResumeService humanApprovalResumeService;
 
     public AgentResult resume(ChatRequest request, String sessionId) {
+        var approval = humanApprovalResumeService.resumeIfApproval(request);
+        if (approval.isPresent()) {
+            return approval.get();
+        }
         return interactiveFormSkillExecutor.resume(
                 request.getInteractionId(),
                 request.getUiSubmit(),

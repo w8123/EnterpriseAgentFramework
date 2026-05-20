@@ -36,6 +36,10 @@ public class AgentDefinition {
 
     private String description;
 
+    /** Product-facing Agent shape: AUTONOMOUS / WORKFLOW / CODE / EXTERNAL. */
+    @Builder.Default
+    private String agentMode = "AUTONOMOUS";
+
     /** 所属业务项目；为空表示平台级或历史全局 Agent。 */
     private Long projectId;
 
@@ -83,6 +87,10 @@ public class AgentDefinition {
     /** Runtime 专属配置。由具体 AgentRuntimeAdapter 按 runtimeType 解释。 */
     @Builder.Default
     private Map<String, Object> runtimeConfig = Map.of();
+
+    /** Runtime-facing default resources, separate from node-level GraphSpec config. */
+    @Builder.Default
+    private Map<String, Object> defaultResourceConfig = Map.of();
 
     /**
      * Platform graph contract. Agent Studio, SDK graph registration, runtime

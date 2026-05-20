@@ -6,6 +6,7 @@ import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.agent.persist.AgentVersionEntity;
 import com.enterprise.ai.agent.agent.persist.AgentVersionMapper;
 import com.enterprise.ai.agent.agentscope.AgentRouter;
+import com.enterprise.ai.agent.graph.AgentGraphSpec;
 import com.enterprise.ai.agent.governance.GuardDecisionLogEntity;
 import com.enterprise.ai.agent.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.model.AgentResult;
@@ -127,7 +128,9 @@ public class RunOpsService {
                 effectiveAgent.getRuntimeConfig(),
                 effectiveAgent.getGraphSpec(),
                 version == null ? null : version.getSnapshotJson());
-        return new RunDetail(summary, spanViews, toolViews, guardViews, runSnapshot, repairHints(summary, spanViews, guardViews));
+        return new RunDetail(summary, spanViews, toolViews, guardViews, runSnapshot,
+                workflowPath(spanViews, effectiveAgent == null ? null : effectiveAgent.getGraphSpec()),
+                repairHints(summary, spanViews, guardViews));
     }
 
     public List<RunSummary> recent(String userId, int limit, int days) {
@@ -516,10 +519,11 @@ public class RunOpsService {
                 .orElse(millisBetween(startedAt, endedAt));
         int tokens = spans.stream().map(AgentTraceSpanEntity::getTokenCost).filter(Objects::nonNull).mapToInt(Integer::intValue).sum()
                 + toolLogs.stream().map(ToolCallLogEntity::getTokenCost).filter(Objects::nonNull).mapToInt(Integer::intValue).sum();
-        long errorCount = spans.stream().filter(span -> !"SUCCESS".equalsIgnoreCase(span.getStatus())).count()
+        boolean waiting = spans.stream().anyMatch(span -> "WAITING".equalsIgnoreCase(span.getStatus()));
+        long errorCount = spans.stream().filter(span -> "ERROR".equalsIgnoreCase(span.getStatus())).count()
                 + toolLogs.stream().filter(log -> !Boolean.TRUE.equals(log.getSuccess())).count()
                 + decisions.stream().filter(decision -> "DENY".equalsIgnoreCase(decision.getDecision())).count();
-        String status = errorCount == 0 ? "SUCCESS" : "ERROR";
+        String status = errorCount == 0 ? (waiting ? "WAITING" : "SUCCESS") : "ERROR";
         String fallbackReason = asText(metadata.get("embeddedFallbackReason"));
         return new RunSummary(
                 traceId,
@@ -553,6 +557,47 @@ public class RunOpsService {
             merged.putAll(parseMap(span.getMetadataJson()));
         }
         return merged;
+    }
+
+    private List<WorkflowPathItem> workflowPath(List<SpanView> spans, AgentGraphSpec spec) {
+        if (spans == null || spans.isEmpty()) {
+            return List.of();
+        }
+        List<SpanView> nodeSpans = spans.stream()
+                .filter(span -> StringUtils.hasText(span.nodeId()))
+                .filter(span -> !"AGENT_RUN".equalsIgnoreCase(span.spanType()))
+                .toList();
+        if (nodeSpans.isEmpty()) {
+            return List.of();
+        }
+        List<WorkflowPathItem> path = new ArrayList<>();
+        for (int i = 0; i < nodeSpans.size(); i++) {
+            SpanView current = nodeSpans.get(i);
+            SpanView next = i + 1 < nodeSpans.size() ? nodeSpans.get(i + 1) : null;
+            AgentGraphSpec.Edge edge = next == null ? null : findGraphEdge(spec, current.nodeId(), next.nodeId());
+            path.add(new WorkflowPathItem(
+                    current.nodeId(),
+                    next == null ? null : next.nodeId(),
+                    edge == null ? null : edge.getCondition(),
+                    asText(current.metadata().get("lastRoute")),
+                    current.status(),
+                    asText(current.metadata().get("workflowStatus")),
+                    asText(current.metadata().get("interactionId")),
+                    current.spanId(),
+                    current.startedAt(),
+                    current.endedAt()));
+        }
+        return path;
+    }
+
+    private AgentGraphSpec.Edge findGraphEdge(AgentGraphSpec spec, String from, String to) {
+        if (spec == null || spec.getEdges() == null || !StringUtils.hasText(from) || !StringUtils.hasText(to)) {
+            return null;
+        }
+        return spec.getEdges().stream()
+                .filter(edge -> from.equals(edge.getFrom()) && to.equals(edge.getTo()))
+                .findFirst()
+                .orElse(null);
     }
 
     private AgentVersionEntity resolveVersion(Map<String, Object> metadata) {
@@ -950,7 +995,21 @@ public class RunOpsService {
             List<ToolCallView> toolCalls,
             List<GuardDecisionView> guardDecisions,
             RunSnapshot snapshot,
+            List<WorkflowPathItem> workflowPath,
             List<String> repairHints
+    ) {}
+
+    public record WorkflowPathItem(
+            String fromNodeId,
+            String toNodeId,
+            String condition,
+            String route,
+            String status,
+            String workflowStatus,
+            String interactionId,
+            String spanId,
+            LocalDateTime startedAt,
+            LocalDateTime endedAt
     ) {}
 
     public record RunSummary(

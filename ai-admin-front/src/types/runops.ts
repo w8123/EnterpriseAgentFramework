@@ -88,7 +88,21 @@ export interface RunDetail {
   toolCalls: RunToolCall[]
   guardDecisions: RunGuardDecision[]
   snapshot?: RunSnapshot
+  workflowPath?: WorkflowPathItem[]
   repairHints: string[]
+}
+
+export interface WorkflowPathItem {
+  fromNodeId?: string
+  toNodeId?: string
+  condition?: string
+  route?: string
+  status?: string
+  workflowStatus?: string
+  interactionId?: string
+  spanId?: string
+  startedAt?: string
+  endedAt?: string
 }
 
 export interface FailureCluster {

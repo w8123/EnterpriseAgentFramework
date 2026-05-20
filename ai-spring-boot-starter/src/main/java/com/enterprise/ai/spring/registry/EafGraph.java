@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -22,6 +23,10 @@ public final class EafGraph {
 
     public static Builder agent(String code) {
         return new Builder(code);
+    }
+
+    public static List<String> supportedNodeTypes() {
+        return EafGraphNodeType.supportedTypes();
     }
 
     public static class Builder {
@@ -92,7 +97,7 @@ public final class EafGraph {
         }
 
         public Builder llm(String id) {
-            currentNode = addNode(id, "LLM");
+            currentNode = addNode(id, EafGraphNodeType.LLM.type());
             if (modelInstanceId != null) {
                 currentNode.config.put("modelInstanceId", modelInstanceId);
             }
@@ -150,31 +155,31 @@ public final class EafGraph {
         }
 
         public Builder tool(String id) {
-            currentNode = addNode(id, "TOOL");
+            currentNode = addNode(id, EafGraphNodeType.TOOL.type());
             currentNode.ref.put("kind", "TOOL");
             currentNode.ref.put("name", id);
             return this;
         }
 
         public Builder capability(String id) {
-            currentNode = addNode(id, "CAPABILITY");
+            currentNode = addNode(id, EafGraphNodeType.CAPABILITY.type());
             currentNode.ref.put("kind", "CAPABILITY");
             currentNode.ref.put("name", id);
             return this;
         }
 
         public Builder ifElse(String id) {
-            currentNode = addNode(id, "IF_ELSE");
+            currentNode = addNode(id, EafGraphNodeType.IF_ELSE.type());
             return this;
         }
 
         public Builder variable(String id) {
-            currentNode = addNode(id, "VARIABLE_ASSIGN");
+            currentNode = addNode(id, EafGraphNodeType.VARIABLE_ASSIGN.type());
             return this;
         }
 
         public Builder template(String id, String template) {
-            currentNode = addNode(id, "TEMPLATE");
+            currentNode = addNode(id, EafGraphNodeType.TEMPLATE.type());
             if (StringUtils.hasText(template)) {
                 currentNode.config.put("template", template);
                 currentNode.config.put("writeToAnswer", true);
@@ -183,33 +188,34 @@ public final class EafGraph {
         }
 
         public Builder answer(String id, String template) {
-            currentNode = addNode(id, "ANSWER");
+            currentNode = addNode(id, EafGraphNodeType.ANSWER.type());
             currentNode.config.put("template", StringUtils.hasText(template) ? template : "{{ lastOutput }}");
             currentNode.config.put("writeToAnswer", true);
             return this;
         }
 
         public Builder code(String id) {
-            currentNode = addNode(id, "CODE");
+            currentNode = addNode(id, EafGraphNodeType.CODE.type());
             currentNode.config.put("language", "expression");
             return this;
         }
 
         public Builder intentClassifier(String id) {
-            currentNode = addNode(id, "INTENT_CLASSIFIER");
+            currentNode = addNode(id, EafGraphNodeType.INTENT_CLASSIFIER.type());
             currentNode.config.put("inputExpression", "input");
             currentNode.config.put("defaultRoute", "else");
+            currentNode.output("else", "boolean", false);
             return this;
         }
 
         public Builder variableAggregator(String id) {
-            currentNode = addNode(id, "VARIABLE_AGGREGATOR");
+            currentNode = addNode(id, EafGraphNodeType.VARIABLE_AGGREGATOR.type());
             currentNode.config.put("aggregateMode", "object");
             return this;
         }
 
         public Builder humanApproval(String id, String prompt) {
-            currentNode = addNode(id, "HUMAN_APPROVAL");
+            currentNode = addNode(id, EafGraphNodeType.HUMAN_APPROVAL.type());
             currentNode.config.put("title", "人工确认");
             currentNode.config.put("prompt", StringUtils.hasText(prompt) ? prompt : "{{ lastOutput }}");
             currentNode.config.put("defaultRoute", "approved");
@@ -219,7 +225,7 @@ public final class EafGraph {
         }
 
         public Builder loop(String id, int maxIterations) {
-            currentNode = addNode(id, "LOOP");
+            currentNode = addNode(id, EafGraphNodeType.LOOP.type());
             currentNode.config.put("loopKey", id);
             currentNode.config.put("maxIterations", Math.max(1, maxIterations));
             currentNode.output("continue", "boolean", false);
@@ -228,7 +234,7 @@ public final class EafGraph {
         }
 
         public Builder knowledgeWrite(String id, String knowledgeBaseCode) {
-            currentNode = addNode(id, "KNOWLEDGE_WRITE");
+            currentNode = addNode(id, EafGraphNodeType.KNOWLEDGE_WRITE.type());
             currentNode.config.put("knowledgeBaseCode", trimToNull(knowledgeBaseCode));
             currentNode.config.put("titleExpression", "const:工作流写入");
             currentNode.config.put("contentExpression", "lastOutput");
@@ -237,32 +243,32 @@ public final class EafGraph {
         }
 
         public Builder documentExtract(String id) {
-            currentNode = addNode(id, "DOCUMENT_EXTRACT");
+            currentNode = addNode(id, EafGraphNodeType.DOCUMENT_EXTRACT.type());
             currentNode.config.put("sourceExpression", "lastOutput");
             currentNode.config.put("format", "text");
             return this;
         }
 
         public Builder mcpCall(String id, String toolName) {
-            currentNode = addNode(id, "MCP_CALL");
+            currentNode = addNode(id, EafGraphNodeType.MCP_CALL.type());
             currentNode.config.put("toolName", trimToNull(toolName));
             return this;
         }
 
         public Builder parameterExtract(String id) {
-            currentNode = addNode(id, "PARAMETER_EXTRACT");
+            currentNode = addNode(id, EafGraphNodeType.PARAMETER_EXTRACT.type());
             return this;
         }
 
         public Builder http(String id, String method, String url) {
-            currentNode = addNode(id, "HTTP_REQUEST");
+            currentNode = addNode(id, EafGraphNodeType.HTTP_REQUEST.type());
             currentNode.config.put("method", StringUtils.hasText(method) ? method.trim().toUpperCase() : "GET");
             currentNode.config.put("url", StringUtils.hasText(url) ? url.trim() : "");
             return this;
         }
 
         public Builder knowledgeRetrieval(String id, String knowledgeBaseGroupId) {
-            currentNode = addNode(id, "KNOWLEDGE_RETRIEVAL");
+            currentNode = addNode(id, EafGraphNodeType.KNOWLEDGE_RETRIEVAL.type());
             currentNode.config.put("knowledgeBaseGroupId", trimToNull(knowledgeBaseGroupId));
             if (StringUtils.hasText(knowledgeBaseGroupId)) {
                 currentNode.config.put("knowledgeBaseCodes", List.of(knowledgeBaseGroupId.trim()));
@@ -686,7 +692,12 @@ public final class EafGraph {
 
         public Builder defaultRoute(String route) {
             if (StringUtils.hasText(route)) {
-                requireCurrentNode().config.put("defaultRoute", route.trim());
+                NodeDraft node = requireCurrentNode();
+                String trimmed = route.trim();
+                node.config.put("defaultRoute", trimmed);
+                if (EafGraphNodeType.INTENT_CLASSIFIER.type().equals(node.type)) {
+                    node.output(trimmed, "boolean", false);
+                }
             }
             return this;
         }
@@ -759,6 +770,7 @@ public final class EafGraph {
             String entry = resolveEntry(normalizedEdges);
             ensureStartEdge(normalizedEdges, entry);
             ensureFinishEdge(normalizedEdges);
+            normalizeClassifierEdges(normalizedEdges);
             Map<String, Object> graphSpec = new LinkedHashMap<>();
             graphSpec.put("code", code);
             graphSpec.put("name", name);
@@ -804,7 +816,7 @@ public final class EafGraph {
                 if (!ids.add(node.id)) {
                     throw new IllegalArgumentException("duplicate graph node id: " + node.id);
                 }
-                hasLlm = hasLlm || "LLM".equals(node.type);
+                hasLlm = hasLlm || EafGraphNodeType.LLM.type().equals(node.type);
             }
             if (nodes.isEmpty()) {
                 throw new IllegalArgumentException("agent graph must declare at least one node");
@@ -823,10 +835,56 @@ public final class EafGraph {
                 return;
             }
             for (NodeDraft node : nodes) {
-                if ("LLM".equals(node.type)) {
+                if (EafGraphNodeType.LLM.type().equals(node.type)) {
                     node.config.putIfAbsent("modelInstanceId", modelInstanceId);
                 }
             }
+        }
+
+        private void normalizeClassifierEdges(List<EdgeDraft> normalizedEdges) {
+            for (EdgeDraft edge : normalizedEdges) {
+                NodeDraft source = findNode(edge.from);
+                if (source == null || !EafGraphNodeType.INTENT_CLASSIFIER.type().equals(source.type)) {
+                    continue;
+                }
+                if (!StringUtils.hasText(edge.sourceHandle)) {
+                    edge.sourceHandle = routeHandle(edge.condition);
+                }
+                if (!StringUtils.hasText(edge.sourceHandle)) {
+                    throw new IllegalArgumentException("intent classifier edge must use a class route: " + edge.from + " -> " + edge.to);
+                }
+                if (!StringUtils.hasText(edge.condition) || "always".equalsIgnoreCase(edge.condition)) {
+                    edge.condition = "else".equalsIgnoreCase(edge.sourceHandle) || "default".equalsIgnoreCase(edge.sourceHandle)
+                            ? "else"
+                            : "route:" + edge.sourceHandle;
+                }
+            }
+        }
+
+        private NodeDraft findNode(String nodeId) {
+            if (!StringUtils.hasText(nodeId)) {
+                return null;
+            }
+            return nodes.stream()
+                    .filter(node -> nodeId.equals(node.id))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        private String routeHandle(String condition) {
+            if (!StringUtils.hasText(condition)) {
+                return null;
+            }
+            String trimmed = condition.trim();
+            String normalized = trimmed.toLowerCase(Locale.ROOT);
+            if (normalized.startsWith("route:")) {
+                String handle = trimmed.substring("route:".length()).trim();
+                return StringUtils.hasText(handle) ? handle : null;
+            }
+            if ("else".equals(normalized) || "default".equals(normalized)) {
+                return normalized;
+            }
+            return null;
         }
 
         private void requireEndpoint(Set<String> ids, String endpoint) {
@@ -904,6 +962,9 @@ public final class EafGraph {
 
         public Builder when(String condition) {
             edge.condition = StringUtils.hasText(condition) ? condition.trim() : "always";
+            if (!StringUtils.hasText(edge.sourceHandle)) {
+                edge.sourceHandle = routeHandle(edge.condition);
+            }
             return parent;
         }
 
@@ -918,6 +979,22 @@ public final class EafGraph {
             edge.sourceHandle = StringUtils.hasText(sourceHandle) ? sourceHandle.trim() : null;
             edge.targetHandle = StringUtils.hasText(targetHandle) ? targetHandle.trim() : null;
             return this;
+        }
+
+        private String routeHandle(String condition) {
+            if (!StringUtils.hasText(condition)) {
+                return null;
+            }
+            String trimmed = condition.trim();
+            String normalized = trimmed.toLowerCase(Locale.ROOT);
+            if (normalized.startsWith("route:")) {
+                String handle = trimmed.substring("route:".length()).trim();
+                return StringUtils.hasText(handle) ? handle : null;
+            }
+            if ("else".equals(normalized) || "default".equals(normalized)) {
+                return normalized;
+            }
+            return null;
         }
 
         public EdgeBuilder priority(int priority) {

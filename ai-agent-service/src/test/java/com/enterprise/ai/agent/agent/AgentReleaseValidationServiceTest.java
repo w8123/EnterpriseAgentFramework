@@ -1,6 +1,7 @@
 package com.enterprise.ai.agent.agent;
 
 import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.runtime.AgentRuntimeSelector;
 import com.enterprise.ai.agent.runtime.AgentRuntimeValidationResult;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
@@ -178,6 +179,17 @@ class AgentReleaseValidationServiceTest {
 
         assertTrue(result.valid(), () -> result.errors().toString());
         assertTrue(result.errors().isEmpty());
+    }
+
+    @Test
+    void graphNodeCatalogNormalizesCanvasAndSdkAliases() {
+        assertEquals("INTENT_CLASSIFIER", AgentGraphNodeType.normalize("classifier"));
+        assertEquals("HUMAN_APPROVAL", AgentGraphNodeType.normalize("human_approval"));
+        assertEquals("KNOWLEDGE_WRITE", AgentGraphNodeType.normalize("knowledgeWrite"));
+        assertTrue(AgentGraphNodeType.find("mcp").orElseThrow().isFlow());
+        assertTrue(AgentGraphNodeType.catalog().stream()
+                .anyMatch(item -> "DOCUMENT_EXTRACT".equals(item.type())
+                        && "documentExtract".equals(item.canvasKind())));
     }
 
     @Test

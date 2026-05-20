@@ -29,6 +29,9 @@ public interface SkillsServiceClient {
     @PostMapping("/retrieval/test")
     RetrievalResult retrievalTest(@RequestBody RetrievalRequest request);
 
+    @PostMapping("/knowledge/import")
+    KnowledgeImportResult importKnowledgeChunks(@RequestBody KnowledgeImportRequest request);
+
     // ==================== Request / Response DTOs ====================
 
     @Data
@@ -74,6 +77,26 @@ public interface SkillsServiceClient {
     @NoArgsConstructor
     @AllArgsConstructor
     class RetrievalResult {
+        private int code;
+        private String message;
+        private Object data;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class KnowledgeImportRequest {
+        private String knowledgeBaseCode;
+        private String fileId;
+        private String fileName;
+        private List<String> chunks;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class KnowledgeImportResult {
         private int code;
         private String message;
         private Object data;

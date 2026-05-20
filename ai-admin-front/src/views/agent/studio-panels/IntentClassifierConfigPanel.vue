@@ -25,8 +25,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import type { CanvasNodeData, IntentClassifierNodeConfig } from '@/types/studio'
+import { classifierOutputPorts } from '@/utils/studio'
 
 const props = defineProps<{
   data: CanvasNodeData
@@ -48,6 +49,10 @@ function addClass() {
     keywords: [],
   })
 }
+
+watch(config, (value) => {
+  props.data.outputs = classifierOutputPorts(value)
+}, { deep: true, immediate: true })
 
 function splitKeywords(value: string) {
   return (value || '')

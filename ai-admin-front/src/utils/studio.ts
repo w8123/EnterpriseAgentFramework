@@ -1,4 +1,5 @@
 import type { AgentDefinition, AgentForm, AgentGraphNode, AgentGraphSpec } from '@/types/agent'
+import { studioNodeCategory, studioNodeColor, studioNodeRetryable } from '@/utils/studioNodeRegistry'
 import type {
   CanvasEdge,
   CanvasNode,
@@ -12,6 +13,7 @@ import type {
   KnowledgeWriteNodeConfig,
   KnowledgeNodeConfig,
   LlmNodeConfig,
+  LlmPromptMessage,
   LoopNodeConfig,
   McpNodeConfig,
   ParameterNodeConfig,
@@ -121,10 +123,16 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): AgentGraphNod
         modelInstanceId: llm.modelInstanceId || base.modelInstanceId,
         systemPrompt: llm.systemPrompt || base.systemPrompt || '',
         userPrompt: llm.userPrompt || '{{ input }}',
+        messages: llm.messages?.length ? llm.messages : defaultLlmMessages(llm.systemPrompt || base.systemPrompt || '', llm.userPrompt || '{{ input }}'),
         contextVariables: llm.contextVariables || [],
         modelParams: normalizeParams(llm.modelParams),
         outputFormat: llm.outputFormat || 'text',
+        structuredOutput: llm.structuredOutput === true || llm.outputFormat === 'json',
+        strictJsonSchema: llm.strictJsonSchema !== false,
         outputSchema: llm.outputSchema || [],
+        visionEnabled: llm.visionEnabled === true,
+        visionInputs: llm.visionInputs || [],
+        promptTemplateMode: llm.promptTemplateMode || 'messages',
         llmConfig: llm,
       },
     }
@@ -411,10 +419,11 @@ function commonNodeConfig(node: CanvasNode): Record<string, unknown> {
 }
 
 function graphNodeChrome(node: CanvasNode) {
+  const dynamicOutputs = dynamicOutputPorts(node.data)
   return {
     description: node.data.description,
     inputs: node.data.inputs || defaultPorts(node.data.kind, 'input'),
-    outputs: node.data.outputs || defaultPorts(node.data.kind, 'output', node.data.outputAlias),
+    outputs: dynamicOutputs || node.data.outputs || defaultPorts(node.data.kind, 'output', node.data.outputAlias),
     retry: node.data.retry,
     errorPolicy: node.data.errorPolicy,
     layout: {
@@ -512,10 +521,16 @@ function graphConfigToNodeData(
         modelInstanceId: stringValue(config.modelInstanceId) || def.modelInstanceId,
         systemPrompt: stringValue(config.systemPrompt) || def.systemPrompt || '',
         userPrompt: stringValue(config.userPrompt) || '{{ input }}',
+        messages: llmMessagesValue(config.messages, stringValue(config.systemPrompt) || def.systemPrompt || '', stringValue(config.userPrompt) || '{{ input }}'),
         contextVariables: arrayValue(config.contextVariables),
         modelParams: recordValue(config.modelParams),
         outputFormat: stringValue(config.outputFormat) === 'json' ? 'json' : 'text',
+        structuredOutput: config.structuredOutput === true || stringValue(config.outputFormat) === 'json',
+        strictJsonSchema: config.strictJsonSchema !== false,
         outputSchema: schemaValue(config.outputSchema),
+        visionEnabled: config.visionEnabled === true,
+        visionInputs: arrayValue(config.visionInputs),
+        promptTemplateMode: stringValue(config.promptTemplateMode) === 'simple' ? 'simple' : 'messages',
       } satisfies LlmNodeConfig,
     }
   }
@@ -572,13 +587,15 @@ function graphConfigToNodeData(
     }
   }
   if (kind === 'classifier') {
+    const classifierConfig = {
+      inputExpression: stringValue(config.inputExpression) || 'input',
+      classes: classifierClassesValue(config.classes),
+      defaultRoute: stringValue(config.defaultRoute) || 'else',
+    } satisfies IntentClassifierNodeConfig
     return {
       ...common,
-      classifierConfig: {
-        inputExpression: stringValue(config.inputExpression) || 'input',
-        classes: classifierClassesValue(config.classes),
-        defaultRoute: stringValue(config.defaultRoute) || 'else',
-      },
+      outputs: classifierOutputPorts(classifierConfig),
+      classifierConfig,
     }
   }
   if (kind === 'aggregate') {
@@ -622,7 +639,7 @@ function graphConfigToNodeData(
         titleExpression: stringValue(config.titleExpression) || 'const:工作流写入',
         contentExpression: stringValue(config.contentExpression) || 'lastOutput',
         tags: arrayValue(config.tags),
-        mode: stringValue(config.writeMode) === 'publish' ? 'publish' : 'draft',
+        mode: knowledgeWriteModeValue(config.writeMode),
       },
     }
   }
@@ -707,7 +724,10 @@ export function createDefaultNodeData(kind: CanvasNodeKind, label: string, base?
   if (kind === 'condition') return { ...common, conditionConfig: defaultConditionConfig() }
   if (kind === 'answer') return { ...common, answerConfig: defaultAnswerConfig(), template: '{{ lastOutput }}', writeToAnswer: true }
   if (kind === 'code') return { ...common, codeConfig: defaultCodeConfig() }
-  if (kind === 'classifier') return { ...common, classifierConfig: defaultClassifierConfig() }
+  if (kind === 'classifier') {
+    const classifierConfig = defaultClassifierConfig()
+    return { ...common, outputs: classifierOutputPorts(classifierConfig), classifierConfig }
+  }
   if (kind === 'aggregate') return { ...common, aggregateConfig: defaultAggregateConfig() }
   if (kind === 'approval') return { ...common, approvalConfig: defaultApprovalConfig() }
   if (kind === 'loop') return { ...common, loopConfig: defaultLoopConfig() }
@@ -727,8 +747,21 @@ function defaultLlmConfig(base?: AgentForm): LlmNodeConfig {
     contextVariables: ['input', 'lastOutput'],
     modelParams: {},
     outputFormat: 'text',
+    structuredOutput: false,
+    strictJsonSchema: true,
     outputSchema: [],
+    messages: defaultLlmMessages(base?.systemPrompt || '', '{{ input }}'),
+    visionEnabled: false,
+    visionInputs: [],
+    promptTemplateMode: 'messages',
   }
+}
+
+function defaultLlmMessages(systemPrompt: string, userPrompt: string): NonNullable<LlmNodeConfig['messages']> {
+  return [
+    { id: 'system', role: 'system', content: systemPrompt || '', templateEngine: 'mustache', enabled: true },
+    { id: 'user', role: 'user', content: userPrompt || '{{ input }}', templateEngine: 'mustache', enabled: true },
+  ]
 }
 
 function defaultKnowledgeConfig(): KnowledgeNodeConfig {
@@ -873,18 +906,19 @@ function defaultOutputAlias(kind: CanvasNodeKind) {
 function ensureNodeV2(node: CanvasNode, base: AgentForm): CanvasNode {
   const defaults = createDefaultNodeData(node.data.kind, node.data.label, base)
   const data = node.data.configVersion === 2 ? node.data : defaults
+  const mergedData = {
+    ...defaults,
+    ...data,
+    inputs: data.inputs?.length ? data.inputs : defaults.inputs,
+    outputs: data.outputs?.length ? data.outputs : defaults.outputs,
+    retry: data.retry || defaults.retry,
+    errorPolicy: data.errorPolicy || defaults.errorPolicy,
+    source: data.source || defaults.source,
+    category: data.category || defaults.category,
+  }
   return {
     ...node,
-    data: {
-      ...defaults,
-      ...data,
-      inputs: data.inputs?.length ? data.inputs : defaults.inputs,
-      outputs: data.outputs?.length ? data.outputs : defaults.outputs,
-      retry: data.retry || defaults.retry,
-      errorPolicy: data.errorPolicy || defaults.errorPolicy,
-      source: data.source || defaults.source,
-      category: data.category || defaults.category,
-    },
+    data: syncDynamicPorts(mergedData),
   }
 }
 
@@ -1015,6 +1049,9 @@ function defaultPorts(kind: CanvasNodeKind, direction: 'input' | 'output', alias
     ]
   }
   if (kind === 'condition' || kind === 'classifier') {
+    if (kind === 'classifier') {
+      return classifierOutputPorts(defaultClassifierConfig())
+    }
     return [
       { id: 'matched', name: 'matched', type: 'boolean' },
       { id: 'else', name: 'else', type: 'boolean' },
@@ -1023,8 +1060,46 @@ function defaultPorts(kind: CanvasNodeKind, direction: 'input' | 'output', alias
   return [{ id: output, name: output, type: kind === 'parameter' ? 'object' : 'any' }]
 }
 
+function syncDynamicPorts(data: CanvasNode['data']): CanvasNode['data'] {
+  const outputs = dynamicOutputPorts(data)
+  return outputs ? { ...data, outputs } : data
+}
+
+function dynamicOutputPorts(data: CanvasNode['data']): StudioPort[] | null {
+  if (data.kind === 'classifier') {
+    return classifierOutputPorts(data.classifierConfig || defaultClassifierConfig())
+  }
+  return null
+}
+
+export function classifierOutputPorts(config: IntentClassifierNodeConfig): StudioPort[] {
+  const ports: StudioPort[] = []
+  const seen = new Set<string>()
+  for (const item of config.classes || []) {
+    const id = item.id?.trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    ports.push({
+      id,
+      name: item.label?.trim() || id,
+      type: 'boolean',
+      required: false,
+    })
+  }
+  const defaultRoute = (config.defaultRoute || 'else').trim()
+  if (defaultRoute && !seen.has(defaultRoute)) {
+    ports.push({
+      id: defaultRoute,
+      name: defaultRoute === 'else' ? 'else' : defaultRoute,
+      type: 'boolean',
+      required: false,
+    })
+  }
+  return ports.length ? ports : [{ id: 'else', name: 'else', type: 'boolean', required: false }]
+}
+
 function defaultRetryPolicy(kind: CanvasNodeKind): StudioRetryPolicy {
-  const enabled = ['tool', 'skill', 'http', 'knowledge', 'knowledgeWrite', 'mcp'].includes(kind)
+  const enabled = studioNodeRetryable(kind)
   return {
     enabled,
     maxAttempts: enabled ? 2 : 1,
@@ -1039,10 +1114,7 @@ function defaultErrorPolicy(): StudioErrorPolicy {
 }
 
 function nodeCategory(kind: CanvasNodeKind) {
-  if (['llm', 'skill', 'tool'].includes(kind)) return 'action'
-  if (['condition', 'variable', 'parameter', 'template', 'answer', 'code', 'classifier', 'aggregate', 'approval', 'loop', 'documentExtract'].includes(kind)) return 'flow'
-  if (['knowledge', 'http', 'knowledgeWrite', 'mcp'].includes(kind)) return 'integration'
-  return 'system'
+  return studioNodeCategory(kind)
 }
 
 function isSdkDefinition(def: AgentDefinition) {
@@ -1080,6 +1152,27 @@ function schemaValue(value: unknown): StudioFieldSchema[] {
   return Array.isArray(value) ? value as StudioFieldSchema[] : []
 }
 
+function llmMessagesValue(value: unknown, systemPrompt: string, userPrompt: string): NonNullable<LlmNodeConfig['messages']> {
+  if (!Array.isArray(value)) {
+    return defaultLlmMessages(systemPrompt, userPrompt)
+  }
+  const messages = value
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+    .map((item, index) => {
+      const rawRole = stringValue(item.role)
+      const role: LlmPromptMessage['role'] = rawRole === 'assistant' || rawRole === 'system' ? rawRole : 'user'
+      return {
+        id: stringValue(item.id) || `message-${index + 1}`,
+        role,
+        content: stringValue(item.content),
+        templateEngine: 'mustache' as const,
+        enabled: item.enabled !== false,
+      }
+    })
+    .filter((item) => !!item.content || item.role === 'system')
+  return messages.length ? messages : defaultLlmMessages(systemPrompt, userPrompt)
+}
+
 function classifierClassesValue(value: unknown): IntentClassifierNodeConfig['classes'] {
   if (!Array.isArray(value)) return []
   return value
@@ -1113,33 +1206,14 @@ function documentFormatValue(value: unknown): DocumentExtractNodeConfig['format'
   return 'text'
 }
 
+function knowledgeWriteModeValue(value: unknown): KnowledgeWriteNodeConfig['mode'] {
+  return stringValue(value) === 'publish' ? 'publish' : 'draft'
+}
+
 function normalizeParams(value?: Record<string, string | number | boolean>) {
   return value || {}
 }
 
-const KIND_COLOR: Record<CanvasNodeKind, { bg: string; border: string }> = {
-  start: { bg: '#ecf5ff', border: '#409eff' },
-  end: { bg: '#f0f9eb', border: '#67c23a' },
-  llm: { bg: '#eef2ff', border: '#6366f1' },
-  skill: { bg: '#fdf6ec', border: '#e6a23c' },
-  tool: { bg: '#f4f4f5', border: '#909399' },
-  knowledge: { bg: '#fef0f0', border: '#f56c6c' },
-  condition: { bg: '#fff7ed', border: '#f97316' },
-  variable: { bg: '#ecfeff', border: '#0891b2' },
-  template: { bg: '#f5f3ff', border: '#7c3aed' },
-  parameter: { bg: '#f0fdf4', border: '#16a34a' },
-  http: { bg: '#eff6ff', border: '#2563eb' },
-  answer: { bg: '#f0fdf4', border: '#16a34a' },
-  code: { bg: '#f8fafc', border: '#475569' },
-  classifier: { bg: '#fff7ed', border: '#ea580c' },
-  aggregate: { bg: '#ecfeff', border: '#0891b2' },
-  approval: { bg: '#fefce8', border: '#ca8a04' },
-  loop: { bg: '#f0f9ff', border: '#0284c7' },
-  knowledgeWrite: { bg: '#fff1f2', border: '#e11d48' },
-  documentExtract: { bg: '#f8fafc', border: '#64748b' },
-  mcp: { bg: '#eef2ff', border: '#4f46e5' },
-}
-
 export function kindColor(kind: CanvasNodeKind) {
-  return KIND_COLOR[kind]
+  return studioNodeColor(kind)
 }

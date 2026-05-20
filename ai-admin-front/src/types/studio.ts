@@ -81,12 +81,26 @@ export interface StudioConditionGroup {
 
 export interface LlmNodeConfig {
   modelInstanceId?: string
+  messages?: LlmPromptMessage[]
   systemPrompt?: string
   userPrompt?: string
   contextVariables?: string[]
   modelParams?: Record<string, string | number | boolean>
   outputFormat?: 'text' | 'json'
+  structuredOutput?: boolean
+  strictJsonSchema?: boolean
   outputSchema?: StudioFieldSchema[]
+  visionEnabled?: boolean
+  visionInputs?: string[]
+  promptTemplateMode?: 'simple' | 'messages'
+}
+
+export interface LlmPromptMessage {
+  id: string
+  role: 'system' | 'user' | 'assistant'
+  content: string
+  templateEngine?: 'mustache'
+  enabled?: boolean
 }
 
 export interface KnowledgeNodeConfig {
