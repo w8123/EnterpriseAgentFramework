@@ -24,7 +24,7 @@
 
 ## 二、运维发布步骤
 
-1. 执行 `ai-agent-service/sql/skill_interaction_phase2_x.sql`（建表）。
+1. 执行仓库根目录 `sql/init.sql`（`skill_interaction` 已合并进统一基线）。
 2. 重启 `ai-agent-service`（注册 PoC code Tool + 加载 DB Skill）。
 3. （可选）执行 `sql/poc_team_interactive_seed.sql` 插入 PoC Skill。
 4. 在「Agent 调试台」将目标 Agent 的 `tools` 白名单加入 `create_team_interactive`（及依赖的 PoC Tool 已由扫描/同步入库则无需手写）。

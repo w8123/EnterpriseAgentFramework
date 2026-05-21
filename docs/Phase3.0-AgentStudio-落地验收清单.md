@@ -21,8 +21,7 @@
 ### 1.1 数据库
 - [x] 新建 `agent_definition` 表（含 `key_slug` / `canvas_json` / `allow_irreversible`）。
 - [x] 新建 `agent_version` 表（`snapshot_json` / `rollout_percent` / `status`）。
-- [x] `sql/agent_studio_phase3_0.sql` 幂等脚本（`add_col_if_absent` / `add_idx_if_absent`）。
-- [x] `sql/init.sql` 补齐新表与注释，冷启动 / 升级一致。
+- [x] `sql/init.sql` 统一基线补齐新表、补列、补索引与注释，冷启动 / 升级一致。
 
 ### 1.2 领域模型
 - [x] `AgentDefinition` 领域对象新增 `keySlug` / `canvasJson` / `allowIrreversible`。

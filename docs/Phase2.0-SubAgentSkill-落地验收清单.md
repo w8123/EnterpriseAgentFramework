@@ -44,7 +44,7 @@
 
 | 改动 | 文件 | 作用 |
 | --- | --- | --- |
-| 新建幂等 SQL 迁移脚本 | `ai-agent-service/sql/skill_phase2_0.sql` | 给 `tool_definition` 添 4 列 + 1 组合索引 |
+| 统一 SQL 基线 | `sql/init.sql` | 给 `tool_definition` 添 4 列 + 1 组合索引 |
 | `ToolDefinitionEntity` 扩字段 | `ai-agent-service/.../ToolDefinitionEntity.java` | `kind / specJson / sideEffect / skillKind` |
 | `ToolDefinitionUpsertRequest` 扩字段 + `skill()` 工厂 | `ai-agent-service/.../ToolDefinitionUpsertRequest.java` | 兼容旧 15 参构造，新 19 参支持 Skill |
 
@@ -173,7 +173,7 @@ mvn -pl ai-agent-service test
 1. **执行 SQL 迁移**（幂等，可重复跑）
 
     ```bash
-    mysql -uxxx -pxxx ai_text_service < ai-agent-service/sql/skill_phase2_0.sql
+    mysql -uxxx -pxxx < sql/init.sql
     ```
 
     给 `tool_definition` 增加 4 列 + 1 个组合索引：`kind / spec_json / side_effect / skill_kind` + `idx_kind_enabled_visible`。
@@ -284,8 +284,8 @@ ai-skill-sdk/src/main/java/com/enterprise/ai/skill/
     HitlPolicy.java           (new)
     ToolRegistry.java         (modified)
 
-ai-agent-service/sql/
-    skill_phase2_0.sql        (new)
+sql/
+    init.sql                  (updated)
 
 ai-agent-service/src/main/java/com/enterprise/ai/agent/
     skill/SubAgentSpec.java              (new)

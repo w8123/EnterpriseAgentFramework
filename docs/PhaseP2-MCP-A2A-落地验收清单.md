@@ -21,8 +21,7 @@
 - [x] `mcp_visibility`（`target_kind ∈ {TOOL,SKILL} / target_name / exposed / note`）。
 - [x] `a2a_endpoint`（`agent_id / agent_key / card_json / enabled`，`UNIQUE(agent_id)`）。
 - [x] `a2a_call_log`（`endpoint_id / agent_key / task_id / method / success / latency_ms / request_body / response_body / error_message / trace_id / remote_ip`）。
-- [x] `ai-agent-service/sql/mcp_phase_p2.sql` + `ai-agent-service/sql/a2a_phase_p2.sql` 幂等。
-- [x] `sql/init.sql` 七.d / 七.e 节同步新增。
+- [x] MCP / A2A 表结构已合并到统一基线 `sql/init.sql` 七.d / 七.e 节。
 
 ## 2. 后端 — MCP
 

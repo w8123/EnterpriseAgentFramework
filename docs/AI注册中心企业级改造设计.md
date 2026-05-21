@@ -96,9 +96,8 @@ POST /api/registry/projects/{projectCode}/capabilities/apply
 - `ai_project_instance`：记录业务系统实例、版本、SDK 版本、在线状态和心跳时间。
 - `capability_sync_log`：记录能力同步批次、状态、摘要和错误。
 
-相关迁移：
+相关迁移已合并到统一基线：
 
-- `ai-agent-service/sql/registry_phase_p4.sql`
 - `sql/init.sql`
 
 ### 3.4 Spring Boot Starter MVP

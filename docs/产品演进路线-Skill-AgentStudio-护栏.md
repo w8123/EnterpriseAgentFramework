@@ -39,7 +39,7 @@
 >
 > **本轮增量（2026-04-24 · Phase 3.1 Tool ACL，紧跟 3.0 发布）**：
 >
-> 1. **数据表**：新增 `tool_acl`（`role_code × target_kind × target_name × permission`），`ai-agent-service/sql/tool_acl_phase3_1.sql` 幂等脚本 + `sql/init.sql` 同步；初始化种子 `admin` 放全部 / `public` 默认拒所有 TOOL。
+> 1. **数据表**：新增 `tool_acl`（`role_code × target_kind × target_name × permission`），已合并到统一基线 `sql/init.sql`；初始化种子 `admin` 放全部 / `public` 默认拒所有 TOOL。
 > 2. **决策引擎**：`ToolAclService.decide(roles, toolName, isSkill)` 返回 `ALLOW / DENY_EXPLICIT / DENY_NO_MATCH / SKIPPED` 四态；**DENY 优先，无命中保守拒绝**；5 min 本地缓存按 `roleCode` 聚合，CRUD 后自动 evict。
 > 3. **全链路透传**：`ChatRequest.roles` → `AgentRouter.route / executeByDefinition` → `ToolExecutionContext.roles` → `AgentFactory.createToolkit` 在装配阶段过滤被拒能力（LLM 视野里根本看不到）；`SubAgentSkillExecutor` 同步继承父 ctx 的 roles，避免 Skill 绕过。
 > 4. **REST / 管理端**：`POST/GET/PUT/DELETE /api/tool-acl` + `POST /api/tool-acl/batch` 批量授权 + `POST /api/tool-acl/explain` 决策诊断；前端新增 `src/views/settings/ToolAclList.vue`（左侧 role 列表 + 右侧规则表 + 新建/编辑/启停/批量/诊断四弹窗）+ 路由 + 菜单条目「设置 / 护栏 → Tool ACL」。
@@ -123,7 +123,7 @@ public record SkillMetadata(
     - Phase 2.0 已实现：`skill_kind=SUB_AGENT` → `SubAgentSpec { systemPrompt, toolWhitelist, llmProvider, llmModel, maxSteps, useMultiAgentModel }`。
     - Phase 2.2 规划：`skill_kind=WORKFLOW` → DSL；`skill_kind=AUGMENTED_TOOL` → `{ toolName, preHook, postHook, policies }`。
 
-迁移脚本：`ai-agent-service/sql/skill_phase2_0.sql`（幂等，反复跑不会出错）。
+迁移脚本已合并到统一基线：`sql/init.sql`（幂等，反复跑不会出错）。
 
 ### 1.4 与现有架构的接入点（Phase 2.0 已打通 3 条，第 4 条改了方案）
 
@@ -294,7 +294,7 @@ Skill 不是只能写代码产出，规划三条来源通道：
 
 | 类别 | 交付物 | 关键实现 |
 | --- | --- | --- |
-| **数据** | `agent_definition` / `agent_version` 两表 + 幂等迁移 | `sql/agent_studio_phase3_0.sql`，`sql/init.sql` 已同步 |
+| **数据** | `agent_definition` / `agent_version` 两表 + 幂等迁移 | 已合并到统一基线 `sql/init.sql` |
 | **领域** | `AgentDefinition.{keySlug, canvasJson, allowIrreversible}` + `AgentVersion` 快照 | `agent/AgentDefinition.java`、`agent/persist/*Entity` |
 | **服务** | `AgentDefinitionService`（DB 化 + 旧 JSON 迁移）、`AgentVersionService`（publish / rollback / 灰度 hash 路由） | `AgentVersionServiceTest` 覆盖重点分支 |
 | **运行时** | `ToolExecutionContext.allowIrreversible` + `AiToolAgentAdapter.checkSideEffectGate` | `AgentFactory` / `AgentRouter` 已将 sideEffect 与 allowIrreversible 串通 |

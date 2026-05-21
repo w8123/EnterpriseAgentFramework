@@ -22,8 +22,7 @@
   - Create `AgentEvalController` at `/api/agent/evals`.
   - Keep `AgentStudioDebugController` unchanged except for any small helper extraction needed to reuse debug-run safely.
 - SQL:
-  - Create `ai-agent-service/sql/agent_eval_mvp.sql`.
-  - Add the same DDL to root `sql/init.sql` near the Agent Studio tables.
+  - Add the eval DDL to root `sql/init.sql` near the Agent Studio tables.
 - Frontend:
   - Create `ai-admin-front/src/api/agentEval.ts` and `ai-admin-front/src/types/agentEval.ts`.
   - Modify `ai-admin-front/src/views/agent/AgentStudio.vue` to add the "评测" tab/panel.
@@ -34,7 +33,6 @@
 ## Task 1: SQL Schema and Domain Models
 
 **Files:**
-- Create: `ai-agent-service/sql/agent_eval_mvp.sql`
 - Modify: `sql/init.sql`
 - Create: `ai-agent-service/src/main/java/com/enterprise/ai/agent/eval/AgentEvalDatasetEntity.java`
 - Create: `ai-agent-service/src/main/java/com/enterprise/ai/agent/eval/AgentEvalCaseEntity.java`

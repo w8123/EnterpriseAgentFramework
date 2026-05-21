@@ -18,8 +18,7 @@
 
 - [x] `tool_acl` 表：`(role_code, target_kind ∈ {TOOL,SKILL,ALL}, target_name, permission ∈ {ALLOW,DENY}, enabled, note, created_at, updated_at)`。
 - [x] `UNIQUE (role_code, target_kind, target_name)` + 常用索引 `idx_role_enabled` / `idx_target`。
-- [x] `ai-agent-service/sql/tool_acl_phase3_1.sql` 幂等脚本（`add_col_if_absent_acl` / `add_idx_if_absent_acl`）。
-- [x] `sql/init.sql` 同步新增 §九 ACL 节（紧跟 `agent_version` 之后）。
+- [x] `sql/init.sql` 统一基线内包含 Tool ACL 幂等建表、补列、补索引逻辑。
 - [x] 种子数据：`admin` ALL/* ALLOW（管理员万能角色）、`public` TOOL/* DENY（匿名默认禁 TOOL）。仅在表空时插入，避免覆盖运营配置。
 
 ## 2. 后端决策引擎
