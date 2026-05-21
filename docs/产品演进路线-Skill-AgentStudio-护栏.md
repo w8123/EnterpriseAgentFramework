@@ -474,3 +474,11 @@ Phase 4  Tool 护栏（和 2/3 并行）
 | HITL | Human-in-the-loop，副作用操作的人工审批门 |
 | sideEffect | Tool/Skill 的副作用级别（NONE/READ_ONLY/IDEMPOTENT_WRITE/WRITE/IRREVERSIBLE） |
 | trace_id | 一次 Agent 执行的全局追踪 ID，贯穿 log / approval / metrics |
+
+---
+
+## Phase 3.1 Eval MVP 交付补充
+
+Agent Studio 新增内嵌评测闭环：运营可以导入 Excel/CSV 数据集，设置重复次数，用当前画布草稿沙箱执行自动化评测，并查看准确率、运行成功率、P95 响应时间、结果偏差和节点级修复建议。
+
+本阶段新增 `agent_eval_dataset`、`agent_eval_case`、`agent_eval_run`、`agent_eval_case_result` 四张表；后端入口为 `/api/agent/evals/**`；前端入口为 `AgentStudio.vue` 顶部“评测”按钮。详细操作口径见 `docs/AgentStudio智能体评测闭环MVP.md`。

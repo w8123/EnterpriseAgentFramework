@@ -157,6 +157,50 @@ export interface WorkflowDraftGenerationResult {
   graphSpec: AgentGraphSpec
   warnings: string[]
   placeholderNodes: WorkflowDraftPlaceholder[]
+  validationErrors: string[]
+}
+
+export type WorkflowDraftEditOperationType =
+  | 'ADD_NODE'
+  | 'UPDATE_NODE'
+  | 'DELETE_NODE'
+  | 'ADD_EDGE'
+  | 'UPDATE_EDGE'
+  | 'DELETE_EDGE'
+
+export interface WorkflowDraftEditOperation {
+  type: WorkflowDraftEditOperationType
+  nodeId?: string
+  edgeId?: string
+  node?: Record<string, unknown>
+  edge?: Record<string, unknown>
+  patch?: Record<string, unknown>
+  reason?: string
+}
+
+export interface WorkflowDraftEditRequest {
+  agentId?: string
+  agentName?: string
+  instruction: string
+  projectCode?: string | null
+  modelInstanceId?: string
+  currentCanvas?: Record<string, unknown>
+  selectedNodeIds?: string[]
+  selectedEdgeIds?: string[]
+  tools?: WorkflowDraftResource[]
+  capabilities?: WorkflowDraftResource[]
+  knowledgeBases?: WorkflowDraftResource[]
+}
+
+export interface WorkflowDraftEditResult {
+  provider: string
+  summary: string
+  operations: WorkflowDraftEditOperation[]
+  canvasSnapshot: Record<string, unknown>
+  graphSpec: AgentGraphSpec
+  warnings: string[]
+  placeholderNodes: WorkflowDraftPlaceholder[]
+  validationErrors: string[]
 }
 
 export interface AgentGraphNodeTypeDescriptor {

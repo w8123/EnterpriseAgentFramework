@@ -10,18 +10,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class WorkflowDraftGenerationServiceTest {
 
     @Test
-    void generateReportsClearReasonWhenCursorProviderDisabled() {
-        WorkflowDraftProperties properties = new WorkflowDraftProperties();
-        properties.setCursorEnabled(false);
-        properties.setCursorUnavailableReason("Cursor SDK 未配置 workspace");
-        WorkflowDraftGenerationService service = new WorkflowDraftGenerationService(List.of(
-                new CursorWorkflowDraftGenerator(properties)));
+    void generateReportsClearReasonWhenNoProviderSupportsRequest() {
+        WorkflowDraftGenerationService service = new WorkflowDraftGenerationService(List.of());
 
         IllegalStateException error = assertThrows(IllegalStateException.class, () ->
                 service.generate(WorkflowDraftGenerationRequest.builder()
-                        .requirement("查询订单")
+                        .requirement("生成合同审批流程")
+                        .modelInstanceId("model-1")
                         .build()));
 
-        assertTrue(error.getMessage().contains("Cursor SDK 未配置 workspace"));
+        assertTrue(error.getMessage().contains("没有可用"));
     }
 }

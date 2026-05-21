@@ -26,6 +26,7 @@
         </span>
         <el-button @click="handleDebug" :icon="VideoPlay">调试</el-button>
         <el-button :icon="MagicStick" :disabled="studioReadOnly" @click="openAiDraftDialog">AI 生成流程</el-button>
+        <el-button @click="openEvalDrawer" :icon="Finished">评测</el-button>
         <el-dropdown trigger="click" @command="handleHeaderCommand">
           <el-button :icon="MoreFilled">更多</el-button>
           <template #dropdown>
@@ -606,6 +607,97 @@
             <el-button :icon="ZoomIn" circle @click="handleZoomIn" />
           </el-tooltip>
         </div>
+        <div class="ai-edit-bar" @mousedown.stop @click.stop>
+          <div class="ai-edit-context">
+            <div class="ai-edit-context-left">
+              <el-popover trigger="click" placement="top-start" width="360" popper-class="ai-edit-model-popover">
+                <template #reference>
+                  <el-button
+                    class="ai-edit-model-trigger"
+                    :class="{ active: !!selectedAiEditModelLabel }"
+                    :disabled="aiEditLoading"
+                    circle
+                    aria-label="选择语义修改模型"
+                  >
+                    <el-icon><Cpu /></el-icon>
+                  </el-button>
+                </template>
+                <div class="ai-edit-model-panel">
+                  <div class="ai-edit-model-title">选择修改模型</div>
+                  <el-select
+                    v-model="aiDraftModelInstanceId"
+                    filterable
+                    clearable
+                    placeholder="选择用于语义修改的模型"
+                    :disabled="aiEditLoading"
+                  >
+                    <el-option
+                      v-for="item in aiDraftModelOptions"
+                      :key="item.id"
+                      :label="modelOptionLabel(item)"
+                      :value="item.id"
+                    />
+                  </el-select>
+                  <div class="ai-edit-model-hint">{{ selectedAiEditModelLabel || '未选择模型时会使用智能体默认模型' }}</div>
+                </div>
+              </el-popover>
+              <el-tag size="small" effect="plain">{{ aiEditContextLabel }}</el-tag>
+              <span>{{ aiEditPreview?.summary || '用自然语言修改当前画布草稿' }}</span>
+            </div>
+            <span class="ai-edit-model-current">{{ selectedAiEditModelName }}</span>
+          </div>
+          <div class="ai-edit-input-row">
+            <el-input
+              v-model="aiEditInstruction"
+              :disabled="studioReadOnly || aiEditLoading"
+              clearable
+              placeholder="例如：在当前节点后面加一个物流查询，并在订单完成时才执行"
+              @keyup.enter="handleGenerateWorkflowEdit"
+            />
+            <el-button
+              type="primary"
+              :loading="aiEditLoading"
+              :disabled="studioReadOnly || !aiEditInstruction.trim()"
+              @click="handleGenerateWorkflowEdit"
+            >
+              生成修改
+            </el-button>
+          </div>
+          <div v-if="aiEditPreview" class="ai-edit-preview">
+            <div class="ai-edit-preview-head">
+              <strong>{{ aiEditPreview.summary || 'AI 修改预览' }}</strong>
+              <span>{{ aiEditPreview.provider }} · {{ aiEditPreview.operations.length }} 项变更</span>
+            </div>
+            <div v-if="aiEditPreview.validationErrors.length" class="ai-edit-alert error">
+              <span v-for="item in aiEditPreview.validationErrors" :key="item">{{ item }}</span>
+            </div>
+            <div v-if="aiEditPreview.warnings.length" class="ai-edit-alert warning">
+              <span v-for="item in aiEditPreview.warnings" :key="item">{{ item }}</span>
+            </div>
+            <div class="ai-edit-operation-grid">
+              <div
+                v-for="group in aiEditOperationGroups"
+                :key="group.type"
+                class="ai-edit-operation-group"
+              >
+                <strong>{{ group.label }}</strong>
+                <span v-for="item in group.items" :key="operationKey(item)">
+                  {{ operationTarget(item) }}{{ item.reason ? `：${item.reason}` : '' }}
+                </span>
+              </div>
+            </div>
+            <div class="ai-edit-actions">
+              <el-button text @click="clearWorkflowEditPreview">取消</el-button>
+              <el-button
+                type="primary"
+                :disabled="!!aiEditPreview.validationErrors.length"
+                @click="handleApplyWorkflowEdit"
+              >
+                应用到草稿
+              </el-button>
+            </div>
+          </div>
+        </div>
         <div v-if="canvasSearchOpen" class="canvas-search-panel">
           <el-input
             ref="canvasSearchInputRef"
@@ -1162,6 +1254,16 @@
               <span v-for="item in aiDraftPreview.warnings" :key="item">{{ item }}</span>
             </template>
           </el-alert>
+          <el-alert
+            v-if="aiDraftPreview.validationErrors?.length"
+            type="error"
+            :closable="false"
+            class="ai-draft-warning"
+          >
+            <template #title>
+              <span v-for="item in aiDraftPreview.validationErrors" :key="item">{{ item }}</span>
+            </template>
+          </el-alert>
           <div v-if="aiDraftPreview.placeholderNodes.length" class="ai-draft-placeholders">
             <el-tag
               v-for="item in aiDraftPreview.placeholderNodes"
@@ -1189,7 +1291,7 @@
       </div>
       <template #footer>
         <el-button @click="aiDraftDialogOpen = false">取消</el-button>
-        <el-button type="primary" :disabled="!aiDraftPreview" @click="handleApplyWorkflowDraft">
+        <el-button type="primary" :disabled="!aiDraftPreview || !!aiDraftPreview.validationErrors?.length" @click="handleApplyWorkflowDraft">
           替换当前草稿
         </el-button>
       </template>
@@ -1532,6 +1634,130 @@
         </el-collapse>
       </div>
     </el-drawer>
+
+    <el-drawer
+      v-model="evalOpen"
+      title="智能体评测"
+      size="720px"
+      class="studio-eval-drawer"
+      destroy-on-close
+    >
+      <div class="eval-body">
+        <section class="eval-panel">
+          <div class="eval-section-head">
+            <div>
+              <strong>数据集</strong>
+              <span>导入 Excel/CSV 后，使用当前画布草稿重复执行评测。</span>
+            </div>
+            <el-button size="small" :loading="evalDatasetLoading" @click="loadEvalDatasets">刷新</el-button>
+          </div>
+          <div class="eval-toolbar">
+            <el-select
+              v-model="evalSelectedDatasetId"
+              placeholder="选择评测数据集"
+              filterable
+              class="eval-dataset-select"
+            >
+              <el-option
+                v-for="dataset in evalDatasets"
+                :key="dataset.id"
+                :label="`${dataset.name}（${dataset.caseCount || 0} 条）`"
+                :value="dataset.id"
+              />
+            </el-select>
+            <div class="eval-import-actions">
+              <el-button :icon="Download" @click="downloadEvalTemplate">模板下载</el-button>
+              <el-upload
+                :show-file-list="false"
+                accept=".xlsx,.xls,.csv"
+                :before-upload="handleEvalUpload"
+              >
+                <el-button :loading="evalUploading" :icon="Document">导入</el-button>
+              </el-upload>
+            </div>
+          </div>
+          <div v-if="evalImportErrors.length" class="eval-import-errors">
+            <div v-for="error in evalImportErrors" :key="error">{{ error }}</div>
+          </div>
+        </section>
+
+        <section class="eval-panel">
+          <div class="eval-section-head">
+            <div>
+              <strong>运行设置</strong>
+              <span>默认沙箱执行，不允许真实不可逆副作用。</span>
+            </div>
+          </div>
+          <div class="eval-toolbar">
+            <el-input-number v-model="evalRepeatCount" :min="1" :max="20" controls-position="right" />
+            <el-button type="primary" :loading="evalRunning" :disabled="!evalSelectedDatasetId" @click="handleStartEval">
+              开始评测
+            </el-button>
+          </div>
+        </section>
+
+        <section v-if="evalSummary" class="eval-summary-grid">
+          <div class="eval-metric">
+            <span>准确率</span>
+            <strong>{{ formatEvalRate(evalSummary.accuracyRate) }}</strong>
+          </div>
+          <div class="eval-metric">
+            <span>成功率</span>
+            <strong>{{ formatEvalRate(evalSummary.runtimeSuccessRate) }}</strong>
+          </div>
+          <div class="eval-metric">
+            <span>P95 响应</span>
+            <strong>{{ evalSummary.p95LatencyMs }} ms</strong>
+          </div>
+          <div class="eval-metric">
+            <span>偏差数</span>
+            <strong>{{ evalSummary.biasCount }}</strong>
+          </div>
+        </section>
+
+        <section v-if="evalRunView" class="eval-panel">
+          <div class="eval-section-head">
+            <div>
+              <strong>评测结果</strong>
+              <span>{{ evalRunView.run.status }} · {{ evalRunView.summary.totalExecutions }} 次执行</span>
+            </div>
+          </div>
+          <el-table :data="evalRunView.results" size="small" max-height="280">
+            <el-table-column prop="roundNo" label="轮次" width="72" />
+            <el-table-column prop="caseNo" label="用例" min-width="120" />
+            <el-table-column label="状态" width="92">
+              <template #default="{ row }">
+                <el-tag :type="row.assertionPassed ? 'success' : row.runtimeSuccess ? 'warning' : 'danger'" size="small">
+                  {{ row.assertionPassed ? '通过' : row.runtimeSuccess ? '偏差' : '失败' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="score" label="得分" width="80" />
+            <el-table-column prop="elapsedMs" label="耗时" width="92" />
+            <el-table-column prop="answer" label="输出" min-width="220" show-overflow-tooltip />
+          </el-table>
+        </section>
+
+        <section v-if="evalRunView?.suggestion" class="eval-panel">
+          <div class="eval-section-head">
+            <div>
+              <strong>AI 修复建议</strong>
+              <span>{{ evalRunView.suggestion.summary }}</span>
+            </div>
+          </div>
+          <div v-if="evalRunView.suggestion.items.length" class="eval-suggestion-list">
+            <div v-for="item in evalRunView.suggestion.items" :key="item.nodeId" class="eval-suggestion-item">
+              <el-tag size="small" :type="item.severity === 'HIGH' ? 'danger' : 'warning'">{{ item.nodeId }}</el-tag>
+              <div>
+                <strong>{{ item.reason }}</strong>
+                <span>{{ item.recommendation }}</span>
+              </div>
+            </div>
+          </div>
+          <el-empty v-else description="暂无需要修复的问题" />
+        </section>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -1540,6 +1766,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import type { Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { UploadRawFile } from 'element-plus'
 import {
   Aim,
   ArrowLeft,
@@ -1556,6 +1783,7 @@ import {
   Delete,
   Document,
   DocumentCopy,
+  Download,
   Files,
   Finished,
   Link,
@@ -1576,15 +1804,18 @@ import {
 } from '@element-plus/icons-vue'
 
 import { ConnectionLineType, Handle, Position, VueFlow, useVueFlow } from '@vue-flow/core'
+import * as XLSX from 'xlsx'
 import { Background } from '@vue-flow/background'
 import { MiniMap } from '@vue-flow/minimap'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/minimap/dist/style.css'
 
-import type { AgentForm, AgentReleaseValidationItem, AgentVersion, AgentDefinition, AgentNodeDebugResult, AgentGraphNodeTypeDescriptor, WorkflowDraftGenerationResult, WorkflowDraftResource, AgentWorkflowDebugRunResult, AgentWorkflowDebugStepResult } from '@/types/agent'
+import type { AgentForm, AgentReleaseValidationItem, AgentVersion, AgentDefinition, AgentNodeDebugResult, AgentGraphNodeTypeDescriptor, WorkflowDraftGenerationResult, WorkflowDraftResource, AgentWorkflowDebugRunResult, AgentWorkflowDebugStepResult, WorkflowDraftEditResult, WorkflowDraftEditOperation, WorkflowDraftEditOperationType } from '@/types/agent'
 import type { CanvasNode, CanvasEdge, CanvasNodeKind, StudioFieldSchema, StudioVariableOption } from '@/types/studio'
-import { getAgent, updateAgent, publishAgentVersion, validateAgentRelease, gatewayChat, listAgentVersions, debugAgentNode, debugAgentWorkflowRun, getAgentGraphNodeTypes, generateWorkflowDraft } from '@/api/agent'
+import { getAgent, updateAgent, publishAgentVersion, validateAgentRelease, gatewayChat, listAgentVersions, debugAgentNode, debugAgentWorkflowRun, getAgentGraphNodeTypes, generateWorkflowDraft, editWorkflowDraft } from '@/api/agent'
+import { createEvalDataset, listEvalDatasets, startEvalRun } from '@/api/agentEval'
+import type { AgentEvalCaseImportRow, AgentEvalDataset, AgentEvalRunSummary, AgentEvalRunView } from '@/types/agentEval'
 import { getTools } from '@/api/tool'
 import { listCapabilities } from '@/api/capability'
 import type { ToolInfo } from '@/types/tool'
@@ -1638,6 +1869,15 @@ const selectedDebugStepIndex = ref<number | null>(null)
 const currentDebugNodeId = ref('')
 const debugPlaybackToken = ref(0)
 const debugInputParams = reactive<Record<string, unknown>>({})
+const evalOpen = ref(false)
+const evalDatasetLoading = ref(false)
+const evalUploading = ref(false)
+const evalRunning = ref(false)
+const evalDatasets = ref<AgentEvalDataset[]>([])
+const evalSelectedDatasetId = ref<number | null>(null)
+const evalRepeatCount = ref(1)
+const evalRunView = ref<AgentEvalRunView | null>(null)
+const evalImportErrors = ref<string[]>([])
 const nodeDebugLoading = ref(false)
 const nodeDebugMessage = ref('这是一条节点测试消息')
 const nodeDebugStateText = ref('{\n  "input": "这是一条节点测试消息"\n}')
@@ -1658,12 +1898,16 @@ const aiDraftGenerating = ref(false)
 const aiDraftRequirement = ref('')
 const aiDraftModelInstanceId = ref('')
 const aiDraftPreview = ref<WorkflowDraftGenerationResult | null>(null)
+const aiEditInstruction = ref('')
+const aiEditLoading = ref(false)
+const aiEditPreview = ref<WorkflowDraftEditResult | null>(null)
 const traceToolNames = computed(() => {
   const names = traceNodes.value
     .map((n) => (n.toolName || '').trim())
     .filter((n) => !!n)
   return Array.from(new Set(names))
 })
+const evalSummary = computed<AgentEvalRunSummary | null>(() => evalRunView.value?.summary || null)
 
 type NodeTraceState = {
   nodeId: string
@@ -1831,6 +2075,15 @@ const aiDraftModelOptions = computed(() => {
   const llmOptions = modelOptions.value.filter((item) => item.modelType === 'LLM')
   return llmOptions.length ? llmOptions : modelOptions.value
 })
+const selectedAiEditModel = computed(() => {
+  const id = aiDraftModelInstanceId.value || form.modelInstanceId || aiDraftModelOptions.value[0]?.id || ''
+  if (!id) return null
+  return aiDraftModelOptions.value.find((item) => item.id === id)
+    || modelOptions.value.find((item) => item.id === id)
+    || null
+})
+const selectedAiEditModelLabel = computed(() => selectedAiEditModel.value ? modelOptionLabel(selectedAiEditModel.value) : '')
+const selectedAiEditModelName = computed(() => selectedAiEditModel.value?.name || selectedAiEditModel.value?.modelName || aiDraftModelInstanceId.value || form.modelInstanceId || '默认模型')
 const aiDraftPreviewNodes = computed(() => {
   const snapshot = aiDraftPreview.value?.canvasSnapshot as { nodes?: unknown } | undefined
   return Array.isArray(snapshot?.nodes) ? snapshot.nodes as CanvasNode[] : []
@@ -1845,6 +2098,17 @@ const aiDraftPreviewNodeLabels = computed(() => {
     labels.set(node.id, node.data?.label || node.id)
   }
   return labels
+})
+const aiEditOperationGroups = computed(() => {
+  const operations = aiEditPreview.value?.operations || []
+  const order: WorkflowDraftEditOperationType[] = ['ADD_NODE', 'UPDATE_NODE', 'DELETE_NODE', 'ADD_EDGE', 'UPDATE_EDGE', 'DELETE_EDGE']
+  return order
+    .map((type) => ({
+      type,
+      label: workflowEditOperationLabel(type),
+      items: operations.filter((item) => item.type === type),
+    }))
+    .filter((group) => group.items.length)
 })
 
 const form = reactive<AgentForm>({
@@ -1972,6 +2236,31 @@ const propertyDetailSectionLabel = computed(() => {
 const selectedEdge = computed(() =>
   edges.value.find((edge) => edge.id === selectedEdgeId.value) ?? null,
 )
+const selectedNodeIdsForAi = computed(() => {
+  const ids = new Set<string>()
+  for (const node of nodes.value) {
+    if ((node as CanvasNode & { selected?: boolean }).selected) ids.add(node.id)
+  }
+  if (selectedNodeId.value) ids.add(selectedNodeId.value)
+  return Array.from(ids)
+})
+const selectedEdgeIdsForAi = computed(() => {
+  const ids = new Set<string>()
+  for (const edge of edges.value) {
+    if ((edge as CanvasEdge & { selected?: boolean }).selected) ids.add(edge.id)
+  }
+  if (selectedEdgeId.value) ids.add(selectedEdgeId.value)
+  return Array.from(ids)
+})
+const aiEditContextLabel = computed(() => {
+  const nodeCount = selectedNodeIdsForAi.value.length
+  const edgeCount = selectedEdgeIdsForAi.value.length
+  if (!nodeCount && !edgeCount) return '全局画布'
+  const parts = []
+  if (nodeCount) parts.push(`${nodeCount} 个节点`)
+  if (edgeCount) parts.push(`${edgeCount} 条连线`)
+  return `已选 ${parts.join(' / ')}`
+})
 const selectedEdgeSourceNode = computed(() =>
   selectedEdge.value ? nodes.value.find((node) => node.id === selectedEdge.value?.source) || null : null,
 )
@@ -3844,6 +4133,171 @@ function stringifyDebugPayload(value: unknown) {
   return JSON.stringify(value, null, 2)
 }
 
+function buildCurrentAgentDefinitionForDebug(): AgentDefinition {
+  return {
+    ...canvasToDefinition(form, { version: 2, nodes: nodes.value, edges: edges.value }),
+    id: isNew ? form.keySlug || 'studio-draft' : agentId,
+  } as AgentDefinition
+}
+
+function currentCanvasSnapshot() {
+  return { version: 2, nodes: nodes.value, edges: edges.value }
+}
+
+function formatEvalRate(value?: number) {
+  return `${Math.round((value || 0) * 1000) / 10}%`
+}
+
+async function openEvalDrawer() {
+  evalOpen.value = true
+  await loadEvalDatasets()
+}
+
+async function loadEvalDatasets() {
+  evalDatasetLoading.value = true
+  try {
+    const { data } = await listEvalDatasets(isNew ? undefined : { agentId })
+    evalDatasets.value = data || []
+    if (!evalSelectedDatasetId.value && evalDatasets.value.length) {
+      evalSelectedDatasetId.value = evalDatasets.value[0].id
+    }
+  } catch (err) {
+    ElMessage.error('加载评测数据集失败：' + (err as Error).message)
+  } finally {
+    evalDatasetLoading.value = false
+  }
+}
+
+function readJsonObjectCell(raw: unknown, label: string, rowNo: number, errors: string[]) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return {}
+  if (typeof raw === 'object') return raw as Record<string, unknown>
+  try {
+    const parsed = JSON.parse(String(raw))
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>
+    }
+    errors.push(`第 ${rowNo} 行 ${label} 必须是 JSON 对象`)
+  } catch {
+    errors.push(`第 ${rowNo} 行 ${label} 不是合法 JSON`)
+  }
+  return {}
+}
+
+function downloadEvalTemplate() {
+  const headers = ['caseNo', 'message', 'inputParams', 'expected', 'judgeConfig', 'tags']
+  const rows = [
+    {
+      caseNo: 'case-001',
+      message: '查询订单1001是否可以退款',
+      inputParams: JSON.stringify({ question: '查询订单1001是否可以退款' }),
+      expected: JSON.stringify({
+        contains: ['订单1001'],
+        jsonPath: {
+          'finalState.orderId': '1001',
+        },
+      }),
+      judgeConfig: JSON.stringify({ semanticEnabled: false }),
+      tags: 'smoke,refund',
+    },
+  ]
+  const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers })
+  worksheet['!cols'] = [
+    { wch: 16 },
+    { wch: 32 },
+    { wch: 42 },
+    { wch: 58 },
+    { wch: 30 },
+    { wch: 18 },
+  ]
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'eval-cases')
+  XLSX.writeFile(workbook, 'AgentStudio评测数据集模板.xlsx')
+}
+
+async function parseEvalWorkbook(file: UploadRawFile) {
+  const buffer = await file.arrayBuffer()
+  const workbook = XLSX.read(buffer, { type: 'array' })
+  const sheet = workbook.Sheets[workbook.SheetNames[0]]
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+  const errors: string[] = []
+  const cases: AgentEvalCaseImportRow[] = rows.map((row, index) => {
+    const rowNo = index + 2
+    const message = String(row.message || '').trim()
+    if (!message) {
+      errors.push(`第 ${rowNo} 行 message 不能为空`)
+    }
+    return {
+      caseNo: String(row.caseNo || '').trim() || `case-${index + 1}`,
+      message,
+      inputParams: readJsonObjectCell(row.inputParams, 'inputParams', rowNo, errors),
+      expected: readJsonObjectCell(row.expected, 'expected', rowNo, errors),
+      judgeConfig: readJsonObjectCell(row.judgeConfig, 'judgeConfig', rowNo, errors),
+      tags: String(row.tags || '').trim(),
+    }
+  })
+  return { cases, errors }
+}
+
+function handleEvalUpload(file: UploadRawFile) {
+  evalUploading.value = true
+  evalImportErrors.value = []
+  parseEvalWorkbook(file)
+    .then(async ({ cases, errors }) => {
+      if (!cases.length) {
+        errors.push('文件中没有可导入的用例')
+      }
+      if (errors.length) {
+        evalImportErrors.value = errors
+        ElMessage.error('评测数据存在错误，请修正后重新导入')
+        return
+      }
+      const { data } = await createEvalDataset({
+        agentId: isNew ? undefined : agentId,
+        agentName: form.name,
+        name: file.name.replace(/\.(xlsx|xls|csv)$/i, ''),
+        description: 'Agent Studio 导入评测集',
+        cases,
+      })
+      ElMessage.success(`已导入 ${data.caseCount} 条评测用例`)
+      await loadEvalDatasets()
+      evalSelectedDatasetId.value = data.id
+    })
+    .catch((err) => {
+      ElMessage.error('导入评测数据失败：' + (err as Error).message)
+    })
+    .finally(() => {
+      evalUploading.value = false
+    })
+  return false
+}
+
+async function handleStartEval() {
+  if (!evalSelectedDatasetId.value) {
+    ElMessage.warning('请先选择评测数据集')
+    return
+  }
+  evalRunning.value = true
+  try {
+    const { data } = await startEvalRun({
+      datasetId: evalSelectedDatasetId.value,
+      agentId: isNew ? undefined : agentId,
+      agentName: form.name,
+      runName: `${form.name || '未命名智能体'} 发布前评测`,
+      repeatCount: evalRepeatCount.value,
+      agentDefinition: buildCurrentAgentDefinitionForDebug(),
+      canvasSnapshot: currentCanvasSnapshot(),
+    })
+    evalRunView.value = data
+    ElMessage[data.summary.biasCount ? 'warning' : 'success'](
+      data.summary.biasCount ? '评测完成，存在结果偏差' : '评测完成，全部通过',
+    )
+  } catch (err) {
+    ElMessage.error('评测运行失败：' + (err as Error).message)
+  } finally {
+    evalRunning.value = false
+  }
+}
+
 async function handleRunDraftDebug() {
   const inputParams = buildDebugInputParams()
   const message = debugMessageFromParams(inputParams)
@@ -3861,7 +4315,7 @@ async function handleRunDraftDebug() {
   currentDebugNodeId.value = ''
   debugPlaybackToken.value += 1
   try {
-    const payload = canvasToDefinition(form, { version: 2, nodes: nodes.value, edges: edges.value })
+    const payload = buildCurrentAgentDefinitionForDebug()
     const { data } = await debugAgentWorkflowRun({
       agentDefinition: payload,
       message,
@@ -3944,6 +4398,79 @@ function openAiDraftDialog() {
   aiDraftDialogOpen.value = true
 }
 
+async function handleGenerateWorkflowEdit() {
+  const instruction = aiEditInstruction.value.trim()
+  if (!instruction) {
+    ElMessage.warning('请先输入要修改的流程指令')
+    return
+  }
+  const modelInstanceId = aiDraftModelInstanceId.value || form.modelInstanceId || aiDraftModelOptions.value[0]?.id || ''
+  if (!modelInstanceId) {
+    ElMessage.warning('请先选择或配置可用的 LLM 模型实例')
+    return
+  }
+  aiEditLoading.value = true
+  try {
+    const { data } = await editWorkflowDraft({
+      agentId,
+      agentName: form.name,
+      instruction,
+      projectCode: form.projectCode,
+      modelInstanceId,
+      currentCanvas: currentCanvasSnapshot(),
+      selectedNodeIds: selectedNodeIdsForAi.value,
+      selectedEdgeIds: selectedEdgeIdsForAi.value,
+      tools: availableTools.value.map(toolToDraftResource),
+      capabilities: availableCapabilities.value.map(capabilityToDraftResource),
+      knowledgeBases: knowledgeOptions.value.map(knowledgeToDraftResource),
+    })
+    aiEditPreview.value = data
+    if (data.validationErrors?.length) {
+      ElMessage.warning('AI 修改预览存在校验问题，请检查后重试')
+    } else {
+      ElMessage.success('AI 修改预览已生成')
+    }
+  } catch (err) {
+    ElMessage.error('生成 AI 修改失败：' + (err as Error).message)
+  } finally {
+    aiEditLoading.value = false
+  }
+}
+
+function handleApplyWorkflowEdit() {
+  const preview = aiEditPreview.value
+  const snapshot = normalizeGeneratedCanvas(preview?.canvasSnapshot)
+  if (!preview || !snapshot) {
+    ElMessage.warning('请先生成可用的 AI 修改预览')
+    return
+  }
+  if (preview.validationErrors?.length) {
+    ElMessage.warning('当前预览仍有校验问题，不能应用到草稿')
+    return
+  }
+  const normalized = definitionToCanvas({
+    ...(form as unknown as AgentDefinition),
+    graphSpec: preview.graphSpec,
+    canvasJson: JSON.stringify(snapshot),
+  })
+  nodes.value = normalized.nodes
+  edges.value = normalized.edges
+  decorateEdges()
+  form.graphSpec = preview.graphSpec
+  form.canvasJson = JSON.stringify({ version: 2, nodes: nodes.value, edges: edges.value })
+  selectedNodeId.value = null
+  selectedEdgeId.value = null
+  aiEditPreview.value = null
+  aiEditInstruction.value = ''
+  pushHistorySnapshot()
+  nextTick(() => fitView({ padding: 0.2, duration: 300 }))
+  ElMessage.success('已应用 AI 修改到当前前端草稿，请检查后再保存')
+}
+
+function clearWorkflowEditPreview() {
+  aiEditPreview.value = null
+}
+
 async function handleGenerateWorkflowDraft() {
   const requirement = aiDraftRequirement.value.trim()
   if (!requirement) {
@@ -3979,6 +4506,10 @@ function handleApplyWorkflowDraft() {
     ElMessage.warning('请先生成可用的流程草稿预览')
     return
   }
+  if (preview.validationErrors?.length) {
+    ElMessage.warning('当前流程草稿仍有校验问题，不能替换画布')
+    return
+  }
   const normalized = definitionToCanvas({
     ...(form as unknown as AgentDefinition),
     graphSpec: preview.graphSpec,
@@ -4006,6 +4537,33 @@ function normalizeGeneratedCanvas(raw: unknown) {
     nodes: snapshot.nodes as CanvasNode[],
     edges: snapshot.edges as CanvasEdge[],
   }
+}
+
+function workflowEditOperationLabel(type: WorkflowDraftEditOperationType) {
+  const labels: Record<WorkflowDraftEditOperationType, string> = {
+    ADD_NODE: '新增节点',
+    UPDATE_NODE: '修改节点',
+    DELETE_NODE: '删除节点',
+    ADD_EDGE: '新增连线',
+    UPDATE_EDGE: '修改连线',
+    DELETE_EDGE: '删除连线',
+  }
+  return labels[type] || type
+}
+
+function operationKey(item: WorkflowDraftEditOperation) {
+  return `${item.type}:${item.nodeId || item.edgeId || operationTarget(item)}:${item.reason || ''}`
+}
+
+function operationTarget(item: WorkflowDraftEditOperation) {
+  const node = item.node as { id?: string; data?: { label?: string } } | undefined
+  const edge = item.edge as { id?: string; source?: string; target?: string } | undefined
+  if (item.nodeId) return item.nodeId
+  if (item.edgeId) return item.edgeId
+  if (node?.data?.label) return node.data.label
+  if (node?.id) return node.id
+  if (edge?.source || edge?.target) return `${edge?.source || '?'} -> ${edge?.target || '?'}`
+  return workflowEditOperationLabel(item.type)
 }
 
 function modelOptionLabel(item: ModelInstance) {
@@ -6015,6 +6573,181 @@ watch(
   }
 }
 
+.ai-edit-bar {
+  position: absolute;
+  right: 22px;
+  bottom: 18px;
+  left: 22px;
+  z-index: 10;
+  display: grid;
+  gap: 8px;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 10px 12px;
+  border: 1px solid rgba(79, 70, 229, 0.24);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(14px);
+}
+
+.ai-edit-context,
+.ai-edit-input-row,
+.ai-edit-preview-head,
+.ai-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-edit-context {
+  justify-content: space-between;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ai-edit-context-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ai-edit-context-left > span:last-child,
+.ai-edit-model-current {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-edit-model-trigger {
+  width: 30px;
+  height: 30px;
+  border-color: rgba(99, 102, 241, 0.24);
+  color: #4f46e5;
+  background: linear-gradient(180deg, rgba(238, 242, 255, 0.98), rgba(255, 255, 255, 0.98));
+
+  &.active {
+    border-color: rgba(79, 70, 229, 0.42);
+    box-shadow: 0 8px 18px rgba(79, 70, 229, 0.16);
+  }
+}
+
+.ai-edit-model-current {
+  max-width: 260px;
+  color: #475569;
+}
+
+.ai-edit-model-panel {
+  display: grid;
+  gap: 10px;
+
+  .el-select {
+    width: 100%;
+  }
+}
+
+.ai-edit-model-title {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.ai-edit-model-hint {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-edit-input-row {
+  .el-input {
+    flex: 1;
+  }
+}
+
+.ai-edit-preview {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.ai-edit-preview-head {
+  justify-content: space-between;
+
+  strong {
+    color: #0f172a;
+  }
+
+  span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+  }
+}
+
+.ai-edit-alert {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+
+  &.error {
+    border: 1px solid rgba(239, 68, 68, 0.28);
+    color: #991b1b;
+    background: rgba(254, 242, 242, 0.9);
+  }
+
+  &.warning {
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    color: #92400e;
+    background: rgba(255, 251, 235, 0.9);
+  }
+}
+
+.ai-edit-operation-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.ai-edit-operation-group {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.92);
+
+  strong {
+    color: #334155;
+    font-size: 12px;
+  }
+
+  span {
+    overflow: hidden;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.45;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.ai-edit-actions {
+  justify-content: flex-end;
+}
+
 .canvas-search-panel {
   position: absolute;
   top: 18px;
@@ -6678,4 +7411,125 @@ watch(
     color: #94a3b8;
   }
 }
+.eval-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.eval-panel {
+  padding: 14px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+  background: var(--el-bg-color);
+}
+
+.eval-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+
+  strong,
+  span {
+    display: block;
+  }
+
+  span {
+    margin-top: 4px;
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+  }
+}
+
+.eval-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.eval-dataset-select {
+  flex: 1;
+  min-width: 260px;
+}
+
+.eval-import-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.eval-import-actions .el-button {
+  width: 100%;
+}
+
+.eval-import-errors {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.eval-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.eval-metric {
+  padding: 12px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+  background: var(--el-fill-color-extra-light);
+
+  span,
+  strong {
+    display: block;
+  }
+
+  span {
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+  }
+
+  strong {
+    margin-top: 6px;
+    color: var(--el-text-color-primary);
+    font-size: 20px;
+  }
+}
+
+.eval-suggestion-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.eval-suggestion-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--el-fill-color-extra-light);
+
+  strong,
+  span {
+    display: block;
+  }
+
+  span {
+    margin-top: 4px;
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
 </style>

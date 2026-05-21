@@ -17,6 +17,8 @@ import type {
   PublishVersionRequest,
   WorkflowDraftGenerationRequest,
   WorkflowDraftGenerationResult,
+  WorkflowDraftEditRequest,
+  WorkflowDraftEditResult,
 } from '@/types/agent'
 import type { ChatRequest, ChatResponse } from '@/types/chat'
 
@@ -62,6 +64,10 @@ export function debugAgentWorkflowRun(data: AgentWorkflowDebugRunRequest) {
 
 export function generateWorkflowDraft(data: WorkflowDraftGenerationRequest) {
   return agentRequest.post<WorkflowDraftGenerationResult>('/api/agent/studio/generate-draft', data)
+}
+
+export function editWorkflowDraft(data: WorkflowDraftEditRequest) {
+  return agentRequest.post<WorkflowDraftEditResult>('/api/agent/studio/edit-draft', data)
 }
 
 export function executeAgent(data: ChatRequest) {
