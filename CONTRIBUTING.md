@@ -1,6 +1,6 @@
 # Contributing
 
-感谢你关注 Enterprise Agent Framework。这个项目重点关注 Java 企业系统与 AI Agent 的真实落地，欢迎提交问题、场景反馈和代码改进。
+感谢你关注睿池 ReachAI。这个项目重点关注 Java 企业系统与 AI Agent 的真实落地，欢迎提交问题、场景反馈和代码改进。
 
 ## 可以贡献什么
 

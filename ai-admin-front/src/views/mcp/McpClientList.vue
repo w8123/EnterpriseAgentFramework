@@ -149,7 +149,7 @@ const generatedApiKey = ref('')
 
 const cursorExample = computed(() => `{
   "mcpServers": {
-    "enterprise-agent-framework": {
+    "reachai": {
       "url": "${window.location.origin}/mcp/jsonrpc",
       "headers": { "Authorization": "Bearer ${generatedApiKey.value}" }
     }

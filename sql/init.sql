@@ -1,5 +1,5 @@
 -- ============================================================================
--- Enterprise Agent Framework — 首次上线统一初始化脚本
+-- 睿池 ReachAI — 首次上线统一初始化脚本
 -- 数据库：ai_text_service（ai-skills-service / ai-model-service / ai-agent-service 共用同一库）
 --
 -- 本脚本覆盖以下历史迁移（按原文件名列出）：
@@ -359,7 +359,7 @@ CREATE TABLE IF NOT EXISTS `user_file_permission` (
 
 -- Knowledge operations upgrade: enterprise scope, retrieval policy, direct return and rerank switches.
 CALL add_col_if_absent('knowledge_base', 'workspace_id', 'VARCHAR(64) NOT NULL DEFAULT ''default'' COMMENT ''workspace isolation key'' AFTER `description`');
-CALL add_col_if_absent('knowledge_base', 'project_code', 'VARCHAR(64) DEFAULT NULL COMMENT ''owning EAF project code'' AFTER `workspace_id`');
+CALL add_col_if_absent('knowledge_base', 'project_code', 'VARCHAR(64) DEFAULT NULL COMMENT ''owning ReachAI project code'' AFTER `workspace_id`');
 CALL add_col_if_absent('knowledge_base', 'scope', 'VARCHAR(20) NOT NULL DEFAULT ''WORKSPACE'' COMMENT ''SHARED / WORKSPACE / PROJECT'' AFTER `project_code`');
 CALL add_col_if_absent('knowledge_base', 'search_mode', 'VARCHAR(20) NOT NULL DEFAULT ''hybrid'' COMMENT ''vector / keyword / hybrid'' AFTER `split_type`');
 CALL add_col_if_absent('knowledge_base', 'top_k', 'INT NOT NULL DEFAULT 5 COMMENT ''default retrieval topK'' AFTER `search_mode`');

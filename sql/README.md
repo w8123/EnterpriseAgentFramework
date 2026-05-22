@@ -1,6 +1,6 @@
 # 数据库初始化脚本
 
-`sql/init.sql` 是 Enterprise Agent Framework 的唯一 SQL 基线入口，覆盖 `ai-skills-service`、`ai-model-service`、`ai-agent-service` 当前运行所需的表结构、兼容补列、兼容补索引和必要种子数据。
+`sql/init.sql` 是睿池 ReachAI 的唯一 SQL 基线入口，覆盖 `ai-skills-service`、`ai-model-service`、`ai-agent-service` 当前运行所需的表结构、兼容补列、兼容补索引和必要种子数据。
 
 历史上分散在各 service 的升级补丁 SQL 已合并进本脚本并清理。首次上线、测试环境重建、老库对齐基线，都只执行本文件。
 

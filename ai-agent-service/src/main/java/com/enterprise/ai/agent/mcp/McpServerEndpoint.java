@@ -55,7 +55,7 @@ import java.util.UUID;
 public class McpServerEndpoint {
 
     private static final String PROTOCOL_VERSION = "2024-11-05";
-    private static final String SERVER_NAME = "enterprise-agent-framework";
+    private static final String SERVER_NAME = "reachai";
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
 
     private final ObjectMapper objectMapper;

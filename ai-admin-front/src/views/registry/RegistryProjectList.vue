@@ -291,7 +291,7 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="guideDrawerVisible" title="业务系统接入指南（EAF SDK）" size="560px" destroy-on-close>
+    <el-drawer v-model="guideDrawerVisible" title="业务系统接入指南（ReachAI SDK）" size="560px" destroy-on-close>
       <div class="guide-drawer">
         <el-alert
           type="info"
@@ -588,7 +588,7 @@ watch(guideDrawerVisible, async (open) => {
   }
 })
 
-const mavenSnippet = `<!-- 与 Enterprise Agent Framework 根 pom 版本一致，或改为你们私服坐标 -->
+const mavenSnippet = `<!-- 与睿池 ReachAI 根 pom 版本一致，或改为你们私服坐标 -->
 <dependency>
   <groupId>com.enterprise.ai</groupId>
   <artifactId>ai-spring-boot-starter</artifactId>

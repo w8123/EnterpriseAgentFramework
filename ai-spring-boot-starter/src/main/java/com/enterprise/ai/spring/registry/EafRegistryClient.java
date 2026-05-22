@@ -71,7 +71,7 @@ public class EafRegistryClient {
                 descriptionSettingsHolder.update(s);
             }
         } catch (Exception ex) {
-            log.warn("[EAF Registry] capability-description-settings fetch failed, using built-in defaults: {}",
+            log.warn("[ReachAI Registry] capability-description-settings fetch failed, using built-in defaults: {}",
                     ex.toString());
             descriptionSettingsHolder.resetToBuiltInDefaults();
         }
@@ -110,7 +110,7 @@ public class EafRegistryClient {
             RuntimeGovernancePolicy policy = response == null ? null : response.policy();
             RuntimeGovernanceState state = updateGovernanceState(policy);
             if (!state.localExecutionAllowed()) {
-                log.warn("[EAF Registry] runtime local execution restricted by control plane: status={} minSdkVersion={} sdkVersionSatisfied={} message={}",
+                log.warn("[ReachAI Registry] runtime local execution restricted by control plane: status={} minSdkVersion={} sdkVersionSatisfied={} message={}",
                         state.status(), state.minSdkVersion(), state.sdkVersionSatisfied(), state.message());
             }
         } catch (Exception ex) {
@@ -254,11 +254,11 @@ public class EafRegistryClient {
             if (body != null && body.length() > 800) {
                 body = body.substring(0, 800) + "...";
             }
-            log.warn("[EAF Registry] {} failed project={} registryUrl={} httpStatus={} responseBody={}",
+            log.warn("[ReachAI Registry] {} failed project={} registryUrl={} httpStatus={} responseBody={}",
                     phase, code, base, rre.getStatusCode().value(), body);
             return;
         }
-        log.warn("[EAF Registry] {} failed project={} registryUrl={}: {}",
+        log.warn("[ReachAI Registry] {} failed project={} registryUrl={}: {}",
                 phase, code, base, ex.toString());
     }
 

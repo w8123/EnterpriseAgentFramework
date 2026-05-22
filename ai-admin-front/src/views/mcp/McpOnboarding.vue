@@ -81,7 +81,7 @@ const manifestUrl = `${origin}/mcp/manifest`
 
 const cursorExample = computed(() => `{
   "mcpServers": {
-    "enterprise-agent-framework": {
+    "reachai": {
       "url": "${jsonrpcUrl}",
       "headers": { "Authorization": "Bearer YOUR_API_KEY" }
     }
@@ -90,7 +90,7 @@ const cursorExample = computed(() => `{
 
 const claudeExample = computed(() => `{
   "mcpServers": {
-    "enterprise-agent-framework": {
+    "reachai": {
       "command": "mcp-proxy",
       "args": ["--http", "${jsonrpcUrl}", "--header", "Authorization=Bearer YOUR_API_KEY"]
     }

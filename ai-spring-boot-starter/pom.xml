@@ -12,7 +12,7 @@
 
     <artifactId>ai-spring-boot-starter</artifactId>
     <name>AI Spring Boot Starter</name>
-    <description>业务系统接入 Enterprise Agent Framework 的注册中心 Starter</description>
+    <description>业务系统接入睿池 ReachAI 的注册中心 Starter</description>
 
     <dependencies>
         <dependency>

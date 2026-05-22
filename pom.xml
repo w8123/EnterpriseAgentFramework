@@ -9,7 +9,7 @@
     <version>1.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
-    <name>Enterprise Agent Framework</name>
+    <name>睿池 ReachAI</name>
     <description>企业级 AI Agent 基础设施平台 — 统一 Agent 编排、RAG 引擎、模型网关</description>
 
     <modules>

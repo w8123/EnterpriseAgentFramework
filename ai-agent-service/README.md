@@ -1,6 +1,6 @@
 # ai-agent-service
 
-Enterprise Agent Framework 的智能体编排服务，负责意图识别、AgentScope 编排、动态 Tool 注册与最小安全降级。
+睿池 ReachAI 的智能体编排服务，负责意图识别、AgentScope 编排、动态 Tool 注册与最小安全降级。
 
 ## 定位
 
