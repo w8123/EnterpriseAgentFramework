@@ -53,6 +53,26 @@ export const STUDIO_NODE_REGISTRY: Record<CanvasNodeKind, StudioNodeRegistryItem
     category: 'flow',
     color: { bg: '#ecfdf5', border: '#10b981' },
   },
+  interaction: {
+    kind: 'interaction',
+    label: '交互节点',
+    defaultLabel: '智能交互',
+    meta: '输入/输出',
+    hint: '采集缺失参数、渲染业务结果或让用户选择确认，运行时写入结构化输出。',
+    group: STUDIO_NODE_GROUPS[1].title,
+    category: 'flow',
+    color: { bg: '#f0fdfa', border: '#14b8a6' },
+  },
+  pageAction: {
+    kind: 'pageAction',
+    label: '页面动作',
+    defaultLabel: '页面动作',
+    meta: '前端联动',
+    hint: '向宿主业务页面发起受控动作请求，例如打开详情、定位列表或刷新模块。',
+    group: STUDIO_NODE_GROUPS[2].title,
+    category: 'integration',
+    color: { bg: '#f5f3ff', border: '#8b5cf6' },
+  },
   llm: {
     kind: 'llm',
     label: '大模型节点',
@@ -201,7 +221,7 @@ export const STUDIO_NODE_REGISTRY: Record<CanvasNodeKind, StudioNodeRegistryItem
     defaultLabel: '接口请求',
     meta: '接口',
     hint: '调用外部 HTTP API，并把响应写回流程变量。',
-    group: '集成与检索',
+    group: STUDIO_NODE_GROUPS[2].title,
     category: 'integration',
     color: { bg: '#eff6ff', border: '#2563eb' },
     retryable: true,
@@ -270,7 +290,7 @@ export function enabledStudioNodeKinds(
   descriptors: AgentGraphNodeTypeDescriptor[],
   capabilityLoaded: boolean,
 ) {
-  const builtIn = new Set<CanvasNodeKind>(['start', 'end'])
+  const builtIn = new Set<CanvasNodeKind>(['start', 'end', 'pageAction'])
   if (!capabilityLoaded || descriptors.length === 0) {
     return new Set(Object.keys(STUDIO_NODE_REGISTRY) as CanvasNodeKind[])
   }

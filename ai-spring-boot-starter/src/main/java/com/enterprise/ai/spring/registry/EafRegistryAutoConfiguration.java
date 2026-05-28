@@ -62,8 +62,31 @@ public class EafRegistryAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public EafAgentClient eafAgentClient(EafRegistryProperties properties) {
-        return new EafAgentClient(properties);
+    public EafAgentClient eafAgentClient(EafRegistryProperties properties,
+                                         ObjectProvider<EafCurrentUserProvider> currentUserProvider) {
+        return new EafAgentClient(properties, currentUserProvider.getIfAvailable());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public EafIdentityClient eafIdentityClient(EafRegistryClient registryClient) {
+        return new EafIdentityClient(registryClient);
+    }
+
+    @Bean
+    @ConditionalOnBean(EafCurrentUserProvider.class)
+    @ConditionalOnMissingBean
+    public EafEmbedTokenService eafEmbedTokenService(EafRegistryProperties properties,
+                                                     EafCurrentUserProvider currentUserProvider,
+                                                     EafRegistryClient registryClient) {
+        return new EafEmbedTokenService(properties, currentUserProvider, registryClient);
+    }
+
+    @Bean
+    @ConditionalOnBean(EafEmbedTokenService.class)
+    @ConditionalOnMissingBean
+    public EafEmbedTokenEndpoint eafEmbedTokenEndpoint(EafEmbedTokenService service) {
+        return new EafEmbedTokenEndpoint(service);
     }
 
     @Bean

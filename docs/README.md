@@ -12,7 +12,7 @@
 
 - 项目与能力注册中心：业务系统可通过 `ai-spring-boot-starter` 主动注册项目、实例、能力和 SDK 图。
 - 能力资产治理：`tool_definition` 统一承载 Tool 与粗粒度 Capability，扫描接入和 SDK 注册都进入同一资产目录。
-- Agent Studio 与 Runtime：Agent 定义、GraphSpec、版本发布、评测、运行时选择和节点级调试都在平台中闭环。
+- Agent Studio 与 Runtime：Agent 定义、GraphSpec、交互式节点、会话式调试台、版本发布、评测、运行时选择和节点级调试都在平台中闭环。
 - 运行治理与开放协议：RunOps、Trace、Tool ACL、Guard 决策、MCP、A2A 和 Gateway 共同承担生产运行边界。
 - 企业资产底座：模型实例、知识库、业务索引、领域归属和市场资产为 Agent 提供可复用上下文。
 
@@ -22,7 +22,7 @@
 | --- | --- |
 | [01-平台定位与架构总览.md](./01-平台定位与架构总览.md) | 系统现在是什么、有哪些服务、管理端有哪些页面、统一 SQL 基线覆盖什么 |
 | [02-项目注册与能力资产.md](./02-项目注册与能力资产.md) | 业务系统如何接入，扫描、SDK 注册、能力同步、Tool/Capability 资产如何落库 |
-| [03-Agent-Studio与Runtime.md](./03-Agent-Studio与Runtime.md) | Agent Studio、GraphSpec、发布、评测、多 Runtime、变量映射如何工作 |
+| [03-Agent-Studio与Runtime.md](./03-Agent-Studio与Runtime.md) | Agent Studio、GraphSpec、交互式节点、会话式调试、发布、评测、多 Runtime、变量映射如何工作 |
 | [04-运行治理与开放协议.md](./04-运行治理与开放协议.md) | Trace、RunOps、ACL、Guard、MCP、A2A、Gateway 如何保护和开放能力 |
 | [05-知识模型与企业资产.md](./05-知识模型与企业资产.md) | 模型实例、知识库、业务索引、领域、市场资产如何被 Agent 使用 |
 

@@ -2,6 +2,7 @@ package com.enterprise.ai.agent.mcp;
 
 import com.enterprise.ai.agent.acl.ToolAclDecision;
 import com.enterprise.ai.agent.acl.ToolAclService;
+import com.enterprise.ai.agent.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.tools.ToolRegistry;
 import com.enterprise.ai.skill.AiTool;
 import com.enterprise.ai.skill.ToolParameter;
@@ -64,6 +65,7 @@ public class McpServerEndpoint {
     private final McpCallLogMapper callLogMapper;
     private final ToolRegistry toolRegistry;
     private final ToolAclService toolAclService;
+    private final GuardDecisionLogService guardDecisionLogService;
 
     @GetMapping(value = "/manifest", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> manifest() {
@@ -118,7 +120,7 @@ public class McpServerEndpoint {
                     Map<String, Object> argsMap = (args instanceof Map<?, ?> m)
                             ? objectMapper.convertValue(m, MAP_TYPE)
                             : Map.of();
-                    response = success(id, doToolCall(client, toolName, argsMap));
+                    response = success(id, doToolCall(client, toolName, argsMap, traceId));
                     ok = true;
                 }
                 default -> response = error(id, -32601, "method not found: " + method);
@@ -196,23 +198,27 @@ public class McpServerEndpoint {
         };
     }
 
-    private Map<String, Object> doToolCall(McpClientEntity client, String toolName, Map<String, Object> args) {
+    private Map<String, Object> doToolCall(McpClientEntity client, String toolName, Map<String, Object> args, String traceId) {
         if (toolName == null || toolName.isBlank()) {
             throw new IllegalArgumentException("missing tool name");
         }
         if (!visibilityService.isExposed(toolName)) {
+            recordMcpToolAccessDeny(client, toolName, "NOT_EXPOSED", traceId);
             throw new IllegalStateException("tool not exposed via MCP: " + toolName);
         }
         List<String> whitelist = clientService.toolWhitelistOf(client);
         if (whitelist != null && !whitelist.isEmpty() && !whitelist.contains(toolName)) {
+            recordMcpToolAccessDeny(client, toolName, "CLIENT_WHITELIST", traceId);
             throw new IllegalStateException("tool not in client whitelist: " + toolName);
         }
         if (!toolRegistry.contains(toolName)) {
+            recordMcpToolAccessDeny(client, toolName, "UNKNOWN_TOOL", traceId);
             throw new IllegalArgumentException("unknown tool: " + toolName);
         }
         List<String> roles = clientService.rolesOf(client);
         ToolAclDecision decision = toolAclService.decide(roles, toolName, toolRegistry.isSkill(toolName), client.getProjectCode());
         if (decision == ToolAclDecision.DENY_EXPLICIT || decision == ToolAclDecision.DENY_NO_MATCH) {
+            recordToolAclDeny(client, toolName, roles, toolRegistry.isSkill(toolName), decision, traceId);
             throw new IllegalStateException("ACL denied: " + decision);
         }
         Object result = toolRegistry.execute(toolName, args == null ? Map.of() : args);
@@ -220,6 +226,53 @@ public class McpServerEndpoint {
         content.put("type", "text");
         content.put("text", result == null ? "" : String.valueOf(result));
         return Map.of("content", List.of(content), "isError", false);
+    }
+
+    private void recordToolAclDeny(McpClientEntity client,
+                                   String toolName,
+                                   List<String> roles,
+                                   boolean isSkill,
+                                   ToolAclDecision decision,
+                                   String traceId) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("decisionType", "TOOL_ACL");
+        metadata.put("protocol", "MCP");
+        metadata.put("clientId", client.getId());
+        metadata.put("clientName", client.getName());
+        metadata.put("projectCode", client.getProjectCode());
+        metadata.put("tenantId", client.getTenantId());
+        metadata.put("roles", roles);
+        metadata.put("targetKind", isSkill ? "SKILL" : "TOOL");
+        metadata.put("targetName", toolName);
+        metadata.put("reason", decision.name());
+        guardDecisionLogService.record(
+                traceId,
+                "TOOL_ACL",
+                isSkill ? "SKILL" : "TOOL",
+                toolName,
+                "DENY",
+                decision.name(),
+                metadata);
+    }
+
+    private void recordMcpToolAccessDeny(McpClientEntity client, String toolName, String reason, String traceId) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("decisionType", "MCP_TOOL_ACCESS");
+        metadata.put("protocol", "MCP");
+        metadata.put("clientId", client.getId());
+        metadata.put("clientName", client.getName());
+        metadata.put("projectCode", client.getProjectCode());
+        metadata.put("tenantId", client.getTenantId());
+        metadata.put("targetName", toolName);
+        metadata.put("reason", reason);
+        guardDecisionLogService.record(
+                traceId,
+                "MCP_TOOL_ACCESS",
+                "TOOL",
+                toolName,
+                "DENY",
+                reason,
+                metadata);
     }
 
     private void persistLog(McpClientEntity client, String method, String toolName, boolean success,

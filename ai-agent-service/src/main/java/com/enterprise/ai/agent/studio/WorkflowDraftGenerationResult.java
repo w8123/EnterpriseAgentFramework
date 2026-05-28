@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.studio;
 
-import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpec;
 
 import java.util.List;
 import java.util.Map;
@@ -8,7 +8,7 @@ import java.util.Map;
 public record WorkflowDraftGenerationResult(
         String provider,
         Map<String, Object> canvasSnapshot,
-        AgentGraphSpec graphSpec,
+        GraphSpec graphSpec,
         List<String> warnings,
         List<WorkflowDraftPlaceholder> placeholderNodes,
         List<String> validationErrors) {

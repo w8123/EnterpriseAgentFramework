@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.studio;
 
-import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.llm.LlmService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -165,7 +165,7 @@ class LlmWorkflowDraftGeneratorTest {
 
         assertFalse(result.placeholderNodes().isEmpty());
         assertEquals("archive_contract", result.placeholderNodes().get(0).nodeId());
-        AgentGraphSpec.Node placeholder = result.graphSpec().getNodes().stream()
+        GraphSpec.Node placeholder = result.graphSpec().getNodes().stream()
                 .filter(node -> "archive_contract".equals(node.getId()))
                 .findFirst()
                 .orElseThrow();

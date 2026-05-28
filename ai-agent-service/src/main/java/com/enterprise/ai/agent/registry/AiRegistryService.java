@@ -8,7 +8,7 @@ import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.agent.CapabilityReference;
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
-import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.runtime.AgentRuntimeAdapter;
 import com.enterprise.ai.agent.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.scan.ScanProjectMapper;
@@ -369,7 +369,7 @@ public class AiRegistryService {
         int updated = 0;
         List<AgentGraphSyncItem> items = new ArrayList<>();
         for (AgentGraphRegistration graph : graphs) {
-            AgentGraphSpec spec = requireGraphSpec(graph);
+            GraphSpec spec = requireGraphSpec(graph);
             String graphCode = normalizeGraphCode(firstText(graph.code(), spec.getCode()));
             String keySlug = agentKeySlug(project.getProjectCode(), graphCode);
             AgentDefinition existing = agentDefinitionService.findByKeySlug(keySlug).orElse(null);
@@ -393,7 +393,7 @@ public class AiRegistryService {
 
     private AgentDefinition upsertSdkAgentGraph(ScanProjectEntity project,
                                                 AgentGraphRegistration registration,
-                                                AgentGraphSpec spec,
+                                                GraphSpec spec,
                                                 String graphCode,
                                                 String keySlug,
                                                 String syncId,
@@ -463,11 +463,11 @@ public class AiRegistryService {
         return agentDefinitionService.update(existing.getId(), draft);
     }
 
-    private AgentGraphSpec requireGraphSpec(AgentGraphRegistration graph) {
+    private GraphSpec requireGraphSpec(AgentGraphRegistration graph) {
         if (graph == null || graph.graphSpec() == null) {
             throw new IllegalArgumentException("SDK Agent Graph 缺少 graphSpec");
         }
-        AgentGraphSpec spec = graph.graphSpec();
+        GraphSpec spec = graph.graphSpec();
         if (spec.getNodes() == null || spec.getNodes().isEmpty()) {
             throw new IllegalArgumentException("SDK Agent Graph 缺少 nodes");
         }
@@ -479,7 +479,7 @@ public class AiRegistryService {
         return spec;
     }
 
-    private void normalizeGraphSpec(AgentGraphRegistration registration, AgentGraphSpec spec, String graphCode) {
+    private void normalizeGraphSpec(AgentGraphRegistration registration, GraphSpec spec, String graphCode) {
         if (!StringUtils.hasText(spec.getCode())) {
             spec.setCode(graphCode);
         }
@@ -501,14 +501,14 @@ public class AiRegistryService {
         normalizeIntentClassifierRoutes(spec);
     }
 
-    private void normalizeIntentClassifierRoutes(AgentGraphSpec spec) {
+    private void normalizeIntentClassifierRoutes(GraphSpec spec) {
         if (spec == null || spec.getNodes() == null) {
             return;
         }
-        Map<String, AgentGraphSpec.Node> nodeById = spec.getNodes().stream()
+        Map<String, GraphSpec.Node> nodeById = spec.getNodes().stream()
                 .filter(node -> StringUtils.hasText(node.getId()))
-                .collect(Collectors.toMap(AgentGraphSpec.Node::getId, node -> node, (left, right) -> left, LinkedHashMap::new));
-        for (AgentGraphSpec.Node node : spec.getNodes()) {
+                .collect(Collectors.toMap(GraphSpec.Node::getId, node -> node, (left, right) -> left, LinkedHashMap::new));
+        for (GraphSpec.Node node : spec.getNodes()) {
             if ("INTENT_CLASSIFIER".equalsIgnoreCase(node.getType())) {
                 node.setOutputs(intentClassifierPorts(node));
             }
@@ -516,8 +516,8 @@ public class AiRegistryService {
         if (spec.getEdges() == null) {
             return;
         }
-        for (AgentGraphSpec.Edge edge : spec.getEdges()) {
-            AgentGraphSpec.Node source = nodeById.get(edge.getFrom());
+        for (GraphSpec.Edge edge : spec.getEdges()) {
+            GraphSpec.Node source = nodeById.get(edge.getFrom());
             if (source == null || !"INTENT_CLASSIFIER".equalsIgnoreCase(source.getType())) {
                 continue;
             }
@@ -535,9 +535,9 @@ public class AiRegistryService {
         }
     }
 
-    private List<AgentGraphSpec.Port> intentClassifierPorts(AgentGraphSpec.Node node) {
+    private List<GraphSpec.Port> intentClassifierPorts(GraphSpec.Node node) {
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
-        List<AgentGraphSpec.Port> ports = new ArrayList<>();
+        List<GraphSpec.Port> ports = new ArrayList<>();
         Set<String> seen = new java.util.LinkedHashSet<>();
         Object classes = config.get("classes");
         if (classes instanceof List<?> classList) {
@@ -560,8 +560,8 @@ public class AiRegistryService {
         return ports.isEmpty() ? List.of(intentClassifierPort("else", "else")) : ports;
     }
 
-    private AgentGraphSpec.Port intentClassifierPort(String id, String name) {
-        return AgentGraphSpec.Port.builder()
+    private GraphSpec.Port intentClassifierPort(String id, String name) {
+        return GraphSpec.Port.builder()
                 .id(id)
                 .name(name)
                 .type("boolean")
@@ -569,7 +569,7 @@ public class AiRegistryService {
                 .build();
     }
 
-    private String intentClassifierDefaultRoute(AgentGraphSpec.Node node) {
+    private String intentClassifierDefaultRoute(GraphSpec.Node node) {
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
         return firstText(stringValue(config.get("defaultRoute")), "else");
     }
@@ -597,12 +597,12 @@ public class AiRegistryService {
         return "route:" + trimmed;
     }
 
-    private String canvasJsonFromGraphSpec(AgentGraphSpec spec) {
+    private String canvasJsonFromGraphSpec(GraphSpec spec) {
         List<Map<String, Object>> nodes = new ArrayList<>();
         List<Map<String, Object>> edges = new ArrayList<>();
         nodes.add(canvasNode("start", "start", 60, 220, Map.of("label", "开始", "kind", "start")));
         int index = 0;
-        for (AgentGraphSpec.Node graphNode : spec.getNodes() == null ? List.<AgentGraphSpec.Node>of() : spec.getNodes()) {
+        for (GraphSpec.Node graphNode : spec.getNodes() == null ? List.<GraphSpec.Node>of() : spec.getNodes()) {
             String kind = canvasKind(graphNode);
             Map<String, Object> config = graphNode.getConfig() == null ? Map.of() : graphNode.getConfig();
             Map<String, Object> data = new LinkedHashMap<>();
@@ -642,7 +642,7 @@ public class AiRegistryService {
         }
         nodes.add(canvasNode("end", "end", 260 + (Math.max(index, 1) * 220), 220, Map.of("label", "结束", "kind", "end")));
         int edgeIndex = 0;
-        for (AgentGraphSpec.Edge graphEdge : spec.getEdges() == null ? List.<AgentGraphSpec.Edge>of() : spec.getEdges()) {
+        for (GraphSpec.Edge graphEdge : spec.getEdges() == null ? List.<GraphSpec.Edge>of() : spec.getEdges()) {
             String source = canvasEndpoint(graphEdge.getFrom());
             String target = canvasEndpoint(graphEdge.getTo());
             String condition = firstText(graphEdge.getCondition(), "always");
@@ -732,8 +732,8 @@ public class AiRegistryService {
         }
     }
 
-    private int canvasPosition(AgentGraphSpec.Node node, Map<String, Object> config, String axis, int fallback) {
-        AgentGraphSpec.Layout.NodeLayout layout = node.getLayout();
+    private int canvasPosition(GraphSpec.Node node, Map<String, Object> config, String axis, int fallback) {
+        GraphSpec.Layout.NodeLayout layout = node.getLayout();
         if (layout != null) {
             Double value = "x".equals(axis) ? layout.getX() : layout.getY();
             if (value != null) {
@@ -786,7 +786,7 @@ public class AiRegistryService {
         return node;
     }
 
-    private String canvasKind(AgentGraphSpec.Node node) {
+    private String canvasKind(GraphSpec.Node node) {
         if (node == null || !StringUtils.hasText(node.getType())) {
             return "tool";
         }
@@ -805,11 +805,11 @@ public class AiRegistryService {
         return endpoint;
     }
 
-    private String modelInstanceIdFromGraph(AgentGraphSpec spec) {
+    private String modelInstanceIdFromGraph(GraphSpec spec) {
         if (spec == null || spec.getNodes() == null) {
             return null;
         }
-        for (AgentGraphSpec.Node node : spec.getNodes()) {
+        for (GraphSpec.Node node : spec.getNodes()) {
             if (!"LLM".equalsIgnoreCase(node.getType()) || node.getConfig() == null) {
                 continue;
             }
@@ -821,7 +821,7 @@ public class AiRegistryService {
         return null;
     }
 
-    private List<String> toolNames(AgentGraphSpec spec, String type) {
+    private List<String> toolNames(GraphSpec spec, String type) {
         return spec.getNodes() == null ? List.of() : spec.getNodes().stream()
                 .filter(node -> type.equalsIgnoreCase(node.getType()))
                 .map(node -> node.getRef() == null ? null : firstText(node.getRef().getName(), node.getRef().getQualifiedName()))
@@ -830,10 +830,10 @@ public class AiRegistryService {
                 .toList();
     }
 
-    private List<CapabilityReference> capabilityRefs(AgentGraphSpec spec, String type) {
+    private List<CapabilityReference> capabilityRefs(GraphSpec spec, String type) {
         return spec.getNodes() == null ? List.of() : spec.getNodes().stream()
                 .filter(node -> type.equalsIgnoreCase(node.getType()))
-                .map(AgentGraphSpec.Node::getRef)
+                .map(GraphSpec.Node::getRef)
                 .filter(Objects::nonNull)
                 .map(ref -> CapabilityReference.builder()
                         .kind("CAPABILITY".equalsIgnoreCase(type) ? "SKILL" : "TOOL")
@@ -845,16 +845,16 @@ public class AiRegistryService {
                 .toList();
     }
 
-    private String firstExecutableNodeId(AgentGraphSpec spec) {
+    private String firstExecutableNodeId(GraphSpec spec) {
         return spec.getNodes().stream()
-                .map(AgentGraphSpec.Node::getId)
+                .map(GraphSpec.Node::getId)
                 .filter(StringUtils::hasText)
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("SDK Agent Graph 缺少可执行节点"));
     }
 
-    private String lastExecutableNodeId(AgentGraphSpec spec) {
-        List<AgentGraphSpec.Node> nodes = spec.getNodes();
+    private String lastExecutableNodeId(GraphSpec spec) {
+        List<GraphSpec.Node> nodes = spec.getNodes();
         for (int i = nodes.size() - 1; i >= 0; i--) {
             String id = nodes.get(i).getId();
             if (StringUtils.hasText(id)) {

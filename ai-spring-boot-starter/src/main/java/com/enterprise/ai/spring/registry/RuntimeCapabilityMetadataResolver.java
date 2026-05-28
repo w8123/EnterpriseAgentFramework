@@ -2,6 +2,7 @@ package com.enterprise.ai.spring.registry;
 
 import com.enterprise.ai.skill.AiCapability;
 import com.enterprise.ai.skill.AiParam;
+import com.enterprise.ai.skill.annotation.AiTool;
 import org.springframework.core.MethodParameter;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -32,6 +33,17 @@ public class RuntimeCapabilityMetadataResolver {
         if (cap != null && StringUtils.hasText(cap.description())) {
             return cap.description().trim();
         }
+        return resolveMethodDescriptionFallback(method);
+    }
+
+    public String resolveMethodDescription(Method method, AiTool tool) {
+        if (tool != null && StringUtils.hasText(tool.description())) {
+            return tool.description().trim();
+        }
+        return resolveMethodDescriptionFallback(method);
+    }
+
+    private String resolveMethodDescriptionFallback(Method method) {
         for (String key : effectiveDescOrder()) {
             switch (normalizeKey(key)) {
                 case "SWAGGER_API_OPERATION" -> {
@@ -60,6 +72,17 @@ public class RuntimeCapabilityMetadataResolver {
         if (cap != null && StringUtils.hasText(cap.title())) {
             return cap.title().trim();
         }
+        return resolveMethodTitleFallback(method);
+    }
+
+    public String resolveMethodTitle(Method method, AiTool tool) {
+        if (tool != null && StringUtils.hasText(tool.title())) {
+            return tool.title().trim();
+        }
+        return resolveMethodTitleFallback(method);
+    }
+
+    private String resolveMethodTitleFallback(Method method) {
         Optional<String> sum = openApiSummary(method);
         if (sum.isPresent()) {
             return sum.get();

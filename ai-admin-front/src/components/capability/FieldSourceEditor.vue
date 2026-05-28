@@ -115,8 +115,8 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { FieldOptionSpec, FieldSourceKind, FieldSourceSpec } from '@/types/capability'
-import { emptyFieldSource, FIELD_SOURCE_KIND_OPTIONS } from '@/types/capability'
+import type { FieldOptionSpec, FieldSourceKind, FieldSourceSpec } from '@/types/composition'
+import { emptyFieldSource, FIELD_SOURCE_KIND_OPTIONS } from '@/types/composition'
 import type { ToolInfo } from '@/types/tool'
 
 const props = withDefaults(

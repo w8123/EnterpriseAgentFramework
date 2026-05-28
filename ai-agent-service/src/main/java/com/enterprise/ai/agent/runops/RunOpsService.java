@@ -6,7 +6,7 @@ import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.agent.persist.AgentVersionEntity;
 import com.enterprise.ai.agent.agent.persist.AgentVersionMapper;
 import com.enterprise.ai.agent.agentscope.AgentRouter;
-import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.governance.GuardDecisionLogEntity;
 import com.enterprise.ai.agent.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.model.AgentResult;
@@ -559,7 +559,7 @@ public class RunOpsService {
         return merged;
     }
 
-    private List<WorkflowPathItem> workflowPath(List<SpanView> spans, AgentGraphSpec spec) {
+    private List<WorkflowPathItem> workflowPath(List<SpanView> spans, GraphSpec spec) {
         if (spans == null || spans.isEmpty()) {
             return List.of();
         }
@@ -574,7 +574,7 @@ public class RunOpsService {
         for (int i = 0; i < nodeSpans.size(); i++) {
             SpanView current = nodeSpans.get(i);
             SpanView next = i + 1 < nodeSpans.size() ? nodeSpans.get(i + 1) : null;
-            AgentGraphSpec.Edge edge = next == null ? null : findGraphEdge(spec, current.nodeId(), next.nodeId());
+            GraphSpec.Edge edge = next == null ? null : findGraphEdge(spec, current.nodeId(), next.nodeId());
             path.add(new WorkflowPathItem(
                     current.nodeId(),
                     next == null ? null : next.nodeId(),
@@ -590,7 +590,7 @@ public class RunOpsService {
         return path;
     }
 
-    private AgentGraphSpec.Edge findGraphEdge(AgentGraphSpec spec, String from, String to) {
+    private GraphSpec.Edge findGraphEdge(GraphSpec spec, String from, String to) {
         if (spec == null || spec.getEdges() == null || !StringUtils.hasText(from) || !StringUtils.hasText(to)) {
             return null;
         }

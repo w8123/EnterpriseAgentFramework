@@ -146,7 +146,7 @@ import {
   listDomains,
 } from '@/api/domain'
 import { getTools } from '@/api/tool'
-import { listCapabilities } from '@/api/capability'
+import { listCompositions } from '@/api/composition'
 import type {
   DomainAssignment,
   DomainCoverageRow,
@@ -167,7 +167,7 @@ interface Candidate {
 }
 
 const tools = ref<Candidate[]>([])
-const capabilityCandidates = ref<Candidate[]>([])
+const compositionCandidates = ref<Candidate[]>([])
 const targetKind = ref<'TOOL' | 'SKILL'>('TOOL')
 const searchText = ref('')
 const checked = ref<Candidate[]>([])
@@ -179,7 +179,7 @@ async function reload() {
       listDomains(),
       getDomainCoverage(),
       getTools({ current: 1, size: 500 }),
-      listCapabilities({ current: 1, size: 500 }),
+      listCompositions({ current: 1, size: 500 }),
     ])
     domains.value = d.data ?? []
     const m: Record<string, DomainCoverageRow> = {}
@@ -190,7 +190,7 @@ async function reload() {
       description: row.description ?? row.aiDescription,
       domains: [],
     }))
-    capabilityCandidates.value = (s.data?.records ?? []).map((row: any) => ({
+    compositionCandidates.value = (s.data?.records ?? []).map((row: any) => ({
       name: row.name,
       description: row.description,
       domains: [],
@@ -210,7 +210,7 @@ async function loadAssignments(code: string) {
   // 把"已挂到当前领域"的标记同步到候选列表，便于直观判断
   const set = new Set(assignments.value.map((a) => `${a.targetKind}:${a.targetName}`))
   for (const t of tools.value) t.domains = set.has(`TOOL:${t.name}`) ? [code] : []
-  for (const s of capabilityCandidates.value) s.domains = set.has(`SKILL:${s.name}`) ? [code] : []
+  for (const s of compositionCandidates.value) s.domains = set.has(`SKILL:${s.name}`) ? [code] : []
 }
 
 function selectDomain(code: string) {
@@ -219,7 +219,7 @@ function selectDomain(code: string) {
 }
 
 const candidates = computed<Candidate[]>(() =>
-  targetKind.value === 'TOOL' ? tools.value : capabilityCandidates.value,
+  targetKind.value === 'TOOL' ? tools.value : compositionCandidates.value,
 )
 
 const filteredCandidates = computed<Candidate[]>(() => {

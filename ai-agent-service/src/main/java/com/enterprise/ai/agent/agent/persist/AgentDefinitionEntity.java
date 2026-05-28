@@ -38,6 +38,9 @@ public class AgentDefinitionEntity {
     /** 可见性：PRIVATE / PROJECT / SHARED / PUBLIC。 */
     private String visibility;
 
+    /** Business runtime role allow-list JSON. Empty/null means unrestricted. */
+    private String allowedRolesJson;
+
     private String intentType;
 
     private String systemPrompt;

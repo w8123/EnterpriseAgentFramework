@@ -2,6 +2,8 @@ export type CanvasNodeKind =
   | 'start'
   | 'end'
   | 'userInput'
+  | 'interaction'
+  | 'pageAction'
   | 'llm'
   | 'skill'
   | 'tool'
@@ -39,11 +41,31 @@ export type ConditionOperator =
 
 export interface StudioFieldSchema {
   name: string
+  key?: string
   type: FieldType
   required?: boolean
   description?: string
   defaultValue?: string
   source?: string
+  targetPath?: string
+  component?: string
+  datasource?: string
+  options?: Array<{ label: string; value: string | number | boolean }>
+  slotFilling?: StudioSlotFillingConfig
+}
+
+export type StudioSlotFillingStrategy = 'USER_INPUT' | 'RULE' | 'LLM' | 'DICTIONARY'
+export type StudioSlotConfirmPolicy = 'NEVER' | 'LOW_CONFIDENCE' | 'ALWAYS'
+
+export interface StudioSlotFillingConfig {
+  enabled: boolean
+  strategies: StudioSlotFillingStrategy[]
+  confirmPolicy: StudioSlotConfirmPolicy
+  confidenceThreshold: number
+  llmPrompt?: string
+  modelInstanceId?: string
+  patterns?: string[]
+  dictionaryValues?: string[]
 }
 
 export interface StudioPort {
@@ -146,6 +168,65 @@ export interface UserInputNodeConfig {
   outputAlias: string
 }
 
+export type InteractionNodeType = 'COLLECT_INPUT' | 'PRESENT_OUTPUT' | 'USER_CHOICE' | 'CONFIRM_ACTION' | 'REVIEW_EDIT'
+export type InteractionBindingSourceKind = 'NONE' | 'TOOL' | 'COMPOSITION' | 'API'
+
+export interface InteractionBindingConfig {
+  sourceKind: InteractionBindingSourceKind
+  ref?: string
+  qualifiedName?: string | null
+  projectCode?: string | null
+  projectId?: number | null
+  apiNodeId?: number | null
+  apiMethod?: string | null
+  apiPath?: string | null
+  generatedFrom?: string
+  autoCreateCallNode?: boolean
+  autoCreateDisplayNode?: boolean
+  callNodeId?: string
+  displayNodeId?: string
+}
+
+export interface InteractionCallNodeRequest {
+  sourceKind: InteractionBindingSourceKind
+  ref: string
+  qualifiedName?: string | null
+  projectCode?: string | null
+  projectId?: number | null
+  visibility?: string | null
+  apiMethod?: string | null
+  apiPath?: string | null
+  responseType?: string | null
+  autoCreateDisplayNode?: boolean
+  label?: string
+  description?: string
+  outputAlias: string
+  inputMapping: Record<string, string>
+}
+
+export interface InteractionNodeConfig {
+  interactionType: InteractionNodeType
+  qualifiedName?: string
+  binding?: InteractionBindingConfig
+  title: string
+  component: 'FORM' | 'DETAIL' | 'TABLE' | 'CARD' | 'REPORT' | 'CUSTOM'
+  fields: StudioFieldSchema[]
+  dataExpression?: string
+  outputAlias: string
+  dataSources?: Record<string, unknown>
+  behavior?: Record<string, unknown>
+  renderSchema?: Record<string, unknown>
+}
+
+export interface PageActionNodeConfig {
+  actionKey: string
+  title: string
+  confirm: boolean
+  args: Record<string, string>
+  outputAlias: string
+  metadata?: Record<string, unknown>
+}
+
 export interface AnswerNodeConfig {
   template: string
 }
@@ -226,6 +307,7 @@ export interface ToolNodeConfig {
   projectCode?: string | null
   visibility?: string | null
   credentialRef?: string
+  maxRequestTimeMs?: number
   inputMapping: Record<string, string>
   mappingNote?: string
 }
@@ -250,6 +332,8 @@ export interface CanvasNodeData {
   needsConfiguration?: boolean
   placeholderReason?: string
   userInputConfig?: UserInputNodeConfig
+  interactionConfig?: InteractionNodeConfig
+  pageActionConfig?: PageActionNodeConfig
   llmConfig?: LlmNodeConfig
   knowledgeConfig?: KnowledgeNodeConfig
   httpConfig?: HttpNodeConfig

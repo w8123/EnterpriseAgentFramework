@@ -3,7 +3,7 @@ package com.enterprise.ai.agent.agent;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.agent.agent.persist.AgentDefinitionEntity;
 import com.enterprise.ai.agent.agent.persist.AgentDefinitionMapper;
-import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -154,6 +154,7 @@ public class AgentDefinitionService {
         if (update.getProjectId() != null) current.setProjectId(update.getProjectId());
         if (update.getProjectCode() != null) current.setProjectCode(update.getProjectCode());
         if (update.getVisibility() != null) current.setVisibility(update.getVisibility());
+        if (update.getAllowedRoles() != null) current.setAllowedRoles(update.getAllowedRoles());
         if (update.getIntentType() != null) current.setIntentType(update.getIntentType());
         if (update.getSystemPrompt() != null) current.setSystemPrompt(update.getSystemPrompt());
         if (update.getTools() != null) current.setTools(update.getTools());
@@ -328,6 +329,7 @@ public class AgentDefinitionService {
                 .projectId(e.getProjectId())
                 .projectCode(e.getProjectCode())
                 .visibility(e.getVisibility() == null ? "PRIVATE" : e.getVisibility())
+                .allowedRoles(parseList(e.getAllowedRolesJson()))
                 .intentType(e.getIntentType())
                 .systemPrompt(e.getSystemPrompt())
                 .tools(parseList(e.getToolsJson()))
@@ -369,6 +371,7 @@ public class AgentDefinitionService {
         e.setProjectId(d.getProjectId());
         e.setProjectCode(d.getProjectCode());
         e.setVisibility(d.getVisibility() == null || d.getVisibility().isBlank() ? "PRIVATE" : d.getVisibility());
+        e.setAllowedRolesJson(writeList(d.getAllowedRoles()));
         e.setIntentType(d.getIntentType());
         e.setSystemPrompt(d.getSystemPrompt());
         List<CapabilityReference> toolRefs = normalizeCapabilityRefs(d.getToolRefs(), d.getTools(), "TOOL", d.getProjectId());
@@ -510,14 +513,14 @@ public class AgentDefinitionService {
         }
     }
 
-    private AgentGraphSpec parseGraphSpec(String json) {
+    private GraphSpec parseGraphSpec(String json) {
         if (json == null || json.isBlank()) {
             return null;
         }
         try {
-            return domainObjectMapper.readValue(json, AgentGraphSpec.class);
+            return domainObjectMapper.readValue(json, GraphSpec.class);
         } catch (Exception e) {
-            log.warn("[AgentDef] 解析 AgentGraphSpec JSON 失败，返回空: {}", e.getMessage());
+            log.warn("[AgentDef] 解析 GraphSpec JSON 失败，返回空: {}", e.getMessage());
             return null;
         }
     }
@@ -553,7 +556,7 @@ public class AgentDefinitionService {
         }
     }
 
-    private String writeGraphSpec(AgentGraphSpec graphSpec) {
+    private String writeGraphSpec(GraphSpec graphSpec) {
         if (graphSpec == null) {
             return null;
         }

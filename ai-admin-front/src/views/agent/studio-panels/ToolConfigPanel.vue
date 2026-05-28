@@ -3,7 +3,7 @@
     <el-divider>{{ data.kind === 'skill' ? '能力调用' : '工具调用' }}</el-divider>
     <el-form-item :label="data.kind === 'skill' ? '引用能力' : '引用工具'">
       <el-select v-model="config.ref" filterable placeholder="选择引用" style="width: 100%" @change="handleRefChange">
-        <el-option v-for="item in options" :key="item.name" :label="capabilityLabel(item)" :value="item.name" />
+        <el-option v-for="item in options" :key="item.name" :label="assetLabel(item)" :value="item.name" />
       </el-select>
     </el-form-item>
     <el-form-item label="凭据引用">
@@ -14,6 +14,16 @@
         :project-code="projectCode"
         @created="$emit('credentialCreated', $event)"
       />
+    </el-form-item>
+    <el-form-item v-if="isRequestTool" label="最大请求时间">
+      <el-input-number
+        v-model="maxRequestSeconds"
+        :min="1"
+        :max="1800"
+        :step="10"
+        controls-position="right"
+      />
+      <span class="timeout-unit">秒</span>
     </el-form-item>
     <el-form-item label="参数映射">
       <el-input :model-value="formatMap(config.inputMapping)" type="textarea" :rows="6" placeholder="customerId = params.customerId" @update:model-value="config.inputMapping = parseMap($event)" />
@@ -52,7 +62,7 @@
 import { computed } from 'vue'
 import type { CanvasNodeData, ToolNodeConfig } from '@/types/studio'
 import type { ToolInfo } from '@/types/tool'
-import type { CapabilityInfo } from '@/types/capability'
+import type { CompositionInfo } from '@/types/composition'
 import type { WorkflowCredential } from '@/types/workflowCredential'
 import type { ApiGraphParamSourceHint } from '@/api/apiGraph'
 import { formatMap, parseMap } from './panelUtils'
@@ -60,7 +70,7 @@ import CredentialSelect from './CredentialSelect.vue'
 
 const props = defineProps<{
   data: CanvasNodeData
-  options: (ToolInfo | CapabilityInfo)[]
+  options: (ToolInfo | CompositionInfo)[]
   credentialOptions: WorkflowCredential[]
   paramSourceHints: ApiGraphParamSourceHint[]
   projectId?: number | null
@@ -77,17 +87,30 @@ const config = computed<ToolNodeConfig>(() => {
     projectCode: null,
     visibility: null,
     credentialRef: '',
+    maxRequestTimeMs: 180000,
     inputMapping: {},
   }
   return props.data.toolConfig
 })
 const selectedTool = computed(() => props.options.find((item) => item.name === config.value.ref) as ToolInfo | undefined)
+const isRequestTool = computed(() => {
+  if (props.data.kind !== 'tool') return false
+  const tool = selectedTool.value
+  return !tool || tool.source !== 'code' || !!tool.httpMethod || !!tool.endpointPath
+})
+const maxRequestSeconds = computed({
+  get: () => Math.round((config.value.maxRequestTimeMs || 180000) / 1000),
+  set: (value: number) => {
+    config.value.maxRequestTimeMs = Math.max(1000, Math.min(1800000, Math.round(value || 180) * 1000))
+  },
+})
 
 function handleRefChange() {
   const selected = selectedTool.value
   config.value.qualifiedName = selected?.qualifiedName || null
   config.value.projectCode = selected?.projectCode || null
   config.value.visibility = selected?.visibility || null
+  config.value.maxRequestTimeMs ||= 180000
   props.data.description = selected?.description || props.data.description || ''
 }
 
@@ -108,9 +131,16 @@ function applyHint(hint: ApiGraphParamSourceHint) {
   }
 }
 
-function capabilityLabel(item: ToolInfo | CapabilityInfo) {
+function assetLabel(item: ToolInfo | CompositionInfo) {
   const project = item.projectCode ? ` / ${item.projectCode}` : ''
   const visibility = item.visibility ? ` / ${item.visibility}` : ''
   return `${item.name}${project}${visibility}`
 }
 </script>
+
+<style scoped>
+.timeout-unit {
+  margin-left: 8px;
+  color: var(--text-secondary);
+}
+</style>

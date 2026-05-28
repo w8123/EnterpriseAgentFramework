@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.agent;
 
-import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.runtime.AgentRuntimeSelector;
 import com.enterprise.ai.agent.runtime.AgentRuntimeValidationResult;
@@ -45,17 +45,17 @@ class AgentReleaseValidationServiceTest {
         tool.setVisibility("PUBLIC");
         when(toolDefinitionService.findByName("query_order")).thenReturn(Optional.of(tool));
 
-        AgentReleaseValidationResult result = service.validate(baseDefinition(AgentGraphSpec.builder()
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
                 .entry("llm")
                 .finishNode("tool")
-                .node(AgentGraphSpec.Node.builder().id("llm").type("LLM").build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder().id("llm").type("LLM").build())
+                .node(GraphSpec.Node.builder()
                         .id("tool")
                         .type("TOOL")
-                        .ref(AgentGraphSpec.CapabilityRef.builder().name("query_order").build())
+                        .ref(GraphSpec.CapabilityRef.builder().name("query_order").build())
                         .config(Map.of("inputMapping", Map.of("orderId", "$input")))
                         .build())
-                .edge(AgentGraphSpec.Edge.builder().from("llm").to("tool").condition("success").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("tool").condition("success").build())
                 .build()));
 
         assertTrue(result.valid(), () -> result.errors().toString());
@@ -64,10 +64,10 @@ class AgentReleaseValidationServiceTest {
 
     @Test
     void validateAcceptsSdkGraphWithStartAndEndPseudoNodes() {
-        AgentReleaseValidationResult result = service.validate(baseDefinition(AgentGraphSpec.builder()
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
                 .entry("llm")
                 .finishNode("llm")
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("llm")
                         .type("LLM")
                         .config(Map.of(
@@ -77,8 +77,8 @@ class AgentReleaseValidationServiceTest {
                                         "type", "string",
                                         "required", true))))
                         .build())
-                .edge(AgentGraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("llm").to("END").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("END").condition("always").build())
                 .build()));
 
         assertTrue(result.valid(), () -> result.errors().toString());
@@ -87,18 +87,18 @@ class AgentReleaseValidationServiceTest {
 
     @Test
     void validateRejectsInvalidLlmOutputSchema() {
-        AgentReleaseValidationResult result = service.validate(baseDefinition(AgentGraphSpec.builder()
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
                 .entry("llm")
                 .finishNode("llm")
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("llm")
                         .type("LLM")
                         .config(Map.of(
                                 "outputFormat", "xml",
                                 "outputSchema", List.of(Map.of("name", "answer", "type", "date"))))
                         .build())
-                .edge(AgentGraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("llm").to("END").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("END").condition("always").build())
                 .build()));
 
         assertFalse(result.valid());
@@ -109,16 +109,16 @@ class AgentReleaseValidationServiceTest {
 
     @Test
     void validateAcceptsFlowPrimitiveNodes() {
-        AgentReleaseValidationResult result = service.validate(baseDefinition(AgentGraphSpec.builder()
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
                 .entry("llm")
                 .finishNode("reply")
-                .node(AgentGraphSpec.Node.builder().id("llm").type("LLM").build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder().id("llm").type("LLM").build())
+                .node(GraphSpec.Node.builder()
                         .id("vars")
                         .type("VARIABLE_ASSIGN")
                         .config(Map.of("assignments", Map.of("summary", "lastOutput")))
                         .build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("route")
                         .type("IF_ELSE")
                         .config(Map.of("conditionGroups", List.of(Map.of(
@@ -129,16 +129,16 @@ class AgentReleaseValidationServiceTest {
                                         "operator", "not_empty",
                                         "right", ""))))))
                         .build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("reply")
                         .type("TEMPLATE")
                         .config(Map.of("template", "{{ summary }}"))
                         .build())
-                .edge(AgentGraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("llm").to("vars").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("vars").to("route").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("route").to("reply").condition("route:nonempty").build())
-                .edge(AgentGraphSpec.Edge.builder().from("reply").to("END").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("vars").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("vars").to("route").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("route").to("reply").condition("route:nonempty").build())
+                .edge(GraphSpec.Edge.builder().from("reply").to("END").condition("always").build())
                 .build()));
 
         assertTrue(result.valid(), () -> result.errors().toString());
@@ -147,11 +147,11 @@ class AgentReleaseValidationServiceTest {
 
     @Test
     void validateAcceptsIntegrationAndRetrievalNodes() {
-        AgentReleaseValidationResult result = service.validate(baseDefinition(AgentGraphSpec.builder()
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
                 .entry("llm")
                 .finishNode("knowledge")
-                .node(AgentGraphSpec.Node.builder().id("llm").type("LLM").build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder().id("llm").type("LLM").build())
+                .node(GraphSpec.Node.builder()
                         .id("extract")
                         .type("PARAMETER_EXTRACT")
                         .config(Map.of("extractMode", "expression", "fields", List.of(Map.of(
@@ -160,25 +160,204 @@ class AgentReleaseValidationServiceTest {
                                 "required", true,
                                 "source", "lastOutput.orderId"))))
                         .build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("api")
                         .type("HTTP_REQUEST")
                         .config(Map.of("method", "POST", "url", "https://example.com/api"))
                         .build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("knowledge")
                         .type("KNOWLEDGE_RETRIEVAL")
                         .config(Map.of("knowledgeBaseCodes", List.of("kb_order"), "query", "input"))
                         .build())
-                .edge(AgentGraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("llm").to("extract").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("extract").to("api").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("api").to("knowledge").condition("success").build())
-                .edge(AgentGraphSpec.Edge.builder().from("knowledge").to("END").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("extract").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("extract").to("api").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("api").to("knowledge").condition("success").build())
+                .edge(GraphSpec.Edge.builder().from("knowledge").to("END").condition("always").build())
                 .build()));
 
         assertTrue(result.valid(), () -> result.errors().toString());
         assertTrue(result.errors().isEmpty());
+    }
+
+    @Test
+    void validateAcceptsPageActionNodeWithActionKey() {
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
+                .entry("llm")
+                .finishNode("open_detail")
+                .node(GraphSpec.Node.builder().id("llm").type("LLM").build())
+                .node(GraphSpec.Node.builder()
+                        .id("open_detail")
+                        .type("PAGE_ACTION")
+                        .config(Map.of(
+                                "actionKey", "team.openDetail",
+                                "title", "Open team detail",
+                                "confirm", true,
+                                "args", Map.of("teamId", "lastOutput.id")))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("open_detail").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("open_detail").to("END").condition("always").build())
+                .build()));
+
+        assertTrue(result.valid(), () -> result.errors().toString());
+    }
+
+    @Test
+    void validateRejectsPageActionWithoutActionKey() {
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
+                .entry("llm")
+                .finishNode("open_detail")
+                .node(GraphSpec.Node.builder().id("llm").type("LLM").build())
+                .node(GraphSpec.Node.builder()
+                        .id("open_detail")
+                        .type("PAGE_ACTION")
+                        .config(Map.of("args", Map.of("teamId", "lastOutput.id")))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("open_detail").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("open_detail").to("END").condition("always").build())
+                .build()));
+
+        assertFalse(result.valid());
+        List<String> codes = result.errors().stream().map(AgentReleaseValidationResult.Item::code).toList();
+        assertTrue(codes.contains("GRAPH_PAGE_ACTION_KEY_EMPTY"));
+    }
+
+    @Test
+    void validateAcceptsInteractionNodeWithKeyFields() {
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
+                .entry("llm")
+                .finishNode("reply")
+                .node(GraphSpec.Node.builder().id("llm").type("LLM").build())
+                .node(GraphSpec.Node.builder()
+                        .id("collect_profile")
+                        .type("INTERACTION")
+                        .config(Map.of(
+                                "interactionType", "COLLECT_INPUT",
+                                "outputAlias", "profile",
+                                "fields", List.of(
+                                        Map.of("key", "age", "type", "integer", "required", true),
+                                        Map.of("key", "chronicDisease", "type", "string", "required", false))))
+                        .build())
+                .node(GraphSpec.Node.builder()
+                        .id("reply")
+                        .type("ANSWER")
+                        .config(Map.of("template", "{{ profile }}"))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("collect_profile").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("collect_profile").to("reply").condition("success").build())
+                .edge(GraphSpec.Edge.builder().from("reply").to("END").condition("always").build())
+                .build()));
+
+        assertTrue(result.valid(), () -> result.errors().toString());
+        assertTrue(result.errors().isEmpty());
+    }
+
+    @Test
+    void validateRejectsInvalidInteractionContract() {
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
+                .entry("llm")
+                .finishNode("interaction")
+                .node(GraphSpec.Node.builder().id("llm").type("LLM").build())
+                .node(GraphSpec.Node.builder()
+                        .id("interaction")
+                        .type("INTERACTION")
+                        .config(Map.of(
+                                "interactionType", "COLLECT_INPUT",
+                                "fields", List.of(
+                                        Map.of("key", "bad-name", "type", "string"),
+                                        Map.of("key", "bad-name", "type", "date"))))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("interaction").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("interaction").to("END").condition("always").build())
+                .build()));
+
+        assertFalse(result.valid());
+        List<String> codes = result.errors().stream().map(AgentReleaseValidationResult.Item::code).toList();
+        assertTrue(codes.contains("GRAPH_INTERACTION_FIELD_NAME_INVALID"));
+        assertTrue(codes.contains("GRAPH_INTERACTION_FIELD_DUPLICATE"));
+        assertTrue(codes.contains("GRAPH_INTERACTION_FIELD_TYPE_INVALID"));
+    }
+
+    @Test
+    void validateRejectsUnsupportedInteractionType() {
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
+                .entry("llm")
+                .finishNode("interaction")
+                .node(GraphSpec.Node.builder().id("llm").type("LLM").build())
+                .node(GraphSpec.Node.builder()
+                        .id("interaction")
+                        .type("INTERACTION")
+                        .config(Map.of("interactionType", "FREE_TEXT_WIZARD"))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("interaction").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("interaction").to("END").condition("always").build())
+                .build()));
+
+        assertFalse(result.valid());
+        List<String> codes = result.errors().stream().map(AgentReleaseValidationResult.Item::code).toList();
+        assertTrue(codes.contains("GRAPH_INTERACTION_TYPE_INVALID"));
+    }
+
+    @Test
+    void validateAcceptsPresentOutputWithRegisteredCustomRenderer() {
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
+                .entry("llm")
+                .finishNode("display")
+                .node(GraphSpec.Node.builder().id("llm").type("LLM").build())
+                .node(GraphSpec.Node.builder()
+                        .id("display")
+                        .type("INTERACTION")
+                        .config(Map.of(
+                                "interactionType", "PRESENT_OUTPUT",
+                                "component", "CUSTOM",
+                                "renderSchema", Map.of("rendererKey", "enterprise.team.detail")))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("display").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("display").to("END").condition("always").build())
+                .build()));
+
+        assertTrue(result.valid(), () -> result.errors().toString());
+    }
+
+    @Test
+    void validateRejectsCustomPresentOutputWithoutSafeRendererKey() {
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
+                .entry("llm")
+                .finishNode("display_missing")
+                .node(GraphSpec.Node.builder().id("llm").type("LLM").build())
+                .node(GraphSpec.Node.builder()
+                        .id("display")
+                        .type("INTERACTION")
+                        .config(Map.of(
+                                "interactionType", "PRESENT_OUTPUT",
+                                "component", "CUSTOM",
+                                "renderSchema", Map.of("rendererKey", "<script>alert(1)</script>")))
+                        .build())
+                .node(GraphSpec.Node.builder()
+                        .id("display_missing")
+                        .type("INTERACTION")
+                        .config(Map.of(
+                                "interactionType", "PRESENT_OUTPUT",
+                                "component", "CUSTOM",
+                                "renderSchema", Map.of()))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("display").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("display").to("display_missing").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("display_missing").to("END").condition("always").build())
+                .build()));
+
+        assertFalse(result.valid());
+        List<String> codes = result.errors().stream().map(AgentReleaseValidationResult.Item::code).toList();
+        assertTrue(codes.contains("GRAPH_INTERACTION_CUSTOM_RENDERER_INVALID"));
+        assertEquals(2, codes.stream().filter("GRAPH_INTERACTION_CUSTOM_RENDERER_INVALID"::equals).count());
     }
 
     @Test
@@ -187,6 +366,7 @@ class AgentReleaseValidationServiceTest {
         assertEquals("HUMAN_APPROVAL", AgentGraphNodeType.normalize("human_approval"));
         assertEquals("KNOWLEDGE_WRITE", AgentGraphNodeType.normalize("knowledgeWrite"));
         assertTrue(AgentGraphNodeType.find("mcp").orElseThrow().isFlow());
+        assertEquals("PAGE_ACTION", AgentGraphNodeType.normalize("pageAction"));
         assertTrue(AgentGraphNodeType.catalog().stream()
                 .anyMatch(item -> "DOCUMENT_EXTRACT".equals(item.type())
                         && "documentExtract".equals(item.canvasKind())));
@@ -194,12 +374,12 @@ class AgentReleaseValidationServiceTest {
 
     @Test
     void validateRejectsInvalidPseudoNodeDirection() {
-        AgentReleaseValidationResult result = service.validate(baseDefinition(AgentGraphSpec.builder()
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
                 .entry("llm")
                 .finishNode("llm")
-                .node(AgentGraphSpec.Node.builder().id("llm").type("LLM").build())
-                .edge(AgentGraphSpec.Edge.builder().from("END").to("llm").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("llm").to("START").condition("always").build())
+                .node(GraphSpec.Node.builder().id("llm").type("LLM").build())
+                .edge(GraphSpec.Edge.builder().from("END").to("llm").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("START").condition("always").build())
                 .build()));
 
         assertFalse(result.valid());
@@ -210,15 +390,15 @@ class AgentReleaseValidationServiceTest {
 
     @Test
     void validateReportsNullGraphItemsWithoutCrashing() {
-        java.util.ArrayList<AgentGraphSpec.Node> nodes = new java.util.ArrayList<>();
+        java.util.ArrayList<GraphSpec.Node> nodes = new java.util.ArrayList<>();
         nodes.add(null);
-        nodes.add(AgentGraphSpec.Node.builder().id("llm").type("LLM").build());
-        java.util.ArrayList<AgentGraphSpec.Edge> edges = new java.util.ArrayList<>();
+        nodes.add(GraphSpec.Node.builder().id("llm").type("LLM").build());
+        java.util.ArrayList<GraphSpec.Edge> edges = new java.util.ArrayList<>();
         edges.add(null);
-        edges.add(AgentGraphSpec.Edge.builder().from("START").to("llm").condition("always").build());
-        edges.add(AgentGraphSpec.Edge.builder().from("llm").to("END").condition("always").build());
+        edges.add(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build());
+        edges.add(GraphSpec.Edge.builder().from("llm").to("END").condition("always").build());
 
-        AgentReleaseValidationResult result = service.validate(baseDefinition(AgentGraphSpec.builder()
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
                 .entry("llm")
                 .finishNode("llm")
                 .nodes(nodes)
@@ -234,17 +414,17 @@ class AgentReleaseValidationServiceTest {
     @Test
     void validateRejectsUnreachableAndMissingTool() {
         when(toolDefinitionService.findByName("missing_tool")).thenReturn(Optional.empty());
-        AgentReleaseValidationResult result = service.validate(baseDefinition(AgentGraphSpec.builder()
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
                 .entry("llm")
                 .finishNode("end")
-                .node(AgentGraphSpec.Node.builder().id("llm").type("LLM").build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder().id("llm").type("LLM").build())
+                .node(GraphSpec.Node.builder()
                         .id("tool")
                         .type("TOOL")
-                        .ref(AgentGraphSpec.CapabilityRef.builder().name("missing_tool").build())
+                        .ref(GraphSpec.CapabilityRef.builder().name("missing_tool").build())
                         .build())
-                .node(AgentGraphSpec.Node.builder().id("end").type("LLM").build())
-                .edge(AgentGraphSpec.Edge.builder().from("llm").to("end").condition("sometimes").build())
+                .node(GraphSpec.Node.builder().id("end").type("LLM").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("end").condition("sometimes").build())
                 .build()));
 
         assertFalse(result.valid());
@@ -256,11 +436,11 @@ class AgentReleaseValidationServiceTest {
 
     @Test
     void validateRejectsUnconfiguredPlaceholderNodes() {
-        AgentReleaseValidationResult result = service.validate(baseDefinition(AgentGraphSpec.builder()
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
                 .entry("llm")
                 .finishNode("reply")
-                .node(AgentGraphSpec.Node.builder().id("llm").type("LLM").build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder().id("llm").type("LLM").build())
+                .node(GraphSpec.Node.builder()
                         .id("placeholder_query_order")
                         .type("TOOL")
                         .name("待配置：查询订单")
@@ -268,15 +448,15 @@ class AgentReleaseValidationServiceTest {
                                 "needsConfiguration", true,
                                 "placeholderReason", "没有匹配到已注册能力"))
                         .build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("reply")
                         .type("ANSWER")
                         .config(Map.of("template", "{{ lastOutput }}"))
                         .build())
-                .edge(AgentGraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("llm").to("placeholder_query_order").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("placeholder_query_order").to("reply").condition("success").build())
-                .edge(AgentGraphSpec.Edge.builder().from("reply").to("END").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("llm").to("placeholder_query_order").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("placeholder_query_order").to("reply").condition("success").build())
+                .edge(GraphSpec.Edge.builder().from("reply").to("END").condition("always").build())
                 .build()));
 
         assertFalse(result.valid());
@@ -286,24 +466,24 @@ class AgentReleaseValidationServiceTest {
 
     @Test
     void validateRejectsInvalidUserInputFields() {
-        AgentReleaseValidationResult result = service.validate(baseDefinition(AgentGraphSpec.builder()
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
                 .entry("user_input")
                 .finishNode("answer")
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("user_input")
                         .type("USER_INPUT")
                         .config(Map.of("fields", List.of(
                                 Map.of("name", "question", "type", "string", "required", true),
                                 Map.of("name", "question", "type", "file", "required", false))))
                         .build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("answer")
                         .type("ANSWER")
                         .config(Map.of("template", "{{ params.question }}"))
                         .build())
-                .edge(AgentGraphSpec.Edge.builder().from("START").to("user_input").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("user_input").to("answer").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("START").to("user_input").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("user_input").to("answer").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
                 .build()));
 
         assertFalse(result.valid());
@@ -313,44 +493,44 @@ class AgentReleaseValidationServiceTest {
 
     @Test
     void validateRejectsRequiredInputWithoutBinding() {
-        AgentReleaseValidationResult result = service.validate(baseDefinition(AgentGraphSpec.builder()
+        AgentReleaseValidationResult result = service.validate(baseDefinition(GraphSpec.builder()
                 .entry("user_input")
                 .finishNode("reply")
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("user_input")
                         .type("USER_INPUT")
                         .config(Map.of(
                                 "outputAlias", "params",
                                 "fields", List.of(Map.of("name", "question", "type", "string", "required", true))))
                         .build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("call_tool")
                         .type("TOOL")
-                        .inputs(List.of(AgentGraphSpec.Port.builder()
+                        .inputs(List.of(GraphSpec.Port.builder()
                                 .id("query")
                                 .name("query")
                                 .type("string")
                                 .required(true)
                                 .build()))
-                        .ref(AgentGraphSpec.CapabilityRef.builder().name("query_order").build())
+                        .ref(GraphSpec.CapabilityRef.builder().name("query_order").build())
                         .config(Map.of("outputAlias", "tool_result"))
                         .build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("reply")
                         .type("ANSWER")
                         .config(Map.of("template", "{{ tool_result }}"))
                         .build())
-                .edge(AgentGraphSpec.Edge.builder().from("START").to("user_input").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("user_input").to("call_tool").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("call_tool").to("reply").condition("success").build())
-                .edge(AgentGraphSpec.Edge.builder().from("reply").to("END").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("START").to("user_input").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("user_input").to("call_tool").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("call_tool").to("reply").condition("success").build())
+                .edge(GraphSpec.Edge.builder().from("reply").to("END").condition("always").build())
                 .build()));
 
         List<String> codes = result.errors().stream().map(AgentReleaseValidationResult.Item::code).toList();
         assertTrue(codes.contains("GRAPH_REQUIRED_INPUT_UNBOUND"));
     }
 
-    private AgentDefinition baseDefinition(AgentGraphSpec graphSpec) {
+    private AgentDefinition baseDefinition(GraphSpec graphSpec) {
         return AgentDefinition.builder()
                 .id("agent-1")
                 .keySlug("order-agent")

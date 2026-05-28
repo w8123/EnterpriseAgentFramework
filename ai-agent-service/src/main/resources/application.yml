@@ -65,6 +65,7 @@ jishi:
 agent:
   max-steps: 5
   default-timeout: 60000
+  tool-request-default-timeout-ms: ${AGENT_TOOL_REQUEST_DEFAULT_TIMEOUT_MS:180000}
   workflow-credential-secret: ${WORKFLOW_CREDENTIAL_SECRET:dev-only-change-me-please-32-bytes}
   definitions:
     file: ${AGENT_DEF_FILE:agent-definitions.json}
@@ -89,6 +90,49 @@ agent:
 memory:
   max-messages: 20
   ttl-hours: 24
+
+eaf:
+  auth:
+    provider: ${EAF_AUTH_PROVIDER:LOCAL}
+    local:
+      enabled: ${EAF_AUTH_LOCAL_ENABLED:true}
+      bootstrap-admin:
+        username: ${EAF_AUTH_LOCAL_ADMIN_USERNAME:admin}
+        password: ${EAF_AUTH_LOCAL_ADMIN_PASSWORD:admin123}
+        display-name: ${EAF_AUTH_LOCAL_ADMIN_DISPLAY_NAME:Platform Admin}
+    header:
+      enabled: ${EAF_AUTH_HEADER_ENABLED:false}
+      username-header: ${EAF_AUTH_HEADER_USERNAME:X-EAF-User}
+      subject-header: ${EAF_AUTH_HEADER_SUBJECT:X-EAF-Subject}
+      display-name-header: ${EAF_AUTH_HEADER_DISPLAY_NAME:X-EAF-Display-Name}
+      email-header: ${EAF_AUTH_HEADER_EMAIL:X-EAF-Email}
+      mobile-header: ${EAF_AUTH_HEADER_MOBILE:X-EAF-Mobile}
+      roles-header: ${EAF_AUTH_HEADER_ROLES:X-EAF-Roles}
+      roles-delimiter: "${EAF_AUTH_HEADER_ROLES_DELIMITER:,}"
+    oidc:
+      enabled: ${EAF_AUTH_OIDC_ENABLED:false}
+      issuer-uri: ${EAF_AUTH_OIDC_ISSUER_URI:}
+      jwk-set-uri: ${EAF_AUTH_OIDC_JWK_SET_URI:}
+      client-id: ${EAF_AUTH_OIDC_CLIENT_ID:}
+      username-claim: ${EAF_AUTH_OIDC_USERNAME_CLAIM:preferred_username}
+      roles-claim: ${EAF_AUTH_OIDC_ROLES_CLAIM:roles}
+    saml:
+      enabled: ${EAF_AUTH_SAML_ENABLED:false}
+      entity-id: ${EAF_AUTH_SAML_ENTITY_ID:}
+      metadata-uri: ${EAF_AUTH_SAML_METADATA_URI:}
+      issuer: ${EAF_AUTH_SAML_ISSUER:}
+      username-attribute: ${EAF_AUTH_SAML_USERNAME_ATTRIBUTE:username}
+      display-name-attribute: ${EAF_AUTH_SAML_DISPLAY_NAME_ATTRIBUTE:displayName}
+      email-attribute: ${EAF_AUTH_SAML_EMAIL_ATTRIBUTE:email}
+      mobile-attribute: ${EAF_AUTH_SAML_MOBILE_ATTRIBUTE:mobile}
+      roles-attribute: ${EAF_AUTH_SAML_ROLES_ATTRIBUTE:roles}
+      roles-delimiter: "${EAF_AUTH_SAML_ROLES_DELIMITER:,}"
+      clock-skew-seconds: ${EAF_AUTH_SAML_CLOCK_SKEW_SECONDS:60}
+      require-signed-response: ${EAF_AUTH_SAML_REQUIRE_SIGNED_RESPONSE:false}
+      trusted-certificate-pem: ${EAF_AUTH_SAML_TRUSTED_CERTIFICATE_PEM:}
+      trusted-public-key-pem: ${EAF_AUTH_SAML_TRUSTED_PUBLIC_KEY_PEM:}
+    session:
+      ttl-seconds: ${EAF_AUTH_SESSION_TTL_SECONDS:7200}
 
 # ==================== RAG（通过 ai-skills-service） ====================
 rag:
@@ -116,7 +160,7 @@ ai:
     fallback-on-error: true
     collection-name: tool_embeddings
     embedding-dim: 1536
-    embedding-model-instance-id: ${TOOL_EMBEDDING_MODEL_INSTANCE_ID:1}
+    embedding-model-instance-id: ${TOOL_EMBEDDING_MODEL_INSTANCE_ID:}
   tool-call-log:
     enabled: ${TOOL_CALL_LOG_ENABLED:true}
     async: true

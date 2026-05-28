@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.studio;
 
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
-import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.llm.LlmService;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -85,7 +85,7 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
                                                  List<String> warnings,
                                                  List<WorkflowDraftPlaceholder> placeholders,
                                                  List<String> validationErrors) {
-        AgentGraphSpec graphSpec = graphSpec(request, nodes, edges);
+        GraphSpec graphSpec = graphSpec(request, nodes, edges);
         return new WorkflowDraftGenerationResult(
                 PROVIDER,
                 canvasSnapshot(graphSpec, nodes, edges),
@@ -224,27 +224,27 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
         }
     }
 
-    private AgentGraphSpec graphSpec(WorkflowDraftGenerationRequest request, List<DraftNode> nodes, List<DraftEdge> edges) {
-        AgentGraphSpec.AgentGraphSpecBuilder builder = AgentGraphSpec.builder()
+    private GraphSpec graphSpec(WorkflowDraftGenerationRequest request, List<DraftNode> nodes, List<DraftEdge> edges) {
+        GraphSpec.GraphSpecBuilder builder = GraphSpec.builder()
                 .code(slug(firstText(request == null ? null : request.getAgentId(),
                         request == null ? null : request.getAgentName(), "ai_generated_graph")))
                 .name(firstText(request == null ? null : request.getAgentName(), "AI 生成流程草稿"))
                 .mode("WORKFLOW")
                 .runtimeHint("LANGGRAPH4J")
-                .layout(AgentGraphSpec.Layout.builder().engine("vue-flow").direction("LR").build());
+                .layout(GraphSpec.Layout.builder().engine("vue-flow").direction("LR").build());
 
         for (DraftNode node : nodes) {
             builder.node(toGraphNode(node));
         }
         for (DraftEdge edge : edges) {
-            builder.edge(AgentGraphSpec.Edge.builder()
+            builder.edge(GraphSpec.Edge.builder()
                     .id(edge.id())
                     .from(edge.from())
                     .to(edge.to())
                     .condition(firstText(edge.condition(), "always"))
                     .sourceHandle(blankToNull(edge.sourceHandle()))
                     .targetHandle(blankToNull(edge.targetHandle()))
-                    .layout(AgentGraphSpec.Layout.EdgeLayout.builder()
+                    .layout(GraphSpec.Layout.EdgeLayout.builder()
                             .label(firstText(edge.label(), edge.condition(), "always"))
                             .style("smoothstep")
                             .build())
@@ -265,15 +265,15 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
         return builder.build();
     }
 
-    private AgentGraphSpec.Node toGraphNode(DraftNode node) {
+    private GraphSpec.Node toGraphNode(DraftNode node) {
         Map<String, Object> config = mutableMap(node.config());
-        AgentGraphSpec.Node.NodeBuilder builder = AgentGraphSpec.Node.builder()
+        GraphSpec.Node.NodeBuilder builder = GraphSpec.Node.builder()
                 .id(node.id())
                 .type(node.type())
                 .name(node.label())
                 .description(node.description())
                 .config(config)
-                .layout(AgentGraphSpec.Layout.NodeLayout.builder()
+                .layout(GraphSpec.Layout.NodeLayout.builder()
                         .x(doubleValue(config.get("x")))
                         .y(doubleValue(config.get("y")))
                         .collapsed(false)
@@ -285,16 +285,16 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
         for (Map<String, Object> output : graphPorts(node, "output")) {
             builder.output(toPort(output));
         }
-        builder.retry(AgentGraphSpec.RetryPolicy.builder()
+        builder.retry(GraphSpec.RetryPolicy.builder()
                 .enabled(AgentGraphNodeType.find(node.type()).map(AgentGraphNodeType::retryable).orElse(false))
                 .maxAttempts(1)
                 .backoffMs(800L)
                 .build());
-        builder.errorPolicy(AgentGraphSpec.ErrorPolicy.builder().strategy("TERMINATE").build());
+        builder.errorPolicy(GraphSpec.ErrorPolicy.builder().strategy("TERMINATE").build());
         return builder.build();
     }
 
-    private Map<String, Object> canvasSnapshot(AgentGraphSpec graph, List<DraftNode> nodes, List<DraftEdge> edges) {
+    private Map<String, Object> canvasSnapshot(GraphSpec graph, List<DraftNode> nodes, List<DraftEdge> edges) {
         List<Map<String, Object>> canvasNodes = new ArrayList<>();
         canvasNodes.add(canvasNode("start", "start", 60, 220, data("开始", "start", Map.of())));
         int index = 0;
@@ -477,7 +477,7 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
         placeholders.add(new WorkflowDraftPlaceholder(nodeId, kind, label, reason));
     }
 
-    private java.util.Optional<AgentGraphSpec.CapabilityRef> capabilityRef(DraftNode node) {
+    private java.util.Optional<GraphSpec.CapabilityRef> capabilityRef(DraftNode node) {
         if (!"TOOL".equals(node.type()) && !"CAPABILITY".equals(node.type()) && !"MCP_CALL".equals(node.type()) && !"HTTP_REQUEST".equals(node.type())) {
             return java.util.Optional.empty();
         }
@@ -487,7 +487,7 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
             return java.util.Optional.empty();
         }
         String kind = "CAPABILITY".equals(node.type()) ? "CAPABILITY" : "TOOL";
-        return java.util.Optional.of(AgentGraphSpec.CapabilityRef.builder()
+        return java.util.Optional.of(GraphSpec.CapabilityRef.builder()
                 .kind(kind)
                 .name(name)
                 .qualifiedName(text(config.get("qualifiedName")))
@@ -558,8 +558,8 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
         return ports;
     }
 
-    private AgentGraphSpec.Port toPort(Map<String, Object> map) {
-        return AgentGraphSpec.Port.builder()
+    private GraphSpec.Port toPort(Map<String, Object> map) {
+        return GraphSpec.Port.builder()
                 .id(text(map.get("id")))
                 .name(text(map.get("name")))
                 .type(text(map.get("type")))

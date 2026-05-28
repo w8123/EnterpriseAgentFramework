@@ -13,6 +13,9 @@ import type {
   AgentNodeDebugResult,
   AgentWorkflowDebugRunRequest,
   AgentWorkflowDebugRunResult,
+  ExecutableDebugSessionCreateRequest,
+  ExecutableDebugSessionSubmitRequest,
+  ExecutableDebugSessionView,
   AgentVersion,
   PublishVersionRequest,
   WorkflowDraftGenerationRequest,
@@ -60,6 +63,27 @@ export function debugAgentNode(data: AgentNodeDebugRequest) {
 
 export function debugAgentWorkflowRun(data: AgentWorkflowDebugRunRequest) {
   return agentRequest.post<AgentWorkflowDebugRunResult>('/api/agent/studio/debug-run', data)
+}
+
+export function createExecutableDebugSession(data: ExecutableDebugSessionCreateRequest) {
+  return agentRequest.post<ExecutableDebugSessionView>('/api/runtime/debug-sessions', data)
+}
+
+export function getExecutableDebugSession(sessionId: string) {
+  return agentRequest.get<ExecutableDebugSessionView>(`/api/runtime/debug-sessions/${encodeURIComponent(sessionId)}`)
+}
+
+export function submitExecutableDebugSession(sessionId: string, data: ExecutableDebugSessionSubmitRequest) {
+  return agentRequest.post<ExecutableDebugSessionView>(
+    `/api/runtime/debug-sessions/${encodeURIComponent(sessionId)}/submit`,
+    data,
+  )
+}
+
+export function cancelExecutableDebugSession(sessionId: string) {
+  return agentRequest.post<ExecutableDebugSessionView>(
+    `/api/runtime/debug-sessions/${encodeURIComponent(sessionId)}/cancel`,
+  )
 }
 
 export function generateWorkflowDraft(data: WorkflowDraftGenerationRequest) {

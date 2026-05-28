@@ -2,6 +2,7 @@ package com.enterprise.ai.spring.registry;
 
 import com.enterprise.ai.skill.AiCapability;
 import com.enterprise.ai.skill.AiParam;
+import com.enterprise.ai.skill.annotation.AiTool;
 import org.springframework.core.MethodParameter;
 import org.springframework.ui.Model;
 import org.springframework.util.StringUtils;
@@ -58,20 +59,37 @@ public class EafCapabilityScanner {
             }
             String method = firstMethod(info);
             Method javaMethod = handler.getMethod();
+            AiTool aiTool = javaMethod.getAnnotation(AiTool.class);
             AiCapability capability = javaMethod.getAnnotation(AiCapability.class);
-            String name = capability != null && !capability.name().isBlank()
+            String name = aiTool != null && !aiTool.name().isBlank()
+                    ? aiTool.name()
+                    : capability != null && !capability.name().isBlank()
                     ? capability.name()
                     : javaMethod.getName();
-            String description = metadataResolver.resolveMethodDescription(javaMethod, capability);
-            String title = metadataResolver.resolveMethodTitle(javaMethod, capability);
+            String description = aiTool != null
+                    ? metadataResolver.resolveMethodDescription(javaMethod, aiTool)
+                    : metadataResolver.resolveMethodDescription(javaMethod, capability);
+            String title = aiTool != null
+                    ? metadataResolver.resolveMethodTitle(javaMethod, aiTool)
+                    : metadataResolver.resolveMethodTitle(javaMethod, capability);
             Map<String, Object> metadata = new LinkedHashMap<>();
-            if (capability != null) {
+            if (aiTool != null) {
+                metadata.put("declared", true);
+                metadata.put("title", aiTool.title());
+                metadata.put("domain", aiTool.domain());
+                metadata.put("module", aiTool.module());
+                metadata.put("tags", List.of(aiTool.tags()));
+                metadata.put("requiredRoles", List.of(aiTool.requiredRoles()));
+                metadata.put("timeoutMs", aiTool.timeoutMs());
+                metadata.put("retryLimit", aiTool.retryLimit());
+                metadata.put("source", "AiTool");
+            } else if (capability != null) {
                 metadata.put("declared", true);
                 metadata.put("title", capability.title());
                 metadata.put("domain", capability.domain());
                 metadata.put("module", capability.module());
-                metadata.put("tags", capability.tags());
-                metadata.put("requiredRoles", capability.requiredRoles());
+                metadata.put("tags", List.of(capability.tags()));
+                metadata.put("requiredRoles", List.of(capability.requiredRoles()));
                 metadata.put("timeoutMs", capability.timeoutMs());
                 metadata.put("retryLimit", capability.retryLimit());
                 metadata.put("source", "AiCapability");
@@ -88,9 +106,11 @@ public class EafCapabilityScanner {
                     path,
                     requestBodyType(handler),
                     javaMethod.getReturnType().getTypeName(),
-                    capability == null ? "WRITE" : capability.sideEffect().name(),
+                    aiTool != null ? aiTool.sideEffect().name()
+                            : capability == null ? "WRITE" : capability.sideEffect().name(),
                     true,
-                    capability == null || capability.agentVisible(),
+                    aiTool != null ? aiTool.agentVisible()
+                            : capability == null || capability.agentVisible(),
                     false,
                     properties.getProject().getVisibility(),
                     parameters(handler, javaMethod),

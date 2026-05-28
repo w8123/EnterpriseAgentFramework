@@ -734,6 +734,12 @@ CREATE TABLE IF NOT EXISTS `agent_trace_span` (
 CALL add_idx_if_absent('agent_trace_span', 'idx_trace',      'trace_id, created_at');
 CALL add_idx_if_absent('agent_trace_span', 'idx_parent',     'trace_id, parent_span_id');
 CALL add_idx_if_absent('agent_trace_span', 'idx_agent_node', 'agent_id, node_id, created_at');
+CALL add_col_if_absent('agent_trace_span', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `project_code`');
+CALL add_col_if_absent('agent_trace_span', 'app_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''嵌入式业务应用 ID，等同 project_code'' AFTER `tenant_id`');
+CALL add_col_if_absent('agent_trace_span', 'external_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务系统内用户 ID'' AFTER `app_id`');
+CALL add_col_if_absent('agent_trace_span', 'global_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''跨系统稳定用户 ID'' AFTER `external_user_id`');
+CALL add_col_if_absent('agent_trace_span', 'page_instance_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务前端页面实例 ID'' AFTER `global_user_id`');
+CALL add_idx_if_absent('agent_trace_span', 'idx_trace_embed_user', '`app_id`, `external_user_id`, `created_at`');
 
 
 -- ============================================================================
@@ -837,6 +843,7 @@ CREATE TABLE IF NOT EXISTS `agent_definition` (
     `name`                    VARCHAR(128) NOT NULL                     COMMENT '展示名',
     `description`             VARCHAR(512) DEFAULT NULL,
     `agent_mode`              VARCHAR(32)  NOT NULL DEFAULT 'AUTONOMOUS' COMMENT 'Agent 产品形态: AUTONOMOUS / WORKFLOW / CODE / EXTERNAL',
+    `allowed_roles_json`      TEXT         DEFAULT NULL                 COMMENT '允许运行该 Agent 的业务角色 JSON 数组，空表示不限制',
     `intent_type`             VARCHAR(64)  DEFAULT NULL                 COMMENT '意图类型',
     `system_prompt`           TEXT         DEFAULT NULL,
     `tools_json`              TEXT         DEFAULT NULL                 COMMENT 'tools 白名单 JSON',
@@ -1407,6 +1414,7 @@ CALL add_idx_if_absent('tool_definition', 'idx_tool_qualified_name', '`qualified
 CALL add_col_if_absent('agent_definition', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属业务项目'' AFTER `description`');
 CALL add_col_if_absent('agent_definition', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属业务项目编码'' AFTER `project_id`');
 CALL add_col_if_absent('agent_definition', 'visibility', 'VARCHAR(24) NOT NULL DEFAULT ''PRIVATE'' COMMENT ''Agent 可见性'' AFTER `project_code`');
+CALL add_col_if_absent('agent_definition', 'allowed_roles_json', 'TEXT DEFAULT NULL COMMENT ''允许运行该 Agent 的业务角色 JSON 数组，空表示不限制'' AFTER `visibility`');
 CALL add_col_if_absent('agent_definition', 'tool_refs_json', 'JSON DEFAULT NULL COMMENT ''Tool 稳定引用 JSON'' AFTER `tools_json`');
 CALL add_col_if_absent('agent_definition', 'skill_refs_json', 'JSON DEFAULT NULL COMMENT ''Skill 稳定引用 JSON'' AFTER `skills_json`');
 CALL add_idx_if_absent('agent_definition', 'idx_agent_project', '`project_id`, `enabled`');
@@ -1432,7 +1440,13 @@ CALL add_col_if_absent('tool_call_log', 'project_id', 'BIGINT DEFAULT NULL COMME
 CALL add_col_if_absent('tool_call_log', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
 CALL add_col_if_absent('tool_call_log', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
 CALL add_col_if_absent('tool_call_log', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
+CALL add_col_if_absent('tool_call_log', 'app_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''嵌入式业务应用 ID，等同 project_code'' AFTER `tenant_id`');
+CALL add_col_if_absent('tool_call_log', 'external_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务系统内用户 ID'' AFTER `app_id`');
+CALL add_col_if_absent('tool_call_log', 'global_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''跨系统稳定用户 ID'' AFTER `external_user_id`');
+CALL add_col_if_absent('tool_call_log', 'page_instance_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务前端页面实例 ID'' AFTER `global_user_id`');
+CALL add_col_if_absent('tool_call_log', 'origin', 'VARCHAR(512) DEFAULT NULL COMMENT ''业务前端 origin'' AFTER `page_instance_id`');
 CALL add_idx_if_absent('tool_call_log', 'idx_tool_log_project_trace', '`project_code`, `trace_id`');
+CALL add_idx_if_absent('tool_call_log', 'idx_tool_log_embed_session', '`app_id`, `external_user_id`, `session_id`');
 
 CALL add_col_if_absent('guard_decision_log', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `trace_id`');
 CALL add_col_if_absent('guard_decision_log', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
@@ -1571,12 +1585,291 @@ CREATE TABLE IF NOT EXISTS `registry_project_credential` (
     `app_secret`   VARCHAR(256) NOT NULL,
     `status`       VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
     `expires_at`   DATETIME     DEFAULT NULL,
+    `allowed_origins_json`   TEXT         DEFAULT NULL COMMENT '允许嵌入 Chat 的业务前端 origin JSON 数组',
+    `allowed_agent_ids_json` TEXT         DEFAULT NULL COMMENT '允许申请 embedToken 的 Agent ID / keySlug JSON 数组，空数组表示按项目归属校验',
+    `token_ttl_seconds`      INT          DEFAULT 600  COMMENT 'embedToken 默认有效期（秒）',
     `created_at`   DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `updated_at`   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_registry_credential` (`project_code`, `app_key`),
     KEY `idx_registry_credential_project` (`project_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='注册中心项目接入凭证';
+
+CALL add_col_if_absent('registry_project_credential', 'allowed_origins_json',   'TEXT DEFAULT NULL COMMENT ''允许嵌入 Chat 的业务前端 origin JSON 数组'' AFTER `expires_at`');
+CALL add_col_if_absent('registry_project_credential', 'allowed_agent_ids_json', 'TEXT DEFAULT NULL COMMENT ''允许申请 embedToken 的 Agent ID / keySlug JSON 数组，空数组表示按项目归属校验'' AFTER `allowed_origins_json`');
+CALL add_col_if_absent('registry_project_credential', 'token_ttl_seconds',      'INT DEFAULT 600 COMMENT ''embedToken 默认有效期（秒）'' AFTER `allowed_agent_ids_json`');
+
+CREATE TABLE IF NOT EXISTS `eaf_business_user` (
+    `id`             BIGINT       NOT NULL AUTO_INCREMENT,
+    `tenant_id`      VARCHAR(96)  NOT NULL DEFAULT 'default',
+    `global_user_id` VARCHAR(128) NOT NULL,
+    `display_name`   VARCHAR(128) DEFAULT NULL,
+    `email`          VARCHAR(128) DEFAULT NULL,
+    `mobile`         VARCHAR(64)  DEFAULT NULL,
+    `status`         VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
+    `source`         VARCHAR(32)  DEFAULT NULL,
+    `last_seen_at`   DATETIME     DEFAULT NULL,
+    `created_at`     DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_business_user_global` (`tenant_id`, `global_user_id`),
+    KEY `idx_business_user_status` (`tenant_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ReachAI 可识别的业务终端用户主体';
+
+CREATE TABLE IF NOT EXISTS `eaf_external_user_binding` (
+    `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
+    `tenant_id`          VARCHAR(96)  NOT NULL DEFAULT 'default',
+    `business_user_id`   BIGINT       NOT NULL,
+    `app_id`             VARCHAR(96)  NOT NULL,
+    `external_user_id`   VARCHAR(128) NOT NULL,
+    `external_user_name` VARCHAR(128) DEFAULT NULL,
+    `dept_id`            VARCHAR(128) DEFAULT NULL,
+    `dept_name`          VARCHAR(128) DEFAULT NULL,
+    `status`             VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
+    `last_seen_at`       DATETIME     DEFAULT NULL,
+    `created_at`         DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`         DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_external_binding` (`tenant_id`, `app_id`, `external_user_id`),
+    KEY `idx_external_binding_user` (`business_user_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务系统外部用户身份绑定';
+
+CREATE TABLE IF NOT EXISTS `eaf_external_user_role_binding` (
+    `id`               BIGINT       NOT NULL AUTO_INCREMENT,
+    `tenant_id`        VARCHAR(96)  NOT NULL DEFAULT 'default',
+    `business_user_id` BIGINT       NOT NULL,
+    `app_id`           VARCHAR(96)  NOT NULL,
+    `external_user_id` VARCHAR(128) NOT NULL,
+    `role_code`        VARCHAR(96)  NOT NULL,
+    `role_name`        VARCHAR(128) DEFAULT NULL,
+    `source`           VARCHAR(32)  DEFAULT NULL,
+    `status`           VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
+    `created_at`       DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_external_role` (`tenant_id`, `app_id`, `external_user_id`, `role_code`),
+    KEY `idx_external_role_user` (`business_user_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务系统同步的用户角色绑定';
+
+CREATE TABLE IF NOT EXISTS `eaf_embed_session` (
+    `id`                  BIGINT       NOT NULL AUTO_INCREMENT,
+    `session_id`          VARCHAR(96)  NOT NULL,
+    `tenant_id`           VARCHAR(96)  NOT NULL DEFAULT 'default',
+    `app_id`              VARCHAR(96)  NOT NULL,
+    `project_code`        VARCHAR(96)  NOT NULL,
+    `agent_id`            VARCHAR(128) NOT NULL,
+    `external_user_id`    VARCHAR(128) NOT NULL,
+    `global_user_id`      VARCHAR(128) DEFAULT NULL,
+    `page_instance_id`    VARCHAR(128) NOT NULL,
+    `route`               VARCHAR(512) DEFAULT NULL,
+    `origin`              VARCHAR(512) NOT NULL,
+    `sdk_version`         VARCHAR(64)  DEFAULT NULL,
+    `bridge_actions_json` TEXT         DEFAULT NULL,
+    `status`              VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
+    `expires_at`          DATETIME     NOT NULL,
+    `created_at`          DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`          DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_embed_session` (`session_id`),
+    KEY `idx_embed_session_identity` (`tenant_id`, `app_id`, `external_user_id`, `created_at`),
+    KEY `idx_embed_session_page` (`page_instance_id`, `status`, `expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话会话与页面实例绑定';
+
+CALL add_col_if_absent('eaf_embed_session', 'sdk_version', 'VARCHAR(64) DEFAULT NULL COMMENT ''Chat Embed SDK version'' AFTER `origin`');
+
+CREATE TABLE IF NOT EXISTS `eaf_embed_token_revocation` (
+    `id`         BIGINT       NOT NULL AUTO_INCREMENT,
+    `jti`        VARCHAR(128) NOT NULL,
+    `reason`     VARCHAR(256) DEFAULT NULL,
+    `expires_at` DATETIME     DEFAULT NULL,
+    `revoked_at` DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_embed_token_revocation_jti` (`jti`),
+    KEY `idx_embed_token_revocation_exp` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话 token 撤销表';
+
+CREATE TABLE IF NOT EXISTS `eaf_page_action_event` (
+    `id`                      BIGINT       NOT NULL AUTO_INCREMENT,
+    `request_id`              VARCHAR(96)  NOT NULL,
+    `session_id`              VARCHAR(96)  NOT NULL,
+    `tenant_id`               VARCHAR(96)  NOT NULL DEFAULT 'default',
+    `app_id`                  VARCHAR(96)  NOT NULL,
+    `agent_id`                VARCHAR(128) NOT NULL,
+    `node_id`                 VARCHAR(128) DEFAULT NULL,
+    `action_key`              VARCHAR(160) DEFAULT NULL,
+    `title`                   VARCHAR(256) DEFAULT NULL,
+    `args_json`               TEXT         DEFAULT NULL,
+    `target_page_instance_id` VARCHAR(128) DEFAULT NULL,
+    `confirm_required`        TINYINT(1)   DEFAULT 0,
+    `status`                  VARCHAR(32)  NOT NULL DEFAULT 'REQUESTED',
+    `result_json`             TEXT         DEFAULT NULL,
+    `error_message`           VARCHAR(1024) DEFAULT NULL,
+    `requested_at`            DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `completed_at`            DATETIME     DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_page_action_request` (`session_id`, `request_id`),
+    KEY `idx_page_action_session` (`session_id`, `status`, `requested_at`),
+    KEY `idx_page_action_app_agent` (`tenant_id`, `app_id`, `agent_id`, `requested_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式页面动作请求和执行结果';
+
+CREATE TABLE IF NOT EXISTS `eaf_embed_chat_event` (
+    `id`           BIGINT      NOT NULL AUTO_INCREMENT,
+    `session_id`   VARCHAR(96) NOT NULL,
+    `event_type`   VARCHAR(64) NOT NULL,
+    `role`         VARCHAR(32) DEFAULT NULL,
+    `content`      TEXT        DEFAULT NULL,
+    `payload_json` LONGTEXT    DEFAULT NULL,
+    `trace_id`     VARCHAR(96) DEFAULT NULL,
+    `created_at`   DATETIME    DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_embed_chat_event_session` (`session_id`, `created_at`),
+    KEY `idx_embed_chat_event_trace` (`trace_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话事件审计';
+
+CREATE TABLE IF NOT EXISTS `eaf_embed_renderer` (
+    `id`                BIGINT       NOT NULL AUTO_INCREMENT,
+    `renderer_key`      VARCHAR(160) NOT NULL,
+    `app_id`            VARCHAR(96)  NOT NULL,
+    `name`              VARCHAR(128) NOT NULL,
+    `version`           VARCHAR(32)  NOT NULL DEFAULT '1.0',
+    `input_schema_json` TEXT         DEFAULT NULL,
+    `allowed_agent_ids_json` TEXT    DEFAULT NULL,
+    `status`            VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
+    `created_at`        DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`        DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_embed_renderer` (`app_id`, `renderer_key`, `version`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话自定义结构化渲染器注册';
+
+CREATE TABLE IF NOT EXISTS `platform_user` (
+    `id`               BIGINT       NOT NULL AUTO_INCREMENT,
+    `username`         VARCHAR(96)  NOT NULL,
+    `display_name`     VARCHAR(128) DEFAULT NULL,
+    `email`            VARCHAR(128) DEFAULT NULL,
+    `mobile`           VARCHAR(64)  DEFAULT NULL,
+    `status`           VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
+    `source_provider`  VARCHAR(32)  NOT NULL,
+    `external_subject` VARCHAR(128) NOT NULL,
+    `password_hash`    VARCHAR(256) DEFAULT NULL,
+    `last_login_at`    DATETIME     DEFAULT NULL,
+    `created_at`       DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_platform_user_provider_subject` (`source_provider`, `external_subject`),
+    UNIQUE KEY `uk_platform_user_username` (`username`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台管理用户';
+
+CREATE TABLE IF NOT EXISTS `platform_role` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+    `role_code`   VARCHAR(64)  NOT NULL,
+    `role_name`   VARCHAR(128) NOT NULL,
+    `description` VARCHAR(512) DEFAULT NULL,
+    `status`      VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
+    `created_at`  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_platform_role_code` (`role_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台管理角色';
+
+CREATE TABLE IF NOT EXISTS `platform_user_role` (
+    `id`          BIGINT      NOT NULL AUTO_INCREMENT,
+    `user_id`     BIGINT      NOT NULL,
+    `role_id`     BIGINT      NOT NULL,
+    `scope_type`  VARCHAR(32) NOT NULL DEFAULT 'GLOBAL',
+    `scope_value` VARCHAR(96) DEFAULT '*',
+    `created_at`  DATETIME    DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_platform_user_role_scope` (`user_id`, `role_id`, `scope_type`, `scope_value`),
+    KEY `idx_platform_user_role_user` (`user_id`),
+    KEY `idx_platform_user_role_role` (`role_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台用户角色绑定';
+
+CREATE TABLE IF NOT EXISTS `platform_permission` (
+    `id`              BIGINT       NOT NULL AUTO_INCREMENT,
+    `permission_code` VARCHAR(96)  NOT NULL,
+    `permission_name` VARCHAR(128) NOT NULL,
+    `resource_type`   VARCHAR(64)  DEFAULT NULL,
+    `action`          VARCHAR(64)  DEFAULT NULL,
+    `description`     VARCHAR(512) DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_platform_permission_code` (`permission_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台管理权限';
+
+CREATE TABLE IF NOT EXISTS `platform_role_permission` (
+    `id`            BIGINT NOT NULL AUTO_INCREMENT,
+    `role_id`       BIGINT NOT NULL,
+    `permission_id` BIGINT NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_platform_role_permission` (`role_id`, `permission_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台角色权限绑定';
+
+CREATE TABLE IF NOT EXISTS `platform_login_session` (
+    `id`               BIGINT       NOT NULL AUTO_INCREMENT,
+    `session_id`       VARCHAR(96)  NOT NULL,
+    `user_id`          BIGINT       NOT NULL,
+    `provider`         VARCHAR(32)  NOT NULL,
+    `access_token_id`  VARCHAR(160) NOT NULL,
+    `refresh_token_id` VARCHAR(160) DEFAULT NULL,
+    `ip`               VARCHAR(64)  DEFAULT NULL,
+    `user_agent`       VARCHAR(512) DEFAULT NULL,
+    `expires_at`       DATETIME     NOT NULL,
+    `revoked_at`       DATETIME     DEFAULT NULL,
+    `created_at`       DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_platform_session_id` (`session_id`),
+    UNIQUE KEY `uk_platform_access_token` (`access_token_id`),
+    KEY `idx_platform_session_user` (`user_id`, `expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台管理端登录会话';
+
+CREATE TABLE IF NOT EXISTS `platform_auth_provider` (
+    `id`              BIGINT       NOT NULL AUTO_INCREMENT,
+    `provider_code`   VARCHAR(32)  NOT NULL,
+    `provider_name`   VARCHAR(128) NOT NULL,
+    `provider_type`   VARCHAR(32)  NOT NULL,
+    `config_json`     TEXT         DEFAULT NULL,
+    `status`          VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
+    `created_at`      DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`      DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_platform_auth_provider` (`provider_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台管理端身份提供方配置';
+
+INSERT IGNORE INTO `platform_role` (`role_code`, `role_name`, `description`, `status`)
+VALUES
+('PLATFORM_ADMIN', 'Platform Admin', 'Full platform administration', 'ACTIVE'),
+('AGENT_DESIGNER', 'Agent Designer', 'Create and edit Agents and workflows', 'ACTIVE'),
+('PROJECT_OWNER', 'Project Owner', 'Manage assigned business projects', 'ACTIVE'),
+('OPERATOR', 'Operator', 'Operate and replay runtime sessions', 'ACTIVE'),
+('AUDITOR', 'Auditor', 'Read-only audit and trace access', 'ACTIVE');
+
+INSERT IGNORE INTO `platform_permission` (`permission_code`, `permission_name`, `resource_type`, `action`)
+VALUES
+('*', 'All platform permissions', 'PLATFORM', '*'),
+('platform:read', 'Read platform assets', 'PLATFORM', 'READ'),
+('platform:write', 'Write platform assets', 'PLATFORM', 'WRITE'),
+('platform:admin', 'Administer platform users and roles', 'PLATFORM', 'ADMIN');
+
+INSERT IGNORE INTO `platform_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id FROM `platform_role` r JOIN `platform_permission` p
+WHERE r.role_code = 'PLATFORM_ADMIN'
+  AND p.permission_code IN ('*', 'platform:read', 'platform:write', 'platform:admin');
+
+INSERT IGNORE INTO `platform_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id FROM `platform_role` r JOIN `platform_permission` p
+WHERE r.role_code IN ('AGENT_DESIGNER', 'PROJECT_OWNER', 'OPERATOR')
+  AND p.permission_code IN ('platform:read', 'platform:write');
+
+INSERT IGNORE INTO `platform_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id FROM `platform_role` r JOIN `platform_permission` p
+WHERE r.role_code = 'AUDITOR'
+  AND p.permission_code = 'platform:read';
+
+INSERT IGNORE INTO `platform_auth_provider` (`provider_code`, `provider_name`, `provider_type`, `status`, `config_json`)
+VALUES
+('LOCAL', 'Local Development Login', 'LOCAL', 'ACTIVE', '{}'),
+('HEADER', 'Trusted Gateway Headers', 'HEADER', 'ACTIVE', '{}'),
+('OIDC', 'Enterprise OIDC Login', 'OIDC', 'INACTIVE', '{}'),
+('SAML', 'Enterprise SAML Login', 'SAML', 'INACTIVE', '{}');
 
 CREATE TABLE IF NOT EXISTS `agent_workflow_credential` (
     `id`             BIGINT       NOT NULL AUTO_INCREMENT,
@@ -1619,6 +1912,219 @@ CREATE TABLE IF NOT EXISTS `market_item` (
     KEY `idx_market_status` (`asset_kind`, `status`),
     KEY `idx_market_project` (`project_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent/Skill 市场资产';
+
+CREATE TABLE IF NOT EXISTS `capability_module` (
+    `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
+    `code`               VARCHAR(96)  NOT NULL,
+    `name`               VARCHAR(192) NOT NULL,
+    `version`            VARCHAR(64)  NOT NULL DEFAULT '1.0.0',
+    `source_type`        VARCHAR(32)  NOT NULL DEFAULT 'BUILTIN',
+    `status`             VARCHAR(32)  NOT NULL DEFAULT 'ACTIVE',
+    `enabled`            TINYINT(1)   NOT NULL DEFAULT 1,
+    `manifest_json`      MEDIUMTEXT   DEFAULT NULL,
+    `config_schema_json` MEDIUMTEXT   DEFAULT NULL,
+    `config_json`        MEDIUMTEXT   DEFAULT NULL,
+    `create_time`        DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `update_time`        DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_capability_module_code` (`code`),
+    KEY `idx_capability_module_status` (`status`, `enabled`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力模块/插件';
+
+CREATE TABLE IF NOT EXISTS `tool_asset` (
+    `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
+    `capability_module_id` BIGINT       NOT NULL,
+    `capability_code`      VARCHAR(96)  NOT NULL,
+    `tool_code`            VARCHAR(128) NOT NULL,
+    `name`                 VARCHAR(192) DEFAULT NULL,
+    `qualified_name`       VARCHAR(256) NOT NULL,
+    `description`          MEDIUMTEXT   DEFAULT NULL,
+    `input_schema_json`    MEDIUMTEXT   DEFAULT NULL,
+    `output_schema_json`   MEDIUMTEXT   DEFAULT NULL,
+    `executor_type`        VARCHAR(32)  NOT NULL DEFAULT 'BEAN',
+    `executor_ref`         VARCHAR(256) DEFAULT NULL,
+    `side_effect`          VARCHAR(24)  NOT NULL DEFAULT 'WRITE',
+    `enabled`              TINYINT(1)   NOT NULL DEFAULT 1,
+    `agent_visible`        TINYINT(1)   NOT NULL DEFAULT 1,
+    `create_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `update_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_tool_asset_qualified` (`qualified_name`),
+    UNIQUE KEY `uk_tool_asset_module_code` (`capability_module_id`, `tool_code`),
+    KEY `idx_tool_asset_capability` (`capability_code`, `enabled`, `agent_visible`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力模块下的原子工具资产';
+
+CREATE TABLE IF NOT EXISTS `composition_definition` (
+    `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
+    `capability_module_id` BIGINT       NOT NULL,
+    `capability_code`      VARCHAR(96)  NOT NULL,
+    `composition_code`     VARCHAR(128) NOT NULL,
+    `name`                 VARCHAR(192) DEFAULT NULL,
+    `qualified_name`       VARCHAR(256) NOT NULL,
+    `description`          MEDIUMTEXT   DEFAULT NULL,
+    `graph_spec_json`      MEDIUMTEXT   NOT NULL,
+    `input_schema_json`    MEDIUMTEXT   DEFAULT NULL,
+    `output_schema_json`   MEDIUMTEXT   DEFAULT NULL,
+    `side_effect`          VARCHAR(24)  NOT NULL DEFAULT 'WRITE',
+    `enabled`              TINYINT(1)   NOT NULL DEFAULT 1,
+    `agent_visible`        TINYINT(1)   NOT NULL DEFAULT 1,
+    `create_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `update_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_composition_qualified` (`qualified_name`),
+    UNIQUE KEY `uk_composition_module_code` (`capability_module_id`, `composition_code`),
+    KEY `idx_composition_capability` (`capability_code`, `enabled`, `agent_visible`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力模块下的组合定义';
+
+CREATE TABLE IF NOT EXISTS `interaction_definition` (
+    `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
+    `capability_module_id` BIGINT       NOT NULL,
+    `capability_code`      VARCHAR(96)  NOT NULL,
+    `interaction_code`     VARCHAR(128) NOT NULL,
+    `name`                 VARCHAR(192) DEFAULT NULL,
+    `qualified_name`       VARCHAR(256) NOT NULL,
+    `description`          MEDIUMTEXT   DEFAULT NULL,
+    `interaction_type`     VARCHAR(32)  NOT NULL DEFAULT 'COLLECT_INPUT',
+    `spec_json`            MEDIUMTEXT   DEFAULT NULL,
+    `input_schema_json`    MEDIUMTEXT   DEFAULT NULL,
+    `output_schema_json`   MEDIUMTEXT   DEFAULT NULL,
+    `enabled`              TINYINT(1)   NOT NULL DEFAULT 1,
+    `agent_visible`        TINYINT(1)   NOT NULL DEFAULT 1,
+    `create_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `update_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_interaction_qualified` (`qualified_name`),
+    UNIQUE KEY `uk_interaction_module_code` (`capability_module_id`, `interaction_code`),
+    KEY `idx_interaction_capability` (`capability_code`, `enabled`, `agent_visible`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Interaction definition assets';
+
+CREATE TABLE IF NOT EXISTS `interaction_session` (
+    `id`                         VARCHAR(64)  NOT NULL,
+    `run_id`                     VARCHAR(64)  DEFAULT NULL,
+    `composition_qualified_name` VARCHAR(256) NOT NULL,
+    `node_id`                    VARCHAR(128) NOT NULL,
+    `interaction_type`           VARCHAR(32)  NOT NULL,
+    `status`                     VARCHAR(32)  NOT NULL DEFAULT 'WAITING_USER',
+    `state_json`                 MEDIUMTEXT   DEFAULT NULL,
+    `ui_request_json`            MEDIUMTEXT   DEFAULT NULL,
+    `submitted_payload_json`     MEDIUMTEXT   DEFAULT NULL,
+    `create_time`                DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `update_time`                DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `expires_at`                 DATETIME     DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    KEY `idx_interaction_session_run` (`run_id`),
+    KEY `idx_interaction_session_status` (`status`, `expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Interaction runtime sessions';
+
+CREATE TABLE IF NOT EXISTS `interaction_event` (
+    `id`           BIGINT       NOT NULL AUTO_INCREMENT,
+    `session_id`   VARCHAR(64)  NOT NULL,
+    `event_type`   VARCHAR(32)  NOT NULL,
+    `payload_json` MEDIUMTEXT   DEFAULT NULL,
+    `operator_id`  VARCHAR(128) DEFAULT NULL,
+    `create_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_interaction_event_session` (`session_id`, `create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Interaction runtime events';
+
+CREATE TABLE IF NOT EXISTS `executable_debug_session` (
+    `id`                    VARCHAR(64)  NOT NULL,
+    `run_id`                VARCHAR(128) DEFAULT NULL,
+    `trace_id`              VARCHAR(128) DEFAULT NULL,
+    `target_type`           VARCHAR(64)  NOT NULL DEFAULT 'AGENT_DRAFT',
+    `status`                VARCHAR(32)  NOT NULL DEFAULT 'RUNNING',
+    `current_node_id`       VARCHAR(128) DEFAULT NULL,
+    `draft_definition_json` MEDIUMTEXT   DEFAULT NULL,
+    `debug_options_json`    MEDIUMTEXT   DEFAULT NULL,
+    `state_json`            MEDIUMTEXT   DEFAULT NULL,
+    `messages_json`         MEDIUMTEXT   DEFAULT NULL,
+    `steps_json`            MEDIUMTEXT   DEFAULT NULL,
+    `ui_request_json`       MEDIUMTEXT   DEFAULT NULL,
+    `create_time`           DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `update_time`           DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `expires_at`            DATETIME     DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    KEY `idx_executable_debug_session_trace` (`trace_id`),
+    KEY `idx_executable_debug_session_status` (`status`, `expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Executable debug sessions for Studio and runtime workbench';
+
+INSERT INTO `capability_module`
+(`code`, `name`, `version`, `source_type`, `status`, `enabled`, `manifest_json`, `config_schema_json`, `config_json`)
+VALUES
+('system', 'System Built-in Capability', '1.0.0', 'BUILTIN', 'ACTIVE', 1,
+ '{"code":"system","name":"System Built-in Capability"}', '{}', '{}')
+ON DUPLICATE KEY UPDATE
+    `name` = VALUES(`name`),
+    `version` = VALUES(`version`),
+    `source_type` = VALUES(`source_type`),
+    `status` = VALUES(`status`),
+    `enabled` = VALUES(`enabled`);
+
+INSERT INTO `tool_asset`
+(`capability_module_id`, `capability_code`, `tool_code`, `name`, `qualified_name`, `description`,
+ `input_schema_json`, `output_schema_json`, `executor_type`, `executor_ref`, `side_effect`, `enabled`, `agent_visible`)
+VALUES
+((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
+ 'system', 'echo', 'Echo Tool', 'system.echo', 'Return input params for kernel verification',
+ '{"type":"object","properties":{"message":{"type":"string"}}}', '{"type":"object"}',
+ 'ECHO', 'echo', 'READ', 1, 0)
+ON DUPLICATE KEY UPDATE
+    `name` = VALUES(`name`),
+    `description` = VALUES(`description`),
+    `executor_type` = VALUES(`executor_type`),
+    `executor_ref` = VALUES(`executor_ref`),
+    `enabled` = VALUES(`enabled`);
+
+INSERT INTO `composition_definition`
+(`capability_module_id`, `capability_code`, `composition_code`, `name`, `qualified_name`, `description`,
+ `graph_spec_json`, `input_schema_json`, `output_schema_json`, `side_effect`, `enabled`, `agent_visible`)
+VALUES
+((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
+ 'system', 'echo_flow', 'Echo Composition', 'system.echo_flow', 'Minimal GraphSpec composition for kernel verification',
+ '{"entry":"input","nodes":[{"id":"input","type":"USER_INPUT","config":{"fields":[{"name":"message","required":true}]}},{"id":"echo","type":"TOOL","config":{"qualifiedName":"system.echo","inputMapping":{"message":"params.message"},"outputAlias":"echoed"}},{"id":"answer","type":"ANSWER","config":{"template":"{{ echoed.message }}"}}],"edges":[{"from":"START","to":"input","condition":"always"},{"from":"input","to":"echo","condition":"always"},{"from":"echo","to":"answer","condition":"success"},{"from":"answer","to":"END","condition":"always"}]}',
+ '{"type":"object","properties":{"message":{"type":"string"}}}', '{"type":"string"}',
+ 'READ', 1, 1)
+ON DUPLICATE KEY UPDATE
+    `name` = VALUES(`name`),
+    `description` = VALUES(`description`),
+    `graph_spec_json` = VALUES(`graph_spec_json`),
+    `enabled` = VALUES(`enabled`);
+
+INSERT INTO `interaction_definition`
+(`capability_module_id`, `capability_code`, `interaction_code`, `name`, `qualified_name`, `description`,
+ `interaction_type`, `spec_json`, `input_schema_json`, `output_schema_json`, `enabled`, `agent_visible`)
+VALUES
+((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
+ 'system', 'echo_input', 'Echo Input Interaction', 'system.echo_input', 'Collect message before calling the echo tool',
+ 'COLLECT_INPUT',
+ '{"interactionType":"COLLECT_INPUT","title":"Echo Input","fields":[{"key":"message","name":"message","label":"Message","type":"string","required":true}],"behavior":{"askPolicy":"MISSING_ONLY"}}',
+ '{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}', '{"type":"object"}', 1, 1),
+((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
+ 'system', 'echo_result', 'Echo Result Interaction', 'system.echo_result', 'Render echo result as a detail card',
+ 'PRESENT_OUTPUT',
+ '{"interactionType":"PRESENT_OUTPUT","title":"Echo Result","component":"DETAIL","data":"echoed"}',
+ '{"type":"object"}', '{"type":"object"}', 1, 1)
+ON DUPLICATE KEY UPDATE
+    `name` = VALUES(`name`),
+    `description` = VALUES(`description`),
+    `interaction_type` = VALUES(`interaction_type`),
+    `spec_json` = VALUES(`spec_json`),
+    `enabled` = VALUES(`enabled`);
+
+INSERT INTO `composition_definition`
+(`capability_module_id`, `capability_code`, `composition_code`, `name`, `qualified_name`, `description`,
+ `graph_spec_json`, `input_schema_json`, `output_schema_json`, `side_effect`, `enabled`, `agent_visible`)
+VALUES
+((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
+ 'system', 'interactive_echo', 'Interactive Echo Composition', 'system.interactive_echo', 'Interaction kernel verification flow',
+ '{"entry":"collect","nodes":[{"id":"collect","type":"INTERACTION","ref":{"kind":"INTERACTION","qualifiedName":"system.echo_input"},"config":{"interactionType":"COLLECT_INPUT","outputAlias":"params"}},{"id":"echo","type":"TOOL","config":{"qualifiedName":"system.echo","inputMapping":{"message":"params.message"},"outputAlias":"echoed"}},{"id":"show","type":"INTERACTION","ref":{"kind":"INTERACTION","qualifiedName":"system.echo_result"},"config":{"interactionType":"PRESENT_OUTPUT","data":"echoed","outputAlias":"presented"}},{"id":"answer","type":"ANSWER","config":{"template":"{{ echoed.message }}"}}],"edges":[{"from":"START","to":"collect","condition":"always"},{"from":"collect","to":"echo","condition":"always"},{"from":"echo","to":"show","condition":"success"},{"from":"show","to":"answer","condition":"always"},{"from":"answer","to":"END","condition":"always"}]}',
+ '{"type":"object","properties":{"message":{"type":"string"}}}', '{"type":"string"}',
+ 'READ', 1, 1)
+ON DUPLICATE KEY UPDATE
+    `name` = VALUES(`name`),
+    `description` = VALUES(`description`),
+    `graph_spec_json` = VALUES(`graph_spec_json`),
+    `enabled` = VALUES(`enabled`);
 
 
 -- ============================================================================

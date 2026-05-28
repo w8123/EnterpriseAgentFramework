@@ -46,7 +46,7 @@ public class ToolController {
         IPage<ToolDefinitionEntity> page = toolDefinitionService.page(
                 current, size, keyword, source, enabled, projectId);
         Set<String> pending = projectId != null ? aiRegistryService.pendingCapabilityQualifiedNames(projectId) : Set.of();
-        // 仅展示 TOOL；Skill 去 /api/skills 管理
+        // 仅展示 TOOL；Composition 去 /api/compositions 管理
         List<ToolInfoDTO> records = page.getRecords().stream()
                 .filter(e -> !ToolDefinitionService.KIND_SKILL.equalsIgnoreCase(e.getKind()))
                 .map(e -> toDto(e, pending))

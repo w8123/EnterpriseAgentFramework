@@ -18,6 +18,9 @@ public class LLMConfig {
     /** 单次Agent执行超时(ms) */
     private long defaultTimeout = 60000;
 
+    /** HTTP Tool request timeout in milliseconds. */
+    private long toolRequestDefaultTimeoutMs = 180000;
+
     private IntentConfig intent = new IntentConfig();
 
     /** 各 Agent 类型的启用开关 */

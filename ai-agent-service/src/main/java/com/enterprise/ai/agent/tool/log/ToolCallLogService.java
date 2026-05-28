@@ -74,6 +74,12 @@ public class ToolCallLogService {
         entity.setAgentName(context == null ? null : context.getAgentName());
         entity.setIntentType(context == null ? null : context.getIntentType());
         entity.setProjectCode(context == null ? null : context.getProjectCode());
+        entity.setTenantId(context == null ? null : context.getTenantId());
+        entity.setAppId(context == null ? null : context.getAppId());
+        entity.setExternalUserId(context == null ? null : context.getExternalUserId());
+        entity.setGlobalUserId(context == null ? null : context.getGlobalUserId());
+        entity.setPageInstanceId(context == null ? null : context.getPageInstanceId());
+        entity.setOrigin(context == null ? null : context.getOrigin());
         entity.setToolName(toolName);
         entity.setArgsJson(truncate(toJson(args), properties.getArgsMaxChars()));
         entity.setResultSummary(truncate(stringify(result), properties.getResultMaxChars()));

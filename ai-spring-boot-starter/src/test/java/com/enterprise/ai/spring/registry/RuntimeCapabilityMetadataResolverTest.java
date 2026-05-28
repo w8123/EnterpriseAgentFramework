@@ -16,8 +16,8 @@ class RuntimeCapabilityMetadataResolverTest {
         SdkDescriptionSourceSettingsHolder holder = new SdkDescriptionSourceSettingsHolder();
         RuntimeCapabilityMetadataResolver resolver = new RuntimeCapabilityMetadataResolver(holder);
         Method m = SampleApi.class.getMethod("plain");
-        assertEquals("plain", resolver.resolveMethodDescription(m, null));
-        assertEquals("", resolver.resolveMethodTitle(m, null));
+        assertEquals("plain", resolver.resolveMethodDescription(m, (com.enterprise.ai.skill.AiCapability) null));
+        assertEquals("", resolver.resolveMethodTitle(m, (com.enterprise.ai.skill.AiCapability) null));
     }
 
     @Test

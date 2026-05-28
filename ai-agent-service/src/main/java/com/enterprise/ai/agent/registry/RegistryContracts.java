@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.registry;
 
-import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
 
 import java.util.List;
@@ -139,7 +139,7 @@ public final class RegistryContracts {
             String modelInstanceId,
             String systemPrompt,
             String visibility,
-            AgentGraphSpec graphSpec,
+            GraphSpec graphSpec,
             Map<String, Object> metadata
     ) {
     }

@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.agent;
 
-import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.runtime.AgentRuntimeRequest;
 import com.enterprise.ai.agent.runtime.AgentRuntimeSelector;
@@ -20,6 +20,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -31,6 +32,13 @@ public class AgentReleaseValidationService {
     private static final Set<String> SUPPORTED_EDGE_CONDITIONS = Set.of(
             "always", "default", "else", "success", "error", "failure", "empty", "not_empty"
     );
+    private static final Set<String> SUPPORTED_INTERACTION_TYPES = Set.of(
+            "COLLECT_INPUT", "PRESENT_OUTPUT", "USER_CHOICE", "CONFIRM_ACTION", "REVIEW_EDIT"
+    );
+    private static final Set<String> SUPPORTED_INTERACTION_FIELD_TYPES = Set.of(
+            "STRING", "NUMBER", "INTEGER", "BOOLEAN", "OBJECT", "ARRAY", "FILE"
+    );
+    private static final Pattern CUSTOM_RENDERER_KEY = Pattern.compile("[A-Za-z][A-Za-z0-9_.:-]{1,127}");
 
     private final AgentRuntimeSelector runtimeSelector;
     private final ToolDefinitionService toolDefinitionService;
@@ -92,17 +100,17 @@ public class AgentReleaseValidationService {
             return;
         }
 
-        AgentGraphSpec graph = definition.getGraphSpec();
-        List<AgentGraphSpec.Node> nodes = graph.getNodes() == null ? List.of() : graph.getNodes();
-        List<AgentGraphSpec.Edge> edges = graph.getEdges() == null ? List.of() : graph.getEdges();
+        GraphSpec graph = definition.getGraphSpec();
+        List<GraphSpec.Node> nodes = graph.getNodes() == null ? List.of() : graph.getNodes();
+        List<GraphSpec.Edge> edges = graph.getEdges() == null ? List.of() : graph.getEdges();
         if (nodes.isEmpty()) {
             report.error("GRAPH_NODE_EMPTY", null, "GraphSpec 至少需要一个节点");
             return;
         }
 
-        Map<String, AgentGraphSpec.Node> byId = new LinkedHashMap<>();
+        Map<String, GraphSpec.Node> byId = new LinkedHashMap<>();
         Set<String> duplicateIds = new HashSet<>();
-        for (AgentGraphSpec.Node node : nodes) {
+        for (GraphSpec.Node node : nodes) {
             if (node == null) {
                 report.error("GRAPH_NODE_EMPTY_ITEM", null, "GraphSpec node item cannot be null");
                 continue;
@@ -133,9 +141,9 @@ public class AgentReleaseValidationService {
             report.error("GRAPH_LLM_MISSING", null, "GraphSpec 至少需要一个 LLM 节点");
         }
 
-        Map<String, List<AgentGraphSpec.Edge>> outgoing = new HashMap<>();
+        Map<String, List<GraphSpec.Edge>> outgoing = new HashMap<>();
         Set<String> incoming = new HashSet<>();
-        for (AgentGraphSpec.Edge edge : edges) {
+        for (GraphSpec.Edge edge : edges) {
             if (edge == null) {
                 report.error("GRAPH_EDGE_EMPTY", null, "GraphSpec 杩炵嚎涓嶈兘涓虹┖");
                 continue;
@@ -175,7 +183,7 @@ public class AgentReleaseValidationService {
         validateMappings(nodes, report);
     }
 
-    private void validateNode(AgentGraphSpec.Node node,
+    private void validateNode(GraphSpec.Node node,
                               AgentDefinition definition,
                               AgentReleaseValidationResult.Builder report) {
         String id = trim(node.getId());
@@ -218,6 +226,12 @@ public class AgentReleaseValidationService {
             } else {
                 validateUserInputFields(id, list, report);
             }
+        }
+        if ("INTERACTION".equals(type)) {
+            validateInteractionNode(id, config, report);
+        }
+        if ("PAGE_ACTION".equals(type)) {
+            validatePageActionNode(id, config, report);
         }
         if ("VARIABLE_ASSIGN".equals(type)) {
             Object assignments = config.get("assignments");
@@ -381,12 +395,88 @@ public class AgentReleaseValidationService {
         }
     }
 
-    private void validateNodeContract(AgentGraphSpec.Node node, AgentReleaseValidationResult.Builder report) {
+    private void validatePageActionNode(String nodeId,
+                                        Map<String, Object> config,
+                                        AgentReleaseValidationResult.Builder report) {
+        String actionKey = text(config.get("actionKey"));
+        if (!StringUtils.hasText(actionKey)) {
+            report.error("GRAPH_PAGE_ACTION_KEY_EMPTY", nodeId, "PAGE_ACTION node requires actionKey");
+        }
+        Object args = config.get("args");
+        if (args != null && !(args instanceof Map<?, ?>)) {
+            report.error("GRAPH_PAGE_ACTION_ARGS_INVALID", nodeId, "PAGE_ACTION args must be an object");
+        }
+        Object confirm = config.get("confirm");
+        if (confirm != null && !(confirm instanceof Boolean)) {
+            report.error("GRAPH_PAGE_ACTION_CONFIRM_INVALID", nodeId, "PAGE_ACTION confirm must be boolean");
+        }
+    }
+
+    private void validateInteractionNode(String nodeId,
+                                         Map<String, Object> config,
+                                         AgentReleaseValidationResult.Builder report) {
+        String interactionType = normalize(text(config.get("interactionType")), "COLLECT_INPUT");
+        if (!SUPPORTED_INTERACTION_TYPES.contains(interactionType)) {
+            report.error("GRAPH_INTERACTION_TYPE_INVALID", nodeId,
+                    "Unsupported INTERACTION interactionType: " + interactionType);
+            return;
+        }
+        if ("COLLECT_INPUT".equals(interactionType) || "USER_CHOICE".equals(interactionType)
+                || "CONFIRM_ACTION".equals(interactionType) || "REVIEW_EDIT".equals(interactionType)) {
+            Object fields = config.get("fields");
+            if (!(fields instanceof List<?> list) || list.isEmpty()) {
+                report.error("GRAPH_INTERACTION_FIELDS_EMPTY", nodeId,
+                        "INTERACTION node requires fields for " + interactionType);
+            } else {
+                validateInteractionFields(nodeId, list, report);
+            }
+        }
+        if ("PRESENT_OUTPUT".equals(interactionType)) {
+            String component = normalize(text(config.get("component")), "DETAIL");
+            if (!Set.of("DETAIL", "TABLE", "CARD", "REPORT", "FORM", "CUSTOM").contains(component)) {
+                report.error("GRAPH_INTERACTION_COMPONENT_INVALID", nodeId,
+                        "Unsupported INTERACTION component: " + component);
+            }
+            if ("CUSTOM".equals(component)) {
+                String rendererKey = firstText(text(config.get("rendererKey")),
+                        text(asMap(config.get("renderSchema")).get("rendererKey")));
+                if (!CUSTOM_RENDERER_KEY.matcher(rendererKey).matches()) {
+                    report.error("GRAPH_INTERACTION_CUSTOM_RENDERER_INVALID", nodeId,
+                            "CUSTOM PRESENT_OUTPUT requires a registered rendererKey");
+                }
+            }
+        }
+    }
+
+    private void validateInteractionFields(String nodeId, List<?> fields, AgentReleaseValidationResult.Builder report) {
+        Set<String> names = new HashSet<>();
+        for (Object rawField : fields) {
+            Map<String, Object> field = asMap(rawField);
+            String name = firstText(text(field.get("key")), text(field.get("name")));
+            if (!StringUtils.hasText(name)) {
+                report.error("GRAPH_INTERACTION_FIELD_NAME_EMPTY", nodeId, "INTERACTION field key is required");
+                continue;
+            }
+            if (!name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                report.error("GRAPH_INTERACTION_FIELD_NAME_INVALID", nodeId, "Invalid INTERACTION field key: " + name);
+            }
+            if (!names.add(name)) {
+                report.error("GRAPH_INTERACTION_FIELD_DUPLICATE", nodeId, "Duplicate INTERACTION field: " + name);
+            }
+            String fieldType = normalize(text(field.get("type")), "STRING");
+            if (!SUPPORTED_INTERACTION_FIELD_TYPES.contains(fieldType)) {
+                report.error("GRAPH_INTERACTION_FIELD_TYPE_INVALID", nodeId,
+                        "Unsupported INTERACTION field type: " + fieldType);
+            }
+        }
+    }
+
+    private void validateNodeContract(GraphSpec.Node node, AgentReleaseValidationResult.Builder report) {
         String nodeId = trim(node.getId());
         Map<String, Object> nodeConfig = config(node);
         Object rawMapping = nodeConfig.get("inputMapping");
         Map<?, ?> mapping = rawMapping instanceof Map<?, ?> map ? map : Map.of();
-        for (AgentGraphSpec.Port port : node.getInputs() == null ? List.<AgentGraphSpec.Port>of() : node.getInputs()) {
+        for (GraphSpec.Port port : node.getInputs() == null ? List.<GraphSpec.Port>of() : node.getInputs()) {
             if (port == null || !Boolean.TRUE.equals(port.getRequired())) {
                 continue;
             }
@@ -440,10 +530,10 @@ public class AgentReleaseValidationService {
     }
 
     private void validateCapabilityRef(String type,
-                                       AgentGraphSpec.Node node,
+                                       GraphSpec.Node node,
                                        AgentDefinition definition,
                                        AgentReleaseValidationResult.Builder report) {
-        AgentGraphSpec.CapabilityRef ref = node.getRef();
+        GraphSpec.CapabilityRef ref = node.getRef();
         Optional<ToolDefinitionEntity> found = Optional.empty();
         if (ref != null && ref.getDefinitionId() != null) {
             found = toolDefinitionService.findById(ref.getDefinitionId());
@@ -478,8 +568,8 @@ public class AgentReleaseValidationService {
         }
     }
 
-    private void validateEdge(AgentGraphSpec.Edge edge,
-                              Map<String, AgentGraphSpec.Node> byId,
+    private void validateEdge(GraphSpec.Edge edge,
+                              Map<String, GraphSpec.Node> byId,
                               AgentReleaseValidationResult.Builder report) {
         String from = trim(edge.getFrom());
         String to = trim(edge.getTo());
@@ -502,10 +592,10 @@ public class AgentReleaseValidationService {
     }
 
     @SuppressWarnings("unchecked")
-    private void validateMappings(List<AgentGraphSpec.Node> nodes, AgentReleaseValidationResult.Builder report) {
+    private void validateMappings(List<GraphSpec.Node> nodes, AgentReleaseValidationResult.Builder report) {
         Set<String> nodeIds = new HashSet<>();
         Set<String> aliases = new HashSet<>();
-        for (AgentGraphSpec.Node node : nodes) {
+        for (GraphSpec.Node node : nodes) {
             if (node == null) {
                 continue;
             }
@@ -519,7 +609,7 @@ public class AgentReleaseValidationService {
                 aliases.add(StringUtils.hasText(userInputAlias) ? userInputAlias : "params");
             }
         }
-        for (AgentGraphSpec.Node node : nodes) {
+        for (GraphSpec.Node node : nodes) {
             if (node == null) {
                 continue;
             }
@@ -577,7 +667,7 @@ public class AgentReleaseValidationService {
         }
     }
 
-    private Set<String> reachable(String entry, Map<String, List<AgentGraphSpec.Edge>> outgoing) {
+    private Set<String> reachable(String entry, Map<String, List<GraphSpec.Edge>> outgoing) {
         Set<String> visited = new HashSet<>();
         ArrayDeque<String> queue = new ArrayDeque<>();
         queue.add(entry);
@@ -586,7 +676,7 @@ public class AgentReleaseValidationService {
             if (!visited.add(current)) {
                 continue;
             }
-            for (AgentGraphSpec.Edge edge : outgoing.getOrDefault(current, List.of())) {
+            for (GraphSpec.Edge edge : outgoing.getOrDefault(current, List.of())) {
                 if (StringUtils.hasText(edge.getTo()) && !isEnd(edge.getTo()) && !START.equalsIgnoreCase(edge.getTo())) {
                     queue.add(edge.getTo().trim());
                 }
@@ -610,7 +700,7 @@ public class AgentReleaseValidationService {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> config(AgentGraphSpec.Node node) {
+    private Map<String, Object> config(GraphSpec.Node node) {
         return node == null || node.getConfig() == null ? Map.of() : node.getConfig();
     }
 

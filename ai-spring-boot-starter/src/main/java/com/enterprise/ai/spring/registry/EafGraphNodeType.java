@@ -14,6 +14,7 @@ public enum EafGraphNodeType {
 
     LLM("LLM", "llm", "action"),
     USER_INPUT("USER_INPUT", "userInput", "input", "user_input", "input", "form_input"),
+    INTERACTION("INTERACTION", "interaction", "interaction", "collect_input", "present_output", "user_choice", "confirm_action"),
     TOOL("TOOL", "tool", "action"),
     CAPABILITY("CAPABILITY", "skill", "action"),
     IF_ELSE("IF_ELSE", "condition", "flow", "if_else", "condition"),
@@ -28,6 +29,7 @@ public enum EafGraphNodeType {
     KNOWLEDGE_WRITE("KNOWLEDGE_WRITE", "knowledgeWrite", "knowledge", "knowledge_write"),
     DOCUMENT_EXTRACT("DOCUMENT_EXTRACT", "documentExtract", "data", "document_extract", "document"),
     MCP_CALL("MCP_CALL", "mcp", "integration", "mcp_call", "mcp"),
+    PAGE_ACTION("PAGE_ACTION", "pageAction", "integration", "page_action", "ui_action", "client_action"),
     PARAMETER_EXTRACT("PARAMETER_EXTRACT", "parameter", "flow", "parameter_extract", "parameter"),
     HTTP_REQUEST("HTTP_REQUEST", "http", "integration", "http_request", "http"),
     KNOWLEDGE_RETRIEVAL("KNOWLEDGE_RETRIEVAL", "knowledge", "knowledge", "knowledge_retrieval", "knowledge");

@@ -51,6 +51,11 @@ public class AgentTraceSpanService {
         entity.setToolName(record.toolName());
         entity.setModelInstanceId(record.modelInstanceId());
         entity.setProjectCode(definition == null ? context == null ? null : context.getProjectCode() : definition.getProjectCode());
+        entity.setTenantId(context == null ? null : context.getTenantId());
+        entity.setAppId(context == null ? null : context.getAppId());
+        entity.setExternalUserId(context == null ? null : context.getExternalUserId());
+        entity.setGlobalUserId(context == null ? null : context.getGlobalUserId());
+        entity.setPageInstanceId(context == null ? null : context.getPageInstanceId());
         entity.setStatus(firstNonBlank(record.status(), record.success() ? "SUCCESS" : "ERROR"));
         entity.setInputSummary(truncate(stringify(record.input()), SUMMARY_LIMIT));
         entity.setOutputSummary(truncate(stringify(record.output()), SUMMARY_LIMIT));

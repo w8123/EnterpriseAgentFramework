@@ -313,8 +313,35 @@ class EafGraphTest {
     void sdkNodeCatalogIncludesAdvancedNodeTypes() {
         assertEquals("INTENT_CLASSIFIER", EafGraphNodeType.normalize("classifier"));
         assertEquals("KNOWLEDGE_WRITE", EafGraphNodeType.normalize("knowledgeWrite"));
+        assertEquals("PAGE_ACTION", EafGraphNodeType.normalize("pageAction"));
         assertTrue(EafGraph.supportedNodeTypes().contains("HUMAN_APPROVAL"));
         assertTrue(EafGraph.supportedNodeTypes().contains("MCP_CALL"));
+        assertTrue(EafGraph.supportedNodeTypes().contains("PAGE_ACTION"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void buildsPageActionNode() {
+        EafAgentGraph graph = EafGraph.agent("page_action_agent")
+                .llm("planner")
+                .variable("prepare")
+                .assign("teamId", "const:TI_DEMO01")
+                .pageAction("openDetail", "team.openDetail")
+                .pageActionArg("teamId", "teamId")
+                .pageActionConfirm(false)
+                .edge("planner", "prepare").always()
+                .edge("prepare", "openDetail").always()
+                .build();
+
+        List<Map<String, Object>> nodes = (List<Map<String, Object>>) graph.graphSpec().get("nodes");
+        Map<String, Object> pageAction = nodes.stream()
+                .filter(node -> "PAGE_ACTION".equals(node.get("type")))
+                .findFirst()
+                .orElseThrow();
+        Map<String, Object> config = (Map<String, Object>) pageAction.get("config");
+        assertEquals("team.openDetail", config.get("actionKey"));
+        assertEquals(false, config.get("confirm"));
+        assertEquals("teamId", ((Map<String, Object>) config.get("args")).get("teamId"));
     }
 
     @Test

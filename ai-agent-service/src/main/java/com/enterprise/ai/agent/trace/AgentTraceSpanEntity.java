@@ -36,6 +36,16 @@ public class AgentTraceSpanEntity {
 
     private String projectCode;
 
+    private String tenantId;
+
+    private String appId;
+
+    private String externalUserId;
+
+    private String globalUserId;
+
+    private String pageInstanceId;
+
     private String status;
 
     private String inputSummary;

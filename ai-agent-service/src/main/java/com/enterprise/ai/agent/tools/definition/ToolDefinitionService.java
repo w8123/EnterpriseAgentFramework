@@ -3,6 +3,7 @@ package com.enterprise.ai.agent.tools.definition;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.enterprise.ai.agent.config.LLMConfig;
 import com.enterprise.ai.agent.skill.SubAgentSkill;
 import com.enterprise.ai.agent.skill.SubAgentSkillFactory;
 import com.enterprise.ai.agent.skill.SubAgentSpec;
@@ -28,6 +29,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -57,6 +59,7 @@ public class ToolDefinitionService {
     private final ToolEmbeddingService toolEmbeddingService;
     private final SubAgentSkillFactory subAgentSkillFactory;
     private final InteractiveFormSkillFactory interactiveFormSkillFactory;
+    private final LLMConfig llmConfig;
 
     public ToolDefinitionService(ToolDefinitionMapper mapper,
                                  ScanProjectMapper scanProjectMapper,
@@ -65,7 +68,8 @@ public class ToolDefinitionService {
                                  ObjectMapper objectMapper,
                                  ToolEmbeddingService toolEmbeddingService,
                                  @Lazy SubAgentSkillFactory subAgentSkillFactory,
-                                 @Lazy InteractiveFormSkillFactory interactiveFormSkillFactory) {
+                                 @Lazy InteractiveFormSkillFactory interactiveFormSkillFactory,
+                                 LLMConfig llmConfig) {
         this.mapper = mapper;
         this.scanProjectMapper = scanProjectMapper;
         this.toolRegistry = toolRegistry;
@@ -74,6 +78,7 @@ public class ToolDefinitionService {
         this.toolEmbeddingService = toolEmbeddingService;
         this.subAgentSkillFactory = subAgentSkillFactory;
         this.interactiveFormSkillFactory = interactiveFormSkillFactory;
+        this.llmConfig = llmConfig;
     }
 
     @PostConstruct
@@ -345,6 +350,10 @@ public class ToolDefinitionService {
     }
 
     public Object executeTool(String name, Map<String, Object> args) {
+        return executeTool(name, args, defaultToolRequestTimeout());
+    }
+
+    public Object executeTool(String name, Map<String, Object> args, Duration requestTimeout) {
         ToolDefinitionEntity existing = findByName(name)
                 .orElseThrow(() -> new IllegalArgumentException("工具不存在: " + name));
         if (Boolean.TRUE.equals(existing.getDraft())) {
@@ -363,7 +372,14 @@ public class ToolDefinitionService {
             return toolRegistry.execute(name, args == null ? Map.of() : args);
         }
         ToolDefinitionEntity httpEntity = prepareHttpToolDefinitionForExecution(existing);
-        return buildDynamicTool(httpEntity).execute(args == null ? Map.of() : args);
+        return buildDynamicTool(httpEntity, requestTimeout).execute(args == null ? Map.of() : args);
+    }
+
+    private Duration defaultToolRequestTimeout() {
+        long configured = llmConfig == null
+                ? DynamicHttpAiTool.DEFAULT_REQUEST_TIMEOUT_MS
+                : llmConfig.getToolRequestDefaultTimeoutMs();
+        return DynamicHttpAiTool.normalizeRequestTimeout(Duration.ofMillis(configured));
     }
 
     /**
@@ -426,7 +442,7 @@ public class ToolDefinitionService {
                 .isPresent();
     }
 
-    /** 获取所有 Skill（kind=SKILL）。用于 SkillController 列表页。 */
+    /** 获取所有 Composition（legacy kind=SKILL）。用于 CompositionController 列表页。 */
     public List<ToolDefinitionEntity> listSkills() {
         return mapper.selectList(new LambdaQueryWrapper<ToolDefinitionEntity>()
                 .eq(ToolDefinitionEntity::getKind, KIND_SKILL)
@@ -730,13 +746,17 @@ public class ToolDefinitionService {
     }
 
     private DynamicHttpAiTool buildDynamicTool(ToolDefinitionEntity entity) {
+        return buildDynamicTool(entity, defaultToolRequestTimeout());
+    }
+
+    private DynamicHttpAiTool buildDynamicTool(ToolDefinitionEntity entity, Duration requestTimeout) {
         if (entity.getProjectId() != null) {
             ScanProjectEntity project = scanProjectMapper.selectById(entity.getProjectId());
             ToolDefinitionEntity resolved = withMergedScanProjectBaseUrl(entity, project);
             var extras = ScanProjectAuthSupport.invocationExtras(project);
-            return new DynamicHttpAiTool(resolved, objectMapper, extras);
+            return new DynamicHttpAiTool(resolved, objectMapper, extras, requestTimeout);
         }
-        return new DynamicHttpAiTool(entity, objectMapper);
+        return new DynamicHttpAiTool(entity, objectMapper, null, requestTimeout);
     }
 
     private List<ToolDefinitionEntity> listBySource(String source) {

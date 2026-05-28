@@ -38,6 +38,16 @@ public class ToolCallLogEntity {
 
     private String tenantId;
 
+    private String appId;
+
+    private String externalUserId;
+
+    private String globalUserId;
+
+    private String pageInstanceId;
+
+    private String origin;
+
     private String toolName;
 
     private String argsJson;

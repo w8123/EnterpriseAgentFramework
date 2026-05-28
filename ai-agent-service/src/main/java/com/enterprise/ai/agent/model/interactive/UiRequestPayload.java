@@ -54,5 +54,22 @@ public class UiRequestPayload {
     private Map<String, Object> summary = new LinkedHashMap<>();
 
     /** confirm / text_question 辅助文案 */
+    private Object data;
+
+    @Builder.Default
+    private Map<String, Object> schema = new LinkedHashMap<>();
+
+    @Builder.Default
+    private List<Map<String, Object>> actions = new ArrayList<>();
+
+    @Builder.Default
+    private Map<String, Object> datasources = new LinkedHashMap<>();
+
+    @Builder.Default
+    private Map<String, Object> behavior = new LinkedHashMap<>();
+
+    @Builder.Default
+    private Map<String, Object> extension = new LinkedHashMap<>();
+
     private String message;
 }

@@ -84,6 +84,18 @@
                   />
                 </el-select>
               </el-form-item>
+              <el-form-item label="运行角色" class="wide">
+                <el-select
+                  v-model="form.allowedRoles"
+                  multiple
+                  filterable
+                  allow-create
+                  default-first-option
+                  collapse-tags
+                  collapse-tags-tooltip
+                  placeholder="留空表示不限制业务角色"
+                />
+              </el-form-item>
             </div>
             <el-form-item label="描述">
               <el-input v-model="form.description" type="textarea" :rows="2" placeholder="一句话描述智能体的业务边界" />
@@ -180,17 +192,17 @@
                   <el-option
                     v-for="tool in availableTools"
                     :key="tool.name"
-                    :label="capabilityLabel(tool)"
+                    :label="assetLabel(tool)"
                     :value="tool.name"
                   />
                 </el-select>
               </el-form-item>
               <el-form-item label="可用能力">
-                <el-select v-model="form.skills" multiple filterable collapse-tags collapse-tags-tooltip placeholder="选择 Capability">
+                <el-select v-model="form.skills" multiple filterable collapse-tags collapse-tags-tooltip placeholder="选择 Composition">
                   <el-option
-                    v-for="item in availableCapabilities"
+                    v-for="item in availableCompositions"
                     :key="item.name"
-                    :label="capabilityLabel(item)"
+                    :label="assetLabel(item)"
                     :value="item.name"
                   />
                 </el-select>
@@ -273,12 +285,12 @@ import { INTENT_TYPES, TRIGGER_MODES } from '@/types/agent'
 import type { AgentForm, AgentGraphSpec, AgentMode, AgentRuntimeCapability, AgentRuntimeType } from '@/types/agent'
 import { createAgent, getAgent, getAgentRuntimes, updateAgent, validateAgentRuntime } from '@/api/agent'
 import { listRegistryProjectInstances } from '@/api/registry'
-import { getTools } from '@/api/tool'
-import { listCapabilities } from '@/api/capability'
+import { listAllTools } from '@/api/tool'
+import { listAllCompositions } from '@/api/composition'
 import { getScanProjects } from '@/api/scanProject'
 import { getModelInstances } from '@/api/model'
 import type { ToolInfo } from '@/types/tool'
-import type { CapabilityInfo } from '@/types/capability'
+import type { CompositionInfo } from '@/types/composition'
 import type { ScanProject } from '@/types/scanProject'
 import type { ProjectInstance } from '@/types/registry'
 import type { ModelInstance } from '@/types/model'
@@ -299,7 +311,7 @@ const scanProjects = ref<ScanProject[]>([])
 const runtimeInstances = ref<ProjectInstance[]>([])
 const llmModelInstances = ref<ModelInstance[]>([])
 const toolOptions = ref<ToolInfo[]>([])
-const capabilityOptions = ref<CapabilityInfo[]>([])
+const compositionOptions = ref<CompositionInfo[]>([])
 const newPipelineId = ref('')
 
 const form = reactive<AgentForm>({
@@ -310,6 +322,7 @@ const form = reactive<AgentForm>({
   projectId: null,
   projectCode: null,
   visibility: 'PRIVATE',
+  allowedRoles: [],
   intentType: 'GENERAL_CHAT',
   systemPrompt: '',
   tools: [],
@@ -402,8 +415,8 @@ const availableRuntimeInstances = computed(() =>
 const availableTools = computed(() =>
   toolOptions.value.filter((tool) => tool.enabled && tool.agentVisible),
 )
-const availableCapabilities = computed(() =>
-  capabilityOptions.value.filter((item) => item.enabled && item.agentVisible && !item.draft),
+const availableCompositions = computed(() =>
+  compositionOptions.value.filter((item) => item.enabled && item.agentVisible && !item.draft),
 )
 const selectedRuntimeInstanceId = computed({
   get: () => embeddedRuntimeConfig().instanceId || '',
@@ -469,7 +482,7 @@ function projectCodeById(projectId?: number | null) {
   return scanProjects.value.find((project) => project.id === projectId)?.projectCode || null
 }
 
-function capabilityLabel(item: ToolInfo | CapabilityInfo) {
+function assetLabel(item: ToolInfo | CompositionInfo) {
   const project = item.projectCode ? ` · ${item.projectCode}` : ''
   const visibility = item.visibility ? ` · ${item.visibility}` : ''
   return `${item.name}${project}${visibility}`
@@ -524,7 +537,7 @@ async function handleProjectChange(projectId: number | null | undefined) {
   form.projectCode = projectCodeById(projectId)
   form.tools = []
   form.skills = []
-  await Promise.all([loadToolOptions(), loadCapabilityOptions(), loadRuntimeInstances()])
+  await Promise.all([loadToolOptions(), loadCompositionOptions(), loadRuntimeInstances()])
 }
 
 function defaultWorkflowGraphSpec(): AgentGraphSpec {
@@ -683,6 +696,7 @@ async function loadAgent() {
       projectId: data.projectId ?? null,
       projectCode: data.projectCode ?? projectCodeById(data.projectId) ?? null,
       visibility: data.visibility || 'PRIVATE',
+      allowedRoles: data.allowedRoles || [],
       intentType: data.intentType || 'GENERAL_CHAT',
       systemPrompt: data.systemPrompt || '',
       tools: data.tools || [],
@@ -778,34 +792,24 @@ async function loadModelInstances() {
 
 async function loadToolOptions() {
   try {
-    const { data } = await getTools({
-      current: 1,
-      size: 2000,
-      ...(form.projectId != null ? { projectId: form.projectId } : {}),
-    })
-    toolOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
+    toolOptions.value = await listAllTools({ enabled: true })
   } catch {
     toolOptions.value = []
   }
 }
 
-async function loadCapabilityOptions() {
+async function loadCompositionOptions() {
   try {
-    const { data } = await listCapabilities({
-      current: 1,
-      size: 2000,
-      ...(form.projectId != null ? { projectId: form.projectId } : {}),
-    })
-    capabilityOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
+    compositionOptions.value = await listAllCompositions({ enabled: true, draft: false })
   } catch {
-    capabilityOptions.value = []
+    compositionOptions.value = []
   }
 }
 
 onMounted(async () => {
   await Promise.all([loadRuntimeOptions(), loadScanProjects(), loadModelInstances()])
   await loadAgent()
-  await Promise.all([loadToolOptions(), loadCapabilityOptions(), loadRuntimeInstances()])
+  await Promise.all([loadToolOptions(), loadCompositionOptions(), loadRuntimeInstances()])
 })
 </script>
 

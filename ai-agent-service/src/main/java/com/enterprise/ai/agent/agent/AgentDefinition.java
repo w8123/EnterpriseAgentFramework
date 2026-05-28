@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.agent;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -50,6 +50,13 @@ public class AgentDefinition {
     @Builder.Default
     private String visibility = "PRIVATE";
 
+    /**
+     * Business runtime roles allowed to run this Agent. Empty means no
+     * Agent-level role restriction; Tool ACL still applies later.
+     */
+    @Builder.Default
+    private List<String> allowedRoles = List.of();
+
     /** 意图类型映射（如 KNOWLEDGE_QA、QUERY_DATA），用于意图路由 */
     private String intentType;
 
@@ -97,7 +104,7 @@ public class AgentDefinition {
      * adapters, and trace replay should share this contract instead of reading
      * runtime-specific config or canvas layout.
      */
-    private AgentGraphSpec graphSpec;
+    private GraphSpec graphSpec;
 
     /** Agent 最大推理步数 */
     @Builder.Default

@@ -19,6 +19,7 @@ public class UiFieldPayload {
     private String label;
     private String type;
     private boolean required;
+    private String targetPath;
     @Builder.Default
     private List<UiFieldOptionPayload> options = new ArrayList<>();
 }

@@ -10,15 +10,20 @@ import com.enterprise.ai.agent.runtime.AgentRuntimeSelector;
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchRequest;
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchResult;
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchService;
+import com.enterprise.ai.agent.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.service.IntentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Shared entry for agent routing. Controller, A2A and service calls reuse this
@@ -39,6 +44,7 @@ public class AgentRouter {
     private final AgentDefinitionService agentDefinitionService;
     private final AgentRuntimeSelector runtimeSelector;
     private final EmbeddedRuntimeDispatchService embeddedRuntimeDispatchService;
+    private final GuardDecisionLogService guardDecisionLogService;
 
     public AgentResult executeByDefinition(AgentDefinition definition, String sessionId,
                                            String userId, String message) {
@@ -59,7 +65,7 @@ public class AgentRouter {
                 definition.getName(), definition.getKeySlug(), runtimeTypeOf(definition),
                 runtimePlacementOf(definition), sessionId, roles, traceId);
 
-        return executeRuntime(AgentRuntimeRequest.builder()
+        AgentRuntimeRequest request = AgentRuntimeRequest.builder()
                 .traceId(traceId)
                 .sessionId(sessionId)
                 .userId(userId)
@@ -68,7 +74,12 @@ public class AgentRouter {
                 .intentType(intentType)
                 .agentDefinition(definition)
                 .metadata(metadata)
-                .build(), intentType);
+                .build();
+        AgentResult denied = denyIfAgentRoleNotAllowed(request, intentType);
+        if (denied != null) {
+            return denied;
+        }
+        return executeRuntime(request, intentType);
     }
 
     public AgentResult route(String sessionId, String userId, String message, String intentHint) {
@@ -86,7 +97,7 @@ public class AgentRouter {
         log.info("[AgentRouter] Route decision: intent={}, runtime={}, placement={}, sessionId={}, userId={}, roles={}, traceId={}",
                 intentType, runtimeTypeOf(definition), runtimePlacementOf(definition), sessionId, userId, roles, traceId);
 
-        return executeRuntime(AgentRuntimeRequest.builder()
+        AgentRuntimeRequest request = AgentRuntimeRequest.builder()
                 .traceId(traceId)
                 .sessionId(sessionId)
                 .userId(userId)
@@ -94,7 +105,57 @@ public class AgentRouter {
                 .message(message)
                 .intentType(intentType)
                 .agentDefinition(definition)
-                .build(), intentType);
+                .build();
+        AgentResult denied = denyIfAgentRoleNotAllowed(request, intentType);
+        if (denied != null) {
+            return denied;
+        }
+        return executeRuntime(request, intentType);
+    }
+
+    private AgentResult denyIfAgentRoleNotAllowed(AgentRuntimeRequest request, String intentType) {
+        AgentDefinition definition = request.getAgentDefinition();
+        List<String> allowedRoles = definition == null || definition.getAllowedRoles() == null
+                ? List.of()
+                : definition.getAllowedRoles().stream()
+                .filter(StringUtils::hasText)
+                .toList();
+        if (allowedRoles.isEmpty()) {
+            return null;
+        }
+        Set<String> userRoles = (request.getRoles() == null ? List.<String>of() : request.getRoles()).stream()
+                .filter(StringUtils::hasText)
+                .map(role -> role.trim().toUpperCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        boolean allowed = allowedRoles.stream()
+                .map(role -> role.trim().toUpperCase(Locale.ROOT))
+                .anyMatch(userRoles::contains);
+        if (allowed) {
+            return null;
+        }
+        String target = agentKeyOf(definition);
+        Map<String, Object> metadata = new HashMap<>();
+        if (request.getMetadata() != null) {
+            metadata.putAll(request.getMetadata());
+        }
+        metadata.put("intentType", intentType);
+        metadata.put("traceId", request.getTraceId());
+        metadata.put("decisionType", "AGENT_RBAC");
+        metadata.put("allowedRoles", allowedRoles);
+        metadata.put("roles", request.getRoles() == null ? List.of() : request.getRoles());
+        guardDecisionLogService.record(
+                request.getTraceId(),
+                "AGENT_RBAC",
+                "AGENT",
+                target,
+                "DENY",
+                "user role is not allowed",
+                metadata);
+        return AgentResult.builder()
+                .success(false)
+                .answer("Agent execution denied: user role is not allowed")
+                .metadata(metadata)
+                .build();
     }
 
     private AgentResult executeRuntime(AgentRuntimeRequest request, String intentType) {

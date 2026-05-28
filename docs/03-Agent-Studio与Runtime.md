@@ -2,9 +2,9 @@
 
 ## 定位
 
-Agent Studio 是把能力资产组织成可发布 Agent 的核心工作台。Runtime 层负责把 Agent 定义转成可执行请求，并允许不同运行时以统一接口接入。当前主线是：Agent Definition -> 统一 GraphSpec -> AI 生成/修改工作流 -> 版本发布 -> Runtime Adapter -> Trace/RunOps。
+Agent Studio 是把能力资产组织成可发布 Agent 的核心工作台。Runtime 层负责把 Agent 定义转成可执行请求，并允许不同运行时以统一接口接入。当前主线是：Agent Definition -> 统一 GraphSpec -> 交互式节点与 UI 请求 -> AI 生成/修改工作流 -> 版本发布 -> Runtime Adapter -> Trace/RunOps。
 
-这一层的产品亮点不是单纯“画流程图”，而是把可视化画布、AI 生成工作流、AI 修改工作流、SDK 图注册、发布校验和 Runtime 执行都收敛到统一 Graph 层。当前同时支持两类智能体形态：基于 AgentScope 的 `AUTONOMOUS` 自主智能体，以及基于 `GraphSpec`/LangGraph4j 的 `WORKFLOW` 工作流类智能体。
+这一层的产品亮点不是单纯“画流程图”，而是把可视化画布、交互式节点、会话式调试台、AI 生成工作流、AI 修改工作流、SDK 图注册、发布校验和 Runtime 执行都收敛到统一 Graph 层。当前同时支持两类智能体形态：基于 AgentScope 的 `AUTONOMOUS` 自主智能体，以及基于 `GraphSpec`/LangGraph4j 的 `WORKFLOW` 工作流类智能体。
 
 ## 当前已落地
 
@@ -49,14 +49,46 @@ Agent Studio 是把能力资产组织成可发布 Agent 的核心工作台。Run
 - LLM、Tool、Capability、MCP 调用、HTTP 请求。
 - 条件、循环、变量聚合、变量赋值、参数提取、意图分类。
 - 知识检索、知识写入、文档抽取。
-- 用户输入、人工审批、最终回答、代码节点。
+- 智能交互、用户输入、人工审批、展示输出、最终回答、代码节点。
 - 凭证选择组件 `CredentialSelect.vue`。
 
-`AgentStudioDebugController` 支持 `/api/agent/studio/debug-node` 和 `/api/agent/studio/debug-run`。`AgentStudioDraftController` 支持 `/api/agent/studio/generate-draft` 和 `/api/agent/studio/edit-draft`。
+`AgentStudioDebugController` 支持 `/api/agent/studio/debug-node` 等节点调试能力。新的会话式调试台由 `ExecutableDebugSessionController` 承载，接口集中在 `/api/runtime/debug-sessions`。`AgentStudioDraftController` 支持 `/api/agent/studio/generate-draft` 和 `/api/agent/studio/edit-draft`。
 
 AI 生成工作流走 `/api/agent/studio/generate-draft`，由 `LlmWorkflowDraftGenerator` 调用模型生成严格 JSON 节点和边，再标准化为 `AgentGraphSpec` 与 `canvasSnapshot`。前端以预览/应用方式进入画布，避免模型输出直接覆盖当前流程。
 
 AI 修改工作流走 `/api/agent/studio/edit-draft`，由 `WorkflowDraftEditService` 基于当前 `canvas`、用户修改意图和选中上下文生成新的 `AgentGraphSpec` 与画布快照。当前设计重点是围绕当前工作流做局部修改，尤其适合“把这个节点后面加审批”“把某段流程改成条件分支”“替换选中节点的工具调用”等 Studio 内编辑场景。
+
+### 交互式节点与 UI 请求
+
+交互式节点是当前 Studio 与 Runtime 的重要亮点。它让工作流不再只是“输入一次、执行到底”，而是可以在执行过程中向用户请求补充、确认、选择或展示结构化结果。
+
+当前核心类型：
+
+- 前端节点类型定义在 `ai-admin-front/src/types/studio.ts`，`InteractionNodeType` 支持 `COLLECT_INPUT`、`PRESENT_OUTPUT`、`USER_CHOICE`、`CONFIRM_ACTION`、`REVIEW_EDIT`。
+- 节点配置面板在 `ai-admin-front/src/views/agent/studio-panels/InteractionConfigPanel.vue`，可配置交互类型、表单字段、展示组件、绑定来源和输出别名。
+- 运行时统一 UI 协议是 `UiRequestPayload`，后端定义在 `ai-agent-service/src/main/java/com/enterprise/ai/agent/model/interactive/UiRequestPayload.java`，前端定义在 `ai-admin-front/src/types/interaction.ts`。
+- 前端渲染层由 `InteractionRenderer.vue` 和受控组件注册表承载，支持表单、确认、选择、详情、表格、列表卡片、输出卡片和未知组件 fallback。
+
+`LangGraph4jRuntimeAdapter` 在执行 `INTERACTION` 节点时，会根据节点配置决定：
+
+- `COLLECT_INPUT`：当字段缺失时返回 `WAITING`，生成表单类 `uiRequest`，等待用户补充。
+- `PRESENT_OUTPUT`：生成展示卡片或结构化输出，不阻塞流程继续执行。
+- `USER_CHOICE` / `CONFIRM_ACTION` / `REVIEW_EDIT`：把用户选择、确认或审阅动作写回运行状态，继续后续路由。
+
+这些 UI 请求不是前端临时拼出来的表单，而是 Runtime 的一等产物。它们可以进入 Agent 网关、嵌入式 Chat Widget、RunOps/Trace 和 Studio 调试台，保证“运行时要用户做什么”和“调试台展示什么”使用同一套协议。
+
+### 会话式工作流调试台
+
+新的 Studio 调试台已经从一次性 `debug-run` 演进为 `Executable Debug Session`：
+
+- `POST /api/runtime/debug-sessions` 创建并启动调试会话。
+- `GET /api/runtime/debug-sessions/{sessionId}` 恢复会话消息、节点轨迹、当前状态和当前 `uiRequest`。
+- `POST /api/runtime/debug-sessions/{sessionId}/submit` 提交表单、确认或选择，从挂起点继续执行。
+- `POST /api/runtime/debug-sessions/{sessionId}/cancel` 取消等待中或运行中的会话。
+
+后端通过 `executable_debug_session` 保存 `sessionId`、`targetType`、`status`、`currentNodeId`、`stateJson`、`messagesJson`、`stepsJson`、`traceId`、`uiRequestJson` 和过期时间。前端调试抽屉展示消息流、节点轨迹、WAITING 表单、输出卡片、Trace 回放和当前节点高亮。
+
+这个设计的关键价值是：WAITING 不再靠“合并参数后重跑整条流程”模拟，而是保留会话状态，从挂起节点继续执行。多轮补槽、确认、选择、输出展示和节点轨迹都能按同一条会话线索追溯。
 
 ### Runtime Adapter
 
@@ -68,7 +100,7 @@ AI 修改工作流走 `/api/agent/studio/edit-draft`，由 `WorkflowDraftEditSer
 - `AgentRuntimeCapability` 描述 Runtime 是否可用、支持的模式和配置能力。
 - `AgentRuntimePolicy` 处理运行时可用性和策略校验。
 - `AgentScopeRuntimeAdapter` 支持 `AUTONOMOUS` 自主智能体，是默认 `runtime_type=AGENTSCOPE` 的执行适配器。
-- `LangGraph4jRuntimeAdapter` 是当前 `WORKFLOW` 工作流类智能体的主要图执行器，读取 `GraphSpec`，支持条件边、变量映射、节点输出、MCP 调用、人工审批等节点。
+- `LangGraph4jRuntimeAdapter` 是当前 `WORKFLOW` 工作流类智能体的主要图执行器，读取 `GraphSpec`，支持条件边、变量映射、节点输出、MCP 调用、交互式节点、人工审批、WAITING 挂起和展示输出。
 - `CursorCodeAgentRuntimeAdapter` 和 `OpenAIAgentsRuntimeAdapter` 当前是不可用占位适配器，用于保留扩展边界。
 - `RuntimeRegistryController` 和 `RuntimeRegistry.vue` 展示 Runtime 纳管状态，并提供嵌入式 Runtime dispatch 入口。
 
@@ -94,7 +126,7 @@ AI 修改工作流走 `/api/agent/studio/edit-draft`，由 `WorkflowDraftEditSer
 - 草稿列表、状态更新和发布。
 - Demo Trace 生成和清理。
 
-交互式能力由 `skill_interaction`、`InteractiveFormSkill`、`InteractiveFormSkillExecutor`、`AgentInteractionController`、`SkillController` 的 pending interaction 管理接口承载。代码名仍有 `Skill`，但产品含义是需要挂起、补槽、确认、恢复的交互式 Capability。
+交互式能力由 `interaction_definition`、`interaction_session`、`interaction_event` 以及 legacy `skill_interaction`、`InteractiveFormSkill`、`InteractiveFormSkillExecutor`、`AgentInteractionController`、`SkillController` 的 pending interaction 管理接口承载。产品含义是需要挂起、补槽、确认、选择、展示和恢复的交互式 Capability。
 
 ### 工作流凭证
 
@@ -106,7 +138,7 @@ AI 修改工作流走 `/api/agent/studio/edit-draft`，由 `WorkflowDraftEditSer
 - `CursorCodeAgentRuntimeAdapter`、`OpenAIAgentsRuntimeAdapter` 目前仍是扩展边界，不应写成已可用生产 Runtime。
 - `tools_json / skills_json` 与 `tool_refs_json / skill_refs_json` 并存，后续要继续向稳定引用收敛。
 - 评测目前用于草稿和发布前判断，不应自动修改画布或绕过人工发布决策。
-- 交互式 Capability 的存储仍使用 `skill_interaction` 等 legacy 名称，文档和 UI 需要继续统一口径。
+- 交互式 Capability 已新增 `interaction_definition / interaction_session / interaction_event`，但仍有部分 legacy `skill_interaction` 路径，文档、UI 和代码命名需要继续统一口径。
 - Studio UI 还需要更明确地区分“AgentScope 自主智能体”和“Workflow 工作流类智能体”，让用户创建、编辑、发布时能直观看到当前形态。
 - AI 修改工作流还需要继续强化预览优先、局部 patch、差异确认和失败回滚，避免复杂流程被整图替换。
 - 后续新增节点和 Runtime 时，应继续把可执行语义写入 `GraphSpec`，不能只扩展 `canvas_json` 的前端表现。

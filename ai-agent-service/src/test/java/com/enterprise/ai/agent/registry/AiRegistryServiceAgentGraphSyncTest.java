@@ -3,7 +3,7 @@ package com.enterprise.ai.agent.registry;
 import com.enterprise.ai.agent.acl.ToolAclMapper;
 import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.agent.AgentDefinitionService;
-import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.registry.RegistryContracts.AgentGraphRegistration;
 import com.enterprise.ai.agent.registry.RegistryContracts.AgentGraphSyncRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.AgentGraphSyncResponse;
@@ -135,23 +135,23 @@ class AiRegistryServiceAgentGraphSyncTest {
     }
 
     private AgentGraphRegistration registration() {
-        AgentGraphSpec graphSpec = AgentGraphSpec.builder()
+        GraphSpec graphSpec = GraphSpec.builder()
                 .code("order_assistant")
                 .name("Order Assistant")
                 .runtimeHint("LANGGRAPH4J")
                 .entry("classify")
                 .finishNode("queryOrder")
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("classify")
                         .type("LLM")
                         .name("Classify")
                         .config(Map.of("modelInstanceId", "llm-1"))
                         .build())
-                .node(AgentGraphSpec.Node.builder()
+                .node(GraphSpec.Node.builder()
                         .id("queryOrder")
                         .type("TOOL")
                         .name("Query Order")
-                        .ref(AgentGraphSpec.CapabilityRef.builder()
+                        .ref(GraphSpec.CapabilityRef.builder()
                                 .kind("TOOL")
                                 .name("queryOrder")
                                 .qualifiedName("order-service:queryOrder")
@@ -162,9 +162,9 @@ class AiRegistryServiceAgentGraphSyncTest {
                                 "description", "Query order details from order service.",
                                 "ui", Map.of("position", Map.of("x", 520, "y", 260))))
                         .build())
-                .edge(AgentGraphSpec.Edge.builder().from("START").to("classify").condition("always").build())
-                .edge(AgentGraphSpec.Edge.builder().from("classify").to("queryOrder").condition("success").build())
-                .edge(AgentGraphSpec.Edge.builder().from("queryOrder").to("END").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("START").to("classify").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("classify").to("queryOrder").condition("success").build())
+                .edge(GraphSpec.Edge.builder().from("queryOrder").to("END").condition("always").build())
                 .build();
         return new AgentGraphRegistration(
                 "order_assistant",

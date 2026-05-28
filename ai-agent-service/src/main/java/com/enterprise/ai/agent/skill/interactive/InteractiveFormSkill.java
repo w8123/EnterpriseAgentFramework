@@ -73,18 +73,18 @@ public class InteractiveFormSkill implements AiSkill {
 
     private ToolExecutionContext mergeOrStandaloneContext(ToolExecutionContext existing) {
         if (existing == null) {
-            // 与 SkillController test/resume 中 userId 一致，便于挂起行与继续提交归属同一测试用户
+            // 与 CompositionController test/resume 中 userId 一致，便于挂起行与继续提交归属同一测试用户
             return ToolExecutionContext.builder()
                     .traceId(UUID.randomUUID().toString())
-                    .sessionId("skill-admin-test")
-                    .userId("skill-admin-test")
+                    .sessionId("composition-admin-test")
+                    .userId("composition-admin-test")
                     .agentName("skill:" + name)
                     .build();
         }
         return ToolExecutionContext.builder()
                 .traceId(UUID.randomUUID().toString())
                 .sessionId(existing.getSessionId() != null && !existing.getSessionId().isBlank()
-                        ? existing.getSessionId() : "skill-admin-test")
+                        ? existing.getSessionId() : "composition-admin-test")
                 .userId(existing.getUserId())
                 .agentName(existing.getAgentName() != null && !existing.getAgentName().isBlank()
                         ? existing.getAgentName() : "skill:" + name)

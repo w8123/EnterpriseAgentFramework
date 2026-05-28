@@ -32,6 +32,8 @@ export interface AgentGraphNode {
   type:
     | 'LLM'
     | 'USER_INPUT'
+    | 'INTERACTION'
+    | 'PAGE_ACTION'
     | 'TOOL'
     | 'CAPABILITY'
     | 'IF_ELSE'
@@ -76,7 +78,7 @@ export interface AgentGraphEdge {
 }
 
 export interface AgentGraphCapabilityRef {
-  kind: 'TOOL' | 'SKILL' | 'CAPABILITY'
+  kind: 'TOOL' | 'SKILL' | 'CAPABILITY' | 'INTERACTION'
   name?: string
   qualifiedName?: string
   definitionId?: number | null
@@ -222,6 +224,7 @@ export interface AgentDefinition {
   projectId?: number | null
   projectCode?: string | null
   visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
+  allowedRoles?: string[]
   intentType: string
   systemPrompt: string
   tools: string[]
@@ -262,6 +265,7 @@ export interface AgentForm {
   projectId?: number | null
   projectCode?: string | null
   visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
+  allowedRoles?: string[]
   intentType: string
   systemPrompt: string
   tools: string[]
@@ -434,7 +438,12 @@ export interface AgentWorkflowDebugStepResult {
   elapsedMs?: number
   input?: Record<string, unknown>
   output?: unknown
+  rawOutput?: unknown
+  publishedVariables?: Record<string, unknown>
   statePatch?: Record<string, unknown>
+  eventType?: 'NODE' | 'WAITING' | 'OUTPUT' | 'ERROR' | string
+  uiRequest?: UiRequestPayload
+  artifact?: Record<string, unknown>
   route?: string
   condition?: string
   nextNodeId?: string
@@ -445,13 +454,51 @@ export interface AgentWorkflowDebugStepResult {
 export interface AgentWorkflowDebugRunResult {
   runId: string
   traceId?: string
+  sessionId?: string
+  targetType?: string
   success: boolean
   status: 'SUCCESS' | 'ERROR' | 'WAITING' | string
   answer?: string
+  currentNodeId?: string
+  messages?: ExecutableDebugMessage[]
+  uiRequest?: UiRequestPayload
   steps: AgentWorkflowDebugStepResult[]
   finalState?: Record<string, unknown>
   errorCode?: string
   errorMessage?: string
+}
+
+export interface ExecutableDebugMessage {
+  id: string
+  role: 'user' | 'assistant' | 'system' | 'runtime' | string
+  content: string
+  nodeId?: string
+  traceId?: string
+  uiRequest?: UiRequestPayload
+  createdAt?: string
+}
+
+export interface ExecutableDebugSessionCreateRequest {
+  targetType: 'AGENT_DRAFT' | 'COMPOSITION_DRAFT' | 'EXECUTABLE_DRAFT' | string
+  draftDefinition: Record<string, unknown>
+  message?: string
+  inputParams?: Record<string, unknown>
+  debugOptions?: Record<string, unknown>
+}
+
+export interface ExecutableDebugSessionSubmitRequest {
+  action?: string
+  values?: Record<string, unknown>
+  message?: string
+}
+
+export interface ExecutableDebugSessionView extends AgentWorkflowDebugRunResult {
+  sessionId: string
+  targetType: string
+  messages: ExecutableDebugMessage[]
+  createdAt?: string
+  updatedAt?: string
+  expiresAt?: string
 }
 
 /** 发布请求体 */

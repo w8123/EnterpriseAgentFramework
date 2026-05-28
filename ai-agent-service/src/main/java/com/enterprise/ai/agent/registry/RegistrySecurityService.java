@@ -98,6 +98,29 @@ public class RegistrySecurityService {
         }
     }
 
+    public RegistryCredentialEntity verifyRequired(String projectCode, RegistrySignatureHeaders headers) {
+        RegistryCredentialEntity credential = findActiveCredential(projectCode, headers == null ? null : headers.appKey());
+        if (credential == null) {
+            throw new IllegalArgumentException("registry project credential is invalid");
+        }
+        if (headers == null
+                || !StringUtils.hasText(headers.timestamp())
+                || !StringUtils.hasText(headers.nonce())
+                || !StringUtils.hasText(headers.signature())) {
+            throw new IllegalArgumentException("registry request signature headers are required");
+        }
+        if (credential.getExpiresAt() != null && credential.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new IllegalArgumentException("registry project credential is expired");
+        }
+        validateTimestamp(headers.timestamp());
+        String message = projectCode + "\n" + headers.timestamp() + "\n" + headers.nonce();
+        String expected = hmacSha256Hex(credential.getAppSecret(), message);
+        if (!expected.equalsIgnoreCase(headers.signature())) {
+            throw new IllegalArgumentException("registry request signature is invalid");
+        }
+        return credential;
+    }
+
     private RegistryCredentialEntity findActiveCredential(String projectCode, String appKey) {
         if (!StringUtils.hasText(projectCode) || !StringUtils.hasText(appKey)) {
             return null;

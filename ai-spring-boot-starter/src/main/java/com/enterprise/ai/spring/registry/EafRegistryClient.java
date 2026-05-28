@@ -142,6 +142,39 @@ public class EafRegistryClient {
         return governanceState.get();
     }
 
+    public EafEmbedTokenResponse exchangeEmbedToken(Map<String, Object> body) {
+        return signedPost("/api/embed/token/exchange", body, EafEmbedTokenResponse.class);
+    }
+
+    public EafUserSyncResult upsertExternalUser(EafExternalUser user) {
+        return signedPost("/api/embed/users/{projectCode}", EafIdentityClient.externalUserBody(user), EafUserSyncResult.class);
+    }
+
+    public EafUserSyncResult disableExternalUser(String externalUserId) {
+        return signedPost(
+                "/api/embed/users/{projectCode}/{externalUserId}/disable",
+                Map.of(),
+                EafUserSyncResult.class,
+                properties.getProject().getCode(),
+                externalUserId);
+    }
+
+    public EafUserSyncResult deleteExternalUser(String externalUserId) {
+        return signedPost(
+                "/api/embed/users/{projectCode}/{externalUserId}/delete",
+                Map.of(),
+                EafUserSyncResult.class,
+                properties.getProject().getCode(),
+                externalUserId);
+    }
+
+    public EafBatchUserSyncResult syncExternalUsers(List<EafExternalUser> users) {
+        List<Map<String, Object>> body = users.stream()
+                .map(EafIdentityClient::externalUserBody)
+                .toList();
+        return signedPost("/api/embed/users/{projectCode}/sync", Map.of("users", body), EafBatchUserSyncResult.class);
+    }
+
     private void registerProject() {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("projectCode", properties.getProject().getCode());
@@ -222,9 +255,13 @@ public class EafRegistryClient {
     }
 
     private <T> T signedPost(String uri, Object body, Class<T> bodyType) {
+        return signedPost(uri, body, bodyType, properties.getProject().getCode());
+    }
+
+    private <T> T signedPost(String uri, Object body, Class<T> bodyType, Object... uriVariables) {
         SignatureHeaders headers = signatureHeaders();
         return restClient.post()
-                .uri(uri, properties.getProject().getCode())
+                .uri(uri, uriVariables)
                 .header("X-EAF-App-Key", headers.appKey())
                 .header("X-EAF-Timestamp", headers.timestamp())
                 .header("X-EAF-Nonce", headers.nonce())

@@ -112,6 +112,27 @@ public final class EafGraph {
             return this;
         }
 
+        public Builder interaction(String id, String interactionType) {
+            currentNode = addNode(id, EafGraphNodeType.INTERACTION.type());
+            currentNode.ref.put("kind", "INTERACTION");
+            currentNode.config.put("interactionType", StringUtils.hasText(interactionType)
+                    ? interactionType.trim().toUpperCase(Locale.ROOT)
+                    : "COLLECT_INPUT");
+            return this;
+        }
+
+        public Builder interactionRef(String qualifiedName) {
+            NodeDraft node = requireCurrentNode();
+            if (!StringUtils.hasText(qualifiedName)) {
+                return this;
+            }
+            String trimmed = qualifiedName.trim();
+            node.ref.put("kind", "INTERACTION");
+            node.ref.put("name", trimmed.contains(".") ? trimmed.substring(trimmed.lastIndexOf('.') + 1) : trimmed);
+            node.ref.put("qualifiedName", trimmed);
+            return this;
+        }
+
         @SuppressWarnings("unchecked")
         public Builder inputField(String name, String type, boolean required, String label) {
             if (!StringUtils.hasText(name)) {
@@ -126,6 +147,21 @@ public final class EafGraph {
                 inputFields.add(field);
             }
             node.output(field.get("name").toString(), String.valueOf(field.get("type")), required);
+            return this;
+        }
+
+        @SuppressWarnings("unchecked")
+        public Builder interactionField(String key, String type, boolean required, String label) {
+            if (!StringUtils.hasText(key)) {
+                return this;
+            }
+            NodeDraft node = requireCurrentNode();
+            Map<String, Object> field = inputFieldMap(key, type, required, label);
+            field.put("key", key.trim());
+            List<Map<String, Object>> fields = (List<Map<String, Object>>) node.config.computeIfAbsent(
+                    "fields", ignored -> new ArrayList<Map<String, Object>>());
+            fields.add(field);
+            node.output(key.trim(), String.valueOf(field.get("type")), required);
             return this;
         }
 
@@ -280,6 +316,16 @@ public final class EafGraph {
             return this;
         }
 
+        public Builder pageAction(String id, String actionKey) {
+            currentNode = addNode(id, EafGraphNodeType.PAGE_ACTION.type());
+            currentNode.config.put("actionKey", trimToNull(actionKey));
+            currentNode.config.put("title", id);
+            currentNode.config.put("confirm", true);
+            currentNode.config.put("outputAlias", "page_action_result");
+            currentNode.output("page_action_result", "object", false);
+            return this;
+        }
+
         public Builder parameterExtract(String id) {
             currentNode = addNode(id, EafGraphNodeType.PARAMETER_EXTRACT.type());
             return this;
@@ -343,6 +389,23 @@ public final class EafGraph {
                 requireCurrentNode().config.put("outputAlias", alias.trim());
                 requireCurrentNode().output(alias.trim(), "any", false);
             }
+            return this;
+        }
+
+        @SuppressWarnings("unchecked")
+        public Builder pageActionArg(String key, String expression) {
+            if (!StringUtils.hasText(key) || !StringUtils.hasText(expression)) {
+                return this;
+            }
+            NodeDraft node = requireCurrentNode();
+            Map<String, String> args = (Map<String, String>) node.config.computeIfAbsent(
+                    "args", ignored -> new LinkedHashMap<String, String>());
+            args.put(key.trim(), expression.trim());
+            return this;
+        }
+
+        public Builder pageActionConfirm(boolean confirm) {
+            requireCurrentNode().config.put("confirm", confirm);
             return this;
         }
 

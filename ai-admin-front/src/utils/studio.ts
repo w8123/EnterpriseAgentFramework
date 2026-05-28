@@ -9,6 +9,7 @@ import type {
   DocumentExtractNodeConfig,
   HumanApprovalNodeConfig,
   HttpNodeConfig,
+  InteractionNodeConfig,
   IntentClassifierNodeConfig,
   KnowledgeWriteNodeConfig,
   KnowledgeNodeConfig,
@@ -16,6 +17,7 @@ import type {
   LlmPromptMessage,
   LoopNodeConfig,
   McpNodeConfig,
+  PageActionNodeConfig,
   ParameterNodeConfig,
   StudioErrorPolicy,
   StudioPort,
@@ -129,6 +131,66 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): AgentGraphNod
       },
     }
   }
+  if (node.data.kind === 'interaction') {
+    const interaction = node.data.interactionConfig || defaultInteractionConfig()
+    const outputAlias = interaction.outputAlias || node.data.outputAlias || 'interaction_output'
+    const fields = interactionFieldsForGraph(interaction.fields || [])
+    return {
+      id: node.id,
+      type: 'INTERACTION',
+      name: node.data.label,
+      ...graphNodeChrome(node),
+      outputs: interactionOutputPorts(interaction, outputAlias),
+      ref: interaction.qualifiedName ? {
+        kind: 'INTERACTION',
+        name: interaction.qualifiedName,
+        qualifiedName: interaction.qualifiedName,
+      } : undefined,
+      config: {
+        ...common,
+        interactionType: interaction.interactionType || 'COLLECT_INPUT',
+        qualifiedName: interaction.qualifiedName,
+        binding: interaction.binding || { sourceKind: 'NONE' },
+        title: interaction.title || node.data.label,
+        component: interaction.component || 'FORM',
+        fields,
+        dataExpression: interaction.dataExpression,
+        outputAlias,
+        dataSources: interaction.dataSources || {},
+        behavior: interaction.behavior || {},
+        renderSchema: interaction.renderSchema || {},
+        interactionConfig: {
+          ...interaction,
+          fields,
+          outputAlias,
+        },
+      },
+    }
+  }
+  if (node.data.kind === 'pageAction') {
+    const pageAction = node.data.pageActionConfig || defaultPageActionConfig()
+    const outputAlias = pageAction.outputAlias || node.data.outputAlias || 'page_action_result'
+    return {
+      id: node.id,
+      type: 'PAGE_ACTION',
+      name: node.data.label,
+      ...graphNodeChrome(node),
+      outputs: defaultPorts('pageAction', 'output', outputAlias),
+      config: {
+        ...common,
+        actionKey: pageAction.actionKey,
+        title: pageAction.title || node.data.label,
+        confirm: pageAction.confirm === true,
+        args: pageAction.args || {},
+        outputAlias,
+        metadata: pageAction.metadata || {},
+        pageActionConfig: {
+          ...pageAction,
+          outputAlias,
+        },
+      },
+    }
+  }
   if (node.data.kind === 'llm') {
     const llm = node.data.llmConfig || defaultLlmConfig(base)
     return {
@@ -173,6 +235,7 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): AgentGraphNod
         ...common,
         inputMapping: tool.inputMapping || {},
         mappingNote: tool.mappingNote,
+        maxRequestTimeMs: tool.maxRequestTimeMs || 180000,
         credentialRef: tool.credentialRef,
         toolConfig: tool,
       },
@@ -557,6 +620,46 @@ function graphConfigToNodeData(
       } satisfies UserInputNodeConfig,
     }
   }
+  if (kind === 'interaction') {
+    const fields = schemaValue(config.fields)
+    const outputAlias = stringValue(config.outputAlias) || 'interaction_output'
+    const interactionConfig = {
+      interactionType: interactionTypeValue(config.interactionType),
+      qualifiedName: stringValue(config.qualifiedName),
+      binding: interactionBindingValue(config.binding),
+      title: stringValue(config.title) || label,
+      component: interactionComponentValue(config.component),
+      fields,
+      dataExpression: stringValue(config.dataExpression),
+      outputAlias,
+      dataSources: objectRecordValue(config.dataSources),
+      behavior: objectRecordValue(config.behavior),
+      renderSchema: objectRecordValue(config.renderSchema),
+    } satisfies InteractionNodeConfig
+    return {
+      ...common,
+      outputAlias,
+      outputs: interactionOutputPorts(interactionConfig, outputAlias),
+      interactionConfig,
+    }
+  }
+  if (kind === 'pageAction') {
+    const outputAlias = stringValue(config.outputAlias) || 'page_action_result'
+    const pageActionConfig = {
+      actionKey: stringValue(config.actionKey),
+      title: stringValue(config.title) || label,
+      confirm: config.confirm === true,
+      args: stringRecord(config.args),
+      outputAlias,
+      metadata: objectRecordValue(config.metadata),
+    } satisfies PageActionNodeConfig
+    return {
+      ...common,
+      outputAlias,
+      outputs: defaultPorts('pageAction', 'output', outputAlias),
+      pageActionConfig,
+    }
+  }
   if (kind === 'llm') {
     return {
       ...common,
@@ -585,6 +688,7 @@ function graphConfigToNodeData(
         qualifiedName: ref?.qualifiedName || null,
         projectCode: ref?.projectCode || null,
         credentialRef: stringValue(config.credentialRef),
+        maxRequestTimeMs: numberValue(config.maxRequestTimeMs, 180000),
         inputMapping: stringRecord(config.inputMapping),
         mappingNote: stringValue(config.mappingNote),
       } satisfies ToolNodeConfig,
@@ -771,6 +875,24 @@ export function createDefaultNodeData(kind: CanvasNodeKind, label: string, base?
       userInputConfig,
     }
   }
+  if (kind === 'interaction') {
+    const interactionConfig = defaultInteractionConfig()
+    return {
+      ...common,
+      outputAlias: interactionConfig.outputAlias,
+      outputs: interactionOutputPorts(interactionConfig, interactionConfig.outputAlias),
+      interactionConfig,
+    }
+  }
+  if (kind === 'pageAction') {
+    const pageActionConfig = defaultPageActionConfig()
+    return {
+      ...common,
+      outputAlias: pageActionConfig.outputAlias,
+      outputs: defaultPorts('pageAction', 'output', pageActionConfig.outputAlias),
+      pageActionConfig,
+    }
+  }
   if (kind === 'llm') return { ...common, llmConfig: defaultLlmConfig(base) }
   if (kind === 'tool' || kind === 'skill') return { ...common, toolConfig: defaultToolConfig() }
   if (kind === 'knowledge') return { ...common, knowledgeConfig: defaultKnowledgeConfig() }
@@ -858,6 +980,54 @@ function defaultUserInputConfig(): UserInputNodeConfig {
     fields: [
       { name: 'question', type: 'string', required: true, description: '用户问题', source: 'input.message' },
     ],
+  }
+}
+
+function defaultInteractionConfig(): InteractionNodeConfig {
+  return {
+    interactionType: 'COLLECT_INPUT',
+    binding: { sourceKind: 'NONE' },
+    title: '智能输入采集',
+    component: 'FORM',
+    outputAlias: 'interaction_output',
+    fields: [
+      {
+        name: 'query',
+        key: 'query',
+        type: 'string',
+        required: true,
+        description: '查询条件',
+        source: 'input.message',
+        component: 'input',
+        targetPath: 'query',
+        slotFilling: {
+          enabled: false,
+          strategies: ['LLM'],
+          confirmPolicy: 'LOW_CONFIDENCE',
+          confidenceThreshold: 0.85,
+          patterns: [],
+          dictionaryValues: [],
+        },
+      },
+    ],
+    dataExpression: 'lastOutput',
+    dataSources: {},
+    behavior: {
+      askMissing: true,
+      maxTurns: 6,
+    },
+    renderSchema: {},
+  }
+}
+
+function defaultPageActionConfig(): PageActionNodeConfig {
+  return {
+    actionKey: '',
+    title: '页面动作',
+    confirm: true,
+    args: {},
+    outputAlias: 'page_action_result',
+    metadata: {},
   }
 }
 
@@ -957,6 +1127,7 @@ function defaultToolConfig(): ToolNodeConfig {
     projectCode: null,
     visibility: null,
     credentialRef: '',
+    maxRequestTimeMs: 180000,
     inputMapping: {},
     mappingNote: '',
   }
@@ -964,6 +1135,8 @@ function defaultToolConfig(): ToolNodeConfig {
 
 function defaultOutputAlias(kind: CanvasNodeKind) {
   if (kind === 'userInput') return 'params'
+  if (kind === 'interaction') return 'interaction_output'
+  if (kind === 'pageAction') return 'page_action_result'
   if (kind !== 'start' && kind !== 'end' && kind !== 'llm' && kind !== 'condition' && kind !== 'answer') return `${kind}_output`
   return ''
 }
@@ -1001,6 +1174,8 @@ function canvasEndpoint(endpoint: string) {
 
 function graphNodeKindToCanvas(type: AgentGraphNode['type']): CanvasNodeKind {
   if (type === 'USER_INPUT') return 'userInput'
+  if (type === 'INTERACTION') return 'interaction'
+  if (type === 'PAGE_ACTION') return 'pageAction'
   if (type === 'LLM') return 'llm'
   if (type === 'CAPABILITY') return 'skill'
   if (type === 'IF_ELSE') return 'condition'
@@ -1101,7 +1276,7 @@ function defaultPorts(kind: CanvasNodeKind, direction: 'input' | 'output', alias
     return [{ id: 'input', name: 'input', type: 'message', required: false, source: '$input' }]
   }
   const output = alias || defaultOutputAlias(kind) || 'output'
-  if (kind === 'userInput') {
+  if (kind === 'userInput' || kind === 'interaction' || kind === 'pageAction') {
     return [{ id: output, name: output, type: 'object' }]
   }
   if (kind === 'approval') {
@@ -1139,6 +1314,10 @@ function dynamicOutputPorts(data: CanvasNode['data']): StudioPort[] | null {
     const config = data.userInputConfig || defaultUserInputConfig()
     return userInputOutputPorts(config.fields || [], config.outputAlias || data.outputAlias || 'params')
   }
+  if (data.kind === 'interaction') {
+    const config = data.interactionConfig || defaultInteractionConfig()
+    return interactionOutputPorts(config, config.outputAlias || data.outputAlias || 'interaction_output')
+  }
   if (data.kind === 'classifier') {
     return classifierOutputPorts(data.classifierConfig || defaultClassifierConfig())
   }
@@ -1164,6 +1343,48 @@ export function userInputOutputPorts(fields: StudioFieldSchema[], outputAlias = 
     })
   }
   return ports
+}
+
+export function interactionOutputPorts(config: InteractionNodeConfig, outputAlias = 'interaction_output'): StudioPort[] {
+  const alias = outputAlias || config.outputAlias || 'interaction_output'
+  const ports: StudioPort[] = [{ id: alias, name: alias, type: 'object', required: false }]
+  const seen = new Set<string>([alias])
+  if (config.interactionType === 'COLLECT_INPUT' || config.interactionType === 'USER_CHOICE'
+      || config.interactionType === 'CONFIRM_ACTION' || config.interactionType === 'REVIEW_EDIT') {
+    for (const field of config.fields || []) {
+      const key = fieldKey(field)
+      if (!key) continue
+      const id = `${alias}.${key}`
+      if (seen.has(id)) continue
+      seen.add(id)
+      ports.push({
+        id,
+        name: id,
+        type: field.type || 'string',
+        required: field.required === true,
+        source: alias,
+      })
+    }
+  }
+  if (config.interactionType === 'PRESENT_OUTPUT' && !seen.has(`${alias}.acknowledged`)) {
+    ports.push({ id: `${alias}.acknowledged`, name: `${alias}.acknowledged`, type: 'boolean', source: alias })
+  }
+  return ports
+}
+
+function interactionFieldsForGraph(fields: StudioFieldSchema[]): StudioFieldSchema[] {
+  return (fields || []).map((field) => {
+    const key = fieldKey(field)
+    return {
+      ...field,
+      key,
+      name: key,
+    }
+  })
+}
+
+function fieldKey(field: StudioFieldSchema) {
+  return (field.key || field.name || '').trim()
 }
 
 export function classifierOutputPorts(config: IntentClassifierNodeConfig): StudioPort[] {
@@ -1248,7 +1469,102 @@ function stringRecord(value: unknown): Record<string, string> {
 }
 
 function schemaValue(value: unknown): StudioFieldSchema[] {
-  return Array.isArray(value) ? value as StudioFieldSchema[] : []
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+    .map((item) => {
+      const name = stringValue(item.name || item.key)
+      return {
+        ...item,
+        name,
+        key: stringValue(item.key || item.name) || name,
+        type: fieldTypeValue(item.type),
+        required: item.required === true,
+        description: stringValue(item.description || item.label),
+        defaultValue: stringValue(item.defaultValue),
+        source: stringValue(item.source),
+        targetPath: stringValue(item.targetPath),
+        component: stringValue(item.component),
+        datasource: stringValue(item.datasource),
+        slotFilling: slotFillingValue(item.slotFilling),
+      } as StudioFieldSchema
+    })
+}
+
+function slotFillingValue(value: unknown): StudioFieldSchema['slotFilling'] {
+  const raw = objectRecordValue(value)
+  if (!Object.keys(raw).length) return undefined
+  const strategies = arrayValue(raw.strategies)
+    .map((item) => item.toUpperCase())
+    .filter((item) => ['USER_INPUT', 'RULE', 'LLM', 'DICTIONARY'].includes(item)) as NonNullable<StudioFieldSchema['slotFilling']>['strategies']
+  const policy = stringValue(raw.confirmPolicy).toUpperCase()
+  return {
+    enabled: raw.enabled === true,
+    strategies: normalizeSlotStrategies(strategies, raw.enabled === true),
+    confirmPolicy: ['NEVER', 'ALWAYS'].includes(policy) ? policy as 'NEVER' | 'ALWAYS' : 'LOW_CONFIDENCE',
+    confidenceThreshold: numberValue(raw.confidenceThreshold, 0.85),
+    llmPrompt: stringValue(raw.llmPrompt),
+    modelInstanceId: stringValue(raw.modelInstanceId),
+    patterns: arrayValue(raw.patterns),
+    dictionaryValues: arrayValue(raw.dictionaryValues),
+  }
+}
+
+function normalizeSlotStrategies(
+  strategies: NonNullable<StudioFieldSchema['slotFilling']>['strategies'],
+  enabled: boolean,
+): NonNullable<StudioFieldSchema['slotFilling']>['strategies'] {
+  const extractionStrategies = strategies.filter((item) => item !== 'USER_INPUT')
+  if (enabled && extractionStrategies.length === 0) {
+    return ['LLM']
+  }
+  return extractionStrategies.length ? extractionStrategies : ['LLM']
+}
+
+function fieldTypeValue(value: unknown): StudioFieldSchema['type'] {
+  const raw = stringValue(value).toLowerCase()
+  return ['number', 'integer', 'boolean', 'object', 'array', 'file'].includes(raw)
+    ? raw as StudioFieldSchema['type']
+    : 'string'
+}
+
+function interactionTypeValue(value: unknown): InteractionNodeConfig['interactionType'] {
+  const raw = stringValue(value).toUpperCase()
+  if (['PRESENT_OUTPUT', 'USER_CHOICE', 'CONFIRM_ACTION', 'REVIEW_EDIT'].includes(raw)) {
+    return raw as InteractionNodeConfig['interactionType']
+  }
+  return 'COLLECT_INPUT'
+}
+
+function interactionComponentValue(value: unknown): InteractionNodeConfig['component'] {
+  const raw = stringValue(value).toUpperCase()
+  if (['DETAIL', 'TABLE', 'CARD', 'REPORT', 'CUSTOM'].includes(raw)) {
+    return raw as InteractionNodeConfig['component']
+  }
+  return 'FORM'
+}
+
+function interactionBindingValue(value: unknown): InteractionNodeConfig['binding'] {
+  const raw = objectRecordValue(value)
+  const sourceKind = stringValue(raw.sourceKind).toUpperCase()
+  const normalizedSourceKind = ['TOOL', 'COMPOSITION', 'API'].includes(sourceKind)
+    ? sourceKind as NonNullable<InteractionNodeConfig['binding']>['sourceKind']
+    : 'NONE'
+  return {
+    sourceKind: normalizedSourceKind,
+    ref: stringValue(raw.ref),
+    qualifiedName: stringValue(raw.qualifiedName) || null,
+    projectCode: stringValue(raw.projectCode) || null,
+    projectId: raw.projectId == null ? null : numberValue(raw.projectId, 0),
+    apiNodeId: raw.apiNodeId == null ? null : numberValue(raw.apiNodeId, 0),
+    apiMethod: stringValue(raw.apiMethod) || null,
+    apiPath: stringValue(raw.apiPath) || null,
+    generatedFrom: stringValue(raw.generatedFrom),
+    autoCreateCallNode: raw.autoCreateCallNode === true,
+    autoCreateDisplayNode: raw.autoCreateDisplayNode === true || (raw.autoCreateDisplayNode == null && raw.autoCreateCallNode === true),
+    callNodeId: stringValue(raw.callNodeId),
+    displayNodeId: stringValue(raw.displayNodeId),
+  }
 }
 
 function llmMessagesValue(value: unknown, systemPrompt: string, userPrompt: string): NonNullable<LlmNodeConfig['messages']> {

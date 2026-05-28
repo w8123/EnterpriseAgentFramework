@@ -7,6 +7,7 @@ import com.enterprise.ai.agent.agentscope.adapter.AiToolAgentAdapter;
 import com.enterprise.ai.agent.config.LLMConfig;
 import com.enterprise.ai.agent.config.ToolRetrievalProperties;
 import com.enterprise.ai.agent.domain.DomainTagger;
+import com.enterprise.ai.agent.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.skill.SubAgentSkillExecutor;
 import com.enterprise.ai.agent.tool.governance.ToolRateLimiter;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
@@ -63,6 +64,7 @@ public class AgentFactory {
     private final ObjectMapper objectMapper;
     private final ToolAclService toolAclService;
     private final ToolRateLimiter toolRateLimiter;
+    private final GuardDecisionLogService guardDecisionLogService;
     private final int defaultMaxSteps;
 
     /** 领域分类器，可选注入；为空时跳过领域过滤。 */
@@ -80,6 +82,7 @@ public class AgentFactory {
             ObjectMapper objectMapper,
             ToolAclService toolAclService,
             ToolRateLimiter toolRateLimiter,
+            GuardDecisionLogService guardDecisionLogService,
             LLMConfig llmConfig) {
         this.agentScopeConfig = agentScopeConfig;
         this.toolRegistry = toolRegistry;
@@ -91,6 +94,7 @@ public class AgentFactory {
         this.objectMapper = objectMapper;
         this.toolAclService = toolAclService;
         this.toolRateLimiter = toolRateLimiter;
+        this.guardDecisionLogService = guardDecisionLogService;
         this.defaultMaxSteps = llmConfig.getMaxSteps();
         log.info("[AgentFactory] 初始化完成: defaultMaxSteps={}, toolRetrieval={}",
                 defaultMaxSteps, retrievalProperties.isEnabled());
@@ -317,6 +321,7 @@ public class AgentFactory {
             } else if (decision.isDenied()) {
                 log.warn("[AgentFactory][ACL] 拦截装配: kind={}, name={}, roles={}, reason={}",
                         isSkill ? "SKILL" : "TOOL", toolName, roles, decision);
+                recordToolAclDeny(context, isSkill, toolName, decision);
                 continue;
             }
             // Phase 3.0 sideEffect 运行时闸口：把 tool_definition.side_effect 透传给 Adapter
@@ -336,6 +341,35 @@ public class AgentFactory {
     // 保留旧方法签名以免破坏其他测试
     Toolkit createToolkit(List<String> toolNames) {
         return createToolkit(toolNames, null);
+    }
+
+    private void recordToolAclDeny(ToolExecutionContext context, boolean isSkill, String toolName, ToolAclDecision decision) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (context != null) {
+            metadata.put("sessionId", context.getSessionId());
+            metadata.put("projectCode", context.getProjectCode());
+            metadata.put("agentId", context.getAgentId());
+            metadata.put("agentName", context.getAgentName());
+            metadata.put("tenantId", context.getTenantId());
+            metadata.put("appId", context.getAppId());
+            metadata.put("externalUserId", context.getExternalUserId());
+            metadata.put("globalUserId", context.getGlobalUserId());
+            metadata.put("pageInstanceId", context.getPageInstanceId());
+            metadata.put("origin", context.getOrigin());
+            metadata.put("roles", context.getRoles());
+        }
+        metadata.put("decisionType", "TOOL_ACL");
+        metadata.put("targetKind", isSkill ? "SKILL" : "TOOL");
+        metadata.put("targetName", toolName);
+        metadata.put("reason", decision.name());
+        guardDecisionLogService.record(
+                context == null ? null : context.getTraceId(),
+                "TOOL_ACL",
+                isSkill ? "SKILL" : "TOOL",
+                toolName,
+                "DENY",
+                decision.name(),
+                metadata);
     }
 
     /**

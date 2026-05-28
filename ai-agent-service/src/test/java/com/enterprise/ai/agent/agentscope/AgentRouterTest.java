@@ -10,6 +10,7 @@ import com.enterprise.ai.agent.runtime.AgentRuntimeSelector;
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchRequest;
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchResult;
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchService;
+import com.enterprise.ai.agent.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.service.IntentService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -34,7 +35,8 @@ class AgentRouterTest {
         AgentRuntimeSelector selector = mock(AgentRuntimeSelector.class);
         AgentRuntimeAdapter adapter = mock(AgentRuntimeAdapter.class);
         EmbeddedRuntimeDispatchService dispatchService = mock(EmbeddedRuntimeDispatchService.class);
-        AgentRouter router = new AgentRouter(intentService, definitionService, selector, dispatchService);
+        GuardDecisionLogService guardDecisionLogService = mock(GuardDecisionLogService.class);
+        AgentRouter router = new AgentRouter(intentService, definitionService, selector, dispatchService, guardDecisionLogService);
 
         when(selector.select(any(AgentRuntimeRequest.class))).thenReturn(adapter);
         when(adapter.execute(any(AgentRuntimeRequest.class))).thenReturn(AgentRuntimeResult.builder()
@@ -76,7 +78,8 @@ class AgentRouterTest {
         AgentDefinitionService definitionService = mock(AgentDefinitionService.class);
         AgentRuntimeSelector selector = mock(AgentRuntimeSelector.class);
         EmbeddedRuntimeDispatchService dispatchService = mock(EmbeddedRuntimeDispatchService.class);
-        AgentRouter router = new AgentRouter(intentService, definitionService, selector, dispatchService);
+        GuardDecisionLogService guardDecisionLogService = mock(GuardDecisionLogService.class);
+        AgentRouter router = new AgentRouter(intentService, definitionService, selector, dispatchService, guardDecisionLogService);
 
         when(dispatchService.dispatch(any(EmbeddedRuntimeDispatchRequest.class))).thenReturn(new EmbeddedRuntimeDispatchResult(
                 true,
@@ -138,7 +141,8 @@ class AgentRouterTest {
         AgentRuntimeSelector selector = mock(AgentRuntimeSelector.class);
         AgentRuntimeAdapter adapter = mock(AgentRuntimeAdapter.class);
         EmbeddedRuntimeDispatchService dispatchService = mock(EmbeddedRuntimeDispatchService.class);
-        AgentRouter router = new AgentRouter(intentService, definitionService, selector, dispatchService);
+        GuardDecisionLogService guardDecisionLogService = mock(GuardDecisionLogService.class);
+        AgentRouter router = new AgentRouter(intentService, definitionService, selector, dispatchService, guardDecisionLogService);
 
         when(dispatchService.dispatch(any(EmbeddedRuntimeDispatchRequest.class)))
                 .thenThrow(new IllegalStateException("instance offline"));
@@ -175,5 +179,41 @@ class AgentRouterTest {
         assertEquals(true, result.getMetadata().get("central"));
         verify(dispatchService).dispatch(any(EmbeddedRuntimeDispatchRequest.class));
         verify(selector).select(any(AgentRuntimeRequest.class));
+    }
+
+    @Test
+    void deniesAgentExecutionWhenUserRoleIsNotAllowed() {
+        IntentService intentService = mock(IntentService.class);
+        AgentDefinitionService definitionService = mock(AgentDefinitionService.class);
+        AgentRuntimeSelector selector = mock(AgentRuntimeSelector.class);
+        EmbeddedRuntimeDispatchService dispatchService = mock(EmbeddedRuntimeDispatchService.class);
+        GuardDecisionLogService guardDecisionLogService = mock(GuardDecisionLogService.class);
+        AgentRouter router = new AgentRouter(intentService, definitionService, selector, dispatchService, guardDecisionLogService);
+
+        AgentResult result = router.executeByDefinition(AgentDefinition.builder()
+                        .id("agent-1")
+                        .name("Restricted Agent")
+                        .keySlug("restricted-agent")
+                        .intentType("GENERAL_CHAT")
+                        .allowedRoles(List.of("admin"))
+                        .build(),
+                "session-1",
+                "user-1",
+                "hello",
+                List.of("auditor"));
+
+        assertEquals(false, result.isSuccess());
+        assertEquals("Agent execution denied: user role is not allowed", result.getAnswer());
+        assertEquals("AGENT_RBAC", result.getMetadata().get("decisionType"));
+        verifyNoInteractions(selector);
+        verifyNoInteractions(dispatchService);
+        verify(guardDecisionLogService).record(
+                any(),
+                org.mockito.ArgumentMatchers.eq("AGENT_RBAC"),
+                org.mockito.ArgumentMatchers.eq("AGENT"),
+                org.mockito.ArgumentMatchers.eq("restricted-agent"),
+                org.mockito.ArgumentMatchers.eq("DENY"),
+                org.mockito.ArgumentMatchers.eq("user role is not allowed"),
+                any());
     }
 }

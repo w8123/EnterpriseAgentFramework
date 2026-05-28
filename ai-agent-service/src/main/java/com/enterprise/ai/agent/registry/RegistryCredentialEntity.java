@@ -27,6 +27,12 @@ public class RegistryCredentialEntity {
 
     private LocalDateTime expiresAt;
 
+    private String allowedOriginsJson;
+
+    private String allowedAgentIdsJson;
+
+    private Integer tokenTtlSeconds;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

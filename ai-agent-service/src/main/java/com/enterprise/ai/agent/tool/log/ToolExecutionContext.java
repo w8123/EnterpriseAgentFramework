@@ -30,10 +30,26 @@ public class ToolExecutionContext {
 
     private String agentName;
 
+    private String agentId;
+
     private String intentType;
 
     /** 当前请求所属项目编码；为空时按历史全局行为兼容。 */
     private String projectCode;
+
+    private String tenantId;
+
+    private String appId;
+
+    private String externalUserId;
+
+    private String globalUserId;
+
+    private String pageInstanceId;
+
+    private String origin;
+
+    private String route;
 
     /** 本次 Agent 召回 top-K + 分数 + 选中项序列化 JSON；在召回完成后由 AgentFactory 回填。 */
     private String retrievalTraceJson;

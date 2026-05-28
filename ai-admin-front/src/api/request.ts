@@ -2,6 +2,7 @@ import axios from 'axios'
 import type { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import type { ApiResult } from '@/types/import'
+import { clearPlatformToken, getPlatformToken } from '@/utils/platformAuth'
 
 function createInstance(baseURL: string): AxiosInstance {
   const instance = axios.create({
@@ -11,7 +12,13 @@ function createInstance(baseURL: string): AxiosInstance {
   })
 
   instance.interceptors.request.use(
-    (config: InternalAxiosRequestConfig) => config,
+    (config: InternalAxiosRequestConfig) => {
+      const token = getPlatformToken()
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`
+      }
+      return config
+    },
     (error) => Promise.reject(error),
   )
 
@@ -35,6 +42,13 @@ function createInstance(baseURL: string): AxiosInstance {
     (error) => {
       const message =
         error.response?.data?.message || error.message || '网络异常，请稍后重试'
+      if (error.response?.status === 401 && typeof window !== 'undefined') {
+        clearPlatformToken()
+        const current = window.location.pathname + window.location.search
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.href = `/login?redirect=${encodeURIComponent(current)}`
+        }
+      }
       ElMessage.error(message)
       return Promise.reject(error)
     },

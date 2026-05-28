@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.studio;
 
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
-import com.enterprise.ai.agent.graph.AgentGraphSpec;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.llm.LlmService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -417,13 +417,13 @@ public class WorkflowDraftEditService {
         return placeholders;
     }
 
-    private AgentGraphSpec toGraphSpec(Map<String, Object> canvas) {
-        AgentGraphSpec.AgentGraphSpecBuilder builder = AgentGraphSpec.builder()
+    private GraphSpec toGraphSpec(Map<String, Object> canvas) {
+        GraphSpec.GraphSpecBuilder builder = GraphSpec.builder()
                 .code(firstText(text(canvas.get("graphCode")), "ai_edited_graph"))
                 .name(firstText(text(canvas.get("graphName")), "AI edited workflow"))
                 .mode("WORKFLOW")
                 .runtimeHint("LANGGRAPH4J")
-                .layout(AgentGraphSpec.Layout.builder().engine("vue-flow").direction("LR").build());
+                .layout(GraphSpec.Layout.builder().engine("vue-flow").direction("LR").build());
 
         for (Map<String, Object> node : nodes(canvas)) {
             String id = text(node.get("id"));
@@ -443,14 +443,14 @@ public class WorkflowDraftEditService {
             if (!StringUtils.hasText(from) || !StringUtils.hasText(to)) {
                 continue;
             }
-            builder.edge(AgentGraphSpec.Edge.builder()
+            builder.edge(GraphSpec.Edge.builder()
                     .id(text(edge.get("id")))
                     .from(from)
                     .to(to)
                     .condition(firstText(text(edge.get("condition")), text(edge.get("label")), "always"))
                     .sourceHandle(text(edge.get("sourceHandle")))
                     .targetHandle(text(edge.get("targetHandle")))
-                    .layout(AgentGraphSpec.Layout.EdgeLayout.builder()
+                    .layout(GraphSpec.Layout.EdgeLayout.builder()
                             .label(firstText(text(edge.get("label")), text(edge.get("condition"))))
                             .build())
                     .build());
@@ -468,7 +468,7 @@ public class WorkflowDraftEditService {
         return builder.build();
     }
 
-    private AgentGraphSpec.Node toGraphNode(String id, String kind, Map<String, Object> node, Map<String, Object> data) {
+    private GraphSpec.Node toGraphNode(String id, String kind, Map<String, Object> node, Map<String, Object> data) {
         Map<String, Object> config = new LinkedHashMap<>(data);
         config.remove("label");
         config.remove("kind");
@@ -478,7 +478,7 @@ public class WorkflowDraftEditService {
         config.remove("retry");
         config.remove("errorPolicy");
 
-        AgentGraphSpec.Node.NodeBuilder builder = AgentGraphSpec.Node.builder()
+        GraphSpec.Node.NodeBuilder builder = GraphSpec.Node.builder()
                 .id(id)
                 .type(AgentGraphNodeType.normalize(kind))
                 .name(firstText(text(data.get("label")), id))
@@ -494,7 +494,7 @@ public class WorkflowDraftEditService {
         }
         if (data.get("retry") instanceof Map<?, ?> retry) {
             Map<String, Object> map = mutableMap(retry);
-            builder.retry(AgentGraphSpec.RetryPolicy.builder()
+            builder.retry(GraphSpec.RetryPolicy.builder()
                     .enabled(bool(map.get("enabled")))
                     .maxAttempts(integer(map.get("maxAttempts")))
                     .backoffMs(longValue(map.get("backoffMs")))
@@ -502,31 +502,31 @@ public class WorkflowDraftEditService {
         }
         if (data.get("errorPolicy") instanceof Map<?, ?> errorPolicy) {
             Map<String, Object> map = mutableMap(errorPolicy);
-            builder.errorPolicy(AgentGraphSpec.ErrorPolicy.builder()
+            builder.errorPolicy(GraphSpec.ErrorPolicy.builder()
                     .strategy(text(map.get("strategy")))
                     .fallbackNodeId(text(map.get("fallbackNodeId")))
                     .defaultOutput(mutableMap(map.get("defaultOutput")))
                     .build());
         }
-        AgentGraphSpec.CapabilityRef ref = capabilityRef(kind, data);
+        GraphSpec.CapabilityRef ref = capabilityRef(kind, data);
         if (ref != null) {
             builder.ref(ref);
         }
         return builder.build();
     }
 
-    private AgentGraphSpec.Layout.NodeLayout toNodeLayout(Map<String, Object> node, Map<String, Object> data) {
+    private GraphSpec.Layout.NodeLayout toNodeLayout(Map<String, Object> node, Map<String, Object> data) {
         Map<String, Object> position = mutableMap(node.get("position"));
-        return AgentGraphSpec.Layout.NodeLayout.builder()
+        return GraphSpec.Layout.NodeLayout.builder()
                 .x(doubleValue(position.get("x")))
                 .y(doubleValue(position.get("y")))
                 .collapsed(bool(data.get("collapsed")))
                 .build();
     }
 
-    private AgentGraphSpec.Port toPort(Object value) {
+    private GraphSpec.Port toPort(Object value) {
         Map<String, Object> map = mutableMap(value);
-        return AgentGraphSpec.Port.builder()
+        return GraphSpec.Port.builder()
                 .id(text(map.get("id")))
                 .name(text(map.get("name")))
                 .type(text(map.get("type")))
@@ -536,14 +536,14 @@ public class WorkflowDraftEditService {
                 .build();
     }
 
-    private AgentGraphSpec.CapabilityRef capabilityRef(String kind, Map<String, Object> data) {
+    private GraphSpec.CapabilityRef capabilityRef(String kind, Map<String, Object> data) {
         Map<String, Object> toolConfig = mutableMap(data.get("toolConfig"));
         if (!StringUtils.hasText(text(toolConfig.get("ref")))) {
             return null;
         }
         String graphType = AgentGraphNodeType.normalize(kind);
         String refKind = "CAPABILITY".equals(graphType) ? "CAPABILITY" : "TOOL";
-        return AgentGraphSpec.CapabilityRef.builder()
+        return GraphSpec.CapabilityRef.builder()
                 .kind(refKind)
                 .name(text(toolConfig.get("ref")))
                 .qualifiedName(text(toolConfig.get("qualifiedName")))

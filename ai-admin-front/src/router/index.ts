@@ -1,7 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
+import { getPlatformToken } from '@/utils/platformAuth'
 
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/Login.vue'),
+    meta: { title: 'Login', public: true },
+  },
   {
     path: '/',
     component: () => import('@/views/layout/MainLayout.vue'),
@@ -132,9 +139,27 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'capability',
-        name: 'CapabilityList',
-        component: () => import('@/views/capability/CapabilityList.vue'),
+        name: 'CapabilityKernel',
+        component: () => import('@/views/capability/CapabilityKernel.vue'),
         meta: { title: '能力' },
+      },
+      {
+        path: 'capability/tools',
+        name: 'CapabilityKernelTools',
+        component: () => import('@/views/capability/CapabilityKernel.vue'),
+        meta: { title: '模块工具' },
+      },
+      {
+        path: 'capability/compositions',
+        name: 'CapabilityKernelCompositions',
+        component: () => import('@/views/capability/CapabilityKernel.vue'),
+        meta: { title: '组合' },
+      },
+      {
+        path: 'capability/interactions',
+        name: 'CapabilityKernelInteractions',
+        component: () => import('@/views/capability/CapabilityKernel.vue'),
+        meta: { title: '交互' },
       },
       {
         path: 'capability/mining',
@@ -166,7 +191,7 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/capability/slot/SlotExtractLogs.vue'),
         meta: { title: '槽位提取日志' },
       },
-      { path: 'skill', redirect: '/capability' },
+      { path: 'skill', redirect: '/capability/compositions' },
       { path: 'skill/mining', redirect: '/capability/mining' },
       { path: 'skill/slot/extractors', redirect: '/capability/slot/extractors' },
       { path: 'skill/slot/dict-dept', redirect: '/capability/slot/dict-dept' },
@@ -251,6 +276,30 @@ const routes: RouteRecordRaw[] = [
 
       // ── 设置 / 护栏 ──
       {
+        path: 'settings/platform-users',
+        name: 'PlatformUserSettings',
+        component: () => import('@/views/settings/PlatformUserSettings.vue'),
+        meta: { title: '平台用户与角色' },
+      },
+      {
+        path: 'settings/business-users',
+        name: 'BusinessUserDirectory',
+        component: () => import('@/views/settings/BusinessUserDirectory.vue'),
+        meta: { title: '业务用户目录' },
+      },
+      {
+        path: 'settings/auth-providers',
+        name: 'AuthProviderSettings',
+        component: () => import('@/views/settings/AuthProviderSettings.vue'),
+        meta: { title: '认证源配置' },
+      },
+      {
+        path: 'settings/embed-ops',
+        name: 'EmbedOpsMonitor',
+        component: () => import('@/views/settings/EmbedOpsMonitor.vue'),
+        meta: { title: '嵌入式对话审计' },
+      },
+      {
         path: 'settings/tool-acl',
         name: 'ToolAclList',
         component: () => import('@/views/settings/ToolAclList.vue'),
@@ -287,6 +336,10 @@ const router = createRouter({
 
 router.beforeEach((to, _from, next) => {
   document.title = `${(to.meta.title as string) || ''} - 睿池 ReachAI`
+  if (!to.meta.public && !getPlatformToken()) {
+    next({ path: '/login', query: { redirect: to.fullPath } })
+    return
+  }
   next()
 })
 

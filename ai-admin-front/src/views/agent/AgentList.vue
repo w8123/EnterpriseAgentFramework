@@ -120,11 +120,16 @@
           </div>
 
           <div class="agent-card-footer" @click.stop>
-            <el-button link type="primary" size="small" @click="handleEdit(agent.id)">编辑</el-button>
-            <el-button link type="warning" size="small" @click="handleStudio(agent.id)">画布</el-button>
-            <el-button link type="success" size="small" @click="handleDebug(agent.id)">调试</el-button>
-            <el-button link type="info" size="small" @click="handleVersions(agent.id)">版本</el-button>
-            <el-button link type="danger" size="small" @click="handleDelete(agent.id)">删除</el-button>
+            <el-button
+              v-for="action in agentListActions(agent)"
+              :key="action.id"
+              link
+              :type="action.buttonType"
+              size="small"
+              @click="handleAgentAction(agent.id, action.id)"
+            >
+              {{ action.label }}
+            </el-button>
           </div>
         </article>
 
@@ -192,11 +197,16 @@
         <el-table-column label="操作" width="238" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
-              <el-button link type="primary" size="small" @click.stop="handleEdit(row.id)">编辑</el-button>
-              <el-button link type="warning" size="small" @click.stop="handleStudio(row.id)">画布</el-button>
-              <el-button link type="success" size="small" @click.stop="handleDebug(row.id)">调试</el-button>
-              <el-button link type="info" size="small" @click.stop="handleVersions(row.id)">版本</el-button>
-              <el-button link type="danger" size="small" @click.stop="handleDelete(row.id)">删除</el-button>
+              <el-button
+                v-for="action in agentListActions(row)"
+                :key="action.id"
+                link
+                :type="action.buttonType"
+                size="small"
+                @click.stop="handleAgentAction(row.id, action.id)"
+              >
+                {{ action.label }}
+              </el-button>
             </div>
           </template>
         </el-table-column>
@@ -216,6 +226,7 @@ import { getScanProjects } from '@/api/scanProject'
 import type { ScanProject } from '@/types/scanProject'
 import ViewToggle from '@/components/ViewToggle.vue'
 import { useProjectStore } from '@/store/project'
+import { agentListActions, type AgentListActionId } from '@/utils/agentActions'
 
 const route = useRoute()
 const router = useRouter()
@@ -463,6 +474,14 @@ function handleEdit(id: string) { router.push(`/agent/${id}/edit`) }
 function handleDebug(id: string) { router.push(`/agent/${id}/debug`) }
 function handleStudio(id: string) { router.push(`/agent/${id}/studio`) }
 function handleVersions(id: string) { router.push(`/agent/${id}/versions`) }
+
+function handleAgentAction(id: string, actionId: AgentListActionId) {
+  if (actionId === 'edit') return handleEdit(id)
+  if (actionId === 'debug') return handleDebug(id)
+  if (actionId === 'studio') return handleStudio(id)
+  if (actionId === 'versions') return handleVersions(id)
+  return handleDelete(id)
+}
 
 async function handleToggle(agent: AgentDefinition, enabled: boolean) {
   try {

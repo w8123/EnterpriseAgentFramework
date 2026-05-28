@@ -1,5 +1,7 @@
 package com.enterprise.ai.agent.tools.dynamic;
 
+import com.enterprise.ai.agent.skill.ToolExecutionContextHolder;
+import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.tools.schema.LlmJsonSchemaProvider;
@@ -11,18 +13,25 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.StringJoiner;
 
 @Slf4j
 public class DynamicHttpAiTool implements AiTool, LlmJsonSchemaProvider {
+
+    public static final long DEFAULT_REQUEST_TIMEOUT_MS = 180_000L;
+    public static final long MIN_REQUEST_TIMEOUT_MS = 1_000L;
+    public static final long MAX_REQUEST_TIMEOUT_MS = 1_800_000L;
 
     private static final TypeReference<List<ToolDefinitionParameter>> PARAMETER_LIST_TYPE = new TypeReference<>() {
     };
@@ -48,19 +57,28 @@ public class DynamicHttpAiTool implements AiTool, LlmJsonSchemaProvider {
     private final RestClient restClient;
     private final List<ToolDefinitionParameter> parameters;
     private final HttpInvocationExtras invocationExtras;
+    private final Duration requestTimeout;
 
     public DynamicHttpAiTool(ToolDefinitionEntity definition, ObjectMapper objectMapper) {
-        this(definition, objectMapper, null);
+        this(definition, objectMapper, null, null);
     }
 
     public DynamicHttpAiTool(ToolDefinitionEntity definition, ObjectMapper objectMapper,
                              HttpInvocationExtras invocationExtras) {
+        this(definition, objectMapper, invocationExtras, null);
+    }
+
+    public DynamicHttpAiTool(ToolDefinitionEntity definition, ObjectMapper objectMapper,
+                             HttpInvocationExtras invocationExtras,
+                             Duration requestTimeout) {
         this.definition = Objects.requireNonNull(definition, "definition must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
+        this.requestTimeout = normalizeRequestTimeout(requestTimeout);
         String baseUrl = DynamicHttpToolBaseUrlSupport.normalizeHttpBaseUrl(definition.getBaseUrl());
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .requestFactory(requestFactory(this.requestTimeout))
                 .build();
         this.parameters = parseParameters(definition.getParametersJson());
         this.invocationExtras = invocationExtras == null || invocationExtras.isEmpty()
@@ -130,9 +148,10 @@ public class DynamicHttpAiTool implements AiTool, LlmJsonSchemaProvider {
 
         try {
             var spec = restClient.method(httpMethod).uri(uri);
-            if (!invocationExtras.extraHeaders().isEmpty()) {
-                spec = spec.headers(headers -> invocationExtras.extraHeaders()
-                        .forEach((name, value) -> headers.add(name, value == null ? "" : value)));
+            Map<String, String> headers = invocationHeaders();
+            if (!headers.isEmpty()) {
+                spec = spec.headers(httpHeaders ->
+                        headers.forEach((name, value) -> httpHeaders.set(name, value == null ? "" : value)));
             }
             return spec.body(requestBody)
                     .retrieve()
@@ -143,8 +162,68 @@ public class DynamicHttpAiTool implements AiTool, LlmJsonSchemaProvider {
         }
     }
 
+    private Map<String, String> invocationHeaders() {
+        Map<String, String> headers = new LinkedHashMap<>(contextHeaders(ToolExecutionContextHolder.get()));
+        headers.putAll(invocationExtras.extraHeaders());
+        return headers;
+    }
+
+    private Map<String, String> contextHeaders(ToolExecutionContext context) {
+        if (context == null) {
+            return Map.of();
+        }
+        Map<String, String> headers = new LinkedHashMap<>();
+        putHeader(headers, "X-EAF-Project-Code", context.getProjectCode());
+        putHeader(headers, "X-EAF-Agent-Id", firstNonBlank(context.getAgentId(), context.getAgentName()));
+        putHeader(headers, "X-EAF-Trace-Id", context.getTraceId());
+        putHeader(headers, "X-EAF-Session-Id", context.getSessionId());
+        putHeader(headers, "X-EAF-User-Id", firstNonBlank(context.getExternalUserId(), context.getUserId()));
+        putHeader(headers, "X-EAF-Global-User-Id", context.getGlobalUserId());
+        putHeader(headers, "X-EAF-Roles", joinRoles(context.getRoles()));
+        putHeader(headers, "X-EAF-Tenant-Id", context.getTenantId());
+        putHeader(headers, "X-EAF-App-Id", context.getAppId());
+        putHeader(headers, "X-EAF-Page-Instance-Id", context.getPageInstanceId());
+        return headers;
+    }
+
+    private void putHeader(Map<String, String> headers, String name, String value) {
+        if (value != null && !value.isBlank()) {
+            headers.put(name, value);
+        }
+    }
+
+    private String joinRoles(List<String> roles) {
+        if (roles == null || roles.isEmpty()) {
+            return null;
+        }
+        StringJoiner joiner = new StringJoiner(",");
+        for (String role : roles) {
+            if (role != null && !role.isBlank()) {
+                joiner.add(role.trim());
+            }
+        }
+        return joiner.length() == 0 ? null : joiner.toString();
+    }
+
+    private String firstNonBlank(String first, String second) {
+        return first != null && !first.isBlank() ? first : second;
+    }
+
     private boolean shouldSendBody(HttpMethod method) {
         return method == HttpMethod.POST || method == HttpMethod.PUT || method == HttpMethod.PATCH;
+    }
+
+    private SimpleClientHttpRequestFactory requestFactory(Duration timeout) {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(10));
+        factory.setReadTimeout(timeout);
+        return factory;
+    }
+
+    public static Duration normalizeRequestTimeout(Duration timeout) {
+        long millis = timeout == null ? DEFAULT_REQUEST_TIMEOUT_MS : timeout.toMillis();
+        millis = Math.max(MIN_REQUEST_TIMEOUT_MS, Math.min(MAX_REQUEST_TIMEOUT_MS, millis));
+        return Duration.ofMillis(millis);
     }
 
     private String buildUri(Map<String, Object> pathVariables, Map<String, Object> queryParameters) {

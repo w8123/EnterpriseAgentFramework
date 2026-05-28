@@ -187,8 +187,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import type { FieldSpec, InteractiveFormSpec } from '@/types/capability'
-import { emptyFieldSource, mapToolToFields, normalizeInteractiveFormSpec } from '@/types/capability'
+import type { FieldSpec, InteractiveFormSpec } from '@/types/composition'
+import { emptyFieldSource, mapToolToFields, normalizeInteractiveFormSpec } from '@/types/composition'
 import type { ToolInfo } from '@/types/tool'
 import FieldSpecEditor from './FieldSpecEditor.vue'
 

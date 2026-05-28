@@ -66,49 +66,37 @@
             </span>
           </el-menu-item>
 
-          <!-- 4 能力（Capability） -->
+          <!-- 4 能力内核 -->
           <el-sub-menu index="/capability-group">
             <template #title>
               <el-icon><Aim /></el-icon>
               <span class="menu-label">
-                <span class="menu-cn">能力</span>
-                <span class="menu-en">Capability</span>
+                <span class="menu-cn">能力内核</span>
+                <span class="menu-en">Kernel</span>
               </span>
             </template>
             <el-menu-item index="/capability">
               <span class="menu-label leaf">
-                <span class="menu-cn">能力管理</span>
-                <span class="menu-en">Capabilities</span>
+                <span class="menu-cn">能力模块</span>
+                <span class="menu-en">Modules</span>
               </span>
             </el-menu-item>
-            <el-menu-item index="/capability/mining">
+            <el-menu-item index="/capability/compositions">
               <span class="menu-label leaf">
-                <span class="menu-cn">能力挖掘</span>
-                <span class="menu-en">Mining</span>
+                <span class="menu-cn">组合</span>
+                <span class="menu-en">Compositions</span>
               </span>
             </el-menu-item>
-            <el-menu-item index="/capability/slot/extractors">
+            <el-menu-item index="/capability/tools">
               <span class="menu-label leaf">
-                <span class="menu-cn">槽位提取器</span>
-                <span class="menu-en">Slot Extractors</span>
+                <span class="menu-cn">工具</span>
+                <span class="menu-en">Tools</span>
               </span>
             </el-menu-item>
-            <el-menu-item index="/capability/slot/dict-dept">
+            <el-menu-item index="/capability/interactions">
               <span class="menu-label leaf">
-                <span class="menu-cn">部门字典</span>
-                <span class="menu-en">Departments</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/capability/slot/dict-user">
-              <span class="menu-label leaf">
-                <span class="menu-cn">人员字典</span>
-                <span class="menu-en">Users</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/capability/slot/logs">
-              <span class="menu-label leaf">
-                <span class="menu-cn">槽位调用日志</span>
-                <span class="menu-en">Slot Logs</span>
+                <span class="menu-cn">交互</span>
+                <span class="menu-en">Interactions</span>
               </span>
             </el-menu-item>
           </el-sub-menu>
@@ -266,6 +254,30 @@
                 <span class="menu-en">Domains</span>
               </span>
             </el-menu-item>
+            <el-menu-item index="/settings/platform-users">
+              <span class="menu-label leaf">
+                <span class="menu-cn">平台用户</span>
+                <span class="menu-en">Platform Users</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/settings/business-users">
+              <span class="menu-label leaf">
+                <span class="menu-cn">业务用户</span>
+                <span class="menu-en">Business Users</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/settings/auth-providers">
+              <span class="menu-label leaf">
+                <span class="menu-cn">认证源</span>
+                <span class="menu-en">Auth Providers</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/settings/embed-ops">
+              <span class="menu-label leaf">
+                <span class="menu-cn">嵌入审计</span>
+                <span class="menu-en">Embed Ops</span>
+              </span>
+            </el-menu-item>
             <el-menu-item index="/runops">
               <span class="menu-label leaf">
                 <span class="menu-cn">运行中心</span>
@@ -369,7 +381,14 @@ const activeMenu = computed(() => {
   if (path.startsWith('/model/instances')) return '/model/instances'
   if (path.startsWith('/model')) return '/model'
   if (path.startsWith('/tool/retrieval')) return '/tool/retrieval'
+  if (path.startsWith('/settings/platform-users')) return '/settings/platform-users'
+  if (path.startsWith('/settings/business-users')) return '/settings/business-users'
+  if (path.startsWith('/settings/auth-providers')) return '/settings/auth-providers'
+  if (path.startsWith('/settings/embed-ops')) return '/settings/embed-ops'
   if (path.startsWith('/settings/tool-acl')) return '/settings/tool-acl'
+  if (path.startsWith('/capability/tools')) return '/capability/tools'
+  if (path.startsWith('/capability/compositions')) return '/capability/compositions'
+  if (path.startsWith('/capability/interactions')) return '/capability/interactions'
   if (path.startsWith('/capability/mining')) return '/capability/mining'
   if (path.startsWith('/capability/slot/extractors')) return '/capability/slot/extractors'
   if (path.startsWith('/capability/slot/dict-dept')) return '/capability/slot/dict-dept'

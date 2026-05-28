@@ -84,6 +84,7 @@ public class AgentScopeRuntimeAdapter implements AgentRuntimeAdapter {
                 .sessionId(request.getSessionId())
                 .userId(request.getUserId())
                 .agentName(definition.getName())
+                .agentId(definition.getId())
                 .intentType(request.getIntentType())
                 .projectCode(definition.getProjectCode())
                 .allowIrreversible(definition.isAllowIrreversible())

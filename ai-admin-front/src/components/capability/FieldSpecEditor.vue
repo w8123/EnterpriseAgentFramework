@@ -152,8 +152,8 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { FieldSpec } from '@/types/capability'
-import { emptyFieldSource } from '@/types/capability'
+import type { FieldSpec } from '@/types/composition'
+import { emptyFieldSource } from '@/types/composition'
 import type { ToolInfo } from '@/types/tool'
 import FieldSourceEditor from './FieldSourceEditor.vue'
 

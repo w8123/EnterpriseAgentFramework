@@ -199,6 +199,44 @@
               </button>
             </div>
           </template>
+          <template #node-interaction="nodeProps">
+            <div class="studio-node interaction-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
+              <Handle type="target" :position="Position.Left" />
+              <Handle type="source" :position="Position.Right" />
+              <div class="node-icon"><el-icon><SetUp /></el-icon></div>
+              <div class="node-head">
+                <span class="node-kind">交互</span>
+                <span class="node-state">{{ interactionTypeLabel(nodeProps.data.interactionConfig?.interactionType) }}</span>
+              </div>
+              <div class="node-label">{{ nodeProps.data.interactionConfig?.title || nodeProps.data.label || nodeProps.id }}</div>
+              <div class="node-desc">{{ interactionFieldCount(nodeProps.data) }} 个字段，写入 {{ nodeProps.data.interactionConfig?.outputAlias || nodeProps.data.outputAlias || 'interaction_output' }}</div>
+              <div class="node-port-row">{{ portSummary(nodeProps.data.outputs, '变量') }}</div>
+              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
+              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" @click.stop="openNodeTrace(nodeProps.id)">
+                <span class="runtime-dot"></span>
+                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
+              </button>
+            </div>
+          </template>
+          <template #node-pageAction="nodeProps">
+            <div class="studio-node page-action-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
+              <Handle type="target" :position="Position.Left" />
+              <Handle type="source" :position="Position.Right" />
+              <div class="node-icon"><el-icon><Link /></el-icon></div>
+              <div class="node-head">
+                <span class="node-kind">页面动作</span>
+                <span class="node-state">{{ nodeProps.data.pageActionConfig?.confirm ? '需确认' : '直接触发' }}</span>
+              </div>
+              <div class="node-label">{{ nodeProps.data.pageActionConfig?.title || nodeProps.data.label || nodeProps.id }}</div>
+              <div class="node-desc">{{ nodeProps.data.pageActionConfig?.actionKey || '未配置 actionKey' }}</div>
+              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '输入') }} · {{ portSummary(nodeProps.data.outputs, '输出') }}</div>
+              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
+              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" @click.stop="openNodeTrace(nodeProps.id)">
+                <span class="runtime-dot"></span>
+                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
+              </button>
+            </div>
+          </template>
           <template #node-end="nodeProps">
             <div class="studio-node end-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
               <Handle type="target" :position="Position.Left" />
@@ -217,7 +255,7 @@
             <div class="studio-node llm-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
               <Handle type="target" :position="Position.Left" />
               <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><Cpu /></el-icon></div>
+              <div class="node-icon"><el-icon><LlmModelIcon /></el-icon></div>
               <div class="node-head">
                 <span class="node-kind">大模型</span>
                 <span class="node-state">推理</span>
@@ -607,61 +645,86 @@
             <el-button :icon="ZoomIn" circle @click="handleZoomIn" />
           </el-tooltip>
         </div>
-        <div class="ai-edit-bar" @mousedown.stop @click.stop>
-          <div class="ai-edit-context">
-            <div class="ai-edit-context-left">
-              <el-popover trigger="click" placement="top-start" width="360" popper-class="ai-edit-model-popover">
-                <template #reference>
-                  <el-button
-                    class="ai-edit-model-trigger"
-                    :class="{ active: !!selectedAiEditModelLabel }"
-                    :disabled="aiEditLoading"
-                    circle
-                    aria-label="选择语义修改模型"
-                  >
-                    <el-icon><Cpu /></el-icon>
-                  </el-button>
-                </template>
-                <div class="ai-edit-model-panel">
-                  <div class="ai-edit-model-title">选择修改模型</div>
-                  <el-select
-                    v-model="aiDraftModelInstanceId"
-                    filterable
-                    clearable
-                    placeholder="选择用于语义修改的模型"
-                    :disabled="aiEditLoading"
-                  >
-                    <el-option
-                      v-for="item in aiDraftModelOptions"
-                      :key="item.id"
-                      :label="modelOptionLabel(item)"
-                      :value="item.id"
-                    />
-                  </el-select>
-                  <div class="ai-edit-model-hint">{{ selectedAiEditModelLabel || '未选择模型时会使用智能体默认模型' }}</div>
-                </div>
-              </el-popover>
-              <el-tag size="small" effect="plain">{{ aiEditContextLabel }}</el-tag>
-              <span>{{ aiEditPreview?.summary || '用自然语言修改当前画布草稿' }}</span>
-            </div>
-            <span class="ai-edit-model-current">{{ selectedAiEditModelName }}</span>
-          </div>
+        <div
+          v-if="!aiEditMinimized"
+          class="ai-edit-bar"
+          :class="{ 'debug-drawer-open': debugOpen, 'is-generating': aiEditLoading }"
+          @mousedown.stop
+          @click.stop
+        >
           <div class="ai-edit-input-row">
             <el-input
               v-model="aiEditInstruction"
               :disabled="studioReadOnly || aiEditLoading"
               clearable
-              placeholder="例如：在当前节点后面加一个物流查询，并在订单完成时才执行"
-              @keyup.enter="handleGenerateWorkflowEdit"
+              class="ai-edit-main-input"
+              type="textarea"
+              resize="none"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+              placeholder="您想更改或创建什么内容？"
+              @keydown.enter.exact.prevent="handleGenerateWorkflowEdit"
             />
-            <el-button
-              type="primary"
-              :loading="aiEditLoading"
-              :disabled="studioReadOnly || !aiEditInstruction.trim()"
-              @click="handleGenerateWorkflowEdit"
-            >
-              生成修改
-            </el-button>
+            <div class="ai-edit-toolbar">
+              <div class="ai-edit-toolbar-left">
+                <el-tooltip content="当前会结合已选节点和画布上下文生成修改" placement="top">
+                  <el-button text circle :icon="MagicStick" disabled />
+                </el-tooltip>
+              </div>
+              <div class="ai-edit-toolbar-right">
+                <el-tooltip content="最小化智能修改" placement="top">
+                  <el-button
+                    class="ai-edit-minimize"
+                    circle
+                    :icon="Minus"
+                    aria-label="最小化智能修改"
+                    @click="aiEditMinimized = true"
+                  />
+                </el-tooltip>
+                <el-popover trigger="click" placement="top-end" width="360" popper-class="ai-edit-model-popover">
+                  <template #reference>
+                    <el-button
+                      class="ai-edit-model-trigger"
+                      :class="{ active: !!selectedAiEditModelLabel }"
+                      :disabled="aiEditLoading"
+                      circle
+                      aria-label="选择语义修改模型"
+                    >
+                      <el-icon><LlmModelIcon /></el-icon>
+                    </el-button>
+                  </template>
+                  <div class="ai-edit-model-panel">
+                    <div class="ai-edit-model-title">选择修改模型</div>
+                    <el-select
+                      v-model="aiDraftModelInstanceId"
+                      filterable
+                      clearable
+                      placeholder="选择用于语义修改的模型"
+                      :disabled="aiEditLoading"
+                    >
+                      <el-option
+                        v-for="item in aiDraftModelOptions"
+                        :key="item.id"
+                        :label="modelOptionLabel(item)"
+                        :value="item.id"
+                      />
+                    </el-select>
+                    <div class="ai-edit-model-hint">{{ selectedAiEditModelLabel || '未选择模型时会使用智能体默认模型' }}</div>
+                  </div>
+                </el-popover>
+                <el-tooltip content="生成修改" placement="top">
+                  <el-button
+                    class="ai-edit-send"
+                    type="primary"
+                    circle
+                    :icon="SendIcon"
+                    :loading="aiEditLoading"
+                    :disabled="studioReadOnly || !aiEditInstruction.trim()"
+                    aria-label="生成修改"
+                    @click="handleGenerateWorkflowEdit"
+                  />
+                </el-tooltip>
+              </div>
+            </div>
           </div>
           <div v-if="aiEditPreview" class="ai-edit-preview">
             <div class="ai-edit-preview-head">
@@ -754,21 +817,6 @@
               </button>
               <span v-if="!graphVariables.length" class="inspector-empty">暂无节点输出变量</span>
             </div>
-            <div v-if="runtimeContextEntries.length" class="runtime-context">
-              <div class="inspector-head">
-                <strong>运行上下文</strong>
-                <el-tag size="small">{{ runtimeContextEntries.length }}</el-tag>
-              </div>
-              <button
-                v-for="item in runtimeContextEntries.slice(0, 8)"
-                :key="item.key"
-                class="context-row"
-                @click="nodeDebugStateText = JSON.stringify({ ...parseNodeDebugState(), [item.key]: item.value }, null, 2)"
-              >
-                <span>{{ item.key }}</span>
-                <em>{{ item.value }}</em>
-              </button>
-            </div>
           </div>
         </div>
         <div class="canvas-statusbar">
@@ -778,22 +826,15 @@
               <strong>{{ graphLintErrors.length ? '阻断' : graphLintWarnings.length ? '提醒' : '健康' }}</strong>
               <em>{{ graphLintErrors.length || graphLintWarnings.length || '正常' }}</em>
             </button>
-            <button class="status-pill" @click="inspectorExpanded = true">
+            <button class="status-pill" @click="inspectorExpanded = !inspectorExpanded">
               <strong>变量</strong>
               <em>{{ graphVariables.length }}</em>
             </button>
-            <button class="status-pill" @click="inspectorExpanded = true">
-              <strong>运行上下文</strong>
-              <em>{{ runtimeContextEntries.length }}</em>
+            <button v-if="aiEditMinimized" class="status-pill smart-edit-pill" @click="aiEditMinimized = false">
+              <el-icon><MagicStick /></el-icon>
+              <strong>智能修改</strong>
             </button>
           </div>
-          <span class="status-autosave" :class="saveStateClass">
-            <i></i>
-            <span>{{ saveBadgeText }}</span>
-          </span>
-          <button class="status-collapse" @click="inspectorExpanded = !inspectorExpanded">
-            {{ inspectorExpanded ? '收起面板' : '展开检查' }}
-          </button>
         </div>
       </section>
 
@@ -1109,13 +1150,14 @@
           :model-options="modelOptions"
           :knowledge-options="knowledgeOptions"
           :tool-options="availableTools"
-          :capability-options="availableCapabilities"
+          :composition-options="availableCompositions"
           :variable-options="variablePickerOptions"
           :credential-options="credentialOptions"
           :param-source-hints="paramHints"
           :project-id="form.projectId"
           :project-code="form.projectCode"
           @credential-created="handleCredentialCreated"
+          @create-call-node="handleCreateInteractionCallNode"
         />
 
         <el-form v-else-if="propertyDetailSection === 'debug'" label-width="100px" size="small">
@@ -1229,7 +1271,7 @@
           placeholder="例如：查询订单状态，如果订单已完成就回复物流信息，否则提示当前处理进度。"
         />
         <div class="ai-draft-actions">
-          <span>{{ availableTools.length }} 个工具 / {{ availableCapabilities.length }} 个能力 / {{ knowledgeOptions.length }} 个知识库可供匹配</span>
+          <span>{{ availableTools.length }} 个工具 / {{ availableCompositions.length }} 个能力 / {{ knowledgeOptions.length }} 个知识库可供匹配</span>
           <el-button type="primary" :loading="aiDraftGenerating" @click="handleGenerateWorkflowDraft">
             生成预览
           </el-button>
@@ -1362,90 +1404,251 @@
       v-model="debugOpen"
       class="studio-debug-drawer"
       modal-class="studio-debug-drawer-overlay"
-      title="工作流调试台（当前草稿）"
-      size="34%"
+      size="min(960px, 58vw)"
       direction="rtl"
       :modal="false"
       :modal-penetrable="true"
       :lock-scroll="false"
     >
-      <div class="debug-body">
-        <section class="debug-input-card">
-          <div class="debug-section-head">
-            <div>
-              <strong>调试输入</strong>
-              <span>优先读取用户输入节点字段，运行时写入 params</span>
-            </div>
-            <el-tag v-if="debugInputFields.length" size="small" type="success">
-              {{ debugInputFields.length }} 个输入字段
-            </el-tag>
-            <el-tag v-else size="small" type="info">自由消息</el-tag>
-          </div>
-          <div v-if="debugInputFields.length" class="debug-field-grid">
-            <el-form-item
-              v-for="field in debugInputFields"
-              :key="field.name"
-              :label="debugFieldLabel(field)"
-            >
-              <el-switch
-                v-if="field.type === 'boolean'"
-                v-model="debugInputParams[field.name]"
-              />
-              <el-input-number
-                v-else-if="field.type === 'number' || field.type === 'integer'"
-                v-model="debugInputParams[field.name]"
-                style="width: 100%"
-              />
-              <el-input
-                v-else-if="field.type === 'object' || field.type === 'array'"
-                v-model="debugInputParams[field.name]"
-                type="textarea"
-                :rows="3"
-                :placeholder="field.description || '输入 JSON 或文本'"
-              />
-              <el-input
-                v-else
-                v-model="debugInputParams[field.name]"
-                :placeholder="field.description || '输入字段值'"
-              />
-            </el-form-item>
-          </div>
-          <el-input
-            v-else
-            v-model="debugMessage"
-            type="textarea"
-            :rows="3"
-            placeholder="输入测试消息..."
-          />
-        </section>
-        <div class="debug-actions">
-          <el-button type="primary" :loading="debugLoading" @click="handleRunDraftDebug">
-            运行当前草稿
-          </el-button>
-          <el-button :loading="debugLoading" @click="handleRunPublishedDebug">
-            发布端点验证
-          </el-button>
-        </div>
-        <el-divider>执行结果</el-divider>
-        <div class="debug-result">
-          <div v-if="debugRunResult" class="debug-console-layout">
-            <section class="debug-answer-card" :class="debugStepStatusClass(debugRunResult.status)">
-              <div>
-                <span>最终回答</span>
-                <strong>{{ debugRunResult.answer || debugRunResult.errorMessage || '-' }}</strong>
-              </div>
-              <div class="debug-run-meta">
-                <el-tag :type="debugRunResult.success ? 'success' : 'danger'" size="small">
-                  {{ debugRunStatusText(debugRunResult.status) }}
-                </el-tag>
-                <span>{{ debugRunResult.steps?.length || 0 }} 个节点</span>
-                <span v-if="debugRunResult.traceId">Trace {{ debugRunResult.traceId }}</span>
-              </div>
-            </section>
+      <template #header>
+        <div class="debug-drawer-head">
+          <strong>工作流调试台（当前草稿）</strong>
+          <el-popover
+            placement="bottom-end"
+            trigger="click"
+            width="560"
+            popper-class="debug-advanced-popover"
+          >
+            <template #reference>
+              <el-button class="debug-advanced-trigger" plain :icon="Operation">
+                高级调试
+              </el-button>
+            </template>
+            <el-collapse class="debug-advanced-collapse debug-advanced-popover-collapse">
+              <el-collapse-item name="variables">
+                <template #title>
+                  <span class="debug-collapse-title">高级调试：变量与状态快照</span>
+                </template>
+                <div class="result-section">
+                  <strong>变量映射合同：</strong>
+                  <pre>{{ JSON.stringify(variablePreview, null, 2) }}</pre>
+                </div>
+                <div v-if="debugRunResult" class="result-section">
+                  <strong>最终状态快照：</strong>
+                  <pre>{{ stringifyDebugPayload(debugRunResult.finalState) }}</pre>
+                </div>
+              </el-collapse-item>
 
-            <section class="workflow-debug-steps">
+              <el-collapse-item name="trace">
+                <template #title>
+                  <span class="debug-collapse-title">高级调试：Trace 回放与生产运行</span>
+                </template>
+                <div class="trace-replay-panel">
+                  <div class="trace-replay-row debug-production-row">
+                    <div>
+                      <strong>发布端点验证</strong>
+                      <span>使用当前输入调用已发布网关，用于和草稿调试结果做对照。</span>
+                    </div>
+                    <el-button :loading="debugLoading" @click="handleRunPublishedDebug">
+                      发布端点验证
+                    </el-button>
+                  </div>
+                  <div class="trace-replay-row">
+                    <el-input
+                      v-model="replayTraceInput"
+                      clearable
+                      placeholder="输入 traceId 回放到画布"
+                      @keyup.enter="handleLoadTraceReplay()"
+                    />
+                    <el-button type="primary" plain :loading="traceReplayLoading" @click="handleLoadTraceReplay()">
+                      回放
+                    </el-button>
+                    <el-button :disabled="!currentTraceId" @click="clearTraceReplay">
+                      清除
+                    </el-button>
+                  </div>
+                  <div class="trace-replay-row">
+                    <el-select
+                      v-model="selectedRecentTraceId"
+                      filterable
+                      clearable
+                      placeholder="选择最近运行"
+                      style="width: 100%"
+                      @change="handleRecentTraceChange"
+                    >
+                      <el-option
+                        v-for="run in studioRecentRuns"
+                        :key="run.traceId"
+                        :label="recentRunLabel(run)"
+                        :value="run.traceId"
+                      />
+                    </el-select>
+                    <el-button :loading="recentRunsLoading" @click="loadRecentStudioRuns">
+                      刷新
+                    </el-button>
+                  </div>
+                </div>
+                <div v-if="currentTraceId" class="result-section trace-detail-section">
+                  <div class="debug-section-head">
+                    <div>
+                      <strong>链路详情</strong>
+                      <span>{{ currentTraceId }}</span>
+                    </div>
+                    <el-button
+                      type="primary"
+                      size="small"
+                      @click="router.push('/runops/' + currentTraceId)"
+                    >查看运行详情</el-button>
+                  </div>
+                  <div v-if="workflowReplaySummary.length" class="runtime-insights workflow-replay-summary">
+                    <div v-for="item in workflowReplaySummary" :key="item.label" class="runtime-insight">
+                      <span>{{ item.label }}</span>
+                      <strong>{{ item.value }}</strong>
+                    </div>
+                  </div>
+                  <div v-if="nodeTraceList.length" class="node-run-summary">
+                    <button
+                      v-for="item in nodeTraceList"
+                      :key="item.nodeId"
+                      class="node-run-item"
+                      :class="item.status"
+                      @click="openNodeTrace(item.nodeId)"
+                    >
+                      <span>{{ item.nodeId }}</span>
+                      <em>{{ formatElapsed(item.elapsedMs) }}</em>
+                    </button>
+                  </div>
+                  <div class="trace-toolbar">
+                    <el-select
+                      v-model="traceToolPick"
+                      multiple
+                      filterable
+                      placeholder="选中若干工具作为能力草稿序列（留空表示全量）"
+                      style="width: 100%"
+                    >
+                      <el-option
+                        v-for="name in traceToolNames"
+                        :key="name"
+                        :label="name"
+                        :value="name"
+                      />
+                    </el-select>
+                    <el-button
+                      type="warning"
+                      size="small"
+                      :icon="Collection"
+                      :disabled="!traceToolNames.length"
+                      @click="handleExtractCompositionDraft"
+                      :loading="extracting"
+                    >抽取为能力草稿</el-button>
+                  </div>
+                  <TraceTimeline :nodes="traceNodes" />
+                </div>
+                <el-empty v-else description="需要排查生产调用时，再输入 traceId 回放" />
+              </el-collapse-item>
+            </el-collapse>
+          </el-popover>
+        </div>
+      </template>
+      <div class="debug-body" :class="debugSessionVisualClass(debugSession?.status)">
+        <div class="debug-session-grid">
+          <section class="debug-chat-panel" :class="debugSessionVisualClass(debugSession?.status)">
+            <div class="debug-chat-messages">
+              <template v-if="debugSessionMessages.length">
+                <article
+                  v-for="message in debugSessionMessages"
+                  :key="message.id"
+                  class="debug-message"
+                  :class="`is-${message.role}`"
+                >
+                  <div class="debug-message-role">{{ debugMessageRole(message.role) }}</div>
+                  <div class="debug-message-content">
+                    <p>{{ message.content || '-' }}</p>
+                    <InteractionRenderer
+                      v-if="message.uiRequest && shouldRenderDebugMessageUi(message)"
+                      :ui-request="message.uiRequest"
+                      @submit="handleDebugUiSubmit"
+                      @cancel="handleCancelDebugSession"
+                    />
+                  </div>
+                </article>
+              </template>
+              <el-empty v-else description="输入问题后开始一次可恢复调试会话" />
+            </div>
+            <section class="debug-input-card debug-unified-input debug-chat-composer">
+              <InteractionRenderer
+                v-if="debugCurrentUiRequest"
+                :ui-request="debugCurrentUiRequest"
+                @submit="handleDebugUiSubmit"
+                @cancel="handleCancelDebugSession"
+              />
+              <template v-else>
+                <div v-if="debugInputFields.length" class="debug-field-grid">
+                  <el-form-item
+                    v-for="field in debugInputFields"
+                    :key="field.name"
+                    :label="debugFieldLabel(field)"
+                  >
+                    <el-switch
+                      v-if="field.type === 'boolean'"
+                      v-model="debugInputParams[field.name]"
+                    />
+                    <el-input-number
+                      v-else-if="field.type === 'number' || field.type === 'integer'"
+                      v-model="debugInputParams[field.name]"
+                      style="width: 100%"
+                    />
+                    <el-input
+                      v-else-if="field.type === 'object' || field.type === 'array'"
+                      v-model="debugInputParams[field.name]"
+                      type="textarea"
+                      :rows="3"
+                      :placeholder="field.description || '输入 JSON 或文本'"
+                    />
+                    <el-input
+                      v-else
+                      v-model="debugInputParams[field.name]"
+                      :placeholder="field.description || '输入字段值'"
+                    />
+                  </el-form-item>
+                </div>
+                <el-input
+                  v-else
+                  v-model="debugMessage"
+                  type="textarea"
+                  :rows="3"
+                  resize="none"
+                  placeholder="输入测试消息..."
+                />
+                <div class="debug-actions">
+                  <el-tooltip content="运行当前草稿" placement="top">
+                    <el-button
+                      type="primary"
+                      circle
+                      :icon="SendIcon"
+                      :loading="debugLoading"
+                      aria-label="运行当前草稿"
+                      @click="handleRunDraftDebug"
+                    />
+                  </el-tooltip>
+                </div>
+              </template>
+            </section>
+          </section>
+
+          <section class="debug-steps-panel">
+            <div class="debug-section-head">
+              <div>
+                <strong>节点轨迹</strong>
+                <span>{{ debugSessionSteps.length }} 个节点事件</span>
+              </div>
+              <el-button size="small" text :disabled="!debugSession" @click="clearDebugSessionView">
+                清空视图
+              </el-button>
+            </div>
+            <div class="workflow-debug-steps">
               <article
-                v-for="(step, index) in debugRunResult.steps"
+                v-for="(step, index) in debugSessionSteps"
                 :key="step.nodeId + ':' + index"
                 class="workflow-debug-step-card"
                 :class="[debugStepStatusClass(step.status), { selected: selectedDebugStepIndex === index }]"
@@ -1455,14 +1658,21 @@
                   :class="debugStepStatusClass(step.status)"
                   @click="selectDebugStep(index)"
                 >
-                  <span class="step-index">{{ index + 1 }}</span>
+                  <span class="step-marker">
+                    <span
+                      class="step-running-icon"
+                      :class="{ active: isDebugStepRunning(step) }"
+                      aria-label="运行中"
+                    ></span>
+                    <span class="step-index">{{ index + 1 }}</span>
+                  </span>
                   <span class="step-main">
                     <strong>{{ step.nodeName || step.nodeId }}</strong>
-                    <em>{{ step.nodeType || '-' }}</em>
+                    <em>{{ step.nodeType || step.eventType || '-' }}</em>
                   </span>
                   <span class="step-route">
                     <template v-if="step.route">路由 {{ step.route }}</template>
-                    <template v-else>直连</template>
+                    <template v-else>{{ step.eventType || '节点' }}</template>
                     <small v-if="step.nextNodeId">→ {{ step.nextNodeId }}</small>
                   </span>
                   <span class="step-time">{{ formatElapsed(step.elapsedMs) }}</span>
@@ -1473,6 +1683,10 @@
                       <pre>{{ stringifyDebugPayload(step.input) }}</pre>
                     </el-tab-pane>
                     <el-tab-pane label="输出">
+                      <div v-if="step.uiRequest || debugWaitingOutput(step)" class="debug-waiting-card">
+                        <strong>{{ step.status === 'WAITING' ? '等待用户补充' : '输出卡片' }}</strong>
+                        <span>{{ step.uiRequest?.message || debugWaitingOutput(step)?.message || step.uiRequest?.title || '已生成交互 UI' }}</span>
+                      </div>
                       <pre>{{ stringifyDebugPayload(step.output ?? step.statePatch) }}</pre>
                     </el-tab-pane>
                     <el-tab-pane label="状态变化">
@@ -1484,154 +1698,26 @@
                   </el-tabs>
                 </div>
               </article>
-            </section>
-
-          </div>
-          <div v-else-if="debugResult">
-            <div class="result-section">
-              <strong>发布端点回答：</strong>
-              <div>{{ debugResult.answer }}</div>
             </div>
-            <div class="result-section" v-if="debugOpsItems.length">
-              <strong>生产运行信息：</strong>
-              <div class="runtime-insights">
-                <div v-for="item in debugOpsItems" :key="item.label" class="runtime-insight">
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.value }}</strong>
-                </div>
-              </div>
-            </div>
-            <div class="result-section" v-if="debugResult.toolCalls?.length">
-              <strong>工具调用：</strong>
-              <el-tag
-                v-for="t in debugResult.toolCalls"
-                :key="t"
-                size="small"
-                class="tool-tag"
-              >{{ t }}</el-tag>
-            </div>
-            <div class="result-section" v-if="debugResult.metadata">
-              <strong>元数据：</strong>
-              <pre>{{ JSON.stringify(debugResult.metadata, null, 2) }}</pre>
-            </div>
-          </div>
-          <el-empty v-else description="运行当前草稿后，会按节点顺序展示执行路径" />
+          </section>
         </div>
 
-        <el-collapse class="debug-advanced-collapse">
-          <el-collapse-item name="variables">
-            <template #title>
-              <span class="debug-collapse-title">高级调试：变量与状态快照</span>
-            </template>
-            <div class="result-section">
-              <strong>变量映射合同：</strong>
-              <pre>{{ JSON.stringify(variablePreview, null, 2) }}</pre>
-            </div>
-            <div v-if="debugRunResult" class="result-section">
-              <strong>最终状态快照：</strong>
-              <pre>{{ stringifyDebugPayload(debugRunResult.finalState) }}</pre>
-            </div>
-          </el-collapse-item>
 
-          <el-collapse-item name="trace">
-            <template #title>
-              <span class="debug-collapse-title">高级调试：Trace 回放与生产运行</span>
-            </template>
-            <div class="trace-replay-panel">
-              <div class="trace-replay-row">
-                <el-input
-                  v-model="replayTraceInput"
-                  clearable
-                  placeholder="输入 traceId 回放到画布"
-                  @keyup.enter="handleLoadTraceReplay()"
-                />
-                <el-button type="primary" plain :loading="traceReplayLoading" @click="handleLoadTraceReplay()">
-                  回放
-                </el-button>
-                <el-button :disabled="!currentTraceId" @click="clearTraceReplay">
-                  清除
-                </el-button>
-              </div>
-              <div class="trace-replay-row">
-                <el-select
-                  v-model="selectedRecentTraceId"
-                  filterable
-                  clearable
-                  placeholder="选择最近运行"
-                  style="width: 100%"
-                  @change="handleRecentTraceChange"
-                >
-                  <el-option
-                    v-for="run in studioRecentRuns"
-                    :key="run.traceId"
-                    :label="recentRunLabel(run)"
-                    :value="run.traceId"
-                  />
-                </el-select>
-                <el-button :loading="recentRunsLoading" @click="loadRecentStudioRuns">
-                  刷新
-                </el-button>
+        <div v-if="debugResult" class="debug-result">
+          <div class="result-section">
+            <strong>发布端点回答：</strong>
+            <div>{{ debugResult.answer }}</div>
+          </div>
+          <div class="result-section" v-if="debugOpsItems.length">
+            <strong>生产运行信息：</strong>
+            <div class="runtime-insights">
+              <div v-for="item in debugOpsItems" :key="item.label" class="runtime-insight">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
               </div>
             </div>
-            <div v-if="currentTraceId" class="result-section trace-detail-section">
-              <div class="debug-section-head">
-                <div>
-                  <strong>链路详情</strong>
-                  <span>{{ currentTraceId }}</span>
-                </div>
-                <el-button
-                  type="primary"
-                  size="small"
-                  @click="router.push('/runops/' + currentTraceId)"
-                >查看运行详情</el-button>
-              </div>
-              <div v-if="workflowReplaySummary.length" class="runtime-insights workflow-replay-summary">
-                <div v-for="item in workflowReplaySummary" :key="item.label" class="runtime-insight">
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.value }}</strong>
-                </div>
-              </div>
-              <div v-if="nodeTraceList.length" class="node-run-summary">
-                <button
-                  v-for="item in nodeTraceList"
-                  :key="item.nodeId"
-                  class="node-run-item"
-                  :class="item.status"
-                  @click="openNodeTrace(item.nodeId)"
-                >
-                  <span>{{ item.nodeId }}</span>
-                  <em>{{ formatElapsed(item.elapsedMs) }}</em>
-                </button>
-              </div>
-              <div class="trace-toolbar">
-                <el-select
-                  v-model="traceToolPick"
-                  multiple
-                  filterable
-                  placeholder="选中若干工具作为能力草稿序列（留空表示全量）"
-                  style="width: 100%"
-                >
-                  <el-option
-                    v-for="name in traceToolNames"
-                    :key="name"
-                    :label="name"
-                    :value="name"
-                  />
-                </el-select>
-                <el-button
-                  type="warning"
-                  size="small"
-                  :icon="Collection"
-                  :disabled="!traceToolNames.length"
-                  @click="handleExtractCapabilityDraft"
-                  :loading="extracting"
-                >抽取为能力草稿</el-button>
-              </div>
-              <TraceTimeline :nodes="traceNodes" />
-            </div>
-            <el-empty v-else description="需要排查生产调用时，再输入 traceId 回放" />
-          </el-collapse-item>
-        </el-collapse>
+          </div>
+        </div>
       </div>
     </el-drawer>
 
@@ -1779,7 +1865,6 @@ import {
   Connection,
   Coin,
   CopyDocument,
-  Cpu,
   Delete,
   Document,
   DocumentCopy,
@@ -1788,6 +1873,7 @@ import {
   Finished,
   Link,
   MagicStick,
+  Minus,
   MoreFilled,
   Operation,
   Plus,
@@ -1811,17 +1897,20 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/minimap/dist/style.css'
 
-import type { AgentForm, AgentReleaseValidationItem, AgentVersion, AgentDefinition, AgentNodeDebugResult, AgentGraphNodeTypeDescriptor, WorkflowDraftGenerationResult, WorkflowDraftResource, AgentWorkflowDebugRunResult, AgentWorkflowDebugStepResult, WorkflowDraftEditResult, WorkflowDraftEditOperation, WorkflowDraftEditOperationType } from '@/types/agent'
-import type { CanvasNode, CanvasEdge, CanvasNodeKind, StudioFieldSchema, StudioVariableOption } from '@/types/studio'
-import { getAgent, updateAgent, publishAgentVersion, validateAgentRelease, gatewayChat, listAgentVersions, debugAgentNode, debugAgentWorkflowRun, getAgentGraphNodeTypes, generateWorkflowDraft, editWorkflowDraft } from '@/api/agent'
+import type { AgentForm, AgentReleaseValidationItem, AgentVersion, AgentDefinition, AgentNodeDebugResult, AgentGraphNodeTypeDescriptor, WorkflowDraftGenerationResult, WorkflowDraftResource, AgentWorkflowDebugRunResult, AgentWorkflowDebugStepResult, WorkflowDraftEditResult, WorkflowDraftEditOperation, WorkflowDraftEditOperationType, ExecutableDebugSessionView, ExecutableDebugMessage } from '@/types/agent'
+import type { CanvasNode, CanvasEdge, CanvasNodeKind, InteractionCallNodeRequest, InteractionNodeConfig, StudioFieldSchema, StudioVariableOption } from '@/types/studio'
+import { getAgent, updateAgent, publishAgentVersion, validateAgentRelease, gatewayChat, listAgentVersions, debugAgentNode, createExecutableDebugSession, getExecutableDebugSession, submitExecutableDebugSession, cancelExecutableDebugSession, getAgentGraphNodeTypes, generateWorkflowDraft, editWorkflowDraft } from '@/api/agent'
 import { createEvalDataset, listEvalDatasets, startEvalRun } from '@/api/agentEval'
 import type { AgentEvalCaseImportRow, AgentEvalDataset, AgentEvalRunSummary, AgentEvalRunView } from '@/types/agentEval'
-import { getTools } from '@/api/tool'
-import { listCapabilities } from '@/api/capability'
+import LlmModelIcon from '@/components/icons/LlmModelIcon.vue'
+import SendIcon from '@/components/icons/SendIcon.vue'
+import { listAllTools } from '@/api/tool'
+import { listAllCompositions } from '@/api/composition'
 import type { ToolInfo } from '@/types/tool'
-import type { CapabilityInfo } from '@/types/capability'
+import type { CompositionInfo } from '@/types/composition'
 import type { ChatResponse } from '@/types/chat'
-import { canvasToDefinition, createDefaultNodeData, definitionToCanvas, kindColor } from '@/utils/studio'
+import type { UiFieldPayload, UiRequestPayload } from '@/types/interaction'
+import { canvasToDefinition, createDefaultNodeData, definitionToCanvas, interactionOutputPorts, kindColor } from '@/utils/studio'
 import {
   STUDIO_NODE_GROUPS,
   STUDIO_NODE_REGISTRY,
@@ -1831,6 +1920,7 @@ import {
   studioNodeLabel,
 } from '@/utils/studioNodeRegistry'
 import TraceTimeline from '@/components/TraceTimeline.vue'
+import InteractionRenderer from '@/components/interaction/InteractionRenderer.vue'
 import { getTraceDetail } from '@/api/trace'
 import type { TraceNode } from '@/types/trace'
 import { getRecentRunOps, getRunOpsDetail } from '@/api/runops'
@@ -1852,7 +1942,8 @@ const agentId = route.params.id as string
 const isNew = agentId === 'new'
 
 const { screenToFlowCoordinate, fitView, setCenter, zoomIn, zoomOut, getViewport } = useVueFlow()
-const DEBUG_DRAWER_WIDTH_RATIO = 0.34
+const DEBUG_DRAWER_WIDTH_RATIO = 0.58
+const DEBUG_DRAWER_MAX_WIDTH = 960
 
 const saving = ref(false)
 const publishing = ref(false)
@@ -1865,6 +1956,8 @@ const debugLoading = ref(false)
 const debugMessage = ref('这是一条测试消息')
 const debugResult = ref<ChatResponse | null>(null)
 const debugRunResult = ref<AgentWorkflowDebugRunResult | null>(null)
+const debugSession = ref<ExecutableDebugSessionView | null>(null)
+const debugInteractionParams = reactive<Record<string, unknown>>({})
 const selectedDebugStepIndex = ref<number | null>(null)
 const currentDebugNodeId = ref('')
 const debugPlaybackToken = ref(0)
@@ -1901,6 +1994,7 @@ const aiDraftPreview = ref<WorkflowDraftGenerationResult | null>(null)
 const aiEditInstruction = ref('')
 const aiEditLoading = ref(false)
 const aiEditPreview = ref<WorkflowDraftEditResult | null>(null)
+const aiEditMinimized = ref(false)
 const traceToolNames = computed(() => {
   const names = traceNodes.value
     .map((n) => (n.toolName || '').trim())
@@ -1911,7 +2005,7 @@ const evalSummary = computed<AgentEvalRunSummary | null>(() => evalRunView.value
 
 type NodeTraceState = {
   nodeId: string
-  status: 'success' | 'error' | 'waiting'
+  status: 'success' | 'error' | 'waiting' | 'running'
   elapsedMs?: number
   spanType?: string
   toolName?: string
@@ -2060,7 +2154,7 @@ const debugOpsItems = computed(() => {
 })
 
 const toolOptions = ref<ToolInfo[]>([])
-const capabilityOptions = ref<CapabilityInfo[]>([])
+const compositionOptions = ref<CompositionInfo[]>([])
 const modelOptions = ref<ModelInstance[]>([])
 const knowledgeOptions = ref<KnowledgeBase[]>([])
 const credentialOptions = ref<WorkflowCredential[]>([])
@@ -2068,8 +2162,8 @@ const paramHints = ref<ApiGraphParamSourceHint[]>([])
 const availableTools = computed(() =>
   toolOptions.value.filter((t) => t.enabled && t.agentVisible),
 )
-const availableCapabilities = computed(() =>
-  capabilityOptions.value.filter((s) => s.enabled && s.agentVisible && !s.draft),
+const availableCompositions = computed(() =>
+  compositionOptions.value.filter((s) => s.enabled && s.agentVisible && !s.draft),
 )
 const aiDraftModelOptions = computed(() => {
   const llmOptions = modelOptions.value.filter((item) => item.modelType === 'LLM')
@@ -2083,7 +2177,6 @@ const selectedAiEditModel = computed(() => {
     || null
 })
 const selectedAiEditModelLabel = computed(() => selectedAiEditModel.value ? modelOptionLabel(selectedAiEditModel.value) : '')
-const selectedAiEditModelName = computed(() => selectedAiEditModel.value?.name || selectedAiEditModel.value?.modelName || aiDraftModelInstanceId.value || form.modelInstanceId || '默认模型')
 const aiDraftPreviewNodes = computed(() => {
   const snapshot = aiDraftPreview.value?.canvasSnapshot as { nodes?: unknown } | undefined
   return Array.isArray(snapshot?.nodes) ? snapshot.nodes as CanvasNode[] : []
@@ -2191,6 +2284,30 @@ const debugInputFields = computed<StudioFieldSchema[]>(() => {
   return (userInputNode?.data.userInputConfig?.fields || [])
     .filter((field) => !!field.name?.trim())
 })
+const debugWaitingRequest = computed<UiRequestPayload | null>(() => {
+  if (debugSession.value?.status === 'WAITING' && debugSession.value.uiRequest) {
+    return debugSession.value.uiRequest
+  }
+  for (const step of debugRunResult.value?.steps || []) {
+    if (debugStepStatus(step.status) !== 'waiting') continue
+    const output = debugWaitingOutput(step)
+    const request = uiRequestFromOutput(output)
+    if (request) return request
+  }
+  return null
+})
+const debugWaitingFields = computed<UiFieldPayload[]>(() =>
+  (debugWaitingRequest.value?.fields || []).filter((field) => !!debugUiFieldKey(field)),
+)
+const debugSessionMessages = computed(() => debugSession.value?.messages || [])
+const debugCurrentUiRequest = computed<UiRequestPayload | null>(() =>
+  debugSession.value?.status === 'WAITING'
+    ? debugSession.value.uiRequest || debugWaitingRequest.value
+    : null,
+)
+const debugSessionSteps = computed<AgentWorkflowDebugStepResult[]>(() =>
+  debugSession.value?.steps || debugRunResult.value?.steps || [],
+)
 const selectedNodeId = ref<string | null>(null)
 const selectedEdgeId = ref<string | null>(null)
 const nodeSearchKeyword = ref('')
@@ -2251,15 +2368,6 @@ const selectedEdgeIdsForAi = computed(() => {
   }
   if (selectedEdgeId.value) ids.add(selectedEdgeId.value)
   return Array.from(ids)
-})
-const aiEditContextLabel = computed(() => {
-  const nodeCount = selectedNodeIdsForAi.value.length
-  const edgeCount = selectedEdgeIdsForAi.value.length
-  if (!nodeCount && !edgeCount) return '全局画布'
-  const parts = []
-  if (nodeCount) parts.push(`${nodeCount} 个节点`)
-  if (edgeCount) parts.push(`${edgeCount} 条连线`)
-  return `已选 ${parts.join(' / ')}`
 })
 const selectedEdgeSourceNode = computed(() =>
   selectedEdge.value ? nodes.value.find((node) => node.id === selectedEdge.value?.source) || null : null,
@@ -2444,6 +2552,30 @@ const graphLintItems = computed<GraphLintItem[]>(() => {
         seenFields.add(name)
       }
     }
+    if (node.data.kind === 'interaction') {
+      const config = node.data.interactionConfig
+      const interactionType = config?.interactionType || 'COLLECT_INPUT'
+      const needsFields = ['COLLECT_INPUT', 'USER_CHOICE', 'CONFIRM_ACTION', 'REVIEW_EDIT'].includes(interactionType)
+      const fields = config?.fields || []
+      if (needsFields && !fields.length) {
+        items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 没有交互字段` })
+      }
+      const seenFields = new Set<string>()
+      for (const field of fields) {
+        const name = (field.key || field.name || '').trim()
+        if (!name) {
+          items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 存在未命名交互字段` })
+          continue
+        }
+        if (seenFields.has(name)) {
+          items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 交互字段重复：${name}` })
+        }
+        seenFields.add(name)
+      }
+    }
+    if (node.data.kind === 'pageAction' && !node.data.pageActionConfig?.actionKey?.trim()) {
+      items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 未配置 actionKey` })
+    }
     if (node.data.kind === 'knowledge' && !(node.data.knowledgeConfig?.knowledgeBaseCodes || []).length) {
       items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 未配置知识库` })
     }
@@ -2516,6 +2648,25 @@ const graphVariables = computed(() => {
             nodeId: node.id,
             label: `${nodeLabel} · ${field.description || field.name}`,
             group: '用户输入',
+            description: `${alias}.${name}`,
+          })
+        }
+      }
+      continue
+    }
+    if (node.data.kind === 'interaction') {
+      const alias = node.data.interactionConfig?.outputAlias || node.data.outputAlias || 'interaction_output'
+      const nodeLabel = node.data.interactionConfig?.title || node.data.label || node.id
+      vars.push({ name: alias, source: nodeLabel, nodeId: node.id, label: `${nodeLabel} 路 交互输出`, group: '交互变量', description: alias })
+      for (const field of node.data.interactionConfig?.fields || []) {
+        const name = (field.key || field.name || '').trim()
+        if (name) {
+          vars.push({
+            name: `${alias}.${name}`,
+            source: nodeLabel,
+            nodeId: node.id,
+            label: `${nodeLabel} 路 ${field.description || name}`,
+            group: '交互变量',
             description: `${alias}.${name}`,
           })
         }
@@ -2717,6 +2868,7 @@ const variablePreview = computed(() => {
       inputSchema: n.data.inputSchema || {},
       outputSchema: n.data.outputSchema || {},
       inputFields: n.data.userInputConfig?.fields || [],
+      interactionFields: n.data.interactionConfig?.fields || [],
       inputMapping: n.data.toolConfig?.inputMapping || n.data.mcpConfig?.inputMapping || n.data.inputMapping || {},
       outputs: n.data.outputs || [],
       assignments: n.data.assignments || {},
@@ -2739,7 +2891,9 @@ const nodeIconMap: Record<CanvasNodeKind, Component> = {
   start: ArrowLeft,
   end: Finished,
   userInput: SetUp,
-  llm: Cpu,
+  interaction: SetUp,
+  pageAction: Link,
+  llm: LlmModelIcon,
   skill: Briefcase,
   tool: Tools,
   knowledge: Coin,
@@ -2760,13 +2914,13 @@ const nodeIconMap: Record<CanvasNodeKind, Component> = {
 }
 
 const groupIconMap: Record<string, Component> = {
-  Cpu,
+  Cpu: LlmModelIcon,
   Operation,
   Connection,
   Collection,
 }
 
-const graphNodeCapabilityByKind = computed(() => studioNodeCapabilityMap(graphNodeTypeCapabilities.value))
+const graphNodeCompositionByKind = computed(() => studioNodeCapabilityMap(graphNodeTypeCapabilities.value))
 const enabledPaletteKinds = computed(() =>
   enabledStudioNodeKinds(graphNodeTypeCapabilities.value, graphNodeTypeCapabilitiesLoaded.value),
 )
@@ -2781,7 +2935,7 @@ const paletteGroups = computed<PaletteGroup[]>(() => STUDIO_NODE_GROUPS.map((gro
       && enabledPaletteKinds.value.has(item.kind),
     )
     .map((item) => {
-      const capability = graphNodeCapabilityByKind.value[item.kind]
+      const capability = graphNodeCompositionByKind.value[item.kind]
       return {
         kind: item.kind,
         label: item.label,
@@ -2840,16 +2994,24 @@ function handleAddNode(kind: CanvasNodeKind) {
   addCanvasNode(kind, position)
 }
 
-function addCanvasNode(kind: CanvasNodeKind, position: { x: number; y: number }) {
-  const id = `${kind}-${Date.now()}`
-  nodes.value.push({
+function createCanvasNode(kind: CanvasNodeKind, position: { x: number; y: number }, select = true) {
+  const id = `${kind}-${Date.now()}-${nodes.value.length}`
+  const node: CanvasNode = {
     id,
     type: kind,
     position,
     data: createDefaultNodeData(kind, studioNodeDefaultLabel(kind), form),
-  })
-  selectedNodeId.value = id
-  selectedEdgeId.value = null
+  }
+  nodes.value.push(node)
+  if (select) {
+    selectedNodeId.value = id
+    selectedEdgeId.value = null
+  }
+  return node
+}
+
+function addCanvasNode(kind: CanvasNodeKind, position: { x: number; y: number }) {
+  createCanvasNode(kind, position, true)
 }
 
 function addNodeFromSearch(kind: CanvasNodeKind) {
@@ -2968,6 +3130,9 @@ function defaultOutputAlias(kind: CanvasNodeKind, index: number) {
   if (kind === 'userInput') {
     return 'params'
   }
+  if (kind === 'interaction') {
+    return 'interaction_output'
+  }
   if (kind !== 'start' && kind !== 'end' && kind !== 'llm' && kind !== 'condition') {
     return `${kind}_${index}`
   }
@@ -3005,6 +3170,150 @@ function connectionCondition(source?: CanvasNode | null, sourceHandle?: string) 
     return normalized === 'else' || normalized === 'default' ? 'else' : `route:${normalized}`
   }
   return 'always'
+}
+
+function handleCreateInteractionCallNode(request: InteractionCallNodeRequest) {
+  if (studioReadOnly.value) {
+    return
+  }
+  const sourceNode = selectedNode.value
+  if (!sourceNode || sourceNode.data.kind !== 'interaction') {
+    return
+  }
+  const binding = sourceNode.data.interactionConfig?.binding
+  if (!binding) {
+    return
+  }
+
+  const targetKind: CanvasNodeKind = request.sourceKind === 'COMPOSITION' ? 'skill' : 'tool'
+  const linkedNode = binding.callNodeId
+    ? nodes.value.find((node) => node.id === binding.callNodeId && node.data.kind === targetKind)
+    : null
+  const targetNode = linkedNode || createCanvasNode(targetKind, {
+    x: sourceNode.position.x + 340,
+    y: sourceNode.position.y,
+  }, false)
+
+  const outputAlias = request.outputAlias || targetNode.data.outputAlias || `${targetKind}_output`
+  targetNode.data.label = request.label || (targetKind === 'skill' ? `调用组合 ${request.ref}` : `调用工具 ${request.ref}`)
+  targetNode.data.description = request.description || targetNode.data.description || ''
+  targetNode.data.outputAlias = outputAlias
+  targetNode.data.inputs = callNodeInputsFromMapping(request.inputMapping)
+  targetNode.data.outputs = [{ id: outputAlias, name: outputAlias, type: 'any' }]
+  targetNode.data.toolConfig = {
+    ...(targetNode.data.toolConfig || { inputMapping: {} }),
+    ref: request.ref,
+    qualifiedName: request.qualifiedName || null,
+    projectCode: request.projectCode || null,
+    visibility: request.visibility || null,
+    inputMapping: request.inputMapping,
+    mappingNote: `由交互节点 ${sourceNode.id} 自动生成，可继续手动调整。`,
+  }
+
+  binding.callNodeId = targetNode.id
+  ensureCanvasEdge(sourceNode.id, targetNode.id)
+  const shouldSyncDisplay = request.autoCreateDisplayNode === true || binding.autoCreateDisplayNode === true
+  if (shouldSyncDisplay) {
+    const displayNode = syncInteractionDisplayNode(sourceNode, targetNode, request, outputAlias)
+    binding.displayNodeId = displayNode.id
+    ensureCanvasEdge(targetNode.id, displayNode.id)
+  }
+  selectedNodeId.value = sourceNode.id
+  selectedEdgeId.value = null
+  if (!shouldSyncDisplay) {
+    ElMessage.success(linkedNode ? '已同步调用节点' : '已创建调用节点')
+    return
+  }
+  ElMessage.success(linkedNode ? '已同步调用与展示节点' : '已创建调用与展示节点')
+}
+
+function syncInteractionDisplayNode(
+  sourceNode: CanvasNode,
+  callNode: CanvasNode,
+  request: InteractionCallNodeRequest,
+  callOutputAlias: string,
+) {
+  const binding = sourceNode.data.interactionConfig?.binding
+  const linkedDisplay = binding?.displayNodeId
+    ? nodes.value.find((node) => node.id === binding.displayNodeId && node.data.kind === 'interaction')
+    : null
+  const displayNode = linkedDisplay || createCanvasNode('interaction', {
+    x: callNode.position.x + 340,
+    y: callNode.position.y,
+  }, false)
+  const displayAlias = `${callOutputAlias}_display`
+  const displayConfig: InteractionNodeConfig = {
+    interactionType: 'PRESENT_OUTPUT',
+    binding: { sourceKind: 'NONE' },
+    title: `${request.ref} 结果展示`,
+    component: inferDisplayComponent(request),
+    fields: [],
+    dataExpression: callOutputAlias,
+    outputAlias: displayAlias,
+    dataSources: {
+      source: {
+        nodeId: callNode.id,
+        outputAlias: callOutputAlias,
+        ref: request.ref,
+        sourceKind: request.sourceKind,
+      },
+    },
+    behavior: { acknowledge: false },
+    renderSchema: inferDisplayRenderSchema(request),
+  }
+  displayNode.data.label = displayConfig.title
+  displayNode.data.description = '展示上一工具调用结果'
+  displayNode.data.outputAlias = displayAlias
+  displayNode.data.inputs = [{ id: callOutputAlias, name: callOutputAlias, type: 'any', required: false, source: callOutputAlias }]
+  displayNode.data.outputs = interactionOutputPorts(displayConfig, displayAlias)
+  displayNode.data.interactionConfig = displayConfig
+  return displayNode
+}
+
+function inferDisplayComponent(request: InteractionCallNodeRequest): InteractionNodeConfig['component'] {
+  const responseType = String(request.responseType || '').toLowerCase()
+  const name = request.ref.toLowerCase()
+  if (responseType.includes('list') || responseType.includes('page') || responseType.includes('array') || name.includes('list') || name.includes('page')) {
+    return 'TABLE'
+  }
+  return 'DETAIL'
+}
+
+function inferDisplayRenderSchema(request: InteractionCallNodeRequest) {
+  const schema: Record<string, unknown> = {
+    source: request.ref,
+  }
+  if (request.responseType) {
+    schema.responseType = request.responseType
+  }
+  return schema
+}
+
+function callNodeInputsFromMapping(mapping: Record<string, string>) {
+  const entries = Object.entries(mapping || {})
+  if (!entries.length) {
+    return [{ id: 'input', name: 'input', type: 'message' as const, required: false, source: 'lastOutput' }]
+  }
+  return entries.map(([target, source]) => ({
+    id: target,
+    name: target,
+    type: 'any' as const,
+    required: false,
+    source,
+  }))
+}
+
+function ensureCanvasEdge(source: string, target: string) {
+  if (edges.value.some((edge) => edge.source === source && edge.target === target)) {
+    return
+  }
+  edges.value.push(decorateEdge({
+    id: `e-${source}-${target}-${Date.now()}`,
+    source,
+    target,
+    condition: 'always',
+    label: 'always',
+  }))
 }
 
 function decorateEdge(edge: CanvasEdge): CanvasEdge {
@@ -3150,6 +3459,8 @@ function nodeRunClass(nodeId: string) {
   if (!state) return classes.join(' ')
   if (state.status === 'waiting') {
     classes.push('run-waiting')
+  } else if (state.status === 'running') {
+    classes.push('run-running')
   } else {
     classes.push(state.status === 'success' ? 'run-success' : 'run-error')
   }
@@ -3164,11 +3475,13 @@ function nodeRunLabel(nodeId: string) {
 }
 
 function nodeTraceStatusText(status: NodeTraceState['status']) {
+  if (status === 'running') return '运行中'
   if (status === 'waiting') return '等待'
   return status === 'success' ? '成功' : '失败'
 }
 
 function nodeTraceTagType(status: NodeTraceState['status']) {
+  if (status === 'running') return 'primary'
   if (status === 'waiting') return 'warning'
   return status === 'success' ? 'success' : 'danger'
 }
@@ -3373,6 +3686,21 @@ function userInputFieldCount(data: CanvasNode['data']) {
   return data.userInputConfig?.fields?.filter((field) => !!field.name?.trim()).length || 0
 }
 
+function interactionFieldCount(data: CanvasNode['data']) {
+  return data.interactionConfig?.fields?.filter((field) => !!(field.key || field.name)?.trim()).length || 0
+}
+
+function interactionTypeLabel(type?: string) {
+  const labels: Record<string, string> = {
+    COLLECT_INPUT: '采集输入',
+    PRESENT_OUTPUT: '展示输出',
+    USER_CHOICE: '用户选择',
+    CONFIRM_ACTION: '确认动作',
+    REVIEW_EDIT: '审阅编辑',
+  }
+  return labels[type || ''] || '交互'
+}
+
 function conditionRoutePills(data: CanvasNode['data']) {
   const groups = data.conditionConfig?.groups || []
   const labels = groups
@@ -3449,23 +3777,23 @@ function applyParamHint(hint: ApiGraphParamSourceHint) {
   }
 }
 
-function capabilityLabel(item: ToolInfo | CapabilityInfo) {
+function assetLabel(item: ToolInfo | CompositionInfo) {
   const project = item.projectCode ? ` / ${item.projectCode}` : ''
   const visibility = item.visibility ? ` / ${item.visibility}` : ''
   const desc = item.description ? ` - ${item.description.slice(0, 32)}` : ''
   return `${item.name}${project}${visibility}${desc}`
 }
 
-function findCapability(kind: 'tool' | 'skill', name?: string) {
+function findComposition(kind: 'tool' | 'skill', name?: string) {
   if (!name) return null
-  const source = kind === 'tool' ? toolOptions.value : capabilityOptions.value
+  const source = kind === 'tool' ? toolOptions.value : compositionOptions.value
   return source.find((item) => item.name === name) || null
 }
 
 function handleNodeRefChange(kind: 'tool' | 'skill') {
   if (!selectedNode.value) return
   selectedNode.value.data.toolConfig ||= { inputMapping: {} }
-  const capability = findCapability(kind, selectedNode.value.data.toolConfig.ref)
+  const capability = findComposition(kind, selectedNode.value.data.toolConfig.ref)
   selectedNode.value.data.toolConfig.qualifiedName = capability?.qualifiedName || null
   selectedNode.value.data.toolConfig.projectCode = capability?.projectCode || null
   selectedNode.value.data.toolConfig.visibility = capability?.visibility || null
@@ -3482,7 +3810,7 @@ function projectBoundaryWarnings() {
     if (node.data.kind !== 'tool' && node.data.kind !== 'skill') continue
     const ref = node.data.toolConfig?.ref
     if (!ref) continue
-    const capability = findCapability(node.data.kind, ref)
+    const capability = findComposition(node.data.kind, ref)
     if (!capability) {
       warnings.push(
         `${nodeKindWarnLabel(node.data.kind)} ${ref} 不在当前项目能力调色板中，请确认是否已下线或跨项目引用。`,
@@ -3649,27 +3977,17 @@ async function loadVersions() {
 
 async function loadToolOptions() {
   try {
-    const { data } = await getTools({
-      current: 1,
-      size: 2000,
-      ...(form.projectId != null ? { projectId: form.projectId } : {}),
-    })
-    toolOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
+    toolOptions.value = await listAllTools({ enabled: true })
   } catch {
     toolOptions.value = []
   }
 }
 
-async function loadCapabilityOptions() {
+async function loadCompositionOptions() {
   try {
-    const { data } = await listCapabilities({
-      current: 1,
-      size: 2000,
-      ...(form.projectId != null ? { projectId: form.projectId } : {}),
-    })
-    capabilityOptions.value = data?.records && Array.isArray(data.records) ? data.records : []
+    compositionOptions.value = await listAllCompositions({ enabled: true, draft: false })
   } catch {
-    capabilityOptions.value = []
+    compositionOptions.value = []
   }
 }
 
@@ -3838,6 +4156,7 @@ function spanToNodeTraceState(span: RunSpan): NodeTraceState | null {
 
 function spanStatus(status?: string): NodeTraceState['status'] {
   const normalized = (status || '').trim().toUpperCase()
+  if (normalized === 'RUNNING' || normalized === 'EXECUTING') return 'running'
   if (normalized === 'WAITING') return 'waiting'
   if (normalized === 'ERROR' || normalized === 'FAILED' || normalized === 'FAILURE') return 'error'
   return 'success'
@@ -3845,6 +4164,7 @@ function spanStatus(status?: string): NodeTraceState['status'] {
 
 function debugStepStatus(status?: string): NodeTraceState['status'] {
   const normalized = (status || '').trim().toUpperCase()
+  if (normalized === 'RUNNING' || normalized === 'EXECUTING') return 'running'
   if (normalized === 'WAITING') return 'waiting'
   if (normalized === 'ERROR' || normalized === 'FAILED' || normalized === 'FAILURE') return 'error'
   return 'success'
@@ -3854,14 +4174,70 @@ function debugStepStatusClass(status?: string) {
   return `is-${debugStepStatus(status)}`
 }
 
+function debugSessionVisualClass(status?: string) {
+  const normalized = (status || '').trim().toUpperCase()
+  if (normalized === 'RUNNING') return 'is-running'
+  if (!normalized) return 'is-idle'
+  return debugStepStatusClass(status)
+}
+
 function debugRunStatusText(status?: string) {
   const normalized = debugStepStatus(status)
+  if (normalized === 'running') return '运行中'
   if (normalized === 'waiting') return '等待中'
   return normalized === 'error' ? '失败' : '成功'
 }
 
+function debugRunTagType(status?: string) {
+  const normalized = debugStepStatus(status)
+  if (normalized === 'running') return 'primary'
+  if (normalized === 'waiting') return 'warning'
+  return normalized === 'error' ? 'danger' : 'success'
+}
+
+function debugMessageRole(role?: string) {
+  const normalized = (role || '').toLowerCase()
+  if (normalized === 'user') return '用户'
+  if (normalized === 'assistant') return '调试台'
+  if (normalized === 'runtime') return '运行时'
+  return '系统'
+}
+
+function isInteractiveDebugUiRequest(request?: UiRequestPayload | null) {
+  const component = String(request?.component || request?.type || '').trim().toLowerCase()
+  return ['form', 'text_question', 'confirm', 'select', 'choice', 'multi_select'].includes(component)
+}
+
+function shouldRenderDebugMessageUi(message: ExecutableDebugMessage) {
+  return !!message.uiRequest && !isInteractiveDebugUiRequest(message.uiRequest)
+}
+
+function debugWaitingOutput(step: AgentWorkflowDebugStepResult) {
+  const raw = objectPayload(step.rawOutput)
+  if (raw.status === 'WAITING') return raw
+  const output = objectPayload(step.output)
+  const lastOutput = objectPayload(output.lastOutput)
+  return lastOutput.status === 'WAITING' ? lastOutput : null
+}
+
+function uiRequestFromOutput(output: Record<string, unknown> | null) {
+  const request = objectPayload(output?.uiRequest)
+  return request.component || request.fields ? request as unknown as UiRequestPayload : null
+}
+
+function debugUiFieldKey(field: UiFieldPayload) {
+  return String(field.key || field.name || '').trim()
+}
+
+function debugUiFieldLabel(field: UiFieldPayload) {
+  const key = debugUiFieldKey(field)
+  const label = field.label || field.name || key
+  return `${label}${field.required ? ' *' : ''}`
+}
+
 function workflowItemStatus(item: WorkflowPathItem): NodeTraceState['status'] {
   const status = (item.status || item.workflowStatus || '').trim().toUpperCase()
+  if (status === 'RUNNING' || status === 'EXECUTING') return 'running'
   if (status === 'WAITING') return 'waiting'
   if (status === 'ERROR' || status === 'FAILED' || status === 'FAILURE') return 'error'
   return 'success'
@@ -3870,6 +4246,7 @@ function workflowItemStatus(item: WorkflowPathItem): NodeTraceState['status'] {
 function preferNodeTraceState(previous: NodeTraceState | undefined, next: NodeTraceState) {
   if (!previous) return next
   if (previous.status === 'error' && next.status !== 'error') return previous
+  if (next.status === 'running') return { ...previous, ...next }
   if (next.status === 'waiting') return { ...previous, ...next }
   if (previous.status === 'waiting' && next.status === 'success') return previous
   return next.createdAt && previous.createdAt && dateMs(previous.createdAt) > dateMs(next.createdAt) ? previous : { ...previous, ...next }
@@ -4072,6 +4449,10 @@ function debugFieldLabel(field: StudioFieldSchema) {
 }
 
 function selectDebugStep(index: number) {
+  if (selectedDebugStepIndex.value === index) {
+    selectedDebugStepIndex.value = null
+    return
+  }
   selectedDebugStepIndex.value = index
   const step = debugRunResult.value?.steps?.[index]
   if (step?.nodeId) {
@@ -4082,13 +4463,23 @@ function selectDebugStep(index: number) {
   }
 }
 
+function isDebugStepRunning(step: AgentWorkflowDebugStepResult) {
+  if (debugStepStatus(step.status) === 'running') {
+    return true
+  }
+  const sessionCurrentNodeId = debugSession.value?.currentNodeId || debugRunResult.value?.currentNodeId || ''
+  return debugStepStatus(debugSession.value?.status || debugRunResult.value?.status) === 'running'
+    && !!sessionCurrentNodeId
+    && sessionCurrentNodeId === step.nodeId
+}
+
 function focusDebugNode(nodeId: string, duration = 320) {
   const node = nodes.value.find((item) => item.id === nodeId)
   if (!node) return
   const viewport = getViewport()
   const zoom = viewport.zoom || 1
   const drawerOffset = debugOpen.value && typeof window !== 'undefined'
-    ? (window.innerWidth * DEBUG_DRAWER_WIDTH_RATIO / 2) / zoom
+    ? (Math.min(DEBUG_DRAWER_MAX_WIDTH, window.innerWidth * DEBUG_DRAWER_WIDTH_RATIO) / 2) / zoom
     : 0
   const nodeCenterX = node.position.x + 125
   const nodeCenterY = node.position.y + 70
@@ -4131,6 +4522,12 @@ function stringifyDebugPayload(value: unknown) {
     }
   }
   return JSON.stringify(value, null, 2)
+}
+
+function objectPayload(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
 }
 
 function buildCurrentAgentDefinitionForDebug(): AgentDefinition {
@@ -4305,37 +4702,194 @@ async function handleRunDraftDebug() {
     ElMessage.warning('请输入测试消息或用户输入字段')
     return
   }
+  await executeDraftDebug(inputParams, message)
+}
+
+async function handleContinueInteractionDebug() {
+  await handleDebugUiSubmit(buildInteractionDebugParams())
+}
+
+async function executeDraftDebug(inputParams: Record<string, unknown>, message: string) {
   debugLoading.value = true
   currentTraceId.value = ''
   traceNodes.value = []
   runOpsDetail.value = null
   debugResult.value = null
   debugRunResult.value = null
+  debugSession.value = null
+  forgetDebugSession()
   selectedDebugStepIndex.value = null
   currentDebugNodeId.value = ''
   debugPlaybackToken.value += 1
   try {
     const payload = buildCurrentAgentDefinitionForDebug()
-    const { data } = await debugAgentWorkflowRun({
-      agentDefinition: payload,
+    const { data } = await createExecutableDebugSession({
+      targetType: 'AGENT_DRAFT',
+      draftDefinition: payload as unknown as Record<string, unknown>,
       message,
       inputParams,
       debugOptions: {},
     })
-    debugRunResult.value = data
+    applyDebugSession(data)
     currentTraceId.value = data.traceId || ''
     replayTraceInput.value = data.traceId || ''
     selectedRecentTraceId.value = data.traceId || ''
     refreshEdgeRuntimeClasses()
     await replayDebugSteps(data.steps || [])
     selectedDebugStepIndex.value = data.steps?.length ? data.steps.length - 1 : null
-    ElMessage[data.success ? 'success' : 'error'](data.success ? '当前草稿调试完成' : '当前草稿调试失败')
+    if (debugStepStatus(data.status) === 'waiting') {
+      ElMessage.warning('当前草稿等待用户补充信息')
+    } else {
+      ElMessage[data.success ? 'success' : 'error'](data.success ? '当前草稿调试完成' : '当前草稿调试失败')
+    }
   } catch (err) {
     ElMessage.error('草稿调试失败：' + (err as Error).message)
   } finally {
     debugLoading.value = false
   }
 }
+
+async function handleDebugUiSubmit(values: Record<string, unknown>) {
+  if (!debugSession.value?.sessionId) {
+    ElMessage.warning('当前没有可继续的调试会话')
+    return
+  }
+  debugLoading.value = true
+  try {
+    const { data } = await submitExecutableDebugSession(debugSession.value.sessionId, {
+      action: 'submit',
+      values,
+    })
+    applyDebugSession(data)
+    currentTraceId.value = data.traceId || ''
+    replayTraceInput.value = data.traceId || ''
+    selectedRecentTraceId.value = data.traceId || ''
+    refreshEdgeRuntimeClasses()
+    await replayDebugSteps(data.steps || [])
+    selectedDebugStepIndex.value = data.steps?.length ? data.steps.length - 1 : null
+    ElMessage[debugStepStatus(data.status) === 'waiting' ? 'warning' : data.success ? 'success' : 'error'](
+      debugStepStatus(data.status) === 'waiting'
+        ? '调试会话等待继续输入'
+        : data.success ? '调试会话已继续执行' : '调试会话执行失败',
+    )
+  } catch (err) {
+    ElMessage.error('提交交互失败：' + (err as Error).message)
+  } finally {
+    debugLoading.value = false
+  }
+}
+
+async function handleCancelDebugSession() {
+  if (!debugSession.value?.sessionId) {
+    return
+  }
+  debugLoading.value = true
+  try {
+    const { data } = await cancelExecutableDebugSession(debugSession.value.sessionId)
+    applyDebugSession(data)
+    currentDebugNodeId.value = ''
+    refreshEdgeRuntimeClasses()
+    ElMessage.success('调试会话已取消')
+  } catch (err) {
+    ElMessage.error('取消调试会话失败：' + (err as Error).message)
+  } finally {
+    debugLoading.value = false
+  }
+}
+
+function applyDebugSession(data: ExecutableDebugSessionView) {
+  debugSession.value = data
+  debugRunResult.value = data
+  rememberDebugSession(data.sessionId)
+}
+
+function clearDebugSessionView() {
+  debugSession.value = null
+  debugRunResult.value = null
+  selectedDebugStepIndex.value = null
+  currentDebugNodeId.value = ''
+  forgetDebugSession()
+  refreshEdgeRuntimeClasses()
+}
+
+function debugSessionStorageKey() {
+  return `studio-debug-session:${isNew ? 'new' : agentId || form.keySlug || 'draft'}`
+}
+
+function rememberDebugSession(sessionId?: string) {
+  if (!sessionId || typeof window === 'undefined') return
+  window.localStorage.setItem(debugSessionStorageKey(), sessionId)
+}
+
+function forgetDebugSession() {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(debugSessionStorageKey())
+}
+
+async function loadStoredDebugSession() {
+  if (typeof window === 'undefined' || debugSession.value) return
+  const sessionId = window.localStorage.getItem(debugSessionStorageKey())
+  if (!sessionId) return
+  try {
+    const { data } = await getExecutableDebugSession(sessionId)
+    applyDebugSession(data)
+    currentTraceId.value = data.traceId || ''
+    replayTraceInput.value = data.traceId || ''
+    selectedRecentTraceId.value = data.traceId || ''
+    refreshEdgeRuntimeClasses()
+  } catch {
+    forgetDebugSession()
+  }
+}
+
+function buildInteractionDebugParams() {
+  const params: Record<string, unknown> = {}
+  for (const field of debugWaitingFields.value) {
+    const key = debugUiFieldKey(field)
+    if (!key) continue
+    const value = coerceDebugUiFieldValue(debugInteractionParams[key], field.type)
+    params[key] = value
+    if (field.targetPath) {
+      params[field.targetPath] = value
+      params[field.targetPath.replace(/\./g, '_')] = value
+    }
+  }
+  return params
+}
+
+function coerceDebugUiFieldValue(value: unknown, type?: string) {
+  if (type === 'number' || type === 'integer') {
+    return value === '' || value === undefined || value === null ? undefined : Number(value)
+  }
+  if (type === 'boolean') {
+    return Boolean(value)
+  }
+  if (type === 'object' || type === 'array') {
+    return parseDebugJsonLike(value)
+  }
+  return value === undefined || value === null ? '' : String(value)
+}
+
+function isBlankDebugValue(value: unknown) {
+  return value === undefined || value === null || String(value).trim() === ''
+}
+
+watch(
+  () => debugWaitingRequest.value?.interactionId || '',
+  () => {
+    for (const key of Object.keys(debugInteractionParams)) {
+      delete debugInteractionParams[key]
+    }
+    const request = debugWaitingRequest.value
+    if (!request) return
+    const prefilled = request.prefilled || {}
+    for (const field of debugWaitingFields.value) {
+      const key = debugUiFieldKey(field)
+      if (!key) continue
+      debugInteractionParams[key] = prefilled[key] ?? ''
+    }
+  },
+)
 
 async function handleRunPublishedDebug() {
   const key = form.keySlug || agentId
@@ -4348,6 +4902,7 @@ async function handleRunPublishedDebug() {
   traceNodes.value = []
   runOpsDetail.value = null
   debugRunResult.value = null
+  debugSession.value = null
   selectedDebugStepIndex.value = null
   currentDebugNodeId.value = ''
   debugPlaybackToken.value += 1
@@ -4375,7 +4930,7 @@ async function handleRunPublishedDebug() {
   }
 }
 
-function handleDebug() {
+async function handleDebug() {
   debugOpen.value = true
   for (const field of debugInputFields.value) {
     if (!(field.name in debugInputParams)) {
@@ -4385,6 +4940,7 @@ function handleDebug() {
   if (!recentRuns.value.length) {
     loadRecentStudioRuns()
   }
+  await loadStoredDebugSession()
 }
 
 function openAiDraftDialog() {
@@ -4421,7 +4977,7 @@ async function handleGenerateWorkflowEdit() {
       selectedNodeIds: selectedNodeIdsForAi.value,
       selectedEdgeIds: selectedEdgeIdsForAi.value,
       tools: availableTools.value.map(toolToDraftResource),
-      capabilities: availableCapabilities.value.map(capabilityToDraftResource),
+      capabilities: availableCompositions.value.map(compositionToDraftResource),
       knowledgeBases: knowledgeOptions.value.map(knowledgeToDraftResource),
     })
     aiEditPreview.value = data
@@ -4487,7 +5043,7 @@ async function handleGenerateWorkflowDraft() {
       modelInstanceId: aiDraftModelInstanceId.value || form.modelInstanceId,
       currentCanvas: { version: 2, nodes: nodes.value, edges: edges.value },
       tools: availableTools.value.map(toolToDraftResource),
-      capabilities: availableCapabilities.value.map(capabilityToDraftResource),
+      capabilities: availableCompositions.value.map(compositionToDraftResource),
       knowledgeBases: knowledgeOptions.value.map(knowledgeToDraftResource),
     })
     aiDraftPreview.value = data
@@ -4592,13 +5148,13 @@ function toolToDraftResource(tool: ToolInfo): WorkflowDraftResource {
   }
 }
 
-function capabilityToDraftResource(capability: CapabilityInfo): WorkflowDraftResource {
+function compositionToDraftResource(composition: CompositionInfo): WorkflowDraftResource {
   return {
     kind: 'SKILL',
-    name: capability.name,
-    qualifiedName: capability.qualifiedName,
-    projectCode: capability.projectCode,
-    description: capability.aiDescription || capability.description,
+    name: composition.name,
+    qualifiedName: composition.qualifiedName,
+    projectCode: composition.projectCode,
+    description: composition.aiDescription || composition.description,
   }
 }
 
@@ -4611,7 +5167,7 @@ function knowledgeToDraftResource(knowledge: KnowledgeBase): WorkflowDraftResour
   }
 }
 
-async function handleExtractCapabilityDraft() {
+async function handleExtractCompositionDraft() {
   if (!currentTraceId.value) {
     ElMessage.warning('请先执行调试获取 trace')
     return
@@ -4748,7 +5304,7 @@ function handleStudioShortcut(event: KeyboardEvent) {
 
 onMounted(async () => {
   await Promise.all([loadGraphNodeTypes(), loadAgent()])
-  await Promise.all([loadToolOptions(), loadCapabilityOptions(), loadModelOptions(), loadKnowledgeOptions(), loadCredentialOptions()])
+  await Promise.all([loadToolOptions(), loadCompositionOptions(), loadModelOptions(), loadKnowledgeOptions(), loadCredentialOptions()])
   await nextTick()
   pushHistorySnapshot()
   historyReady.value = true
@@ -4960,8 +5516,7 @@ watch(
   }
 }
 
-.save-state,
-.status-autosave {
+.save-state {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -6093,6 +6648,14 @@ watch(
     box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.18), 0 16px 38px rgba(15, 23, 42, 0.12);
   }
 
+  &.run-running {
+    --node-color: #6366f1;
+    --node-soft: rgba(99, 102, 241, 0.08);
+    --node-line: rgba(99, 102, 241, 0.22);
+    border-color: rgba(99, 102, 241, 0.62);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2), 0 16px 38px rgba(15, 23, 42, 0.13);
+  }
+
   &.run-error {
     --node-color: #ef4444;
     --node-soft: rgba(239, 68, 68, 0.08);
@@ -6146,6 +6709,11 @@ watch(
 
 .run-waiting .node-runtime .runtime-dot {
   background: #f59e0b;
+}
+
+.run-running .node-runtime .runtime-dot {
+  background: #6366f1;
+  animation: debugStepBlink 1s ease-in-out infinite;
 }
 
 .condition-routes {
@@ -6267,6 +6835,18 @@ watch(
   --node-color: #10b981;
   --node-soft: rgba(16, 185, 129, 0.1);
   --node-line: rgba(16, 185, 129, 0.24);
+}
+
+.interaction-node {
+  --node-color: #14b8a6;
+  --node-soft: rgba(20, 184, 166, 0.1);
+  --node-line: rgba(20, 184, 166, 0.24);
+}
+
+.page-action-node {
+  --node-color: #8b5cf6;
+  --node-soft: rgba(139, 92, 246, 0.1);
+  --node-line: rgba(139, 92, 246, 0.24);
 }
 
 .condition-node {
@@ -6580,19 +7160,66 @@ watch(
   left: 22px;
   z-index: 10;
   display: grid;
-  gap: 8px;
-  max-width: 960px;
+  gap: 10px;
+  max-width: 860px;
   margin: 0 auto;
-  padding: 10px 12px;
-  border: 1px solid rgba(79, 70, 229, 0.24);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
-  backdrop-filter: blur(14px);
+  padding: 18px 20px 16px;
+  border: 1px solid transparent;
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.74), rgba(241, 245, 249, 0.44)) padding-box,
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(129, 140, 248, 0.28)) border-box;
+  box-shadow:
+    0 24px 70px rgba(15, 23, 42, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(22px) saturate(1.18);
+  isolation: isolate;
+  overflow: hidden;
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+  }
+
+  &::before {
+    inset: -2px;
+    z-index: 0;
+    border-radius: inherit;
+    background: conic-gradient(from 140deg, #7c3aed, #06b6d4, #22c55e, #f472b6, #7c3aed);
+    opacity: 0;
+    filter: blur(1px);
+  }
+
+  &::after {
+    inset: 1px;
+    z-index: 1;
+    border-radius: 27px;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(129, 140, 248, 0.12), transparent 30%),
+      radial-gradient(circle at 88% 12%, rgba(34, 211, 238, 0.12), transparent 30%),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.68), rgba(248, 250, 252, 0.5));
+    backdrop-filter: blur(22px) saturate(1.18);
+  }
+
+  > * {
+    position: relative;
+    z-index: 2;
+  }
+
+  &.is-generating::before {
+    opacity: 0.78;
+    animation: debugAuraSpin 5.8s linear infinite, debugPulseGlow 2.4s ease-in-out infinite;
+  }
 }
 
-.ai-edit-context,
-.ai-edit-input-row,
+.ai-edit-bar.debug-drawer-open {
+  right: calc(min(960px, 58vw) + 22px);
+  max-width: none;
+  margin-left: 0;
+}
+
 .ai-edit-preview-head,
 .ai-edit-actions {
   display: flex;
@@ -6600,44 +7227,33 @@ watch(
   gap: 10px;
 }
 
-.ai-edit-context {
-  justify-content: space-between;
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
+.ai-edit-input-row {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
 }
 
-.ai-edit-context-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.ai-edit-context-left > span:last-child,
-.ai-edit-model-current {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.ai-edit-minimize,
+.ai-edit-model-trigger {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  color: #1f2937;
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(10px) saturate(1.12);
 }
 
 .ai-edit-model-trigger {
-  width: 30px;
-  height: 30px;
-  border-color: rgba(99, 102, 241, 0.24);
-  color: #4f46e5;
-  background: linear-gradient(180deg, rgba(238, 242, 255, 0.98), rgba(255, 255, 255, 0.98));
-
   &.active {
-    border-color: rgba(79, 70, 229, 0.42);
-    box-shadow: 0 8px 18px rgba(79, 70, 229, 0.16);
+    color: #4338ca;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.16), 0 12px 24px rgba(79, 70, 229, 0.12);
   }
 }
 
-.ai-edit-model-current {
-  max-width: 260px;
-  color: #475569;
+.ai-edit-minimize:hover {
+  color: #4338ca;
+  background: rgba(255, 255, 255, 0.68);
 }
 
 .ai-edit-model-panel {
@@ -6664,9 +7280,59 @@ watch(
   white-space: nowrap;
 }
 
-.ai-edit-input-row {
-  .el-input {
-    flex: 1;
+.ai-edit-main-input {
+  :deep(.el-textarea__inner) {
+    min-height: 58px !important;
+    padding: 4px 4px 0;
+    border: 0;
+    color: #0f172a;
+    background: transparent;
+    box-shadow: none;
+    font-size: 18px;
+    line-height: 1.55;
+
+    &::placeholder {
+      color: rgba(51, 65, 85, 0.58);
+    }
+  }
+}
+
+.ai-edit-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-edit-toolbar-left,
+.ai-edit-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-edit-toolbar-left {
+  :deep(.el-button.is-disabled) {
+    border: 0;
+    color: #111827;
+    background: transparent;
+    opacity: 0.88;
+  }
+}
+
+.ai-edit-send {
+  width: 42px;
+  height: 42px;
+  border: 0;
+  color: #111827;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.1);
+  backdrop-filter: blur(10px) saturate(1.12);
+
+  &:not(.is-disabled) {
+    color: #ffffff;
+    background: linear-gradient(135deg, #6366f1, #7c3aed 58%, #06b6d4);
+    box-shadow: 0 16px 32px rgba(99, 102, 241, 0.24);
   }
 }
 
@@ -6782,9 +7448,9 @@ watch(
   right: 0;
   bottom: 0;
   z-index: 7;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+  display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 10px;
   min-height: 56px;
   padding: 8px 18px;
@@ -6793,8 +7459,7 @@ watch(
   backdrop-filter: blur(12px);
 }
 
-.status-pill,
-.status-collapse {
+.status-pill {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -6810,6 +7475,7 @@ watch(
 .status-left {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   min-width: 0;
 }
@@ -6842,6 +7508,13 @@ watch(
   }
 }
 
+.smart-edit-pill {
+  border-color: rgba(99, 102, 241, 0.3);
+  color: #4338ca;
+  background: linear-gradient(135deg, rgba(238, 242, 255, 0.96), rgba(240, 253, 250, 0.86));
+  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.1);
+}
+
 .status-dot {
   width: 8px;
   height: 8px;
@@ -6855,15 +7528,6 @@ watch(
   .status-pill.warning & {
     background: #f59e0b;
   }
-}
-
-.status-autosave {
-  justify-self: center;
-}
-
-.status-collapse {
-  justify-self: end;
-  padding: 0 12px;
 }
 
 .node-search-grid {
@@ -6935,8 +7599,49 @@ watch(
   margin-left: 8px;
 }
 
+@keyframes debugAuraSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes debugPulseGlow {
+  0%,
+  100% {
+    opacity: 0.58;
+  }
+
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes debugStepSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes debugStepBlink {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
 .debug-body {
-  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 82px);
+  min-height: 0;
+  padding: 0 20px 22px;
+  position: relative;
+  overflow: hidden;
+  color: #0f172a;
 }
 
 :global(.studio-debug-drawer-overlay) {
@@ -6945,10 +7650,83 @@ watch(
 
 :global(.studio-debug-drawer-overlay .studio-debug-drawer) {
   pointer-events: auto;
+  min-width: min(760px, 100vw);
+  border-left: 1px solid rgba(191, 219, 254, 0.72);
+  background:
+    radial-gradient(circle at 18% 8%, rgba(129, 140, 248, 0.14), transparent 32%),
+    radial-gradient(circle at 76% 18%, rgba(34, 211, 238, 0.13), transparent 28%),
+    linear-gradient(135deg, rgba(248, 250, 252, 0.78), rgba(239, 246, 255, 0.62));
+  box-shadow: -26px 0 72px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(20px) saturate(1.18);
+}
+
+:global(.studio-debug-drawer-overlay .studio-debug-drawer.rtl.open),
+:global(.studio-debug-drawer.rtl.open) {
+  transform: translateX(0) !important;
+}
+
+:global(.studio-debug-drawer-overlay .studio-debug-drawer .el-drawer__header) {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0;
+  padding: 22px 28px 18px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.72);
+  background: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(16px) saturate(1.18);
+}
+
+:global(.studio-debug-drawer-overlay .studio-debug-drawer .el-drawer__close-btn) {
+  color: #334155;
+}
+
+:global(.studio-debug-drawer-overlay .studio-debug-drawer .el-drawer__title) {
+  color: #0f172a;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+:global(.studio-debug-drawer-overlay .studio-debug-drawer .el-drawer__body) {
+  padding: 18px 0 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.debug-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding-right: 34px;
+
+  strong {
+    color: #0f172a;
+    font-size: 16px;
+    font-weight: 850;
+  }
+}
+
+.debug-advanced-trigger {
+  border-color: rgba(129, 140, 248, 0.22);
+  color: #4338ca;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.08);
+  backdrop-filter: blur(12px) saturate(1.12);
+}
+
+:global(.debug-advanced-popover) {
+  max-width: min(560px, calc(100vw - 40px));
+  border: 1px solid rgba(203, 213, 225, 0.64) !important;
+  border-radius: 16px !important;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(129, 140, 248, 0.12), transparent 34%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.8)) !important;
+  box-shadow: 0 24px 62px rgba(15, 23, 42, 0.16) !important;
+  backdrop-filter: blur(18px) saturate(1.16);
 }
 
 .debug-actions {
-  margin-top: 12px;
+  margin-top: 10px;
   display: flex;
   gap: 8px;
   justify-content: flex-end;
@@ -6956,10 +7734,12 @@ watch(
 
 .debug-input-card,
 .debug-answer-card {
-  padding: 12px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
-  background: #fff;
+  padding: 14px;
+  border: 1px solid rgba(203, 213, 225, 0.72);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(14px) saturate(1.12);
 }
 
 .debug-section-head {
@@ -6974,9 +7754,14 @@ watch(
     display: block;
   }
 
+  strong {
+    color: #0f172a;
+    font-weight: 800;
+  }
+
   span {
     margin-top: 3px;
-    color: var(--el-text-color-secondary);
+    color: #64748b;
     font-size: 12px;
   }
 }
@@ -6991,14 +7776,227 @@ watch(
   gap: 12px;
 }
 
+.debug-session-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(300px, 0.92fr);
+  align-items: stretch;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.debug-chat-panel,
+.debug-steps-panel {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 14px;
+  border: 1px solid rgba(203, 213, 225, 0.64);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: 0 22px 56px rgba(15, 23, 42, 0.1);
+  backdrop-filter: blur(18px) saturate(1.16);
+}
+
+.debug-steps-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.07);
+}
+
+.debug-chat-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-color: transparent;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.72), rgba(248, 250, 252, 0.58)) padding-box,
+    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(148, 163, 184, 0.34)) border-box;
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+  }
+
+  &::before {
+    inset: -2px;
+    z-index: 0;
+    border-radius: inherit;
+    background: conic-gradient(from 140deg, #7c3aed, #06b6d4, #22c55e, #f472b6, #7c3aed);
+    opacity: 0;
+    filter: blur(1px);
+  }
+
+  &::after {
+    inset: 1px;
+    z-index: 1;
+    border-radius: 15px;
+    background:
+      radial-gradient(circle at 14% 0%, rgba(129, 140, 248, 0.12), transparent 34%),
+      radial-gradient(circle at 92% 12%, rgba(34, 211, 238, 0.11), transparent 28%),
+      rgba(255, 255, 255, 0.84);
+    backdrop-filter: blur(18px) saturate(1.16);
+  }
+
+  > * {
+    position: relative;
+    z-index: 2;
+  }
+
+  &.is-running::before {
+    opacity: 0.78;
+    animation: debugAuraSpin 5.8s linear infinite, debugPulseGlow 2.6s ease-in-out infinite;
+  }
+
+  &.is-waiting::before {
+    background: conic-gradient(from 120deg, #f59e0b, #a855f7, #38bdf8, #fb7185, #f59e0b);
+    opacity: 0.72;
+    animation: debugAuraSpin 7.2s linear infinite;
+  }
+
+  &.is-success {
+    background:
+      linear-gradient(rgba(255, 255, 255, 0.76), rgba(248, 250, 252, 0.62)) padding-box,
+      linear-gradient(135deg, rgba(34, 197, 94, 0.56), rgba(14, 165, 233, 0.24)) border-box;
+  }
+
+  &.is-error {
+    background:
+      linear-gradient(rgba(255, 255, 255, 0.76), rgba(254, 242, 242, 0.6)) padding-box,
+      linear-gradient(135deg, rgba(239, 68, 68, 0.62), rgba(244, 114, 182, 0.28)) border-box;
+  }
+}
+
+.debug-chat-messages {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  padding: 2px 2px 6px;
+  overflow: auto;
+
+  :deep(.el-empty__description p) {
+    color: #475569;
+    font-weight: 600;
+  }
+}
+
+.debug-message {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+
+  &.is-user {
+    justify-items: end;
+
+    .debug-message-content {
+      background: linear-gradient(135deg, rgba(238, 242, 255, 0.92), rgba(236, 253, 245, 0.62));
+      border-color: rgba(129, 140, 248, 0.34);
+      box-shadow: 0 12px 26px rgba(79, 70, 229, 0.1);
+    }
+  }
+
+  &.is-system {
+    .debug-message-content {
+      background: rgba(248, 250, 252, 0.78);
+    }
+  }
+
+  &.is-runtime,
+  &.is-assistant {
+    .debug-message-content {
+      background: rgba(255, 255, 255, 0.72);
+    }
+  }
+}
+
+.debug-message-role {
+  padding: 0 4px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.debug-message-content {
+  width: min(100%, 440px);
+  padding: 12px 14px;
+  border: 1px solid rgba(203, 213, 225, 0.66);
+  border-radius: 14px;
+  color: #1e293b;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(12px) saturate(1.12);
+
+  p {
+    margin: 0 0 8px;
+    line-height: 1.6;
+    word-break: break-word;
+  }
+
+  p:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.debug-unified-input {
+  margin-top: 12px;
+}
+
+.debug-chat-composer {
+  margin-top: 12px;
+  padding: 12px;
+  border-color: rgba(129, 140, 248, 0.22);
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(239, 246, 255, 0.78)),
+    rgba(255, 255, 255, 0.86);
+  box-shadow: 0 18px 42px rgba(79, 70, 229, 0.11);
+
+  :deep(.el-textarea__inner),
+  :deep(.el-input__wrapper) {
+    border-radius: 12px;
+    color: #0f172a;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: inset 0 0 0 1px rgba(203, 213, 225, 0.72);
+  }
+
+  .debug-actions .el-button--primary {
+    width: 42px;
+    height: 42px;
+    border: 0;
+    background: linear-gradient(135deg, #635bff, #7c3aed 55%, #06b6d4);
+    box-shadow: 0 12px 26px rgba(99, 91, 255, 0.28);
+  }
+}
+
 .debug-result {
   min-height: 180px;
 }
 
 .debug-advanced-collapse {
   margin-top: 14px;
-  border-top: 1px solid var(--el-border-color-lighter);
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  border: 1px solid rgba(203, 213, 225, 0.58);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.46);
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+}
+
+.debug-advanced-popover-collapse {
+  max-height: calc(100vh - 150px);
+  margin-top: 0;
+  border: 0;
+  background: transparent;
+  overflow: auto;
+  backdrop-filter: none;
 }
 
 .debug-collapse-title {
@@ -7035,29 +8033,38 @@ watch(
   }
 }
 
-.debug-run-meta {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 8px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
 .workflow-debug-steps {
   display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
+  flex: 1;
   gap: 8px;
+  min-height: 0;
+  padding-right: 2px;
+  overflow: auto;
 }
 
 .workflow-debug-step-card {
   overflow: hidden;
-  border: 1px solid var(--el-border-color-light);
-  border-left: 4px solid #22c55e;
-  border-radius: 8px;
-  background: #fff;
+  border: 1px solid rgba(203, 213, 225, 0.62);
+  border-left: 3px solid #22c55e;
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(248, 250, 252, 0.66)),
+    rgba(255, 255, 255, 0.76);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.055);
+  backdrop-filter: blur(12px) saturate(1.12);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    border-color: rgba(129, 140, 248, 0.34);
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+  }
 
   &.selected {
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.16);
+    border-color: rgba(99, 102, 241, 0.36);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.14), 0 16px 36px rgba(99, 102, 241, 0.1);
   }
 
   &.is-error {
@@ -7071,13 +8078,13 @@ watch(
 
 .workflow-debug-step {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 7px 8px;
   align-items: start;
   width: 100%;
-  padding: 10px;
+  padding: 10px 12px;
   border: 0;
-  background: #fff;
+  background: transparent;
   color: var(--el-text-color-primary);
   cursor: pointer;
   text-align: left;
@@ -7092,16 +8099,64 @@ watch(
   grid-row: 1;
 }
 
+.step-marker {
+  display: inline-flex;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+}
+
+.step-running-icon {
+  position: absolute;
+  left: -4px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(99, 102, 241, 0.22);
+  border-top-color: #6366f1;
+  border-radius: 999px;
+  opacity: 0;
+
+  &.active {
+    opacity: 1;
+    animation: debugStepSpin 0.86s linear infinite;
+  }
+}
+
 .step-index {
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   place-items: center;
   border-radius: 50%;
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-secondary);
+  background: rgba(241, 245, 249, 0.92);
+  color: #64748b;
   font-size: 12px;
   font-weight: 700;
+}
+
+.workflow-debug-step-card.is-success .step-index {
+  background: rgba(220, 252, 231, 0.92);
+  color: #15803d;
+}
+
+.workflow-debug-step-card.is-running {
+  border-left-color: #6366f1;
+}
+
+.workflow-debug-step-card.is-running .step-index {
+  background: rgba(224, 231, 255, 0.95);
+  color: #4338ca;
+}
+
+.workflow-debug-step-card.is-waiting .step-index {
+  background: rgba(254, 243, 199, 0.95);
+  color: #b45309;
+}
+
+.workflow-debug-step-card.is-error .step-index {
+  background: rgba(254, 226, 226, 0.95);
+  color: #b91c1c;
 }
 
 .step-main,
@@ -7123,17 +8178,24 @@ watch(
     font-size: 12px;
     font-style: normal;
   }
+
+  strong {
+    color: #0f172a;
+    font-size: 13px;
+    line-height: 1.22;
+  }
 }
 
 .step-time {
   color: var(--el-text-color-secondary);
   font-size: 12px;
+  line-height: 1.2;
   text-align: right;
 }
 
 .debug-step-inline {
-  padding: 0 10px 10px 38px;
-  border-top: 1px solid var(--el-border-color-lighter);
+  padding: 0 12px 12px 54px;
+  border-top: 1px solid rgba(226, 232, 240, 0.74);
 }
 
 .debug-step-inline pre,
@@ -7146,6 +8208,26 @@ watch(
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.debug-waiting-card {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 6px;
+  background: rgba(245, 158, 11, 0.08);
+
+  strong {
+    color: #92400e;
+    font-size: 13px;
+  }
+
+  span {
+    color: var(--el-text-color-primary);
+    font-size: 13px;
+  }
 }
 
 .trace-replay-panel {
@@ -7168,6 +8250,32 @@ watch(
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
+}
+
+.debug-production-row {
+  padding: 10px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+  background: #fff;
+
+  strong,
+  span {
+    display: block;
+  }
+
+  span {
+    margin-top: 4px;
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .debug-chat-panel.is-running::before,
+  .debug-chat-panel.is-waiting::before {
+    animation: none;
+  }
 }
 
 .trace-toolbar {

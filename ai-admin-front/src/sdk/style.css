@@ -1,0 +1,190 @@
+.eaf-chat {
+  --reachai-chat-primary: #2563eb;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(620px, calc(100vh - 24px));
+  overflow: hidden;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  background: #fff;
+  color: #172033;
+  box-shadow: 0 16px 40px rgb(15 23 42 / 18%);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.eaf-chat *,
+.eaf-chat *::before,
+.eaf-chat *::after {
+  box-sizing: border-box;
+}
+
+.eaf-chat--bottom-right,
+.eaf-chat--bottom-left {
+  position: fixed;
+  z-index: 2147483000;
+  bottom: 16px;
+}
+
+.eaf-chat--bottom-right {
+  right: 16px;
+}
+
+.eaf-chat--bottom-left {
+  left: 16px;
+}
+
+.eaf-chat__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 12px;
+  background: var(--reachai-chat-primary);
+  color: #fff;
+}
+
+.eaf-chat__brand {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eaf-chat__toggle {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgb(255 255 255 / 55%);
+  border-radius: 6px;
+  background: rgb(255 255 255 / 16%);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+
+.eaf-chat__messages {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 240px;
+  overflow: auto;
+  padding: 12px;
+  background: #f7f9fc;
+}
+
+.eaf-chat--closed .eaf-chat__messages,
+.eaf-chat--closed .eaf-chat__input {
+  display: none;
+}
+
+.eaf-chat--closed {
+  max-height: 44px;
+}
+
+.eaf-chat__message,
+.eaf-chat__action-result,
+.eaf-chat__ui {
+  max-width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.eaf-chat__message--user {
+  align-self: flex-end;
+  background: var(--reachai-chat-primary);
+  color: #fff;
+}
+
+.eaf-chat__message--assistant,
+.eaf-chat__ui {
+  align-self: flex-start;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+}
+
+.eaf-chat__message--system,
+.eaf-chat__action-result {
+  align-self: stretch;
+  background: #eef4ff;
+  color: #40516f;
+}
+
+.eaf-chat__input {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.eaf-chat__input input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid #ccd6e3;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.eaf-chat__input button {
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: var(--reachai-chat-primary);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+
+.eaf-chat__ui-title {
+  margin-bottom: 6px;
+  font-weight: 650;
+}
+
+.eaf-chat__ui table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.eaf-chat__ui th,
+.eaf-chat__ui td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.eaf-chat__ui dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.eaf-chat__ui dt {
+  color: #64748b;
+}
+
+.eaf-chat__ui dd {
+  margin: 0;
+}
+
+@media (max-width: 520px) {
+  .eaf-chat,
+  .eaf-chat--bottom-right,
+  .eaf-chat--bottom-left {
+    right: 8px;
+    left: 8px;
+    bottom: 8px;
+    width: auto;
+    max-height: calc(100vh - 16px);
+  }
+}

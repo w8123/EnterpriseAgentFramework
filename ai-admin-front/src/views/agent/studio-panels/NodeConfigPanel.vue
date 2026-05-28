@@ -73,7 +73,10 @@
         :project-id="projectId"
         :project-code="projectCode"
         :options="toolLikeOptions"
+        :tool-options="toolOptions"
+        :composition-options="compositionOptions"
         @credential-created="$emit('credentialCreated', $event)"
+        @create-call-node="$emit('createCallNode', $event)"
       />
       <div v-else class="node-specific-panel">
         <el-divider>节点配置</el-divider>
@@ -122,15 +125,17 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { CanvasNodeData, StudioPort, StudioVariableOption } from '@/types/studio'
+import type { CanvasNodeData, InteractionCallNodeRequest, StudioPort, StudioVariableOption } from '@/types/studio'
 import type { ModelInstance } from '@/types/model'
 import type { KnowledgeBase } from '@/types/knowledge'
 import type { ToolInfo } from '@/types/tool'
-import type { CapabilityInfo } from '@/types/capability'
+import type { CompositionInfo } from '@/types/composition'
 import type { WorkflowCredential } from '@/types/workflowCredential'
 import type { ApiGraphParamSourceHint } from '@/api/apiGraph'
 import LlmConfigPanel from './LlmConfigPanel.vue'
 import UserInputConfigPanel from './UserInputConfigPanel.vue'
+import InteractionConfigPanel from './InteractionConfigPanel.vue'
+import PageActionConfigPanel from './PageActionConfigPanel.vue'
 import KnowledgeConfigPanel from './KnowledgeConfigPanel.vue'
 import HttpConfigPanel from './HttpConfigPanel.vue'
 import ParameterConfigPanel from './ParameterConfigPanel.vue'
@@ -151,7 +156,7 @@ const props = defineProps<{
   modelOptions: ModelInstance[]
   knowledgeOptions: KnowledgeBase[]
   toolOptions: ToolInfo[]
-  capabilityOptions: CapabilityInfo[]
+  compositionOptions: CompositionInfo[]
   variableOptions: Array<string | StudioVariableOption>
   credentialOptions: WorkflowCredential[]
   paramSourceHints: ApiGraphParamSourceHint[]
@@ -161,10 +166,13 @@ const props = defineProps<{
 
 defineEmits<{
   credentialCreated: [credential: WorkflowCredential]
+  createCallNode: [request: InteractionCallNodeRequest]
 }>()
 
 const registry = {
   userInput: UserInputConfigPanel,
+  interaction: InteractionConfigPanel,
+  pageAction: PageActionConfigPanel,
   llm: LlmConfigPanel,
   knowledge: KnowledgeConfigPanel,
   http: HttpConfigPanel,
@@ -184,7 +192,7 @@ const registry = {
 }
 
 const panel = computed(() => registry[props.data.kind as keyof typeof registry])
-const toolLikeOptions = computed(() => props.data.kind === 'skill' ? props.capabilityOptions : props.toolOptions)
+const toolLikeOptions = computed(() => props.data.kind === 'skill' ? props.compositionOptions : props.toolOptions)
 const activeContractTab = ref('config')
 const editableInputs = ref<StudioPort[]>([])
 const editableOutputs = ref<StudioPort[]>([])
@@ -392,6 +400,18 @@ function syncOutputAlias() {
   if (props.data.kind === 'userInput') {
     props.data.userInputConfig ||= { fields: [], outputAlias: 'params' }
     props.data.userInputConfig.outputAlias = props.data.outputAlias || 'params'
+  }
+  if (props.data.kind === 'interaction') {
+    props.data.interactionConfig ||= {
+      interactionType: 'COLLECT_INPUT',
+      binding: { sourceKind: 'NONE' },
+      title: props.data.label,
+      component: 'FORM',
+      fields: [],
+      outputAlias: 'interaction_output',
+    }
+    props.data.interactionConfig.binding ||= { sourceKind: 'NONE' }
+    props.data.interactionConfig.outputAlias = props.data.outputAlias || 'interaction_output'
   }
 }
 </script>
