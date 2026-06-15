@@ -2,6 +2,7 @@ package com.enterprise.ai.agent.trace;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.enterprise.ai.agent.agent.AgentDefinition;
+import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Builder;
@@ -36,6 +37,10 @@ public class AgentTraceSpanService {
     }
 
     public void record(ToolExecutionContext context, AgentDefinition definition, SpanRecord record) {
+        record(context, definition == null ? null : GraphRuntimeContext.fromAgentDefinition(definition), record);
+    }
+
+    public void record(ToolExecutionContext context, GraphRuntimeContext runtimeContext, SpanRecord record) {
         if (record == null) {
             return;
         }
@@ -45,12 +50,16 @@ public class AgentTraceSpanService {
         entity.setParentSpanId(record.parentSpanId());
         entity.setSpanType(firstNonBlank(record.spanType(), "UNKNOWN"));
         entity.setRuntimeType(record.runtimeType());
-        entity.setAgentId(definition == null ? null : definition.getId());
-        entity.setAgentName(definition == null ? context == null ? null : context.getAgentName() : definition.getName());
+        entity.setAgentId(runtimeContext == null ? null : runtimeContext.getSourceId());
+        entity.setAgentName(runtimeContext == null
+                ? context == null ? null : context.getAgentName()
+                : runtimeContext.getName());
         entity.setNodeId(record.nodeId());
         entity.setToolName(record.toolName());
         entity.setModelInstanceId(record.modelInstanceId());
-        entity.setProjectCode(definition == null ? context == null ? null : context.getProjectCode() : definition.getProjectCode());
+        entity.setProjectCode(runtimeContext == null
+                ? context == null ? null : context.getProjectCode()
+                : runtimeContext.getProjectCode());
         entity.setTenantId(context == null ? null : context.getTenantId());
         entity.setAppId(context == null ? null : context.getAppId());
         entity.setExternalUserId(context == null ? null : context.getExternalUserId());

@@ -7,7 +7,15 @@ import com.enterprise.ai.agent.agent.persist.AgentVersionEntity;
 import com.enterprise.ai.agent.agent.persist.AgentVersionMapper;
 import com.enterprise.ai.agent.agentscope.AgentRouter;
 import com.enterprise.ai.agent.graph.GraphSpec;
+import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.governance.GuardDecisionLogEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
+import com.enterprise.ai.agent.workflow.WorkflowAgentDefinitionAdapter;
+import com.enterprise.ai.agent.workflow.WorkflowDefinitionEntity;
+import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;
+import com.enterprise.ai.agent.workflow.WorkflowVersionEntity;
+import com.enterprise.ai.agent.workflow.WorkflowVersionMapper;
 import com.enterprise.ai.agent.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.tool.log.ToolCallLogEntity;
@@ -45,6 +53,10 @@ public class RunOpsService {
     private final AgentVersionMapper versionMapper;
     private final AgentDefinitionService agentDefinitionService;
     private final AgentRouter agentRouter;
+    private final WorkflowDefinitionService workflowDefinitionService;
+    private final WorkflowVersionMapper workflowVersionMapper;
+    private final AgentEntryService agentEntryService;
+    private final WorkflowAgentDefinitionAdapter workflowAgentDefinitionAdapter;
     private final ObjectMapper objectMapper;
 
     public RunDetail detail(String traceId) {
@@ -138,7 +150,7 @@ public class RunOpsService {
         List<ToolCallLogService.TraceSummary> toolTraces = toolCallLogService.listRecentTraces(userId, safeLimit, days);
         LinkedHashMap<String, RunSummary> rows = new LinkedHashMap<>();
         for (ToolCallLogService.TraceSummary trace : toolTraces) {
-            rows.put(trace.traceId(), new RunSummary(
+            rows.put(trace.traceId(), createRunSummary(
                     trace.traceId(),
                     trace.successCount() == trace.callCount() ? "SUCCESS" : "ERROR",
                     null,
@@ -160,7 +172,8 @@ public class RunOpsService {
                     trace.callCount() - (int) trace.successCount(),
                     false,
                     null,
-                    null));
+                    null,
+                    Map.of()));
         }
 
         if (rows.size() < safeLimit) {
@@ -177,7 +190,7 @@ public class RunOpsService {
                     continue;
                 }
                 Map<String, Object> metadata = parseMap(span.getMetadataJson());
-                rows.put(span.getTraceId(), new RunSummary(
+                rows.put(span.getTraceId(), createRunSummary(
                         span.getTraceId(),
                         "SUCCESS".equalsIgnoreCase(span.getStatus()) ? "SUCCESS" : "ERROR",
                         span.getAgentId(),
@@ -199,7 +212,8 @@ public class RunOpsService {
                         "SUCCESS".equalsIgnoreCase(span.getStatus()) ? 0 : 1,
                         false,
                         asText(metadata.get("dispatchUrl")),
-                        asText(metadata.get("embeddedFallbackReason"))));
+                        asText(metadata.get("embeddedFallbackReason")),
+                        metadata));
             }
         }
         return new ArrayList<>(rows.values());
@@ -237,10 +251,6 @@ public class RunOpsService {
         AgentDefinition currentAgent = resolveCurrentAgent(spans, toolLogs);
         AgentDefinition snapshot = version == null ? null : readSnapshot(version);
         boolean useSnapshot = request == null || request.useSnapshot() == null || request.useSnapshot();
-        AgentDefinition agent = useSnapshot && snapshot != null ? snapshot : currentAgent;
-        if (agent == null) {
-            throw new IllegalArgumentException("无法解析重放使用的 Agent 定义: " + normalizedTraceId);
-        }
 
         String message = firstText(request == null ? null : request.messageOverride(), replayMessage(spans, toolLogs));
         if (!StringUtils.hasText(message)) {
@@ -250,28 +260,61 @@ public class RunOpsService {
                 "replay-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12));
         String userId = firstText(request == null ? null : request.userId(), firstTool(toolLogs).map(ToolCallLogEntity::getUserId).orElse(null), "runops-replay");
         List<String> roles = request == null || request.roles() == null ? List.of() : request.roles();
-        Map<String, Object> replayMetadata = new LinkedHashMap<>();
-        replayMetadata.put("replay", true);
-        replayMetadata.put("replayOfTraceId", normalizedTraceId);
-        replayMetadata.put("replayUseSnapshot", useSnapshot && snapshot != null);
-        replayMetadata.put("replaySourceVersion", version == null ? asText(metadata.get("version")) : version.getVersion());
-        replayMetadata.put("replaySourceVersionId", version == null ? asLong(metadata.get("versionId")) : version.getId());
+
+        Map<String, Object> replayMetadata = buildReplayMetadata(normalizedTraceId, metadata, version, useSnapshot, snapshot);
+        enrichWorkflowReplayMetadata(replayMetadata, metadata);
+
+        if (isWorkflowMetadata(metadata)) {
+            WorkflowReplayResolution workflowReplay = resolveWorkflowReplay(metadata, useSnapshot);
+            if (workflowReplay != null && workflowReplay.graph() != null) {
+                GraphSpec graphSpec = workflowReplay.graph().graphSpec();
+                GraphRuntimeContext runtimeContext = workflowReplay.graph().runtimeContext();
+                enrichWorkflowReplayMetadata(replayMetadata, runtimeContext);
+                replayMetadata.put("replayExecutionPath", "GRAPH_SPEC");
+                if (workflowReplay.fallbackReason() != null) {
+                    replayMetadata.put("replayFallbackReason", workflowReplay.fallbackReason());
+                }
+                AgentResult result = agentRouter.executeByGraphSpec(
+                        graphSpec, runtimeContext, sessionId, userId, message, roles, replayMetadata);
+                return buildReplayResult(
+                        normalizedTraceId,
+                        sessionId,
+                        userId,
+                        message,
+                        result,
+                        replayMetadata,
+                        workflowReplay,
+                        null,
+                        "GRAPH_SPEC",
+                        workflowReplay.fallbackReason());
+            }
+            String fallbackReason = workflowReplay == null
+                    ? "无法从 trace metadata 解析 Workflow 上下文"
+                    : firstText(workflowReplay.fallbackReason(), "Workflow GraphSpec 重放不可用");
+            replayMetadata.put("replayFallbackReason", fallbackReason);
+            replayMetadata.put("replayExecutionPath", "AGENT_DEFINITION_FALLBACK");
+        }
+
+        AgentDefinition agent = useSnapshot && snapshot != null ? snapshot : currentAgent;
+        if (agent == null) {
+            throw new IllegalArgumentException("无法解析重放使用的 Agent 定义: " + normalizedTraceId);
+        }
+        replayMetadata.putIfAbsent("replayExecutionPath", "AGENT_DEFINITION");
 
         AgentResult result = agentRouter.executeByDefinition(agent, sessionId, userId, message, roles, replayMetadata);
-        String replayTraceId = result.getMetadata() == null ? null : asText(result.getMetadata().get("traceId"));
-        return new ReplayResult(
+        return buildReplayResult(
                 normalizedTraceId,
-                replayTraceId,
                 sessionId,
                 userId,
-                agent.getId(),
-                agent.getName(),
-                version == null ? asText(metadata.get("version")) : version.getVersion(),
-                version == null ? asLong(metadata.get("versionId")) : version.getId(),
                 message,
-                result.isSuccess(),
-                result.getAnswer(),
-                result.getMetadata());
+                result,
+                replayMetadata,
+                null,
+                agent,
+                replayMetadata.containsKey("replayExecutionPath")
+                        ? asText(replayMetadata.get("replayExecutionPath"))
+                        : "AGENT_DEFINITION",
+                asText(replayMetadata.get("replayFallbackReason")));
     }
 
     public RunComparison compare(String baselineTraceId, String candidateTraceId) {
@@ -316,18 +359,13 @@ public class RunOpsService {
                     failedSpan == null ? null : failedSpan.toolName(),
                     failedTool == null ? null : failedTool.toolName());
             String key = String.join("|",
-                    normalizeKey(firstText(summary.agentId(), summary.agentName())),
-                    normalizeKey(firstText(asText(summary.versionId()), summary.version())),
+                    normalizeKey(groupIdentityKey(summary)),
+                    normalizeKey(groupVersionKey(summary)),
                     normalizeKey(errorType),
                     normalizeKey(nodeId),
                     normalizeKey(toolName));
-            FailureClusterAccumulator accumulator = grouped.computeIfAbsent(key, ignored -> new FailureClusterAccumulator(
-                    summary.agentId(),
-                    summary.agentName(),
-                    summary.version(),
-                    summary.versionId(),
-                    summary.runtimeType(),
-                    summary.runtimePlacement(),
+            FailureClusterAccumulator accumulator = grouped.computeIfAbsent(key, ignored -> FailureClusterAccumulator.fromSummary(
+                    summary,
                     errorType,
                     nodeId,
                     toolName));
@@ -352,8 +390,8 @@ public class RunOpsService {
                 .collect(Collectors.groupingBy(detail -> {
                     RunSummary summary = detail.summary();
                     return String.join("|",
-                            normalizeKey(firstText(summary.agentId(), summary.agentName())),
-                            normalizeKey(firstText(asText(summary.versionId()), summary.version())));
+                            normalizeKey(groupIdentityKey(summary)),
+                            normalizeKey(groupVersionKey(summary)));
                 }, LinkedHashMap::new, Collectors.toList()));
         return grouped.values().stream()
                 .map(rows -> {
@@ -412,7 +450,13 @@ public class RunOpsService {
                             toolErrorCount,
                             guardDenyCount,
                             latest.traceId(),
-                            latest.startedAt());
+                            latest.startedAt(),
+                            sample.workflowId(),
+                            sample.workflowKeySlug(),
+                            sample.workflowVersion(),
+                            sample.workflowVersionId(),
+                            sample.sourceType(),
+                            sample.sourceId());
                 })
                 .sorted(Comparator
                         .comparing(VersionComparison::failureCount).reversed()
@@ -525,7 +569,7 @@ public class RunOpsService {
                 + decisions.stream().filter(decision -> "DENY".equalsIgnoreCase(decision.getDecision())).count();
         String status = errorCount == 0 ? (waiting ? "WAITING" : "SUCCESS") : "ERROR";
         String fallbackReason = asText(metadata.get("embeddedFallbackReason"));
-        return new RunSummary(
+        return createRunSummary(
                 traceId,
                 status,
                 agent == null ? firstSpan(spans).map(AgentTraceSpanEntity::getAgentId).orElse(null) : agent.getId(),
@@ -548,7 +592,283 @@ public class RunOpsService {
                 (int) errorCount,
                 StringUtils.hasText(fallbackReason),
                 asText(metadata.get("dispatchUrl")),
+                fallbackReason,
+                metadata);
+    }
+
+    private RunSummary createRunSummary(String traceId,
+                                         String status,
+                                         String agentId,
+                                         String agentName,
+                                         String version,
+                                         Long versionId,
+                                         String runtimeType,
+                                         String runtimePlacement,
+                                         String graphCode,
+                                         String sessionId,
+                                         String userId,
+                                         String intentType,
+                                         LocalDateTime startedAt,
+                                         LocalDateTime endedAt,
+                                         Integer latencyMs,
+                                         Integer tokenCost,
+                                         Integer nodeCount,
+                                         Integer toolCallCount,
+                                         Integer errorCount,
+                                         boolean fallback,
+                                         String dispatchUrl,
+                                         String fallbackReason,
+                                         Map<String, Object> metadata) {
+        Map<String, Object> safeMetadata = metadata == null ? Map.of() : metadata;
+        String sourceType = asText(safeMetadata.get("sourceType"));
+        String workflowId = firstText(
+                asText(safeMetadata.get("workflowId")),
+                asText(safeMetadata.get("resolvedWorkflowId")));
+        String sourceId = firstText(
+                asText(safeMetadata.get("sourceId")),
+                isWorkflowSourceType(sourceType) ? workflowId : null);
+        return new RunSummary(
+                traceId,
+                status,
+                agentId,
+                agentName,
+                version,
+                versionId,
+                runtimeType,
+                runtimePlacement,
+                graphCode,
+                sessionId,
+                userId,
+                intentType,
+                startedAt,
+                endedAt,
+                latencyMs,
+                tokenCost,
+                nodeCount,
+                toolCallCount,
+                errorCount,
+                fallback,
+                dispatchUrl,
+                fallbackReason,
+                workflowId,
+                asText(safeMetadata.get("workflowKeySlug")),
+                asText(safeMetadata.get("workflowVersion")),
+                asLong(safeMetadata.get("workflowVersionId")),
+                asText(safeMetadata.get("entryAgentId")),
+                asText(safeMetadata.get("entryAgentKeySlug")),
+                sourceType,
+                sourceId,
+                safeMetadata.isEmpty() ? null : safeMetadata);
+    }
+
+    private boolean isWorkflowSourceType(String sourceType) {
+        return StringUtils.hasText(sourceType) && sourceType.trim().toUpperCase().startsWith("WORKFLOW");
+    }
+
+    private boolean isWorkflowSummary(RunSummary summary) {
+        if (summary == null) {
+            return false;
+        }
+        return isWorkflowSourceType(summary.sourceType()) || StringUtils.hasText(summary.workflowId());
+    }
+
+    private boolean isWorkflowMetadata(Map<String, Object> metadata) {
+        if (metadata == null || metadata.isEmpty()) {
+            return false;
+        }
+        return isWorkflowSourceType(asText(metadata.get("sourceType"))) || StringUtils.hasText(asText(metadata.get("workflowId")));
+    }
+
+    private Map<String, Object> buildReplayMetadata(String normalizedTraceId,
+                                                    Map<String, Object> metadata,
+                                                    AgentVersionEntity version,
+                                                    boolean useSnapshot,
+                                                    AgentDefinition snapshot) {
+        Map<String, Object> replayMetadata = new LinkedHashMap<>();
+        replayMetadata.put("replay", true);
+        replayMetadata.put("replayOfTraceId", normalizedTraceId);
+        replayMetadata.put("replayUseSnapshot", useSnapshot && snapshot != null);
+        replayMetadata.put("replaySourceVersion", version == null ? asText(metadata.get("version")) : version.getVersion());
+        replayMetadata.put("replaySourceVersionId", version == null ? asLong(metadata.get("versionId")) : version.getId());
+        return replayMetadata;
+    }
+
+    private void enrichWorkflowReplayMetadata(Map<String, Object> replayMetadata, Map<String, Object> source) {
+        if (replayMetadata == null || source == null) {
+            return;
+        }
+        putIfText(replayMetadata, "workflowId", firstText(asText(source.get("workflowId")), asText(source.get("resolvedWorkflowId"))));
+        putIfText(replayMetadata, "workflowKeySlug", asText(source.get("workflowKeySlug")));
+        putIfText(replayMetadata, "workflowVersion", asText(source.get("workflowVersion")));
+        putIfPresent(replayMetadata, "workflowVersionId", source.get("workflowVersionId"));
+        putIfText(replayMetadata, "entryAgentId", asText(source.get("entryAgentId")));
+        putIfText(replayMetadata, "entryAgentKeySlug", asText(source.get("entryAgentKeySlug")));
+        putIfText(replayMetadata, "sourceType", asText(source.get("sourceType")));
+        putIfText(replayMetadata, "sourceId", firstText(asText(source.get("sourceId")), asText(source.get("workflowId"))));
+    }
+
+    private void enrichWorkflowReplayMetadata(Map<String, Object> replayMetadata, GraphRuntimeContext runtimeContext) {
+        if (replayMetadata == null || runtimeContext == null) {
+            return;
+        }
+        putIfText(replayMetadata, "sourceType", runtimeContext.getSourceType());
+        putIfText(replayMetadata, "sourceId", runtimeContext.getSourceId());
+        putIfText(replayMetadata, "workflowId", runtimeContext.getSourceId());
+        putIfText(replayMetadata, "workflowKeySlug", runtimeContext.getSourceKeySlug());
+        putIfText(replayMetadata, "workflowVersion", runtimeContext.getSourceVersion());
+        putIfPresent(replayMetadata, "workflowVersionId", runtimeContext.getSourceVersionId());
+        Map<String, Object> extra = runtimeContext.getExtra();
+        if (extra != null) {
+            putIfText(replayMetadata, "entryAgentId", asText(extra.get("entryAgentId")));
+            putIfText(replayMetadata, "entryAgentKeySlug", asText(extra.get("entryAgentKeySlug")));
+            putIfText(replayMetadata, "workflowId", firstText(asText(extra.get("workflowId")), runtimeContext.getSourceId()));
+        }
+    }
+
+    private WorkflowReplayResolution resolveWorkflowReplay(Map<String, Object> metadata, boolean useSnapshot) {
+        String workflowId = firstText(
+                asText(metadata.get("workflowId")),
+                asText(metadata.get("resolvedWorkflowId")),
+                isWorkflowSourceType(asText(metadata.get("sourceType"))) ? asText(metadata.get("sourceId")) : null);
+        if (!StringUtils.hasText(workflowId)) {
+            return new WorkflowReplayResolution(null, null, null, null, "trace metadata 缺少 workflowId/sourceId");
+        }
+        WorkflowDefinitionEntity workflow = workflowDefinitionService.findById(workflowId).orElse(null);
+        if (workflow == null) {
+            return new WorkflowReplayResolution(null, null, null, null, "Workflow 定义不存在: " + workflowId);
+        }
+
+        Long workflowVersionId = asLong(metadata.get("workflowVersionId"));
+        WorkflowVersionEntity versionEntity = null;
+        String fallbackReason = null;
+        if (useSnapshot && workflowVersionId != null) {
+            versionEntity = workflowVersionMapper.selectById(workflowVersionId);
+            if (versionEntity == null || !workflowId.equals(versionEntity.getWorkflowId())) {
+                fallbackReason = "Workflow 版本快照不可用(versionId=" + workflowVersionId + ")，回退到当前 Workflow 图";
+                versionEntity = null;
+            }
+        }
+
+        String entryAgentId = asText(metadata.get("entryAgentId"));
+        if (!StringUtils.hasText(entryAgentId)) {
+            return new WorkflowReplayResolution(null, workflow, versionEntity, null,
+                    "trace metadata 缺少 entryAgentId，无法构造 GraphRuntimeContext");
+        }
+        AgentEntryEntity entryAgent = agentEntryService.findById(entryAgentId).orElse(null);
+        if (entryAgent == null) {
+            return new WorkflowReplayResolution(null, workflow, versionEntity, null,
+                    "入口 AgentEntry 不存在: " + entryAgentId);
+        }
+
+        Map<String, Object> runtimeMetadata = new LinkedHashMap<>(metadata);
+        runtimeMetadata.put("replay", true);
+        try {
+            WorkflowAgentDefinitionAdapter.RuntimeGraph runtimeGraph = workflowAgentDefinitionAdapter.toRuntimeGraph(
+                    entryAgent,
+                    workflow,
+                    versionEntity,
+                    WorkflowAgentDefinitionAdapter.RuntimeShellOptions.builder()
+                            .metadata(runtimeMetadata)
+                            .build());
+            return new WorkflowReplayResolution(runtimeGraph, workflow, versionEntity, entryAgent, fallbackReason);
+        } catch (IllegalArgumentException ex) {
+            return new WorkflowReplayResolution(null, workflow, versionEntity, entryAgent, ex.getMessage());
+        }
+    }
+
+    private ReplayResult buildReplayResult(String normalizedTraceId,
+                                           String sessionId,
+                                           String userId,
+                                           String message,
+                                           AgentResult result,
+                                           Map<String, Object> replayMetadata,
+                                           WorkflowReplayResolution workflowReplay,
+                                           AgentDefinition legacyAgent,
+                                           String executionPath,
+                                           String fallbackReason) {
+        Map<String, Object> resultMetadata = result.getMetadata() == null ? Map.of() : result.getMetadata();
+        String replayTraceId = asText(resultMetadata.get("traceId"));
+        GraphRuntimeContext runtimeContext = workflowReplay == null || workflowReplay.graph() == null
+                ? null
+                : workflowReplay.graph().runtimeContext();
+        WorkflowDefinitionEntity workflow = workflowReplay == null ? null : workflowReplay.workflow();
+        AgentEntryEntity entryAgent = workflowReplay == null ? null : workflowReplay.entryAgent();
+        WorkflowVersionEntity versionEntity = workflowReplay == null ? null : workflowReplay.version();
+        String agentId = legacyAgent != null
+                ? legacyAgent.getId()
+                : (entryAgent == null ? asText(replayMetadata.get("entryAgentId")) : entryAgent.getId());
+        String agentName = legacyAgent != null
+                ? legacyAgent.getName()
+                : (runtimeContext == null ? null : runtimeContext.getName());
+        String version = legacyAgent != null
+                ? asText(replayMetadata.get("replaySourceVersion"))
+                : (versionEntity == null ? asText(replayMetadata.get("replaySourceVersion")) : versionEntity.getVersion());
+        Long versionId = versionEntity == null
+                ? asLong(replayMetadata.get("replaySourceVersionId"))
+                : versionEntity.getId();
+        return new ReplayResult(
+                normalizedTraceId,
+                replayTraceId,
+                sessionId,
+                userId,
+                agentId,
+                agentName,
+                version,
+                versionId,
+                message,
+                result.isSuccess(),
+                result.getAnswer(),
+                resultMetadata,
+                workflow == null ? asText(replayMetadata.get("workflowId")) : workflow.getId(),
+                workflow == null ? asText(replayMetadata.get("workflowKeySlug")) : workflow.getKeySlug(),
+                runtimeContext == null ? asText(replayMetadata.get("workflowVersion")) : runtimeContext.getSourceVersion(),
+                runtimeContext == null ? asLong(replayMetadata.get("workflowVersionId")) : runtimeContext.getSourceVersionId(),
+                entryAgent == null ? asText(replayMetadata.get("entryAgentId")) : entryAgent.getId(),
+                entryAgent == null ? asText(replayMetadata.get("entryAgentKeySlug")) : entryAgent.getKeySlug(),
+                runtimeContext == null ? asText(replayMetadata.get("sourceType")) : runtimeContext.getSourceType(),
+                runtimeContext == null ? asText(replayMetadata.get("sourceId")) : runtimeContext.getSourceId(),
+                executionPath,
                 fallbackReason);
+    }
+
+    private void putIfText(Map<String, Object> target, String key, String value) {
+        if (StringUtils.hasText(value)) {
+            target.put(key, value);
+        }
+    }
+
+    private void putIfPresent(Map<String, Object> target, String key, Object value) {
+        if (value != null) {
+            target.put(key, value);
+        }
+    }
+
+    private record WorkflowReplayResolution(
+            WorkflowAgentDefinitionAdapter.RuntimeGraph graph,
+            WorkflowDefinitionEntity workflow,
+            WorkflowVersionEntity version,
+            AgentEntryEntity entryAgent,
+            String fallbackReason
+    ) {
+        WorkflowReplayResolution {
+            if (fallbackReason != null && fallbackReason.isBlank()) {
+                fallbackReason = null;
+            }
+        }
+    }
+
+    String groupIdentityKey(RunSummary summary) {
+        if (isWorkflowSummary(summary)) {
+            return firstText(summary.workflowId(), summary.sourceId(), summary.agentId(), summary.agentName());
+        }
+        return firstText(summary.agentId(), summary.agentName());
+    }
+
+    String groupVersionKey(RunSummary summary) {
+        if (isWorkflowSummary(summary)) {
+            return firstText(asText(summary.workflowVersionId()), summary.workflowVersion(), asText(summary.versionId()), summary.version());
+        }
+        return firstText(asText(summary.versionId()), summary.version());
     }
 
     private Map<String, Object> mergedMetadata(List<AgentTraceSpanEntity> spans) {
@@ -786,6 +1106,12 @@ public class RunOpsService {
         private final Long versionId;
         private final String runtimeType;
         private final String runtimePlacement;
+        private final String workflowId;
+        private final String workflowKeySlug;
+        private final String workflowVersion;
+        private final Long workflowVersionId;
+        private final String sourceType;
+        private final String sourceId;
         private final String errorType;
         private final String nodeId;
         private final String toolName;
@@ -799,12 +1125,40 @@ public class RunOpsService {
         private final List<String> traceIds = new ArrayList<>();
         private final List<String> repairHints = new ArrayList<>();
 
+        private static FailureClusterAccumulator fromSummary(RunSummary summary,
+                                                             String errorType,
+                                                             String nodeId,
+                                                             String toolName) {
+            return new FailureClusterAccumulator(
+                    summary.agentId(),
+                    summary.agentName(),
+                    summary.version(),
+                    summary.versionId(),
+                    summary.runtimeType(),
+                    summary.runtimePlacement(),
+                    summary.workflowId(),
+                    summary.workflowKeySlug(),
+                    summary.workflowVersion(),
+                    summary.workflowVersionId(),
+                    summary.sourceType(),
+                    summary.sourceId(),
+                    errorType,
+                    nodeId,
+                    toolName);
+        }
+
         private FailureClusterAccumulator(String agentId,
                                           String agentName,
                                           String version,
                                           Long versionId,
                                           String runtimeType,
                                           String runtimePlacement,
+                                          String workflowId,
+                                          String workflowKeySlug,
+                                          String workflowVersion,
+                                          Long workflowVersionId,
+                                          String sourceType,
+                                          String sourceId,
                                           String errorType,
                                           String nodeId,
                                           String toolName) {
@@ -814,6 +1168,12 @@ public class RunOpsService {
             this.versionId = versionId;
             this.runtimeType = runtimeType;
             this.runtimePlacement = runtimePlacement;
+            this.workflowId = workflowId;
+            this.workflowKeySlug = workflowKeySlug;
+            this.workflowVersion = workflowVersion;
+            this.workflowVersionId = workflowVersionId;
+            this.sourceType = sourceType;
+            this.sourceId = sourceId;
             this.errorType = errorType;
             this.nodeId = nodeId;
             this.toolName = toolName;
@@ -875,7 +1235,13 @@ public class RunOpsService {
                     sampleTraceId,
                     traceIds,
                     sampleError,
-                    repairHints);
+                    repairHints,
+                    workflowId,
+                    workflowKeySlug,
+                    workflowVersion,
+                    workflowVersionId,
+                    sourceType,
+                    sourceId);
         }
     }
 
@@ -904,7 +1270,17 @@ public class RunOpsService {
             String message,
             boolean success,
             String answer,
-            Map<String, Object> metadata
+            Map<String, Object> metadata,
+            String workflowId,
+            String workflowKeySlug,
+            String workflowVersion,
+            Long workflowVersionId,
+            String entryAgentId,
+            String entryAgentKeySlug,
+            String sourceType,
+            String sourceId,
+            String executionPath,
+            String fallbackReason
     ) {}
 
     public record RunComparison(
@@ -965,7 +1341,13 @@ public class RunOpsService {
             String sampleTraceId,
             List<String> traceIds,
             String sampleError,
-            List<String> repairHints
+            List<String> repairHints,
+            String workflowId,
+            String workflowKeySlug,
+            String workflowVersion,
+            Long workflowVersionId,
+            String sourceType,
+            String sourceId
     ) {}
 
     public record VersionComparison(
@@ -986,7 +1368,13 @@ public class RunOpsService {
             Integer toolErrorCount,
             Integer guardDenyCount,
             String latestTraceId,
-            LocalDateTime latestStartedAt
+            LocalDateTime latestStartedAt,
+            String workflowId,
+            String workflowKeySlug,
+            String workflowVersion,
+            Long workflowVersionId,
+            String sourceType,
+            String sourceId
     ) {}
 
     public record RunDetail(
@@ -1015,6 +1403,7 @@ public class RunOpsService {
     public record RunSummary(
             String traceId,
             String status,
+            /** 历史字段：Agent 运行时为 Agent id；Workflow 运行可能为 workflow sourceId */
             String agentId,
             String agentName,
             String version,
@@ -1034,7 +1423,17 @@ public class RunOpsService {
             Integer errorCount,
             boolean fallback,
             String dispatchUrl,
-            String fallbackReason
+            String fallbackReason,
+            String workflowId,
+            String workflowKeySlug,
+            String workflowVersion,
+            Long workflowVersionId,
+            /** AgentEntry / chat·embed 入口 id，不是 WorkflowDefinition id */
+            String entryAgentId,
+            String entryAgentKeySlug,
+            String sourceType,
+            String sourceId,
+            Map<String, Object> metadata
     ) {}
 
     public record SpanView(

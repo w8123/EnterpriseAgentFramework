@@ -2,6 +2,7 @@ package com.enterprise.ai.agent.agentscope;
 
 import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.agent.AgentDefinitionService;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.runtime.AgentRuntimeAdapter;
 import com.enterprise.ai.agent.runtime.AgentRuntimeRequest;
@@ -10,6 +11,7 @@ import com.enterprise.ai.agent.runtime.AgentRuntimeSelector;
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchRequest;
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchResult;
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchService;
+import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.service.IntentService;
 import org.junit.jupiter.api.Test;
@@ -215,5 +217,70 @@ class AgentRouterTest {
                 org.mockito.ArgumentMatchers.eq("DENY"),
                 org.mockito.ArgumentMatchers.eq("user role is not allowed"),
                 any());
+    }
+
+    @Test
+    void executeByGraphSpecBuildsGraphNativeRuntimeRequest() {
+        IntentService intentService = mock(IntentService.class);
+        AgentDefinitionService definitionService = mock(AgentDefinitionService.class);
+        AgentRuntimeSelector selector = mock(AgentRuntimeSelector.class);
+        AgentRuntimeAdapter adapter = mock(AgentRuntimeAdapter.class);
+        EmbeddedRuntimeDispatchService dispatchService = mock(EmbeddedRuntimeDispatchService.class);
+        GuardDecisionLogService guardDecisionLogService = mock(GuardDecisionLogService.class);
+        AgentRouter router = new AgentRouter(intentService, definitionService, selector, dispatchService, guardDecisionLogService);
+
+        when(selector.select(any(AgentRuntimeRequest.class))).thenReturn(adapter);
+        when(adapter.execute(any(AgentRuntimeRequest.class))).thenReturn(AgentRuntimeResult.builder()
+                .success(true)
+                .answer("workflow done")
+                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
+                .traceId("trace-wf")
+                .agentName("Orders Workflow")
+                .build());
+
+        GraphSpec graphSpec = GraphSpec.builder()
+                .code("orders")
+                .entry("answer")
+                .node(GraphSpec.Node.builder().id("answer").type("ANSWER").build())
+                .build();
+        GraphRuntimeContext runtimeContext = GraphRuntimeContext.builder()
+                .sourceType("WORKFLOW_VERSION")
+                .sourceId("wf-1")
+                .sourceKeySlug("orders")
+                .name("Orders Workflow")
+                .intentType("PAGE_ACTION")
+                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
+                .extra(Map.of(
+                        "workflowId", "wf-1",
+                        "workflowKeySlug", "orders",
+                        "workflowVersion", "v1",
+                        "workflowVersionId", 9L,
+                        "entryAgentId", "agent-1",
+                        "entryAgentKeySlug", "global-agent"))
+                .build();
+
+        AgentResult result = router.executeByGraphSpec(
+                graphSpec,
+                runtimeContext,
+                "session-1",
+                "user-1",
+                "hello",
+                List.of("BUYER"),
+                Map.of("traceId", "trace-wf", "workflowId", "wf-1"));
+
+        assertEquals("workflow done", result.getAnswer());
+        ArgumentCaptor<AgentRuntimeRequest> requestCaptor = ArgumentCaptor.forClass(AgentRuntimeRequest.class);
+        verify(adapter).execute(requestCaptor.capture());
+        AgentRuntimeRequest captured = requestCaptor.getValue();
+        assertEquals("orders", captured.getGraphSpec().getCode());
+        assertEquals("wf-1", captured.getGraphRuntimeContext().getSourceId());
+        assertEquals("WORKFLOW_VERSION", captured.getGraphRuntimeContext().getSourceType());
+        assertEquals("trace-wf", captured.getTraceId());
+        assertEquals("wf-1", result.getMetadata().get("workflowId"));
+        assertEquals(9L, result.getMetadata().get("workflowVersionId"));
+        assertEquals("agent-1", result.getMetadata().get("entryAgentId"));
+        assertEquals("global-agent", result.getMetadata().get("entryAgentKeySlug"));
+        assertEquals("WORKFLOW_VERSION", result.getMetadata().get("sourceType"));
+        assertEquals("wf-1", result.getMetadata().get("sourceId"));
     }
 }

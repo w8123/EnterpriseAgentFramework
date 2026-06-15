@@ -570,7 +570,8 @@ const gatewaySnippet = computed(() => `spring:
 # 业务用户身份头或当前登录态`)
 
 const defaultEmbedAgentId = computed(() =>
-  aiOnboardingManifest.value?.embed?.defaultAgentKeySlug
+  aiOnboardingManifest.value?.agentWorkflow?.globalAgentKeySlug
+  || aiOnboardingManifest.value?.embed?.defaultAgentKeySlug
   || aiOnboardingManifest.value?.embed?.defaultAgentId
   || 'manifest-embed-agent-not-configured',
 )
@@ -584,10 +585,16 @@ createEafChat({
   mount: '#reachai-chat',
   apiBase: '${gatewayBaseUrl.value || 'http://localhost:8080'}',
   agentId: '${defaultEmbedAgentId.value}',
+  page: {
+    pageKey: '<current-page-key>',
+    name: '<current-page-name>',
+    routePattern: window.location.pathname,
+  },
   tokenProvider: async () => {
     const query = new URLSearchParams({
       projectCode: '${project.value?.projectCode || projectCode.value}',
       agentId: '${defaultEmbedAgentId.value}',
+      pageKey: '<current-page-key>',
       pageInstanceId,
       route: window.location.pathname,
       origin: window.location.origin
@@ -626,6 +633,26 @@ const aiOnboardingPrompt = computed(() => {
       ? appendQuery(platformManifestUrl, 'aiCodingKey', aiCodingAccessKey.value.trim())
       : platformManifestUrl
   const platformUrl = manifest?.sdk.config.registryUrl || window.location.origin
+  const agentWorkflow = manifest?.agentWorkflow
+  const globalAgentKeySlug = agentWorkflow?.globalAgentKeySlug || embedAgentId || `${code}-global-ai-assistant`
+  const agentWorkflowBlock = [
+    `- Agent/Workflow model: ${agentWorkflow?.model || 'agent-workflow.decoupled.v1'}`,
+    `- Global embedded agent keySlug: ${globalAgentKeySlug}`,
+    `- Global embedded agent kind: ${agentWorkflow?.globalAgentKind || 'GLOBAL_EMBED'}`,
+    `- Workflow storage target: ${agentWorkflow?.workflowStorage || 'ai_workflow'}`,
+    `- SDK graph workflow type: ${agentWorkflow?.sdkGraphWorkflowType || 'SDK_GRAPH'}`,
+    `- Binding strategy: ${agentWorkflow?.bindingStrategy || 'Bind page/action/intent workflows to the global embedded agent.'}`,
+    `- Agents API: ${agentWorkflow?.endpoints?.agentsUrl || `${platformUrl}/api/agents`}`,
+    `- Workflows API: ${agentWorkflow?.endpoints?.workflowsUrl || `${platformUrl}/api/workflows`}`,
+    `- Bindings API: ${agentWorkflow?.endpoints?.globalAgentBindingsUrl || `${platformUrl}/api/agents/${globalAgentKeySlug}/workflow-bindings`}`,
+  ].join('\n')
+  const globalPageRoutingBlock = [
+    `- Use one global embedded AI button with agentId/keySlug: ${globalAgentKeySlug}.`,
+    '- Each business page must pass its stable pageKey to both the embed token broker and createEafChat({ page }).',
+    '- The browser SDK creates /api/embed/chat/sessions with pageKey, route, pageInstanceId and bridgeActions.',
+    '- ReachAI resolves the runnable Workflow from ai_agent_workflow_binding by current pageKey/action/intent.',
+    '- Do not create one floating AI button per workflow. Page assistants are page workflows bound to the global Agent entry.'
+  ].join('\n')
   const aiCodingKeyLine =
     aiCodingAccessEnabled.value && aiCodingAccessKey.value.trim()
       ? `AI Coding 接入秘钥：${aiCodingAccessKey.value.trim()}`
@@ -678,6 +705,12 @@ const aiOnboardingPrompt = computed(() => {
 - Embed Token Broker：${manifest?.embed?.tokenPath || embedTokenPath.value || '/api/reachai/embed-token'}
 - ${embedAgentLine}
 - ${allowedAgentLine}
+
+Agent/Workflow target model:
+${agentWorkflowBlock}
+
+Global AI page routing contract:
+${globalPageRoutingBlock}
 
 安装/读取要求：
 ${installHint}

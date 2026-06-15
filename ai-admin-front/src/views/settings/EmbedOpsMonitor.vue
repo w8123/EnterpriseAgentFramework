@@ -145,9 +145,74 @@
         </el-table-column>
         <el-table-column prop="lastSeenAt" label="最近上报" width="150" />
         <el-table-column prop="description" label="描述" min-width="170" show-overflow-tooltip />
+        <el-table-column label="引用" width="96" fixed="right" align="center">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openActionReferences(row)">Workflow</el-button>
+          </template>
+        </el-table-column>
       </el-table>
       <el-empty v-else description="当前页面暂无匹配动作" :image-size="88" />
     </el-drawer>
+
+    <el-dialog
+      v-model="referenceDialogVisible"
+      title="页面动作 Workflow 引用"
+      width="980px"
+      destroy-on-close
+    >
+      <div class="reference-head">
+        <span>
+          <b>{{ referenceAction?.title || referenceAction?.actionKey || '-' }}</b>
+          <small>{{ referenceAction?.pageKey || '-' }} / {{ referenceAction?.actionKey || '-' }}</small>
+        </span>
+        <el-button size="small" :loading="referenceLoading" @click="reloadActionReferences">刷新</el-button>
+      </div>
+      <el-table
+        v-loading="referenceLoading"
+        :data="actionReferences"
+        row-key="referenceKey"
+        size="small"
+      >
+        <el-table-column label="Workflow" min-width="210" show-overflow-tooltip>
+          <template #default="{ row }">
+            <strong>{{ row.workflowName || row.workflowKeySlug || row.workflowId || '-' }}</strong>
+            <div class="reference-sub">{{ row.workflowKeySlug || row.workflowId || '-' }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="入口 Agent" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.agentName || row.agentKeySlug || row.agentId || '-' }}</span>
+            <div class="reference-sub">{{ row.agentKeySlug || row.agentId || '-' }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="绑定" width="150">
+          <template #default="{ row }">
+            <el-tag size="small" effect="plain">{{ row.bindingType || '-' }}</el-tag>
+            <el-tag class="ml-6" size="small" :type="row.bindingEnabled ? 'success' : 'info'" effect="plain">
+              {{ row.bindingEnabled ? '启用' : '未启用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="节点" min-width="170" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.nodeName || row.nodeId || '-' }}</span>
+            <div class="reference-sub">{{ row.nodeId || '-' }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="版本/来源" width="150">
+          <template #default="{ row }">
+            <span>{{ row.workflowVersion || '-' }}</span>
+            <div class="reference-sub">{{ row.graphSource || '-' }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="workflowStatus" label="状态" width="100">
+          <template #default="{ row }">
+            <CommonStatusTag :status="row.workflowStatus || '-'" />
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!referenceLoading && !actionReferences.length" description="暂无 Workflow 引用" :image-size="88" />
+    </el-dialog>
 
     <el-drawer
       v-model="credentialDrawerVisible"
@@ -265,12 +330,14 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ChatDotRound, Clock, Cpu, Document, Grid, Lock, MagicStick, Refresh, Select } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import CommonStatusTag from '@/components/CommonStatusTag.vue'
 import {
   createEmbedRenderer,
   disableEmbedRenderer as disableEmbedRendererApi,
   listEmbedCredentialPolicies,
   listEmbedRenderers,
+  listPageActionReferences,
   listPageActionCatalog,
   listPageRegistry,
   updateEmbedCredentialPolicy,
@@ -278,6 +345,7 @@ import {
   type EmbedCredentialPolicyView,
   type EmbedRendererPayload,
   type EmbedRendererView,
+  type PageActionReferenceView,
   type PageActionRegistryView,
   type PageRegistryView,
 } from '@/api/embedOps'
@@ -290,10 +358,14 @@ const credentialLoading = ref(false)
 const credentialSaving = ref(false)
 const rendererLoading = ref(false)
 const rendererSaving = ref(false)
+const referenceLoading = ref(false)
 const pageRegistry = ref<PageRegistryView[]>([])
 const pageActionCatalog = ref<PageActionRegistryView[]>([])
+const actionReferences = ref<PageActionReferenceView[]>([])
 const selectedPageKey = ref('')
 const actionDrawerVisible = ref(false)
+const referenceDialogVisible = ref(false)
+const referenceAction = ref<PageActionRegistryView | null>(null)
 const credentialPolicies = ref<EmbedCredentialPolicyView[]>([])
 const renderers = ref<EmbedRendererView[]>([])
 const credentialDrawerVisible = ref(false)
@@ -532,6 +604,29 @@ function editRenderer(row: EmbedRendererView) {
 async function disableRenderer(row: EmbedRendererView) {
   await disableEmbedRendererApi(row.id)
   await loadRenderers()
+}
+
+async function openActionReferences(row: PageActionRegistryView) {
+  referenceAction.value = row
+  referenceDialogVisible.value = true
+  await reloadActionReferences()
+}
+
+async function reloadActionReferences() {
+  if (!referenceAction.value?.id) return
+  referenceLoading.value = true
+  try {
+    const { data } = await listPageActionReferences(referenceAction.value.id)
+    actionReferences.value = (data || []).map((item, index) => ({
+      ...item,
+      referenceKey: `${item.workflowId || 'workflow'}-${item.bindingId || 'binding'}-${item.nodeId || index}`,
+    })) as PageActionReferenceView[]
+  } catch (error) {
+    actionReferences.value = []
+    ElMessage.error(error instanceof Error ? error.message : '加载 Workflow 引用失败')
+  } finally {
+    referenceLoading.value = false
+  }
 }
 
 function goSessionAudit() {
@@ -925,6 +1020,45 @@ onMounted(load)
   border: 1px solid var(--border-glass);
   border-radius: 8px;
   overflow: hidden;
+}
+
+.reference-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-glass);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-tertiary) 44%, transparent);
+}
+
+.reference-head span {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.reference-head b {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-head small,
+.reference-sub {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-6 {
+  margin-left: 6px;
 }
 
 .action-main {

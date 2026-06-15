@@ -1,5 +1,17 @@
 # 数据库初始化脚本
 
+## Agent / Workflow 解耦新库
+
+`sql/init2.sql` 是 Agent 与 Workflow 解耦后的新数据库初始化脚本。后续重构阶段如果使用全新数据库，优先执行：
+
+```bash
+mysql -uroot -p < sql/init2.sql
+```
+
+`init2.sql` 不迁移旧 `agent_definition.graph_spec_json` 或 `agent_version` 数据。它面向新库，直接创建 `ai_agent`、`ai_workflow`、`ai_workflow_version`、`ai_agent_workflow_binding` 以及页面能力 / Embed 会话所需的基础表。
+
+旧 `sql/init.sql` 仍是当前旧模型基线，用于尚未切换到 Agent/Workflow 新模型的环境。
+
 `sql/init.sql` 是睿池 ReachAI 的唯一 SQL 基线入口，覆盖 `ai-skills-service`、`ai-model-service`、`ai-agent-service` 当前运行所需的表结构、补列、补索引和必要种子数据。
 
 历史上分散在各 service 的升级补丁 SQL 已合并进本脚本并清理。首次上线和测试环境重建执行本文件；已有开发/测试库需要按时间顺序执行根目录 `sql/upgrade-*.sql`。

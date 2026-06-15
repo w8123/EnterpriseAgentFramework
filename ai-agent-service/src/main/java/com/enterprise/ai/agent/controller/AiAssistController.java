@@ -11,6 +11,8 @@ import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.enterprise.ai.agent.registry.SdkAccessCheckService;
 import com.enterprise.ai.agent.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.scan.ScanProjectService;
+import com.enterprise.ai.agent.workflow.PageAssistantWorkflowBindingResult;
+import com.enterprise.ai.agent.workflow.PageAssistantWorkflowBindingService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.ClassPathResource;
@@ -81,6 +83,7 @@ public class AiAssistController {
     private final AgentDefinitionService agentDefinitionService;
     private final AiAccessSessionService accessSessionService;
     private final PageActionCatalogService pageActionCatalogService;
+    private final PageAssistantWorkflowBindingService pageAssistantWorkflowBindingService;
 
     @GetMapping("/skills/reachai-onboarding/latest")
     public ResponseEntity<SkillPackageResponse> latestSkill(HttpServletRequest request) {
@@ -155,6 +158,7 @@ public class AiAssistController {
                     ? registrySecurityService.findPrimaryActiveCredential(project.getProjectCode())
                     : Optional.empty();
             String appKey = credential.map(RegistryCredentialEntity::getAppKey).orElse(null);
+            EmbedManifest embed = buildEmbedManifest(project, credential);
 
             return ResponseEntity.ok(new OnboardingManifestResponse(
                     "reachai.onboarding.v1",
@@ -196,7 +200,8 @@ public class AiAssistController {
                             baseUrl + "/api/scan-projects/" + projectId + "/sdk-access-check",
                             baseUrl + "/api/scan-projects/" + projectId + "/tools/reconcile"
                     ),
-                    buildEmbedManifest(project, credential),
+                    embed,
+                    buildAgentWorkflowManifest(project, embed, baseUrl),
                     new SecurityGuidance(
                             SECRET_ENV_NAME,
                             "Do not paste or write the registry app secret into AI chat context. Store it in a local environment variable or secret manager."
@@ -469,12 +474,19 @@ public class AiAssistController {
                             request == null ? null : request.pageKey(),
                             request == null ? null : request.routePattern(),
                             actionKeys));
+            PageAssistantWorkflowBindingResult workflowBinding =
+                    pageAssistantWorkflowBindingService.ensurePageWorkflowBinding(
+                            project,
+                            request == null ? null : request.pageKey(),
+                            request == null ? null : request.routePattern(),
+                            actionKeys);
             return ResponseEntity.ok(new PageAssistantCatalogSyncResponse(
                     result.projectCode(),
                     result.appId(),
                     result.pageKey(),
                     result.actionCount(),
-                    session));
+                    session,
+                    workflowBinding));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
         }
@@ -508,6 +520,12 @@ public class AiAssistController {
                     .map(String::trim)
                     .distinct()
                     .toList();
+            PageAssistantWorkflowBindingResult workflowBinding =
+                    pageAssistantWorkflowBindingService.ensurePageWorkflowBinding(
+                            project,
+                            request == null ? null : request.pageKey(),
+                            request == null ? null : request.routePattern(),
+                            actionKeys);
             AiAccessSessionService.PageAssistantCheckRunResponse checkRun =
                     accessSessionService.runPageAssistantChecks(
                             projectId,
@@ -528,7 +546,8 @@ public class AiAssistController {
                             request == null ? null : request.framework(),
                             request == null ? null : request.bridgeGlobal()),
                     actionKeys,
-                    sessionResult.fileEvidence()));
+                    sessionResult.fileEvidence(),
+                    workflowBinding));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
         }
@@ -607,6 +626,44 @@ public class AiAssistController {
                 defaultAgent == null ? null : defaultAgent.keySlug(),
                 agents
         );
+    }
+
+    private AgentWorkflowManifest buildAgentWorkflowManifest(ScanProjectEntity project, EmbedManifest embed, String baseUrl) {
+        String fallbackProjectCode = StringUtils.hasText(project.getProjectCode())
+                ? project.getProjectCode().trim()
+                : "project-" + project.getId();
+        String globalAgentKeySlug = firstNonBlank(
+                embed == null ? null : embed.defaultAgentKeySlug(),
+                fallbackProjectCode + "-global-ai-assistant");
+        return new AgentWorkflowManifest(
+                "agent-workflow.decoupled.v1",
+                globalAgentKeySlug,
+                "GLOBAL_EMBED",
+                "ai_workflow",
+                "SDK_GRAPH",
+                "Bind page/action/intent workflows to the global embedded agent instead of creating one agent per workflow.",
+                new AgentWorkflowEndpoints(
+                        baseUrl + "/api/agents",
+                        baseUrl + "/api/workflows",
+                        baseUrl + "/api/agents/" + globalAgentKeySlug + "/workflow-bindings",
+                        baseUrl + "/api/agents/" + globalAgentKeySlug + "/workflow-bindings/resolve-preview"
+                ),
+                List.of(
+                        "Create or reuse one project-level GLOBAL_EMBED agent entry.",
+                        "Store every executable graph as an ai_workflow draft or version.",
+                        "Create ai_agent_workflow_binding rows for DEFAULT, PAGE, ACTION, ROUTE, or INTENT routing.",
+                        "Do not treat LangGraph runtime configuration as the Agent identity."
+                )
+        );
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value.trim();
+            }
+        }
+        return null;
     }
 
     private boolean invalidAiCodingKey(Long projectId, String aiCodingKey) {
@@ -729,6 +786,7 @@ public class AiAssistController {
             SdkManifest sdk,
             PlatformEndpoints endpoints,
             EmbedManifest embed,
+            AgentWorkflowManifest agentWorkflow,
             SecurityGuidance security
     ) {
     }
@@ -858,7 +916,8 @@ public class AiAssistController {
             String appId,
             String pageKey,
             int actionCount,
-            AiAccessSessionService.AccessSessionView session
+            AiAccessSessionService.AccessSessionView session,
+            PageAssistantWorkflowBindingResult workflowBinding
     ) {
     }
 
@@ -867,7 +926,8 @@ public class AiAssistController {
             AiAccessSessionService.PageAssistantCheckResponse checkResult,
             RegisteredPageResponse registeredPage,
             List<String> registeredActions,
-            List<AiAccessSessionService.PageAssistantFileEvidence> fileEvidence
+            List<AiAccessSessionService.PageAssistantFileEvidence> fileEvidence,
+            PageAssistantWorkflowBindingResult workflowBinding
     ) {
     }
 
@@ -896,6 +956,26 @@ public class AiAssistController {
             String name,
             String projectCode,
             boolean enabled
+    ) {
+    }
+
+    record AgentWorkflowManifest(
+            String model,
+            String globalAgentKeySlug,
+            String globalAgentKind,
+            String workflowStorage,
+            String sdkGraphWorkflowType,
+            String bindingStrategy,
+            AgentWorkflowEndpoints endpoints,
+            List<String> requiredSteps
+    ) {
+    }
+
+    record AgentWorkflowEndpoints(
+            String agentsUrl,
+            String workflowsUrl,
+            String globalAgentBindingsUrl,
+            String resolvePreviewUrl
     ) {
     }
 

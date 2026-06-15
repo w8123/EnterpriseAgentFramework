@@ -362,6 +362,8 @@ export interface CanvasNode {
   type: CanvasNodeKind
   position: { x: number; y: number }
   data: CanvasNodeData
+  class?: string | string[] | Record<string, boolean>
+  style?: Record<string, string | number>
 }
 
 export interface CanvasEdge {

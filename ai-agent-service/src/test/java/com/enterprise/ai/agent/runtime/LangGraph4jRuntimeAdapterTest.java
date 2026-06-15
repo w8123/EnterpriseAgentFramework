@@ -1131,6 +1131,176 @@ class LangGraph4jRuntimeAdapterTest {
     }
 
     @Test
+    void graphNativeDebugNodeMatchesAgentDefinitionEntry() {
+        LangGraph4jRuntimeAdapter adapter = adapter(null);
+        GraphSpec graphSpec = GraphSpec.builder()
+                .code("debug_graph")
+                .entry("reply")
+                .finishNode("reply")
+                .node(GraphSpec.Node.builder()
+                        .id("reply")
+                        .type("TEMPLATE")
+                        .config(Map.of("template", "Hello {{ customer.name }}", "writeToAnswer", true))
+                        .build())
+                .build();
+        AgentDefinition definition = AgentDefinition.builder()
+                .id("agent-1")
+                .name("Debug Agent")
+                .type("single")
+                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
+                .modelInstanceId("llm-1")
+                .systemPrompt("You are helpful.")
+                .graphSpec(graphSpec)
+                .build();
+        Map<String, Object> stateOverrides = Map.of("customer", Map.of("name", "Ada"));
+
+        LangGraph4jRuntimeAdapter.NodeDebugResult legacy = adapter.debugNode(
+                definition, "reply", "hello", stateOverrides);
+        LangGraph4jRuntimeAdapter.NodeDebugResult graphNative = adapter.debugNode(
+                graphSpec,
+                GraphRuntimeContext.fromAgentDefinition(definition),
+                "reply",
+                "hello",
+                stateOverrides);
+
+        assertEquals(legacy.isSuccess(), graphNative.isSuccess());
+        assertEquals(legacy.getNodeOutput(), graphNative.getNodeOutput());
+        assertEquals(legacy.getOutputState().get("answer"), graphNative.getOutputState().get("answer"));
+    }
+
+    @Test
+    void graphNativeDebugRunMatchesAgentDefinitionEntry() {
+        LangGraph4jRuntimeAdapter adapter = adapter(null);
+        GraphSpec graphSpec = GraphSpec.builder()
+                .code("answer_graph")
+                .entry("answer")
+                .finishNode("answer")
+                .node(GraphSpec.Node.builder()
+                        .id("answer")
+                        .type("ANSWER")
+                        .config(Map.of("template", "Done: {{ params.task }}"))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("answer").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
+                .build();
+        AgentDefinition definition = AgentDefinition.builder()
+                .id("agent-answer")
+                .name("Answer Agent")
+                .type("single")
+                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
+                .graphSpec(graphSpec)
+                .build();
+        Map<String, Object> inputParams = Map.of("task", "review");
+
+        LangGraph4jRuntimeAdapter.WorkflowDebugRunResult legacy = adapter.debugRun(
+                definition, "run", inputParams, Map.of());
+        LangGraph4jRuntimeAdapter.WorkflowDebugRunResult graphNative = adapter.debugRun(
+                graphSpec,
+                GraphRuntimeContext.fromAgentDefinition(definition),
+                "run",
+                inputParams,
+                Map.of());
+
+        assertEquals(legacy.isSuccess(), graphNative.isSuccess());
+        assertEquals(legacy.getAnswer(), graphNative.getAnswer());
+        assertEquals(legacy.getSteps().size(), graphNative.getSteps().size());
+    }
+
+    @Test
+    void graphNativeExecuteMatchesAgentDefinitionEntry() {
+        LangGraph4jRuntimeAdapter adapter = adapter(null);
+        GraphSpec graphSpec = GraphSpec.builder()
+                .code("answer_graph")
+                .entry("answer")
+                .finishNode("answer")
+                .node(GraphSpec.Node.builder()
+                        .id("answer")
+                        .type("ANSWER")
+                        .config(Map.of("template", "Done: {{ params.task }}"))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("answer").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
+                .build();
+        AgentDefinition definition = AgentDefinition.builder()
+                .id("agent-answer")
+                .name("Answer Agent")
+                .type("single")
+                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
+                .graphSpec(graphSpec)
+                .build();
+        AgentRuntimeRequest request = AgentRuntimeRequest.builder()
+                .traceId("trace-answer")
+                .sessionId("session-answer")
+                .message("run")
+                .runtimeOptions(Map.of("params", Map.of("task", "review")))
+                .build();
+
+        AgentRuntimeResult legacy = adapter.execute(AgentRuntimeRequest.builder()
+                .traceId(request.getTraceId())
+                .sessionId(request.getSessionId())
+                .message(request.getMessage())
+                .runtimeOptions(request.getRuntimeOptions())
+                .agentDefinition(definition)
+                .build());
+        AgentRuntimeResult graphNative = adapter.execute(
+                graphSpec,
+                GraphRuntimeContext.fromAgentDefinition(definition),
+                request);
+
+        assertEquals(legacy.isSuccess(), graphNative.isSuccess());
+        assertEquals(legacy.getAnswer(), graphNative.getAnswer());
+        assertEquals(legacy.getAgentName(), graphNative.getAgentName());
+    }
+
+    @Test
+    void graphNativeExecuteCarriesWorkflowTraceMetadata() {
+        LangGraph4jRuntimeAdapter adapter = adapter(null);
+        GraphSpec graphSpec = GraphSpec.builder()
+                .code("orders")
+                .entry("answer")
+                .finishNode("answer")
+                .node(GraphSpec.Node.builder()
+                        .id("answer")
+                        .type("ANSWER")
+                        .config(Map.of("template", "Done"))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("answer").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
+                .build();
+        GraphRuntimeContext runtimeContext = GraphRuntimeContext.builder()
+                .sourceType("WORKFLOW_VERSION")
+                .sourceId("wf-1")
+                .sourceKeySlug("orders")
+                .sourceVersion("v1")
+                .sourceVersionId(9L)
+                .name("Orders Workflow")
+                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
+                .extra(Map.of(
+                        "workflowId", "wf-1",
+                        "workflowKeySlug", "orders",
+                        "workflowVersion", "v1",
+                        "workflowVersionId", 9L,
+                        "entryAgentId", "agent-1",
+                        "entryAgentKeySlug", "global-agent"))
+                .build();
+        AgentRuntimeRequest request = AgentRuntimeRequest.builder()
+                .traceId("trace-wf")
+                .sessionId("session-wf")
+                .message("run")
+                .build();
+
+        AgentRuntimeResult result = adapter.execute(graphSpec, runtimeContext, request);
+
+        assertTrue(result.isSuccess());
+        assertEquals("wf-1", result.getMetadata().get("workflowId"));
+        assertEquals(9L, result.getMetadata().get("workflowVersionId"));
+        assertEquals("agent-1", result.getMetadata().get("entryAgentId"));
+        assertEquals("global-agent", result.getMetadata().get("entryAgentKeySlug"));
+        assertEquals("WORKFLOW_VERSION", result.getMetadata().get("sourceType"));
+        assertEquals("wf-1", result.getMetadata().get("sourceId"));
+    }
+
+    @Test
     void onlySupportsSingleAgentWithoutToolsForMinimumRuntime() {
         LangGraph4jRuntimeAdapter adapter = adapter(null);
 
@@ -1510,6 +1680,57 @@ class LangGraph4jRuntimeAdapterTest {
         assertEquals("continued approved", result.getAnswer());
         assertEquals("approval", result.getMetadata().get("resumedFrom"));
         assertEquals("approved", result.getMetadata().get("approvalRoute"));
+    }
+
+    @Test
+    void resumeFromHumanApprovalPrefersGraphSpecNativeRequest() {
+        LangGraph4jRuntimeAdapter adapter = adapter(mock(ToolCallLogService.class));
+        GraphSpec graphSpec = GraphSpec.builder()
+                .code("approval_resume_graph_native")
+                .entry("approval")
+                .finishNode("answer")
+                .node(GraphSpec.Node.builder()
+                        .id("approval")
+                        .type("HUMAN_APPROVAL")
+                        .config(Map.of("prompt", "approve {{ input }}"))
+                        .build())
+                .node(GraphSpec.Node.builder()
+                        .id("answer")
+                        .type("ANSWER")
+                        .config(Map.of("template", "native {{ lastRoute }}"))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("approval").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("approval").to("answer").condition("route:approved").build())
+                .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
+                .build();
+        GraphRuntimeContext runtimeContext = GraphRuntimeContext.builder()
+                .sourceType("WORKFLOW_VERSION")
+                .sourceId("wf-resume")
+                .sourceKeySlug("wf-resume")
+                .sourceVersion("v1")
+                .name("Workflow Resume")
+                .extra(Map.of(
+                        "workflowId", "wf-resume",
+                        "entryAgentId", "entry-1"))
+                .build();
+
+        AgentRuntimeResult result = adapter.resumeFromHumanApproval(
+                AgentRuntimeRequest.builder()
+                        .traceId("trace-resume-native")
+                        .sessionId("session-resume-native")
+                        .userId("user-1")
+                        .graphSpec(graphSpec)
+                        .graphRuntimeContext(runtimeContext)
+                        .build(),
+                null,
+                Map.of("input", "payment"),
+                "approval",
+                "approved");
+
+        assertTrue(result.isSuccess());
+        assertEquals("native approved", result.getAnswer());
+        assertEquals("WORKFLOW_VERSION", result.getMetadata().get("sourceType"));
+        assertEquals("wf-resume", result.getMetadata().get("workflowId"));
     }
 
     @Test

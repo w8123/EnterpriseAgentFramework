@@ -85,6 +85,18 @@ interface EmbedSessionResponse {
   principal?: Record<string, string>
 }
 
+export interface EafChatSessionPayload {
+  pageKey?: string
+  pageInstanceId: string
+  route: string
+  bridgeActions: string[]
+  sdkVersion: string
+}
+
+export type EafChatPageSessionPayload = EafChatSessionPayload & {
+  pageKey: string
+}
+
 interface PageActionDispatchRequest {
   type: 'page.action.requested'
   protocolVersion?: string
@@ -106,7 +118,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   const bridge = options.bridge || createEafPageBridge({ route: location.pathname })
   const apiBase = trimTrailingSlash(options.apiBase || '')
   let token = await options.tokenProvider()
-  let session = await createSession(apiBase, token, bridge)
+  let session = await createSession(apiBase, token, bridge, options.page)
   let context: Record<string, unknown> = { ...(options.context || {}) }
   const pendingPageActions = new Set<string>()
   let pendingPollInFlight = false
@@ -178,14 +190,14 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   async function ensureSession() {
     if (session?.sessionId) return session
     token = await options.tokenProvider()
-    session = await createSession(apiBase, token, bridge)
+    session = await createSession(apiBase, token, bridge, options.page)
     return session
   }
 
   async function refreshSession() {
     token = await options.tokenProvider()
     try {
-      session = await createSession(apiBase, token, bridge)
+      session = await createSession(apiBase, token, bridge, options.page)
     } catch (error) {
       reportError(error)
       throw error
@@ -369,13 +381,25 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   }
 }
 
-async function createSession(apiBase: string, token: string, bridge: EafPageBridge): Promise<EmbedSessionResponse> {
-  return postJson<EmbedSessionResponse>(`${apiBase}/api/embed/chat/sessions`, {
+export function buildEafChatSessionPayload(bridge: EafPageBridge, page: EafPageDescriptor): EafChatPageSessionPayload
+export function buildEafChatSessionPayload(bridge: EafPageBridge, page?: undefined): EafChatSessionPayload
+export function buildEafChatSessionPayload(bridge: EafPageBridge, page?: EafPageDescriptor): EafChatSessionPayload
+export function buildEafChatSessionPayload(bridge: EafPageBridge, page?: EafPageDescriptor): EafChatSessionPayload {
+  return {
+    pageKey: page?.pageKey,
     pageInstanceId: bridge.pageInstanceId,
     route: bridge.route || location.pathname,
     bridgeActions: bridge.registeredActions,
     sdkVersion: SDK_VERSION,
-  }, token)
+  }
+}
+
+async function createSession(apiBase: string, token: string, bridge: EafPageBridge, page?: EafPageDescriptor): Promise<EmbedSessionResponse> {
+  return postJson<EmbedSessionResponse>(
+    `${apiBase}/api/embed/chat/sessions`,
+    buildEafChatSessionPayload(bridge, page),
+    token,
+  )
 }
 
 async function registerPageCatalogIfConfigured(apiBase: string, options: EafChatOptions, bridge: EafPageBridge) {

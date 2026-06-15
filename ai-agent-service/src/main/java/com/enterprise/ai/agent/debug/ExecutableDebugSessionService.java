@@ -3,7 +3,9 @@ package com.enterprise.ai.agent.debug;
 import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.model.interactive.UiRequestPayload;
+import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.runtime.LangGraph4jRuntimeAdapter;
+import com.enterprise.ai.agent.workflow.WorkflowAgentDefinitionAdapter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
@@ -33,13 +35,16 @@ public class ExecutableDebugSessionService {
 
     private final ExecutableDebugSessionMapper sessionMapper;
     private final LangGraph4jRuntimeAdapter langGraph4jRuntimeAdapter;
+    private final WorkflowAgentDefinitionAdapter workflowAgentDefinitionAdapter;
     private final ObjectMapper objectMapper;
 
     public ExecutableDebugSessionService(ExecutableDebugSessionMapper sessionMapper,
                                          LangGraph4jRuntimeAdapter langGraph4jRuntimeAdapter,
+                                         WorkflowAgentDefinitionAdapter workflowAgentDefinitionAdapter,
                                          ObjectMapper objectMapper) {
         this.sessionMapper = sessionMapper;
         this.langGraph4jRuntimeAdapter = langGraph4jRuntimeAdapter;
+        this.workflowAgentDefinitionAdapter = workflowAgentDefinitionAdapter;
         this.objectMapper = objectMapper;
     }
 
@@ -49,14 +54,14 @@ public class ExecutableDebugSessionService {
         }
         String sessionId = UUID.randomUUID().toString();
         String runId = "studio-debug-session-" + sessionId;
-        AgentDefinition definition = toAgentDefinition(request.getTargetType(), request.getDraftDefinition());
         Map<String, Object> options = new LinkedHashMap<>(request.getDebugOptions() == null ? Map.of() : request.getDebugOptions());
         options.put("runId", runId);
         options.put("traceId", runId);
         options.put("sessionId", sessionId);
 
-        LangGraph4jRuntimeAdapter.WorkflowDebugRunResult run = langGraph4jRuntimeAdapter.debugRun(
-                definition,
+        LangGraph4jRuntimeAdapter.WorkflowDebugRunResult run = debugRun(
+                request.getTargetType(),
+                request.getDraftDefinition(),
                 nullToEmpty(request.getMessage()),
                 request.getInputParams() == null ? Map.of() : request.getInputParams(),
                 options);
@@ -98,7 +103,6 @@ public class ExecutableDebugSessionService {
         }
 
         Map<String, Object> draft = readMap(entity.getDraftDefinitionJson());
-        AgentDefinition definition = toAgentDefinition(entity.getTargetType(), draft);
         Map<String, Object> state = readMap(entity.getStateJson());
         Map<String, Object> submitted = request == null || request.getValues() == null
                 ? new LinkedHashMap<>()
@@ -122,8 +126,9 @@ public class ExecutableDebugSessionService {
         options.put("traceId", entity.getTraceId());
         options.put("sessionId", entity.getId());
 
-        LangGraph4jRuntimeAdapter.WorkflowDebugRunResult run = langGraph4jRuntimeAdapter.debugRun(
-                definition,
+        LangGraph4jRuntimeAdapter.WorkflowDebugRunResult run = debugRun(
+                entity.getTargetType(),
+                draft,
                 request == null ? "" : nullToEmpty(request.getMessage()),
                 params,
                 options);
@@ -218,19 +223,28 @@ public class ExecutableDebugSessionService {
                 .build();
     }
 
+    private LangGraph4jRuntimeAdapter.WorkflowDebugRunResult debugRun(String targetType,
+                                                                      Map<String, Object> draftDefinition,
+                                                                      String message,
+                                                                      Map<String, Object> inputParams,
+                                                                      Map<String, Object> debugOptions) {
+        String normalizedTarget = nullToEmpty(targetType).trim().toUpperCase();
+        if ("WORKFLOW_DRAFT".equals(normalizedTarget) || "WORKFLOW_VERSION".equals(normalizedTarget)) {
+            GraphSpec graphSpec = readGraphSpec(draftDefinition);
+            GraphRuntimeContext runtimeContext = GraphRuntimeContext.fromWorkflowDraft(normalizedTarget, draftDefinition);
+            return langGraph4jRuntimeAdapter.debugRun(graphSpec, runtimeContext, message, inputParams, debugOptions);
+        }
+        AgentDefinition definition = toAgentDefinition(targetType, draftDefinition);
+        return langGraph4jRuntimeAdapter.debugRun(definition, message, inputParams, debugOptions);
+    }
+
     private AgentDefinition toAgentDefinition(String targetType, Map<String, Object> draft) {
+        if ("WORKFLOW_DRAFT".equalsIgnoreCase(nullToEmpty(targetType))
+                || "WORKFLOW_VERSION".equalsIgnoreCase(nullToEmpty(targetType))) {
+            throw new IllegalStateException("workflow debug should use GraphSpec-native path");
+        }
         if (!"COMPOSITION_DRAFT".equalsIgnoreCase(nullToEmpty(targetType))) {
-            AgentDefinition definition = objectMapper.convertValue(draft, AgentDefinition.class);
-            if (definition.getGraphSpec() == null) {
-                definition.setGraphSpec(readGraphSpec(draft));
-            }
-            if (!StringUtils.hasText(definition.getId())) {
-                definition.setId("studio-debug-draft");
-            }
-            if (!StringUtils.hasText(definition.getName())) {
-                definition.setName("Studio Debug Draft");
-            }
-            return definition;
+            return workflowAgentDefinitionAdapter.toDebugShellFromDraft(targetType, draft);
         }
         GraphSpec graphSpec = readGraphSpec(draft);
         return AgentDefinition.builder()

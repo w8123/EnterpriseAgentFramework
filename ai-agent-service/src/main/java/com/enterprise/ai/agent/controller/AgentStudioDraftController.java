@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/agent/studio")
 @RequiredArgsConstructor
+@Deprecated
 public class AgentStudioDraftController {
 
     private final WorkflowDraftGenerationService generationService;

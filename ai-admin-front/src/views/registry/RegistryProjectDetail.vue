@@ -326,6 +326,7 @@ import {
   Link,
   Lock,
   Monitor,
+  Operation,
   Refresh,
   Setting,
   Star,
@@ -557,6 +558,14 @@ const workbenchGroups = computed(() => [
         tone: 'green',
         disabled: !project.value?.id,
         action: goCapabilitySync,
+      },
+      {
+        title: 'Workflow 编排',
+        desc: '查看并编辑本项目下的可执行 Workflow，进入 Studio、版本和发布链路。',
+        icon: Operation,
+        tone: 'blue',
+        disabled: !project.value?.projectCode && !projectCode.value,
+        action: goWorkflowList,
       },
       {
         title: 'Agent管理',
@@ -823,6 +832,15 @@ function goCapabilitySync() {
   if (!project.value?.id) return
   projectStore.setCurrentProject(project.value.id)
   router.push({ name: 'CapabilitySyncDebug' })
+}
+
+function goWorkflowList() {
+  const code = project.value?.projectCode || projectCode.value
+  if (!code) return
+  if (project.value?.id) {
+    projectStore.setCurrentProject(project.value.id)
+  }
+  router.push({ name: 'WorkflowList', query: { projectCode: code } })
 }
 
 function goPageActionGovernance() {

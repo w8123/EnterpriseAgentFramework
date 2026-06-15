@@ -1,7 +1,6 @@
 package com.enterprise.ai.agent.registry;
 
 import com.enterprise.ai.agent.acl.ToolAclMapper;
-import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.registry.RegistryContracts.AgentGraphRegistration;
@@ -13,6 +12,8 @@ import com.enterprise.ai.agent.scan.ScanProjectMapper;
 import com.enterprise.ai.agent.scan.ScanProjectService;
 import com.enterprise.ai.agent.scan.ScanProjectToolService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
+import com.enterprise.ai.agent.workflow.WorkflowDefinitionEntity;
+import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -33,6 +35,7 @@ class AiRegistryServiceAgentGraphSyncTest {
 
     private ScanProjectService scanProjectService;
     private AgentDefinitionService agentDefinitionService;
+    private WorkflowDefinitionService workflowDefinitionService;
     private AiRegistryService service;
     private ScanProjectEntity project;
 
@@ -40,6 +43,7 @@ class AiRegistryServiceAgentGraphSyncTest {
     void setUp() {
         scanProjectService = mock(ScanProjectService.class);
         agentDefinitionService = mock(AgentDefinitionService.class);
+        workflowDefinitionService = mock(WorkflowDefinitionService.class);
         service = new AiRegistryService(
                 scanProjectService,
                 mock(ScanProjectMapper.class),
@@ -52,6 +56,7 @@ class AiRegistryServiceAgentGraphSyncTest {
                 mock(CapabilityApplyRecordMapper.class),
                 mock(ToolDefinitionService.class),
                 agentDefinitionService,
+                workflowDefinitionService,
                 mock(ToolAclMapper.class),
                 mock(RegistrySecurityService.class),
                 new ObjectMapper());
@@ -64,12 +69,12 @@ class AiRegistryServiceAgentGraphSyncTest {
     }
 
     @Test
-    void syncCreatesAgentDraftFromSdkGraph() {
-        when(agentDefinitionService.findByKeySlug("order-service-order_assistant")).thenReturn(Optional.empty());
-        when(agentDefinitionService.create(any())).thenAnswer(invocation -> {
-            AgentDefinition def = invocation.getArgument(0);
-            def.setId("agent-1");
-            return def;
+    void syncCreatesWorkflowDraftFromSdkGraph() {
+        when(workflowDefinitionService.findByKeySlug("order-service-order_assistant")).thenReturn(Optional.empty());
+        when(workflowDefinitionService.create(any())).thenAnswer(invocation -> {
+            WorkflowDefinitionEntity workflow = invocation.getArgument(0);
+            workflow.setId("workflow-1");
+            return workflow;
         });
 
         AgentGraphSyncResponse response = service.syncAgentGraphs("order-service",
@@ -77,24 +82,22 @@ class AiRegistryServiceAgentGraphSyncTest {
 
         assertEquals(1, response.created());
         assertEquals(0, response.updated());
-        assertEquals("agent-1", response.items().get(0).agentId());
-        verify(agentDefinitionService).create(any(AgentDefinition.class));
+        assertEquals("workflow-1", response.items().get(0).workflowId());
+        verify(workflowDefinitionService).create(any(WorkflowDefinitionEntity.class));
+        verify(agentDefinitionService, never()).create(any());
     }
 
     @Test
     void syncUpdatesExistingDraftWithoutPublishing() {
-        AgentDefinition existing = AgentDefinition.builder()
-                .id("agent-1")
-                .keySlug("order-service-order_assistant")
-                .name("Old")
-                .modelInstanceId("old-model")
-                .maxSteps(5)
-                .enabled(true)
-                .build();
-        when(agentDefinitionService.findByKeySlug("order-service-order_assistant")).thenReturn(Optional.of(existing));
-        when(agentDefinitionService.update(org.mockito.ArgumentMatchers.anyString(), any())).thenAnswer(invocation -> {
-            AgentDefinition update = invocation.getArgument(1);
-            update.setId("agent-1");
+        WorkflowDefinitionEntity existing = new WorkflowDefinitionEntity();
+        existing.setId("workflow-1");
+        existing.setKeySlug("order-service-order_assistant");
+        existing.setName("Old");
+        existing.setRuntimeType("LANGGRAPH4J");
+        when(workflowDefinitionService.findByKeySlug("order-service-order_assistant")).thenReturn(Optional.of(existing));
+        when(workflowDefinitionService.update(org.mockito.ArgumentMatchers.anyString(), any())).thenAnswer(invocation -> {
+            WorkflowDefinitionEntity update = invocation.getArgument(1);
+            update.setId("workflow-1");
             return update;
         });
 
@@ -103,33 +106,29 @@ class AiRegistryServiceAgentGraphSyncTest {
 
         assertEquals(0, response.created());
         assertEquals(1, response.updated());
-        verify(agentDefinitionService).update(any(), any(AgentDefinition.class));
+        verify(workflowDefinitionService).update(any(), any(WorkflowDefinitionEntity.class));
+        verify(agentDefinitionService, never()).update(any(), any());
     }
 
     @Test
     void upsertPayloadIncludesGraphSpecCanvasAndSdkMetadata() {
-        when(agentDefinitionService.findByKeySlug("order-service-order_assistant")).thenReturn(Optional.empty());
-        when(agentDefinitionService.create(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(workflowDefinitionService.findByKeySlug("order-service-order_assistant")).thenReturn(Optional.empty());
+        when(workflowDefinitionService.create(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.syncAgentGraphs("order-service",
                 new AgentGraphSyncRequest("sync-3", "SDK", true, List.of(registration())));
 
-        verify(agentDefinitionService).create(org.mockito.ArgumentMatchers.argThat(def -> {
+        verify(workflowDefinitionService).create(org.mockito.ArgumentMatchers.argThat(def -> {
             assertEquals("LANGGRAPH4J", def.getRuntimeType());
-            assertEquals("CENTRAL", def.getRuntimePlacement());
-            assertEquals("llm-1", def.getModelInstanceId());
+            assertEquals("llm-1", def.getDefaultModelInstanceId());
             assertEquals("order-service-order_assistant", def.getKeySlug());
-            assertEquals(List.of("queryOrder"), def.getTools());
-            assertNotNull(def.getGraphSpec());
+            assertNotNull(def.getGraphSpecJson());
             assertTrue(def.getCanvasJson().contains("\"type\":\"llm\""));
             assertTrue(def.getCanvasJson().contains("\"x\":520"));
             assertTrue(def.getCanvasJson().contains("\"y\":260"));
             assertTrue(def.getCanvasJson().contains("\"animated\":true"));
-            assertTrue(def.getExtra().containsKey("sdkGraph"));
-            @SuppressWarnings("unchecked")
-            Map<String, Object> sdkGraph = (Map<String, Object>) def.getExtra().get("sdkGraph");
-            assertEquals("SDK", sdkGraph.get("managedBy"));
-            assertEquals("DRAFT_ONLY", sdkGraph.get("overwriteMode"));
+            assertTrue(def.getExtraJson().contains("\"managedBy\":\"SDK\""));
+            assertTrue(def.getExtraJson().contains("\"overwriteMode\":\"DRAFT_ONLY\""));
             return true;
         }));
     }

@@ -246,6 +246,23 @@ export interface PageAssistantCatalogSyncRequest {
   metadata?: Record<string, unknown>
 }
 
+export interface PageAssistantWorkflowBinding {
+  agentId: string
+  agentKeySlug: string
+  workflowId: string
+  workflowKeySlug: string
+  bindingId?: number | null
+}
+
+export interface PageAssistantCatalogSyncResponse {
+  projectCode: string
+  appId: string
+  pageKey: string
+  actionCount: number
+  session: AiAccessSession
+  workflowBinding?: PageAssistantWorkflowBinding | null
+}
+
 export interface PageAssistantCheckItem {
   key: string
   label: string
@@ -305,6 +322,7 @@ export interface PageAssistantPageRegisterResponse {
   }
   registeredActions: string[]
   fileEvidence: PageAssistantFileEvidence[]
+  workflowBinding?: PageAssistantWorkflowBinding | null
 }
 
 export interface PageAssistantSessionSummary {
@@ -420,6 +438,21 @@ export interface AiOnboardingManifest {
       projectCode?: string | null
       enabled: boolean
     }>
+  }
+  agentWorkflow?: {
+    model: string
+    globalAgentKeySlug?: string | null
+    globalAgentKind?: string | null
+    workflowStorage?: string | null
+    sdkGraphWorkflowType?: string | null
+    bindingStrategy?: string | null
+    endpoints?: {
+      agentsUrl?: string | null
+      workflowsUrl?: string | null
+      globalAgentBindingsUrl?: string | null
+      resolvePreviewUrl?: string | null
+    }
+    requiredSteps?: string[]
   }
   security: {
     appSecretEnv: string

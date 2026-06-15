@@ -35,7 +35,7 @@ class EmbedSessionServiceTest {
         claims.setExpiresAt(Instant.now().plusSeconds(300).getEpochSecond());
 
         EmbedTokenException ex = assertThrows(EmbedTokenException.class,
-                () -> service.create(claims, "page-1", "/other-page", List.of(), "1.0.0"));
+                () -> service.create(claims, null, "page-1", "/other-page", List.of(), "1.0.0"));
 
         assertEquals("route does not match embed token", ex.getMessage());
         verify(mapper, never()).insert(any());

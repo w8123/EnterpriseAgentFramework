@@ -24,6 +24,10 @@ import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.model.ChatResponse;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.EmbedWorkflowRuntimeService;
+import com.enterprise.ai.agent.workflow.WorkflowRuntimeRequest;
+import com.enterprise.ai.agent.workflow.WorkflowRuntimeService;
 import com.enterprise.ai.common.dto.ApiResult;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -42,6 +46,7 @@ import java.util.LinkedHashMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
@@ -62,6 +67,8 @@ public class EmbedChatController {
     private final GuardDecisionLogService guardDecisionLogService;
     private final EmbedAuditEventService embedAuditEventService;
     private final EmbedRendererAuthorizationService embedRendererAuthorizationService;
+    private final EmbedWorkflowRuntimeService embedWorkflowRuntimeService;
+    private final WorkflowRuntimeService workflowRuntimeService;
 
     @PostMapping("/token/exchange")
     public ResponseEntity<ApiResult<EmbedTokenExchangeResponse>> exchangeToken(
@@ -357,7 +364,6 @@ public class EmbedChatController {
     private ChatResponse executeMessage(String sessionId, String authorization, EmbedChatMessageRequest request) {
         EmbedTokenClaims claims = verifyBearer(authorization);
         EmbedSessionEntity session = embedSessionService.requireActiveSession(sessionId, claims);
-        AgentDefinition definition = resolveAgent(session.getAgentId());
         embedAuditEventService.recordUserMessage(session, request.message());
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("tenantId", session.getTenantId());
@@ -370,13 +376,42 @@ public class EmbedChatController {
         metadata.put("route", session.getRoute());
         metadata.put("principal", claims.toPrincipal());
 
-        AgentResult result = agentRouter.executeByDefinition(
-                definition,
-                sessionId,
-                claims.getExternalUserId(),
-                request.message(),
-                claims.getRoles(),
-                metadata);
+        Optional<EmbedWorkflowRuntimeService.RunnableWorkflowContext> workflowContext =
+                embedWorkflowRuntimeService.resolveRunnableWorkflowContext(session, null);
+        AgentDefinition definition;
+        AgentResult result;
+        if (workflowContext.isPresent()) {
+            EmbedWorkflowRuntimeService.RunnableWorkflowContext context = workflowContext.get();
+            Map<String, Object> workflowMetadata = new HashMap<>(metadata);
+            workflowMetadata.put("bindingId", context.binding().getId());
+            workflowMetadata.put("bindingType", context.binding().getBindingType());
+            workflowMetadata.put("pageKey", session.getPageKey());
+            workflowMetadata.put("route", session.getRoute());
+            result = workflowRuntimeService.execute(WorkflowRuntimeRequest.builder()
+                    .sessionId(sessionId)
+                    .message(request.message())
+                    .agent(context.agent())
+                    .workflow(context.workflow())
+                    .activeVersion(context.activeVersion())
+                    .principal(principalMap(claims))
+                    .pageContext(pageContext(session))
+                    .metadata(workflowMetadata)
+                    .build());
+            definition = workflowRuntimeService.toExecutionShell(
+                    context.agent(),
+                    context.workflow(),
+                    context.activeVersion(),
+                    workflowMetadata);
+        } else {
+            definition = resolveLegacyAgentDefinition(session.getAgentId());
+            result = agentRouter.executeByDefinition(
+                    definition,
+                    sessionId,
+                    claims.getExternalUserId(),
+                    request.message(),
+                    claims.getRoles(),
+                    metadata);
+        }
         ChatResponse response = ChatResponse.builder()
                 .sessionId(sessionId)
                 .answer(result.getAnswer())
@@ -391,10 +426,29 @@ public class EmbedChatController {
         return response;
     }
 
-    private AgentDefinition resolveAgent(String agentId) {
+    private AgentDefinition resolveLegacyAgentDefinition(String agentId) {
         return agentDefinitionService.findById(agentId)
                 .or(() -> agentDefinitionService.findByKeySlug(agentId))
                 .orElseThrow(() -> new IllegalArgumentException("agent not found: " + agentId));
+    }
+
+    private Map<String, Object> principalMap(EmbedTokenClaims claims) {
+        Map<String, Object> principal = new HashMap<>();
+        principal.put("externalUserId", claims.getExternalUserId());
+        principal.put("globalUserId", claims.getGlobalUserId());
+        principal.put("userName", claims.getUserName());
+        principal.put("roles", claims.getRoles() == null ? List.of() : claims.getRoles());
+        principal.put("attributes", claims.getAttributes() == null ? Map.of() : claims.getAttributes());
+        return principal;
+    }
+
+    private Map<String, Object> pageContext(EmbedSessionEntity session) {
+        Map<String, Object> page = new HashMap<>();
+        page.put("pageKey", session.getPageKey());
+        page.put("pageInstanceId", session.getPageInstanceId());
+        page.put("route", session.getRoute());
+        page.put("origin", session.getOrigin());
+        return page;
     }
 
     private Map<String, Object> readObjectMap(String json) {
@@ -563,7 +617,18 @@ public class EmbedChatController {
         if (!allowed.isEmpty() && allowed.stream().noneMatch(agentId::equals)) {
             throw new IllegalArgumentException("agent is not allowed by embed policy: " + agentId);
         }
-        AgentDefinition definition = resolveAgent(agentId);
+        Optional<AgentEntryEntity> entry = embedWorkflowRuntimeService.resolveAgentEntry(agentId);
+        if (entry != null && entry.isPresent()) {
+            AgentEntryEntity agent = entry.get();
+            if (Boolean.FALSE.equals(agent.getEnabled())) {
+                throw new IllegalArgumentException("agent is disabled: " + agentId);
+            }
+            if (StringUtils.hasText(agent.getProjectCode()) && !projectCode.equals(agent.getProjectCode())) {
+                throw new IllegalArgumentException("agent project does not match embed project");
+            }
+            return;
+        }
+        AgentDefinition definition = resolveLegacyAgentDefinition(agentId);
         if (!definition.isEnabled()) {
             throw new IllegalArgumentException("agent is disabled: " + agentId);
         }

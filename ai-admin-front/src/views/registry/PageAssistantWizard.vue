@@ -615,7 +615,7 @@ import type { Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Close, Connection, DocumentCopy, Finished, MagicStick, Operation, Plus, Search, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { generateWorkflowDraft } from '@/api/agent'
+import { generateWorkflowDraft } from '@/api/workflow'
 import { listApiAssets } from '@/api/apiAsset'
 import {
   declarePageActionCatalog,
@@ -633,7 +633,7 @@ import {
   getScanProjects,
   runPageAssistantAccessSessionChecks,
 } from '@/api/scanProject'
-import type { WorkflowDraftGenerationResult, WorkflowDraftResource } from '@/types/agent'
+import type { WorkflowDraftGenerationResult, WorkflowDraftResource } from '@/types/workflow'
 import type { ApiAssetItem } from '@/types/apiAsset'
 import type { ModelInstance } from '@/types/model'
 import type { AiAccessSession, PageAssistantOnboardingManifest, PageAssistantSessionRequest, PageAssistantSessionSummary, ScanProject } from '@/types/scanProject'

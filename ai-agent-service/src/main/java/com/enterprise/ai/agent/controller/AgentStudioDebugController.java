@@ -16,6 +16,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/agent/studio")
 @RequiredArgsConstructor
+@Deprecated
 public class AgentStudioDebugController {
 
     private final LangGraph4jRuntimeAdapter langGraph4jRuntimeAdapter;

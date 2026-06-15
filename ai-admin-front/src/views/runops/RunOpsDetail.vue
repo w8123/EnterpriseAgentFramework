@@ -4,14 +4,24 @@
       <div class="header-left">
         <el-button text :icon="ArrowLeft" @click="router.push('/runops')">返回</el-button>
         <div>
-          <h2>运行详情</h2>
+          <h2>{{ detailTitle }}</h2>
           <p class="trace-id">{{ traceId }}</p>
+          <div v-if="summary" class="detail-subtitle">
+            <el-tag size="small" effect="plain" :type="runKindTagType(summary)">{{ runKindLabel(summary) }}</el-tag>
+            <span v-if="runSourceType(summary)" class="source-type">{{ runSourceType(summary) }}</span>
+          </div>
         </div>
         <el-tag v-if="summary" :type="spanTimelineType(summary.status)">
           {{ summary.status }}
         </el-tag>
       </div>
       <div class="header-actions">
+        <el-button
+          v-if="summary && runIsWorkflow(summary) && runWorkflowId(summary)"
+          @click="openWorkflowStudio"
+        >
+          打开 Workflow Studio
+        </el-button>
         <el-button @click="loadDetail" :loading="loading">刷新</el-button>
         <el-button type="primary" @click="openReplayDialog" :loading="replaying" :disabled="!detail">重放运行</el-button>
       </div>
@@ -186,7 +196,7 @@
               <div class="span-item">
                 <div class="span-head">
                   <div>
-                    <strong>{{ span.nodeId || span.toolName || span.spanType || span.spanId }}</strong>
+                    <strong>{{ spanDisplayName(span) }}</strong>
                     <span>{{ span.spanType }} · {{ span.runtimeType || '-' }}</span>
                   </div>
                   <div class="span-tags">
@@ -247,6 +257,19 @@
           <el-empty v-if="!detail.guardDecisions.length" description="暂无治理决策记录" />
         </el-tab-pane>
 
+        <el-tab-pane label="Trace Metadata">
+          <section class="snapshot-grid metadata-grid">
+            <div class="snapshot-panel">
+              <div class="panel-title">Summary Metadata</div>
+              <pre>{{ pretty(summary?.metadata) }}</pre>
+            </div>
+            <div class="snapshot-panel">
+              <div class="panel-title">Identity Fields</div>
+              <pre>{{ pretty(identityMetadata) }}</pre>
+            </div>
+          </section>
+        </el-tab-pane>
+
         <el-tab-pane label="生产快照">
           <section class="snapshot-grid">
             <div class="snapshot-panel">
@@ -263,6 +286,15 @@
     </template>
 
     <el-dialog v-model="replayDialogVisible" title="重放配置" width="560px">
+      <el-alert
+        v-if="summary && runIsWorkflow(summary)"
+        class="replay-compat-alert"
+        :type="replayAlertType"
+        :closable="false"
+        show-icon
+        :title="replayAlertTitle"
+        :description="replayAlertDescription"
+      />
       <el-form label-width="110px">
         <el-form-item label="使用快照">
           <el-switch v-model="replayForm.useSnapshot" />
@@ -306,7 +338,24 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { compareRunOpsTrace, getRunOpsDetail, replayRunOpsTrace } from '@/api/runops'
-import type { ReplayRequest, RunComparison, RunDetail, RunGuardDecision, RunSpan, RunToolCall, WorkflowPathItem } from '@/types/runops'
+import type { ReplayRequest, ReplayResult, RunComparison, RunDetail, RunGuardDecision, RunSpan, RunSummary, RunToolCall, WorkflowPathItem } from '@/types/runops'
+import {
+  runDisplayName,
+  runEntryAgentId,
+  runEntryAgentKeySlug,
+  runEntryLabel,
+  runIsWorkflow,
+  runKindLabel,
+  runPrimaryIdentityId,
+  runPrimaryIdentityLabel,
+  runSourceId,
+  runSourceType,
+  runVersionLabel,
+  runWorkflowId,
+  runWorkflowKeySlug,
+  runWorkflowVersion,
+  runWorkflowVersionId,
+} from '@/utils/workflowRunOps'
 
 const route = useRoute()
 const router = useRouter()
@@ -331,9 +380,39 @@ const actionState = computed(() => {
   return { value: '', label: '待处置', type: 'danger' as const }
 })
 
+const replayAlertType = computed(() => 'info' as const)
+
+const replayAlertTitle = computed(() =>
+  'Workflow 重放将按 GraphSpec + RuntimeContext 执行，结果用于观测对比。')
+
+const replayAlertDescription = computed(() => {
+  const s = summary.value
+  if (!s) return undefined
+  const hints: string[] = []
+  if (!runEntryAgentId(s)) {
+    hints.push('当前 trace 缺少 entryAgentId，后端可能回退到 AgentDefinition 兼容路径。')
+  }
+  if (!runWorkflowId(s)) {
+    hints.push('当前 trace 缺少 workflowId，可能无法解析 Workflow 图。')
+  }
+  return hints.length ? hints.join(' ') : undefined
+})
+
 const summaryItems = computed(() => {
   const s = summary.value
   if (!s) return []
+  if (runIsWorkflow(s)) {
+    return [
+      { label: 'Workflow', value: runPrimaryIdentityLabel(s), hint: runPrimaryIdentityId(s) },
+      { label: '版本', value: runVersionLabel(s), hint: runWorkflowVersionId(s) ? `versionId ${runWorkflowVersionId(s)}` : '未绑定版本' },
+      { label: '来源', value: runSourceType(s) || '-', hint: runSourceId(s) || '-' },
+      { label: '入口绑定', value: runEntryLabel(s) || '-', hint: runEntryAgentId(s) || '无 Agent 入口' },
+      { label: 'Runtime', value: s.runtimeType || '-', hint: s.runtimePlacement || '-' },
+      { label: 'Graph', value: s.graphCode || '-', hint: `${s.nodeCount ?? 0} spans / ${s.toolCallCount ?? 0} tools` },
+      { label: '耗时', value: `${s.latencyMs ?? 0} ms`, hint: `${s.tokenCost ?? 0} token` },
+      { label: '问题', value: s.errorCount ?? 0, hint: s.fallback ? `已回落：${s.fallbackReason || '-'}` : '无 fallback' },
+    ]
+  }
   return [
     { label: 'Agent', value: s.agentName || '-', hint: s.agentId || '-' },
     { label: '版本', value: s.version || '-', hint: s.versionId ? `versionId ${s.versionId}` : '未绑定版本' },
@@ -343,6 +422,57 @@ const summaryItems = computed(() => {
     { label: '问题', value: s.errorCount ?? 0, hint: s.fallback ? `已回落：${s.fallbackReason || '-'}` : '无 fallback' },
   ]
 })
+
+const detailTitle = computed(() => {
+  const s = summary.value
+  if (!s) return '运行详情'
+  return runIsWorkflow(s) ? `Workflow 运行 · ${runDisplayName(s)}` : `Agent 运行 · ${runPrimaryIdentityLabel(s)}`
+})
+
+const identityMetadata = computed(() => {
+  const s = summary.value
+  if (!s) return {}
+  return {
+    traceId: s.traceId,
+    sourceType: runSourceType(s),
+    workflowId: runWorkflowId(s),
+    workflowKeySlug: runWorkflowKeySlug(s),
+    workflowVersion: runWorkflowVersion(s),
+    workflowVersionId: runWorkflowVersionId(s),
+    entryAgentId: runEntryAgentId(s),
+    entryAgentKeySlug: runEntryAgentKeySlug(s),
+    sourceId: runSourceId(s),
+    agentId: s.agentId,
+    agentName: s.agentName,
+    version: s.version,
+    versionId: s.versionId,
+    runtimeType: s.runtimeType,
+    runtimePlacement: s.runtimePlacement,
+  }
+})
+
+function runKindTagType(run: RunSummary) {
+  const kind = runKindLabel(run)
+  if (kind === 'Workflow') return 'primary'
+  if (kind === 'Agent') return 'success'
+  if (kind === 'Tool') return 'warning'
+  return 'info'
+}
+
+function openWorkflowStudio() {
+  const workflowId = summary.value ? runWorkflowId(summary.value) : ''
+  if (!workflowId) return
+  router.push(`/workflows/${workflowId}/studio`)
+}
+
+function spanDisplayName(span: RunSpan) {
+  const nodeName = span.metadata?.nodeName
+  const nodeType = span.metadata?.nodeType
+  const base = span.nodeId || span.toolName || span.spanType || span.spanId || '-'
+  if (nodeName) return `${base} · ${nodeName}`
+  if (nodeType) return `${base} (${nodeType})`
+  return base
+}
 
 async function loadDetail() {
   loading.value = true
@@ -379,7 +509,15 @@ async function replayTrace() {
     const { data } = await replayRunOpsTrace(traceId.value, request)
     if (data?.replayTraceId) {
       replayDialogVisible.value = false
-      ElMessage.success('已发起重放，正在打开新 trace')
+      if (data.executionPath === 'AGENT_DEFINITION_FALLBACK' && data.fallbackReason) {
+        ElMessage.warning(`重放已回退到 AgentDefinition：${data.fallbackReason}`)
+      } else if (data.executionPath === 'AGENT_DEFINITION') {
+        ElMessage.warning('重放走 AgentDefinition 兼容路径（trace 未携带 Workflow GraphSpec）')
+      } else if (data.executionPath === 'GRAPH_SPEC') {
+        ElMessage.success('已发起 GraphSpec 重放，正在打开新 trace')
+      } else {
+        ElMessage.success('重放已完成，正在打开新 trace')
+      }
       router.push({ path: `/runops/${data.replayTraceId}`, query: { compareWith: traceId.value } })
     } else {
       ElMessage.warning('重放完成，但未返回新 traceId')
@@ -459,8 +597,9 @@ async function copyIssueSummary() {
   if (!s) return
   const text = [
     `Trace: ${s.traceId}`,
-    `Agent: ${s.agentName || '-'}`,
-    `Version: ${s.version || '-'}`,
+    runIsWorkflow(s) ? `Workflow: ${runPrimaryIdentityLabel(s)} (${runPrimaryIdentityId(s)})` : `Agent: ${s.agentName || '-'}`,
+    runIsWorkflow(s) ? `Version: ${runVersionLabel(s)}` : `Version: ${s.version || '-'}`,
+    `SourceType: ${runSourceType(s) || '-'}`,
     `Status: ${s.status}`,
     `Errors: ${s.errorCount ?? 0}`,
     `Fallback: ${s.fallback ? s.fallbackReason || 'true' : 'false'}`,
@@ -504,6 +643,27 @@ onMounted(loadDetail)
   margin: 4px 0 0;
   color: var(--text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.detail-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.source-type {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.replay-compat-alert {
+  margin-bottom: 16px;
+}
+
+.metadata-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .summary-grid {

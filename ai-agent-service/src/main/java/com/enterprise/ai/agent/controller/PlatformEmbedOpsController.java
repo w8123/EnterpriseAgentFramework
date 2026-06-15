@@ -2,10 +2,6 @@ package com.enterprise.ai.agent.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.agent.agent.persist.AgentDefinitionEntity;
-import com.enterprise.ai.agent.agent.persist.AgentDefinitionMapper;
-import com.enterprise.ai.agent.graph.AgentGraphNodeType;
-import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.identity.EmbedChatEventEntity;
 import com.enterprise.ai.agent.identity.EmbedChatEventMapper;
 import com.enterprise.ai.agent.identity.EmbedAuditEventService;
@@ -22,6 +18,7 @@ import com.enterprise.ai.agent.identity.PageRegistryEntity;
 import com.enterprise.ai.agent.identity.PageRegistryMapper;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistryCredentialMapper;
+import com.enterprise.ai.agent.workflow.WorkflowActionReferenceService;
 import com.enterprise.ai.common.dto.ApiResult;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,7 +35,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -57,7 +53,7 @@ public class PlatformEmbedOpsController {
     private final RegistryCredentialMapper credentialMapper;
     private final PageRegistryMapper pageRegistryMapper;
     private final PageActionRegistryMapper pageActionRegistryMapper;
-    private final AgentDefinitionMapper agentDefinitionMapper;
+    private final WorkflowActionReferenceService workflowActionReferenceService;
     private final EmbedAuditEventService embedAuditEventService;
     private final ObjectMapper objectMapper;
 
@@ -168,15 +164,10 @@ public class PlatformEmbedOpsController {
         if (action == null) {
             throw new IllegalArgumentException("page action catalog not found: " + id);
         }
-        LambdaQueryWrapper<AgentDefinitionEntity> query = Wrappers.<AgentDefinitionEntity>lambdaQuery()
-                .isNotNull(AgentDefinitionEntity::getGraphSpecJson)
-                .orderByDesc(AgentDefinitionEntity::getUpdatedAt)
-                .last("LIMIT 500");
-        List<PageActionReferenceView> references = new ArrayList<>();
-        for (AgentDefinitionEntity agent : agentDefinitionMapper.selectList(query)) {
-            references.addAll(findPageActionReferences(action, agent));
-        }
-        return ApiResult.ok(references);
+        return ApiResult.ok(workflowActionReferenceService.findReferences(action)
+                .stream()
+                .map(PageActionReferenceView::from)
+                .toList());
     }
 
     @PostMapping("/page-actions/catalog/{id}/debug")
@@ -262,46 +253,6 @@ public class PlatformEmbedOpsController {
                 .eq(EmbedSessionEntity::getStatus, "ACTIVE")
                 .orderByDesc(EmbedSessionEntity::getId)
                 .last("LIMIT 1"));
-    }
-
-    private List<PageActionReferenceView> findPageActionReferences(PageActionRegistryEntity action,
-                                                                   AgentDefinitionEntity agent) {
-        if (agent == null || !StringUtils.hasText(agent.getGraphSpecJson())) {
-            return List.of();
-        }
-        GraphSpec graphSpec;
-        try {
-            graphSpec = objectMapper.readValue(agent.getGraphSpecJson(), GraphSpec.class);
-        } catch (Exception ignored) {
-            return List.of();
-        }
-        List<GraphSpec.Node> nodes = graphSpec.getNodes() == null ? List.of() : graphSpec.getNodes();
-        List<PageActionReferenceView> references = new ArrayList<>();
-        for (GraphSpec.Node node : nodes) {
-            if (!"PAGE_ACTION".equals(AgentGraphNodeType.normalize(node.getType()))) {
-                continue;
-            }
-            Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
-            String projectCode = text(config.get("projectCode"));
-            String pageKey = text(config.get("pageKey"));
-            String actionKey = text(config.get("actionKey"));
-            if (action.getProjectCode().equals(projectCode)
-                    && action.getPageKey().equals(pageKey)
-                    && action.getActionKey().equals(actionKey)) {
-                references.add(new PageActionReferenceView(
-                        agent.getId(),
-                        agent.getName(),
-                        agent.getKeySlug(),
-                        agent.getProjectCode(),
-                        Boolean.TRUE.equals(agent.getEnabled()),
-                        node.getId(),
-                        node.getName(),
-                        projectCode,
-                        pageKey,
-                        actionKey));
-            }
-        }
-        return references;
     }
 
     @GetMapping("/chat-events")
@@ -443,10 +394,6 @@ public class PlatformEmbedOpsController {
         return value.trim();
     }
 
-    private String text(Object value) {
-        return value == null ? "" : String.valueOf(value).trim();
-    }
-
     private int safeLimit(Integer limit) {
         return Math.max(1, Math.min(limit == null ? 100 : limit, 500));
     }
@@ -507,11 +454,46 @@ public class PlatformEmbedOpsController {
             String agentKeySlug,
             String agentProjectCode,
             Boolean agentEnabled,
+            String workflowId,
+            String workflowKeySlug,
+            String workflowName,
+            String workflowProjectCode,
+            String workflowStatus,
+            Long workflowVersionId,
+            String workflowVersion,
+            String graphSource,
+            Long bindingId,
+            String bindingType,
+            Boolean bindingEnabled,
             String nodeId,
             String nodeName,
             String projectCode,
             String pageKey,
             String actionKey) {
+        static PageActionReferenceView from(WorkflowActionReferenceService.PageActionWorkflowReference reference) {
+            return new PageActionReferenceView(
+                    reference.entryAgentId(),
+                    reference.entryAgentName(),
+                    reference.entryAgentKeySlug(),
+                    reference.entryAgentProjectCode(),
+                    reference.entryAgentEnabled(),
+                    reference.workflowId(),
+                    reference.workflowKeySlug(),
+                    reference.workflowName(),
+                    reference.workflowProjectCode(),
+                    reference.workflowStatus(),
+                    reference.workflowVersionId(),
+                    reference.workflowVersion(),
+                    reference.graphSource(),
+                    reference.bindingId(),
+                    reference.bindingType(),
+                    reference.bindingEnabled(),
+                    reference.nodeId(),
+                    reference.nodeName(),
+                    reference.projectCode(),
+                    reference.pageKey(),
+                    reference.actionKey());
+        }
     }
 
     public record CredentialPolicyRequest(

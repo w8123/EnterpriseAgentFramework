@@ -24,9 +24,16 @@ public class AgentRuntimeModelValidator {
     public ModelServiceClient.ModelInstanceData validate(AgentRuntimeRequest request,
                                                          AgentRuntimeCapability capability) {
         AgentDefinition definition = request == null ? null : request.getAgentDefinition();
-        String modelInstanceId = definition == null ? null : definition.getModelInstanceId();
+        GraphRuntimeContext runtimeContext = request == null ? null : request.getGraphRuntimeContext();
+        GraphSpec graphSpec = request == null ? null : request.getGraphSpec();
+        if (graphSpec == null && definition != null) {
+            graphSpec = definition.getGraphSpec();
+        }
+        String modelInstanceId = runtimeContext == null
+                ? definition == null ? null : definition.getModelInstanceId()
+                : runtimeContext.getModelInstanceId();
         if (modelInstanceId == null || modelInstanceId.isBlank()) {
-            if (!requiresModelInstance(definition)) {
+            if (!requiresModelInstance(definition, graphSpec, runtimeContext)) {
                 return null;
             }
             throw new IllegalStateException("modelInstanceId is required for runtime selection");
@@ -60,15 +67,19 @@ public class AgentRuntimeModelValidator {
         return nullToEmpty(value).trim().toUpperCase(Locale.ROOT);
     }
 
-    private boolean requiresModelInstance(AgentDefinition definition) {
-        if (definition == null) {
-            return false;
-        }
-        String runtimeType = normalize(definition.getRuntimeType());
+    private boolean requiresModelInstance(AgentDefinition definition,
+                                         GraphSpec graphSpec,
+                                         GraphRuntimeContext runtimeContext) {
+        String runtimeType = runtimeContext == null
+                ? normalize(definition == null ? null : definition.getRuntimeType())
+                : normalize(runtimeContext.getRuntimeType());
         if (!AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE.equals(runtimeType)) {
             return true;
         }
-        GraphSpec graph = definition.getGraphSpec();
+        GraphSpec graph = graphSpec;
+        if (graph == null && definition != null) {
+            graph = definition.getGraphSpec();
+        }
         List<GraphSpec.Node> nodes = graph == null || graph.getNodes() == null ? List.of() : graph.getNodes();
         return nodes.stream().anyMatch(this::nodeRequiresModel);
     }

@@ -160,7 +160,7 @@ public final class RegistryContracts {
 
     public record AgentGraphSyncItem(
             String graphCode,
-            String agentId,
+            String workflowId,
             String keySlug,
             String changeType,
             String message

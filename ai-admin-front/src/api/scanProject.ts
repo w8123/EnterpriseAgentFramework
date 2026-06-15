@@ -13,6 +13,7 @@ import type {
   PageAssistantCheckRequest,
   PageAssistantCheckRunResponse,
   PageAssistantCatalogSyncRequest,
+  PageAssistantCatalogSyncResponse,
   PageAssistantOnboardingManifest,
   PageAssistantPageRegisterRequest,
   PageAssistantPageRegisterResponse,
@@ -159,13 +160,7 @@ export function syncPageAssistantAccessCatalog(
   data: PageAssistantCatalogSyncRequest,
   aiCodingKey?: string | null,
 ) {
-  return agentRequest.post<{
-    projectCode: string
-    appId: string
-    pageKey: string
-    actionCount: number
-    session: AiAccessSession
-  }>(
+  return agentRequest.post<PageAssistantCatalogSyncResponse>(
     `/api/ai-assist/projects/${id}/page-assistant/sessions/${sessionId}/catalog/sync`,
     data,
     { params: aiCodingKey ? { aiCodingKey } : {} },

@@ -1,6 +1,7 @@
 export interface RunSummary {
   traceId: string
   status: 'SUCCESS' | 'ERROR' | string
+  /** 历史字段：Agent 运行时为 Agent id；Workflow 运行可能为 sourceId/workflowId 兼容值 */
   agentId?: string
   agentName?: string
   version?: string
@@ -21,6 +22,18 @@ export interface RunSummary {
   fallback?: boolean
   dispatchUrl?: string
   fallbackReason?: string
+  /** Workflow 归属（RunOps 从 span metadata 提取） */
+  workflowId?: string
+  workflowKeySlug?: string
+  workflowVersion?: string
+  workflowVersionId?: number | string
+  /** 聊天/嵌入入口 AgentEntry id，不是 WorkflowDefinition id */
+  entryAgentId?: string
+  entryAgentKeySlug?: string
+  sourceType?: string
+  /** GraphSpec-native 来源 id，Workflow 场景通常等于 workflowId */
+  sourceId?: string
+  metadata?: Record<string, unknown>
 }
 
 export interface RunSpan {
@@ -106,6 +119,7 @@ export interface WorkflowPathItem {
 }
 
 export interface FailureCluster {
+  /** 历史字段：Agent 运行时为 Agent id */
   agentId?: string
   agentName?: string
   version?: string
@@ -124,9 +138,17 @@ export interface FailureCluster {
   traceIds?: string[]
   sampleError?: string
   repairHints?: string[]
+  /** Workflow 归属（失败聚类按 workflowId|workflowVersionId 分组时填充） */
+  workflowId?: string
+  workflowKeySlug?: string
+  workflowVersion?: string
+  workflowVersionId?: number | string
+  sourceType?: string
+  sourceId?: string
 }
 
 export interface VersionComparison {
+  /** 历史字段：Agent 运行时为 Agent id */
   agentId?: string
   agentName?: string
   version?: string
@@ -145,6 +167,13 @@ export interface VersionComparison {
   guardDenyCount?: number
   latestTraceId?: string
   latestStartedAt?: string
+  /** Workflow 归属（版本对比按 workflowId|workflowVersionId 分组时填充） */
+  workflowId?: string
+  workflowKeySlug?: string
+  workflowVersion?: string
+  workflowVersionId?: number | string
+  sourceType?: string
+  sourceId?: string
 }
 
 export interface RunDiagnostics {
@@ -173,6 +202,17 @@ export interface ReplayResult {
   success: boolean
   answer?: string
   metadata?: Record<string, unknown>
+  workflowId?: string
+  workflowKeySlug?: string
+  workflowVersion?: string
+  workflowVersionId?: number | string
+  entryAgentId?: string
+  entryAgentKeySlug?: string
+  sourceType?: string
+  sourceId?: string
+  /** GRAPH_SPEC | AGENT_DEFINITION | AGENT_DEFINITION_FALLBACK */
+  executionPath?: string
+  fallbackReason?: string
 }
 
 export interface DiffItem {

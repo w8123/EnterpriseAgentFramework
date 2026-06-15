@@ -24,10 +24,14 @@ Important fields:
 - `embed.defaultAgentKeySlug`: preferred stable Agent identifier for front-end `agentId`.
 - `embed.defaultAgentId`: internal Agent id fallback when no key slug is available.
 - `embed.allowedAgents`: Agent ids/key slugs exposed by the project's embed policy or project ownership.
+- `agentWorkflow.model`: decoupled Agent/Workflow manifest model, normally `agent-workflow.decoupled.v1`.
+- `agentWorkflow.globalAgentKeySlug`: preferred stable global embedded Agent entry. Use this before `embed.defaultAgentKeySlug` when present.
+- `agentWorkflow.bindingStrategy`: how page/action/intent Workflows are bound to the global Agent.
+- `agentWorkflow.endpoints`: platform APIs for managing Agents, Workflows, bindings, and resolve preview.
 
 The manifest does not include `appSecret`.
 
-If `embed.defaultAgentKeySlug` or `embed.defaultAgentId` is present, use that value directly. Do not ask the business user to choose an Agent id. If both are empty, stop front-end embed work and ask the ReachAI platform owner to create or enable a project Agent first.
+If `agentWorkflow.globalAgentKeySlug`, `embed.defaultAgentKeySlug`, or `embed.defaultAgentId` is present, use that value directly. Prefer `agentWorkflow.globalAgentKeySlug`. Do not ask the business user to choose an Agent id. If all are empty, stop front-end embed work and ask the ReachAI platform owner to create or enable a project Agent first.
 
 ## Embed Token Exchange
 
@@ -44,7 +48,8 @@ Minimum request shape:
 ```json
 {
   "projectCode": "demo-service",
-  "agentId": "<manifest.embed.defaultAgentKeySlug>",
+  "agentId": "<manifest.agentWorkflow.globalAgentKeySlug>",
+  "pageKey": "teamArchive.list",
   "pageInstanceId": "page-001",
   "route": "/teams",
   "origin": "http://localhost:5173",
@@ -62,9 +67,11 @@ The business gateway must sign the platform request with the same project creden
 Business front-end flow:
 
 1. Generate or reuse a stable page instance id for the current page.
-2. Call the business gateway token broker, for example `/api/reachai/embed-token`, with the normal business login token.
-3. Use the returned embed token as `Authorization: Bearer <token>` for ReachAI chat session and message APIs.
-4. Never send `appSecret` or project signing material to the browser.
+2. Determine the stable current page key, for example `teamArchive.list`.
+3. Call the business gateway token broker, for example `/api/reachai/embed-token`, with the normal business login token and include `agentId`, `pageKey`, `pageInstanceId`, `route`, and `origin`.
+4. Use the returned embed token as `Authorization: Bearer <token>` for ReachAI chat session and message APIs.
+5. Create the chat session with the same `pageKey`. The ReachAI SDK does this when `createEafChat({ page: { pageKey, routePattern } })` is configured.
+6. Never send `appSecret` or project signing material to the browser.
 
 Token boundary note: the business login token and the ReachAI embed token are different credentials. The business login token belongs only on the token broker request. `/api/reachai/embed/**`, `/api/embed/chat/sessions`, and message APIs must use the short-lived embed token returned by the broker.
 

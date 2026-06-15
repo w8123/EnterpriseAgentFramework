@@ -21,6 +21,8 @@ import com.enterprise.ai.agent.scan.ScanSettingsJson;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionUpsertRequest;
+import com.enterprise.ai.agent.workflow.WorkflowDefinitionEntity;
+import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilityDiffItem;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilityRegistration;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilityDiffItemDTO;
@@ -72,6 +74,7 @@ public class AiRegistryService {
     private final CapabilityApplyRecordMapper applyRecordMapper;
     private final ToolDefinitionService toolDefinitionService;
     private final AgentDefinitionService agentDefinitionService;
+    private final WorkflowDefinitionService workflowDefinitionService;
     private final ToolAclMapper toolAclMapper;
     private final RegistrySecurityService registrySecurityService;
     private final ObjectMapper objectMapper;
@@ -378,10 +381,10 @@ public class AiRegistryService {
             GraphSpec spec = requireGraphSpec(graph);
             String graphCode = normalizeGraphCode(firstText(graph.code(), spec.getCode()));
             String keySlug = agentKeySlug(project.getProjectCode(), graphCode);
-            AgentDefinition existing = agentDefinitionService.findByKeySlug(keySlug).orElse(null);
+            WorkflowDefinitionEntity existing = workflowDefinitionService.findByKeySlug(keySlug).orElse(null);
             String changeType = existing == null ? "CREATED" : "UPDATED";
             if (apply) {
-                AgentDefinition saved = upsertSdkAgentGraph(project, graph, spec, graphCode, keySlug, syncId, existing);
+                WorkflowDefinitionEntity saved = upsertSdkWorkflowGraph(project, graph, spec, graphCode, keySlug, syncId, existing);
                 if (existing == null) {
                     created++;
                 } else {
@@ -397,13 +400,13 @@ public class AiRegistryService {
                 graphs.size(), created, updated, items);
     }
 
-    private AgentDefinition upsertSdkAgentGraph(ScanProjectEntity project,
-                                                AgentGraphRegistration registration,
-                                                GraphSpec spec,
-                                                String graphCode,
-                                                String keySlug,
-                                                String syncId,
-                                                AgentDefinition existing) {
+    private WorkflowDefinitionEntity upsertSdkWorkflowGraph(ScanProjectEntity project,
+                                                            AgentGraphRegistration registration,
+                                                            GraphSpec spec,
+                                                            String graphCode,
+                                                            String keySlug,
+                                                            String syncId,
+                                                            WorkflowDefinitionEntity existing) {
         normalizeGraphSpec(registration, spec, graphCode);
         String modelInstanceId = firstText(
                 registration == null ? null : registration.modelInstanceId(),
@@ -426,47 +429,33 @@ public class AiRegistryService {
         }
 
         Map<String, Object> extra = new LinkedHashMap<>();
-        if (existing != null && existing.getExtra() != null) {
-            extra.putAll(existing.getExtra());
+        if (existing != null && StringUtils.hasText(existing.getExtraJson())) {
+            extra.put("previousExtraJson", existing.getExtraJson());
         }
+        extra.put("managedBy", "SDK");
+        extra.put("overwriteMode", "DRAFT_ONLY");
         extra.put("sdkGraph", sdkGraph);
 
-        AgentDefinition draft = AgentDefinition.builder()
-                .keySlug(keySlug)
-                .name(firstText(registration == null ? null : registration.name(), spec.getName(), graphCode))
-                .description(registration == null ? null : registration.description())
-                .projectId(project.getId())
-                .projectCode(project.getProjectCode())
-                .visibility(firstText(registration == null ? null : registration.visibility(), project.getVisibility(), "PROJECT"))
-                .agentMode("WORKFLOW")
-                .intentType(existing == null ? "GENERAL_CHAT" : existing.getIntentType())
-                .systemPrompt(firstText(registration == null ? null : registration.systemPrompt(),
-                        existing == null ? null : existing.getSystemPrompt(), ""))
-                .modelInstanceId(modelInstanceId)
-                .runtimeType(firstText(registration == null ? null : registration.runtimeType(),
-                        spec.getRuntimeHint(), AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE))
-                .runtimePlacement("CENTRAL")
-                .runtimeConfig(Map.of())
-                .defaultResourceConfig(Map.of())
-                .graphSpec(spec)
-                .canvasJson(canvasJsonFromGraphSpec(spec))
-                .tools(toolNames(spec, "TOOL"))
-                .toolRefs(capabilityRefs(spec, "TOOL"))
-                .skills(toolNames(spec, "CAPABILITY"))
-                .skillRefs(capabilityRefs(spec, "CAPABILITY"))
-                .maxSteps(existing == null || existing.getMaxSteps() <= 0 ? 5 : existing.getMaxSteps())
-                .enabled(true)
-                .type("single")
-                .pipelineAgentIds(List.of())
-                .triggerMode(existing == null ? "all" : existing.getTriggerMode())
-                .useMultiAgentModel(false)
-                .allowIrreversible(existing != null && existing.isAllowIrreversible())
-                .extra(extra)
-                .build();
+        WorkflowDefinitionEntity draft = new WorkflowDefinitionEntity();
+        draft.setKeySlug(keySlug);
+        draft.setName(firstText(registration == null ? null : registration.name(), spec.getName(), graphCode));
+        draft.setDescription(registration == null ? null : registration.description());
+        draft.setProjectId(project.getId());
+        draft.setProjectCode(project.getProjectCode());
+        draft.setWorkflowType("SDK_GRAPH");
+        draft.setRuntimeType(firstText(registration == null ? null : registration.runtimeType(),
+                spec.getRuntimeHint(), AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE));
+        draft.setGraphSpecJson(writeJson(spec));
+        draft.setCanvasJson(canvasJsonFromGraphSpec(spec));
+        draft.setInputSchemaJson(writeJson(spec.getInputSchema()));
+        draft.setDefaultModelInstanceId(modelInstanceId);
+        draft.setStatus(existing == null ? "DRAFT" : existing.getStatus());
+        draft.setManagedBy("SDK");
+        draft.setExtraJson(writeJson(extra));
         if (existing == null) {
-            return agentDefinitionService.create(draft);
+            return workflowDefinitionService.create(draft);
         }
-        return agentDefinitionService.update(existing.getId(), draft);
+        return workflowDefinitionService.update(existing.getId(), draft);
     }
 
     private GraphSpec requireGraphSpec(AgentGraphRegistration graph) {

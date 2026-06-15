@@ -1,11 +1,13 @@
 package com.enterprise.ai.agent.skill.interactive;
 
 import com.enterprise.ai.agent.agent.AgentDefinition;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.model.ChatRequest;
 import com.enterprise.ai.agent.model.interactive.UiSubmitPayload;
 import com.enterprise.ai.agent.runtime.AgentRuntimeRequest;
 import com.enterprise.ai.agent.runtime.AgentRuntimeResult;
+import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.runtime.LangGraph4jRuntimeAdapter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -119,26 +121,42 @@ public class HumanApprovalResumeService {
                                                         ChatRequest request,
                                                         String route,
                                                         Map<String, Object> approvalDocument) {
-        Object definitionValue = approvalDocument.get("definition");
         Object stateValue = approvalDocument.get("state");
-        if (definitionValue == null || !(stateValue instanceof Map<?, ?> rawState)) {
-            return Optional.empty();
-        }
-        AgentDefinition definition = objectMapper.convertValue(definitionValue, AgentDefinition.class);
-        if (definition == null || definition.getGraphSpec() == null) {
+        if (!(stateValue instanceof Map<?, ?> rawState)) {
             return Optional.empty();
         }
         @SuppressWarnings("unchecked")
         Map<String, Object> state = new LinkedHashMap<>((Map<String, Object>) rawState);
         String nodeId = row.getSkillName().substring(SKILL_PREFIX.length());
-        AgentRuntimeRequest runtimeRequest = AgentRuntimeRequest.builder()
+
+        GraphSpec graphSpec = readGraphSpec(approvalDocument.get("graphSpec"));
+        GraphRuntimeContext runtimeContext = readRuntimeContext(approvalDocument.get("runtimeContext"));
+        AgentDefinition definition = null;
+        if (graphSpec == null || runtimeContext == null) {
+            Object definitionValue = approvalDocument.get("definition");
+            if (definitionValue == null) {
+                return Optional.empty();
+            }
+            definition = objectMapper.convertValue(definitionValue, AgentDefinition.class);
+            if (definition == null || definition.getGraphSpec() == null) {
+                return Optional.empty();
+            }
+            graphSpec = definition.getGraphSpec();
+            runtimeContext = GraphRuntimeContext.fromAgentDefinition(definition);
+        }
+
+        AgentRuntimeRequest.AgentRuntimeRequestBuilder runtimeRequestBuilder = AgentRuntimeRequest.builder()
                 .traceId(row.getTraceId())
                 .sessionId(row.getSessionId())
                 .userId(request.getUserId())
                 .message("")
-                .agentDefinition(definition)
-                .metadata(Map.of("resumedInteractionId", row.getId()))
-                .build();
+                .graphSpec(graphSpec)
+                .graphRuntimeContext(runtimeContext)
+                .metadata(Map.of("resumedInteractionId", row.getId()));
+        if (definition != null) {
+            runtimeRequestBuilder.agentDefinition(definition);
+        }
+        AgentRuntimeRequest runtimeRequest = runtimeRequestBuilder.build();
         AgentRuntimeResult runtimeResult = langGraph4jRuntimeAdapter.resumeFromHumanApproval(
                 runtimeRequest, definition, state, nodeId, route);
         Map<String, Object> metadata = new LinkedHashMap<>(runtimeResult.getMetadata() == null
@@ -146,6 +164,7 @@ public class HumanApprovalResumeService {
                 : runtimeResult.getMetadata());
         metadata.putAll(baseMeta(row, route, route));
         metadata.put("resumed", true);
+        mergeWorkflowMetadata(metadata, runtimeContext);
         return Optional.of(AgentResult.builder()
                 .success(runtimeResult.isSuccess())
                 .answer(runtimeResult.getAnswer())
@@ -154,6 +173,41 @@ public class HumanApprovalResumeService {
                 .metadata(metadata)
                 .uiRequest(runtimeResult.getUiRequest())
                 .build());
+    }
+
+    private GraphSpec readGraphSpec(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        return objectMapper.convertValue(raw, GraphSpec.class);
+    }
+
+    private GraphRuntimeContext readRuntimeContext(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        return objectMapper.convertValue(raw, GraphRuntimeContext.class);
+    }
+
+    private void mergeWorkflowMetadata(Map<String, Object> metadata, GraphRuntimeContext runtimeContext) {
+        if (metadata == null || runtimeContext == null) {
+            return;
+        }
+        if (runtimeContext.getSourceType() != null) {
+            metadata.putIfAbsent("sourceType", runtimeContext.getSourceType());
+        }
+        if (runtimeContext.getSourceId() != null) {
+            metadata.putIfAbsent("sourceId", runtimeContext.getSourceId());
+        }
+        Map<String, Object> extra = runtimeContext.getExtra();
+        if (extra != null) {
+            metadata.putIfAbsent("workflowId", extra.get("workflowId"));
+            metadata.putIfAbsent("workflowKeySlug", extra.get("workflowKeySlug"));
+            metadata.putIfAbsent("workflowVersion", extra.get("workflowVersion"));
+            metadata.putIfAbsent("workflowVersionId", extra.get("workflowVersionId"));
+            metadata.putIfAbsent("entryAgentId", extra.get("entryAgentId"));
+            metadata.putIfAbsent("entryAgentKeySlug", extra.get("entryAgentKeySlug"));
+        }
     }
 
     private java.util.List<AgentResult.StepRecord> toAgentSteps(java.util.List<String> steps) {

@@ -44,7 +44,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'agent/:id/studio',
         name: 'AgentStudio',
-        component: () => import('@/views/agent/AgentStudio.vue'),
+        component: () => import('@/views/agent/AgentStudioCompatibility.vue'),
         meta: { title: 'Agent Studio 画布' },
       },
       {
@@ -52,6 +52,30 @@ const routes: RouteRecordRaw[] = [
         name: 'AgentVersions',
         component: () => import('@/views/agent/AgentVersions.vue'),
         meta: { title: 'AgentOps' },
+      },
+      {
+        path: 'workflows',
+        name: 'WorkflowList',
+        component: () => import('@/views/workflow/WorkflowList.vue'),
+        meta: { title: 'Workflows' },
+      },
+      {
+        path: 'workflows/:workflowId/studio',
+        name: 'WorkflowStudio',
+        component: () => import('@/views/workflow/WorkflowStudio.vue'),
+        meta: { title: 'Workflow Studio' },
+      },
+      {
+        path: 'workflows/:workflowId/versions',
+        name: 'WorkflowVersions',
+        component: () => import('@/views/workflow/WorkflowVersions.vue'),
+        meta: { title: 'Workflow Versions' },
+      },
+      {
+        path: 'agents/:agentId/bindings',
+        name: 'AgentWorkflowBindings',
+        component: () => import('@/views/agent/AgentWorkflowBindings.vue'),
+        meta: { title: 'Agent Workflow Bindings' },
       },
       {
         path: 'runops',

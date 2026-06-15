@@ -52,13 +52,25 @@
             </el-menu-item>
           </el-sub-menu>
 
-          <!-- 3 Agent -->
-          <el-menu-item index="/agent">
-            <el-icon><Cpu /></el-icon>
-            <span class="menu-label">
-              <span class="menu-cn">智能体</span>
-            </span>
-          </el-menu-item>
+          <!-- 3 Agent / Workflow -->
+          <el-sub-menu index="/agent-workflow-group">
+            <template #title>
+              <el-icon><Cpu /></el-icon>
+              <span class="menu-label">
+                <span class="menu-cn">智能体与编排</span>
+              </span>
+            </template>
+            <el-menu-item index="/agent">
+              <span class="menu-label leaf">
+                <span class="menu-cn">智能体入口</span>
+              </span>
+            </el-menu-item>
+            <el-menu-item index="/workflows">
+              <span class="menu-label leaf">
+                <span class="menu-cn">Workflow 编排</span>
+              </span>
+            </el-menu-item>
+          </el-sub-menu>
 
           <!-- 4 能力内核 -->
           <el-sub-menu index="/capability-group">
@@ -380,6 +392,13 @@ const defaultOpenMenuGroups = computed(() => {
     open.push('/registry-group')
   }
   if (
+    path.startsWith('/agent') ||
+    path.startsWith('/agents') ||
+    path.startsWith('/workflows')
+  ) {
+    open.push('/agent-workflow-group')
+  }
+  if (
     path.startsWith('/settings/platform-users')
     || path.startsWith('/settings/business-users')
     || path.startsWith('/settings/auth-providers')
@@ -399,6 +418,8 @@ const activeMenu = computed(() => {
   const path = route.path
   if (path.startsWith('/knowledge')) return '/knowledge'
   if (path.startsWith('/biz-index')) return '/biz-index'
+  if (path.startsWith('/workflows')) return '/workflows'
+  if (path.startsWith('/agents')) return '/agent'
   if (path.startsWith('/agent')) return '/agent'
   if (path.startsWith('/model/playground')) return '/model/playground'
   if (path.startsWith('/model/instances')) return '/model/instances'
@@ -443,7 +464,7 @@ const activeMenu = computed(() => {
   return path
 })
 
-const isStudioPage = computed(() => route.name === 'AgentStudio')
+const isStudioPage = computed(() => route.name === 'AgentStudio' || route.name === 'WorkflowStudio')
 const isSidebarCollapsed = computed(() => isStudioPage.value)
 
 const currentTitle = computed(() => (route.meta.title as string) || '')

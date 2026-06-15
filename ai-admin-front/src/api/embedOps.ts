@@ -136,11 +136,23 @@ export interface PageActionDebugResponse {
 }
 
 export interface PageActionReferenceView {
-  agentId: string
+  referenceKey?: string
+  agentId?: string
   agentName?: string
   agentKeySlug?: string
   agentProjectCode?: string
   agentEnabled?: boolean
+  workflowId?: string
+  workflowKeySlug?: string
+  workflowName?: string
+  workflowProjectCode?: string
+  workflowStatus?: string
+  workflowVersionId?: number
+  workflowVersion?: string
+  graphSource?: string
+  bindingId?: number
+  bindingType?: string
+  bindingEnabled?: boolean
   nodeId: string
   nodeName?: string
   projectCode: string

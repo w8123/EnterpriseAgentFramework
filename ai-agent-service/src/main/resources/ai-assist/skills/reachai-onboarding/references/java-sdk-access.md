@@ -90,7 +90,8 @@ For request DTOs, annotate important fields with `@ReachParam` so generated para
 SDK onboarding is not complete if the business gateway is untouched and the business front end has no safe token path.
 
 Before changing gateway or front-end code, read the manifest's `embed` section:
-- Prefer `embed.defaultAgentKeySlug` as the front-end `agentId`.
+- Prefer `agentWorkflow.globalAgentKeySlug` as the front-end `agentId` when present. This is the single project-level embedded AI entry.
+- Otherwise prefer `embed.defaultAgentKeySlug` as the front-end `agentId`.
 - Use `embed.defaultAgentId` only when no key slug is available.
 - Treat `embed.allowedAgents` as the platform-approved list. Do not invent a new `agentId` in the business repo.
 - If no default Agent is present, stop and ask the ReachAI platform owner to create, enable, or whitelist an embeddable Agent for this project.
@@ -117,13 +118,14 @@ Add the gateway authentication whitelist required by embed chat:
 Expose a server-side embed token broker for the business UI, for example:
 
 ```http
-GET /api/reachai/embed-token?projectCode=demo-service&agentId=<manifest.embed.defaultAgentKeySlug>&pageInstanceId=page-001&route=/teams&origin=http://localhost:5173
+GET /api/reachai/embed-token?projectCode=demo-service&agentId=<manifest.agentWorkflow.globalAgentKeySlug>&pageKey=teamArchive.list&pageInstanceId=page-001&route=/teams&origin=http://localhost:5173
 ```
 
 The broker must:
 - Read the current business login state.
 - Map the current user to ReachAI `principal`, with `principal.externalUserId` required.
 - Use the project `appKey/appSecret` server-side to sign a call to ReachAI `POST /api/embed/token/exchange`.
+- Forward `pageKey`, `pageInstanceId`, `route`, and `origin` into the token exchange body.
 - Cache only short-lived embed tokens when appropriate.
 - Return only the issued embed token and expiry metadata to the browser.
 
@@ -140,7 +142,8 @@ Use a token provider that calls the business gateway token broker:
 const tokenProvider = async () => {
   const query = new URLSearchParams({
     projectCode: 'demo-service',
-    agentId: manifest.embed.defaultAgentKeySlug || manifest.embed.defaultAgentId,
+    agentId: manifest.agentWorkflow?.globalAgentKeySlug || manifest.embed.defaultAgentKeySlug || manifest.embed.defaultAgentId,
+    pageKey: 'teamArchive.list',
     pageInstanceId,
     route: window.location.pathname,
     origin: window.location.origin,
@@ -152,6 +155,23 @@ const tokenProvider = async () => {
 ```
 
 The front end should pass `pageInstanceId`, `route`, and `origin` so ReachAI can bind chat sessions, audit events, and page actions to the exact page instance.
+
+When creating the global chat entry, pass the same page descriptor to the SDK so the chat session can resolve the page Workflow:
+
+```ts
+createEafChat({
+  mount: '#reachai-chat',
+  apiBase: '/api/reachai/embed',
+  agentId: manifest.agentWorkflow?.globalAgentKeySlug || manifest.embed.defaultAgentKeySlug || manifest.embed.defaultAgentId,
+  tokenProvider,
+  page: {
+    pageKey: 'teamArchive.list',
+    routePattern: window.location.pathname,
+  },
+})
+```
+
+Do not create one chat button per Workflow. Keep one global embedded AI button and let ReachAI resolve the page/action/intent Workflow from `pageKey` and `ai_agent_workflow_binding`.
 
 When caching embed tokens in the front end:
 - Compute the cache expiry from `expiresIn` and expire slightly early.

@@ -60,10 +60,13 @@ public class AgentRuntimeSelector {
                     .build();
         } catch (Exception ex) {
             AgentDefinition definition = request == null ? null : request.getAgentDefinition();
+            GraphRuntimeContext runtimeContext = request == null ? null : request.getGraphRuntimeContext();
             return AgentRuntimeValidationResult.builder()
                     .valid(false)
-                    .runtimeType(resolveRuntimeType(definition))
-                    .modelInstanceId(definition == null ? null : definition.getModelInstanceId())
+                    .runtimeType(resolveRuntimeType(request))
+                    .modelInstanceId(runtimeContext == null
+                            ? definition == null ? null : definition.getModelInstanceId()
+                            : runtimeContext.getModelInstanceId())
                     .message(ex.getMessage())
                     .errorCode(ex.getClass().getSimpleName())
                     .build();
@@ -71,7 +74,7 @@ public class AgentRuntimeSelector {
     }
 
     private Selection validateSelection(AgentRuntimeRequest request) {
-        String runtimeType = resolveRuntimeType(request == null ? null : request.getAgentDefinition());
+        String runtimeType = resolveRuntimeType(request);
         AgentRuntimeAdapter adapter = adapters.get(normalize(runtimeType));
         if (adapter == null) {
             throw new IllegalStateException("未找到 Agent Runtime Adapter: " + runtimeType);
@@ -90,6 +93,15 @@ public class AgentRuntimeSelector {
 
     private record Selection(AgentRuntimeAdapter adapter,
                              com.enterprise.ai.agent.client.ModelServiceClient.ModelInstanceData modelInstance) {}
+
+    private String resolveRuntimeType(AgentRuntimeRequest request) {
+        if (request != null && request.getGraphRuntimeContext() != null
+                && request.getGraphRuntimeContext().getRuntimeType() != null
+                && !request.getGraphRuntimeContext().getRuntimeType().isBlank()) {
+            return request.getGraphRuntimeContext().getRuntimeType();
+        }
+        return resolveRuntimeType(request == null ? null : request.getAgentDefinition());
+    }
 
     private String resolveRuntimeType(AgentDefinition definition) {
         if (definition != null && definition.getRuntimeType() != null && !definition.getRuntimeType().isBlank()) {

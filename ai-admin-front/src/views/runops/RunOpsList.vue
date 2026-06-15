@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2>RunOps 运行中心</h2>
-        <p class="page-subtitle">按 traceId 聚合 Agent 运行、Graph 节点、Tool 调用与治理决策。</p>
+        <p class="page-subtitle">按 traceId 聚合 Workflow / Agent 运行、Graph 节点、Tool 调用与治理决策。</p>
       </div>
       <div class="header-actions">
         <el-input
@@ -28,13 +28,18 @@
 
     <el-card shadow="never" class="filter-card">
       <div class="filter-grid">
-        <el-input v-model="filters.keyword" clearable placeholder="搜索 Agent / Trace / Runtime" />
+        <el-input v-model="filters.keyword" clearable placeholder="搜索 Workflow / Agent / Trace / Runtime" />
         <el-select v-model="filters.status" clearable placeholder="状态">
           <el-option label="成功" value="SUCCESS" />
           <el-option label="失败" value="ERROR" />
         </el-select>
-        <el-select v-model="filters.agentName" clearable filterable placeholder="Agent">
-          <el-option v-for="agent in agentOptions" :key="agent" :label="agent" :value="agent" />
+        <el-select v-model="filters.runKind" clearable placeholder="类型">
+          <el-option label="Workflow" value="Workflow" />
+          <el-option label="Agent" value="Agent" />
+          <el-option label="Tool" value="Tool" />
+        </el-select>
+        <el-select v-model="filters.identity" clearable filterable placeholder="对象">
+          <el-option v-for="item in identityOptions" :key="item" :label="item" :value="item" />
         </el-select>
         <el-select v-model="filters.version" clearable filterable placeholder="版本">
           <el-option v-for="version in versionOptions" :key="version" :label="version" :value="version" />
@@ -102,11 +107,13 @@
               <template #default="{ row }">
                 <div class="issue-title">{{ row.errorType || 'RUN_ERROR' }}</div>
                 <div class="issue-meta">
-                  {{ row.nodeId || row.toolName || '-' }} · {{ row.agentName || '-' }}
+                  {{ row.nodeId || row.toolName || '-' }} · {{ clusterPrimaryLabel(row) }}
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="version" label="版本" width="100" />
+            <el-table-column label="版本" width="120">
+              <template #default="{ row }">{{ clusterVersionLabel(row) }}</template>
+            </el-table-column>
             <el-table-column prop="avgLatencyMs" label="均耗时" width="96">
               <template #default="{ row }">{{ row.avgLatencyMs ?? 0 }} ms</template>
             </el-table-column>
@@ -141,8 +148,8 @@
           <el-table :data="diagnostics.versionComparisons" v-loading="diagnosticsLoading" stripe height="320">
             <el-table-column label="版本" min-width="180" show-overflow-tooltip>
               <template #default="{ row }">
-                <div class="issue-title">{{ row.agentName || '-' }}</div>
-                <div class="issue-meta">{{ row.version || '-' }} · {{ row.runtimePlacement || '-' }}</div>
+                <div class="issue-title">{{ comparisonPrimaryLabel(row) }}</div>
+                <div class="issue-meta">{{ comparisonVersionLabel(row) }} · {{ row.runtimePlacement || '-' }}</div>
               </template>
             </el-table-column>
             <el-table-column label="成功率" width="120">
@@ -196,14 +203,31 @@
             <el-tag :type="row.status === 'SUCCESS' ? 'success' : 'danger'" size="small">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="agentName" label="Agent" min-width="180" show-overflow-tooltip />
+        <el-table-column label="类型" width="96">
+          <template #default="{ row }">
+            <el-tag size="small" effect="plain" :type="runKindTagType(row)">{{ runKindLabel(row) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="名称" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            <div class="issue-title">{{ runPrimaryIdentityLabel(row) }}</div>
+            <div v-if="runEntryLabel(row)" class="issue-meta">入口 {{ runEntryLabel(row) }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="ID" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ runPrimaryIdentityId(row) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="runtimePlacement" label="部署" width="110">
           <template #default="{ row }">
             <el-tag size="small" effect="plain">{{ row.runtimePlacement || '-' }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="runtimeType" label="Runtime" width="140" show-overflow-tooltip />
-        <el-table-column prop="version" label="版本" width="110" />
+        <el-table-column label="版本" width="120" show-overflow-tooltip>
+          <template #default="{ row }">{{ runVersionLabel(row) }}</template>
+        </el-table-column>
         <el-table-column prop="latencyMs" label="耗时" width="100">
           <template #default="{ row }">{{ row.latencyMs ?? 0 }} ms</template>
         </el-table-column>
@@ -217,9 +241,18 @@
         </el-table-column>
         <el-table-column prop="startedAt" label="开始时间" width="180" />
         <el-table-column prop="traceId" label="Trace" min-width="240" show-overflow-tooltip />
-        <el-table-column label="操作" width="110" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="router.push(`/runops/${row.traceId}`)">详情</el-button>
+            <el-button
+              v-if="runIsWorkflow(row) && runWorkflowId(row)"
+              link
+              type="primary"
+              size="small"
+              @click="openWorkflowStudio(row)"
+            >
+              Workflow
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -243,6 +276,20 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getRecentRunOps, getRunOpsDiagnostics } from '@/api/runops'
 import type { RunDiagnostics, RunSummary } from '@/types/runops'
+import {
+  clusterPrimaryLabel,
+  clusterVersionLabel,
+  comparisonPrimaryLabel,
+  comparisonVersionLabel,
+  runEntryLabel,
+  runIsWorkflow,
+  runKindLabel,
+  runPrimaryIdentityId,
+  runPrimaryIdentityLabel,
+  runSearchHaystack,
+  runVersionLabel,
+  runWorkflowId,
+} from '@/utils/workflowRunOps'
 
 const router = useRouter()
 const loading = ref(false)
@@ -259,29 +306,29 @@ const traceInput = ref('')
 const filters = reactive({
   keyword: '',
   status: '',
-  agentName: '',
+  runKind: '',
+  identity: '',
   version: '',
   runtimePlacement: '',
   runtimeType: '',
   fallback: '',
 })
 
-const agentOptions = computed(() => unique(runs.value.map((run) => run.agentName)))
-const versionOptions = computed(() => unique(runs.value.map((run) => run.version)))
+const identityOptions = computed(() =>
+  unique(runs.value.map((run) => runPrimaryIdentityLabel(run)).filter((value) => value !== '-')),
+)
+const versionOptions = computed(() => unique(runs.value.map((run) => runVersionLabel(run)).filter((value) => value !== '-')))
 const placementOptions = computed(() => unique(runs.value.map((run) => run.runtimePlacement)))
 const runtimeOptions = computed(() => unique(runs.value.map((run) => run.runtimeType)))
 
 const filteredRuns = computed(() => {
   const keyword = filters.keyword.trim().toLowerCase()
   return runs.value.filter((run) => {
-    const haystack = [run.agentName, run.traceId, run.runtimeType, run.version, run.runtimePlacement]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase()
-    if (keyword && !haystack.includes(keyword)) return false
+    if (keyword && !runSearchHaystack(run).includes(keyword)) return false
     if (filters.status && run.status !== filters.status) return false
-    if (filters.agentName && run.agentName !== filters.agentName) return false
-    if (filters.version && run.version !== filters.version) return false
+    if (filters.runKind && runKindLabel(run) !== filters.runKind) return false
+    if (filters.identity && runPrimaryIdentityLabel(run) !== filters.identity) return false
+    if (filters.version && runVersionLabel(run) !== filters.version) return false
     if (filters.runtimePlacement && run.runtimePlacement !== filters.runtimePlacement) return false
     if (filters.runtimeType && run.runtimeType !== filters.runtimeType) return false
     if (filters.fallback && String(Boolean(run.fallback)) !== filters.fallback) return false
@@ -369,10 +416,25 @@ function unique(values: Array<string | undefined>) {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value)))).sort()
 }
 
+function runKindTagType(run: RunSummary) {
+  const kind = runKindLabel(run)
+  if (kind === 'Workflow') return 'primary'
+  if (kind === 'Agent') return 'success'
+  if (kind === 'Tool') return 'warning'
+  return 'info'
+}
+
+function openWorkflowStudio(run: RunSummary) {
+  const workflowId = runWorkflowId(run)
+  if (!workflowId) return
+  router.push(`/workflows/${workflowId}/studio`)
+}
+
 function resetFilters() {
   filters.keyword = ''
   filters.status = ''
-  filters.agentName = ''
+  filters.runKind = ''
+  filters.identity = ''
   filters.version = ''
   filters.runtimePlacement = ''
   filters.runtimeType = ''

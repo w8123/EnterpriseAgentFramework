@@ -11,6 +11,8 @@ import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.enterprise.ai.agent.registry.SdkAccessCheckService;
 import com.enterprise.ai.agent.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.scan.ScanProjectService;
+import com.enterprise.ai.agent.workflow.PageAssistantWorkflowBindingResult;
+import com.enterprise.ai.agent.workflow.PageAssistantWorkflowBindingService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -43,12 +45,14 @@ class AiAssistControllerTest {
     private final AgentDefinitionService agentDefinitionService = mock(AgentDefinitionService.class);
     private final AiAccessSessionService accessSessionService = mock(AiAccessSessionService.class);
     private final PageActionCatalogService pageActionCatalogService = mock(PageActionCatalogService.class);
+    private final PageAssistantWorkflowBindingService pageAssistantWorkflowBindingService = mock(PageAssistantWorkflowBindingService.class);
     private final AiAssistController controller = new AiAssistController(
             scanProjectService,
             registrySecurityService,
             agentDefinitionService,
             accessSessionService,
-            pageActionCatalogService);
+            pageActionCatalogService,
+            pageAssistantWorkflowBindingService);
 
     @Test
     void onboardingManifestIncludesAppKeyButNeverAppSecret() {
@@ -510,6 +514,17 @@ class AiAssistControllerTest {
         when(registrySecurityService.findPrimaryActiveCredential("demo-service")).thenReturn(Optional.of(credential));
         when(pageActionCatalogService.registerFromProjectCredential(credential, request))
                 .thenReturn(new PageCatalogRegisterResult("demo-service", "bzjs3", "teamArchive.list", 1));
+        when(pageAssistantWorkflowBindingService.ensurePageWorkflowBinding(
+                any(ScanProjectEntity.class),
+                eq("teamArchive.list"),
+                eq("/team-build/depart-management"),
+                eq(List.of("getPageState"))))
+                .thenReturn(new PageAssistantWorkflowBindingResult(
+                        "agent-1",
+                        "demo-service-global-ai-assistant",
+                        "workflow-1",
+                        "demo-service-teamarchive_list-page-assistant",
+                        42L));
 
         ResponseEntity<?> response = controller.syncPageAssistantCatalog(
                 1L,
@@ -522,6 +537,10 @@ class AiAssistControllerTest {
         });
         assertEquals("teamArchive.list", body.get("pageKey"));
         assertEquals(1, body.get("actionCount"));
+        Map<String, Object> workflowBinding = objectMapper.convertValue(body.get("workflowBinding"), new TypeReference<>() {
+        });
+        assertEquals("agent-1", workflowBinding.get("agentId"));
+        assertEquals("workflow-1", workflowBinding.get("workflowId"));
     }
 
     @Test
@@ -595,6 +614,17 @@ class AiAssistControllerTest {
                         "/team-build/depart-management",
                         List.of("getPageState"))))
                 .thenReturn(checkRun);
+        when(pageAssistantWorkflowBindingService.ensurePageWorkflowBinding(
+                any(ScanProjectEntity.class),
+                eq("teamArchive.list"),
+                eq("/team-build/depart-management"),
+                eq(List.of("getPageState"))))
+                .thenReturn(new PageAssistantWorkflowBindingResult(
+                        "agent-1",
+                        "demo-service-global-ai-assistant",
+                        "workflow-1",
+                        "demo-service-teamarchive_list-page-assistant",
+                        42L));
 
         ResponseEntity<?> response = controller.registerPageAssistantPage(1L, "rac_valid", request);
 
@@ -606,6 +636,10 @@ class AiAssistControllerTest {
         assertTrue(body.containsKey("registeredPage"));
         assertTrue(body.containsKey("registeredActions"));
         assertTrue(body.containsKey("fileEvidence"));
+        Map<String, Object> workflowBinding = objectMapper.convertValue(body.get("workflowBinding"), new TypeReference<>() {
+        });
+        assertEquals("agent-1", workflowBinding.get("agentId"));
+        assertEquals("workflow-1", workflowBinding.get("workflowId"));
     }
 
     @Test

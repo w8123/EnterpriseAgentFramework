@@ -1,8 +1,5 @@
 package com.enterprise.ai.agent.controller;
 
-import com.enterprise.ai.agent.agent.persist.AgentDefinitionEntity;
-import com.enterprise.ai.agent.agent.persist.AgentDefinitionMapper;
-import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.identity.EmbedAuditEventService;
 import com.enterprise.ai.agent.identity.EmbedChatEventMapper;
 import com.enterprise.ai.agent.identity.EmbedRendererMapper;
@@ -16,6 +13,7 @@ import com.enterprise.ai.agent.identity.PageActionRegistryMapper;
 import com.enterprise.ai.agent.identity.PageRegistryEntity;
 import com.enterprise.ai.agent.identity.PageRegistryMapper;
 import com.enterprise.ai.agent.registry.RegistryCredentialMapper;
+import com.enterprise.ai.agent.workflow.WorkflowActionReferenceService;
 import com.enterprise.ai.common.dto.ApiResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -37,11 +35,11 @@ class PlatformEmbedOpsControllerTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void pageActionReferencesScansAgentGraphSpecNodes() throws Exception {
+    void pageActionReferencesReturnsWorkflowReferenceDiagnostics() {
         PageActionRegistryMapper actionMapper = mock(PageActionRegistryMapper.class);
         PageActionEventMapper eventMapper = mock(PageActionEventMapper.class);
-        AgentDefinitionMapper agentDefinitionMapper = mock(AgentDefinitionMapper.class);
-        PlatformEmbedOpsController controller = newController(actionMapper, eventMapper, agentDefinitionMapper);
+        WorkflowActionReferenceService referenceService = mock(WorkflowActionReferenceService.class);
+        PlatformEmbedOpsController controller = newController(actionMapper, eventMapper, referenceService);
 
         PageActionRegistryEntity action = new PageActionRegistryEntity();
         action.setId(10L);
@@ -49,33 +47,29 @@ class PlatformEmbedOpsControllerTest {
         action.setPageKey("teamArchive.list");
         action.setActionKey("teamArchive.search");
         when(actionMapper.selectById(10L)).thenReturn(action);
-
-        AgentDefinitionEntity agent = new AgentDefinitionEntity();
-        agent.setId("agent-1");
-        agent.setName("班组助手");
-        agent.setKeySlug("team-assistant");
-        agent.setProjectCode("team-system");
-        agent.setEnabled(true);
-        agent.setGraphSpecJson(objectMapper.writeValueAsString(GraphSpec.builder()
-                .node(GraphSpec.Node.builder()
-                        .id("node-page-action")
-                        .type("PAGE_ACTION")
-                        .name("查询班组档案")
-                        .config(Map.of(
-                                "projectCode", "team-system",
-                                "pageKey", "teamArchive.list",
-                                "actionKey", "teamArchive.search"))
-                        .build())
-                .node(GraphSpec.Node.builder()
-                        .id("node-other")
-                        .type("PAGE_ACTION")
-                        .config(Map.of(
-                                "projectCode", "team-system",
-                                "pageKey", "teamArchive.list",
-                                "actionKey", "teamArchive.openDetail"))
-                        .build())
-                .build()));
-        when(agentDefinitionMapper.selectList(any())).thenReturn(List.of(agent));
+        when(referenceService.findReferences(action)).thenReturn(List.of(
+                new WorkflowActionReferenceService.PageActionWorkflowReference(
+                        "workflow-1",
+                        "team-archive-workflow",
+                        "班组档案页面流程",
+                        "team-system",
+                        "ACTIVE",
+                        9L,
+                        "v9",
+                        "ACTIVE_VERSION",
+                        "node-page-action",
+                        "查询班组档案",
+                        "team-system",
+                        "teamArchive.list",
+                        "teamArchive.search",
+                        "agent-1",
+                        "team-global-ai",
+                        "班组全局助手",
+                        "team-system",
+                        true,
+                        7L,
+                        "PAGE",
+                        true)));
 
         ApiResult<List<PlatformEmbedOpsController.PageActionReferenceView>> response =
                 controller.pageActionReferences(10L);
@@ -83,9 +77,17 @@ class PlatformEmbedOpsControllerTest {
         assertEquals(1, response.getData().size());
         PlatformEmbedOpsController.PageActionReferenceView reference = response.getData().get(0);
         assertEquals("agent-1", reference.agentId());
-        assertEquals("team-assistant", reference.agentKeySlug());
+        assertEquals("team-global-ai", reference.agentKeySlug());
+        assertEquals("workflow-1", reference.workflowId());
+        assertEquals("team-archive-workflow", reference.workflowKeySlug());
+        assertEquals(9L, reference.workflowVersionId());
+        assertEquals("ACTIVE_VERSION", reference.graphSource());
+        assertEquals(7L, reference.bindingId());
+        assertEquals("PAGE", reference.bindingType());
+        assertTrue(reference.bindingEnabled());
         assertEquals("node-page-action", reference.nodeId());
         assertEquals("teamArchive.search", reference.actionKey());
+        verify(referenceService).findReferences(action);
     }
 
     @Test
@@ -94,7 +96,7 @@ class PlatformEmbedOpsControllerTest {
         PlatformEmbedOpsController controller = newController(
                 mock(PageActionRegistryMapper.class),
                 eventMapper,
-                mock(AgentDefinitionMapper.class));
+                mock(WorkflowActionReferenceService.class));
         PageActionEventEntity event = new PageActionEventEntity();
         event.setRequestId("debug-1");
         event.setStatus("SUCCESS");
@@ -118,7 +120,7 @@ class PlatformEmbedOpsControllerTest {
                 pageMapper,
                 actionMapper,
                 mock(PageActionEventMapper.class),
-                mock(AgentDefinitionMapper.class),
+                mock(WorkflowActionReferenceService.class),
                 auditEventService);
 
         PageActionRegistryEntity action = new PageActionRegistryEntity();
@@ -175,7 +177,7 @@ class PlatformEmbedOpsControllerTest {
                 pageMapper,
                 actionMapper,
                 mock(PageActionEventMapper.class),
-                mock(AgentDefinitionMapper.class),
+                mock(WorkflowActionReferenceService.class),
                 mock(EmbedAuditEventService.class));
 
         ApiResult<PlatformEmbedOpsController.PageActionManualDeclareResponse> response =
@@ -218,7 +220,7 @@ class PlatformEmbedOpsControllerTest {
 
     private PlatformEmbedOpsController newController(PageActionRegistryMapper actionMapper,
                                                     PageActionEventMapper eventMapper,
-                                                    AgentDefinitionMapper agentDefinitionMapper) {
+                                                    WorkflowActionReferenceService referenceService) {
         return new PlatformEmbedOpsController(
                 mock(EmbedSessionMapper.class),
                 eventMapper,
@@ -228,7 +230,7 @@ class PlatformEmbedOpsControllerTest {
                 mock(RegistryCredentialMapper.class),
                 mock(PageRegistryMapper.class),
                 actionMapper,
-                agentDefinitionMapper,
+                referenceService,
                 mock(EmbedAuditEventService.class),
                 objectMapper);
     }
@@ -237,7 +239,7 @@ class PlatformEmbedOpsControllerTest {
                                                     PageRegistryMapper pageMapper,
                                                     PageActionRegistryMapper actionMapper,
                                                     PageActionEventMapper eventMapper,
-                                                    AgentDefinitionMapper agentDefinitionMapper,
+                                                    WorkflowActionReferenceService referenceService,
                                                     EmbedAuditEventService auditEventService) {
         return new PlatformEmbedOpsController(
                 sessionMapper,
@@ -248,7 +250,7 @@ class PlatformEmbedOpsControllerTest {
                 mock(RegistryCredentialMapper.class),
                 pageMapper,
                 actionMapper,
-                agentDefinitionMapper,
+                referenceService,
                 auditEventService,
                 objectMapper);
     }
