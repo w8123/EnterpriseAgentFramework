@@ -17,7 +17,7 @@ class AgentEntryServiceTest {
     void createFillsDefaultsAndPersistsProjectEntryAgent() {
         AgentEntryMapper mapper = mock(AgentEntryMapper.class);
         when(mapper.insert(any(AgentEntryEntity.class))).thenReturn(1);
-        AgentEntryService service = new AgentEntryService(mapper);
+        AgentEntryService service = new AgentEntryService(mapper, new com.fasterxml.jackson.databind.ObjectMapper());
 
         AgentEntryEntity created = service.create(agent("project-entry"));
 
@@ -34,7 +34,7 @@ class AgentEntryServiceTest {
 
     @Test
     void createRejectsInvalidKeySlug() {
-        AgentEntryService service = new AgentEntryService(mock(AgentEntryMapper.class));
+        AgentEntryService service = new AgentEntryService(mock(AgentEntryMapper.class), new com.fasterxml.jackson.databind.ObjectMapper());
 
         AgentEntryEntity request = agent("bad slug");
 

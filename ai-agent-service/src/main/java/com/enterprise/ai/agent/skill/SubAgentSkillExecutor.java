@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.skill;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
 import com.enterprise.ai.agent.agentscope.AgentFactory;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,7 +26,7 @@ import java.util.concurrent.TimeoutException;
  *   <li>继承审计上下文：子 Agent 复用父 traceId，Skill Mining 才能把一条链路拼起来；</li>
  *   <li>结构化参数注入：把 args 序列化为 "[Given parameters]: {json}" 追加到用户消息，
  *       避免主 Agent 调用 Skill 时必须"自然语言复述"所有参数；</li>
- *   <li>用 {@link AgentFactory#buildFromDefinition} 构造子 Agent，自动享受 Tool Retrieval 等能力。</li>
+ *   <li>用 {@link AgentFactory#buildFromProfile} 构造子 Agent，自动享受 Tool Retrieval 等能力。</li>
  * </ol>
  * <p>
  * 通过 {@link ObjectProvider} 懒加载 AgentFactory，打破 ToolDefinitionService ↔ AgentFactory ↔
@@ -60,7 +60,7 @@ public class SubAgentSkillExecutor {
             ToolExecutionContext childCtx = buildChildContext(parentCtx, skill.name());
 
             SubAgentSpec spec = skill.getSpec();
-            AgentDefinition childDef = AgentDefinition.builder()
+            AgentRuntimeProfile childProfile = AgentRuntimeProfile.builder()
                     .name("skill:" + skill.name())
                     .systemPrompt(spec.systemPrompt())
                     .tools(spec.toolWhitelist())
@@ -73,7 +73,7 @@ public class SubAgentSkillExecutor {
             String composedMessage = composeChildMessage(args);
 
             AgentFactory factory = agentFactoryProvider.getObject();
-            ReActAgent child = factory.buildFromDefinition(childDef, composedMessage, childCtx);
+            ReActAgent child = factory.buildFromProfile(childProfile, composedMessage, childCtx);
             Duration timeout = resolveTimeout(skill);
             int retryLimit = resolveRetryLimit(skill);
 

@@ -16,14 +16,14 @@
 2. 业务方法或 Controller 使用 `@ReachCapability`、`@ReachParam`、`@ReachOutput` 补充 AI 可理解的语义。
 3. Starter 在启动时同步项目、实例、能力快照和 SDK 图。
 4. 平台形成字段级 diff、评审 apply/ignore，并沉淀正式能力资产。
-5. Agent Studio 基于能力资产编排 `GraphSpec`。
-6. Agent 发布形成版本快照，Runtime 通过 `AgentRuntimeAdapter` 执行。
+5. Workflow Studio 基于能力资产编排 Workflow `GraphSpec`（`ai_workflow`）。
+6. Agent 入口（`ai_agent`）通过 binding 绑定 Workflow；Workflow 发布形成版本快照，Runtime 通过 `AgentEntry` + binding + `AgentRuntimeAdapter` 执行。
 7. RunOps、Trace、ACL、Guard、Gateway、MCP、A2A 和嵌入式对话负责生产治理与开放。
 
 ## Modules
 
-- `ai-admin-front/`: Vue 3 + Element Plus 管理端，包含项目注册、能力目录、Agent Studio、RunOps、模型、知识库、MCP/A2A、嵌入审计等页面。
-- `ai-agent-service/`: Agent 定义、Studio、Runtime、发布、Trace、Tool ACL、注册中心、嵌入式身份、Gateway、MCP、A2A 等核心服务。
+- `ai-admin-front/`: Vue 3 + Element Plus 管理端，包含项目注册、能力目录、Agent 入口、Workflow Studio、RunOps、模型、知识库、MCP/A2A、嵌入审计等页面。
+- `ai-agent-service/`: Agent 入口（`ai_agent`）、Workflow 编排（`ai_workflow`）、Workflow Studio、Runtime、发布、Trace、Tool ACL、注册中心、嵌入式身份、Gateway、MCP、A2A 等核心服务。
 - `ai-skills-service/`: 知识库、文件、chunk、业务索引、语义文档等能力支撑。
 - `ai-model-service/`: 模型实例中心和模型配置。
 - `ai-common/`: 通用模型、响应、工具类。
@@ -54,52 +54,43 @@
 
 历史 service-level SQL 已从活跃路径移除。未来 SQL 变化必须同时维护根基线和 `sql/upgrade-*.sql`。
 
-## Agent Studio And Runtime
+## Agent, Workflow Studio And Runtime
 
-Agent Studio 的核心不是只画流程图，而是统一：
+Agent 与 Workflow 已解耦：
 
-- 可视化画布。
-- 交互式节点。
-- 会话式调试台。
-- AI 生成工作流。
-- AI 局部修改工作流。
-- SDK 图注册与只读展示。
-- 发布校验。
-- Runtime 执行。
-- Trace/RunOps 复盘。
+- **Agent**（`ai_agent` / `AgentEntry`）：身份、入口策略、权限与 binding；API `/api/agents`。`agent_definition` 主模型已退役。
+- **Workflow**（`ai_workflow`）：`GraphSpec`、`canvas_json`、版本与发布；API `/api/workflows`。
+- **Workflow Studio**：唯一画布编辑器（`WorkflowStudio.vue`）；原 Agent Studio 已退役，遗留路由仅兼容跳转。
+- **Binding**（`ai_agent_workflow_binding`）：`/api/agents/{agentId}/workflow-bindings`，Runtime 由 `EmbedWorkflowRuntimeService` 等解析 Agent → Workflow → 活跃版本。
 
-当前同时支持两类智能体形态：
+Workflow Studio 统一承载：可视化画布、交互式节点、会话式调试台、AI 生成/局部修改、SDK 图展示、发布校验、Runtime 执行与 Trace/RunOps 复盘。
 
-- `AUTONOMOUS`: 自主智能体，主线 Runtime 是 AgentScope。
-- `WORKFLOW`: 工作流智能体，主线 Runtime 是 LangGraph4j + `GraphSpec`。
-
-`CursorCodeAgentRuntimeAdapter` 和 `OpenAIAgentsRuntimeAdapter` 当前是扩展边界，不应写成已可用生产 Runtime。
+Workflow 主线 Runtime 是 LangGraph4j + `GraphSpec`。AgentScope 等仍可通过 Agent 入口策略服务自主智能体形态。`CursorCodeAgentRuntimeAdapter` 和 `OpenAIAgentsRuntimeAdapter` 当前是扩展边界，不应写成已可用生产 Runtime。
 
 ## GraphSpec
 
-`GraphSpec` 是平台可执行语义的核心中间表示。
+`GraphSpec` 是平台可执行语义的核心中间表示，归属 Workflow 而非 Agent。
 
 - 后端类型：`ai-agent-service/src/main/java/com/enterprise/ai/agent/graph/GraphSpec.java`。
-- 前端类型：`ai-admin-front/src/types/agent.ts`。
-- DB 字段：`agent_definition.graph_spec_json` 保存运行语义。
-- DB 字段：`agent_definition.canvas_json` 保存 Studio 画布布局。
-- 发布校验：`AgentReleaseValidationService`。
-- Runtime 执行：`LangGraph4jRuntimeAdapter`。
+- 前端 Workflow 图语义类型：`ai-admin-front/src/types/workflow.ts`（`WorkflowStudioState`、`WorkflowDefinition` 等；`AgentGraphSpec` 名称仍存在于类型层，新改动以 workflow 模块为准）。
+- DB 字段：`ai_workflow.graph_spec_json` 保存运行语义；`ai_workflow.canvas_json` 保存 Workflow Studio 画布布局。
+- 发布校验：`WorkflowReleaseValidationService`。
+- Runtime 执行：`LangGraph4jRuntimeAdapter`（经 `WorkflowRuntimeGraphAdapter` 与 binding 解析）。
 
-新增节点、边、变量映射、条件路由或 Runtime 行为时，要优先维护 `GraphSpec` 语义，不能只扩展画布 JSON。
+新增节点、边、变量映射、条件路由或 Runtime 行为时，要优先维护 Workflow `GraphSpec` 语义，不能只扩展画布 JSON。
 
 ## AI Draft And Local Edit
 
 AI 生成工作流：
 
-- API: `/api/agent/studio/generate-draft`
-- Controller: `AgentStudioDraftController`
+- API: `/api/workflows/studio/generate-draft`
+- Controller: `WorkflowStudioDraftController`
 - Generator: `LlmWorkflowDraftGenerator`
 - 结果应标准化为 `GraphSpec` 和 `canvasSnapshot`，前端走预览/应用，不直接覆盖画布。
 
 AI 局部编辑工作流：
 
-- API: `/api/agent/studio/edit-draft`
+- API: `/api/workflows/studio/edit-draft`
 - Service: `WorkflowDraftEditService`
 - 输入应包含当前 canvas、用户意图和选中上下文。
 - 默认围绕当前选中节点/边/多选内容做局部修改，而不是重生成整张图。
@@ -133,4 +124,4 @@ AI 局部编辑工作流：
 
 管理端已经有暗色/亮色主题基础，后续主题改动应复用 CSS 变量和现有主题文件。不要在页面里散落硬编码暗色、浅色或 Element Plus 覆盖。
 
-项目范围选择器、注册中心、扫描项目、Agent Studio 侧边栏折叠等行为和 `MainLayout.vue`、`ProjectSelector.vue`、路由名称、项目 store 相关。改导航和布局前先查这些共享位置。
+项目范围选择器、注册中心、扫描项目、Workflow Studio 侧边栏折叠等行为和 `MainLayout.vue`、`ProjectSelector.vue`、路由名称、项目 store 相关。改导航和布局前先查这些共享位置。

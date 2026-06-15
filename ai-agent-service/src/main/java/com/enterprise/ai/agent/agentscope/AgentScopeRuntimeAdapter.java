@@ -1,15 +1,17 @@
 package com.enterprise.ai.agent.agentscope;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.model.interactive.UiRequestPayload;
 import com.enterprise.ai.agent.runtime.AgentRuntimeAdapter;
 import com.enterprise.ai.agent.runtime.AgentRuntimeCapability;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
 import com.enterprise.ai.agent.runtime.AgentRuntimeRequest;
 import com.enterprise.ai.agent.runtime.AgentRuntimeResult;
 import com.enterprise.ai.agent.skill.ToolExecutionContextHolder;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.AgentBase;
 import io.agentscope.core.message.Msg;
@@ -23,12 +25,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * AgentScope runtime adapter.
- * <p>
- * This class owns all direct AgentScope execution types. Platform callers should
- * depend on {@link AgentRuntimeAdapter} instead of ReActAgent, Msg, Pipelines, or Toolkit.
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -37,7 +33,8 @@ public class AgentScopeRuntimeAdapter implements AgentRuntimeAdapter {
     private static final String RUNTIME_TYPE = DEFAULT_RUNTIME_TYPE;
 
     private final AgentFactory agentFactory;
-    private final AgentDefinitionService agentDefinitionService;
+    private final AgentEntryService agentEntryService;
+    private final ObjectMapper objectMapper;
     private final ToolCallLogService toolCallLogService;
 
     @Override
@@ -71,23 +68,23 @@ public class AgentScopeRuntimeAdapter implements AgentRuntimeAdapter {
 
     @Override
     public boolean supports(AgentRuntimeRequest request) {
-        return request != null && request.getAgentDefinition() != null;
+        return request != null && request.getAgentRuntimeProfile() != null;
     }
 
     @Override
     public AgentRuntimeResult execute(AgentRuntimeRequest request) {
-        AgentDefinition definition = request.getAgentDefinition();
+        AgentRuntimeProfile profile = request.getAgentRuntimeProfile();
         String traceId = request.getTraceId();
         Msg input = Msg.builder().textContent(request.getMessage()).build();
         ToolExecutionContext context = ToolExecutionContext.builder()
                 .traceId(traceId)
                 .sessionId(request.getSessionId())
                 .userId(request.getUserId())
-                .agentName(definition.getName())
-                .agentId(definition.getId())
+                .agentName(profile.getName())
+                .agentId(profile.getId())
                 .intentType(request.getIntentType())
-                .projectCode(definition.getProjectCode())
-                .allowIrreversible(definition.isAllowIrreversible())
+                .projectCode(profile.getProjectCode())
+                .allowIrreversible(profile.isAllowIrreversible())
                 .roles(request.getRoles())
                 .currentTurnMessage(request.getMessage())
                 .build();
@@ -95,33 +92,33 @@ public class AgentScopeRuntimeAdapter implements AgentRuntimeAdapter {
         long startTime = System.currentTimeMillis();
         try {
             Msg response;
-            if ("pipeline".equals(definition.getType()) && definition.getPipelineAgentIds() != null
-                    && !definition.getPipelineAgentIds().isEmpty()) {
-                response = executePipeline(definition, input, request.getMessage(), context);
+            if ("pipeline".equals(profile.getType()) && profile.getPipelineAgentIds() != null
+                    && !profile.getPipelineAgentIds().isEmpty()) {
+                response = executePipeline(profile, input, request.getMessage(), context);
             } else {
                 response = executeSingleAgent(
-                        agentFactory.buildFromDefinition(definition, request.getMessage(), context),
+                        agentFactory.buildFromProfile(profile, request.getMessage(), context),
                         input,
                         context);
             }
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("[AgentScopeRuntime] 执行完成: agent={}, elapsedMs={}, traceId={}",
-                    definition.getName(), elapsed, traceId);
+                    profile.getName(), elapsed, traceId);
             return buildResult(true, response, request.getIntentType(), elapsed, traceId, context, null);
         } catch (Exception e) {
-            log.error("[AgentScopeRuntime] 执行失败: agent={}, traceId={}", definition.getName(), traceId, e);
+            log.error("[AgentScopeRuntime] 执行失败: agent={}, traceId={}", profile.getName(), traceId, e);
             long elapsed = System.currentTimeMillis() - startTime;
             return AgentRuntimeResult.builder()
                     .success(false)
                     .answer("处理过程中遇到异常：" + e.getMessage())
                     .runtimeType(RUNTIME_TYPE)
                     .traceId(traceId)
-                    .agentName(definition.getName())
+                    .agentName(profile.getName())
                     .errorCode(e.getClass().getSimpleName())
                     .errorMessage(e.getMessage())
                     .metadata(Map.of(
                             "traceId", traceId,
-                            "agentName", definition.getName(),
+                            "agentName", profile.getName(),
                             "runtimeType", RUNTIME_TYPE,
                             "elapsedMs", elapsed))
                     .build();
@@ -145,16 +142,16 @@ public class AgentScopeRuntimeAdapter implements AgentRuntimeAdapter {
         }
     }
 
-    private Msg executePipeline(AgentDefinition pipelineDef, Msg input,
+    private Msg executePipeline(AgentRuntimeProfile pipelineProfile, Msg input,
                                 String userMessage, ToolExecutionContext context) {
-        List<String> agentIds = pipelineDef.getPipelineAgentIds();
-        log.debug("[AgentScopeRuntime] Pipeline 执行: {} -> {} 个子 Agent", pipelineDef.getName(), agentIds.size());
+        List<String> agentIds = pipelineProfile.getPipelineAgentIds();
+        log.debug("[AgentScopeRuntime] Pipeline 执行: {} -> {} 个子 Agent", pipelineProfile.getName(), agentIds.size());
 
         List<AgentBase> agents = agentIds.stream()
-                .map(id -> agentDefinitionService.findById(id)
-                        .orElseThrow(() -> new IllegalStateException(
-                                "Pipeline 子 Agent 不存在: " + id)))
-                .map(def -> (AgentBase) agentFactory.buildFromDefinition(def, userMessage, context))
+                .map(id -> agentEntryService.findById(id)
+                        .orElseThrow(() -> new IllegalStateException("Pipeline 子 Agent 不存在: " + id)))
+                .map(entry -> (AgentBase) agentFactory.buildFromProfile(
+                        AgentRuntimeProfile.fromAgentEntry(entry, objectMapper), userMessage, context))
                 .toList();
 
         ToolExecutionContext prev = ToolExecutionContextHolder.get();

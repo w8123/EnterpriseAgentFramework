@@ -1,6 +1,5 @@
 package com.enterprise.ai.agent.workflow;
 
-import com.enterprise.ai.agent.agent.AgentReleaseValidationResult;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +25,7 @@ public class WorkflowVersionService {
         return versionMapper.listByWorkflow(workflowId);
     }
 
-    public AgentReleaseValidationResult validateRelease(String workflowId) {
+    public WorkflowReleaseValidationResult validateRelease(String workflowId) {
         WorkflowDefinitionEntity workflow = workflowService.findById(workflowId)
                 .orElseThrow(() -> new IllegalArgumentException("workflow not found: " + workflowId));
         return releaseValidationService.validate(workflow);
@@ -58,7 +57,7 @@ public class WorkflowVersionService {
         if (rolloutPercent < 0 || rolloutPercent > 100) {
             throw new IllegalArgumentException("rolloutPercent must be between 0 and 100");
         }
-        AgentReleaseValidationResult validation = releaseValidationService.validate(workflow);
+        WorkflowReleaseValidationResult validation = releaseValidationService.validate(workflow);
         if (!validation.valid()) {
             String code = validation.errors().isEmpty() ? "UNKNOWN" : validation.errors().get(0).code();
             throw new IllegalArgumentException("workflow release validation failed: " + code);

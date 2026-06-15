@@ -1,6 +1,8 @@
 package com.enterprise.ai.agent.eval;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
+import com.enterprise.ai.agent.graph.GraphSpec;
+import com.enterprise.ai.agent.runtime.AgentRuntimeAdapter;
+import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.runtime.LangGraph4jRuntimeAdapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -20,6 +22,20 @@ import static org.mockito.Mockito.when;
 
 class AgentEvalServiceTest {
 
+    private static final GraphSpec EVAL_GRAPH = GraphSpec.builder()
+            .code("eval")
+            .entry("answer")
+            .node(GraphSpec.Node.builder().id("answer").type("ANSWER").build())
+            .build();
+
+    private static final GraphRuntimeContext EVAL_CONTEXT = GraphRuntimeContext.builder()
+            .sourceType("WORKFLOW_DRAFT")
+            .sourceId("agent-1")
+            .name("售后流程")
+            .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
+            .allowIrreversible(true)
+            .build();
+
     @Test
     void runsDatasetForConfiguredRepeatCountAndAggregatesSummary() {
         Fixture fx = new Fixture();
@@ -30,7 +46,7 @@ class AgentEvalServiceTest {
                 fx.caseRow(12L, "case-2", "查询订单2002", """
                         {"contains":["订单2002"]}
                         """)));
-        when(fx.runtime.debugRun(any(), any(), any(), any()))
+        when(fx.runtime.debugRun(any(), any(), any(), any(), any()))
                 .thenReturn(debugResult(true, "订单1001 已支付", "llm_1", 100))
                 .thenReturn(debugResult(false, "没有找到订单", "tool_order_query", 300))
                 .thenReturn(debugResult(true, "订单1001 已支付", "llm_1", 120))
@@ -44,7 +60,8 @@ class AgentEvalServiceTest {
                 "售后流程",
                 "发布前评测",
                 3,
-                AgentDefinition.builder().id("agent-1").name("售后流程").allowIrreversible(true).build(),
+                EVAL_GRAPH,
+                EVAL_CONTEXT,
                 Map.of("version", 2)));
 
         assertEquals(6, fx.resultRows().size());
@@ -60,12 +77,12 @@ class AgentEvalServiceTest {
     }
 
     @Test
-    void sandboxedDefinitionDisablesIrreversibleTools() {
+    void sandboxedContextDisablesIrreversibleTools() {
         Fixture fx = new Fixture();
         fx.withCases(List.of(fx.caseRow(11L, "case-1", "hello", "{}")));
-        when(fx.runtime.debugRun(any(), any(), any(), any()))
+        when(fx.runtime.debugRun(any(), any(), any(), any(), any()))
                 .thenReturn(debugResult(true, "hello", "answer", 50));
-        ArgumentCaptor<AgentDefinition> definitionCaptor = ArgumentCaptor.forClass(AgentDefinition.class);
+        ArgumentCaptor<GraphRuntimeContext> contextCaptor = ArgumentCaptor.forClass(GraphRuntimeContext.class);
 
         fx.service.startRun(new AgentEvalService.StartRunRequest(
                 1L,
@@ -73,11 +90,12 @@ class AgentEvalServiceTest {
                 "流程",
                 "评测",
                 1,
-                AgentDefinition.builder().id("agent-1").name("流程").allowIrreversible(true).build(),
+                EVAL_GRAPH,
+                EVAL_CONTEXT,
                 Map.of()));
 
-        org.mockito.Mockito.verify(fx.runtime).debugRun(definitionCaptor.capture(), any(), any(), any());
-        assertFalse(definitionCaptor.getValue().isAllowIrreversible());
+        org.mockito.Mockito.verify(fx.runtime).debugRun(any(), contextCaptor.capture(), any(), any(), any());
+        assertFalse(contextCaptor.getValue().isAllowIrreversible());
     }
 
     @Test

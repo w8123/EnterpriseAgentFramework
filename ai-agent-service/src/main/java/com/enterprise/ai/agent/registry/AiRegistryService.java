@@ -4,8 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.agent.acl.ToolAclEntity;
 import com.enterprise.ai.agent.acl.ToolAclMapper;
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
 import com.enterprise.ai.agent.agent.CapabilityReference;
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
@@ -73,7 +74,7 @@ public class AiRegistryService {
     private final CapabilityDiffItemMapper diffItemMapper;
     private final CapabilityApplyRecordMapper applyRecordMapper;
     private final ToolDefinitionService toolDefinitionService;
-    private final AgentDefinitionService agentDefinitionService;
+    private final AgentEntryService agentEntryService;
     private final WorkflowDefinitionService workflowDefinitionService;
     private final ToolAclMapper toolAclMapper;
     private final RegistrySecurityService registrySecurityService;
@@ -1233,9 +1234,14 @@ public class AiRegistryService {
                 defaultString(capabilityName, ""),
                 defaultString(qualifiedName, "")
         );
-        List<AgentDefinition> affectedAgents = agentDefinitionService.list(project.getId()).stream()
-                .filter(agent -> containsAny(agent.getTools(), candidateNames) || containsAny(agent.getSkills(), candidateNames)
-                        || (agent.getCanvasJson() != null && candidateNames.stream().anyMatch(agent.getCanvasJson()::contains)))
+        List<AgentEntryEntity> affectedAgents = agentEntryService.list(project.getId(), null, null).stream()
+                .filter(entry -> {
+                    AgentRuntimeProfile profile = AgentRuntimeProfile.fromAgentEntry(entry, objectMapper);
+                    return containsAny(profile.getTools(), candidateNames)
+                            || containsAny(profile.getSkills(), candidateNames)
+                            || (entry.getEntryConfigJson() != null
+                            && candidateNames.stream().anyMatch(entry.getEntryConfigJson()::contains));
+                })
                 .toList();
         List<ToolDefinitionEntity> affectedSkills = toolDefinitionService.listByProjectId(project.getId()).stream()
                 .filter(tool -> "SKILL".equalsIgnoreCase(tool.getKind()))
@@ -1247,7 +1253,7 @@ public class AiRegistryService {
                         .or()
                         .eq(ToolAclEntity::getTargetName, "*")));
         Map<String, Object> impact = new LinkedHashMap<>();
-        impact.put("agents", affectedAgents.stream().map(AgentDefinition::getId).toList());
+        impact.put("agents", affectedAgents.stream().map(AgentEntryEntity::getId).toList());
         impact.put("skills", affectedSkills.stream().map(ToolDefinitionEntity::getName).toList());
         impact.put("aclRuleIds", affectedAcl.stream().map(ToolAclEntity::getId).toList());
         impact.put("mcp", "MCP 可见性按 tool name 运行时解析，发布前需重新检查");

@@ -1,10 +1,12 @@
 package com.enterprise.ai.agent.governance;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.agent.CapabilityReference;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -17,16 +19,19 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class GuardRuntimeService {
 
-    private final AgentDefinitionService agentDefinitionService;
+    private final AgentEntryService agentEntryService;
     private final ToolDefinitionService toolDefinitionService;
     private final GuardDecisionLogService guardDecisionLogService;
+    private final ObjectMapper objectMapper;
 
     public PreflightResult preflightAgent(String agentId, String operator) {
-        AgentDefinition agent = agentDefinitionService.findById(agentId)
+        AgentEntryEntity entry = agentEntryService.findById(agentId)
+                .or(() -> agentEntryService.findByKeySlug(agentId))
                 .orElseThrow(() -> new IllegalArgumentException("Agent 不存在: " + agentId));
+        AgentRuntimeProfile agent = AgentRuntimeProfile.fromAgentEntry(entry, objectMapper);
         List<PreflightIssue> issues = new ArrayList<>();
-        checkRefs(agent, "TOOL", agent.getToolRefs(), issues);
-        checkRefs(agent, "SKILL", agent.getSkillRefs(), issues);
+        checkRefs(agent, "TOOL", agent.getTools(), issues);
+        checkRefs(agent, "SKILL", agent.getSkills(), issues);
         boolean passed = issues.stream().noneMatch(issue -> "ERROR".equals(issue.severity()));
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("agentId", agentId);
@@ -37,14 +42,11 @@ public class GuardRuntimeService {
         return new PreflightResult(passed, issues);
     }
 
-    private void checkRefs(AgentDefinition agent,
+    private void checkRefs(AgentRuntimeProfile agent,
                            String kind,
-                           List<CapabilityReference> refs,
+                           List<String> names,
                            List<PreflightIssue> issues) {
-        List<String> legacy = "TOOL".equals(kind) ? agent.getTools() : agent.getSkills();
-        List<CapabilityReference> effectiveRefs = refs == null || refs.isEmpty()
-                ? legacyToRefs(kind, legacy)
-                : refs;
+        List<CapabilityReference> effectiveRefs = legacyToRefs(kind, names);
         for (CapabilityReference ref : effectiveRefs) {
             String lookup = firstText(ref.getQualifiedName(), ref.getName());
             ToolDefinitionEntity tool = toolDefinitionService.findByQualifiedName(lookup)
@@ -84,15 +86,15 @@ public class GuardRuntimeService {
     private String firstText(String... values) {
         for (String value : values) {
             if (value != null && !value.isBlank()) {
-                return value;
+                return value.trim();
             }
         }
         return null;
     }
 
-    public record PreflightResult(boolean passed, List<PreflightIssue> issues) {
+    public record PreflightIssue(String severity, String kind, String target, String message) {
     }
 
-    public record PreflightIssue(String severity, String kind, String target, String message) {
+    public record PreflightResult(boolean passed, List<PreflightIssue> issues) {
     }
 }

@@ -14,7 +14,7 @@
 
 历史例子：
 
-- `agent_workflow_credential` 缺表会影响 Agent Studio 工作流凭证。
+- `agent_workflow_credential` 缺表会影响 Workflow Studio 工作流凭证。
 - `agent_release_event` 缺表会影响版本发布事件接口。
 - `api_graph_edge.status` 缺列会影响 API 图谱点击和状态查询。
 
@@ -45,20 +45,36 @@ Get-Content -Encoding UTF8 path\to\file.md
 
 不要把 mojibake 文本当作业务命名继续复制到代码里。
 
+## Agent Definition And Agent Studio Legacy
+
+症状：新代码仍读写 `agent_definition`、调用 `/api/agent/definitions`，或把用户导向 `agent/:id/studio`（Agent Studio 兼容路由）。
+
+处理顺序：
+
+1. Agent 身份/策略/入口 → `ai_agent` + `/api/agents` + `AgentEntryController`。
+2. GraphSpec / 画布 / 发布 → `ai_workflow` + `/api/workflows` + `WorkflowStudio.vue`。
+3. Agent 到 Workflow 路由 → `ai_agent_workflow_binding` + `/api/agents/{agentId}/workflow-bindings`。
+4. 不要在新功能中恢复 `AgentManageController`、`AgentStudio.vue` 或 `agent_definition` 字段语义。
+
+历史例子：
+
+- 在 `agent_definition` 上保存 `graph_spec_json` 会导致 Runtime 与 Studio 数据源分裂。
+- 遗留 `/api/agents/{agentId}/versions` 与 Workflow 版本并存时，新发布应只走 `/api/workflows/{workflowId}/versions`。
+
 ## Agent Studio Build Failures
 
-Agent Studio 页面复杂，中文模板、条件面板、节点配置和类型定义容易互相影响。处理方式：
+Workflow Studio 页面复杂，中文模板、条件面板、节点配置和类型定义容易互相影响。处理方式：
 
-1. 先看 `ai-admin-front/src/types/agent.ts`。
-2. 再看 Studio 页面和 panel 组件。
+1. 先看 `ai-admin-front/src/types/workflow.ts`（Workflow 模型）与 `agent.ts`（共享 Graph 节点类型）。
+2. 再看 `WorkflowStudio.vue` 和 `studio-panels/` 组件。
 3. 跑 `npx vue-tsc --noEmit` 或 `npm run build`。
 4. 按报错行小批量修，不要整页重写。
 
 ## GraphSpec Versus Canvas Confusion
 
-如果功能在画布上显示正常但 Runtime 不执行，优先检查是否只改了 `canvas_json` 或前端 snapshot，没写入 `graph_spec_json`。
+如果功能在画布上显示正常但 Runtime 不执行，优先检查是否只改了 `canvas_json` 或前端 snapshot，没写入 `ai_workflow.graph_spec_json`。
 
-如果 Runtime 执行正常但画布显示不对，优先检查 `graphSpecToCanvas`、layout 信息和前端渲染转换。
+如果 Runtime 执行正常但画布显示不对，优先检查 `workflowStudioToCanvas`、`graphSpecToCanvas`、layout 信息和前端渲染转换。
 
 ## Node And NPM Environment
 

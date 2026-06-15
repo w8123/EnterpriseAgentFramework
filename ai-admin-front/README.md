@@ -9,8 +9,11 @@
 | 功能域 | 模块 | 说明 |
 |--------|------|------|
 | **概览** | Dashboard | 统计卡片（Agent / 知识库 / Tool / Provider 数量）、各服务 Actuator 健康探测、最近 Agent 与知识库快览 |
-| **Agent** | Agent 管理 | 列表、多维筛选（意图类型 / 触发方式 / 状态）、启停、新建/编辑/删除；支持自定义意图类型；对接 `/api/agent/definitions` |
-| | Agent 编辑 | 名称、意图类型（预置+自定义）、System Prompt、模型名、Tools、Pipeline、最大步数、**触发方式**、**多 Agent 模型**、**输出 Schema**、**知识库组 ID**、**Prompt 模板 ID** 等 AI 能力中台配置 |
+| **Agent** | Agent 管理 | 列表、筛选（agentKind / 项目 / 状态）、启停、新建/编辑/删除；对接 `/api/agents`（`AgentEntry`） |
+| | Agent 编辑 | 身份与策略：name、keySlug、agentKind、visibility、systemPrompt、modelInstanceId、allowedRoles、entryConfig；跳转 Workflow 绑定与画布 |
+| | Workflow 管理 | 列表、新建/编辑、版本发布；对接 `/api/workflows` |
+| | Workflow Studio | 唯一 GraphSpec / canvas_json 编辑界面（`/workflows/:id/studio`） |
+| | Agent 绑定 | Agent → Workflow 路由 CRUD（`/agents/:id/bindings`） |
 | | Agent 调试台 | 轻量对话、SSE 流式对话、完整 Agent 执行；会话 ID 展示与清除会话 |
 | **知识管理** | 知识库管理 | 知识库 CRUD、详情、Chunk 策略 |
 | | 文件入库 | 拖拽上传、切分预览、Pipeline 入库 |
@@ -52,13 +55,13 @@
 | 实例 | baseURL | 典型路径 | 后端服务（默认端口） |
 |------|---------|----------|----------------------|
 | `textRequest`（默认导出） | `/ai` | `/knowledge/*`、`/file/*`、`/retrieval/*`、`/biz-index/*` | ai-skills-service `:18602`（context-path `/ai`） |
-| `agentRequest` | `''`（站点根） | `/api/agent/*`、`/api/chat/*`、`/api/tools/*` | ai-agent-service `:18603` |
+| `agentRequest` | `''`（站点根） | `/api/agents`、`/api/workflows`、`/api/chat/*`、`/api/tools/*` | ai-agent-service `:18603` |
 | `modelRequest` | `/model` | `/model/chat`、`/model/providers` 等 | ai-model-service `:18601` |
 
 开发环境下 **Vite 代理**（`vite.config.ts`）：
 
 - `/ai` → `http://localhost:18602`
-- `/api/agent`、`/api/chat`、`/api/tools` → `http://localhost:18603`
+- `/api/agents`、`/api/workflows`、`/api/chat`、`/api/tools` → `http://localhost:18603`
 - `/model` → `http://localhost:18601`
 
 生产部署时，需在 **Nginx（或网关）** 上为上述路径分别反代到对应服务，并保留较长 `proxy_read_timeout`（大文件入库、流式对话）。
@@ -83,7 +86,8 @@ ai-admin-front/
     │   ├── knowledge.ts
     │   ├── import.ts
     │   ├── bizIndex.ts
-    │   ├── agent.ts
+    │   ├── agent.ts          # AgentEntry 重导出 + 调试/网关 helper
+    │   ├── workflow.ts       # /api/agents、/api/workflows、Studio、绑定
     │   ├── chat.ts
     │   ├── model.ts
     │   └── tool.ts
@@ -93,7 +97,8 @@ ai-admin-front/
     ├── views/
     │   ├── layout/MainLayout.vue
     │   ├── dashboard/Dashboard.vue
-    │   ├── agent/AgentList.vue | AgentEdit.vue | AgentDebug.vue
+    │   ├── agent/AgentList.vue | AgentEdit.vue | AgentDebug.vue | AgentWorkflowBindings.vue
+    │   ├── workflow/WorkflowList.vue | WorkflowStudio.vue | WorkflowVersions.vue
     │   ├── model/ModelProvider.vue | ModelPlayground.vue
     │   ├── tool/ToolList.vue
     │   ├── Knowledge*.vue | FileDetail.vue | RetrievalTest.vue
@@ -113,10 +118,16 @@ ai-admin-front/
 |------|------|------|
 | `/` | — | 重定向至 `/dashboard` |
 | `/dashboard` | `Dashboard.vue` | 概览与快捷入口 |
-| `/agent` | `AgentList.vue` | Agent 列表 |
+| `/agent` | `AgentList.vue` | Agent 列表（`AgentEntry`） |
 | `/agent/new/edit` | `AgentEdit.vue` | 新建 Agent |
-| `/agent/:id/edit` | `AgentEdit.vue` | 编辑 Agent |
+| `/agent/:id/edit` | `AgentEdit.vue` | 编辑 Agent 身份与策略 |
 | `/agent/:id/debug` | `AgentDebug.vue` | 调试台 |
+| `/agent/:id/studio` | `AgentStudioCompatibility.vue` | 兼容跳转 → 绑定 Workflow Studio |
+| `/agent/:id/versions` | `AgentVersions.vue` | 已迁移提示，引导 Workflow 版本 |
+| `/agents/:agentId/bindings` | `AgentWorkflowBindings.vue` | Agent → Workflow 绑定 |
+| `/workflows` | `WorkflowList.vue` | Workflow 列表 |
+| `/workflows/:workflowId/studio` | `WorkflowStudio.vue` | Workflow Studio（唯一画布） |
+| `/workflows/:workflowId/versions` | `WorkflowVersions.vue` | Workflow 版本与发布 |
 | `/knowledge` | `KnowledgeList.vue` | 知识库列表 |
 | `/knowledge/import` | `KnowledgeImport.vue` | 文件入库 |
 | `/knowledge/:code` | `KnowledgeDetail.vue` | 知识库详情 |
@@ -138,17 +149,26 @@ ai-admin-front/
 
 **知识库 / 入库 / 检索 / 业务索引**（`textRequest`，前缀 `/ai`）：与历史文档一致，见 `src/api/knowledge.ts`、`import.ts`、`bizIndex.ts`。
 
-**Agent**（`agentRequest`）：
+**Agent / Workflow**（`agentRequest` + `workflow.ts`）：
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/agent/definitions` | 列表 |
-| GET | `/api/agent/definitions/{id}` | 详情 |
-| POST | `/api/agent/definitions` | 创建 |
-| PUT | `/api/agent/definitions/{id}` | 更新 |
-| DELETE | `/api/agent/definitions/{id}` | 删除 |
+| GET | `/api/agents` | AgentEntry 列表 |
+| GET | `/api/agents/{id}` | AgentEntry 详情 |
+| POST | `/api/agents` | 创建 Agent |
+| PUT | `/api/agents/{id}` | 更新 Agent |
+| DELETE | `/api/agents/{id}` | 删除 Agent |
+| GET | `/api/workflows` | Workflow 列表 |
+| GET | `/api/workflows/{id}` | Workflow 详情 |
+| GET/PUT | `/api/workflows/{id}/studio` | Workflow Studio 状态读写 |
+| GET/POST | `/api/agents/{id}/workflow-bindings` | 绑定列表 / 新建 |
+| PUT/DELETE | `/api/agents/{id}/workflow-bindings/{bindingId}` | 更新 / 删除绑定 |
+| POST | `/api/agents/{id}/workflow-bindings/resolve-preview` | 绑定解析预览 |
+| POST | `/api/v1/agents/{key}/chat` | Gateway 对话（Entry + binding + Workflow） |
 | POST | `/api/agent/execute` | 执行（简要响应） |
 | POST | `/api/agent/execute/detailed` | 执行（含步骤等） |
+
+> **已退役**：`/api/agent/definitions` 及 Agent Studio 画布编辑路由不再使用；GraphSpec / canvas_json 统一归属 Workflow API。
 
 **对话**（`fetch`，便于 SSE）：
 
@@ -282,40 +302,18 @@ server {
 3. **流式输出**：依赖后端返回标准 SSE；前端已剥离 `data:` 前缀，仅拼接正文。
 4. **Tool 页为空**：请先在后端实现并注册 `/api/tools` 等接口。
 5. **扫描项目路径**：`scanPath` 需要对实际执行扫描的 `ai-skills-service` 进程可访问（通常与 `ai-agent-service` 同机部署），不是浏览器本地路径。
+6. **Agent / Workflow 模型**：Agent 管理只改 `/api/agents`；画布编辑只走 `/workflows/:id/studio`，不要在 Agent 编辑页维护 GraphSpec。
 
 ---
 
-## 十一、v1.3 更新 — AgentDefinition 驱动路由 & AI 能力中台配置
+## 十一、产品模型（Agent / Workflow 解耦）
 
-本次更新配合后端 `ai-agent-service` 的 **AgentDefinition 驱动路由**改造，前端管理后台同步升级：
+| 对象 | API / 表 | 职责 |
+|------|----------|------|
+| **Agent** | `/api/agents` → `ai_agent` | 身份、入口、人设、权限、模型偏好、Workflow 路由策略 |
+| **Workflow** | `/api/workflows` → `ai_workflow` | GraphSpec、canvas_json、节点、调试、版本、发布 |
+| **Binding** | `/api/agents/{id}/workflow-bindings` | 按 PAGE / ROUTE / ACTION / INTENT 等解析目标 Workflow |
 
-### 新增字段
+前端类型：`AgentEntry`（`types/workflow.ts`）、`WorkflowDefinition`；`types/agent.ts` 中的 `WorkflowCanvasSource` 仅供画布互操作过渡，不是管理主类型。
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `triggerMode` | `string` | 触发方式：`all` / `chat` / `api` / `event` |
-| `useMultiAgentModel` | `boolean` | 是否使用多 Agent 模型（Pipeline 子 Agent 场景） |
-| `outputSchemaType` | `string` | 输出 Schema 类型名（如 `ReviewResult`），为空返回纯文本 |
-| `knowledgeBaseGroupId` | `string` | 关联的知识库组 ID（多库协同检索） |
-| `promptTemplateId` | `string` | 关联的 Prompt 模板 ID（可覆盖 System Prompt） |
-
-### Agent 列表页改进
-
-- 新增**触发方式**列，以不同颜色 Tag 区分 `chat` / `api` / `event` / `all`
-- 新增**知识库组**列，展示关联的知识库组 ID
-- 意图类型筛选支持**自定义意图**（从数据中自动聚合）
-- 新增**触发方式筛选**下拉框
-
-### Agent 编辑页改进
-
-- 意图类型选择器支持 `filterable` + `allow-create`，可输入自定义意图
-- 新增 **"AI 能力中台配置"** 卡片区域（带 `新` 标签），包含知识库组 ID 和 Prompt 模板 ID
-- 模型与执行区域新增：触发方式下拉、多 Agent 模型开关（带 Tooltip 说明）、输出 Schema 输入
-- 预置意图类型新增 `CREATIVE_TASK`（创意任务）
-
-### 类型定义更新
-
-- `AgentDefinition` / `AgentForm` 接口新增上述 5 个字段
-- 新增 `TRIGGER_MODES` 常量导出
-
-更多平台级背景与路线图见仓库根目录 [`docs/背景、现状、目标.md`](../docs/背景、现状、目标.md)、[`docs/AI能力系统升级规划.md`](../docs/AI能力系统升级规划.md)、[`docs/企业AI能力中台 — 架构演进方案.md`](../docs/企业AI能力中台%20—%20架构演进方案.md)。
+更多平台背景见仓库根目录 [`docs/03-Agent-Studio与Runtime.md`](../docs/03-Agent-Studio与Runtime.md)、[`AGENTS.md`](../AGENTS.md)。

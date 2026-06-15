@@ -1,8 +1,9 @@
 package com.enterprise.ai.agent.runtime;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.client.ModelServiceClient;
 import com.enterprise.ai.agent.graph.GraphSpec;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
+import com.enterprise.ai.agent.client.ModelServiceClient;
+import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -25,15 +26,15 @@ class AgentRuntimeModelValidatorTest {
     void skipsModelLookupWhenLangGraphDoesNotRequireLlm() {
         AgentRuntimeModelValidator validator = new AgentRuntimeModelValidator(failingClient());
         AgentRuntimeRequest request = AgentRuntimeRequest.builder()
-                .agentDefinition(AgentDefinition.builder()
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .graphSpec(GraphSpec.builder()
-                                .node(GraphSpec.Node.builder()
-                                        .id("search-action")
-                                        .type("PAGE_ACTION")
-                                        .config(Map.of("action", "search"))
-                                        .build())
+                .graphSpec(GraphSpec.builder()
+                        .node(GraphSpec.Node.builder()
+                                .id("search-action")
+                                .type("PAGE_ACTION")
+                                .config(Map.of("action", "search"))
                                 .build())
+                        .build())
+                .graphRuntimeContext(GraphRuntimeContext.builder()
+                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
                         .build())
                 .build();
 
@@ -72,7 +73,7 @@ class AgentRuntimeModelValidatorTest {
 
     private AgentRuntimeRequest request(String modelInstanceId) {
         return AgentRuntimeRequest.builder()
-                .agentDefinition(AgentDefinition.builder()
+                .agentRuntimeProfile(AgentRuntimeProfile.builder()
                         .modelInstanceId(modelInstanceId)
                         .build())
                 .build();

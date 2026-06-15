@@ -1,6 +1,5 @@
 package com.enterprise.ai.agent.runtime;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.client.ModelServiceClient;
 import com.enterprise.ai.agent.client.SkillsServiceClient;
 import com.enterprise.ai.agent.credential.WorkflowCredentialRuntime;
@@ -211,14 +210,7 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
 
     @Override
     public boolean supports(AgentRuntimeRequest request) {
-        AgentDefinition definition = request == null ? null : request.getAgentDefinition();
-        if (definition != null && "pipeline".equalsIgnoreCase(definition.getType())) {
-            return false;
-        }
         GraphSpec spec = request == null ? null : request.getGraphSpec();
-        if (spec == null && definition != null) {
-            spec = graphSpec(definition);
-        }
         if (spec == null) {
             return false;
         }
@@ -228,16 +220,9 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
 
     @Override
     public String unsupportedReason(AgentRuntimeRequest request) {
-        AgentDefinition definition = request == null ? null : request.getAgentDefinition();
-        if (definition == null) {
-            return "LangGraph4j requires a valid Agent definition.";
-        }
-        if ("pipeline".equalsIgnoreCase(definition.getType())) {
-            return "LangGraph4j currently executes a single GraphSpec workflow, not legacy pipeline sub-agents.";
-        }
-        GraphSpec spec = graphSpec(definition);
+        GraphSpec spec = request == null ? null : request.getGraphSpec();
         if (spec == null || spec.getNodes() == null || spec.getNodes().isEmpty()) {
-            return "LangGraph4j requires graphSpec.nodes.";
+            return "LangGraph4j requires graphSpec and graphRuntimeContext.";
         }
         return "LangGraph4j currently supports USER_INPUT, INTERACTION, PAGE_ACTION, LLM, TOOL, CAPABILITY, IF_ELSE, VARIABLE_ASSIGN, TEMPLATE, ANSWER, CODE, INTENT_CLASSIFIER, VARIABLE_AGGREGATOR, HUMAN_APPROVAL, LOOP, KNOWLEDGE_WRITE, DOCUMENT_EXTRACT, MCP_CALL, PARAMETER_EXTRACT, HTTP_REQUEST, KNOWLEDGE_RETRIEVAL nodes and simple conditional edges.";
     }
@@ -247,14 +232,10 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
         if (request == null) {
             throw new IllegalArgumentException("runtime request is required");
         }
-        if (request.getGraphSpec() != null && request.getGraphRuntimeContext() != null) {
-            return execute(request.getGraphSpec(), request.getGraphRuntimeContext(), request);
+        if (request.getGraphSpec() == null || request.getGraphRuntimeContext() == null) {
+            throw new IllegalArgumentException("graphSpec and graphRuntimeContext are required");
         }
-        AgentDefinition definition = request.getAgentDefinition();
-        if (definition == null || graphSpec(definition) == null) {
-            throw new IllegalArgumentException("Agent definition must include graphSpec");
-        }
-        return execute(graphSpec(definition), GraphRuntimeContext.fromAgentDefinition(definition), request);
+        return execute(request.getGraphSpec(), request.getGraphRuntimeContext(), request);
     }
 
     public AgentRuntimeResult execute(GraphSpec graphSpec,
@@ -380,22 +361,6 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
                 .build();
     }
 
-    private AgentRuntimeResult suspendedRuntimeResult(AgentRuntimeRequest request,
-                                                      AgentDefinition definition,
-                                                      ToolExecutionContext context,
-                                                      List<GraphSpec.Node> nodes,
-                                                      long start,
-                                                      InteractionSuspendedException suspended) {
-        return suspendedRuntimeResult(
-                request,
-                GraphRuntimeContext.fromAgentDefinition(definition),
-                context,
-                graphSpec(definition),
-                nodes,
-                start,
-                suspended);
-    }
-
     private String graphRunId(GraphRuntimeContext runtimeContext) {
         return "graph:" + firstNonBlank(runtimeContext.getSourceId(), runtimeContext.getSourceKeySlug(), "runtime");
     }
@@ -412,21 +377,14 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
     }
 
     public AgentRuntimeResult resumeFromHumanApproval(AgentRuntimeRequest request,
-                                                      AgentDefinition definition,
                                                       Map<String, Object> suspendedState,
                                                       String approvalNodeId,
                                                       String route) {
-        GraphSpec baseSpec;
-        GraphRuntimeContext runtimeContext;
-        if (request.getGraphSpec() != null && request.getGraphRuntimeContext() != null) {
-            baseSpec = request.getGraphSpec();
-            runtimeContext = request.getGraphRuntimeContext();
-        } else if (definition != null && graphSpec(definition) != null) {
-            baseSpec = graphSpec(definition);
-            runtimeContext = GraphRuntimeContext.fromAgentDefinition(definition);
-        } else {
-            throw new IllegalArgumentException("resume requires graphSpec/runtimeContext or AgentDefinition with graphSpec");
+        if (request.getGraphSpec() == null || request.getGraphRuntimeContext() == null) {
+            throw new IllegalArgumentException("resume requires graphSpec and graphRuntimeContext");
         }
+        GraphSpec baseSpec = request.getGraphSpec();
+        GraphRuntimeContext runtimeContext = request.getGraphRuntimeContext();
 
         Map<String, Object> resumeState = new LinkedHashMap<>(suspendedState == null ? Map.of() : suspendedState);
         String normalizedRoute = firstNonBlank(route, "approved");
@@ -559,17 +517,6 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
                 .build();
     }
 
-    public NodeDebugResult debugNode(AgentDefinition definition,
-                                     String nodeId,
-                                     String message,
-                                     Map<String, Object> stateOverrides) {
-        if (definition == null || graphSpec(definition) == null) {
-            throw new IllegalArgumentException("Agent definition must include graphSpec");
-        }
-        return debugNode(graphSpec(definition), GraphRuntimeContext.fromAgentDefinition(definition),
-                nodeId, message, stateOverrides);
-    }
-
     public NodeDebugResult debugNode(GraphSpec graphSpec,
                                      GraphRuntimeContext runtimeContext,
                                      String nodeId,
@@ -644,17 +591,6 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
                     .traceId(request.getTraceId())
                     .build();
         }
-    }
-
-    public WorkflowDebugRunResult debugRun(AgentDefinition definition,
-                                           String message,
-                                           Map<String, Object> inputParams,
-                                           Map<String, Object> debugOptions) {
-        if (definition == null || graphSpec(definition) == null) {
-            throw new IllegalArgumentException("Agent definition must include graphSpec");
-        }
-        return debugRun(graphSpec(definition), GraphRuntimeContext.fromAgentDefinition(definition),
-                message, inputParams, debugOptions);
     }
 
     public WorkflowDebugRunResult debugRun(GraphSpec graphSpec,
@@ -2600,14 +2536,6 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
     }
 
     private Map<String, Object> metadata(AgentRuntimeRequest request,
-                                         AgentDefinition definition,
-                                         long elapsed,
-                                         LangGraphState state,
-                                         List<GraphSpec.Node> nodes) {
-        return metadata(request, GraphRuntimeContext.fromAgentDefinition(definition), graphSpec(definition), elapsed, state, nodes);
-    }
-
-    private Map<String, Object> metadata(AgentRuntimeRequest request,
                                          GraphRuntimeContext runtimeContext,
                                          GraphSpec graphSpec,
                                          long elapsed,
@@ -2671,10 +2599,6 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
         return sourceType != null && sourceType.toUpperCase().startsWith("WORKFLOW");
     }
 
-    private ToolExecutionContext buildExecutionContext(AgentRuntimeRequest request, AgentDefinition definition) {
-        return buildExecutionContext(request, GraphRuntimeContext.fromAgentDefinition(definition));
-    }
-
     private ToolExecutionContext buildExecutionContext(AgentRuntimeRequest request, GraphRuntimeContext runtimeContext) {
         return ToolExecutionContext.builder()
                 .traceId(request.getTraceId())
@@ -2695,12 +2619,6 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
                 .roles(request.getRoles())
                 .currentTurnMessage(request.getMessage())
                 .build();
-    }
-
-    private Map<String, Object> initialState(AgentRuntimeRequest request,
-                                             AgentDefinition definition,
-                                             List<GraphSpec.Node> nodes) {
-        return initialState(request, GraphRuntimeContext.fromAgentDefinition(definition), nodes);
     }
 
     private Map<String, Object> initialState(AgentRuntimeRequest request,
@@ -2750,10 +2668,6 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
             value = secondary.get(key);
         }
         return new LinkedHashMap<>(asMap(value));
-    }
-
-    private Map<String, Object> sysContext(AgentRuntimeRequest request, AgentDefinition definition) {
-        return sysContext(request, GraphRuntimeContext.fromAgentDefinition(definition));
     }
 
     private Map<String, Object> sysContext(AgentRuntimeRequest request, GraphRuntimeContext runtimeContext) {
@@ -2817,16 +2731,6 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
 
     private void logRuntimeRun(ToolExecutionContext context,
                                AgentRuntimeRequest request,
-                               AgentDefinition definition,
-                               Object result,
-                               boolean success,
-                               Exception error,
-                               long elapsedMs) {
-        logRuntimeRun(context, request, GraphRuntimeContext.fromAgentDefinition(definition), result, success, error, elapsedMs);
-    }
-
-    private void logRuntimeRun(ToolExecutionContext context,
-                               AgentRuntimeRequest request,
                                GraphRuntimeContext runtimeContext,
                                Object result,
                                boolean success,
@@ -2850,21 +2754,11 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
     }
 
     private void recordSpan(ToolExecutionContext context,
-                            AgentDefinition definition,
-                            AgentTraceSpanService.SpanRecord record) {
-        recordSpan(context, GraphRuntimeContext.fromAgentDefinition(definition), record);
-    }
-
-    private void recordSpan(ToolExecutionContext context,
                             GraphRuntimeContext runtimeContext,
                             AgentTraceSpanService.SpanRecord record) {
         if (traceSpanService != null) {
             traceSpanService.record(context, runtimeContext, record);
         }
-    }
-
-    private List<GraphSpec.Node> orderedExecutableNodes(AgentDefinition definition) {
-        return orderedExecutableNodes(graphSpec(definition));
     }
 
     private List<GraphSpec.Node> orderedExecutableNodes(GraphSpec spec) {
@@ -3561,10 +3455,6 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
                 .toList();
     }
 
-    private static Object configuredGraphEdges(AgentDefinition definition) {
-        return configuredGraphEdges(graphSpec(definition));
-    }
-
     private static Object configuredGraphEdges(GraphSpec spec) {
         if (spec == null || spec.getEdges() == null) {
             return List.of();
@@ -3611,10 +3501,6 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
             }
         }
         return metadata;
-    }
-
-    private static GraphSpec graphSpec(AgentDefinition definition) {
-        return definition == null ? null : definition.getGraphSpec();
     }
 
     private static String nodeOutputKey(String nodeId) {

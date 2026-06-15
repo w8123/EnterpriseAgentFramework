@@ -12,7 +12,7 @@ import java.util.List;
 @ConfigurationProperties(prefix = "ai.agent-runtime")
 public class AgentRuntimePolicyProperties {
 
-    /** AgentDefinition.runtimeType 为空时使用的默认运行时。 */
+    /** AgentRuntimeProfile.runtimeType 为空时使用的默认运行时。 */
     private String defaultRuntimeType = AgentRuntimeAdapter.DEFAULT_RUNTIME_TYPE;
 
     /** 平台允许出现在路由选择中的运行时。空列表表示只启用默认运行时。 */

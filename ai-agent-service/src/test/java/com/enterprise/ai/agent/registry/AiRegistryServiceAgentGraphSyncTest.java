@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.registry;
 
 import com.enterprise.ai.agent.acl.ToolAclMapper;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.registry.RegistryContracts.AgentGraphRegistration;
 import com.enterprise.ai.agent.registry.RegistryContracts.AgentGraphSyncRequest;
@@ -34,7 +34,7 @@ import static org.mockito.Mockito.when;
 class AiRegistryServiceAgentGraphSyncTest {
 
     private ScanProjectService scanProjectService;
-    private AgentDefinitionService agentDefinitionService;
+    private AgentEntryService agentEntryService;
     private WorkflowDefinitionService workflowDefinitionService;
     private AiRegistryService service;
     private ScanProjectEntity project;
@@ -42,7 +42,7 @@ class AiRegistryServiceAgentGraphSyncTest {
     @BeforeEach
     void setUp() {
         scanProjectService = mock(ScanProjectService.class);
-        agentDefinitionService = mock(AgentDefinitionService.class);
+        agentEntryService = mock(AgentEntryService.class);
         workflowDefinitionService = mock(WorkflowDefinitionService.class);
         service = new AiRegistryService(
                 scanProjectService,
@@ -55,7 +55,7 @@ class AiRegistryServiceAgentGraphSyncTest {
                 mock(CapabilityDiffItemMapper.class),
                 mock(CapabilityApplyRecordMapper.class),
                 mock(ToolDefinitionService.class),
-                agentDefinitionService,
+                agentEntryService,
                 workflowDefinitionService,
                 mock(ToolAclMapper.class),
                 mock(RegistrySecurityService.class),
@@ -84,7 +84,7 @@ class AiRegistryServiceAgentGraphSyncTest {
         assertEquals(0, response.updated());
         assertEquals("workflow-1", response.items().get(0).workflowId());
         verify(workflowDefinitionService).create(any(WorkflowDefinitionEntity.class));
-        verify(agentDefinitionService, never()).create(any());
+        verify(agentEntryService, never()).create(any());
     }
 
     @Test
@@ -107,7 +107,7 @@ class AiRegistryServiceAgentGraphSyncTest {
         assertEquals(0, response.created());
         assertEquals(1, response.updated());
         verify(workflowDefinitionService).update(any(), any(WorkflowDefinitionEntity.class));
-        verify(agentDefinitionService, never()).update(any(), any());
+        verify(agentEntryService, never()).update(any(), any());
     }
 
     @Test

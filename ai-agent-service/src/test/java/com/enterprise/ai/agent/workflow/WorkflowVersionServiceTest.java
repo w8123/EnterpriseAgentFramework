@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.workflow;
 
-import com.enterprise.ai.agent.agent.AgentReleaseValidationResult;
+import com.enterprise.ai.agent.workflow.WorkflowReleaseValidationResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -87,7 +87,7 @@ class WorkflowVersionServiceTest {
                     return workflow;
                 });
         when(releaseValidationService.validate(any(WorkflowDefinitionEntity.class)))
-                .thenReturn(AgentReleaseValidationResult.ok());
+                .thenReturn(WorkflowReleaseValidationResult.ok());
 
         service = new WorkflowVersionService(versionMapper, workflowService, releaseValidationService, new ObjectMapper());
     }
@@ -129,7 +129,7 @@ class WorkflowVersionServiceTest {
     @Test
     void publishRejectsReleaseValidationErrors() {
         when(releaseValidationService.validate(any(WorkflowDefinitionEntity.class)))
-                .thenReturn(AgentReleaseValidationResult.builder()
+                .thenReturn(WorkflowReleaseValidationResult.builder()
                         .error("GRAPH_ENTRY_MISSING", null, "GraphSpec entry is required")
                         .build());
 

@@ -12,7 +12,7 @@
 
 - 项目与能力注册中心：业务系统可通过 `reachai-spring-boot2-starter` 与 `reachai-capability-sdk` 主动注册项目、实例、能力和 SDK 图。
 - 能力资产治理：`tool_definition` 统一承载 Tool 与粗粒度 Capability，扫描接入和 SDK 注册都进入同一资产目录。
-- Agent Studio 与 Runtime：Agent 定义、GraphSpec、交互式节点、会话式调试台、版本发布、评测、运行时选择和节点级调试都在平台中闭环。
+- Agent 入口与 Workflow Studio：Agent（`ai_agent`）负责身份/策略/绑定，Workflow（`ai_workflow`）负责 GraphSpec 与画布；Workflow Studio 是唯一画布编辑器，Runtime 通过 AgentEntry + binding 执行已发布 Workflow。
 - 运行治理与开放协议：RunOps、Trace、Tool ACL、Guard 决策、MCP、A2A 和 Gateway 共同承担生产运行边界。
 - 企业资产底座：模型实例、知识库、业务索引、领域归属和市场资产为 Agent 提供可复用上下文。
 
@@ -22,7 +22,7 @@
 | --- | --- |
 | [01-平台定位与架构总览.md](./01-平台定位与架构总览.md) | 系统现在是什么、有哪些服务、管理端有哪些页面、统一 SQL 基线覆盖什么 |
 | [02-项目注册与能力资产.md](./02-项目注册与能力资产.md) | 业务系统如何接入，扫描、SDK 注册、能力同步、Tool/Capability 资产如何落库 |
-| [03-Agent-Studio与Runtime.md](./03-Agent-Studio与Runtime.md) | Agent Studio、GraphSpec、交互式节点、会话式调试、发布、评测、多 Runtime、变量映射如何工作 |
+| [03-Agent-Studio与Runtime.md](./03-Agent-Studio与Runtime.md) | Agent/Workflow 解耦、`/api/agents` 与 `/api/workflows`、Workflow Studio、GraphSpec、binding 解析、调试、发布与 Runtime 如何工作 |
 | [04-运行治理与开放协议.md](./04-运行治理与开放协议.md) | Trace、RunOps、ACL、Guard、MCP、A2A、Gateway 如何保护和开放能力 |
 | [05-知识模型与企业资产.md](./05-知识模型与企业资产.md) | 模型实例、知识库、业务索引、领域、市场资产如何被 Agent 使用 |
 | [09-AI长任务代码审计提示词.md](./09-AI长任务代码审计提示词.md) | 交给长上下文 AI 执行只读全仓代码审计、死代码过滤、文档/SQL/前后端漂移检查的完整提示词 |

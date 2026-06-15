@@ -1,8 +1,8 @@
 import type {
-  AgentDefinition,
   AgentForm,
   AgentGraphSpec,
   AgentRuntimeType,
+  WorkflowCanvasSource,
 } from '@/types/agent'
 import type {
   CanvasNode,
@@ -27,8 +27,16 @@ const EMPTY_GRAPH_SPEC: AgentGraphSpec = {
   edges: [],
 }
 
+/** Workflow Studio 画布互操作所需的最小定义壳（非 AgentEntry 管理语义） */
+type WorkflowStudioCanvasSource = WorkflowCanvasSource & AgentForm & {
+  id: string
+  keySlug: string
+  createdAt: string
+  updatedAt: string
+}
+
 export function workflowStudioToCanvas(studio: WorkflowStudioState): CanvasSnapshot {
-  const definition = workflowStudioToCompatAgentDefinition(studio)
+  const definition = workflowStudioToCanvasSource(studio)
   try {
     return definitionToCanvas(definition)
   } catch {
@@ -41,7 +49,6 @@ export function workflowStudioToCanvas(studio: WorkflowStudioState): CanvasSnaps
 
 /**
  * 构造 Workflow-native Executable Debug Session 草稿载荷。
- * 避免在 Workflow Studio 扩散 AgentDefinition 语义；后端 adapter 负责转成 Runtime 兼容 shell。
  */
 export function buildWorkflowDebugDraftPayload(
   studio: WorkflowStudioState,
@@ -67,7 +74,7 @@ export function workflowCanvasToSaveRequest(
   studio: WorkflowStudioState,
   snapshot: CanvasSnapshot,
 ): WorkflowStudioSaveRequest {
-  const draft = canvasToDefinition(workflowStudioToAgentForm(studio), snapshot)
+  const draft = canvasToDefinition(workflowStudioToCanvasForm(studio), snapshot)
   return {
     graphSpecJson: JSON.stringify(draft.graphSpec || parseGraphSpec(studio.graphSpecJson, studio)),
     canvasJson: draft.canvasJson || JSON.stringify(snapshot),
@@ -85,16 +92,12 @@ export function createWorkflowCanvasNode(
     id,
     type: kind,
     position,
-    data: createDefaultNodeData(kind, kind, workflowStudioToAgentForm(studio)),
+    data: createDefaultNodeData(kind, kind, workflowStudioToCanvasForm(studio)),
   }
 }
 
-/**
- * 将 WorkflowStudioState 转为旧 AgentDefinition 兼容壳，仅供 canvasToDefinition / definitionToCanvas 复用。
- * Workflow 主对象是 WorkflowDefinition + GraphSpec，不是 AgentDefinition。
- */
-function workflowStudioToCompatAgentDefinition(studio: WorkflowStudioState): AgentDefinition {
-  const form = workflowStudioToAgentForm(studio)
+function workflowStudioToCanvasSource(studio: WorkflowStudioState): WorkflowStudioCanvasSource {
+  const form = workflowStudioToCanvasForm(studio)
   return {
     ...form,
     id: studio.workflowId,
@@ -105,7 +108,7 @@ function workflowStudioToCompatAgentDefinition(studio: WorkflowStudioState): Age
   }
 }
 
-function workflowStudioToAgentForm(studio: WorkflowStudioState): AgentForm {
+function workflowStudioToCanvasForm(studio: WorkflowStudioState): AgentForm {
   const graphSpec = parseGraphSpec(studio.graphSpecJson, studio)
   return {
     keySlug: studio.keySlug || studio.workflowId || 'workflow',
@@ -113,14 +116,14 @@ function workflowStudioToAgentForm(studio: WorkflowStudioState): AgentForm {
     description: studio.description || '',
     agentMode: 'WORKFLOW',
     projectId: null,
-    projectCode: null,
+    projectCode: studio.projectCode || null,
     visibility: 'PROJECT',
     allowedRoles: [],
     intentType: studio.workflowType || 'WORKFLOW',
     systemPrompt: '',
     tools: [],
     skills: [],
-    modelInstanceId: '',
+    modelInstanceId: studio.defaultModelInstanceId || '',
     runtimeType: normalizeRuntimeType(studio.runtimeType),
     runtimePlacement: 'CENTRAL',
     runtimeConfig: {},

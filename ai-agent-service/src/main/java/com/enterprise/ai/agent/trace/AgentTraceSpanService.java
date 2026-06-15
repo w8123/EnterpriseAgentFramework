@@ -1,7 +1,6 @@
 package com.enterprise.ai.agent.trace;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,10 +33,6 @@ public class AgentTraceSpanService {
                 .eq(AgentTraceSpanEntity::getTraceId, traceId.trim())
                 .orderByAsc(AgentTraceSpanEntity::getStartedAt)
                 .orderByAsc(AgentTraceSpanEntity::getId));
-    }
-
-    public void record(ToolExecutionContext context, AgentDefinition definition, SpanRecord record) {
-        record(context, definition == null ? null : GraphRuntimeContext.fromAgentDefinition(definition), record);
     }
 
     public void record(ToolExecutionContext context, GraphRuntimeContext runtimeContext, SpanRecord record) {

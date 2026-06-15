@@ -1,6 +1,5 @@
 package com.enterprise.ai.agent.runtime;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
 import org.springframework.stereotype.Component;
 
 import java.util.Locale;
@@ -30,14 +29,22 @@ public class AgentRuntimePolicy {
     }
 
     public void validate(AgentRuntimeCapability capability, AgentRuntimeRequest request) {
-        String disabledReason = disabledReason(capability, request == null ? null : request.getAgentDefinition());
+        String projectCode = null;
+        if (request != null) {
+            if (request.getGraphRuntimeContext() != null) {
+                projectCode = request.getGraphRuntimeContext().getProjectCode();
+            } else if (request.getAgentRuntimeProfile() != null) {
+                projectCode = request.getAgentRuntimeProfile().getProjectCode();
+            }
+        }
+        String disabledReason = disabledReason(capability, projectCode);
         if (disabledReason != null) {
             throw new IllegalStateException("Agent Runtime 不符合平台策略: "
                     + capability.getRuntimeType() + "，原因：" + disabledReason);
         }
     }
 
-    private String disabledReason(AgentRuntimeCapability capability, AgentDefinition definition) {
+    private String disabledReason(AgentRuntimeCapability capability, String projectCode) {
         String runtimeType = normalize(capability.getRuntimeType());
         if (!enabledRuntimeSet().contains(runtimeType)) {
             return "运行时未在 ai.agent-runtime.enabled-runtimes 中启用";
@@ -46,7 +53,6 @@ public class AgentRuntimePolicy {
             if (!properties.isAllowCloudExecution()) {
                 return "云端执行未开启";
             }
-            String projectCode = definition == null ? null : definition.getProjectCode();
             if (projectCode != null && !projectCode.isBlank()
                     && !normalizedSet(properties.getCloudAllowedProjectCodes()).contains(normalize(projectCode))) {
                 return "当前项目未加入云端执行白名单";
@@ -56,7 +62,6 @@ public class AgentRuntimePolicy {
             if (!properties.isAllowCodeWorkspace()) {
                 return "代码工作区执行未开启";
             }
-            String projectCode = definition == null ? null : definition.getProjectCode();
             if (projectCode != null && !projectCode.isBlank()
                     && !normalizedSet(properties.getCodeWorkspaceAllowedProjectCodes()).contains(normalize(projectCode))) {
                 return "当前项目未加入代码工作区白名单";

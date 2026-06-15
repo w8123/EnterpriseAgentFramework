@@ -176,6 +176,23 @@ export function createAgentWorkflowBinding(agentId: string, data: Partial<AgentW
   )
 }
 
+export function updateAgentWorkflowBinding(
+  agentId: string,
+  bindingId: number,
+  data: Partial<AgentWorkflowBinding>,
+) {
+  return agentRequest.put<AgentWorkflowBinding>(
+    `/api/agents/${encodeURIComponent(agentId)}/workflow-bindings/${bindingId}`,
+    data,
+  )
+}
+
+export function deleteAgentWorkflowBinding(agentId: string, bindingId: number) {
+  return agentRequest.delete(
+    `/api/agents/${encodeURIComponent(agentId)}/workflow-bindings/${bindingId}`,
+  )
+}
+
 export function resolveAgentWorkflowBinding(agentId: string, data: AgentWorkflowResolveRequest) {
   return agentRequest.post<AgentWorkflowBinding>(
     `/api/agents/${encodeURIComponent(agentId)}/workflow-bindings/resolve-preview`,

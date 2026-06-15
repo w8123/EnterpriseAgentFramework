@@ -1,22 +1,19 @@
 package com.enterprise.ai.agent.runops;
 
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
-import com.enterprise.ai.agent.agent.persist.AgentVersionMapper;
 import com.enterprise.ai.agent.agentscope.AgentRouter;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
-import com.enterprise.ai.agent.tool.log.ToolCallLogEntity;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.trace.AgentTraceSpanEntity;
 import com.enterprise.ai.agent.trace.AgentTraceSpanMapper;
 import com.enterprise.ai.agent.trace.AgentTraceSpanService;
 import com.enterprise.ai.agent.workflow.AgentEntryEntity;
 import com.enterprise.ai.agent.workflow.AgentEntryService;
-import com.enterprise.ai.agent.workflow.WorkflowAgentDefinitionAdapter;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionEntity;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;
+import com.enterprise.ai.agent.workflow.WorkflowRuntimeGraphAdapter;
 import com.enterprise.ai.agent.workflow.WorkflowVersionEntity;
 import com.enterprise.ai.agent.workflow.WorkflowVersionMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,22 +48,17 @@ class RunOpsServiceTest {
     @Mock
     private GuardDecisionLogService guardDecisionLogService;
     @Mock
-    private AgentVersionMapper versionMapper;
+    private AgentEntryService agentEntryService;
     @Mock
-    private AgentDefinitionService agentDefinitionService;
+    private WorkflowRuntimeGraphAdapter workflowRuntimeGraphAdapter;
     @Mock
     private AgentRouter agentRouter;
     @Mock
     private WorkflowDefinitionService workflowDefinitionService;
     @Mock
     private WorkflowVersionMapper workflowVersionMapper;
-    @Mock
-    private AgentEntryService agentEntryService;
-    @Mock
-    private WorkflowAgentDefinitionAdapter workflowAgentDefinitionAdapter;
 
     private RunOpsService runOpsService;
-
     private ObjectMapper objectMapper;
 
     @BeforeEach
@@ -77,13 +69,11 @@ class RunOpsServiceTest {
                 traceSpanService,
                 traceSpanMapper,
                 guardDecisionLogService,
-                versionMapper,
-                agentDefinitionService,
+                agentEntryService,
+                workflowRuntimeGraphAdapter,
                 agentRouter,
                 workflowDefinitionService,
                 workflowVersionMapper,
-                agentEntryService,
-                workflowAgentDefinitionAdapter,
                 objectMapper);
     }
 
@@ -218,8 +208,8 @@ class RunOpsServiceTest {
         when(workflowDefinitionService.findById("wf-1")).thenReturn(Optional.of(workflow));
         when(workflowVersionMapper.selectById(22L)).thenReturn(version);
         when(agentEntryService.findById("entry-1")).thenReturn(Optional.of(entryAgent));
-        when(workflowAgentDefinitionAdapter.toRuntimeGraph(eq(entryAgent), eq(workflow), eq(version), any()))
-                .thenReturn(new WorkflowAgentDefinitionAdapter.RuntimeGraph(graphSpec, runtimeContext));
+        when(workflowRuntimeGraphAdapter.toRuntimeGraph(eq(entryAgent), eq(workflow), eq(version), any()))
+                .thenReturn(new WorkflowRuntimeGraphAdapter.RuntimeGraph(graphSpec, runtimeContext));
         when(agentRouter.executeByGraphSpec(eq(graphSpec), eq(runtimeContext), any(), any(), any(), any(), any()))
                 .thenReturn(AgentResult.builder()
                         .success(true)

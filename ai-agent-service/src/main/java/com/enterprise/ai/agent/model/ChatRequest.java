@@ -32,8 +32,8 @@ public class ChatRequest {
     private String intentHint;
 
     /**
-     * 管理端「Agent 调试」等场景：指定要执行的 {@code agent_definition.id}，将
-     * {@link com.enterprise.ai.agent.agentscope.AgentRouter#executeByDefinition} 直执该定义，
+     * 管理端「Agent 调试」等场景：指定要执行的 AgentEntry id 或 keySlug，将
+     * {@link com.enterprise.ai.agent.agentscope.AgentRouter#executeByProfile} 直执该 Agent，
      * 跳过意图识别 + 按 intentType 选 Agent（避免多 Agent 同 intent 时命中到「别的」Agent）。
      */
     private String agentDefinitionId;

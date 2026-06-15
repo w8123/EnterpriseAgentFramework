@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.runtime;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -65,7 +65,7 @@ class AgentRuntimePolicyTest {
 
     private AgentRuntimeRequest request(String projectCode) {
         return AgentRuntimeRequest.builder()
-                .agentDefinition(AgentDefinition.builder()
+                .agentRuntimeProfile(AgentRuntimeProfile.builder()
                         .projectCode(projectCode)
                         .build())
                 .build();

@@ -1,7 +1,6 @@
 package com.enterprise.ai.agent.workflow;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.enterprise.ai.agent.agent.AgentReleaseValidationResult;
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.identity.PageActionRegistryEntity;
@@ -24,8 +23,8 @@ public class WorkflowReleaseValidationService {
     private final PageActionRegistryMapper pageActionRegistryMapper;
     private final ObjectMapper objectMapper;
 
-    public AgentReleaseValidationResult validate(WorkflowDefinitionEntity workflow) {
-        AgentReleaseValidationResult.Builder report = AgentReleaseValidationResult.builder();
+    public WorkflowReleaseValidationResult validate(WorkflowDefinitionEntity workflow) {
+        WorkflowReleaseValidationResult.Builder report = WorkflowReleaseValidationResult.builder();
         if (workflow == null) {
             report.error("WORKFLOW_NOT_FOUND", null, "Workflow does not exist");
             return report.build();
@@ -38,7 +37,7 @@ public class WorkflowReleaseValidationService {
         return report.build();
     }
 
-    private GraphSpec readGraph(String graphSpecJson, AgentReleaseValidationResult.Builder report) {
+    private GraphSpec readGraph(String graphSpecJson, WorkflowReleaseValidationResult.Builder report) {
         if (!StringUtils.hasText(graphSpecJson)) {
             report.error("GRAPH_SPEC_MISSING", null, "Workflow publishing requires GraphSpec");
             return null;
@@ -53,7 +52,7 @@ public class WorkflowReleaseValidationService {
 
     private void validateGraph(WorkflowDefinitionEntity workflow,
                                GraphSpec graph,
-                               AgentReleaseValidationResult.Builder report) {
+                               WorkflowReleaseValidationResult.Builder report) {
         List<GraphSpec.Node> nodes = graph.getNodes() == null ? List.of() : graph.getNodes();
         if (nodes.isEmpty()) {
             report.error("GRAPH_NODE_EMPTY", null, "GraphSpec requires at least one node");
@@ -101,7 +100,7 @@ public class WorkflowReleaseValidationService {
 
     private void validatePageActionNode(WorkflowDefinitionEntity workflow,
                                         GraphSpec.Node node,
-                                        AgentReleaseValidationResult.Builder report) {
+                                        WorkflowReleaseValidationResult.Builder report) {
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
         String pageKey = text(config.get("pageKey"));
         String actionKey = text(config.get("actionKey"));

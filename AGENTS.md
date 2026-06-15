@@ -19,7 +19,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 
 1. 业务系统通过 `reachai-spring-boot2-starter`、`reachai-capability-sdk`、`@ReachCapability`、`@ReachParam` 主动注册项目、实例、能力和 SDK 图。
 2. 平台侧形成能力快照、字段级 diff、评审 apply/ignore，并沉淀到能力资产目录。
-3. Agent Studio 使用 `GraphSpec` 编排、AI 生成/局部修改、调试、发布和回放。
+3. Workflow Studio 使用 `GraphSpec` 编排 Workflow（`ai_workflow`）；Agent 入口（`ai_agent`）通过 binding 绑定 Workflow。AI 生成/局部修改、调试、发布和回放均在 Workflow Studio 闭环。
 4. Runtime 通过 `AgentRuntimeAdapter` 解耦 AgentScope、LangGraph4j 和未来运行时。
 5. RunOps、Trace、Tool ACL、Guard、Gateway、MCP、A2A、嵌入式对话和企业身份共同组成生产治理边界。
 
@@ -50,12 +50,13 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 
 ## GraphSpec 与 Runtime
 
-- `GraphSpec` 是运行语义，`canvas_json` 只是画布布局。
+- `GraphSpec` 是运行语义，归属 Workflow；`canvas_json` 只是画布布局。
 - 后端类型以 `ai-agent-service/src/main/java/com/enterprise/ai/agent/graph/GraphSpec.java` 为准。
-- 前端类型以 `ai-admin-front/src/types/agent.ts` 为准。
-- 发布校验由 `AgentReleaseValidationService` 负责；Runtime 执行主线在 `LangGraph4jRuntimeAdapter`。
-- 新增 Studio 节点、AI 编辑能力或 Runtime 行为时，必须把可执行语义写入 `GraphSpec`，不能只改前端画布表现。
-- AI 生成走 `/api/agent/studio/generate-draft` 和 `LlmWorkflowDraftGenerator`；AI 局部编辑走 `/api/agent/studio/edit-draft` 和 `WorkflowDraftEditService`。
+- 前端 Workflow 图语义类型以 `ai-admin-front/src/types/workflow.ts` 为准（Studio 状态、Workflow 定义等；共享节点/边结构仍可见于 `agent.ts` 的 `AgentGraphSpec`）。
+- DB 字段：`ai_workflow.graph_spec_json`（运行语义）、`ai_workflow.canvas_json`（画布布局）。
+- 发布校验由 `WorkflowReleaseValidationService` 负责；Runtime 执行主线在 `LangGraph4jRuntimeAdapter`（经 binding 解析 Workflow）。
+- 新增 Workflow Studio 节点、AI 编辑能力或 Runtime 行为时，必须把可执行语义写入 Workflow `GraphSpec`，不能只改前端画布表现。
+- AI 生成走 `/api/workflows/studio/generate-draft` 和 `LlmWorkflowDraftGenerator`；AI 局部编辑走 `/api/workflows/studio/edit-draft` 和 `WorkflowDraftEditService`。
 
 ## 命名规则
 
@@ -69,7 +70,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 - 管理端是工作台型产品，优先信息密度、扫描效率和可重复操作体验。
 - 主题色、暗色/亮色适配优先使用现有 CSS 变量和主题文件，不要在页面里散落硬编码颜色。
 - 涉及页面布局时，先确认路由、`MainLayout.vue`、共享组件和状态管理，不要在单页里做难以复用的局部 hack。
-- Agent Studio 变更要验证画布、配置面板、预览/应用、发布校验和调试链路是否仍然一致。
+- Workflow Studio 变更要验证画布、配置面板、预览/应用、发布校验、Agent binding 和调试链路是否仍然一致。
 
 ## 验证规则
 

@@ -1,6 +1,5 @@
 package com.enterprise.ai.agent.skill.interactive;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.model.ChatRequest;
@@ -131,34 +130,21 @@ public class HumanApprovalResumeService {
 
         GraphSpec graphSpec = readGraphSpec(approvalDocument.get("graphSpec"));
         GraphRuntimeContext runtimeContext = readRuntimeContext(approvalDocument.get("runtimeContext"));
-        AgentDefinition definition = null;
         if (graphSpec == null || runtimeContext == null) {
-            Object definitionValue = approvalDocument.get("definition");
-            if (definitionValue == null) {
-                return Optional.empty();
-            }
-            definition = objectMapper.convertValue(definitionValue, AgentDefinition.class);
-            if (definition == null || definition.getGraphSpec() == null) {
-                return Optional.empty();
-            }
-            graphSpec = definition.getGraphSpec();
-            runtimeContext = GraphRuntimeContext.fromAgentDefinition(definition);
+            return Optional.empty();
         }
 
-        AgentRuntimeRequest.AgentRuntimeRequestBuilder runtimeRequestBuilder = AgentRuntimeRequest.builder()
+        AgentRuntimeRequest runtimeRequest = AgentRuntimeRequest.builder()
                 .traceId(row.getTraceId())
                 .sessionId(row.getSessionId())
                 .userId(request.getUserId())
                 .message("")
                 .graphSpec(graphSpec)
                 .graphRuntimeContext(runtimeContext)
-                .metadata(Map.of("resumedInteractionId", row.getId()));
-        if (definition != null) {
-            runtimeRequestBuilder.agentDefinition(definition);
-        }
-        AgentRuntimeRequest runtimeRequest = runtimeRequestBuilder.build();
+                .metadata(Map.of("resumedInteractionId", row.getId()))
+                .build();
         AgentRuntimeResult runtimeResult = langGraph4jRuntimeAdapter.resumeFromHumanApproval(
-                runtimeRequest, definition, state, nodeId, route);
+                runtimeRequest, state, nodeId, route);
         Map<String, Object> metadata = new LinkedHashMap<>(runtimeResult.getMetadata() == null
                 ? Map.of()
                 : runtimeResult.getMetadata());

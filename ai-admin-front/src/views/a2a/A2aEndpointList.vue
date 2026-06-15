@@ -106,14 +106,14 @@ import {
   setA2aEndpointEnabled,
   upsertA2aEndpoint,
 } from '@/api/a2a'
-import { getAgentList } from '@/api/agent'
+import { listAgentEntries } from '@/api/workflow'
 import type { A2aEndpoint } from '@/types/a2a'
-import type { AgentDefinition } from '@/types/agent'
+import type { AgentEntry } from '@/types/agent'
 
 const loading = ref(false)
 const submitting = ref(false)
 const rows = ref<A2aEndpoint[]>([])
-const agentOptions = ref<AgentDefinition[]>([])
+const agentOptions = ref<AgentEntry[]>([])
 
 const filter = reactive<{ agentKey: string; enabled: boolean | undefined }>({
   agentKey: '',
@@ -148,7 +148,7 @@ async function reload() {
 
 async function reloadAgents() {
   try {
-    const { data } = await getAgentList()
+    const { data } = await listAgentEntries()
     agentOptions.value = data ?? []
   } catch (e) {
     console.error('load agents failed', e)

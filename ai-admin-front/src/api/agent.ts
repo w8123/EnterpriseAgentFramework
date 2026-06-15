@@ -1,11 +1,6 @@
 import { agentRequest } from './request'
 import type {
-  AgentDefinition,
-  AgentForm,
   AgentResult,
-  AgentRuntimeCapability,
-  AgentRuntimeValidationResult,
-  AgentGraphNodeTypeDescriptor,
   PendingHumanApproval,
   AgentReleaseValidationResult,
   AgentReleaseEvent,
@@ -25,37 +20,13 @@ import type {
 } from '@/types/agent'
 import type { ChatRequest, ChatResponse } from '@/types/chat'
 
-export function getAgentList(params?: { projectId?: number }) {
-  return agentRequest.get<AgentDefinition[]>('/api/agent/definitions', { params })
-}
-
-export function getAgent(id: string) {
-  return agentRequest.get<AgentDefinition>(`/api/agent/definitions/${id}`)
-}
-
-export function createAgent(data: AgentForm) {
-  return agentRequest.post<AgentDefinition>('/api/agent/definitions', data)
-}
-
-export function updateAgent(id: string, data: Partial<AgentForm>) {
-  return agentRequest.put<AgentDefinition>(`/api/agent/definitions/${id}`, data)
-}
-
-export function deleteAgent(id: string) {
-  return agentRequest.delete(`/api/agent/definitions/${id}`)
-}
-
-export function getAgentRuntimes() {
-  return agentRequest.get<AgentRuntimeCapability[]>('/api/agent/definitions/runtimes')
-}
-
-export function getAgentGraphNodeTypes() {
-  return agentRequest.get<AgentGraphNodeTypeDescriptor[]>('/api/agent/definitions/graph-node-types')
-}
-
-export function validateAgentRuntime(data: Partial<AgentForm>) {
-  return agentRequest.post<AgentRuntimeValidationResult>('/api/agent/definitions/runtime-validation', data)
-}
+export {
+  listAgentEntries,
+  getAgentEntry,
+  createAgentEntry,
+  updateAgentEntry,
+  deleteAgentEntry,
+} from './workflow'
 
 export function debugAgentNode(data: AgentNodeDebugRequest) {
   return agentRequest.post<AgentNodeDebugResult>('/api/agent/studio/debug-node', data)
@@ -123,22 +94,24 @@ export function executeAgentDetailed(data: ChatRequest) {
   return agentRequest.post<AgentResult>('/api/agent/execute/detailed', data)
 }
 
-// ── Phase 3.0 Agent Studio: 版本 & 发布 ─────────────────────────
-
+/** @deprecated Agent 版本已迁移至 Workflow 版本 */
 export function listAgentVersions(agentId: string) {
   return agentRequest.get<AgentVersion[]>(`/api/agents/${agentId}/versions`)
 }
 
+/** @deprecated Agent 版本已迁移至 Workflow 版本 */
 export function publishAgentVersion(agentId: string, data: PublishVersionRequest) {
   return agentRequest.post<AgentVersion>(`/api/agents/${agentId}/versions`, data)
 }
 
+/** @deprecated Agent 版本已迁移至 Workflow 版本 */
 export function listAgentReleaseEvents(agentId: string, limit = 100) {
   return agentRequest.get<AgentReleaseEvent[]>(`/api/agents/${agentId}/versions/events`, {
     params: { limit },
   })
 }
 
+/** @deprecated Agent 版本已迁移至 Workflow 版本 */
 export function validateAgentRelease(
   agentId: string,
   data?: { version?: string; rolloutPercent?: number; operator?: string },
@@ -146,6 +119,7 @@ export function validateAgentRelease(
   return agentRequest.post<AgentReleaseValidationResult>(`/api/agents/${agentId}/versions/validate`, data ?? {})
 }
 
+/** @deprecated Agent 版本已迁移至 Workflow 版本 */
 export function rollbackAgentVersion(agentId: string, versionId: number, operator?: string) {
   return agentRequest.post<AgentVersion>(
     `/api/agents/${agentId}/versions/${versionId}/rollback`,

@@ -3,7 +3,7 @@ package com.enterprise.ai.agent.controller;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.runtime.LangGraph4jRuntimeAdapter;
-import com.enterprise.ai.agent.workflow.WorkflowAgentDefinitionAdapter;
+import com.enterprise.ai.agent.workflow.WorkflowRuntimeGraphAdapter;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionEntity;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,7 +51,7 @@ class WorkflowStudioDebugControllerTest {
         WorkflowStudioDebugController controller = new WorkflowStudioDebugController(
                 adapter,
                 workflowService,
-                new WorkflowAgentDefinitionAdapter(objectMapper));
+                new WorkflowRuntimeGraphAdapter(objectMapper));
         String graphSpecJson = objectMapper.writeValueAsString(GraphSpec.builder()
                 .code("orders")
                 .name("Orders Workflow")
@@ -98,7 +98,7 @@ class WorkflowStudioDebugControllerTest {
         WorkflowStudioDebugController controller = new WorkflowStudioDebugController(
                 adapter,
                 workflowService,
-                new WorkflowAgentDefinitionAdapter(objectMapper));
+                new WorkflowRuntimeGraphAdapter(objectMapper));
         WorkflowDefinitionEntity workflow = new WorkflowDefinitionEntity();
         workflow.setId("workflow-1");
         workflow.setKeySlug("orders-workflow");

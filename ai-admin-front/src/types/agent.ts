@@ -1,4 +1,23 @@
-/** Agent 定义 */
+import type { AgentEntryKind, AgentEntryVisibility } from './workflow'
+
+export type { AgentEntry, AgentEntryKind, AgentEntryVisibility } from './workflow'
+
+/** AgentEntry 创建 / 编辑表单（身份与策略，不含 Workflow GraphSpec） */
+export interface AgentEntryForm {
+  keySlug: string
+  name: string
+  description?: string | null
+  agentKind?: AgentEntryKind | null
+  projectId?: number | null
+  projectCode?: string | null
+  visibility?: AgentEntryVisibility | null
+  systemPrompt?: string | null
+  modelInstanceId?: string | null
+  allowedRoles?: string[]
+  entryConfig?: Record<string, unknown>
+  enabled?: boolean | null
+}
+
 export interface CapabilityReference {
   kind: 'TOOL' | 'SKILL'
   projectCode?: string | null
@@ -14,6 +33,7 @@ export type RuntimeRegistryRole = 'AGENT_RUNTIME' | 'CAPABILITY_HOST' | string
 export type AgentMode = 'AUTONOMOUS' | 'WORKFLOW' | 'CODE' | 'EXTERNAL'
 export type AgentConfigurationSurface = 'FORM' | 'STUDIO' | 'CODE_WORKSPACE' | 'EXTERNAL_CONSOLE' | string
 
+/** Workflow 运行语义（GraphSpec）；画布布局见 canvasJson */
 export interface AgentGraphSpec {
   code?: string
   name?: string
@@ -218,47 +238,25 @@ export interface AgentGraphNodeTypeDescriptor {
   aliases: string[]
 }
 
-export interface AgentDefinition {
-  id: string
-  /** 人类可读 slug，对应 /api/v1/agents/{keySlug}/chat */
-  keySlug: string
-  name: string
-  description: string
-  agentMode?: AgentMode
-  projectId?: number | null
-  projectCode?: string | null
-  visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
-  allowedRoles?: string[]
-  intentType: string
-  systemPrompt: string
-  tools: string[]
-  toolRefs?: CapabilityReference[]
-  /** 可调用的粗粒度能力名（后端字段 skills / skillsJson），与 tools 合并为运行时白名单 */
-  skills?: string[]
-  skillRefs?: CapabilityReference[]
-  modelInstanceId: string
-  runtimeType?: AgentRuntimeType
-  runtimePlacement?: AgentRuntimePlacement
-  runtimeConfig?: Record<string, unknown>
-  defaultResourceConfig?: Record<string, unknown>
-  graphSpec?: AgentGraphSpec | null
-  maxSteps: number
-  enabled: boolean
-  type: 'single' | 'pipeline'
-  pipelineAgentIds: string[]
-  knowledgeBaseGroupId: string
-  promptTemplateId: string
-  outputSchemaType: string
-  triggerMode: string
-  useMultiAgentModel: boolean
-  extra: Record<string, unknown>
-  /** Agent Studio 画布节点/连线 JSON */
+/**
+ * Workflow 画布互操作过渡类型（@deprecated）。
+ * 仅供 `studio.ts` / `workflowStudio.ts` 在 GraphSpec ↔ canvas_json 之间转换。
+ * Agent 管理主类型请用 `AgentEntry`；编排主类型请用 `WorkflowDefinition`。
+ */
+export interface WorkflowCanvasSource {
+  id?: string
+  keySlug?: string
   canvasJson?: string
-  /** 是否允许调用 IRREVERSIBLE 副作用 Tool */
-  allowIrreversible?: boolean
-  createdAt: string
-  updatedAt: string
+  graphSpec?: AgentGraphSpec | null
+  modelInstanceId?: string
+  systemPrompt?: string
+  extra?: Record<string, unknown>
 }
+
+/**
+ * @deprecated 历史名称，等价于 {@link WorkflowCanvasSource}。新代码请直接使用 WorkflowCanvasSource。
+ */
+export type AgentDefinition = WorkflowCanvasSource
 
 /** Agent 创建 / 编辑表单 */
 export interface AgentForm {

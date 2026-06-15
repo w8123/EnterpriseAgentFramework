@@ -10,7 +10,7 @@ import java.util.Set;
  * <p>
  * 典型用法：
  * <ul>
- *   <li>Agent 调用前：按 {@code AgentDefinition.tools} 做 whitelist + {@code enabledOnly/agentVisibleOnly}。</li>
+ *   <li>Agent 调用前：按 {@code AgentRuntimeProfile.tools} 做 whitelist + {@code enabledOnly/agentVisibleOnly}。</li>
  *   <li>管理端检索测试：按 projectIds / moduleIds / kinds 精准定位。</li>
  * </ul>
  *

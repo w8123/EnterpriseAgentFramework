@@ -284,7 +284,8 @@ import type { UiRequestPayload } from '@/types/interaction'
 import type { AgentResult, PendingHumanApproval } from '@/types/agent'
 import type { TraceNode } from '@/types/trace'
 import { sendChat, clearSession } from '@/api/chat'
-import { getAgent, executeAgentDetailed, listPendingHumanApprovals, submitHumanApproval } from '@/api/agent'
+import { getAgentEntry } from '@/api/workflow'
+import { executeAgentDetailed, listPendingHumanApprovals, submitHumanApproval } from '@/api/agent'
 import { getTraceDetail } from '@/api/trace'
 import { useSSE } from '@/composables/useSSE'
 
@@ -345,7 +346,7 @@ function scrollToBottom() {
 
 async function loadAgent() {
   try {
-    const { data } = await getAgent(agentId)
+    const { data } = await getAgentEntry(agentId)
     agentName.value = data.name || agentId
   } catch {
     agentName.value = agentId

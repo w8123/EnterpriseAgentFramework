@@ -2,8 +2,8 @@ package com.enterprise.ai.agent.debug;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.model.interactive.UiRequestPayload;
+import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.runtime.LangGraph4jRuntimeAdapter;
-import com.enterprise.ai.agent.workflow.WorkflowAgentDefinitionAdapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -35,15 +35,19 @@ class ExecutableDebugSessionServiceTest {
                 .title("补充信息")
                 .message("请补充团队")
                 .build();
-        when(adapter.debugRun(any(), eq("查班组"), any(), any())).thenReturn(waitingRun(uiRequest));
+        when(adapter.debugRun(
+                any(GraphSpec.class),
+                any(GraphRuntimeContext.class),
+                eq("查班组"),
+                any(),
+                any())).thenReturn(waitingRun(uiRequest));
 
         ExecutableDebugSessionService service = new ExecutableDebugSessionService(
                 mapper,
                 adapter,
-                new WorkflowAgentDefinitionAdapter(objectMapper),
                 objectMapper);
         ExecutableDebugSessionService.ExecutableDebugSessionView view = service.create(new ExecutableDebugSessionService.CreateRequest(
-                "AGENT_DRAFT",
+                "WORKFLOW_DRAFT",
                 agentDraft(),
                 "查班组",
                 Map.of("question", "查班组"),
@@ -65,8 +69,8 @@ class ExecutableDebugSessionServiceTest {
         LangGraph4jRuntimeAdapter adapter = mock(LangGraph4jRuntimeAdapter.class);
         when(mapper.insert(any())).thenReturn(1);
         when(adapter.debugRun(
-                org.mockito.ArgumentMatchers.any(com.enterprise.ai.agent.graph.GraphSpec.class),
-                org.mockito.ArgumentMatchers.any(com.enterprise.ai.agent.runtime.GraphRuntimeContext.class),
+                any(GraphSpec.class),
+                any(GraphRuntimeContext.class),
                 eq("hello"),
                 any(),
                 any())).thenReturn(LangGraph4jRuntimeAdapter.WorkflowDebugRunResult.builder()
@@ -82,7 +86,6 @@ class ExecutableDebugSessionServiceTest {
         ExecutableDebugSessionService service = new ExecutableDebugSessionService(
                 mapper,
                 adapter,
-                new WorkflowAgentDefinitionAdapter(objectMapper),
                 objectMapper);
         ExecutableDebugSessionService.ExecutableDebugSessionView view = service.create(
                 new ExecutableDebugSessionService.CreateRequest(
@@ -93,10 +96,9 @@ class ExecutableDebugSessionServiceTest {
                         Map.of()));
 
         assertEquals("SUCCESS", view.getStatus());
-        ArgumentCaptor<com.enterprise.ai.agent.runtime.GraphRuntimeContext> contextCaptor =
-                ArgumentCaptor.forClass(com.enterprise.ai.agent.runtime.GraphRuntimeContext.class);
+        ArgumentCaptor<GraphRuntimeContext> contextCaptor = ArgumentCaptor.forClass(GraphRuntimeContext.class);
         verify(adapter).debugRun(
-                org.mockito.ArgumentMatchers.any(com.enterprise.ai.agent.graph.GraphSpec.class),
+                any(GraphSpec.class),
                 contextCaptor.capture(),
                 eq("hello"),
                 any(),
@@ -125,16 +127,25 @@ class ExecutableDebugSessionServiceTest {
                 .title("补充信息")
                 .message("请补充团队")
                 .build();
-        when(adapter.debugRun(any(), eq("查班组"), any(), any())).thenReturn(waitingRun(uiRequest));
-        when(adapter.debugRun(any(), eq(""), any(), any())).thenReturn(successRun());
+        when(adapter.debugRun(
+                any(GraphSpec.class),
+                any(GraphRuntimeContext.class),
+                eq("查班组"),
+                any(),
+                any())).thenReturn(waitingRun(uiRequest));
+        when(adapter.debugRun(
+                any(GraphSpec.class),
+                any(GraphRuntimeContext.class),
+                eq(""),
+                any(),
+                any())).thenReturn(successRun());
 
         ExecutableDebugSessionService service = new ExecutableDebugSessionService(
                 mapper,
                 adapter,
-                new WorkflowAgentDefinitionAdapter(objectMapper),
                 objectMapper);
         ExecutableDebugSessionService.ExecutableDebugSessionView created = service.create(new ExecutableDebugSessionService.CreateRequest(
-                "AGENT_DRAFT",
+                "WORKFLOW_DRAFT",
                 agentDraft(),
                 "查班组",
                 Map.of("question", "查班组"),
@@ -145,7 +156,12 @@ class ExecutableDebugSessionServiceTest {
         assertEquals("SUCCESS", submitted.getStatus());
         assertEquals(2, submitted.getSteps().size());
         ArgumentCaptor<Map<String, Object>> options = ArgumentCaptor.forClass(Map.class);
-        verify(adapter).debugRun(any(), eq(""), any(), options.capture());
+        verify(adapter).debugRun(
+                any(GraphSpec.class),
+                any(GraphRuntimeContext.class),
+                eq(""),
+                any(),
+                options.capture());
         assertEquals("collect", options.getValue().get("entryNodeId"));
         Map<String, Object> state = castMap(options.getValue().get("state"));
         assertEquals("研发一组", castMap(state.get("__requestParams")).get("teamName"));

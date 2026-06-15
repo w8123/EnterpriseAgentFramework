@@ -1,7 +1,8 @@
 package com.enterprise.ai.agent.service;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
 import com.enterprise.ai.agent.agent.AgentOrchestrator;
 import com.enterprise.ai.agent.agentscope.AgentRouter;
 import com.enterprise.ai.agent.model.AgentResult;
@@ -31,7 +32,7 @@ public class AgentService {
     private final AgentOrchestrator agentOrchestrator;
     private final InteractiveFormResumeService interactiveFormResumeService;
     private final AgentRouter agentRouter;
-    private final AgentDefinitionService agentDefinitionService;
+    private final AgentEntryService agentEntryService;
 
     /**
      * 执行复杂Agent任务
@@ -72,17 +73,18 @@ public class AgentService {
         }
         String fixedAgentId = request.getAgentDefinitionId();
         if (fixedAgentId != null && !fixedAgentId.isBlank()) {
-            Optional<AgentDefinition> def = agentDefinitionService.findById(fixedAgentId.trim());
-            if (def.isEmpty()) {
+            Optional<AgentEntryEntity> entry = agentEntryService.findById(fixedAgentId.trim())
+                    .or(() -> agentEntryService.findByKeySlug(fixedAgentId.trim()));
+            if (entry.isEmpty()) {
                 return AgentResult.builder()
                         .success(false)
-                        .answer("未找到 Agent 定义: " + fixedAgentId)
+                        .answer("未找到 Agent: " + fixedAgentId)
                         .build();
             }
-            log.info("按 agentDefinitionId 直执（跳过意图路由）: id={}, name={}",
-                    fixedAgentId, def.get().getName());
-            return agentRouter.executeByDefinition(
-                    def.get(),
+            AgentRuntimeProfile profile = AgentRuntimeProfile.fromAgentEntry(entry.get(), null);
+            log.info("按 agentId 直执（跳过意图路由）: id={}, name={}", fixedAgentId, profile.getName());
+            return agentRouter.executeByProfile(
+                    profile,
                     sessionId,
                     request.getUserId(),
                     request.getMessage(),

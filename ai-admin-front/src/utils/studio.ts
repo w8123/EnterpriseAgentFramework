@@ -1,4 +1,4 @@
-import type { AgentDefinition, AgentForm, AgentGraphNode, AgentGraphSpec } from '@/types/agent'
+import type { WorkflowCanvasSource, AgentForm, AgentGraphNode, AgentGraphSpec } from '@/types/agent'
 import { studioNodeCategory, studioNodeColor, studioNodeRetryable } from '@/utils/studioNodeRegistry'
 import type {
   CanvasEdge,
@@ -523,7 +523,7 @@ function graphNodeChrome(node: CanvasNode) {
   }
 }
 
-export function definitionToCanvas(def: AgentDefinition): CanvasSnapshot {
+export function definitionToCanvas(def: WorkflowCanvasSource): CanvasSnapshot {
   if (def.canvasJson) {
     const parsed = JSON.parse(def.canvasJson) as CanvasSnapshot
     return {
@@ -538,7 +538,7 @@ export function definitionToCanvas(def: AgentDefinition): CanvasSnapshot {
   return graphSpecToCanvas(def.graphSpec, def)
 }
 
-function graphSpecToCanvas(graphSpec: AgentGraphSpec, def: AgentDefinition): CanvasSnapshot {
+function graphSpecToCanvas(graphSpec: AgentGraphSpec, def: WorkflowCanvasSource): CanvasSnapshot {
   const nodes: CanvasNode[] = [
     { id: 'start', type: 'start', position: { x: 60, y: 220 }, data: { label: '开始', kind: 'start', configVersion: 2 } },
   ]
@@ -586,7 +586,7 @@ function graphConfigToNodeData(
   kind: CanvasNodeKind,
   label: string,
   config: Record<string, unknown>,
-  def: AgentDefinition,
+  def: WorkflowCanvasSource,
   ref?: AgentGraphNode['ref'],
 ) {
   const common = {
@@ -1438,7 +1438,7 @@ function nodeCategory(kind: CanvasNodeKind) {
   return studioNodeCategory(kind)
 }
 
-function isSdkDefinition(def: AgentDefinition) {
+function isSdkDefinition(def: WorkflowCanvasSource) {
   const sdkGraph = def.extra?.sdkGraph
   return !!sdkGraph && typeof sdkGraph === 'object'
     && (((sdkGraph as Record<string, unknown>).managedBy === 'SDK') || ((sdkGraph as Record<string, unknown>).source === 'SDK'))

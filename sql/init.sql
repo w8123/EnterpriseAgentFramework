@@ -15,7 +15,7 @@
 --   ai-agent-service/sql/backfill_side_effect.sql  Phase 2.0.1 sideEffect 回填
 --   ai-agent-service/sql/tool_call_log_index_phase2_0_1.sql Phase 2.0.1 索引
 --   ai-agent-service/sql/skill_mining_phase2_1.sql Phase 2.1 Skill Mining
---   ai-agent-service/sql/agent_studio_phase3_0.sql Phase 3.0 Agent Studio（agent_definition / agent_version）
+--   ai-agent-service/sql/agent_studio_phase3_0.sql Phase 3.0 Agent Studio（已退役，见 ai_agent / ai_workflow）
 --   ai-agent-service/sql/scan_project_auth.sql  scan_project HTTP 鉴权列（旧库可单独打补丁，幂等）
 --   ai-agent-service/sql/tool_retrieval_setting.sql  Tool 语义检索：库表持久化 Embedding 实例 ID
 --   ai-agent-service/sql/skill_draft_tool_definition.sql Skill 草稿：tool_definition.draft（kind=SKILL 时暂存）
@@ -834,102 +834,103 @@ WHERE UPPER(IFNULL(`kind`, 'TOOL')) = 'TOOL'
 
 
 -- ============================================================================
--- 七.五、Agent Studio（Phase 3.0）：Agent 定义入库 + 发布版本快照
+-- 七.五、ReachAI Agent / Workflow 主模型（ai_agent 为唯一 Agent 主表）
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `agent_definition` (
-    `id`                      VARCHAR(32)  NOT NULL                     COMMENT '主键（12 位 UUID 截断）',
-    `key_slug`                VARCHAR(64)  NOT NULL                     COMMENT '人类可读 slug，对应 /api/v1/agents/{key}/chat',
-    `name`                    VARCHAR(128) NOT NULL                     COMMENT '展示名',
-    `description`             VARCHAR(512) DEFAULT NULL,
-    `agent_mode`              VARCHAR(32)  NOT NULL DEFAULT 'AUTONOMOUS' COMMENT 'Agent 产品形态: AUTONOMOUS / WORKFLOW / CODE / EXTERNAL',
-    `allowed_roles_json`      TEXT         DEFAULT NULL                 COMMENT '允许运行该 Agent 的业务角色 JSON 数组，空表示不限制',
-    `intent_type`             VARCHAR(64)  DEFAULT NULL                 COMMENT '意图类型',
-    `system_prompt`           TEXT         DEFAULT NULL,
-    `tools_json`              TEXT         DEFAULT NULL                 COMMENT 'tools 白名单 JSON',
-    `skills_json`             TEXT         DEFAULT NULL                 COMMENT 'Skill 白名单 JSON（List<String>），与 tools_json 合并后装配 Toolkit',
-    `model_instance_id`       VARCHAR(64)  DEFAULT NULL,
-    `runtime_type`            VARCHAR(32)  NOT NULL DEFAULT 'AGENTSCOPE' COMMENT 'Agent Runtime 类型',
-    `runtime_placement`       VARCHAR(24)  NOT NULL DEFAULT 'CENTRAL' COMMENT '运行位置: CENTRAL / EMBEDDED / HYBRID',
-    `runtime_config_json`     MEDIUMTEXT   DEFAULT NULL                 COMMENT 'Runtime 专属配置 JSON',
-    `default_resource_config_json` MEDIUMTEXT DEFAULT NULL               COMMENT 'Runtime 默认资源 JSON；流程节点资源写入 graph_spec_json',
-    `graph_spec_json`         MEDIUMTEXT   DEFAULT NULL                 COMMENT 'Platform GraphSpec JSON',
-    `max_steps`               INT          NOT NULL DEFAULT 5,
-    `type`                    VARCHAR(32)  NOT NULL DEFAULT 'single',
-    `pipeline_agent_ids_json` TEXT         DEFAULT NULL,
-    `knowledge_base_group_id` VARCHAR(64)  DEFAULT NULL,
-    `prompt_template_id`      VARCHAR(64)  DEFAULT NULL,
-    `output_schema_type`      VARCHAR(64)  DEFAULT NULL,
-    `trigger_mode`            VARCHAR(16)  NOT NULL DEFAULT 'all',
-    `use_multi_agent_model`   TINYINT(1)   NOT NULL DEFAULT 0,
-    `extra_json`              TEXT         DEFAULT NULL,
-    `canvas_json`             MEDIUMTEXT   DEFAULT NULL                 COMMENT 'Agent Studio 画布节点/连线 JSON',
-    `enabled`                 TINYINT(1)   NOT NULL DEFAULT 1,
-    `allow_irreversible`      TINYINT(1)   NOT NULL DEFAULT 0           COMMENT '是否允许调用 IRREVERSIBLE 副作用 Tool',
-    `created_at`              DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`              DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+CREATE TABLE IF NOT EXISTS `ai_agent` (
+    `id`                 VARCHAR(32)  NOT NULL,
+    `project_id`         BIGINT       DEFAULT NULL,
+    `project_code`       VARCHAR(96)  DEFAULT NULL,
+    `key_slug`           VARCHAR(128) NOT NULL,
+    `name`               VARCHAR(128) NOT NULL,
+    `description`        VARCHAR(512) DEFAULT NULL,
+    `agent_kind`         VARCHAR(32)  NOT NULL DEFAULT 'PROJECT_ENTRY' COMMENT 'PROJECT_ENTRY / PAGE_COPILOT / GLOBAL_EMBED / SPECIALIST / CODE_AGENT / EXTERNAL_AGENT',
+    `visibility`         VARCHAR(32)  NOT NULL DEFAULT 'PROJECT',
+    `system_prompt`      MEDIUMTEXT   DEFAULT NULL,
+    `model_instance_id`  VARCHAR(64)  DEFAULT NULL,
+    `allowed_roles_json` TEXT         DEFAULT NULL,
+    `entry_config_json`  MEDIUMTEXT   DEFAULT NULL COMMENT '入口策略、工具策略、记忆/知识范围等 JSON',
+    `enabled`            TINYINT(1)   NOT NULL DEFAULT 1,
+    `created_at`         DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`         DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_agent_key_slug` (`key_slug`),
-    KEY `idx_agent_intent`   (`intent_type`),
-    KEY `idx_agent_enabled`  (`enabled`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 定义（Phase 3.0）';
+    UNIQUE KEY `uk_ai_agent_key_slug` (`key_slug`),
+    KEY `idx_ai_agent_project` (`project_id`, `enabled`),
+    KEY `idx_ai_agent_project_code` (`project_code`, `agent_kind`, `enabled`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ReachAI 智能体入口（身份、策略、Workflow 路由）';
 
-CALL add_col_if_absent('agent_definition', 'key_slug',           'VARCHAR(64) NOT NULL DEFAULT '''' COMMENT ''人类可读 slug'' AFTER `id`');
-CALL add_col_if_absent('agent_definition', 'agent_mode',         'VARCHAR(32) NOT NULL DEFAULT ''AUTONOMOUS'' COMMENT ''Agent 产品形态: AUTONOMOUS / WORKFLOW / CODE / EXTERNAL'' AFTER `description`');
-CALL add_col_if_absent('agent_definition', 'skills_json',        'TEXT DEFAULT NULL COMMENT ''Skill 白名单 JSON（List<String>），与 tools_json 合并后装配 Toolkit'' AFTER `tools_json`');
-CALL add_col_if_absent('agent_definition', 'canvas_json',        'MEDIUMTEXT DEFAULT NULL COMMENT ''Agent Studio 画布 JSON''');
-CALL add_col_if_absent('agent_definition', 'allow_irreversible', 'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''允许调用 IRREVERSIBLE 副作用 Tool''');
-CALL add_col_if_absent('agent_definition', 'runtime_type',       'VARCHAR(32) NOT NULL DEFAULT ''AGENTSCOPE'' COMMENT ''Agent Runtime 类型'' AFTER `model_instance_id`');
-CALL add_col_if_absent('agent_definition', 'runtime_placement',  'VARCHAR(24) NOT NULL DEFAULT ''CENTRAL'' COMMENT ''运行位置: CENTRAL / EMBEDDED / HYBRID'' AFTER `runtime_type`');
-CALL add_col_if_absent('agent_definition', 'runtime_config_json','MEDIUMTEXT DEFAULT NULL COMMENT ''Runtime 专属配置 JSON'' AFTER `runtime_placement`');
-CALL add_col_if_absent('agent_definition', 'default_resource_config_json','MEDIUMTEXT DEFAULT NULL COMMENT ''Runtime 默认资源 JSON；流程节点资源写入 graph_spec_json'' AFTER `runtime_config_json`');
-CALL add_col_if_absent('agent_definition', 'graph_spec_json',    'MEDIUMTEXT DEFAULT NULL COMMENT ''Platform GraphSpec JSON'' AFTER `runtime_config_json`');
-CALL add_idx_if_absent('agent_definition', 'uk_agent_key_slug',  'key_slug');
-CALL add_idx_if_absent('agent_definition', 'idx_agent_intent',   'intent_type');
-CALL add_idx_if_absent('agent_definition', 'idx_agent_enabled',  'enabled');
-CALL add_idx_if_absent('agent_definition', 'idx_agent_runtime',  '`runtime_type`, `enabled`');
-CALL add_idx_if_absent('agent_definition', 'idx_agent_mode',     '`agent_mode`, `enabled`');
-CALL add_idx_if_absent('agent_definition', 'idx_agent_runtime_placement',  '`runtime_placement`, `enabled`');
-
-CREATE TABLE IF NOT EXISTS `agent_version` (
-    `id`               BIGINT        NOT NULL AUTO_INCREMENT,
-    `agent_id`         VARCHAR(32)   NOT NULL                      COMMENT '关联 agent_definition.id',
-    `version`          VARCHAR(32)   NOT NULL                      COMMENT 'v1.0.0 / v1.0.1',
-    `snapshot_json`    MEDIUMTEXT    NOT NULL                      COMMENT 'AgentDefinition + canvas_json 冻结快照',
-    `rollout_percent`  INT           NOT NULL DEFAULT 0            COMMENT '灰度百分比 0-100',
-    `status`           VARCHAR(16)   NOT NULL DEFAULT 'DRAFT'      COMMENT 'DRAFT / ACTIVE / RETIRED',
-    `published_by`     VARCHAR(64)   DEFAULT NULL,
-    `published_at`     DATETIME      DEFAULT NULL,
-    `note`             VARCHAR(512)  DEFAULT NULL,
-    `create_time`      DATETIME      DEFAULT CURRENT_TIMESTAMP,
+CREATE TABLE IF NOT EXISTS `ai_workflow` (
+    `id`                           VARCHAR(32)  NOT NULL,
+    `project_id`                   BIGINT       DEFAULT NULL,
+    `project_code`                 VARCHAR(96)  DEFAULT NULL,
+    `key_slug`                     VARCHAR(128) NOT NULL,
+    `name`                         VARCHAR(160) NOT NULL,
+    `description`                  VARCHAR(512) DEFAULT NULL,
+    `workflow_type`                VARCHAR(32)  NOT NULL DEFAULT 'CHAT',
+    `runtime_type`                 VARCHAR(32)  NOT NULL DEFAULT 'LANGGRAPH4J',
+    `graph_spec_json`              MEDIUMTEXT   DEFAULT NULL COMMENT 'Platform GraphSpec JSON（运行语义）',
+    `canvas_json`                  MEDIUMTEXT   DEFAULT NULL COMMENT 'Workflow Studio 画布布局',
+    `input_schema_json`            MEDIUMTEXT   DEFAULT NULL,
+    `output_schema_json`           MEDIUMTEXT   DEFAULT NULL,
+    `default_model_instance_id`    VARCHAR(64)  DEFAULT NULL,
+    `default_resource_config_json` MEDIUMTEXT   DEFAULT NULL,
+    `status`                       VARCHAR(24)  NOT NULL DEFAULT 'DRAFT',
+    `managed_by`                   VARCHAR(32)  NOT NULL DEFAULT 'MANUAL',
+    `extra_json`                   MEDIUMTEXT   DEFAULT NULL,
+    `created_at`                   DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`                   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_agent_version` (`agent_id`, `version`),
-    KEY `idx_agent_status` (`agent_id`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 发布版本快照（Phase 3.0）';
+    UNIQUE KEY `uk_ai_workflow_key_slug` (`key_slug`),
+    KEY `idx_ai_workflow_project` (`project_id`, `status`),
+    KEY `idx_ai_workflow_project_code` (`project_code`, `workflow_type`, `status`),
+    KEY `idx_ai_workflow_runtime` (`runtime_type`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ReachAI Workflow 编排资产（GraphSpec / canvas_json）';
 
-CREATE TABLE IF NOT EXISTS `agent_release_event` (
-    `id`               BIGINT        NOT NULL AUTO_INCREMENT,
-    `agent_id`         VARCHAR(32)   NOT NULL                      COMMENT '关联 agent_definition.id',
-    `version_id`       BIGINT        DEFAULT NULL                  COMMENT '关联 agent_version.id',
-    `version`          VARCHAR(32)   DEFAULT NULL                  COMMENT '发布/回滚涉及的版本号',
-    `action`           VARCHAR(24)   NOT NULL                      COMMENT 'VALIDATE / PUBLISH / ROLLBACK',
-    `decision`         VARCHAR(24)   NOT NULL                      COMMENT 'PASSED / BLOCKED / COMPLETED',
-    `rollout_percent`  INT           DEFAULT NULL                  COMMENT '灰度百分比',
-    `operator`         VARCHAR(64)   DEFAULT NULL                  COMMENT '操作者',
-    `summary`          VARCHAR(512)  DEFAULT NULL,
-    `validation_json`  MEDIUMTEXT    DEFAULT NULL                  COMMENT '发布前校验报告',
-    `metadata_json`    TEXT          DEFAULT NULL                  COMMENT '发布说明等扩展元数据',
-    `created_at`       DATETIME      DEFAULT CURRENT_TIMESTAMP,
+CREATE TABLE IF NOT EXISTS `ai_workflow_version` (
+    `id`                       BIGINT      NOT NULL AUTO_INCREMENT,
+    `workflow_id`              VARCHAR(32) NOT NULL,
+    `version`                  VARCHAR(32) NOT NULL,
+    `snapshot_json`            MEDIUMTEXT  NOT NULL,
+    `graph_spec_snapshot_json` MEDIUMTEXT  DEFAULT NULL,
+    `canvas_snapshot_json`     MEDIUMTEXT  DEFAULT NULL,
+    `rollout_percent`          INT         NOT NULL DEFAULT 100,
+    `status`                   VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
+    `published_by`             VARCHAR(64) DEFAULT NULL,
+    `published_at`             DATETIME    DEFAULT NULL,
+    `note`                     VARCHAR(512) DEFAULT NULL,
+    `created_at`               DATETIME    DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    KEY `idx_agent_release_event_agent` (`agent_id`, `id`),
-    KEY `idx_agent_release_event_version` (`version_id`),
-    KEY `idx_agent_release_event_action` (`agent_id`, `action`, `decision`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 发布治理审计事件';
+    UNIQUE KEY `uk_ai_workflow_version` (`workflow_id`, `version`),
+    KEY `idx_ai_workflow_version_status` (`workflow_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow 发布版本';
+
+CREATE TABLE IF NOT EXISTS `ai_agent_workflow_binding` (
+    `id`                BIGINT       NOT NULL AUTO_INCREMENT,
+    `agent_id`          VARCHAR(32)  NOT NULL COMMENT '关联 ai_agent.id',
+    `workflow_id`       VARCHAR(32)  NOT NULL COMMENT '关联 ai_workflow.id',
+    `project_code`      VARCHAR(96)  DEFAULT NULL,
+    `binding_type`      VARCHAR(32)  NOT NULL DEFAULT 'DEFAULT' COMMENT 'DEFAULT / PAGE / ROUTE / ACTION / INTENT / TASK / FALLBACK',
+    `page_key`          VARCHAR(160) DEFAULT NULL,
+    `route_pattern`     VARCHAR(512) DEFAULT NULL,
+    `action_key`        VARCHAR(160) DEFAULT NULL,
+    `intent_type`       VARCHAR(96)  DEFAULT NULL,
+    `priority`          INT          NOT NULL DEFAULT 0,
+    `enabled`           TINYINT(1)   NOT NULL DEFAULT 1,
+    `guard_config_json` MEDIUMTEXT   DEFAULT NULL,
+    `metadata_json`     MEDIUMTEXT   DEFAULT NULL,
+    `created_at`        DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`        DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_ai_binding_agent` (`agent_id`, `enabled`, `priority`),
+    KEY `idx_ai_binding_page` (`project_code`, `agent_id`, `page_key`, `enabled`, `priority`),
+    KEY `idx_ai_binding_action` (`project_code`, `agent_id`, `page_key`, `action_key`, `enabled`),
+    KEY `idx_ai_binding_workflow` (`workflow_id`, `enabled`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 到 Workflow 路由绑定';
 
 -- Agent Studio Eval MVP：草稿流程自动评测
 CREATE TABLE IF NOT EXISTS `agent_eval_dataset` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
-  `agent_id` VARCHAR(64) DEFAULT NULL COMMENT '关联 agent_definition.id；草稿评测可为空',
+  `agent_id` VARCHAR(64) DEFAULT NULL COMMENT '关联 ai_agent.id；草稿评测可为空',
   `agent_name` VARCHAR(128) DEFAULT NULL,
   `name` VARCHAR(128) NOT NULL,
   `description` VARCHAR(512) DEFAULT NULL,
@@ -1237,8 +1238,8 @@ CALL add_unique_idx_if_absent('mcp_visibility', 'uk_target', '`target_kind`, `ta
 
 CREATE TABLE IF NOT EXISTS `a2a_endpoint` (
     `id`          BIGINT       NOT NULL AUTO_INCREMENT,
-    `agent_id`    VARCHAR(64)  NOT NULL                 COMMENT 'agent_definition.id',
-    `agent_key`   VARCHAR(128) NOT NULL                 COMMENT 'agent_definition.key_slug 冗余',
+    `agent_id`    VARCHAR(64)  NOT NULL                 COMMENT 'ai_agent.id',
+    `agent_key`   VARCHAR(128) NOT NULL                 COMMENT 'ai_agent.key_slug 冗余',
     `card_json`   TEXT         NOT NULL                 COMMENT 'A2A AgentCard JSON',
     `enabled`     TINYINT(1)   NOT NULL DEFAULT 1,
     `created_at`  DATETIME     DEFAULT CURRENT_TIMESTAMP,
@@ -1411,41 +1412,37 @@ CALL add_idx_if_absent('tool_definition', 'idx_tool_project_kind', '`project_id`
 CALL add_idx_if_absent('tool_definition', 'idx_tool_project_code', '`project_code`, `kind`');
 CALL add_idx_if_absent('tool_definition', 'idx_tool_qualified_name', '`qualified_name`');
 
-CALL add_col_if_absent('agent_definition', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属业务项目'' AFTER `description`');
-CALL add_col_if_absent('agent_definition', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属业务项目编码'' AFTER `project_id`');
-CALL add_col_if_absent('agent_definition', 'visibility', 'VARCHAR(24) NOT NULL DEFAULT ''PRIVATE'' COMMENT ''Agent 可见性'' AFTER `project_code`');
-CALL add_col_if_absent('agent_definition', 'allowed_roles_json', 'TEXT DEFAULT NULL COMMENT ''允许运行该 Agent 的业务角色 JSON 数组，空表示不限制'' AFTER `visibility`');
-CALL add_col_if_absent('agent_definition', 'tool_refs_json', 'JSON DEFAULT NULL COMMENT ''Tool 稳定引用 JSON'' AFTER `tools_json`');
-CALL add_col_if_absent('agent_definition', 'skill_refs_json', 'JSON DEFAULT NULL COMMENT ''Skill 稳定引用 JSON'' AFTER `skills_json`');
-CALL add_idx_if_absent('agent_definition', 'idx_agent_project', '`project_id`, `enabled`');
-CALL add_idx_if_absent('agent_definition', 'idx_agent_project_code', '`project_code`, `enabled`');
-
-INSERT INTO `agent_definition`
-(`id`, `key_slug`, `name`, `description`, `agent_mode`, `project_code`, `visibility`,
- `allowed_roles_json`, `intent_type`, `system_prompt`, `tools_json`, `skills_json`,
- `model_instance_id`, `runtime_type`, `runtime_placement`, `runtime_config_json`,
- `default_resource_config_json`, `graph_spec_json`, `max_steps`, `type`,
- `pipeline_agent_ids_json`, `knowledge_base_group_id`, `prompt_template_id`,
- `output_schema_type`, `trigger_mode`, `use_multi_agent_model`, `extra_json`,
- `canvas_json`, `enabled`, `allow_irreversible`, `created_at`, `updated_at`)
+-- 班组档案嵌入式页面助手种子：ai_agent + ai_workflow + binding（不再写入 agent_definition）
+INSERT INTO `ai_agent`
+(`id`, `key_slug`, `name`, `description`, `agent_kind`, `project_code`, `visibility`,
+ `allowed_roles_json`, `system_prompt`, `enabled`, `created_at`, `updated_at`)
 SELECT
     'team_archive_agent',
     'team-archive-assistant',
     '班组档案助手',
     '面向班组档案页面的嵌入式对话助手，将自然语言查询转换为页面筛选动作。',
-    'WORKFLOW',
+    'PAGE_COPILOT',
     'qmssmp-teams-construction-service',
     'PROJECT',
     '[]',
-    'TEAM_ARCHIVE_PAGE_QUERY',
     '你是班组档案页面助手，只把用户查询意图转换为页面筛选条件，并触发页面查询。',
-    '[]',
-    '[]',
-    NULL,
+    1,
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM `ai_agent` WHERE `key_slug` = 'team-archive-assistant'
+);
+
+INSERT INTO `ai_workflow`
+(`id`, `key_slug`, `name`, `description`, `workflow_type`, `runtime_type`,
+ `graph_spec_json`, `status`, `managed_by`, `extra_json`, `created_at`, `updated_at`)
+SELECT
+    'team_archive_wf',
+    'team-archive-assistant-wf',
+    '班组档案助手流程',
+    '班组档案页面筛选与查询 Workflow',
+    'PAGE_ACTION',
     'LANGGRAPH4J',
-    'CENTRAL',
-    NULL,
-    NULL,
     JSON_OBJECT(
         'code', 'team-archive-assistant',
         'name', '班组档案助手',
@@ -1491,22 +1488,30 @@ SELECT
             JSON_OBJECT('id', 'search_end', 'from', 'apply_search', 'to', 'END', 'condition', 'always')
         )
     ),
-    3,
-    'single',
-    '[]',
-    NULL,
-    NULL,
-    NULL,
-    'all',
-    0,
+    'ACTIVE',
+    'MANUAL',
     JSON_OBJECT('source', 'seed', 'scenario', 'qmssmp-team-archive-embedded-chat'),
-    NULL,
-    1,
-    0,
     NOW(),
     NOW()
 WHERE NOT EXISTS (
-    SELECT 1 FROM `agent_definition` WHERE `key_slug` = 'team-archive-assistant'
+    SELECT 1 FROM `ai_workflow` WHERE `key_slug` = 'team-archive-assistant-wf'
+);
+
+INSERT INTO `ai_agent_workflow_binding`
+(`agent_id`, `workflow_id`, `project_code`, `binding_type`, `intent_type`, `priority`, `enabled`, `created_at`, `updated_at`)
+SELECT
+    'team_archive_agent',
+    'team_archive_wf',
+    'qmssmp-teams-construction-service',
+    'DEFAULT',
+    'TEAM_ARCHIVE_PAGE_QUERY',
+    0,
+    1,
+    NOW(),
+    NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM `ai_agent_workflow_binding`
+    WHERE `agent_id` = 'team_archive_agent' AND `workflow_id` = 'team_archive_wf'
 );
 
 CALL add_col_if_absent('tool_acl', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''为空表示全局规则'' AFTER `role_code`');
@@ -2334,40 +2339,14 @@ CALL add_idx_if_absent('business_index', 'idx_biz_embedding_instance', '`embeddi
 -- 十、模型实例 legacy 字段回填与清理（历史 model_instance_only_v4 / v12）
 -- ============================================================================
 
-CALL add_col_if_absent('agent_definition', 'model_instance_id',
-    'VARCHAR(64) DEFAULT NULL COMMENT ''Model instance id'' AFTER `tools_json`');
-
-
 -- AI Coding onboarding access key for external coding tools.
 CALL add_col_if_absent('scan_project', 'ai_coding_access_key', 'VARCHAR(160) DEFAULT NULL COMMENT ''AI Coding access key''');
 CALL add_col_if_absent('scan_project', 'ai_coding_access_enabled', 'TINYINT NOT NULL DEFAULT 0 COMMENT ''1=AI Coding manifest access enabled''');
 
-DROP PROCEDURE IF EXISTS bind_agent_model_instance_from_legacy;
 DROP PROCEDURE IF EXISTS bind_embedding_instance_from_legacy;
 DROP PROCEDURE IF EXISTS drop_col_if_exists;
 
 DELIMITER $$
-
-CREATE PROCEDURE bind_agent_model_instance_from_legacy()
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_schema = DATABASE()
-          AND table_name = 'ai_model_instance'
-    ) AND EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = DATABASE()
-          AND table_name = 'agent_definition'
-          AND column_name = 'model_name'
-    ) THEN
-        UPDATE `agent_definition` a
-        JOIN `ai_model_instance` mi
-          ON mi.model_type = 'LLM'
-         AND mi.model_name = a.model_name
-        SET a.model_instance_id = mi.id
-        WHERE (a.model_instance_id IS NULL OR a.model_instance_id = '');
-    END IF;
-END$$
 
 CREATE PROCEDURE bind_embedding_instance_from_legacy(IN p_table VARCHAR(64))
 BEGIN
@@ -2416,14 +2395,11 @@ END$$
 
 DELIMITER ;
 
-CALL bind_agent_model_instance_from_legacy();
-CALL drop_col_if_exists('agent_definition', 'model_name');
 CALL bind_embedding_instance_from_legacy('knowledge_base');
 CALL bind_embedding_instance_from_legacy('business_index');
 CALL drop_col_if_exists('knowledge_base', 'embedding_model');
 CALL drop_col_if_exists('business_index', 'embedding_model');
 
-DROP PROCEDURE IF EXISTS bind_agent_model_instance_from_legacy;
 DROP PROCEDURE IF EXISTS bind_embedding_instance_from_legacy;
 DROP PROCEDURE IF EXISTS drop_col_if_exists;
 

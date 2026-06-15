@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.controller;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
 import com.enterprise.ai.agent.agentscope.AgentRouter;
 import com.enterprise.ai.agent.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.identity.BusinessPrincipal;
@@ -59,7 +59,7 @@ class EmbedChatControllerAuditTest {
                 mock(EmbedTokenService.class),
                 mock(BusinessUserDirectoryService.class),
                 mock(EmbedSessionService.class),
-                mock(AgentDefinitionService.class),
+                mock(AgentEntryService.class),
                 mock(AgentRouter.class),
                 new ObjectMapper(),
                 audit,
@@ -111,7 +111,7 @@ class EmbedChatControllerAuditTest {
                 tokenService,
                 mock(BusinessUserDirectoryService.class),
                 sessionService,
-                mock(AgentDefinitionService.class),
+                mock(AgentEntryService.class),
                 mock(AgentRouter.class),
                 new ObjectMapper(),
                 mock(GuardDecisionLogService.class),
@@ -159,7 +159,7 @@ class EmbedChatControllerAuditTest {
                 tokenService,
                 mock(BusinessUserDirectoryService.class),
                 sessionService,
-                mock(AgentDefinitionService.class),
+                mock(AgentEntryService.class),
                 mock(AgentRouter.class),
                 new ObjectMapper(),
                 mock(GuardDecisionLogService.class),
@@ -200,29 +200,26 @@ class EmbedChatControllerAuditTest {
     void tokenExchangeAllowsBoundedWildcardOrigin() {
         RegistrySecurityService registrySecurityService = mock(RegistrySecurityService.class);
         EmbedTokenService tokenService = mock(EmbedTokenService.class);
-        AgentDefinitionService agentDefinitionService = mock(AgentDefinitionService.class);
+        EmbedWorkflowRuntimeService embedWorkflowRuntimeService = mock(EmbedWorkflowRuntimeService.class);
+        when(embedWorkflowRuntimeService.resolveAgentEntry("agent-1")).thenReturn(Optional.of(agentEntry("agent-1", "demo", true)));
         EmbedChatController controller = new EmbedChatController(
                 registrySecurityService,
                 tokenService,
                 mock(BusinessUserDirectoryService.class),
                 mock(EmbedSessionService.class),
-                agentDefinitionService,
+                mock(AgentEntryService.class),
                 mock(AgentRouter.class),
                 new ObjectMapper(),
                 mock(GuardDecisionLogService.class),
                 mock(EmbedAuditEventService.class),
                 mock(EmbedRendererAuthorizationService.class),
-                mock(EmbedWorkflowRuntimeService.class),
+                embedWorkflowRuntimeService,
                 mock(WorkflowRuntimeService.class));
 
         RegistryCredentialEntity credential = new RegistryCredentialEntity();
         credential.setProjectCode("demo");
         credential.setAllowedOriginsJson("[\"https://*.corp.example.com\"]");
         when(registrySecurityService.verifyRequired(eq("demo"), any())).thenReturn(credential);
-        when(agentDefinitionService.findById("agent-1")).thenReturn(Optional.of(AgentDefinition.builder()
-                .id("agent-1")
-                .projectCode("demo")
-                .build()));
         when(tokenService.issue(any())).thenReturn(new EmbedTokenIssueResult("jwt", 600, Instant.now().plusSeconds(600)));
 
         EmbedChatController.EmbedTokenExchangeRequest request = new EmbedChatController.EmbedTokenExchangeRequest(
@@ -248,28 +245,25 @@ class EmbedChatControllerAuditTest {
     void tokenExchangeAllowsLocalDevelopmentOriginWhenPolicyIsEmpty() {
         RegistrySecurityService registrySecurityService = mock(RegistrySecurityService.class);
         EmbedTokenService tokenService = mock(EmbedTokenService.class);
-        AgentDefinitionService agentDefinitionService = mock(AgentDefinitionService.class);
+        EmbedWorkflowRuntimeService embedWorkflowRuntimeService = mock(EmbedWorkflowRuntimeService.class);
+        when(embedWorkflowRuntimeService.resolveAgentEntry("agent-1")).thenReturn(Optional.of(agentEntry("agent-1", "demo", true)));
         EmbedChatController controller = new EmbedChatController(
                 registrySecurityService,
                 tokenService,
                 mock(BusinessUserDirectoryService.class),
                 mock(EmbedSessionService.class),
-                agentDefinitionService,
+                mock(AgentEntryService.class),
                 mock(AgentRouter.class),
                 new ObjectMapper(),
                 mock(GuardDecisionLogService.class),
                 mock(EmbedAuditEventService.class),
                 mock(EmbedRendererAuthorizationService.class),
-                mock(EmbedWorkflowRuntimeService.class),
+                embedWorkflowRuntimeService,
                 mock(WorkflowRuntimeService.class));
 
         RegistryCredentialEntity credential = new RegistryCredentialEntity();
         credential.setProjectCode("demo");
         when(registrySecurityService.verifyRequired(eq("demo"), any())).thenReturn(credential);
-        when(agentDefinitionService.findById("agent-1")).thenReturn(Optional.of(AgentDefinition.builder()
-                .id("agent-1")
-                .projectCode("demo")
-                .build()));
         when(tokenService.issue(any())).thenReturn(new EmbedTokenIssueResult("jwt", 600, Instant.now().plusSeconds(600)));
 
         EmbedChatController.EmbedTokenExchangeRequest request = new EmbedChatController.EmbedTokenExchangeRequest(
@@ -299,7 +293,7 @@ class EmbedChatControllerAuditTest {
                 mock(EmbedTokenService.class),
                 mock(BusinessUserDirectoryService.class),
                 mock(EmbedSessionService.class),
-                mock(AgentDefinitionService.class),
+                mock(AgentEntryService.class),
                 mock(AgentRouter.class),
                 new ObjectMapper(),
                 mock(GuardDecisionLogService.class),
@@ -333,30 +327,26 @@ class EmbedChatControllerAuditTest {
     @Test
     void tokenExchangeRejectsDisabledAgent() {
         RegistrySecurityService registrySecurityService = mock(RegistrySecurityService.class);
-        AgentDefinitionService agentDefinitionService = mock(AgentDefinitionService.class);
+        EmbedWorkflowRuntimeService embedWorkflowRuntimeService = mock(EmbedWorkflowRuntimeService.class);
+        when(embedWorkflowRuntimeService.resolveAgentEntry("agent-1")).thenReturn(Optional.of(agentEntry("agent-1", "demo", false)));
         EmbedChatController controller = new EmbedChatController(
                 registrySecurityService,
                 mock(EmbedTokenService.class),
                 mock(BusinessUserDirectoryService.class),
                 mock(EmbedSessionService.class),
-                agentDefinitionService,
+                mock(AgentEntryService.class),
                 mock(AgentRouter.class),
                 new ObjectMapper(),
                 mock(GuardDecisionLogService.class),
                 mock(EmbedAuditEventService.class),
                 mock(EmbedRendererAuthorizationService.class),
-                mock(EmbedWorkflowRuntimeService.class),
+                embedWorkflowRuntimeService,
                 mock(WorkflowRuntimeService.class));
 
         RegistryCredentialEntity credential = new RegistryCredentialEntity();
         credential.setProjectCode("demo");
         credential.setAllowedOriginsJson("[\"https://allowed.example\"]");
         when(registrySecurityService.verifyRequired(eq("demo"), any())).thenReturn(credential);
-        when(agentDefinitionService.findById("agent-1")).thenReturn(Optional.of(AgentDefinition.builder()
-                .id("agent-1")
-                .projectCode("demo")
-                .enabled(false)
-                .build()));
 
         EmbedChatController.EmbedTokenExchangeRequest request = new EmbedChatController.EmbedTokenExchangeRequest(
                 "demo",
@@ -380,7 +370,7 @@ class EmbedChatControllerAuditTest {
     void sendMessageExecutesResolvedWorkflowDefinitionWhenBindingExists() {
         EmbedTokenService tokenService = mock(EmbedTokenService.class);
         EmbedSessionService sessionService = mock(EmbedSessionService.class);
-        AgentDefinitionService agentDefinitionService = mock(AgentDefinitionService.class);
+        AgentEntryService agentEntryService = mock(AgentEntryService.class);
         AgentRouter agentRouter = mock(AgentRouter.class);
         EmbedWorkflowRuntimeService embedWorkflowRuntimeService = mock(EmbedWorkflowRuntimeService.class);
         WorkflowRuntimeService workflowRuntimeService = mock(WorkflowRuntimeService.class);
@@ -389,7 +379,7 @@ class EmbedChatControllerAuditTest {
                 tokenService,
                 mock(BusinessUserDirectoryService.class),
                 sessionService,
-                agentDefinitionService,
+                agentEntryService,
                 agentRouter,
                 new ObjectMapper(),
                 mock(GuardDecisionLogService.class),
@@ -459,12 +449,6 @@ class EmbedChatControllerAuditTest {
                                 "pageKey", "orders.list",
                                 "route", "/orders"))
                         .build());
-        when(workflowRuntimeService.toExecutionShell(eq(agent), eq(workflow), eq(activeVersion), any()))
-                .thenReturn(AgentDefinition.builder()
-                        .id("workflow-1")
-                        .keySlug("orders-list-assistant")
-                        .intentType("PAGE_ASSISTANT")
-                        .build());
 
         ResponseEntity<ApiResult<ChatResponse>> response = controller.sendMessage(
                 "embed-session-1",
@@ -496,7 +480,7 @@ class EmbedChatControllerAuditTest {
         assertEquals("/orders", runtimeRequest.getValue().getPageContext().get("route"));
         assertEquals(7L, runtimeRequest.getValue().getMetadata().get("bindingId"));
         assertEquals("PAGE", runtimeRequest.getValue().getMetadata().get("bindingType"));
-        verify(agentRouter, never()).executeByDefinition(any(), eq("embed-session-1"), eq("u-1"),
+        verify(agentRouter, never()).executeByProfile(any(), eq("embed-session-1"), eq("u-1"),
                 eq("show orders"), anyList(), any());
     }
 
@@ -504,21 +488,21 @@ class EmbedChatControllerAuditTest {
     void sendMessageRejectsPageActionMissingFromCurrentSessionBridgeActions() {
         EmbedTokenService tokenService = mock(EmbedTokenService.class);
         EmbedSessionService sessionService = mock(EmbedSessionService.class);
-        AgentDefinitionService agentDefinitionService = mock(AgentDefinitionService.class);
         AgentRouter agentRouter = mock(AgentRouter.class);
+        EmbedWorkflowRuntimeService embedWorkflowRuntimeService = mock(EmbedWorkflowRuntimeService.class);
         GuardDecisionLogService guardAudit = mock(GuardDecisionLogService.class);
         EmbedChatController controller = new EmbedChatController(
                 mock(RegistrySecurityService.class),
                 tokenService,
                 mock(BusinessUserDirectoryService.class),
                 sessionService,
-                agentDefinitionService,
+                mock(AgentEntryService.class),
                 agentRouter,
                 new ObjectMapper(),
                 guardAudit,
                 mock(EmbedAuditEventService.class),
                 mock(EmbedRendererAuthorizationService.class),
-                mock(EmbedWorkflowRuntimeService.class),
+                embedWorkflowRuntimeService,
                 mock(WorkflowRuntimeService.class));
         EmbedTokenClaims claims = new EmbedTokenClaims();
         claims.setProjectCode("bzsdk");
@@ -536,17 +520,17 @@ class EmbedChatControllerAuditTest {
         session.setPageInstanceId("page-1");
         session.setBridgeActionsJson("[\"team.refreshList\"]");
         when(sessionService.requireActiveSession("embed-session-1", claims)).thenReturn(session);
-        when(agentDefinitionService.findById("team-agent")).thenReturn(Optional.of(AgentDefinition.builder()
-                .id("team-agent")
-                .intentType("WORKFLOW")
-                .build()));
+        when(embedWorkflowRuntimeService.resolveRunnableWorkflowContext(session, null)).thenReturn(Optional.empty());
+        AgentEntryEntity teamAgent = agentEntry("team-agent", "bzsdk", true);
+        teamAgent.setEntryConfigJson("{\"intentType\":\"WORKFLOW\"}");
+        when(embedWorkflowRuntimeService.resolveAgentEntry("team-agent")).thenReturn(Optional.of(teamAgent));
         UiRequestPayload uiRequest = UiRequestPayload.builder()
                 .extension(Map.of("pageActionRequest", Map.of(
                         "type", "page.action.requested",
                         "requestId", "page-action-1",
                         "actionKey", "team.openDetail")))
                 .build();
-        when(agentRouter.executeByDefinition(any(), eq("embed-session-1"), eq("u-1"), eq("open"), anyList(), any()))
+        when(agentRouter.executeByProfile(any(AgentRuntimeProfile.class), eq("embed-session-1"), eq("u-1"), eq("open"), anyList(), any()))
                 .thenReturn(AgentResult.builder().answer("ok").uiRequest(uiRequest).build());
 
         ResponseEntity<ApiResult<ChatResponse>> response = controller.sendMessage(
@@ -563,5 +547,13 @@ class EmbedChatControllerAuditTest {
                 eq("DENY"),
                 eq("page action is not registered in current session"),
                 any(Map.class));
+    }
+
+    private AgentEntryEntity agentEntry(String id, String projectCode, boolean enabled) {
+        AgentEntryEntity entry = new AgentEntryEntity();
+        entry.setId(id);
+        entry.setProjectCode(projectCode);
+        entry.setEnabled(enabled);
+        return entry;
     }
 }

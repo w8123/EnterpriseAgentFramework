@@ -138,13 +138,13 @@
             </div>
             <div class="preview-card-info">
               <div class="preview-card-name">{{ agent.name }}</div>
-              <div class="preview-card-meta">{{ agent.intentType }}</div>
+              <div class="preview-card-meta">{{ agent.keySlug || agent.agentKind || '-' }}</div>
             </div>
             <el-tag
               :type="agent.enabled ? 'success' : 'info'"
               size="small"
               effect="dark"
-            >{{ agent.enabled ? '启用' : '停用' }}</el-tag>
+            >{{ agent.enabled !== false ? '启用' : '停用' }}</el-tag>
           </div>
           <div v-if="recentAgents.length === 0" class="preview-empty">
             暂无 Agent
@@ -190,9 +190,9 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import {
   Refresh, Cpu, Collection, SetUp, Coin, Connection, Clock,
 } from '@element-plus/icons-vue'
-import type { AgentDefinition } from '@/types/agent'
+import type { AgentEntry } from '@/types/agent'
 import type { KnowledgeBase } from '@/types/knowledge'
-import { getAgentList } from '@/api/agent'
+import { listAgentEntries } from '@/api/workflow'
 import { getKnowledgeList } from '@/api/knowledge'
 import { getModelInstances } from '@/api/model'
 import { getTools } from '@/api/tool'
@@ -206,7 +206,7 @@ const stats = reactive({
   modelInstanceCount: 0,
 })
 
-const recentAgents = ref<AgentDefinition[]>([])
+const recentAgents = ref<AgentEntry[]>([])
 const recentKnowledge = ref<KnowledgeBase[]>([])
 
 const serviceHealth = reactive<Record<string, string>>({})
@@ -287,7 +287,7 @@ const statCards = computed(() => [
 async function fetchStats() {
   loading.value = true
   const results = await Promise.allSettled([
-    getAgentList(),
+    listAgentEntries(),
     getKnowledgeList(),
     getTools({ current: 1, size: 1 }),
     getModelInstances(),

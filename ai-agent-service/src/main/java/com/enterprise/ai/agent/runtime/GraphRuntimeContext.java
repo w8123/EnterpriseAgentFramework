@@ -1,6 +1,5 @@
 package com.enterprise.ai.agent.runtime;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -64,36 +63,6 @@ public class GraphRuntimeContext {
 
     private Map<String, Object> metadata;
 
-    public static GraphRuntimeContext fromAgentDefinition(AgentDefinition definition) {
-        if (definition == null) {
-            return null;
-        }
-        Map<String, Object> extra = definition.getExtra() == null
-                ? null
-                : new LinkedHashMap<>(definition.getExtra());
-        String sourceType = resolveSourceTypeFromExtra(extra);
-        return GraphRuntimeContext.builder()
-                .sourceType(sourceType)
-                .sourceId(definition.getId())
-                .sourceKeySlug(definition.getKeySlug())
-                .sourceVersion(readExtraString(extra, "workflowVersion", "__version"))
-                .sourceVersionId(readExtraLong(extra, "workflowVersionId", "__versionId"))
-                .name(definition.getName())
-                .intentType(definition.getIntentType())
-                .projectId(definition.getProjectId())
-                .projectCode(definition.getProjectCode())
-                .runtimeType(definition.getRuntimeType())
-                .runtimePlacement(definition.getRuntimePlacement())
-                .modelInstanceId(definition.getModelInstanceId())
-                .systemPrompt(definition.getSystemPrompt())
-                .canvasJson(definition.getCanvasJson())
-                .allowIrreversible(definition.isAllowIrreversible())
-                .defaultResourceConfig(copyMap(definition.getDefaultResourceConfig()))
-                .runtimeConfig(copyMap(definition.getRuntimeConfig()))
-                .extra(extra)
-                .build();
-    }
-
     public static GraphRuntimeContext fromWorkflowDraft(String targetType, Map<String, Object> draft) {
         if (draft == null || draft.isEmpty()) {
             throw new IllegalArgumentException("workflow debug draft is required");
@@ -126,46 +95,6 @@ public class GraphRuntimeContext {
                 .canvasJson(asString(draft.get("canvasJson")))
                 .extra(extra.isEmpty() ? null : extra)
                 .build();
-    }
-
-    private static String resolveSourceTypeFromExtra(Map<String, Object> extra) {
-        if (extra == null || !Boolean.TRUE.equals(extra.get("workflowDebug"))) {
-            return "AGENT_COMPAT";
-        }
-        if (extra.get("workflowVersionId") != null || StringUtils.hasText(asString(extra.get("workflowVersion")))) {
-            return "WORKFLOW_VERSION";
-        }
-        return "WORKFLOW_DRAFT";
-    }
-
-    private static String readExtraString(Map<String, Object> extra, String... keys) {
-        if (extra == null) {
-            return null;
-        }
-        for (String key : keys) {
-            String value = asString(extra.get(key));
-            if (StringUtils.hasText(value)) {
-                return value;
-            }
-        }
-        return null;
-    }
-
-    private static Long readExtraLong(Map<String, Object> extra, String... keys) {
-        if (extra == null) {
-            return null;
-        }
-        for (String key : keys) {
-            Long value = asLong(extra.get(key));
-            if (value != null) {
-                return value;
-            }
-        }
-        return null;
-    }
-
-    private static Map<String, Object> copyMap(Map<String, Object> source) {
-        return source == null ? Map.of() : new LinkedHashMap<>(source);
     }
 
     private static void putIfPresent(Map<String, Object> target, String key, Object value) {

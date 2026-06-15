@@ -1,6 +1,5 @@
 package com.enterprise.ai.agent.runtime;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import lombok.Builder;
 import lombok.Data;
@@ -26,7 +25,7 @@ public class AgentRuntimeRequest {
 
     private String intentType;
 
-    private AgentDefinition agentDefinition;
+    private AgentRuntimeProfile agentRuntimeProfile;
 
     /** GraphSpec-native 执行路径；与 graphRuntimeContext 成对出现。 */
     private GraphSpec graphSpec;

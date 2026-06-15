@@ -1,19 +1,19 @@
-package com.enterprise.ai.agent.agent;
+package com.enterprise.ai.agent.workflow;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Validation report used before an Agent version can be published.
+ * Validation report used before a Workflow version can be published.
  */
-public record AgentReleaseValidationResult(
+public record WorkflowReleaseValidationResult(
         boolean valid,
         List<Item> errors,
         List<Item> warnings
 ) {
 
-    public static AgentReleaseValidationResult ok() {
-        return new AgentReleaseValidationResult(true, List.of(), List.of());
+    public static WorkflowReleaseValidationResult ok() {
+        return new WorkflowReleaseValidationResult(true, List.of(), List.of());
     }
 
     public static Builder builder() {
@@ -42,8 +42,8 @@ public record AgentReleaseValidationResult(
             return this;
         }
 
-        public AgentReleaseValidationResult build() {
-            return new AgentReleaseValidationResult(errors.isEmpty(), List.copyOf(errors), List.copyOf(warnings));
+        public WorkflowReleaseValidationResult build() {
+            return new WorkflowReleaseValidationResult(errors.isEmpty(), List.copyOf(errors), List.copyOf(warnings));
         }
     }
 }

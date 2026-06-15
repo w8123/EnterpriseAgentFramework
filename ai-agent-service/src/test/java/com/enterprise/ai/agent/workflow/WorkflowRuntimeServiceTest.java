@@ -1,6 +1,5 @@
 package com.enterprise.ai.agent.workflow;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.agentscope.AgentRouter;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.model.AgentResult;
@@ -26,7 +25,7 @@ class WorkflowRuntimeServiceTest {
     @Test
     void executeUsesActiveWorkflowVersionAndPassesPageMetadata() throws Exception {
         AgentRouter agentRouter = mock(AgentRouter.class);
-        WorkflowRuntimeService service = new WorkflowRuntimeService(agentRouter, new WorkflowAgentDefinitionAdapter(new ObjectMapper()));
+        WorkflowRuntimeService service = new WorkflowRuntimeService(agentRouter, new WorkflowRuntimeGraphAdapter(new ObjectMapper()));
         when(agentRouter.executeByGraphSpec(any(), any(), eq("session-1"), eq("user-1"), eq("hello"), eq(List.of("BUYER")), any()))
                 .thenReturn(AgentResult.builder()
                         .success(true)
@@ -75,7 +74,7 @@ class WorkflowRuntimeServiceTest {
 
     @Test
     void executeRequiresActiveVersionUnlessDraftFallbackIsAllowed() {
-        WorkflowRuntimeService service = new WorkflowRuntimeService(mock(AgentRouter.class), new WorkflowAgentDefinitionAdapter(new ObjectMapper()));
+        WorkflowRuntimeService service = new WorkflowRuntimeService(mock(AgentRouter.class), new WorkflowRuntimeGraphAdapter(new ObjectMapper()));
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> service.execute(WorkflowRuntimeRequest.builder()
@@ -91,7 +90,7 @@ class WorkflowRuntimeServiceTest {
     @Test
     void executeCanUseDraftGraphWhenAllowedForDebug() throws Exception {
         AgentRouter agentRouter = mock(AgentRouter.class);
-        WorkflowRuntimeService service = new WorkflowRuntimeService(agentRouter, new WorkflowAgentDefinitionAdapter(new ObjectMapper()));
+        WorkflowRuntimeService service = new WorkflowRuntimeService(agentRouter, new WorkflowRuntimeGraphAdapter(new ObjectMapper()));
         when(agentRouter.executeByGraphSpec(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(AgentResult.builder().success(true).answer("debug").build());
 
@@ -111,29 +110,9 @@ class WorkflowRuntimeServiceTest {
     }
 
     @Test
-    void executionShellKeepsAgentEntryAndWorkflowBoundaries() throws Exception {
-        WorkflowRuntimeService service = new WorkflowRuntimeService(mock(AgentRouter.class), new WorkflowAgentDefinitionAdapter(new ObjectMapper()));
-
-        AgentDefinition shell = service.toExecutionShell(
-                agent(),
-                workflow("{\"code\":\"active\",\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entry\":\"answer\"}"),
-                activeVersion("v1", "{\"code\":\"active\",\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entry\":\"answer\"}"),
-                Map.of("bindingId", 7L));
-
-        assertEquals("wf-1", shell.getId());
-        assertEquals("orders", shell.getKeySlug());
-        assertEquals("WORKFLOW", shell.getAgentMode());
-        assertEquals("LANGGRAPH4J", shell.getRuntimeType());
-        assertEquals("llm-1", shell.getModelInstanceId());
-        assertEquals("agent-1", shell.getExtra().get("entryAgentId"));
-        assertEquals("wf-1", shell.getExtra().get("workflowId"));
-        assertEquals(7L, shell.getExtra().get("bindingId"));
-    }
-
-    @Test
     void runtimeGraphExposesGraphSpecNativeBundle() throws Exception {
-        WorkflowRuntimeService service = new WorkflowRuntimeService(mock(AgentRouter.class), new WorkflowAgentDefinitionAdapter(new ObjectMapper()));
-        WorkflowAgentDefinitionAdapter.RuntimeGraph runtimeGraph = service.toRuntimeGraph(
+        WorkflowRuntimeService service = new WorkflowRuntimeService(mock(AgentRouter.class), new WorkflowRuntimeGraphAdapter(new ObjectMapper()));
+        WorkflowRuntimeGraphAdapter.RuntimeGraph runtimeGraph = service.toRuntimeGraph(
                 agent(),
                 workflow("{\"code\":\"active\",\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entry\":\"answer\"}"),
                 activeVersion("v1", "{\"code\":\"active\",\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entry\":\"answer\"}"),

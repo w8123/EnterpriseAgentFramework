@@ -1,8 +1,9 @@
 package com.enterprise.ai.agent.market;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
 import com.enterprise.ai.agent.agent.CapabilityReference;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
@@ -21,7 +22,7 @@ import java.util.Map;
 public class MarketService {
 
     private final MarketItemMapper marketItemMapper;
-    private final AgentDefinitionService agentDefinitionService;
+    private final AgentEntryService agentEntryService;
     private final ToolDefinitionService toolDefinitionService;
     private final ObjectMapper objectMapper;
 
@@ -38,16 +39,17 @@ public class MarketService {
 
     @Transactional
     public MarketItemEntity submitAgent(String agentId, String version, String submittedBy) {
-        AgentDefinition agent = agentDefinitionService.findById(agentId)
+        AgentEntryEntity agent = agentEntryService.findById(agentId)
                 .orElseThrow(() -> new IllegalArgumentException("Agent 不存在: " + agentId));
         if (!isMarketVisible(agent.getVisibility())) {
             throw new IllegalArgumentException("只有 SHARED / PUBLIC Agent 可以上架");
         }
+        AgentRuntimeProfile profile = AgentRuntimeProfile.fromAgentEntry(agent, objectMapper);
         MarketItemEntity item = baseItem("AGENT", agent.getId(), agent.getKeySlug(), agent.getProjectId(),
                 agent.getProjectCode(), agent.getName(), agent.getDescription(), version, agent.getVisibility(),
                 submittedBy);
-        item.setDependencyManifestJson(writeJson(agentDependencyManifest(agent)));
-        item.setSnapshotJson(writeJson(agent));
+        item.setDependencyManifestJson(writeJson(agentDependencyManifest(profile)));
+        item.setSnapshotJson(writeJson(profile));
         marketItemMapper.insert(item);
         return item;
     }
@@ -139,10 +141,18 @@ public class MarketService {
         return item;
     }
 
-    private AgentDependencyManifest agentDependencyManifest(AgentDefinition agent) {
+    private AgentDependencyManifest agentDependencyManifest(AgentRuntimeProfile agent) {
         List<CapabilityReference> refs = new java.util.ArrayList<>();
-        if (agent.getToolRefs() != null) refs.addAll(agent.getToolRefs());
-        if (agent.getSkillRefs() != null) refs.addAll(agent.getSkillRefs());
+        if (agent.getTools() != null) {
+            for (String name : agent.getTools()) {
+                refs.add(CapabilityReference.builder().kind("TOOL").name(name).qualifiedName(name).build());
+            }
+        }
+        if (agent.getSkills() != null) {
+            for (String name : agent.getSkills()) {
+                refs.add(CapabilityReference.builder().kind("SKILL").name(name).qualifiedName(name).build());
+            }
+        }
         return new AgentDependencyManifest(agent.getId(), agent.getKeySlug(), refs);
     }
 

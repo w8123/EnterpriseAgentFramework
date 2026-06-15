@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.controller;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
 import com.enterprise.ai.agent.assist.AiAccessSessionService;
 import com.enterprise.ai.agent.identity.PageActionCatalogContracts;
 import com.enterprise.ai.agent.identity.PageActionCatalogService;
@@ -42,14 +42,14 @@ class AiAssistControllerTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ScanProjectService scanProjectService = mock(ScanProjectService.class);
     private final RegistrySecurityService registrySecurityService = mock(RegistrySecurityService.class);
-    private final AgentDefinitionService agentDefinitionService = mock(AgentDefinitionService.class);
+    private final AgentEntryService agentEntryService = mock(AgentEntryService.class);
     private final AiAccessSessionService accessSessionService = mock(AiAccessSessionService.class);
     private final PageActionCatalogService pageActionCatalogService = mock(PageActionCatalogService.class);
     private final PageAssistantWorkflowBindingService pageAssistantWorkflowBindingService = mock(PageAssistantWorkflowBindingService.class);
     private final AiAssistController controller = new AiAssistController(
             scanProjectService,
             registrySecurityService,
-            agentDefinitionService,
+            agentEntryService,
             accessSessionService,
             pageActionCatalogService,
             pageAssistantWorkflowBindingService);
@@ -86,15 +86,12 @@ class AiAssistControllerTest {
         when(scanProjectService.getById(1L)).thenReturn(project);
         when(registrySecurityService.findPrimaryActiveCredential("demo-service"))
                 .thenReturn(Optional.empty());
-        when(agentDefinitionService.list(1L)).thenReturn(List.of(
-                AgentDefinition.builder()
-                        .id("agent-001")
-                        .keySlug("demo-service-assistant")
-                        .name("Demo Assistant")
-                        .projectId(1L)
-                        .projectCode("demo-service")
-                        .enabled(true)
-                        .build()));
+        when(agentEntryService.list(1L, null, null)).thenReturn(List.of(embedEntry(
+                "agent-001",
+                "demo-service-assistant",
+                "Demo Assistant",
+                "demo-service",
+                true)));
 
         ResponseEntity<?> response = controller.onboardingManifest(1L, null, request());
         Map<String, Object> body = objectMapper.convertValue(response.getBody(), new TypeReference<>() {
@@ -118,16 +115,13 @@ class AiAssistControllerTest {
         when(scanProjectService.getById(1L)).thenReturn(project);
         when(registrySecurityService.findPrimaryActiveCredential("demo-service"))
                 .thenReturn(Optional.of(credential));
-        when(agentDefinitionService.findById("allowed-assistant")).thenReturn(Optional.empty());
-        when(agentDefinitionService.findByKeySlug("allowed-assistant")).thenReturn(Optional.of(
-                AgentDefinition.builder()
-                        .id("agent-allowed")
-                        .keySlug("allowed-assistant")
-                        .name("Allowed Assistant")
-                        .projectId(1L)
-                        .projectCode("demo-service")
-                        .enabled(true)
-                        .build()));
+        when(agentEntryService.findById("allowed-assistant")).thenReturn(Optional.empty());
+        when(agentEntryService.findByKeySlug("allowed-assistant")).thenReturn(Optional.of(embedEntry(
+                "agent-allowed",
+                "allowed-assistant",
+                "Allowed Assistant",
+                "demo-service",
+                true)));
 
         ResponseEntity<?> response = controller.onboardingManifest(1L, null, request());
         Map<String, Object> body = objectMapper.convertValue(response.getBody(), new TypeReference<>() {
@@ -709,6 +703,17 @@ class AiAssistControllerTest {
         assertEquals("reachai-onboarding", response.getBody().name());
         assertTrue(response.getBody().downloadUrl().endsWith("/api/ai-assist/skills/reachai-onboarding/latest.zip"));
         assertTrue(response.getBody().files().stream().anyMatch(file -> "SKILL.md".equals(file.path())));
+    }
+
+    private AgentEntryEntity embedEntry(String id, String keySlug, String name, String projectCode, boolean enabled) {
+        AgentEntryEntity entry = new AgentEntryEntity();
+        entry.setId(id);
+        entry.setKeySlug(keySlug);
+        entry.setName(name);
+        entry.setProjectId(1L);
+        entry.setProjectCode(projectCode);
+        entry.setEnabled(enabled);
+        return entry;
     }
 
     private MockHttpServletRequest request() {

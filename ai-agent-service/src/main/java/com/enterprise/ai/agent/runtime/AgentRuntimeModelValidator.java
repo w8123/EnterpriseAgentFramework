@@ -1,6 +1,5 @@
 package com.enterprise.ai.agent.runtime;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.client.ModelServiceClient;
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
@@ -23,17 +22,14 @@ public class AgentRuntimeModelValidator {
 
     public ModelServiceClient.ModelInstanceData validate(AgentRuntimeRequest request,
                                                          AgentRuntimeCapability capability) {
-        AgentDefinition definition = request == null ? null : request.getAgentDefinition();
         GraphRuntimeContext runtimeContext = request == null ? null : request.getGraphRuntimeContext();
+        AgentRuntimeProfile profile = request == null ? null : request.getAgentRuntimeProfile();
         GraphSpec graphSpec = request == null ? null : request.getGraphSpec();
-        if (graphSpec == null && definition != null) {
-            graphSpec = definition.getGraphSpec();
-        }
         String modelInstanceId = runtimeContext == null
-                ? definition == null ? null : definition.getModelInstanceId()
+                ? profile == null ? null : profile.getModelInstanceId()
                 : runtimeContext.getModelInstanceId();
         if (modelInstanceId == null || modelInstanceId.isBlank()) {
-            if (!requiresModelInstance(definition, graphSpec, runtimeContext)) {
+            if (!requiresModelInstance(profile, graphSpec, runtimeContext)) {
                 return null;
             }
             throw new IllegalStateException("modelInstanceId is required for runtime selection");
@@ -67,20 +63,16 @@ public class AgentRuntimeModelValidator {
         return nullToEmpty(value).trim().toUpperCase(Locale.ROOT);
     }
 
-    private boolean requiresModelInstance(AgentDefinition definition,
+    private boolean requiresModelInstance(AgentRuntimeProfile profile,
                                          GraphSpec graphSpec,
                                          GraphRuntimeContext runtimeContext) {
         String runtimeType = runtimeContext == null
-                ? normalize(definition == null ? null : definition.getRuntimeType())
+                ? normalize(profile == null ? null : profile.getRuntimeType())
                 : normalize(runtimeContext.getRuntimeType());
         if (!AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE.equals(runtimeType)) {
             return true;
         }
-        GraphSpec graph = graphSpec;
-        if (graph == null && definition != null) {
-            graph = definition.getGraphSpec();
-        }
-        List<GraphSpec.Node> nodes = graph == null || graph.getNodes() == null ? List.of() : graph.getNodes();
+        List<GraphSpec.Node> nodes = graphSpec == null || graphSpec.getNodes() == null ? List.of() : graphSpec.getNodes();
         return nodes.stream().anyMatch(this::nodeRequiresModel);
     }
 

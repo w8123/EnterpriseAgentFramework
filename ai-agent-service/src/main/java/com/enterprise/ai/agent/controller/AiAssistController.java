@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.controller;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
 import com.enterprise.ai.agent.assist.AiAccessSessionService;
 import com.enterprise.ai.agent.identity.PageActionCatalogContracts;
 import com.enterprise.ai.agent.identity.PageActionCatalogService;
@@ -80,7 +80,7 @@ public class AiAssistController {
 
     private final ScanProjectService scanProjectService;
     private final RegistrySecurityService registrySecurityService;
-    private final AgentDefinitionService agentDefinitionService;
+    private final AgentEntryService agentEntryService;
     private final AiAccessSessionService accessSessionService;
     private final PageActionCatalogService pageActionCatalogService;
     private final PageAssistantWorkflowBindingService pageAssistantWorkflowBindingService;
@@ -610,10 +610,10 @@ public class AiAssistController {
                 .map(RegistryCredentialEntity::getAllowedAgentIdsJson)
                 .map(AiAssistController::readStringList)
                 .orElse(List.of());
-        List<AgentDefinition> definitions = allowedRefs.isEmpty()
+        List<AgentEntryEntity> entries = allowedRefs.isEmpty()
                 ? listProjectEmbedAgents(project)
                 : resolveAllowedAgents(allowedRefs);
-        List<EmbedAgentManifest> agents = definitions.stream()
+        List<EmbedAgentManifest> agents = entries.stream()
                 .map(AiAssistController::toEmbedAgentManifest)
                 .toList();
         EmbedAgentManifest defaultAgent = agents.stream()
@@ -671,24 +671,24 @@ public class AiAssistController {
                 && !scanProjectService.matchesAiCodingAccessKey(projectId, aiCodingKey);
     }
 
-    private List<AgentDefinition> listProjectEmbedAgents(ScanProjectEntity project) {
+    private List<AgentEntryEntity> listProjectEmbedAgents(ScanProjectEntity project) {
         if (project == null || project.getId() == null) {
             return List.of();
         }
-        return agentDefinitionService.list(project.getId()).stream()
-                .filter(AgentDefinition::isEnabled)
+        return agentEntryService.list(project.getId(), null, null).stream()
+                .filter(entry -> entry.getEnabled() == null || entry.getEnabled())
                 .toList();
     }
 
-    private List<AgentDefinition> resolveAllowedAgents(List<String> allowedRefs) {
-        Map<String, AgentDefinition> unique = new LinkedHashMap<>();
+    private List<AgentEntryEntity> resolveAllowedAgents(List<String> allowedRefs) {
+        Map<String, AgentEntryEntity> unique = new LinkedHashMap<>();
         for (String ref : allowedRefs == null ? List.<String>of() : allowedRefs) {
             if (!StringUtils.hasText(ref)) {
                 continue;
             }
             String value = ref.trim();
-            AgentDefinition agent = agentDefinitionService.findById(value)
-                    .or(() -> agentDefinitionService.findByKeySlug(value))
+            AgentEntryEntity agent = agentEntryService.findById(value)
+                    .or(() -> agentEntryService.findByKeySlug(value))
                     .orElse(null);
             if (agent != null) {
                 unique.put(agent.getId(), agent);
@@ -697,13 +697,13 @@ public class AiAssistController {
         return new ArrayList<>(unique.values());
     }
 
-    private static EmbedAgentManifest toEmbedAgentManifest(AgentDefinition agent) {
+    private static EmbedAgentManifest toEmbedAgentManifest(AgentEntryEntity agent) {
         return new EmbedAgentManifest(
                 agent.getId(),
                 emptyToNull(agent.getKeySlug()),
                 agent.getName(),
                 emptyToNull(agent.getProjectCode()),
-                agent.isEnabled()
+                agent.getEnabled() == null || agent.getEnabled()
         );
     }
 

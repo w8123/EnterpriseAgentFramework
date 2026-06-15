@@ -1,7 +1,8 @@
 package com.enterprise.ai.agent.controller;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
 import com.enterprise.ai.agent.agentscope.AgentRouter;
 import com.enterprise.ai.agent.identity.BusinessPrincipal;
 import com.enterprise.ai.agent.identity.BusinessUserBatchSyncResult;
@@ -61,7 +62,7 @@ public class EmbedChatController {
     private final EmbedTokenService embedTokenService;
     private final BusinessUserDirectoryService businessUserDirectoryService;
     private final EmbedSessionService embedSessionService;
-    private final AgentDefinitionService agentDefinitionService;
+    private final AgentEntryService agentEntryService;
     private final AgentRouter agentRouter;
     private final ObjectMapper objectMapper;
     private final GuardDecisionLogService guardDecisionLogService;
@@ -378,7 +379,7 @@ public class EmbedChatController {
 
         Optional<EmbedWorkflowRuntimeService.RunnableWorkflowContext> workflowContext =
                 embedWorkflowRuntimeService.resolveRunnableWorkflowContext(session, null);
-        AgentDefinition definition;
+        String intentType;
         AgentResult result;
         if (workflowContext.isPresent()) {
             EmbedWorkflowRuntimeService.RunnableWorkflowContext context = workflowContext.get();
@@ -397,25 +398,24 @@ public class EmbedChatController {
                     .pageContext(pageContext(session))
                     .metadata(workflowMetadata)
                     .build());
-            definition = workflowRuntimeService.toExecutionShell(
-                    context.agent(),
-                    context.workflow(),
-                    context.activeVersion(),
-                    workflowMetadata);
+            intentType = firstText(context.binding().getIntentType(), context.workflow().getWorkflowType());
         } else {
-            definition = resolveLegacyAgentDefinition(session.getAgentId());
-            result = agentRouter.executeByDefinition(
-                    definition,
+            AgentEntryEntity entry = embedWorkflowRuntimeService.resolveAgentEntry(session.getAgentId())
+                    .orElseThrow(() -> new IllegalArgumentException("agent not found: " + session.getAgentId()));
+            AgentRuntimeProfile profile = AgentRuntimeProfile.fromAgentEntry(entry, objectMapper);
+            result = agentRouter.executeByProfile(
+                    profile,
                     sessionId,
                     claims.getExternalUserId(),
                     request.message(),
                     claims.getRoles(),
                     metadata);
+            intentType = profile.getIntentType();
         }
         ChatResponse response = ChatResponse.builder()
                 .sessionId(sessionId)
                 .answer(result.getAnswer())
-                .intentType(definition.getIntentType())
+                .intentType(intentType)
                 .toolCalls(result.getToolResults() == null ? List.of() : result.getToolResults().keySet().stream().toList())
                 .metadata(result.getMetadata())
                 .uiRequest(result.getUiRequest())
@@ -424,12 +424,6 @@ public class EmbedChatController {
         embedRendererAuthorizationService.ensureAllowed(session, response.getUiRequest());
         embedAuditEventService.recordAssistantResponse(session, response);
         return response;
-    }
-
-    private AgentDefinition resolveLegacyAgentDefinition(String agentId) {
-        return agentDefinitionService.findById(agentId)
-                .or(() -> agentDefinitionService.findByKeySlug(agentId))
-                .orElseThrow(() -> new IllegalArgumentException("agent not found: " + agentId));
     }
 
     private Map<String, Object> principalMap(EmbedTokenClaims claims) {
@@ -628,13 +622,18 @@ public class EmbedChatController {
             }
             return;
         }
-        AgentDefinition definition = resolveLegacyAgentDefinition(agentId);
-        if (!definition.isEnabled()) {
-            throw new IllegalArgumentException("agent is disabled: " + agentId);
+        if (entry.isEmpty()) {
+            throw new IllegalArgumentException("agent not found: " + agentId);
         }
-        if (StringUtils.hasText(definition.getProjectCode()) && !projectCode.equals(definition.getProjectCode())) {
-            throw new IllegalArgumentException("agent project does not match embed project");
+    }
+
+    private String firstText(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value.trim();
+            }
         }
+        return null;
     }
 
     private void ensurePageActionAllowed(EmbedSessionEntity session, com.enterprise.ai.agent.model.interactive.UiRequestPayload uiRequest) {

@@ -1,4 +1,18 @@
-import type { AgentDefinition } from './agent'
+import type { AgentGraphSpec } from './agent'
+
+/** Workflow 评测运行时上下文（对应后端 GraphRuntimeContext） */
+export interface WorkflowEvalRuntimeContext {
+  sourceType?: string
+  sourceId?: string
+  sourceKeySlug?: string
+  name?: string
+  intentType?: string
+  projectCode?: string
+  runtimeType?: string
+  modelInstanceId?: string
+  systemPrompt?: string
+  extra?: Record<string, unknown>
+}
 
 export interface AgentEvalDataset {
   id: number
@@ -47,7 +61,9 @@ export interface AgentEvalRunRequest {
   agentName?: string
   runName?: string
   repeatCount: number
-  agentDefinition: AgentDefinition
+  /** Workflow GraphSpec（评测执行语义，不再传 AgentDefinition） */
+  graphSpec: AgentGraphSpec
+  graphRuntimeContext: WorkflowEvalRuntimeContext
   canvasSnapshot?: Record<string, unknown>
 }
 

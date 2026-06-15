@@ -1,10 +1,19 @@
 package com.enterprise.ai.agent.a2a;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
-import com.enterprise.ai.agent.agent.AgentVersionService;
 import com.enterprise.ai.agent.agentscope.AgentRouter;
 import com.enterprise.ai.agent.model.AgentResult;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
+import com.enterprise.ai.agent.workflow.AgentWorkflowBindingEntity;
+import com.enterprise.ai.agent.workflow.AgentWorkflowResolveRequest;
+import com.enterprise.ai.agent.workflow.AgentWorkflowResolver;
+import com.enterprise.ai.agent.workflow.WorkflowDefinitionEntity;
+import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;
+import com.enterprise.ai.agent.workflow.WorkflowRuntimeRequest;
+import com.enterprise.ai.agent.workflow.WorkflowRuntimeService;
+import com.enterprise.ai.agent.workflow.WorkflowVersionEntity;
+import com.enterprise.ai.agent.workflow.WorkflowVersionService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -12,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,24 +29,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-/**
- * A2A 协议服务端
- * <p>
- * 实现 Google Agent2Agent 协议 0.2.x 子集：
- * <ul>
- *   <li>{@code GET /a2a/{agentKey}/.well-known/agent.json} —— AgentCard 公告</li>
- *   <li>{@code POST /a2a/{agentKey}/jsonrpc} —— JSON-RPC：message/send、tasks/get、tasks/cancel</li>
- * </ul>
- * <p>
- * 底层映射到 {@link AgentRouter#executeByDefinition} 走和管理端 {@code /api/v1/agents/{key}/chat}
- * 一致的执行链路（共享 trace / Tool ACL / sideEffect 闸口）。
- */
 @Slf4j
 @RestController
 @RequestMapping("/a2a")
@@ -46,10 +45,13 @@ public class A2aServerEndpoint {
     private final A2aEndpointService endpointService;
     private final A2aCallLogService callLogService;
     private final A2aTaskService taskService;
-    private final AgentDefinitionService agentDefinitionService;
-    private final AgentVersionService versionService;
-    private final AgentRouter agentRouter;
+    private final AgentEntryService agentEntryService;
+    private final AgentWorkflowResolver workflowResolver;
+    private final WorkflowDefinitionService workflowDefinitionService;
+    private final WorkflowVersionService workflowVersionService;
+    private final WorkflowRuntimeService workflowRuntimeService;
     private final ObjectMapper objectMapper;
+    private final AgentRouter agentRouter;
 
     @GetMapping(value = "/{agentKey}/.well-known/agent.json", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> agentCard(@PathVariable("agentKey") String agentKey,
@@ -63,7 +65,6 @@ public class A2aServerEndpoint {
             return ResponseEntity.status(404).body(Map.of("error", "A2A endpoint not found: " + agentKey));
         }
         Map<String, Object> card = new LinkedHashMap<>(endpointService.parseCard(opt.get()));
-        // 补 url 字段（A2A 0.2 规范要求）
         String base = req.getRequestURL().toString();
         String url = base.replace("/.well-known/agent.json", "/jsonrpc");
         card.put("url", url);
@@ -92,16 +93,12 @@ public class A2aServerEndpoint {
         }
 
         try {
-            switch (method) {
-                case "message/send":
-                    return ResponseEntity.ok(handleMessageSend(endpoint, id, params, req, start));
-                case "tasks/get":
-                    return ResponseEntity.ok(handleTaskGet(id, params));
-                case "tasks/cancel":
-                    return ResponseEntity.ok(handleTaskCancel(id, params));
-                default:
-                    return ResponseEntity.ok(error(id, -32601, "method not found: " + method));
-            }
+            return switch (method) {
+                case "message/send" -> ResponseEntity.ok(handleMessageSend(endpoint, id, params, req, start));
+                case "tasks/get" -> ResponseEntity.ok(handleTaskGet(id, params));
+                case "tasks/cancel" -> ResponseEntity.ok(handleTaskCancel(id, params));
+                default -> ResponseEntity.ok(error(id, -32601, "method not found: " + method));
+            };
         } catch (Exception e) {
             log.error("[A2A] 处理 JSON-RPC 异常: {}", e.getMessage(), e);
             callLogService.log(endpoint.getId(), agentKey, null, method == null ? "unknown" : method,
@@ -113,8 +110,6 @@ public class A2aServerEndpoint {
     private Map<String, Object> handleMessageSend(A2aEndpointEntity endpoint, Object id, JsonNode params,
                                                   HttpServletRequest req, long start) {
         String agentKey = endpoint.getAgentKey();
-
-        // 抽取 message.parts[*].text -> userText
         String userText = extractText(params == null ? null : params.get("message"));
         String contextId = optString(params, "contextId");
         if (contextId == null || contextId.isBlank()) {
@@ -126,21 +121,20 @@ public class A2aServerEndpoint {
         taskService.createWorking(taskId, endpoint.getId(), agentKey, contextId, userId,
                 params == null ? null : params.get("message"));
 
-        // 解析 Agent Definition + 版本
-        AgentDefinition head = agentDefinitionService.findByKeySlug(agentKey).orElse(null);
-        if (head == null || !head.isEnabled()) {
+        AgentEntryEntity entry = agentEntryService.findByKeySlug(agentKey)
+                .or(() -> agentEntryService.findById(agentKey))
+                .orElse(null);
+        if (entry == null || Boolean.FALSE.equals(entry.getEnabled())) {
             taskService.fail(taskId, "agent not found or disabled");
             callLogService.log(endpoint.getId(), agentKey, taskId, "message/send", false,
                     System.currentTimeMillis() - start, params == null ? null : params.toString(),
                     null, "agent not found or disabled", null, remoteIp(req));
             return error(id, -32004, "agent disabled or missing: " + agentKey);
         }
-        AgentDefinition snapshot = versionService.resolveActiveSnapshot(head.getId(), userId);
-        if (snapshot == null) snapshot = head;
 
         AgentResult result;
         try {
-            result = agentRouter.executeByDefinition(snapshot, contextId, userId, userText, null);
+            result = executeEntry(entry, contextId, userId, userText);
         } catch (Exception e) {
             taskService.fail(taskId, e.getMessage());
             callLogService.log(endpoint.getId(), agentKey, taskId, "message/send", false,
@@ -159,10 +153,31 @@ public class A2aServerEndpoint {
 
         callLogService.log(endpoint.getId(), agentKey, taskId, "message/send", true,
                 System.currentTimeMillis() - start, params == null ? null : params.toString(),
-                writeJson(task), null,
-                traceId,
-                remoteIp(req));
+                writeJson(task), null, traceId, remoteIp(req));
         return resp;
+    }
+
+    private AgentResult executeEntry(AgentEntryEntity entry, String sessionId, String userId, String message) {
+        AgentWorkflowBindingEntity binding = workflowResolver.resolve(new AgentWorkflowResolveRequest(
+                entry.getId(), entry.getProjectCode(), null, null, null, null)).orElse(null);
+        if (binding != null && StringUtils.hasText(binding.getWorkflowId())) {
+            WorkflowDefinitionEntity workflow = workflowDefinitionService.findById(binding.getWorkflowId())
+                    .orElseThrow(() -> new IllegalArgumentException("workflow not found: " + binding.getWorkflowId()));
+            WorkflowVersionEntity version = workflowVersionService.resolveActive(workflow.getId());
+            Map<String, Object> principal = new HashMap<>();
+            principal.put("userId", userId);
+            return workflowRuntimeService.execute(WorkflowRuntimeRequest.builder()
+                    .agent(entry)
+                    .workflow(workflow)
+                    .activeVersion(version)
+                    .allowDraftFallback(true)
+                    .sessionId(sessionId)
+                    .message(message)
+                    .principal(principal)
+                    .build());
+        }
+        AgentRuntimeProfile profile = AgentRuntimeProfile.fromAgentEntry(entry, objectMapper);
+        return agentRouter.executeByProfile(profile, sessionId, userId, message);
     }
 
     private Map<String, Object> handleTaskGet(Object id, JsonNode params) {
@@ -231,14 +246,12 @@ public class A2aServerEndpoint {
         status.put("message", agentMessage);
         task.put("status", status);
 
-        // history：保留输入 + 输出，便于客户端直接拼会话
         Map<String, Object> userMessage = new LinkedHashMap<>();
         userMessage.put("role", "user");
         userMessage.put("messageId", UUID.randomUUID().toString());
         userMessage.put("parts", List.of(Map.of("kind", "text", "text", userText == null ? "" : userText)));
         task.put("history", List.of(userMessage, agentMessage));
 
-        // artifacts 中带回工具调用 trace，方便外部 Agent 系统观测
         if (result.getToolResults() != null && !result.getToolResults().isEmpty()) {
             Map<String, Object> artifact = new LinkedHashMap<>();
             artifact.put("artifactId", UUID.randomUUID().toString());

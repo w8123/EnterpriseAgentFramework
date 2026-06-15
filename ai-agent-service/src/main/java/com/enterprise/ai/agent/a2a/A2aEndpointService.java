@@ -2,8 +2,9 @@ package com.enterprise.ai.agent.a2a;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,16 +17,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/**
- * A2A Endpoint 管理：为 Agent 生成 AgentCard、CRUD a2a_endpoint。
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class A2aEndpointService {
 
     private final A2aEndpointMapper endpointMapper;
-    private final AgentDefinitionService agentDefinitionService;
+    private final AgentEntryService agentEntryService;
     private final ObjectMapper objectMapper;
 
     public Page<A2aEndpointEntity> page(int pageNum, int pageSize, String agentKey, Boolean enabled) {
@@ -53,12 +51,13 @@ public class A2aEndpointService {
 
     @Transactional
     public A2aEndpointEntity upsertForAgent(String agentId, Map<String, Object> cardOverrides, Boolean enabled) {
-        AgentDefinition def = agentDefinitionService.findById(agentId)
+        AgentEntryEntity entry = agentEntryService.findById(agentId)
+                .or(() -> agentEntryService.findByKeySlug(agentId))
                 .orElseThrow(() -> new IllegalArgumentException("Agent 不存在: " + agentId));
         A2aEndpointEntity existed = endpointMapper.selectOne(new LambdaQueryWrapper<A2aEndpointEntity>()
-                .eq(A2aEndpointEntity::getAgentId, def.getId()));
+                .eq(A2aEndpointEntity::getAgentId, entry.getId()));
 
-        Map<String, Object> baseCard = buildDefaultCard(def);
+        Map<String, Object> baseCard = buildDefaultCard(entry);
         if (cardOverrides != null && !cardOverrides.isEmpty()) {
             baseCard.putAll(cardOverrides);
         }
@@ -67,10 +66,10 @@ public class A2aEndpointService {
         LocalDateTime now = LocalDateTime.now();
         if (existed == null) {
             A2aEndpointEntity en = new A2aEndpointEntity();
-            en.setAgentId(def.getId());
-            en.setAgentKey(def.getKeySlug());
-            en.setProjectId(def.getProjectId());
-            en.setProjectCode(def.getProjectCode());
+            en.setAgentId(entry.getId());
+            en.setAgentKey(entry.getKeySlug());
+            en.setProjectId(entry.getProjectId());
+            en.setProjectCode(entry.getProjectCode());
             en.setEnvironment(null);
             en.setTenantId(null);
             en.setCardJson(cardJson);
@@ -78,21 +77,20 @@ public class A2aEndpointService {
             en.setCreatedAt(now);
             en.setUpdatedAt(now);
             endpointMapper.insert(en);
-            log.info("[A2aEndpoint] 新建：agentKey={}", def.getKeySlug());
+            log.info("[A2aEndpoint] 新建：agentKey={}", entry.getKeySlug());
             return en;
-        } else {
-            existed.setAgentKey(def.getKeySlug());
-            existed.setProjectId(def.getProjectId());
-            existed.setProjectCode(def.getProjectCode());
-            existed.setCardJson(cardJson);
-            if (enabled != null) {
-                existed.setEnabled(enabled);
-            }
-            existed.setUpdatedAt(now);
-            endpointMapper.updateById(existed);
-            log.info("[A2aEndpoint] 更新：agentKey={}", def.getKeySlug());
-            return existed;
         }
+        existed.setAgentKey(entry.getKeySlug());
+        existed.setProjectId(entry.getProjectId());
+        existed.setProjectCode(entry.getProjectCode());
+        existed.setCardJson(cardJson);
+        if (enabled != null) {
+            existed.setEnabled(enabled);
+        }
+        existed.setUpdatedAt(now);
+        endpointMapper.updateById(existed);
+        log.info("[A2aEndpoint] 更新：agentKey={}", entry.getKeySlug());
+        return existed;
     }
 
     @Transactional
@@ -123,10 +121,11 @@ public class A2aEndpointService {
         }
     }
 
-    private Map<String, Object> buildDefaultCard(AgentDefinition def) {
+    private Map<String, Object> buildDefaultCard(AgentEntryEntity entry) {
+        AgentRuntimeProfile profile = AgentRuntimeProfile.fromAgentEntry(entry, objectMapper);
         Map<String, Object> card = new LinkedHashMap<>();
-        card.put("name", def.getName() == null ? def.getKeySlug() : def.getName());
-        card.put("description", def.getDescription() == null ? "" : def.getDescription());
+        card.put("name", entry.getName() == null ? entry.getKeySlug() : entry.getName());
+        card.put("description", entry.getDescription() == null ? "" : entry.getDescription());
         card.put("version", "1.0.0");
         card.put("protocolVersion", "0.2.0");
         card.put("defaultInputModes", List.of("text"));
@@ -139,10 +138,10 @@ public class A2aEndpointService {
         card.put("capabilities", capabilities);
 
         Map<String, Object> skill = new LinkedHashMap<>();
-        skill.put("id", def.getKeySlug());
-        skill.put("name", def.getName());
-        skill.put("description", def.getDescription());
-        skill.put("tags", def.getTools() == null ? List.of() : def.getTools());
+        skill.put("id", entry.getKeySlug());
+        skill.put("name", entry.getName());
+        skill.put("description", entry.getDescription());
+        skill.put("tags", profile.getTools() == null ? List.of() : profile.getTools());
         skill.put("examples", List.of("请帮我处理一项业务请求"));
         skill.put("inputModes", List.of("text"));
         skill.put("outputModes", List.of("text"));
@@ -158,5 +157,4 @@ public class A2aEndpointService {
             return "{}";
         }
     }
-
 }

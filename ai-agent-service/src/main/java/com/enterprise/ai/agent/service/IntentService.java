@@ -1,44 +1,40 @@
 package com.enterprise.ai.agent.service;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.llm.LlmService;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
+import com.enterprise.ai.agent.workflow.AgentWorkflowBindingEntity;
+import com.enterprise.ai.agent.workflow.AgentWorkflowBindingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
-/**
- * 意图识别服务
- * <p>
- * 通过 LlmService（Spring AI 路径）分析用户输入，将其归类为已注册的意图类型。
- * <p>
- * 核心改进：意图候选列表从 {@link AgentDefinitionService} 动态读取，
- * 新增领域 Agent 后意图识别自动生效，无需修改代码。
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class IntentService {
 
     private final LlmService llmService;
-    private final AgentDefinitionService agentDefinitionService;
+    private final AgentEntryService agentEntryService;
+    private final AgentWorkflowBindingService bindingService;
 
     private static final String FALLBACK_INTENT = "GENERAL_CHAT";
 
-    /**
-     * 识别用户消息的意图
-     */
     public String recognizeIntent(String userMessage) {
         log.debug("开始意图识别: {}", userMessage);
 
         try {
-            List<AgentDefinition> enabledAgents = enabledIntentAgents();
-            String systemPrompt = buildIntentPrompt(enabledAgents);
-            String result = llmService.chat(systemPrompt, userMessage, requireIntentModelInstanceId(enabledAgents));
+            List<IntentCandidate> candidates = enabledIntentCandidates();
+            String systemPrompt = buildIntentPrompt(candidates);
+            String result = llmService.chat(systemPrompt, userMessage, requireIntentModelInstanceId(candidates));
 
-            String intent = normalizeIntent(result);
+            String intent = normalizeIntent(result, candidates);
             log.info("意图识别结果: {} -> {}", userMessage, intent);
             return intent;
 
@@ -48,21 +44,15 @@ public class IntentService {
         }
     }
 
-    /**
-     * 从 AgentDefinitionService 动态生成意图识别 prompt
-     * <p>
-     * 只列出已启用的 AgentDefinition 的 intentType 和 description，
-     * 新增领域 Agent 后自动出现在候选列表中。
-     */
-    private String buildIntentPrompt(List<AgentDefinition> enabledAgents) {
+    private String buildIntentPrompt(List<IntentCandidate> candidates) {
         StringBuilder sb = new StringBuilder();
         sb.append("你是一个意图识别专家。请分析用户的输入，判断用户意图属于以下哪个类别：\n\n");
 
         int idx = 1;
-        for (AgentDefinition def : enabledAgents) {
-            sb.append(idx++).append(". ").append(def.getIntentType());
-            if (def.getDescription() != null && !def.getDescription().isBlank()) {
-                sb.append(" - ").append(def.getDescription());
+        for (IntentCandidate candidate : candidates) {
+            sb.append(idx++).append(". ").append(candidate.intentType());
+            if (StringUtils.hasText(candidate.description())) {
+                sb.append(" - ").append(candidate.description());
             }
             sb.append("\n");
         }
@@ -71,44 +61,52 @@ public class IntentService {
         return sb.toString();
     }
 
-    /**
-     * 规范化 LLM 返回的意图文本，仅允许返回已启用的意图类型
-     */
-    private String normalizeIntent(String rawIntent) {
+    private String normalizeIntent(String rawIntent, List<IntentCandidate> candidates) {
         if (rawIntent == null || rawIntent.isBlank()) {
             return FALLBACK_INTENT;
         }
 
         String trimmed = rawIntent.trim().toUpperCase();
-
-        List<String> enabledIntents = agentDefinitionService.list().stream()
-                .filter(AgentDefinition::isEnabled)
-                .map(AgentDefinition::getIntentType)
-                .filter(it -> it != null && !it.isBlank())
-                .toList();
-
-        for (String intent : enabledIntents) {
-            if (trimmed.contains(intent)) {
-                return intent;
+        for (IntentCandidate candidate : candidates) {
+            if (trimmed.contains(candidate.intentType())) {
+                return candidate.intentType();
             }
         }
 
         return FALLBACK_INTENT;
     }
 
-    private List<AgentDefinition> enabledIntentAgents() {
-        return agentDefinitionService.list().stream()
-                .filter(AgentDefinition::isEnabled)
-                .filter(d -> d.getIntentType() != null && !d.getIntentType().isBlank())
-                .toList();
+    private List<IntentCandidate> enabledIntentCandidates() {
+        Map<String, IntentCandidate> byIntent = new LinkedHashMap<>();
+        for (AgentEntryEntity entry : agentEntryService.listEnabled()) {
+            String intentType = agentEntryService.readIntentType(entry);
+            if (StringUtils.hasText(intentType)) {
+                byIntent.putIfAbsent(intentType, new IntentCandidate(intentType, entry.getDescription(), entry.getModelInstanceId()));
+            }
+        }
+        for (AgentWorkflowBindingEntity binding : bindingService.list(null)) {
+            if (!Boolean.TRUE.equals(binding.getEnabled()) || !StringUtils.hasText(binding.getIntentType())) {
+                continue;
+            }
+            String intentType = binding.getIntentType().trim().toUpperCase();
+            agentEntryService.findById(binding.getAgentId()).ifPresent(entry -> {
+                if (Boolean.TRUE.equals(entry.getEnabled())) {
+                    byIntent.putIfAbsent(intentType, new IntentCandidate(intentType, entry.getDescription(), entry.getModelInstanceId()));
+                }
+            });
+        }
+        return new ArrayList<>(byIntent.values());
     }
 
-    private String requireIntentModelInstanceId(List<AgentDefinition> enabledAgents) {
-        return enabledAgents.stream()
-                .map(AgentDefinition::getModelInstanceId)
+    private String requireIntentModelInstanceId(List<IntentCandidate> candidates) {
+        return candidates.stream()
+                .map(IntentCandidate::modelInstanceId)
                 .filter(id -> id != null && !id.isBlank())
                 .findFirst()
                 .map(String::trim)
                 .orElseThrow(() -> new IllegalStateException("modelInstanceId is required for intent recognition"));
+    }
+
+    private record IntentCandidate(String intentType, String description, String modelInstanceId) {
     }
 }

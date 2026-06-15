@@ -1,6 +1,5 @@
 package com.enterprise.ai.agent.workflow;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.agentscope.AgentRouter;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.model.AgentResult;
@@ -19,7 +18,7 @@ import java.util.Map;
 public class WorkflowRuntimeService {
 
     private final AgentRouter agentRouter;
-    private final WorkflowAgentDefinitionAdapter workflowAgentDefinitionAdapter;
+    private final WorkflowRuntimeGraphAdapter workflowRuntimeGraphAdapter;
 
     public AgentResult execute(WorkflowRuntimeRequest request) {
         if (request == null) {
@@ -33,11 +32,11 @@ public class WorkflowRuntimeService {
         }
 
         Map<String, Object> metadata = runtimeMetadata(request, agent, workflow, version);
-        WorkflowAgentDefinitionAdapter.RuntimeGraph runtimeGraph = workflowAgentDefinitionAdapter.toRuntimeGraph(
+        WorkflowRuntimeGraphAdapter.RuntimeGraph runtimeGraph = workflowRuntimeGraphAdapter.toRuntimeGraph(
                 agent,
                 workflow,
                 version,
-                WorkflowAgentDefinitionAdapter.RuntimeShellOptions.builder()
+                WorkflowRuntimeGraphAdapter.RuntimeContextOptions.builder()
                         .metadata(metadata)
                         .build());
         return agentRouter.executeByGraphSpec(
@@ -50,31 +49,15 @@ public class WorkflowRuntimeService {
                 metadata);
     }
 
-    public WorkflowAgentDefinitionAdapter.RuntimeGraph toRuntimeGraph(AgentEntryEntity agent,
+    public WorkflowRuntimeGraphAdapter.RuntimeGraph toRuntimeGraph(AgentEntryEntity agent,
                                                                       WorkflowDefinitionEntity workflow,
                                                                       WorkflowVersionEntity activeVersion,
                                                                       Map<String, Object> metadata) {
-        return workflowAgentDefinitionAdapter.toRuntimeGraph(
+        return workflowRuntimeGraphAdapter.toRuntimeGraph(
                 agent,
                 workflow,
                 activeVersion,
-                WorkflowAgentDefinitionAdapter.RuntimeShellOptions.builder()
-                        .metadata(metadata)
-                        .build());
-    }
-
-    /**
-     * 构造旧 Runtime 兼容 shell；保留给审计/回放等仍读 AgentDefinition 的边界。
-     */
-    public AgentDefinition toExecutionShell(AgentEntryEntity agent,
-                                            WorkflowDefinitionEntity workflow,
-                                            WorkflowVersionEntity activeVersion,
-                                            Map<String, Object> metadata) {
-        return workflowAgentDefinitionAdapter.toRuntimeShell(
-                agent,
-                workflow,
-                activeVersion,
-                WorkflowAgentDefinitionAdapter.RuntimeShellOptions.builder()
+                WorkflowRuntimeGraphAdapter.RuntimeContextOptions.builder()
                         .metadata(metadata)
                         .build());
     }

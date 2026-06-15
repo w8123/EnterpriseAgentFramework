@@ -51,7 +51,7 @@ const routes: RouteRecordRaw[] = [
         path: 'agent/:id/versions',
         name: 'AgentVersions',
         component: () => import('@/views/agent/AgentVersions.vue'),
-        meta: { title: 'AgentOps' },
+        meta: { title: 'Agent 版本（已迁移）' },
       },
       {
         path: 'workflows',

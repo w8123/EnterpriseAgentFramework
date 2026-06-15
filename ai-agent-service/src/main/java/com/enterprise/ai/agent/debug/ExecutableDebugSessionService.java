@@ -1,11 +1,9 @@
 package com.enterprise.ai.agent.debug;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.model.interactive.UiRequestPayload;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.runtime.LangGraph4jRuntimeAdapter;
-import com.enterprise.ai.agent.workflow.WorkflowAgentDefinitionAdapter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
@@ -35,16 +33,13 @@ public class ExecutableDebugSessionService {
 
     private final ExecutableDebugSessionMapper sessionMapper;
     private final LangGraph4jRuntimeAdapter langGraph4jRuntimeAdapter;
-    private final WorkflowAgentDefinitionAdapter workflowAgentDefinitionAdapter;
     private final ObjectMapper objectMapper;
 
     public ExecutableDebugSessionService(ExecutableDebugSessionMapper sessionMapper,
                                          LangGraph4jRuntimeAdapter langGraph4jRuntimeAdapter,
-                                         WorkflowAgentDefinitionAdapter workflowAgentDefinitionAdapter,
                                          ObjectMapper objectMapper) {
         this.sessionMapper = sessionMapper;
         this.langGraph4jRuntimeAdapter = langGraph4jRuntimeAdapter;
-        this.workflowAgentDefinitionAdapter = workflowAgentDefinitionAdapter;
         this.objectMapper = objectMapper;
     }
 
@@ -229,36 +224,13 @@ public class ExecutableDebugSessionService {
                                                                       Map<String, Object> inputParams,
                                                                       Map<String, Object> debugOptions) {
         String normalizedTarget = nullToEmpty(targetType).trim().toUpperCase();
-        if ("WORKFLOW_DRAFT".equals(normalizedTarget) || "WORKFLOW_VERSION".equals(normalizedTarget)) {
-            GraphSpec graphSpec = readGraphSpec(draftDefinition);
-            GraphRuntimeContext runtimeContext = GraphRuntimeContext.fromWorkflowDraft(normalizedTarget, draftDefinition);
-            return langGraph4jRuntimeAdapter.debugRun(graphSpec, runtimeContext, message, inputParams, debugOptions);
-        }
-        AgentDefinition definition = toAgentDefinition(targetType, draftDefinition);
-        return langGraph4jRuntimeAdapter.debugRun(definition, message, inputParams, debugOptions);
-    }
-
-    private AgentDefinition toAgentDefinition(String targetType, Map<String, Object> draft) {
-        if ("WORKFLOW_DRAFT".equalsIgnoreCase(nullToEmpty(targetType))
-                || "WORKFLOW_VERSION".equalsIgnoreCase(nullToEmpty(targetType))) {
-            throw new IllegalStateException("workflow debug should use GraphSpec-native path");
-        }
-        if (!"COMPOSITION_DRAFT".equalsIgnoreCase(nullToEmpty(targetType))) {
-            return workflowAgentDefinitionAdapter.toDebugShellFromDraft(targetType, draft);
-        }
-        GraphSpec graphSpec = readGraphSpec(draft);
-        return AgentDefinition.builder()
-                .id(firstNonBlank(asString(draft.get("id")), asString(draft.get("qualifiedName")), "composition-debug-draft"))
-                .keySlug(firstNonBlank(asString(draft.get("qualifiedName")), asString(draft.get("compositionCode")), "composition-debug-draft"))
-                .name(firstNonBlank(asString(draft.get("name")), asString(draft.get("qualifiedName")), "Composition Debug Draft"))
-                .intentType("WORKFLOW_DEBUG")
-                .runtimeType("LANGGRAPH4J")
-                .runtimePlacement("CENTRAL")
-                .graphSpec(graphSpec)
-                .maxSteps(64)
-                .enabled(true)
-                .type("single")
-                .build();
+        GraphSpec graphSpec = readGraphSpec(draftDefinition);
+        String draftSourceType = switch (normalizedTarget) {
+            case "COMPOSITION_DRAFT", "AGENT_DRAFT" -> "WORKFLOW_DRAFT";
+            default -> normalizedTarget;
+        };
+        GraphRuntimeContext runtimeContext = GraphRuntimeContext.fromWorkflowDraft(draftSourceType, draftDefinition);
+        return langGraph4jRuntimeAdapter.debugRun(graphSpec, runtimeContext, message, inputParams, debugOptions);
     }
 
     private GraphSpec readGraphSpec(Map<String, Object> draft) {

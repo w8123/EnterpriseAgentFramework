@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.controller;
 
-import com.enterprise.ai.agent.agent.AgentReleaseValidationResult;
+import com.enterprise.ai.agent.workflow.WorkflowReleaseValidationResult;
 import com.enterprise.ai.agent.workflow.WorkflowVersionEntity;
 import com.enterprise.ai.agent.workflow.WorkflowVersionService;
 import lombok.Data;
@@ -40,7 +40,7 @@ public class WorkflowVersionController {
     }
 
     @PostMapping("/validate")
-    public ResponseEntity<AgentReleaseValidationResult> validate(@PathVariable String workflowId) {
+    public ResponseEntity<WorkflowReleaseValidationResult> validate(@PathVariable String workflowId) {
         return ResponseEntity.ok(versionService.validateRelease(workflowId));
     }
 

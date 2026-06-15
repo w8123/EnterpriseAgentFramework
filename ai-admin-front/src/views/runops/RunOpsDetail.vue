@@ -390,7 +390,7 @@ const replayAlertDescription = computed(() => {
   if (!s) return undefined
   const hints: string[] = []
   if (!runEntryAgentId(s)) {
-    hints.push('当前 trace 缺少 entryAgentId，后端可能回退到 AgentDefinition 兼容路径。')
+    hints.push('当前 trace 缺少 entryAgentId，后端可能无法解析 AgentEntry 入口。')
   }
   if (!runWorkflowId(s)) {
     hints.push('当前 trace 缺少 workflowId，可能无法解析 Workflow 图。')
@@ -510,9 +510,9 @@ async function replayTrace() {
     if (data?.replayTraceId) {
       replayDialogVisible.value = false
       if (data.executionPath === 'AGENT_DEFINITION_FALLBACK' && data.fallbackReason) {
-        ElMessage.warning(`重放已回退到 AgentDefinition：${data.fallbackReason}`)
+        ElMessage.warning(`重放已回退到旧兼容路径：${data.fallbackReason}`)
       } else if (data.executionPath === 'AGENT_DEFINITION') {
-        ElMessage.warning('重放走 AgentDefinition 兼容路径（trace 未携带 Workflow GraphSpec）')
+        ElMessage.warning('重放走旧兼容路径（trace 未携带 Workflow GraphSpec）')
       } else if (data.executionPath === 'GRAPH_SPEC') {
         ElMessage.success('已发起 GraphSpec 重放，正在打开新 trace')
       } else {

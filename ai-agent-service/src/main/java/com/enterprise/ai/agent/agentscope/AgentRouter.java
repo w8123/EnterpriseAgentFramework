@@ -1,10 +1,9 @@
 package com.enterprise.ai.agent.agentscope;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.runtime.AgentRuntimeAdapter;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
 import com.enterprise.ai.agent.runtime.AgentRuntimeRequest;
 import com.enterprise.ai.agent.runtime.AgentRuntimeResult;
 import com.enterprise.ai.agent.runtime.AgentRuntimeSelector;
@@ -14,6 +13,16 @@ import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchResult;
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchService;
 import com.enterprise.ai.agent.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.service.IntentService;
+import com.enterprise.ai.agent.workflow.AgentEntryEntity;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
+import com.enterprise.ai.agent.workflow.AgentWorkflowBindingEntity;
+import com.enterprise.ai.agent.workflow.AgentWorkflowBindingService;
+import com.enterprise.ai.agent.workflow.WorkflowDefinitionEntity;
+import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;
+import com.enterprise.ai.agent.workflow.WorkflowRuntimeGraphAdapter;
+import com.enterprise.ai.agent.workflow.WorkflowVersionEntity;
+import com.enterprise.ai.agent.workflow.WorkflowVersionService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -27,11 +36,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-/**
- * Shared entry for agent routing. Controller, A2A and service calls reuse this
- * facade while concrete execution is delegated to runtime adapters or managed
- * embedded runtime instances.
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -43,29 +47,34 @@ public class AgentRouter {
     private static final String HYBRID = "HYBRID";
 
     private final IntentService intentService;
-    private final AgentDefinitionService agentDefinitionService;
+    private final AgentEntryService agentEntryService;
+    private final AgentWorkflowBindingService bindingService;
+    private final WorkflowDefinitionService workflowDefinitionService;
+    private final WorkflowVersionService workflowVersionService;
+    private final WorkflowRuntimeGraphAdapter workflowRuntimeGraphAdapter;
+    private final ObjectMapper objectMapper;
     private final AgentRuntimeSelector runtimeSelector;
     private final EmbeddedRuntimeDispatchService embeddedRuntimeDispatchService;
     private final GuardDecisionLogService guardDecisionLogService;
 
-    public AgentResult executeByDefinition(AgentDefinition definition, String sessionId,
-                                           String userId, String message) {
-        return executeByDefinition(definition, sessionId, userId, message, null);
+    public AgentResult executeByProfile(AgentRuntimeProfile profile, String sessionId,
+                                        String userId, String message) {
+        return executeByProfile(profile, sessionId, userId, message, null);
     }
 
-    public AgentResult executeByDefinition(AgentDefinition definition, String sessionId,
-                                           String userId, String message, List<String> roles) {
-        return executeByDefinition(definition, sessionId, userId, message, roles, null);
+    public AgentResult executeByProfile(AgentRuntimeProfile profile, String sessionId,
+                                        String userId, String message, List<String> roles) {
+        return executeByProfile(profile, sessionId, userId, message, roles, null);
     }
 
-    public AgentResult executeByDefinition(AgentDefinition definition, String sessionId,
-                                           String userId, String message, List<String> roles,
-                                           Map<String, Object> metadata) {
+    public AgentResult executeByProfile(AgentRuntimeProfile profile, String sessionId,
+                                        String userId, String message, List<String> roles,
+                                        Map<String, Object> metadata) {
         String traceId = UUID.randomUUID().toString();
-        String intentType = definition.getIntentType();
-        log.info("[AgentRouter] Execute definition: agent={}, keySlug={}, runtime={}, placement={}, sessionId={}, roles={}, traceId={}",
-                definition.getName(), definition.getKeySlug(), runtimeTypeOf(definition),
-                runtimePlacementOf(definition), sessionId, roles, traceId);
+        String intentType = profile.getIntentType();
+        log.info("[AgentRouter] Execute profile: agent={}, keySlug={}, runtime={}, placement={}, sessionId={}, roles={}, traceId={}",
+                profile.getName(), profile.getKeySlug(), profile.getRuntimeType(),
+                profile.getRuntimePlacement(), sessionId, roles, traceId);
 
         AgentRuntimeRequest request = AgentRuntimeRequest.builder()
                 .traceId(traceId)
@@ -74,10 +83,10 @@ public class AgentRouter {
                 .roles(roles == null ? List.of() : roles)
                 .message(message)
                 .intentType(intentType)
-                .agentDefinition(definition)
+                .agentRuntimeProfile(profile)
                 .metadata(metadata)
                 .build();
-        AgentResult denied = denyIfAgentRoleNotAllowed(request, intentType);
+        AgentResult denied = denyIfAgentRoleNotAllowed(request, intentType, profile.getAllowedRoles(), agentKeyOf(profile));
         if (denied != null) {
             return denied;
         }
@@ -141,12 +150,28 @@ public class AgentRouter {
                              List<String> roles) {
         String intentType = resolveIntent(message, intentHint);
         String traceId = UUID.randomUUID().toString();
-        AgentDefinition definition = agentDefinitionService.findByIntentType(intentType)
-                .orElseThrow(() -> new IllegalStateException(
-                        "No enabled Agent definition found for intent '" + intentType + "'"));
 
+        List<AgentWorkflowBindingEntity> bindings = bindingService.listEnabledByIntentType(intentType);
+        if (!bindings.isEmpty()) {
+            AgentWorkflowBindingEntity binding = bindings.get(0);
+            AgentEntryEntity agent = agentEntryService.findById(binding.getAgentId())
+                    .orElseThrow(() -> new IllegalStateException("Agent entry not found: " + binding.getAgentId()));
+            WorkflowDefinitionEntity workflow = workflowDefinitionService.findById(binding.getWorkflowId())
+                    .orElseThrow(() -> new IllegalStateException("Workflow not found: " + binding.getWorkflowId()));
+            WorkflowVersionEntity version = workflowVersionService.resolveActive(workflow.getId());
+            WorkflowRuntimeGraphAdapter.RuntimeGraph graph = workflowRuntimeGraphAdapter.toRuntimeGraph(
+                    agent, workflow, version,
+                    WorkflowRuntimeGraphAdapter.RuntimeContextOptions.builder().binding(binding).build());
+            Map<String, Object> metadata = Map.of("traceId", traceId, "intentType", intentType);
+            return executeByGraphSpec(graph.graphSpec(), graph.runtimeContext(), sessionId, userId, message, roles, metadata);
+        }
+
+        AgentEntryEntity entry = agentEntryService.findByIntentType(intentType)
+                .orElseThrow(() -> new IllegalStateException(
+                        "No enabled Agent entry found for intent '" + intentType + "'"));
+        AgentRuntimeProfile profile = AgentRuntimeProfile.fromAgentEntry(entry, objectMapper);
         log.info("[AgentRouter] Route decision: intent={}, runtime={}, placement={}, sessionId={}, userId={}, roles={}, traceId={}",
-                intentType, runtimeTypeOf(definition), runtimePlacementOf(definition), sessionId, userId, roles, traceId);
+                intentType, profile.getRuntimeType(), profile.getRuntimePlacement(), sessionId, userId, roles, traceId);
 
         AgentRuntimeRequest request = AgentRuntimeRequest.builder()
                 .traceId(traceId)
@@ -155,39 +180,38 @@ public class AgentRouter {
                 .roles(roles == null ? List.of() : roles)
                 .message(message)
                 .intentType(intentType)
-                .agentDefinition(definition)
+                .agentRuntimeProfile(profile)
                 .build();
-        AgentResult denied = denyIfAgentRoleNotAllowed(request, intentType);
+        AgentResult denied = denyIfAgentRoleNotAllowed(request, intentType, profile.getAllowedRoles(), agentKeyOf(profile));
         if (denied != null) {
             return denied;
         }
         return executeRuntime(request, intentType);
     }
 
-    private AgentResult denyIfAgentRoleNotAllowed(AgentRuntimeRequest request, String intentType) {
-        if (request.getGraphRuntimeContext() != null && request.getAgentDefinition() == null) {
+    private AgentResult denyIfAgentRoleNotAllowed(AgentRuntimeRequest request,
+                                                  String intentType,
+                                                  List<String> allowedRoles,
+                                                  String agentKey) {
+        if (request.getGraphRuntimeContext() != null && request.getAgentRuntimeProfile() == null) {
             return null;
         }
-        AgentDefinition definition = request.getAgentDefinition();
-        List<String> allowedRoles = definition == null || definition.getAllowedRoles() == null
-                ? List.of()
-                : definition.getAllowedRoles().stream()
+        List<String> roles = allowedRoles == null ? List.of() : allowedRoles.stream()
                 .filter(StringUtils::hasText)
                 .toList();
-        if (allowedRoles.isEmpty()) {
+        if (roles.isEmpty()) {
             return null;
         }
         Set<String> userRoles = (request.getRoles() == null ? List.<String>of() : request.getRoles()).stream()
                 .filter(StringUtils::hasText)
                 .map(role -> role.trim().toUpperCase(Locale.ROOT))
                 .collect(Collectors.toSet());
-        boolean allowed = allowedRoles.stream()
+        boolean allowed = roles.stream()
                 .map(role -> role.trim().toUpperCase(Locale.ROOT))
                 .anyMatch(userRoles::contains);
         if (allowed) {
             return null;
         }
-        String target = agentKeyOf(definition);
         Map<String, Object> metadata = new HashMap<>();
         if (request.getMetadata() != null) {
             metadata.putAll(request.getMetadata());
@@ -195,13 +219,13 @@ public class AgentRouter {
         metadata.put("intentType", intentType);
         metadata.put("traceId", request.getTraceId());
         metadata.put("decisionType", "AGENT_RBAC");
-        metadata.put("allowedRoles", allowedRoles);
+        metadata.put("allowedRoles", roles);
         metadata.put("roles", request.getRoles() == null ? List.of() : request.getRoles());
         guardDecisionLogService.record(
                 request.getTraceId(),
                 "AGENT_RBAC",
                 "AGENT",
-                target,
+                agentKey,
                 "DENY",
                 "user role is not allowed",
                 metadata);
@@ -249,8 +273,8 @@ public class AgentRouter {
 
     private AgentResult executeEmbedded(AgentRuntimeRequest request, String intentType, boolean allowCentralFallback) {
         GraphRuntimeContext runtimeContext = request.getGraphRuntimeContext();
-        AgentDefinition definition = request.getAgentDefinition();
-        EmbeddedTarget target = embeddedTarget(runtimeContext, definition);
+        AgentRuntimeProfile profile = request.getAgentRuntimeProfile();
+        EmbeddedTarget target = embeddedTarget(runtimeContext, profile);
         if (target == null) {
             if (allowCentralFallback) {
                 return AgentResult.builder()
@@ -267,7 +291,7 @@ public class AgentRouter {
             EmbeddedRuntimeDispatchResult dispatch = embeddedRuntimeDispatchService.dispatch(new EmbeddedRuntimeDispatchRequest(
                     target.projectCode(),
                     target.instanceId(),
-                    agentKeyOf(runtimeContext, definition),
+                    agentKeyOf(runtimeContext, profile),
                     request.getMessage(),
                     request.getSessionId(),
                     request.getUserId(),
@@ -276,16 +300,12 @@ public class AgentRouter {
                             "intentType", intentType,
                             "traceId", request.getTraceId()
                     ),
-                    request.getGraphSpec() == null
-                            ? (definition == null || definition.getGraphSpec() == null
-                            ? Map.of()
-                            : Map.of("graphSpec", definition.getGraphSpec()))
-                            : Map.of("graphSpec", request.getGraphSpec())
+                    request.getGraphSpec() == null ? Map.of() : Map.of("graphSpec", request.getGraphSpec())
             ));
             return toAgentResult(dispatch, request, intentType);
         } catch (Exception ex) {
             log.warn("[AgentRouter] Embedded Runtime dispatch failed: agent={}, traceId={}, fallback={}",
-                    runtimeContext == null ? (definition == null ? null : definition.getName()) : runtimeContext.getName(),
+                    runtimeContext == null ? (profile == null ? null : profile.getName()) : runtimeContext.getName(),
                     request.getTraceId(), allowCentralFallback, ex);
             if (allowCentralFallback) {
                 return AgentResult.builder()
@@ -346,7 +366,7 @@ public class AgentRouter {
                                       String intentType,
                                       AgentRuntimeRequest request,
                                       Map<String, Object> requestMetadata) {
-        AgentDefinition definition = request == null ? null : request.getAgentDefinition();
+        AgentRuntimeProfile profile = request == null ? null : request.getAgentRuntimeProfile();
         GraphRuntimeContext runtimeContext = request == null ? null : request.getGraphRuntimeContext();
         Map<String, Object> metadata = new HashMap<>();
         if (requestMetadata != null) {
@@ -370,8 +390,6 @@ public class AgentRouter {
                 metadata.putIfAbsent("workflowVersionId", extra.get("workflowVersionId"));
                 metadata.putIfAbsent("entryAgentId", extra.get("entryAgentId"));
                 metadata.putIfAbsent("entryAgentKeySlug", extra.get("entryAgentKeySlug"));
-                metadata.putIfAbsent("version", extra.get("__version"));
-                metadata.putIfAbsent("versionId", extra.get("__versionId"));
             }
             if (runtimeContext.getSourceType() != null
                     && runtimeContext.getSourceType().toUpperCase().startsWith("WORKFLOW")) {
@@ -380,9 +398,9 @@ public class AgentRouter {
                 metadata.putIfAbsent("workflowVersion", runtimeContext.getSourceVersion());
                 metadata.putIfAbsent("workflowVersionId", runtimeContext.getSourceVersionId());
             }
-        } else if (definition != null && definition.getExtra() != null) {
-            metadata.putIfAbsent("version", definition.getExtra().get("__version"));
-            metadata.putIfAbsent("versionId", definition.getExtra().get("__versionId"));
+        } else if (profile != null && profile.getExtra() != null) {
+            metadata.putIfAbsent("version", profile.getExtra().get("__version"));
+            metadata.putIfAbsent("versionId", profile.getExtra().get("__versionId"));
         }
         if (runtimeResult.getAgentName() != null) {
             metadata.putIfAbsent("agentName", runtimeResult.getAgentName());
@@ -422,11 +440,21 @@ public class AgentRouter {
             raw = intentService.recognizeIntent(message);
         }
 
-        if (agentDefinitionService.findByIntentType(raw).isEmpty()) {
-            log.warn("[AgentRouter] Intent '{}' has no enabled Agent definition, fallback to {}", raw, GENERAL_CHAT);
+        if (!hasIntentRoute(raw)) {
+            log.warn("[AgentRouter] Intent '{}' has no enabled Agent route, fallback to {}", raw, GENERAL_CHAT);
             return GENERAL_CHAT;
         }
         return raw;
+    }
+
+    private boolean hasIntentRoute(String intentType) {
+        if (!StringUtils.hasText(intentType)) {
+            return false;
+        }
+        if (!bindingService.listEnabledByIntentType(intentType).isEmpty()) {
+            return true;
+        }
+        return agentEntryService.findByIntentType(intentType).isPresent();
     }
 
     private String runtimeTypeOf(AgentRuntimeRequest request) {
@@ -435,12 +463,9 @@ public class AgentRouter {
                 && !request.getGraphRuntimeContext().getRuntimeType().isBlank()) {
             return request.getGraphRuntimeContext().getRuntimeType();
         }
-        return runtimeTypeOf(request == null ? null : request.getAgentDefinition());
-    }
-
-    private String runtimeTypeOf(AgentDefinition definition) {
-        if (definition != null && definition.getRuntimeType() != null && !definition.getRuntimeType().isBlank()) {
-            return definition.getRuntimeType();
+        AgentRuntimeProfile profile = request == null ? null : request.getAgentRuntimeProfile();
+        if (profile != null && profile.getRuntimeType() != null && !profile.getRuntimeType().isBlank()) {
+            return profile.getRuntimeType();
         }
         return AgentRuntimeAdapter.DEFAULT_RUNTIME_TYPE;
     }
@@ -451,20 +476,17 @@ public class AgentRouter {
                 && !request.getGraphRuntimeContext().getRuntimePlacement().isBlank()) {
             return request.getGraphRuntimeContext().getRuntimePlacement().trim().toUpperCase();
         }
-        return runtimePlacementOf(request == null ? null : request.getAgentDefinition());
-    }
-
-    private String runtimePlacementOf(AgentDefinition definition) {
-        if (definition != null && definition.getRuntimePlacement() != null && !definition.getRuntimePlacement().isBlank()) {
-            return definition.getRuntimePlacement().trim().toUpperCase();
+        AgentRuntimeProfile profile = request == null ? null : request.getAgentRuntimeProfile();
+        if (profile != null && profile.getRuntimePlacement() != null && !profile.getRuntimePlacement().isBlank()) {
+            return profile.getRuntimePlacement().trim().toUpperCase();
         }
         return CENTRAL;
     }
 
-    private EmbeddedTarget embeddedTarget(GraphRuntimeContext runtimeContext, AgentDefinition definition) {
+    private EmbeddedTarget embeddedTarget(GraphRuntimeContext runtimeContext, AgentRuntimeProfile profile) {
         Map<String, Object> runtimeConfig = runtimeContext == null ? null : runtimeContext.getRuntimeConfig();
-        if (runtimeConfig == null && definition != null) {
-            runtimeConfig = definition.getRuntimeConfig();
+        if (runtimeConfig == null && profile != null) {
+            runtimeConfig = profile.getRuntimeConfig();
         }
         if (runtimeConfig == null) {
             return null;
@@ -484,7 +506,7 @@ public class AgentRouter {
         return new EmbeddedTarget(projectCode, instanceId);
     }
 
-    private String agentKeyOf(GraphRuntimeContext runtimeContext, AgentDefinition definition) {
+    private String agentKeyOf(GraphRuntimeContext runtimeContext, AgentRuntimeProfile profile) {
         if (runtimeContext != null) {
             if (runtimeContext.getSourceKeySlug() != null && !runtimeContext.getSourceKeySlug().isBlank()) {
                 return runtimeContext.getSourceKeySlug();
@@ -496,7 +518,7 @@ public class AgentRouter {
                 return runtimeContext.getName();
             }
         }
-        return agentKeyOf(definition);
+        return agentKeyOf(profile);
     }
 
     private String stringValue(Object value) {
@@ -515,17 +537,17 @@ public class AgentRouter {
         return "";
     }
 
-    private String agentKeyOf(AgentDefinition definition) {
-        if (definition == null) {
+    private String agentKeyOf(AgentRuntimeProfile profile) {
+        if (profile == null) {
             return null;
         }
-        if (definition.getKeySlug() != null && !definition.getKeySlug().isBlank()) {
-            return definition.getKeySlug();
+        if (profile.getKeySlug() != null && !profile.getKeySlug().isBlank()) {
+            return profile.getKeySlug();
         }
-        if (definition.getId() != null && !definition.getId().isBlank()) {
-            return definition.getId();
+        if (profile.getId() != null && !profile.getId().isBlank()) {
+            return profile.getId();
         }
-        return definition.getName();
+        return profile.getName();
     }
 
     private record EmbeddedTarget(String projectCode, String instanceId) {

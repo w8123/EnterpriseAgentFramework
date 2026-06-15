@@ -1,17 +1,14 @@
 package com.enterprise.ai.agent.runops;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
-import com.enterprise.ai.agent.agent.persist.AgentVersionEntity;
-import com.enterprise.ai.agent.agent.persist.AgentVersionMapper;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
 import com.enterprise.ai.agent.agentscope.AgentRouter;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.governance.GuardDecisionLogEntity;
 import com.enterprise.ai.agent.workflow.AgentEntryEntity;
 import com.enterprise.ai.agent.workflow.AgentEntryService;
-import com.enterprise.ai.agent.workflow.WorkflowAgentDefinitionAdapter;
+import com.enterprise.ai.agent.workflow.WorkflowRuntimeGraphAdapter;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionEntity;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;
 import com.enterprise.ai.agent.workflow.WorkflowVersionEntity;
@@ -50,13 +47,11 @@ public class RunOpsService {
     private final AgentTraceSpanService traceSpanService;
     private final AgentTraceSpanMapper traceSpanMapper;
     private final GuardDecisionLogService guardDecisionLogService;
-    private final AgentVersionMapper versionMapper;
-    private final AgentDefinitionService agentDefinitionService;
+    private final AgentEntryService agentEntryService;
+    private final WorkflowRuntimeGraphAdapter workflowRuntimeGraphAdapter;
     private final AgentRouter agentRouter;
     private final WorkflowDefinitionService workflowDefinitionService;
     private final WorkflowVersionMapper workflowVersionMapper;
-    private final AgentEntryService agentEntryService;
-    private final WorkflowAgentDefinitionAdapter workflowAgentDefinitionAdapter;
     private final ObjectMapper objectMapper;
 
     public RunDetail detail(String traceId) {
@@ -73,12 +68,10 @@ public class RunOpsService {
         }
 
         Map<String, Object> metadata = mergedMetadata(spans);
-        AgentVersionEntity version = resolveVersion(metadata);
-        AgentDefinition currentAgent = resolveCurrentAgent(spans, toolLogs);
-        AgentDefinition snapshot = version == null ? null : readSnapshot(version);
-        AgentDefinition effectiveAgent = snapshot == null ? currentAgent : snapshot;
+        AgentRuntimeProfile currentAgent = resolveCurrentProfile(spans, toolLogs);
+        AgentRuntimeProfile effectiveAgent = currentAgent;
 
-        RunSummary summary = buildSummary(normalizedTraceId, toolLogs, spans, decisions, metadata, version, effectiveAgent);
+        RunSummary summary = buildSummary(normalizedTraceId, toolLogs, spans, decisions, metadata, effectiveAgent);
         List<SpanView> spanViews = spans.stream()
                 .sorted(Comparator
                         .comparing(AgentTraceSpanEntity::getStartedAt, Comparator.nullsLast(LocalDateTime::compareTo))
@@ -138,10 +131,10 @@ public class RunOpsService {
                 effectiveAgent.getRuntimeType(),
                 effectiveAgent.getRuntimePlacement(),
                 effectiveAgent.getRuntimeConfig(),
-                effectiveAgent.getGraphSpec(),
-                version == null ? null : version.getSnapshotJson());
+                null,
+                null);
         return new RunDetail(summary, spanViews, toolViews, guardViews, runSnapshot,
-                workflowPath(spanViews, effectiveAgent == null ? null : effectiveAgent.getGraphSpec()),
+                workflowPath(spanViews, null),
                 repairHints(summary, spanViews, guardViews));
     }
 
@@ -247,9 +240,6 @@ public class RunOpsService {
         }
 
         Map<String, Object> metadata = mergedMetadata(spans);
-        AgentVersionEntity version = resolveVersion(metadata);
-        AgentDefinition currentAgent = resolveCurrentAgent(spans, toolLogs);
-        AgentDefinition snapshot = version == null ? null : readSnapshot(version);
         boolean useSnapshot = request == null || request.useSnapshot() == null || request.useSnapshot();
 
         String message = firstText(request == null ? null : request.messageOverride(), replayMessage(spans, toolLogs));
@@ -261,7 +251,7 @@ public class RunOpsService {
         String userId = firstText(request == null ? null : request.userId(), firstTool(toolLogs).map(ToolCallLogEntity::getUserId).orElse(null), "runops-replay");
         List<String> roles = request == null || request.roles() == null ? List.of() : request.roles();
 
-        Map<String, Object> replayMetadata = buildReplayMetadata(normalizedTraceId, metadata, version, useSnapshot, snapshot);
+        Map<String, Object> replayMetadata = buildReplayMetadata(normalizedTraceId, metadata, useSnapshot);
         enrichWorkflowReplayMetadata(replayMetadata, metadata);
 
         if (isWorkflowMetadata(metadata)) {
@@ -288,20 +278,18 @@ public class RunOpsService {
                         "GRAPH_SPEC",
                         workflowReplay.fallbackReason());
             }
-            String fallbackReason = workflowReplay == null
-                    ? "无法从 trace metadata 解析 Workflow 上下文"
-                    : firstText(workflowReplay.fallbackReason(), "Workflow GraphSpec 重放不可用");
-            replayMetadata.put("replayFallbackReason", fallbackReason);
-            replayMetadata.put("replayExecutionPath", "AGENT_DEFINITION_FALLBACK");
+            throw new IllegalArgumentException(firstText(
+                    workflowReplay == null ? null : workflowReplay.fallbackReason(),
+                    "无法从 trace metadata 重放 Workflow"));
         }
 
-        AgentDefinition agent = useSnapshot && snapshot != null ? snapshot : currentAgent;
-        if (agent == null) {
-            throw new IllegalArgumentException("无法解析重放使用的 Agent 定义: " + normalizedTraceId);
+        AgentRuntimeProfile profile = resolveCurrentProfile(spans, toolLogs);
+        if (profile == null) {
+            throw new IllegalArgumentException("无法解析重放使用的 Agent profile: " + normalizedTraceId);
         }
-        replayMetadata.putIfAbsent("replayExecutionPath", "AGENT_DEFINITION");
+        replayMetadata.putIfAbsent("replayExecutionPath", "AGENT_PROFILE");
 
-        AgentResult result = agentRouter.executeByDefinition(agent, sessionId, userId, message, roles, replayMetadata);
+        AgentResult result = agentRouter.executeByProfile(profile, sessionId, userId, message, roles, replayMetadata);
         return buildReplayResult(
                 normalizedTraceId,
                 sessionId,
@@ -310,10 +298,8 @@ public class RunOpsService {
                 result,
                 replayMetadata,
                 null,
-                agent,
-                replayMetadata.containsKey("replayExecutionPath")
-                        ? asText(replayMetadata.get("replayExecutionPath"))
-                        : "AGENT_DEFINITION",
+                profile,
+                "AGENT_PROFILE",
                 asText(replayMetadata.get("replayFallbackReason")));
     }
 
@@ -549,8 +535,7 @@ public class RunOpsService {
                                     List<AgentTraceSpanEntity> spans,
                                     List<GuardDecisionLogEntity> decisions,
                                     Map<String, Object> metadata,
-                                    AgentVersionEntity version,
-                                    AgentDefinition agent) {
+                                    AgentRuntimeProfile agent) {
         LocalDateTime startedAt = spans.stream().map(AgentTraceSpanEntity::getStartedAt).filter(Objects::nonNull)
                 .min(LocalDateTime::compareTo).orElseGet(() -> toolLogs.stream()
                         .map(ToolCallLogEntity::getCreateTime).filter(Objects::nonNull)
@@ -575,8 +560,8 @@ public class RunOpsService {
                 agent == null ? firstSpan(spans).map(AgentTraceSpanEntity::getAgentId).orElse(null) : agent.getId(),
                 agent == null ? firstText(firstSpan(spans).map(AgentTraceSpanEntity::getAgentName).orElse(null),
                         firstTool(toolLogs).map(ToolCallLogEntity::getAgentName).orElse(null)) : agent.getName(),
-                version == null ? asText(metadata.get("version")) : version.getVersion(),
-                version == null ? asLong(metadata.get("versionId")) : version.getId(),
+                asText(metadata.get("version")),
+                asLong(metadata.get("versionId")),
                 firstText(asText(metadata.get("runtimeType")), firstSpan(spans).map(AgentTraceSpanEntity::getRuntimeType).orElse(null)),
                 firstText(asText(metadata.get("runtimePlacement")), agent == null ? null : agent.getRuntimePlacement()),
                 asText(metadata.get("graphCode")),
@@ -681,15 +666,13 @@ public class RunOpsService {
 
     private Map<String, Object> buildReplayMetadata(String normalizedTraceId,
                                                     Map<String, Object> metadata,
-                                                    AgentVersionEntity version,
-                                                    boolean useSnapshot,
-                                                    AgentDefinition snapshot) {
+                                                    boolean useSnapshot) {
         Map<String, Object> replayMetadata = new LinkedHashMap<>();
         replayMetadata.put("replay", true);
         replayMetadata.put("replayOfTraceId", normalizedTraceId);
-        replayMetadata.put("replayUseSnapshot", useSnapshot && snapshot != null);
-        replayMetadata.put("replaySourceVersion", version == null ? asText(metadata.get("version")) : version.getVersion());
-        replayMetadata.put("replaySourceVersionId", version == null ? asLong(metadata.get("versionId")) : version.getId());
+        replayMetadata.put("replayUseSnapshot", useSnapshot);
+        replayMetadata.put("replaySourceVersion", asText(metadata.get("version")));
+        replayMetadata.put("replaySourceVersionId", asLong(metadata.get("versionId")));
         return replayMetadata;
     }
 
@@ -763,11 +746,11 @@ public class RunOpsService {
         Map<String, Object> runtimeMetadata = new LinkedHashMap<>(metadata);
         runtimeMetadata.put("replay", true);
         try {
-            WorkflowAgentDefinitionAdapter.RuntimeGraph runtimeGraph = workflowAgentDefinitionAdapter.toRuntimeGraph(
+            WorkflowRuntimeGraphAdapter.RuntimeGraph runtimeGraph = workflowRuntimeGraphAdapter.toRuntimeGraph(
                     entryAgent,
                     workflow,
                     versionEntity,
-                    WorkflowAgentDefinitionAdapter.RuntimeShellOptions.builder()
+                    WorkflowRuntimeGraphAdapter.RuntimeContextOptions.builder()
                             .metadata(runtimeMetadata)
                             .build());
             return new WorkflowReplayResolution(runtimeGraph, workflow, versionEntity, entryAgent, fallbackReason);
@@ -783,7 +766,7 @@ public class RunOpsService {
                                            AgentResult result,
                                            Map<String, Object> replayMetadata,
                                            WorkflowReplayResolution workflowReplay,
-                                           AgentDefinition legacyAgent,
+                                           AgentRuntimeProfile legacyAgent,
                                            String executionPath,
                                            String fallbackReason) {
         Map<String, Object> resultMetadata = result.getMetadata() == null ? Map.of() : result.getMetadata();
@@ -844,7 +827,7 @@ public class RunOpsService {
     }
 
     private record WorkflowReplayResolution(
-            WorkflowAgentDefinitionAdapter.RuntimeGraph graph,
+            WorkflowRuntimeGraphAdapter.RuntimeGraph graph,
             WorkflowDefinitionEntity workflow,
             WorkflowVersionEntity version,
             AgentEntryEntity entryAgent,
@@ -920,39 +903,20 @@ public class RunOpsService {
                 .orElse(null);
     }
 
-    private AgentVersionEntity resolveVersion(Map<String, Object> metadata) {
-        Long versionId = asLong(metadata.get("versionId"));
-        if (versionId == null) {
-            return null;
-        }
-        return versionMapper.selectById(versionId);
-    }
-
-    private AgentDefinition readSnapshot(AgentVersionEntity version) {
-        if (version == null || !StringUtils.hasText(version.getSnapshotJson())) {
-            return null;
-        }
-        try {
-            return objectMapper.readValue(version.getSnapshotJson(), AgentDefinition.class);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private AgentDefinition resolveCurrentAgent(List<AgentTraceSpanEntity> spans, List<ToolCallLogEntity> toolLogs) {
+    private AgentRuntimeProfile resolveCurrentProfile(List<AgentTraceSpanEntity> spans, List<ToolCallLogEntity> toolLogs) {
         Optional<String> agentId = firstSpan(spans).map(AgentTraceSpanEntity::getAgentId).filter(StringUtils::hasText);
         if (agentId.isPresent()) {
-            return agentDefinitionService.findById(agentId.get()).orElse(null);
+            return agentEntryService.findById(agentId.get())
+                    .map(entry -> AgentRuntimeProfile.fromAgentEntry(entry, objectMapper))
+                    .orElse(null);
         }
-        String agentName = firstText(firstSpan(spans).map(AgentTraceSpanEntity::getAgentName).orElse(null),
-                firstTool(toolLogs).map(ToolCallLogEntity::getAgentName).orElse(null));
-        if (!StringUtils.hasText(agentName)) {
-            return null;
+        String entryAgentId = asText(mergedMetadata(spans).get("entryAgentId"));
+        if (StringUtils.hasText(entryAgentId)) {
+            return agentEntryService.findById(entryAgentId)
+                    .map(entry -> AgentRuntimeProfile.fromAgentEntry(entry, objectMapper))
+                    .orElse(null);
         }
-        return agentDefinitionService.list(null).stream()
-                .filter(agent -> agentName.equals(agent.getName()))
-                .findFirst()
-                .orElse(null);
+        return null;
     }
 
     private String replayMessage(List<AgentTraceSpanEntity> spans, List<ToolCallLogEntity> toolLogs) {

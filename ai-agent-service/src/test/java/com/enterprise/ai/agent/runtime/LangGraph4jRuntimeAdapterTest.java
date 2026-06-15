@@ -1,9 +1,9 @@
 package com.enterprise.ai.agent.runtime;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.client.ModelServiceClient;
 import com.enterprise.ai.agent.client.SkillsServiceClient;
 import com.enterprise.ai.agent.graph.GraphSpec;
+import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.skill.interactive.SkillInteractionEntity;
 import com.enterprise.ai.agent.skill.interactive.SkillInteractionMapper;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
@@ -41,12 +41,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .runtimeOptions(Map.of("params", Map.of(
                         "question", "How do I transfer?",
                         "upload_document", "file-001")))
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-1")
-                        .name("User Input Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("user_input_graph")
                                 .entry("user_input")
                                 .finishNode("answer")
@@ -67,8 +62,7 @@ class LangGraph4jRuntimeAdapterTest {
                                 .edge(GraphSpec.Edge.builder().from("START").to("user_input").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("user_input").to("answer").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -87,12 +81,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .runtimeOptions(Map.of("params", Map.of(
                         "age", 36,
                         "chronicDisease", "hypertension")))
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-interaction")
-                        .name("Interaction Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("interaction_graph")
                                 .entry("collect")
                                 .finishNode("answer")
@@ -114,8 +103,7 @@ class LangGraph4jRuntimeAdapterTest {
                                 .edge(GraphSpec.Edge.builder().from("START").to("collect").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("collect").to("answer").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -135,12 +123,7 @@ class LangGraph4jRuntimeAdapterTest {
                         "toolResult", Map.of("items", List.of(
                                 Map.of("teamName", "研发一组", "managerName", "张三"),
                                 Map.of("teamName", "研发二组", "managerName", "李四"))))))
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-present-output")
-                        .name("Present Output Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("present_output_graph")
                                 .entry("display")
                                 .finishNode("display")
@@ -158,8 +141,7 @@ class LangGraph4jRuntimeAdapterTest {
                                         .build())
                                 .edge(GraphSpec.Edge.builder().from("START").to("display").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("display").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -175,38 +157,34 @@ class LangGraph4jRuntimeAdapterTest {
     void pageActionNodePublishesStructuredUiRequest() {
         LangGraph4jRuntimeAdapter adapter = adapter(null);
 
+        GraphSpec pageActionGraph = GraphSpec.builder()
+                .code("page_action_graph")
+                .entry("prepare")
+                .finishNode("open_detail")
+                .node(GraphSpec.Node.builder()
+                        .id("prepare")
+                        .type("VARIABLE_ASSIGN")
+                        .config(Map.of(
+                                "assignments", Map.of("teamId", "const:TI_DEMO01")))
+                        .build())
+                .node(GraphSpec.Node.builder()
+                        .id("open_detail")
+                        .type("PAGE_ACTION")
+                        .name("Open team detail")
+                        .config(Map.of(
+                                "actionKey", "team.openDetail",
+                                "title", "Open team detail",
+                                "confirm", true,
+                                "outputAlias", "page_action_result",
+                                "args", Map.of("teamId", "teamId")))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("prepare").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("prepare").to("open_detail").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("open_detail").to("END").condition("always").build())
+                .build();
         LangGraph4jRuntimeAdapter.WorkflowDebugRunResult result = adapter.debugRun(
-                AgentDefinition.builder()
-                        .id("agent-page-action")
-                        .name("Page Action Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .graphSpec(GraphSpec.builder()
-                                .code("page_action_graph")
-                                .entry("prepare")
-                                .finishNode("open_detail")
-                                .node(GraphSpec.Node.builder()
-                                        .id("prepare")
-                                        .type("VARIABLE_ASSIGN")
-                                        .config(Map.of(
-                                                "assignments", Map.of("teamId", "const:TI_DEMO01")))
-                                        .build())
-                                .node(GraphSpec.Node.builder()
-                                        .id("open_detail")
-                                        .type("PAGE_ACTION")
-                                        .name("Open team detail")
-                                        .config(Map.of(
-                                                "actionKey", "team.openDetail",
-                                                "title", "Open team detail",
-                                                "confirm", true,
-                                                "outputAlias", "page_action_result",
-                                                "args", Map.of("teamId", "teamId")))
-                                        .build())
-                                .edge(GraphSpec.Edge.builder().from("START").to("prepare").condition("always").build())
-                                .edge(GraphSpec.Edge.builder().from("prepare").to("open_detail").condition("always").build())
-                                .edge(GraphSpec.Edge.builder().from("open_detail").to("END").condition("always").build())
-                                .build())
-                        .build(),
+                pageActionGraph,
+                defaultContext(),
                 "open team",
                 Map.of(),
                 Map.of());
@@ -232,13 +210,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .sessionId("session-team-archive")
                 .message("帮我查询一下负责人为靳圣辉的班组")
                 .metadata(Map.of("pageInstanceId", "page-team-archive"))
-                .agentDefinition(AgentDefinition.builder()
-                        .id("team_archive_agent")
-                        .name("班组档案助手")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .graphSpec(teamArchiveAssistantGraph())
-                        .build())
+                .graphSpec(teamArchiveAssistantGraph()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -259,12 +231,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .sessionId("session-interaction-slot")
                 .message("查询一下研发一组的班组信息")
                 .runtimeOptions(Map.of("params", Map.of("teamName", "研发一组")))
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-interaction-slot")
-                        .name("Interaction Slot Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("interaction_slot_graph")
                                 .entry("collect")
                                 .finishNode("answer")
@@ -289,8 +256,7 @@ class LangGraph4jRuntimeAdapterTest {
                                 .edge(GraphSpec.Edge.builder().from("START").to("collect").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("collect").to("answer").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -300,42 +266,36 @@ class LangGraph4jRuntimeAdapterTest {
     @Test
     void interactionCollectInputDoesNotGuessRequiredFieldByDefault() {
         LangGraph4jRuntimeAdapter adapter = adapter(null);
-
-        AgentDefinition definition = AgentDefinition.builder()
-                .id("agent-interaction-no-guess")
-                .name("Interaction No Guess Agent")
-                .type("single")
-                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                .graphSpec(GraphSpec.builder()
-                        .code("interaction_no_guess_graph")
-                        .entry("collect")
-                        .finishNode("answer")
-                        .node(GraphSpec.Node.builder()
-                                .id("collect")
-                                .type("INTERACTION")
-                                .config(Map.of(
-                                        "interactionType", "COLLECT_INPUT",
-                                        "outputAlias", "interaction_output",
-                                        "fields", List.of(Map.of(
-                                                "key", "teamName",
-                                                "label", "班组名称",
-                                                "targetPath", "body_json.teamName",
-                                                "type", "string",
-                                                "required", true))))
-                                .build())
-                        .node(GraphSpec.Node.builder()
-                                .id("answer")
-                                .type("ANSWER")
-                                .config(Map.of("template", "{{ interaction_output.targetArgs.body_json.teamName }}"))
-                                .build())
-                        .edge(GraphSpec.Edge.builder().from("START").to("collect").condition("always").build())
-                        .edge(GraphSpec.Edge.builder().from("collect").to("answer").condition("always").build())
-                        .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
+        GraphSpec graphSpec = GraphSpec.builder()
+                .code("interaction_no_guess_graph")
+                .entry("collect")
+                .finishNode("answer")
+                .node(GraphSpec.Node.builder()
+                        .id("collect")
+                        .type("INTERACTION")
+                        .config(Map.of(
+                                "interactionType", "COLLECT_INPUT",
+                                "outputAlias", "interaction_output",
+                                "fields", List.of(Map.of(
+                                        "key", "teamName",
+                                        "label", "班组名称",
+                                        "targetPath", "body_json.teamName",
+                                        "type", "string",
+                                        "required", true))))
                         .build())
+                .node(GraphSpec.Node.builder()
+                        .id("answer")
+                        .type("ANSWER")
+                        .config(Map.of("template", "{{ interaction_output.targetArgs.body_json.teamName }}"))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("collect").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("collect").to("answer").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
                 .build();
 
         LangGraph4jRuntimeAdapter.WorkflowDebugRunResult result = adapter.debugRun(
-                definition,
+                graphSpec,
+                defaultContext(),
                 "查询一下研发一组的班组信息",
                 Map.of(),
                 Map.of());
@@ -363,13 +323,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .sessionId("session-interaction-llm-slot")
                 .message("查询一下研发一组的班组信息")
                 .runtimeOptions(Map.of("params", Map.of()))
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-interaction-llm-slot")
-                        .name("Interaction LLM Slot Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .modelInstanceId("llm-1")
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("interaction_llm_slot_graph")
                                 .entry("collect")
                                 .finishNode("answer")
@@ -399,8 +353,7 @@ class LangGraph4jRuntimeAdapterTest {
                                 .edge(GraphSpec.Edge.builder().from("START").to("collect").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("collect").to("answer").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).modelInstanceId("llm-1").build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -424,13 +377,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .sessionId("session-interaction-enabled-user-input-slot")
                 .message("帮我查询一下研发一组的班组信息")
                 .runtimeOptions(Map.of("params", Map.of()))
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-interaction-enabled-user-input-slot")
-                        .name("Interaction Enabled User Input Slot Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .modelInstanceId("llm-1")
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("interaction_enabled_user_input_slot_graph")
                                 .entry("collect")
                                 .finishNode("answer")
@@ -460,8 +407,7 @@ class LangGraph4jRuntimeAdapterTest {
                                 .edge(GraphSpec.Edge.builder().from("START").to("collect").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("collect").to("answer").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).modelInstanceId("llm-1").build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -480,47 +426,44 @@ class LangGraph4jRuntimeAdapterTest {
                 null,
                 null);
 
-        AgentDefinition definition = AgentDefinition.builder()
-                .id("agent-interaction-low-confidence")
-                .name("Interaction Low Confidence Agent")
-                .type("single")
-                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                .modelInstanceId("llm-1")
-                .graphSpec(GraphSpec.builder()
-                        .code("interaction_low_confidence_graph")
-                        .entry("collect")
-                        .finishNode("answer")
-                        .node(GraphSpec.Node.builder()
-                                .id("collect")
-                                .type("INTERACTION")
-                                .config(Map.of(
-                                        "interactionType", "COLLECT_INPUT",
-                                        "outputAlias", "interaction_output",
-                                        "fields", List.of(Map.of(
-                                                "key", "teamName",
-                                                "label", "班组名称",
-                                                "targetPath", "body_json.teamName",
-                                                "type", "string",
-                                                "required", true,
-                                                "slotFilling", Map.of(
-                                                        "enabled", true,
-                                                        "strategies", List.of("LLM"),
-                                                        "confirmPolicy", "LOW_CONFIDENCE",
-                                                        "confidenceThreshold", 0.85)))))
-                                .build())
-                        .node(GraphSpec.Node.builder()
-                                .id("answer")
-                                .type("ANSWER")
-                                .config(Map.of("template", "{{ interaction_output.targetArgs.body_json.teamName }}"))
-                                .build())
-                        .edge(GraphSpec.Edge.builder().from("START").to("collect").condition("always").build())
-                        .edge(GraphSpec.Edge.builder().from("collect").to("answer").condition("always").build())
-                        .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
+        GraphSpec graphSpec = GraphSpec.builder()
+                .code("interaction_low_confidence_graph")
+                .entry("collect")
+                .finishNode("answer")
+                .node(GraphSpec.Node.builder()
+                        .id("collect")
+                        .type("INTERACTION")
+                        .config(Map.of(
+                                "interactionType", "COLLECT_INPUT",
+                                "outputAlias", "interaction_output",
+                                "fields", List.of(Map.of(
+                                        "key", "teamName",
+                                        "label", "班组名称",
+                                        "targetPath", "body_json.teamName",
+                                        "type", "string",
+                                        "required", true,
+                                        "slotFilling", Map.of(
+                                                "enabled", true,
+                                                "strategies", List.of("LLM"),
+                                                "confirmPolicy", "LOW_CONFIDENCE",
+                                                "confidenceThreshold", 0.85)))))
                         .build())
+                .node(GraphSpec.Node.builder()
+                        .id("answer")
+                        .type("ANSWER")
+                        .config(Map.of("template", "{{ interaction_output.targetArgs.body_json.teamName }}"))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("collect").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("collect").to("answer").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
                 .build();
 
         LangGraph4jRuntimeAdapter.WorkflowDebugRunResult result = adapter.debugRun(
-                definition,
+                graphSpec,
+                GraphRuntimeContext.builder()
+                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
+                        .modelInstanceId("llm-1")
+                        .build(),
                 "查询一下研发一组的班组信息",
                 Map.of(),
                 Map.of());
@@ -534,42 +477,36 @@ class LangGraph4jRuntimeAdapterTest {
     @Test
     void interactionCollectInputWaitsForMissingRequiredFieldsInDebugRun() {
         LangGraph4jRuntimeAdapter adapter = adapter(null);
-
-        AgentDefinition definition = AgentDefinition.builder()
-                .id("agent-interaction-wait")
-                .name("Interaction Wait Agent")
-                .type("single")
-                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                .graphSpec(GraphSpec.builder()
-                        .code("interaction_wait_graph")
-                        .entry("collect")
-                        .finishNode("answer")
-                        .node(GraphSpec.Node.builder()
-                                .id("collect")
-                                .type("INTERACTION")
-                                .config(Map.of(
-                                        "interactionType", "COLLECT_INPUT",
-                                        "outputAlias", "profile",
-                                        "fields", List.of(Map.of(
-                                                "key", "deptId",
-                                                "label", "部门 ID",
-                                                "targetPath", "body_json.deptId",
-                                                "type", "string",
-                                                "required", true))))
-                                .build())
-                        .node(GraphSpec.Node.builder()
-                                .id("answer")
-                                .type("ANSWER")
-                                .config(Map.of("template", "ok"))
-                                .build())
-                        .edge(GraphSpec.Edge.builder().from("START").to("collect").condition("always").build())
-                        .edge(GraphSpec.Edge.builder().from("collect").to("answer").condition("always").build())
-                        .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
+        GraphSpec graphSpec = GraphSpec.builder()
+                .code("interaction_missing_fields_graph")
+                .entry("collect")
+                .finishNode("answer")
+                .node(GraphSpec.Node.builder()
+                        .id("collect")
+                        .type("INTERACTION")
+                        .config(Map.of(
+                                "interactionType", "COLLECT_INPUT",
+                                "outputAlias", "interaction_output",
+                                "fields", List.of(Map.of(
+                                        "key", "teamName",
+                                        "label", "班组名称",
+                                        "targetPath", "body_json.teamName",
+                                        "type", "string",
+                                        "required", true))))
                         .build())
+                .node(GraphSpec.Node.builder()
+                        .id("answer")
+                        .type("ANSWER")
+                        .config(Map.of("template", "{{ interaction_output.targetArgs.body_json.teamName }}"))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("collect").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("collect").to("answer").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
                 .build();
 
         LangGraph4jRuntimeAdapter.WorkflowDebugRunResult result = adapter.debugRun(
-                definition,
+                graphSpec,
+                defaultContext(),
                 "查询班组信息",
                 Map.of(),
                 Map.of());
@@ -585,54 +522,48 @@ class LangGraph4jRuntimeAdapterTest {
     @SuppressWarnings("unchecked")
     void debugRunExposesResolvedInputsRawOutputsAndPublishedVariables() {
         LangGraph4jRuntimeAdapter adapter = adapter(null);
-
-        AgentDefinition definition = AgentDefinition.builder()
-                .id("agent-vars")
-                .name("Variable Contract Agent")
-                .type("single")
-                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                .graphSpec(GraphSpec.builder()
-                        .code("variable_contract_graph")
-                        .entry("user_input")
-                        .finishNode("reply")
-                        .node(GraphSpec.Node.builder()
-                                .id("user_input")
-                                .type("USER_INPUT")
-                                .config(Map.of(
-                                        "outputAlias", "params",
-                                        "fields", List.of(Map.of(
-                                                "name", "question",
-                                                "type", "string",
-                                                "required", true))))
-                                .build())
-                        .node(GraphSpec.Node.builder()
-                                .id("assign")
-                                .type("VARIABLE_ASSIGN")
-                                .inputs(List.of(GraphSpec.Port.builder()
-                                        .id("question")
-                                        .name("question")
-                                        .type("string")
-                                        .required(true)
-                                        .build()))
-                                .config(Map.of(
-                                        "inputMapping", Map.of("question", "params.question"),
-                                        "assignments", Map.of("question", "params.question"),
-                                        "outputAlias", "captured"))
-                                .build())
-                        .node(GraphSpec.Node.builder()
-                                .id("reply")
-                                .type("ANSWER")
-                                .config(Map.of("template", "{{ captured.question }}"))
-                                .build())
-                        .edge(GraphSpec.Edge.builder().from("START").to("user_input").condition("always").build())
-                        .edge(GraphSpec.Edge.builder().from("user_input").to("assign").condition("always").build())
-                        .edge(GraphSpec.Edge.builder().from("assign").to("reply").condition("always").build())
-                        .edge(GraphSpec.Edge.builder().from("reply").to("END").condition("always").build())
+        GraphSpec graphSpec = GraphSpec.builder()
+                .code("variable_contract_graph")
+                .entry("user_input")
+                .finishNode("reply")
+                .node(GraphSpec.Node.builder()
+                        .id("user_input")
+                        .type("USER_INPUT")
+                        .config(Map.of(
+                                "outputAlias", "params",
+                                "fields", List.of(Map.of(
+                                        "name", "question",
+                                        "type", "string",
+                                        "required", true))))
                         .build())
+                .node(GraphSpec.Node.builder()
+                        .id("assign")
+                        .type("VARIABLE_ASSIGN")
+                        .inputs(List.of(GraphSpec.Port.builder()
+                                .id("question")
+                                .name("question")
+                                .type("string")
+                                .required(true)
+                                .build()))
+                        .config(Map.of(
+                                "inputMapping", Map.of("question", "params.question"),
+                                "assignments", Map.of("question", "params.question"),
+                                "outputAlias", "captured"))
+                        .build())
+                .node(GraphSpec.Node.builder()
+                        .id("reply")
+                        .type("ANSWER")
+                        .config(Map.of("template", "{{ captured.question }}"))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("user_input").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("user_input").to("assign").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("assign").to("reply").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("reply").to("END").condition("always").build())
                 .build();
 
         LangGraph4jRuntimeAdapter.WorkflowDebugRunResult result = adapter.debugRun(
-                definition,
+                graphSpec,
+                defaultContext(),
                 "hello",
                 Map.of("question", "hello"),
                 Map.of());
@@ -671,12 +602,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .traceId("trace-tool-mapping")
                 .sessionId("session-tool-mapping")
                 .message("query team")
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-tool-mapping")
-                        .name("Tool Mapping Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("tool_mapping_graph")
                                 .entry("collect")
                                 .finishNode("tool")
@@ -703,8 +629,7 @@ class LangGraph4jRuntimeAdapterTest {
                                 .edge(GraphSpec.Edge.builder().from("START").to("collect").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("collect").to("tool").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("tool").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).build())
                 .runtimeOptions(Map.of("params", Map.of("body_json_teamName", "研发一组")))
                 .build());
 
@@ -740,12 +665,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .traceId("trace-tool-timeout")
                 .sessionId("session-tool-timeout")
                 .message("query slow api")
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-tool-timeout")
-                        .name("Tool Timeout Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("tool_timeout_graph")
                                 .entry("tool")
                                 .finishNode("tool")
@@ -760,8 +680,7 @@ class LangGraph4jRuntimeAdapterTest {
                                         .build())
                                 .edge(GraphSpec.Edge.builder().from("START").to("tool").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("tool").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -771,63 +690,57 @@ class LangGraph4jRuntimeAdapterTest {
     @Test
     void debugRunReturnsWorkflowStepsAndBranchRoute() {
         LangGraph4jRuntimeAdapter adapter = adapter(null);
-
-        AgentDefinition definition = AgentDefinition.builder()
-                .id("agent-debug")
-                .name("Debug Workflow")
-                .type("single")
-                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                .graphSpec(GraphSpec.builder()
-                        .code("debug_graph")
-                        .entry("user_input")
-                        .finishNode("metro_answer")
-                        .finishNode("unknown_reply")
-                        .node(GraphSpec.Node.builder()
-                                .id("user_input")
-                                .type("USER_INPUT")
-                                .name("用户输入")
-                                .config(Map.of(
-                                        "outputAlias", "params",
-                                        "fields", List.of(Map.of(
-                                                "name", "question",
-                                                "type", "string",
-                                                "required", true))))
-                                .build())
-                        .node(GraphSpec.Node.builder()
-                                .id("intent_classifier")
-                                .type("INTENT_CLASSIFIER")
-                                .name("意图识别")
-                                .config(Map.of(
-                                        "inputExpression", "params.question",
-                                        "classes", List.of(Map.of(
-                                                "id", "metro_question",
-                                                "label", "地铁相关",
-                                                "keywords", List.of("地铁"))),
-                                        "defaultRoute", "irrelevant"))
-                                .build())
-                        .node(GraphSpec.Node.builder()
-                                .id("metro_answer")
-                                .type("ANSWER")
-                                .name("地铁问题回答")
-                                .config(Map.of("template", "metro: {{ params.question }}"))
-                                .build())
-                        .node(GraphSpec.Node.builder()
-                                .id("unknown_reply")
-                                .type("ANSWER")
-                                .name("回复不知道")
-                                .config(Map.of("template", "我不知道"))
-                                .build())
-                        .edge(GraphSpec.Edge.builder().from("START").to("user_input").condition("always").build())
-                        .edge(GraphSpec.Edge.builder().from("user_input").to("intent_classifier").condition("always").build())
-                        .edge(GraphSpec.Edge.builder().from("intent_classifier").to("metro_answer").condition("route:metro_question").build())
-                        .edge(GraphSpec.Edge.builder().from("intent_classifier").to("unknown_reply").condition("route:irrelevant").build())
-                        .edge(GraphSpec.Edge.builder().from("metro_answer").to("END").condition("always").build())
-                        .edge(GraphSpec.Edge.builder().from("unknown_reply").to("END").condition("always").build())
+        GraphSpec graphSpec = GraphSpec.builder()
+                .code("debug_graph")
+                .entry("user_input")
+                .finishNode("metro_answer")
+                .finishNode("unknown_reply")
+                .node(GraphSpec.Node.builder()
+                        .id("user_input")
+                        .type("USER_INPUT")
+                        .name("用户输入")
+                        .config(Map.of(
+                                "outputAlias", "params",
+                                "fields", List.of(Map.of(
+                                        "name", "question",
+                                        "type", "string",
+                                        "required", true))))
                         .build())
+                .node(GraphSpec.Node.builder()
+                        .id("intent_classifier")
+                        .type("INTENT_CLASSIFIER")
+                        .name("意图识别")
+                        .config(Map.of(
+                                "inputExpression", "params.question",
+                                "classes", List.of(Map.of(
+                                        "id", "metro_question",
+                                        "label", "地铁相关",
+                                        "keywords", List.of("地铁"))),
+                                "defaultRoute", "irrelevant"))
+                        .build())
+                .node(GraphSpec.Node.builder()
+                        .id("metro_answer")
+                        .type("ANSWER")
+                        .name("地铁问题回答")
+                        .config(Map.of("template", "metro: {{ params.question }}"))
+                        .build())
+                .node(GraphSpec.Node.builder()
+                        .id("unknown_reply")
+                        .type("ANSWER")
+                        .name("未知回复")
+                        .config(Map.of("template", "我不知道"))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("user_input").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("user_input").to("intent_classifier").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("intent_classifier").to("metro_answer").condition("route:metro_question").build())
+                .edge(GraphSpec.Edge.builder().from("intent_classifier").to("unknown_reply").condition("route:irrelevant").build())
+                .edge(GraphSpec.Edge.builder().from("metro_answer").to("END").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("unknown_reply").to("END").condition("always").build())
                 .build();
 
         LangGraph4jRuntimeAdapter.WorkflowDebugRunResult result = adapter.debugRun(
-                definition,
+                graphSpec,
+                defaultContext(),
                 "今天天气怎么样",
                 Map.of("question", "今天天气怎么样"),
                 Map.of());
@@ -856,21 +769,12 @@ class LangGraph4jRuntimeAdapterTest {
                 .userId("user-lg")
                 .message("hello")
                 .intentType("GENERAL_CHAT")
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-1")
-                        .name("LangGraph Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .modelInstanceId("llm-1")
-                        .systemPrompt("You are helpful.")
-                        .graphSpec(singleLlmGraph("llm"))
-                        .build())
+                .graphSpec(singleLlmGraph("llm")).graphRuntimeContext(GraphRuntimeContext.builder().name("LangGraph Agent").runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).modelInstanceId("llm-1").systemPrompt("You are helpful.").build())
                 .build());
 
         assertTrue(result.isSuccess());
         assertEquals("langgraph answer", result.getAnswer());
         assertEquals(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE, result.getRuntimeType());
-        assertEquals("LangGraph Agent", result.getAgentName());
         assertEquals("qwen-plus", result.getMetadata().get("model"));
         assertEquals("tongyi", result.getMetadata().get("provider"));
         assertEquals(2, result.getSteps().size());
@@ -892,15 +796,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .traceId("trace-lg")
                 .sessionId("session-lg")
                 .message("hello")
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-1")
-                        .name("LangGraph Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .modelInstanceId("llm-1")
-                        .systemPrompt("You are helpful.")
-                        .graphSpec(singleLlmGraph("planner"))
-                        .build())
+                .graphSpec(singleLlmGraph("planner")).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).modelInstanceId("llm-1").systemPrompt("You are helpful.").build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -927,14 +823,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .traceId("trace-json")
                 .sessionId("session-json")
                 .message("order 1001")
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-1")
-                        .name("JSON Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .modelInstanceId("llm-1")
-                        .systemPrompt("You are helpful.")
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("json_graph")
                                 .entry("llm")
                                 .finishNode("reply")
@@ -958,8 +847,7 @@ class LangGraph4jRuntimeAdapterTest {
                                 .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("llm").to("reply").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("reply").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).modelInstanceId("llm-1").systemPrompt("You are helpful.").build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -994,13 +882,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .traceId("trace-messages")
                 .sessionId("session-messages")
                 .message("hello")
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-1")
-                        .name("Message Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .modelInstanceId("llm-1")
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("messages_graph")
                                 .entry("llm")
                                 .finishNode("llm")
@@ -1017,8 +899,7 @@ class LangGraph4jRuntimeAdapterTest {
                                         .build())
                                 .edge(GraphSpec.Edge.builder().from("START").to("llm").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("llm").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).modelInstanceId("llm-1").build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -1058,13 +939,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .traceId("trace-llm-context-vars")
                 .sessionId("session-llm-context-vars")
                 .message("help me query team-a")
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-llm-context-vars")
-                        .name("LLM Context Vars Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .modelInstanceId("llm-1")
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("llm_context_vars_graph")
                                 .entry("tool_result")
                                 .finishNode("llm")
@@ -1086,8 +961,7 @@ class LangGraph4jRuntimeAdapterTest {
                                 .edge(GraphSpec.Edge.builder().from("START").to("tool_result").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("tool_result").to("llm").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("llm").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).modelInstanceId("llm-1").build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -1102,24 +976,22 @@ class LangGraph4jRuntimeAdapterTest {
     void debugsSingleTemplateNodeWithStateOverrides() {
         LangGraph4jRuntimeAdapter adapter = adapter(null);
 
+        GraphSpec debugGraph = GraphSpec.builder()
+                .code("debug_graph")
+                .entry("reply")
+                .finishNode("reply")
+                .node(GraphSpec.Node.builder()
+                        .id("reply")
+                        .type("TEMPLATE")
+                        .config(Map.of("template", "Hello {{ customer.name }}", "writeToAnswer", true))
+                        .build())
+                .build();
         LangGraph4jRuntimeAdapter.NodeDebugResult result = adapter.debugNode(
-                AgentDefinition.builder()
-                        .id("agent-1")
-                        .name("Debug Agent")
-                        .type("single")
+                debugGraph,
+                GraphRuntimeContext.builder()
                         .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
                         .modelInstanceId("llm-1")
                         .systemPrompt("You are helpful.")
-                        .graphSpec(GraphSpec.builder()
-                                .code("debug_graph")
-                                .entry("reply")
-                                .finishNode("reply")
-                                .node(GraphSpec.Node.builder()
-                                        .id("reply")
-                                        .type("TEMPLATE")
-                                        .config(Map.of("template", "Hello {{ customer.name }}", "writeToAnswer", true))
-                                        .build())
-                                .build())
                         .build(),
                 "reply",
                 "hello",
@@ -1131,7 +1003,7 @@ class LangGraph4jRuntimeAdapterTest {
     }
 
     @Test
-    void graphNativeDebugNodeMatchesAgentDefinitionEntry() {
+    void graphNativeDebugNodeExecutesTemplateNode() {
         LangGraph4jRuntimeAdapter adapter = adapter(null);
         GraphSpec graphSpec = GraphSpec.builder()
                 .code("debug_graph")
@@ -1143,33 +1015,21 @@ class LangGraph4jRuntimeAdapterTest {
                         .config(Map.of("template", "Hello {{ customer.name }}", "writeToAnswer", true))
                         .build())
                 .build();
-        AgentDefinition definition = AgentDefinition.builder()
-                .id("agent-1")
-                .name("Debug Agent")
-                .type("single")
-                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                .modelInstanceId("llm-1")
-                .systemPrompt("You are helpful.")
-                .graphSpec(graphSpec)
-                .build();
         Map<String, Object> stateOverrides = Map.of("customer", Map.of("name", "Ada"));
 
-        LangGraph4jRuntimeAdapter.NodeDebugResult legacy = adapter.debugNode(
-                definition, "reply", "hello", stateOverrides);
         LangGraph4jRuntimeAdapter.NodeDebugResult graphNative = adapter.debugNode(
                 graphSpec,
-                GraphRuntimeContext.fromAgentDefinition(definition),
+                defaultContext(),
                 "reply",
                 "hello",
                 stateOverrides);
 
-        assertEquals(legacy.isSuccess(), graphNative.isSuccess());
-        assertEquals(legacy.getNodeOutput(), graphNative.getNodeOutput());
-        assertEquals(legacy.getOutputState().get("answer"), graphNative.getOutputState().get("answer"));
+        assertTrue(graphNative.isSuccess());
+        assertEquals("Hello Ada", graphNative.getOutputState().get("answer"));
     }
 
     @Test
-    void graphNativeDebugRunMatchesAgentDefinitionEntry() {
+    void graphNativeDebugRunExecutesAnswerNode() {
         LangGraph4jRuntimeAdapter adapter = adapter(null);
         GraphSpec graphSpec = GraphSpec.builder()
                 .code("answer_graph")
@@ -1183,31 +1043,22 @@ class LangGraph4jRuntimeAdapterTest {
                 .edge(GraphSpec.Edge.builder().from("START").to("answer").condition("always").build())
                 .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
                 .build();
-        AgentDefinition definition = AgentDefinition.builder()
-                .id("agent-answer")
-                .name("Answer Agent")
-                .type("single")
-                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                .graphSpec(graphSpec)
-                .build();
         Map<String, Object> inputParams = Map.of("task", "review");
 
-        LangGraph4jRuntimeAdapter.WorkflowDebugRunResult legacy = adapter.debugRun(
-                definition, "run", inputParams, Map.of());
         LangGraph4jRuntimeAdapter.WorkflowDebugRunResult graphNative = adapter.debugRun(
                 graphSpec,
-                GraphRuntimeContext.fromAgentDefinition(definition),
+                defaultContext(),
                 "run",
                 inputParams,
                 Map.of());
 
-        assertEquals(legacy.isSuccess(), graphNative.isSuccess());
-        assertEquals(legacy.getAnswer(), graphNative.getAnswer());
-        assertEquals(legacy.getSteps().size(), graphNative.getSteps().size());
+        assertTrue(graphNative.isSuccess());
+        assertEquals("Done: review", graphNative.getAnswer());
+        assertEquals(1, graphNative.getSteps().size());
     }
 
     @Test
-    void graphNativeExecuteMatchesAgentDefinitionEntry() {
+    void graphNativeExecuteRunsGraph() {
         LangGraph4jRuntimeAdapter adapter = adapter(null);
         GraphSpec graphSpec = GraphSpec.builder()
                 .code("answer_graph")
@@ -1221,35 +1072,17 @@ class LangGraph4jRuntimeAdapterTest {
                 .edge(GraphSpec.Edge.builder().from("START").to("answer").condition("always").build())
                 .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
                 .build();
-        AgentDefinition definition = AgentDefinition.builder()
-                .id("agent-answer")
-                .name("Answer Agent")
-                .type("single")
-                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                .graphSpec(graphSpec)
-                .build();
-        AgentRuntimeRequest request = AgentRuntimeRequest.builder()
+        AgentRuntimeResult graphNative = adapter.execute(AgentRuntimeRequest.builder()
                 .traceId("trace-answer")
                 .sessionId("session-answer")
                 .message("run")
                 .runtimeOptions(Map.of("params", Map.of("task", "review")))
-                .build();
-
-        AgentRuntimeResult legacy = adapter.execute(AgentRuntimeRequest.builder()
-                .traceId(request.getTraceId())
-                .sessionId(request.getSessionId())
-                .message(request.getMessage())
-                .runtimeOptions(request.getRuntimeOptions())
-                .agentDefinition(definition)
+                .graphSpec(graphSpec)
+                .graphRuntimeContext(defaultContext())
                 .build());
-        AgentRuntimeResult graphNative = adapter.execute(
-                graphSpec,
-                GraphRuntimeContext.fromAgentDefinition(definition),
-                request);
 
-        assertEquals(legacy.isSuccess(), graphNative.isSuccess());
-        assertEquals(legacy.getAnswer(), graphNative.getAnswer());
-        assertEquals(legacy.getAgentName(), graphNative.getAgentName());
+        assertTrue(graphNative.isSuccess());
+        assertEquals("Done: review", graphNative.getAnswer());
     }
 
     @Test
@@ -1301,32 +1134,13 @@ class LangGraph4jRuntimeAdapterTest {
     }
 
     @Test
-    void onlySupportsSingleAgentWithoutToolsForMinimumRuntime() {
+    void onlySupportsGraphWithSupportedNodes() {
         LangGraph4jRuntimeAdapter adapter = adapter(null);
 
-        assertTrue(adapter.supports(request(AgentDefinition.builder()
-                .type("single")
-                .modelInstanceId("llm-1")
-                .graphSpec(singleLlmGraph("llm"))
-                .build())));
-        assertFalse(adapter.supports(request(AgentDefinition.builder()
-                .type("pipeline")
-                .modelInstanceId("llm-1")
-                .graphSpec(singleLlmGraph("llm"))
-                .build())));
-        assertTrue(adapter.supports(request(AgentDefinition.builder()
-                .type("single")
-                .modelInstanceId("llm-1")
-                .tools(List.of("query_team"))
-                .graphSpec(singleLlmGraph("llm"))
-                .build())));
-        assertFalse(adapter.supports(request(AgentDefinition.builder()
-                .type("single")
-                .modelInstanceId("llm-1")
-                .graphSpec(GraphSpec.builder()
-                        .entry("unsupported")
-                        .node(GraphSpec.Node.builder().id("unsupported").type("UNKNOWN").build())
-                        .build())
+        assertTrue(adapter.supports(request(singleLlmGraph("llm"))));
+        assertFalse(adapter.supports(request(GraphSpec.builder()
+                .entry("unsupported")
+                .node(GraphSpec.Node.builder().id("unsupported").type("UNKNOWN").build())
                 .build())));
     }
 
@@ -1338,14 +1152,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .traceId("trace-flow")
                 .sessionId("session-flow")
                 .message("hello")
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-1")
-                        .name("Flow Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .modelInstanceId("llm-1")
-                        .systemPrompt("You are helpful.")
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("flow_graph")
                                 .entry("llm")
                                 .finishNode("reply")
@@ -1370,8 +1177,7 @@ class LangGraph4jRuntimeAdapterTest {
                                 .edge(GraphSpec.Edge.builder().from("llm").to("vars").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("vars").to("reply").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("reply").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).modelInstanceId("llm-1").systemPrompt("You are helpful.").build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -1399,14 +1205,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .traceId("trace-knowledge")
                 .sessionId("session-knowledge")
                 .message("order 1001")
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-1")
-                        .name("Knowledge Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .modelInstanceId("llm-1")
-                        .systemPrompt("You are helpful.")
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("knowledge_graph")
                                 .entry("llm")
                                 .finishNode("reply")
@@ -1440,8 +1239,7 @@ class LangGraph4jRuntimeAdapterTest {
                                 .edge(GraphSpec.Edge.builder().from("params").to("knowledge").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("knowledge").to("reply").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("reply").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).modelInstanceId("llm-1").systemPrompt("You are helpful.").build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -1457,14 +1255,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .traceId("trace-advanced")
                 .sessionId("session-advanced")
                 .message("please refund order 1001")
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-1")
-                        .name("Advanced Nodes Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .modelInstanceId("llm-1")
-                        .systemPrompt("You are helpful.")
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("advanced_graph")
                                 .entry("llm")
                                 .finishNode("answer")
@@ -1513,8 +1304,7 @@ class LangGraph4jRuntimeAdapterTest {
                                 .edge(GraphSpec.Edge.builder().from("code").to("aggregate").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("aggregate").to("answer").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).modelInstanceId("llm-1").systemPrompt("You are helpful.").build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -1529,14 +1319,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .traceId("trace-human-loop")
                 .sessionId("session-human-loop")
                 .message("invoice: INV-1001")
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-1")
-                        .name("Human Loop Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .modelInstanceId("llm-1")
-                        .systemPrompt("You are helpful.")
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("human_loop_graph")
                                 .entry("extract")
                                 .finishNode("answer")
@@ -1577,8 +1360,7 @@ class LangGraph4jRuntimeAdapterTest {
                                 .edge(GraphSpec.Edge.builder().from("loop").to("write").condition("route:continue").build())
                                 .edge(GraphSpec.Edge.builder().from("write").to("answer").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).modelInstanceId("llm-1").systemPrompt("You are helpful.").build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -1603,13 +1385,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .sessionId("session-approval")
                 .userId("user-1")
                 .message("approve payment")
-                .agentDefinition(AgentDefinition.builder()
-                        .id("1")
-                        .name("Approval Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .modelInstanceId("llm-1")
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("approval_graph")
                                 .entry("approval")
                                 .finishNode("approval")
@@ -1620,8 +1396,7 @@ class LangGraph4jRuntimeAdapterTest {
                                         .build())
                                 .edge(GraphSpec.Edge.builder().from("START").to("approval").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("approval").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).modelInstanceId("llm-1").build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -1638,30 +1413,23 @@ class LangGraph4jRuntimeAdapterTest {
     @Test
     void resumesGraphFromHumanApprovalDecision() {
         LangGraph4jRuntimeAdapter adapter = adapter(mock(ToolCallLogService.class));
-        AgentDefinition definition = AgentDefinition.builder()
-                .id("2")
-                .name("Approval Resume Agent")
-                .type("single")
-                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                .modelInstanceId("llm-1")
-                .graphSpec(GraphSpec.builder()
-                        .code("approval_resume_graph")
-                        .entry("approval")
-                        .finishNode("answer")
-                        .node(GraphSpec.Node.builder()
-                                .id("approval")
-                                .type("HUMAN_APPROVAL")
-                                .config(Map.of("prompt", "approve {{ input }}"))
-                                .build())
-                        .node(GraphSpec.Node.builder()
-                                .id("answer")
-                                .type("ANSWER")
-                                .config(Map.of("template", "continued {{ lastRoute }}"))
-                                .build())
-                        .edge(GraphSpec.Edge.builder().from("START").to("approval").condition("always").build())
-                        .edge(GraphSpec.Edge.builder().from("approval").to("answer").condition("route:approved").build())
-                        .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
+        GraphSpec graphSpec = GraphSpec.builder()
+                .code("approval_resume_graph")
+                .entry("approval")
+                .finishNode("answer")
+                .node(GraphSpec.Node.builder()
+                        .id("approval")
+                        .type("HUMAN_APPROVAL")
+                        .config(Map.of("prompt", "approve {{ input }}"))
                         .build())
+                .node(GraphSpec.Node.builder()
+                        .id("answer")
+                        .type("ANSWER")
+                        .config(Map.of("template", "continued {{ lastRoute }}"))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("approval").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("approval").to("answer").condition("route:approved").build())
+                .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
                 .build();
 
         AgentRuntimeResult result = adapter.resumeFromHumanApproval(
@@ -1669,9 +1437,9 @@ class LangGraph4jRuntimeAdapterTest {
                         .traceId("trace-resume")
                         .sessionId("session-resume")
                         .userId("user-1")
-                        .agentDefinition(definition)
+                        .graphSpec(graphSpec)
+                        .graphRuntimeContext(defaultContext())
                         .build(),
-                definition,
                 Map.of("input", "payment"),
                 "approval",
                 "approved");
@@ -1722,7 +1490,6 @@ class LangGraph4jRuntimeAdapterTest {
                         .graphSpec(graphSpec)
                         .graphRuntimeContext(runtimeContext)
                         .build(),
-                null,
                 Map.of("input", "payment"),
                 "approval",
                 "approved");
@@ -1752,13 +1519,7 @@ class LangGraph4jRuntimeAdapterTest {
                 .traceId("trace-knowledge-write")
                 .sessionId("session-knowledge-write")
                 .message("ship order 1001")
-                .agentDefinition(AgentDefinition.builder()
-                        .id("agent-1")
-                        .name("Knowledge Write Agent")
-                        .type("single")
-                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
-                        .modelInstanceId("llm-1")
-                        .graphSpec(GraphSpec.builder()
+                .graphSpec(GraphSpec.builder()
                                 .code("knowledge_write_graph")
                                 .entry("write")
                                 .finishNode("answer")
@@ -1779,8 +1540,7 @@ class LangGraph4jRuntimeAdapterTest {
                                 .edge(GraphSpec.Edge.builder().from("START").to("write").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("write").to("answer").condition("always").build())
                                 .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
-                                .build())
-                        .build())
+                                .build()).graphRuntimeContext(GraphRuntimeContext.builder().runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE).modelInstanceId("llm-1").build())
                 .build());
 
         assertTrue(result.isSuccess());
@@ -1788,11 +1548,19 @@ class LangGraph4jRuntimeAdapterTest {
         verify(skillsServiceClient).importKnowledgeChunks(any(SkillsServiceClient.KnowledgeImportRequest.class));
     }
 
-    private AgentRuntimeRequest request(AgentDefinition definition) {
+    private AgentRuntimeRequest request(GraphSpec graphSpec) {
         return AgentRuntimeRequest.builder()
                 .traceId("trace")
                 .message("hello")
-                .agentDefinition(definition)
+                .graphSpec(graphSpec)
+                .graphRuntimeContext(defaultContext())
+                .build();
+    }
+
+    private GraphRuntimeContext defaultContext() {
+        return GraphRuntimeContext.builder()
+                .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
+                .modelInstanceId("llm-1")
                 .build();
     }
 

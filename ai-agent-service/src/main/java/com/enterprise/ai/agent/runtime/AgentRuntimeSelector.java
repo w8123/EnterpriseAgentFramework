@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.runtime;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -59,13 +59,13 @@ public class AgentRuntimeSelector {
                     .message("ok")
                     .build();
         } catch (Exception ex) {
-            AgentDefinition definition = request == null ? null : request.getAgentDefinition();
+            AgentRuntimeProfile profile = request == null ? null : request.getAgentRuntimeProfile();
             GraphRuntimeContext runtimeContext = request == null ? null : request.getGraphRuntimeContext();
             return AgentRuntimeValidationResult.builder()
                     .valid(false)
                     .runtimeType(resolveRuntimeType(request))
                     .modelInstanceId(runtimeContext == null
-                            ? definition == null ? null : definition.getModelInstanceId()
+                            ? profile == null ? null : profile.getModelInstanceId()
                             : runtimeContext.getModelInstanceId())
                     .message(ex.getMessage())
                     .errorCode(ex.getClass().getSimpleName())
@@ -100,12 +100,9 @@ public class AgentRuntimeSelector {
                 && !request.getGraphRuntimeContext().getRuntimeType().isBlank()) {
             return request.getGraphRuntimeContext().getRuntimeType();
         }
-        return resolveRuntimeType(request == null ? null : request.getAgentDefinition());
-    }
-
-    private String resolveRuntimeType(AgentDefinition definition) {
-        if (definition != null && definition.getRuntimeType() != null && !definition.getRuntimeType().isBlank()) {
-            return definition.getRuntimeType();
+        AgentRuntimeProfile profile = request == null ? null : request.getAgentRuntimeProfile();
+        if (profile != null && profile.getRuntimeType() != null && !profile.getRuntimeType().isBlank()) {
+            return profile.getRuntimeType();
         }
         return policy.defaultRuntimeType();
     }

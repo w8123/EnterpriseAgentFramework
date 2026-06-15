@@ -1,7 +1,8 @@
 package com.enterprise.ai.agent.eval;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.enterprise.ai.agent.agent.AgentDefinition;
+import com.enterprise.ai.agent.graph.GraphSpec;
+import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.runtime.LangGraph4jRuntimeAdapter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -160,7 +161,7 @@ public class AgentEvalService {
 
         for (int roundNo = 1; roundNo <= request.repeatCount(); roundNo++) {
             for (AgentEvalCaseEntity evalCase : cases) {
-                AgentEvalCaseResultEntity result = runCase(run, evalCase, roundNo, request.agentDefinition());
+                AgentEvalCaseResultEntity result = runCase(run, evalCase, roundNo, request.graphSpec(), request.graphRuntimeContext());
                 resultMapper.insert(result);
                 results.add(result);
             }
@@ -187,7 +188,7 @@ public class AgentEvalService {
         run.setRepeatCount(request.repeatCount());
         run.setStatus("RUNNING");
         run.setCanvasSnapshotJson(writeJson(request.canvasSnapshot()));
-        run.setGraphSpecJson(writeJson(request.agentDefinition().getGraphSpec()));
+        run.setGraphSpecJson(writeJson(request.graphSpec()));
         run.setStartedAt(LocalDateTime.now());
         return run;
     }
@@ -195,11 +196,13 @@ public class AgentEvalService {
     private AgentEvalCaseResultEntity runCase(AgentEvalRunEntity run,
                                               AgentEvalCaseEntity evalCase,
                                               int roundNo,
-                                              AgentDefinition definition) {
+                                              GraphSpec graphSpec,
+                                              GraphRuntimeContext runtimeContext) {
         AgentEvalCaseResultEntity row = baseResult(run, evalCase, roundNo);
         try {
             LangGraph4jRuntimeAdapter.WorkflowDebugRunResult debug = runtimeAdapter.debugRun(
-                    sandboxedDefinition(definition),
+                    graphSpec,
+                    sandboxedContext(runtimeContext),
                     evalCase.getMessage(),
                     readMap(evalCase.getInputParamsJson()),
                     Map.of("evalMode", true, "sandboxSideEffects", true));
@@ -337,8 +340,11 @@ public class AgentEvalService {
         return context;
     }
 
-    private AgentDefinition sandboxedDefinition(AgentDefinition definition) {
-        AgentDefinition copied = objectMapper.convertValue(definition, AgentDefinition.class);
+    private GraphRuntimeContext sandboxedContext(GraphRuntimeContext context) {
+        if (context == null) {
+            return GraphRuntimeContext.builder().allowIrreversible(false).build();
+        }
+        GraphRuntimeContext copied = objectMapper.convertValue(context, GraphRuntimeContext.class);
         copied.setAllowIrreversible(false);
         return copied;
     }
@@ -350,8 +356,11 @@ public class AgentEvalService {
         if (request.datasetId() == null) {
             throw new IllegalArgumentException("datasetId is required");
         }
-        if (request.agentDefinition() == null) {
-            throw new IllegalArgumentException("agentDefinition is required");
+        if (request.graphSpec() == null) {
+            throw new IllegalArgumentException("graphSpec is required");
+        }
+        if (request.graphRuntimeContext() == null) {
+            throw new IllegalArgumentException("graphRuntimeContext is required");
         }
         if (request.repeatCount() < 1 || request.repeatCount() > 20) {
             throw new IllegalArgumentException("repeatCount must be between 1 and 20");
@@ -402,7 +411,8 @@ public class AgentEvalService {
             String agentName,
             String runName,
             int repeatCount,
-            AgentDefinition agentDefinition,
+            GraphSpec graphSpec,
+            GraphRuntimeContext graphRuntimeContext,
             Map<String, Object> canvasSnapshot
     ) {
     }

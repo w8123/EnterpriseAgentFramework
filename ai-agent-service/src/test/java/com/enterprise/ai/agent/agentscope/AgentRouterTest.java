@@ -1,10 +1,9 @@
 package com.enterprise.ai.agent.agentscope;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
-import com.enterprise.ai.agent.agent.AgentDefinitionService;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.runtime.AgentRuntimeAdapter;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
 import com.enterprise.ai.agent.runtime.AgentRuntimeRequest;
 import com.enterprise.ai.agent.runtime.AgentRuntimeResult;
 import com.enterprise.ai.agent.runtime.AgentRuntimeSelector;
@@ -14,6 +13,12 @@ import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchService;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.service.IntentService;
+import com.enterprise.ai.agent.workflow.AgentEntryService;
+import com.enterprise.ai.agent.workflow.AgentWorkflowBindingService;
+import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;
+import com.enterprise.ai.agent.workflow.WorkflowRuntimeGraphAdapter;
+import com.enterprise.ai.agent.workflow.WorkflowVersionService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -32,13 +37,9 @@ class AgentRouterTest {
 
     @Test
     void mapsRuntimeStepsToAgentResultAndKeepsMetadataSteps() {
-        IntentService intentService = mock(IntentService.class);
-        AgentDefinitionService definitionService = mock(AgentDefinitionService.class);
         AgentRuntimeSelector selector = mock(AgentRuntimeSelector.class);
         AgentRuntimeAdapter adapter = mock(AgentRuntimeAdapter.class);
-        EmbeddedRuntimeDispatchService dispatchService = mock(EmbeddedRuntimeDispatchService.class);
-        GuardDecisionLogService guardDecisionLogService = mock(GuardDecisionLogService.class);
-        AgentRouter router = new AgentRouter(intentService, definitionService, selector, dispatchService, guardDecisionLogService);
+        AgentRouter router = router(selector, mock(EmbeddedRuntimeDispatchService.class), mock(GuardDecisionLogService.class));
 
         when(selector.select(any(AgentRuntimeRequest.class))).thenReturn(adapter);
         when(adapter.execute(any(AgentRuntimeRequest.class))).thenReturn(AgentRuntimeResult.builder()
@@ -51,7 +52,7 @@ class AgentRouterTest {
                 .metadata(Map.of("elapsedMs", 12L))
                 .build());
 
-        AgentResult result = router.executeByDefinition(AgentDefinition.builder()
+        AgentResult result = router.executeByProfile(AgentRuntimeProfile.builder()
                         .name("Demo Agent")
                         .keySlug("demo-agent")
                         .intentType("GENERAL_CHAT")
@@ -76,12 +77,8 @@ class AgentRouterTest {
 
     @Test
     void dispatchesEmbeddedPlacementToManagedRuntimeInstance() {
-        IntentService intentService = mock(IntentService.class);
-        AgentDefinitionService definitionService = mock(AgentDefinitionService.class);
-        AgentRuntimeSelector selector = mock(AgentRuntimeSelector.class);
         EmbeddedRuntimeDispatchService dispatchService = mock(EmbeddedRuntimeDispatchService.class);
-        GuardDecisionLogService guardDecisionLogService = mock(GuardDecisionLogService.class);
-        AgentRouter router = new AgentRouter(intentService, definitionService, selector, dispatchService, guardDecisionLogService);
+        AgentRouter router = router(mock(AgentRuntimeSelector.class), dispatchService, mock(GuardDecisionLogService.class));
 
         when(dispatchService.dispatch(any(EmbeddedRuntimeDispatchRequest.class))).thenReturn(new EmbeddedRuntimeDispatchResult(
                 true,
@@ -95,7 +92,7 @@ class AgentRouterTest {
                 null
         ));
 
-        AgentResult result = router.executeByDefinition(AgentDefinition.builder()
+        AgentResult result = router.executeByProfile(AgentRuntimeProfile.builder()
                         .name("Demo Agent")
                         .keySlug("demo-agent")
                         .intentType("GENERAL_CHAT")
@@ -120,7 +117,7 @@ class AgentRouterTest {
         assertEquals("crm", result.getMetadata().get("projectCode"));
         assertEquals("inst-1", result.getMetadata().get("instanceId"));
         assertEquals(true, result.getMetadata().get("remote"));
-        verifyNoInteractions(selector);
+        verifyNoInteractions(mock(AgentRuntimeSelector.class));
 
         ArgumentCaptor<EmbeddedRuntimeDispatchRequest> captor =
                 ArgumentCaptor.forClass(EmbeddedRuntimeDispatchRequest.class);
@@ -138,13 +135,10 @@ class AgentRouterTest {
 
     @Test
     void fallsBackToCentralRuntimeForHybridWhenEmbeddedFails() {
-        IntentService intentService = mock(IntentService.class);
-        AgentDefinitionService definitionService = mock(AgentDefinitionService.class);
         AgentRuntimeSelector selector = mock(AgentRuntimeSelector.class);
         AgentRuntimeAdapter adapter = mock(AgentRuntimeAdapter.class);
         EmbeddedRuntimeDispatchService dispatchService = mock(EmbeddedRuntimeDispatchService.class);
-        GuardDecisionLogService guardDecisionLogService = mock(GuardDecisionLogService.class);
-        AgentRouter router = new AgentRouter(intentService, definitionService, selector, dispatchService, guardDecisionLogService);
+        AgentRouter router = router(selector, dispatchService, mock(GuardDecisionLogService.class));
 
         when(dispatchService.dispatch(any(EmbeddedRuntimeDispatchRequest.class)))
                 .thenThrow(new IllegalStateException("instance offline"));
@@ -158,7 +152,7 @@ class AgentRouterTest {
                 .metadata(Map.of("central", true))
                 .build());
 
-        AgentResult result = router.executeByDefinition(AgentDefinition.builder()
+        AgentResult result = router.executeByProfile(AgentRuntimeProfile.builder()
                         .name("Demo Agent")
                         .keySlug("demo-agent")
                         .intentType("GENERAL_CHAT")
@@ -185,14 +179,10 @@ class AgentRouterTest {
 
     @Test
     void deniesAgentExecutionWhenUserRoleIsNotAllowed() {
-        IntentService intentService = mock(IntentService.class);
-        AgentDefinitionService definitionService = mock(AgentDefinitionService.class);
-        AgentRuntimeSelector selector = mock(AgentRuntimeSelector.class);
-        EmbeddedRuntimeDispatchService dispatchService = mock(EmbeddedRuntimeDispatchService.class);
         GuardDecisionLogService guardDecisionLogService = mock(GuardDecisionLogService.class);
-        AgentRouter router = new AgentRouter(intentService, definitionService, selector, dispatchService, guardDecisionLogService);
+        AgentRouter router = router(mock(AgentRuntimeSelector.class), mock(EmbeddedRuntimeDispatchService.class), guardDecisionLogService);
 
-        AgentResult result = router.executeByDefinition(AgentDefinition.builder()
+        AgentResult result = router.executeByProfile(AgentRuntimeProfile.builder()
                         .id("agent-1")
                         .name("Restricted Agent")
                         .keySlug("restricted-agent")
@@ -207,8 +197,8 @@ class AgentRouterTest {
         assertEquals(false, result.isSuccess());
         assertEquals("Agent execution denied: user role is not allowed", result.getAnswer());
         assertEquals("AGENT_RBAC", result.getMetadata().get("decisionType"));
-        verifyNoInteractions(selector);
-        verifyNoInteractions(dispatchService);
+        verifyNoInteractions(mock(AgentRuntimeSelector.class));
+        verifyNoInteractions(mock(EmbeddedRuntimeDispatchService.class));
         verify(guardDecisionLogService).record(
                 any(),
                 org.mockito.ArgumentMatchers.eq("AGENT_RBAC"),
@@ -221,13 +211,9 @@ class AgentRouterTest {
 
     @Test
     void executeByGraphSpecBuildsGraphNativeRuntimeRequest() {
-        IntentService intentService = mock(IntentService.class);
-        AgentDefinitionService definitionService = mock(AgentDefinitionService.class);
         AgentRuntimeSelector selector = mock(AgentRuntimeSelector.class);
         AgentRuntimeAdapter adapter = mock(AgentRuntimeAdapter.class);
-        EmbeddedRuntimeDispatchService dispatchService = mock(EmbeddedRuntimeDispatchService.class);
-        GuardDecisionLogService guardDecisionLogService = mock(GuardDecisionLogService.class);
-        AgentRouter router = new AgentRouter(intentService, definitionService, selector, dispatchService, guardDecisionLogService);
+        AgentRouter router = router(selector, mock(EmbeddedRuntimeDispatchService.class), mock(GuardDecisionLogService.class));
 
         when(selector.select(any(AgentRuntimeRequest.class))).thenReturn(adapter);
         when(adapter.execute(any(AgentRuntimeRequest.class))).thenReturn(AgentRuntimeResult.builder()
@@ -282,5 +268,21 @@ class AgentRouterTest {
         assertEquals("global-agent", result.getMetadata().get("entryAgentKeySlug"));
         assertEquals("WORKFLOW_VERSION", result.getMetadata().get("sourceType"));
         assertEquals("wf-1", result.getMetadata().get("sourceId"));
+    }
+
+    private AgentRouter router(AgentRuntimeSelector selector,
+                               EmbeddedRuntimeDispatchService dispatchService,
+                               GuardDecisionLogService guardDecisionLogService) {
+        return new AgentRouter(
+                mock(IntentService.class),
+                mock(AgentEntryService.class),
+                mock(AgentWorkflowBindingService.class),
+                mock(WorkflowDefinitionService.class),
+                mock(WorkflowVersionService.class),
+                mock(WorkflowRuntimeGraphAdapter.class),
+                new ObjectMapper(),
+                selector,
+                dispatchService,
+                guardDecisionLogService);
     }
 }

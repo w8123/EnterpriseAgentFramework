@@ -3,7 +3,7 @@ package com.enterprise.ai.agent.controller;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.runtime.LangGraph4jRuntimeAdapter;
-import com.enterprise.ai.agent.workflow.WorkflowAgentDefinitionAdapter;
+import com.enterprise.ai.agent.workflow.WorkflowRuntimeGraphAdapter;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionEntity;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;
 import lombok.Data;
@@ -25,7 +25,7 @@ public class WorkflowStudioDebugController {
 
     private final LangGraph4jRuntimeAdapter langGraph4jRuntimeAdapter;
     private final WorkflowDefinitionService workflowDefinitionService;
-    private final WorkflowAgentDefinitionAdapter workflowAgentDefinitionAdapter;
+    private final WorkflowRuntimeGraphAdapter workflowRuntimeGraphAdapter;
 
     @PostMapping("/debug-node")
     public ResponseEntity<LangGraph4jRuntimeAdapter.NodeDebugResult> debugNode(@RequestBody NodeDebugRequest request) {
@@ -67,7 +67,7 @@ public class WorkflowStudioDebugController {
         if (!StringUtils.hasText(graphSpecJson)) {
             throw new IllegalArgumentException("graphSpecJson or workflowId is required");
         }
-        GraphSpec graphSpec = workflowAgentDefinitionAdapter.readGraphSpec(graphSpecJson);
+        GraphSpec graphSpec = workflowRuntimeGraphAdapter.readGraphSpec(graphSpecJson);
         String workflowId = firstText(request.getWorkflowId(), workflow == null ? null : workflow.getId());
         String workflowKeySlug = firstText(request.getWorkflowKeySlug(), workflow == null ? null : workflow.getKeySlug());
         String workflowName = firstText(request.getWorkflowName(), workflow == null ? null : workflow.getName());

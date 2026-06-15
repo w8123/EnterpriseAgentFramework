@@ -1,6 +1,8 @@
 package com.enterprise.ai.agent.workflow;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -8,6 +10,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -19,6 +22,37 @@ public class AgentEntryService {
     private static final Pattern KEY_SLUG = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_-]{1,127}");
 
     private final AgentEntryMapper mapper;
+    private final ObjectMapper objectMapper;
+
+    public List<AgentEntryEntity> listEnabled() {
+        return mapper.selectList(Wrappers.<AgentEntryEntity>lambdaQuery()
+                .eq(AgentEntryEntity::getEnabled, true)
+                .orderByDesc(AgentEntryEntity::getUpdatedAt));
+    }
+
+    public Optional<AgentEntryEntity> findByIntentType(String intentType) {
+        if (!StringUtils.hasText(intentType)) {
+            return Optional.empty();
+        }
+        String normalized = intentType.trim().toUpperCase();
+        return listEnabled().stream()
+                .filter(entry -> normalized.equals(readIntentType(entry)))
+                .findFirst();
+    }
+
+    public String readIntentType(AgentEntryEntity entry) {
+        if (entry == null || !StringUtils.hasText(entry.getEntryConfigJson())) {
+            return null;
+        }
+        try {
+            Map<String, Object> config = objectMapper.readValue(
+                    entry.getEntryConfigJson(), new TypeReference<Map<String, Object>>() {});
+            Object raw = config.get("intentType");
+            return raw == null ? null : String.valueOf(raw).trim().toUpperCase();
+        } catch (Exception ex) {
+            return null;
+        }
+    }
 
     public List<AgentEntryEntity> list(Long projectId, String projectCode, String agentKind) {
         var query = Wrappers.<AgentEntryEntity>lambdaQuery()

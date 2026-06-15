@@ -28,7 +28,7 @@ class EmbedWorkflowRuntimeServiceTest {
                 resolver,
                 workflowService,
                 versionService,
-                new WorkflowAgentDefinitionAdapter(objectMapper));
+                new WorkflowRuntimeGraphAdapter(objectMapper));
 
         AgentEntryEntity entry = new AgentEntryEntity();
         entry.setId("agent-1");
@@ -87,10 +87,10 @@ class EmbedWorkflowRuntimeServiceTest {
         session.setPageKey("orders.list");
         session.setRoute("/orders");
 
-        Optional<WorkflowAgentDefinitionAdapter.RuntimeGraph> resolved = service.resolveRunnableGraph(session, null);
+        Optional<WorkflowRuntimeGraphAdapter.RuntimeGraph> resolved = service.resolveRunnableGraph(session, null);
 
         assertTrue(resolved.isPresent());
-        WorkflowAgentDefinitionAdapter.RuntimeGraph runtimeGraph = resolved.get();
+        WorkflowRuntimeGraphAdapter.RuntimeGraph runtimeGraph = resolved.get();
         GraphRuntimeContext context = runtimeGraph.runtimeContext();
         assertEquals("orders_list", runtimeGraph.graphSpec().getCode());
         assertEquals("workflow-1", context.getSourceId());

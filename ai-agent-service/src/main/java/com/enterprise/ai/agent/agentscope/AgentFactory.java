@@ -2,7 +2,7 @@ package com.enterprise.ai.agent.agentscope;
 
 import com.enterprise.ai.agent.acl.ToolAclDecision;
 import com.enterprise.ai.agent.acl.ToolAclService;
-import com.enterprise.ai.agent.agent.AgentDefinition;
+import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
 import com.enterprise.ai.agent.agentscope.adapter.AiToolAgentAdapter;
 import com.enterprise.ai.agent.config.LLMConfig;
 import com.enterprise.ai.agent.config.ToolRetrievalProperties;
@@ -38,7 +38,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Agent 工厂 — 根据 {@link AgentDefinition} 创建 AgentScope {@link ReActAgent}。
+ * Agent 工厂 — 根据 {@link AgentRuntimeProfile} 创建 AgentScope {@link ReActAgent}。
  * <p>
  * <h3>Tool Retrieval</h3>
  * 当传入 {@code userMessage} 非空时，本工厂会：
@@ -100,36 +100,25 @@ public class AgentFactory {
                 defaultMaxSteps, retrievalProperties.isEnabled());
     }
 
-    /**
-     * 旧入口：不做动态召回，仍走白名单全量注入（保持向后兼容）。
-     */
-    public ReActAgent buildFromDefinition(AgentDefinition definition) {
-        return buildFromDefinition(definition, null, null);
+    public ReActAgent buildFromProfile(AgentRuntimeProfile profile) {
+        return buildFromProfile(profile, null, null);
     }
 
-    /**
-     * 新入口：根据 {@code userMessage} 动态召回并注入。
-     *
-     * @param definition  Agent 定义
-     * @param userMessage 当前用户输入（用于语义召回），null 则退化为白名单行为
-     * @param context     本次执行的审计上下文（traceId/sessionId/userId 已填充），
-     *                    若召回成功，retrievalTraceJson 会被回填
-     */
-    public ReActAgent buildFromDefinition(AgentDefinition definition,
-                                          String userMessage,
-                                          ToolExecutionContext context) {
-        String modelInstanceId = requireModelInstanceId(definition);
-        Model model = definition.isUseMultiAgentModel()
+    public ReActAgent buildFromProfile(AgentRuntimeProfile profile,
+                                       String userMessage,
+                                       ToolExecutionContext context) {
+        String modelInstanceId = requireModelInstanceId(profile);
+        Model model = profile.isUseMultiAgentModel()
                 ? agentScopeConfig.createMultiAgentModel(modelInstanceId)
                 : agentScopeConfig.createChatModel(modelInstanceId);
-        int maxSteps = definition.getMaxSteps() > 0 ? definition.getMaxSteps() : defaultMaxSteps;
+        int maxSteps = profile.getMaxSteps() > 0 ? profile.getMaxSteps() : defaultMaxSteps;
 
-        List<String> whitelist = mergeToolSkillWhitelist(definition.getTools(), definition.getSkills());
-        List<String> finalTools = resolveToolNames(definition, whitelist, userMessage, context);
+        List<String> whitelist = mergeToolSkillWhitelist(profile.getTools(), profile.getSkills());
+        List<String> finalTools = resolveToolNames(profile, whitelist, userMessage, context);
 
         var builder = ReActAgent.builder()
-                .name(definition.getName())
-                .sysPrompt(definition.getSystemPrompt())
+                .name(profile.getName())
+                .sysPrompt(profile.getSystemPrompt())
                 .model(model)
                 .maxIters(maxSteps);
 
@@ -138,7 +127,7 @@ public class AgentFactory {
         }
 
         log.debug("[AgentFactory] 构建 Agent: name={}, tools={}, model={}, maxSteps={}",
-                definition.getName(),
+                profile.getName(),
                 finalTools == null || finalTools.isEmpty() ? "none" : finalTools,
                 modelInstanceId,
                 maxSteps);
@@ -146,11 +135,11 @@ public class AgentFactory {
         return builder.build();
     }
 
-    private String requireModelInstanceId(AgentDefinition definition) {
-        if (definition == null || definition.getModelInstanceId() == null || definition.getModelInstanceId().isBlank()) {
-            throw new IllegalStateException("modelInstanceId is required for agent definition");
+    private String requireModelInstanceId(AgentRuntimeProfile profile) {
+        if (profile == null || profile.getModelInstanceId() == null || profile.getModelInstanceId().isBlank()) {
+            throw new IllegalStateException("modelInstanceId is required for agent profile");
         }
-        return definition.getModelInstanceId().trim();
+        return profile.getModelInstanceId().trim();
     }
 
     /**
@@ -175,7 +164,7 @@ public class AgentFactory {
         return resolveToolNames(null, whitelist, userMessage, context);
     }
 
-    List<String> resolveToolNames(AgentDefinition definition, List<String> whitelist,
+    List<String> resolveToolNames(AgentRuntimeProfile profile, List<String> whitelist,
                                   String userMessage, ToolExecutionContext context) {
         boolean retrievalEligible = retrievalProperties.isEnabled()
                 && userMessage != null && !userMessage.isBlank();
@@ -189,9 +178,9 @@ public class AgentFactory {
             return List.of();
         }
 
-        List<Long> projectIds = definition == null || definition.getProjectId() == null
+        List<Long> projectIds = profile == null || profile.getProjectId() == null
                 ? null
-                : List.of(definition.getProjectId());
+                : List.of(profile.getProjectId());
         RetrievalScope scope = new RetrievalScope(
                 projectIds, null,
                 whitelistIds == null || whitelistIds.isEmpty() ? null : whitelistIds,

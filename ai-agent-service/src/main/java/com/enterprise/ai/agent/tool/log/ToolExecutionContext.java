@@ -12,7 +12,7 @@ import java.util.List;
  * 跨一次 Agent 执行共享的调用上下文：sessionId / userId / agentName / traceId
  * 以及本次召回的原始 trace（top-K JSON）。
  * <p>
- * 由 {@code AgentRouter} 构建 → {@code AgentFactory#buildFromDefinition(...)} 在召回完成后回填
+ * 由 {@code AgentRouter} 构建 → {@code AgentFactory#buildFromProfile(...)} 在召回完成后回填
  * {@code retrievalTraceJson} → 注入每个 {@code AiToolAgentAdapter}，
  * 再由 {@code ToolCallLogService} 落库，供 Phase 2 Skill Mining 使用。
  */
@@ -56,7 +56,7 @@ public class ToolExecutionContext {
 
     /**
      * 是否允许调用 IRREVERSIBLE 副作用 Tool（护栏白名单）。
-     * 来源于 {@link com.enterprise.ai.agent.agent.AgentDefinition#isAllowIrreversible()}；
+     * 来源于 {@link com.enterprise.ai.agent.runtime.AgentRuntimeProfile#isAllowIrreversible()}；
      * 默认 false，Phase 3.0 起 {@code AiToolAgentAdapter} 会在执行前检查。
      */
     @Builder.Default

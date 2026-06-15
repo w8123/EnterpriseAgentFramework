@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.workflow;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.enterprise.ai.agent.agent.AgentReleaseValidationResult;
+import com.enterprise.ai.agent.workflow.WorkflowReleaseValidationResult;
 import com.enterprise.ai.agent.identity.PageActionRegistryEntity;
 import com.enterprise.ai.agent.identity.PageActionRegistryMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,7 +20,7 @@ class WorkflowReleaseValidationServiceTest {
         WorkflowReleaseValidationService service = new WorkflowReleaseValidationService(mock(PageActionRegistryMapper.class), new ObjectMapper());
         WorkflowDefinitionEntity workflow = workflow(null);
 
-        AgentReleaseValidationResult result = service.validate(workflow);
+        WorkflowReleaseValidationResult result = service.validate(workflow);
 
         assertFalse(result.valid());
         assertTrue(hasError(result, "GRAPH_SPEC_MISSING"));
@@ -33,7 +33,7 @@ class WorkflowReleaseValidationServiceTest {
                 {"nodes":[{"id":"answer","type":"ANSWER"}],"edges":[]}
                 """);
 
-        AgentReleaseValidationResult result = service.validate(workflow);
+        WorkflowReleaseValidationResult result = service.validate(workflow);
 
         assertFalse(result.valid());
         assertTrue(hasError(result, "GRAPH_ENTRY_MISSING"));
@@ -51,7 +51,7 @@ class WorkflowReleaseValidationServiceTest {
                 }
                 """);
 
-        AgentReleaseValidationResult result = service.validate(workflow);
+        WorkflowReleaseValidationResult result = service.validate(workflow);
 
         assertFalse(result.valid());
         assertTrue(hasError(result, "GRAPH_PAGE_ACTION_PAGE_KEY_EMPTY"));
@@ -72,7 +72,7 @@ class WorkflowReleaseValidationServiceTest {
                 }
                 """);
 
-        AgentReleaseValidationResult result = service.validate(workflow);
+        WorkflowReleaseValidationResult result = service.validate(workflow);
 
         assertTrue(result.valid());
     }
@@ -91,13 +91,13 @@ class WorkflowReleaseValidationServiceTest {
                 }
                 """);
 
-        AgentReleaseValidationResult result = service.validate(workflow);
+        WorkflowReleaseValidationResult result = service.validate(workflow);
 
         assertFalse(result.valid());
         assertTrue(hasError(result, "GRAPH_PAGE_ACTION_CATALOG_MISSING"));
     }
 
-    private boolean hasError(AgentReleaseValidationResult result, String code) {
+    private boolean hasError(WorkflowReleaseValidationResult result, String code) {
         return result.errors().stream().anyMatch(item -> code.equals(item.code()));
     }
 

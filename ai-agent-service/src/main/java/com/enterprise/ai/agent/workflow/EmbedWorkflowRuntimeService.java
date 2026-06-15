@@ -1,6 +1,5 @@
 package com.enterprise.ai.agent.workflow;
 
-import com.enterprise.ai.agent.agent.AgentDefinition;
 import com.enterprise.ai.agent.identity.EmbedSessionEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -16,31 +15,16 @@ public class EmbedWorkflowRuntimeService {
     private final AgentWorkflowResolver resolver;
     private final WorkflowDefinitionService workflowService;
     private final WorkflowVersionService versionService;
-    private final WorkflowAgentDefinitionAdapter workflowAgentDefinitionAdapter;
+    private final WorkflowRuntimeGraphAdapter workflowRuntimeGraphAdapter;
 
-    /**
-     * @deprecated 优先使用 {@link #resolveRunnableGraph(EmbedSessionEntity, String)}。
-     */
-    @Deprecated
-    public Optional<AgentDefinition> resolveRunnableWorkflow(EmbedSessionEntity session, String intentType) {
-        return resolveRunnableWorkflowContext(session, intentType)
-                .map(context -> workflowAgentDefinitionAdapter.toRuntimeShell(
-                        context.agent(),
-                        context.workflow(),
-                        context.activeVersion(),
-                        WorkflowAgentDefinitionAdapter.RuntimeShellOptions.builder()
-                                .binding(context.binding())
-                                .build()));
-    }
-
-    public Optional<WorkflowAgentDefinitionAdapter.RuntimeGraph> resolveRunnableGraph(EmbedSessionEntity session,
+    public Optional<WorkflowRuntimeGraphAdapter.RuntimeGraph> resolveRunnableGraph(EmbedSessionEntity session,
                                                                                       String intentType) {
         return resolveRunnableWorkflowContext(session, intentType)
-                .map(context -> workflowAgentDefinitionAdapter.toRuntimeGraph(
+                .map(context -> workflowRuntimeGraphAdapter.toRuntimeGraph(
                         context.agent(),
                         context.workflow(),
                         context.activeVersion(),
-                        WorkflowAgentDefinitionAdapter.RuntimeShellOptions.builder()
+                        WorkflowRuntimeGraphAdapter.RuntimeContextOptions.builder()
                                 .binding(context.binding())
                                 .build()));
     }
