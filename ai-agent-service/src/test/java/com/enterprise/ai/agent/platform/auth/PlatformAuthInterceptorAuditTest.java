@@ -1,6 +1,7 @@
 package com.enterprise.ai.agent.platform.auth;
 
 import com.enterprise.ai.agent.governance.GuardDecisionLogService;
+import com.enterprise.ai.agent.platform.auth.AiCodingKeyContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -10,6 +11,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -122,6 +125,77 @@ class PlatformAuthInterceptorAuditTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         assertTrue(interceptor.preHandle(request, response, new Object()));
+    }
+
+    @Test
+    void workflowAiCodingContextBypassesPlatformLogin() throws Exception {
+        PlatformAuthInterceptor interceptor = new PlatformAuthInterceptor(
+                mock(PlatformAuthService.class),
+                new PlatformAuthorizationService(),
+                mock(GuardDecisionLogService.class),
+                new ObjectMapper());
+
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "GET",
+                "/api/workflows/wf-1/ai-coding/context");
+        request.setParameter("aiCodingKey", "rac_valid");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertTrue(interceptor.preHandle(request, response, new Object()));
+        assertEquals("rac_valid", AiCodingKeyContext.get());
+        interceptor.afterCompletion(request, response, new Object(), null);
+        assertNull(AiCodingKeyContext.get());
+    }
+
+    @Test
+    void workflowAiCodingCreateBypassesPlatformLogin() throws Exception {
+        PlatformAuthInterceptor interceptor = new PlatformAuthInterceptor(
+                mock(PlatformAuthService.class),
+                new PlatformAuthorizationService(),
+                mock(GuardDecisionLogService.class),
+                new ObjectMapper());
+
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "POST",
+                "/api/workflows/ai-coding/workflows");
+        request.addHeader("X-ReachAI-AiCoding-Key", "rac_valid");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertTrue(interceptor.preHandle(request, response, new Object()));
+        assertEquals("rac_valid", AiCodingKeyContext.get());
+    }
+
+    @Test
+    void workflowStudioPathRequiresPlatformLogin() throws Exception {
+        PlatformAuthInterceptor interceptor = new PlatformAuthInterceptor(
+                mock(PlatformAuthService.class),
+                new PlatformAuthorizationService(),
+                mock(GuardDecisionLogService.class),
+                new ObjectMapper());
+
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "POST",
+                "/api/workflows/studio/generate-draft");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertFalse(interceptor.preHandle(request, response, new Object()));
+    }
+
+    @Test
+    void adjacentWorkflowPathWithAiCodingSuffixDoesNotBypassLogin() throws Exception {
+        PlatformAuthInterceptor interceptor = new PlatformAuthInterceptor(
+                mock(PlatformAuthService.class),
+                new PlatformAuthorizationService(),
+                mock(GuardDecisionLogService.class),
+                new ObjectMapper());
+
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "GET",
+                "/api/workflows/wf-1/ai-coding-extra/context");
+        request.setParameter("aiCodingKey", "rac_valid");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertFalse(interceptor.preHandle(request, response, new Object()));
     }
 
     @Test

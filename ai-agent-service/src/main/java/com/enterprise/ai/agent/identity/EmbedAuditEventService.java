@@ -40,6 +40,7 @@ public class EmbedAuditEventService {
             recordChatEvent(session.getSessionId(), "ui.requested", "assistant", uiRequest.getMessage(), uiRequest, uiRequest.getTraceId());
             recordPageActionRequestIfPresent(session, uiRequest);
         }
+        recordPageActionQueueFromMetadata(session, response.getMetadata());
     }
 
     public void recordStreamEvent(EmbedSessionEntity session, EmbedChatStreamEvent event) {
@@ -102,6 +103,22 @@ public class EmbedAuditEventService {
         Object pageAction = uiRequest.getExtension() == null ? null : uiRequest.getExtension().get("pageActionRequest");
         if (pageAction instanceof Map<?, ?> map) {
             recordPageActionRequest(session, normalizeMap(map));
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void recordPageActionQueueFromMetadata(EmbedSessionEntity session, Map<String, Object> metadata) {
+        if (session == null || metadata == null) {
+            return;
+        }
+        Object raw = metadata.get("pageActionQueue");
+        if (!(raw instanceof List<?> list)) {
+            return;
+        }
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> map) {
+                recordPageActionRequest(session, normalizeMap(map));
+            }
         }
     }
 

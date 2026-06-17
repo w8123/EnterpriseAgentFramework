@@ -13,6 +13,20 @@ public class PlatformAuthorizationService {
         return isAllowed(principal, method, path, null, null);
     }
 
+    public boolean canAccessProject(PlatformPrincipal principal, Long projectId, String projectCode) {
+        if (principal == null || principal.permissions() == null) {
+            return false;
+        }
+        if (principal.permissions().contains("*")) {
+            return true;
+        }
+        if (hasGlobalScope(principal) || !hasProjectScope(principal)) {
+            return true;
+        }
+        String projectIdText = projectId == null ? null : String.valueOf(projectId);
+        return matchesProjectScope(principal, projectCode, projectIdText);
+    }
+
     public boolean isAllowed(PlatformPrincipal principal,
                              String method,
                              String path,

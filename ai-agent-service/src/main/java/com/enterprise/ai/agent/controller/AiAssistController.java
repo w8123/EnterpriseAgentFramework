@@ -58,6 +58,9 @@ public class AiAssistController {
     private static final String PAGE_ASSISTANT_SKILL_VERSION = "0.1.0";
     private static final String PAGE_ASSISTANT_SKILL_ROOT = "ai-assist/skills/" + PAGE_ASSISTANT_SKILL_NAME + "/";
     private static final String PAGE_ASSISTANT_HELPER_SCRIPT = "scripts/reachai-page-assistant.ps1";
+    private static final String WORKFLOW_AI_CODING_SKILL_NAME = "workflow-ai-coding";
+    private static final String WORKFLOW_AI_CODING_SKILL_VERSION = "0.1.0";
+    private static final String WORKFLOW_AI_CODING_SKILL_ROOT = "ai-assist/skills/" + WORKFLOW_AI_CODING_SKILL_NAME + "/";
     private static final String SECRET_ENV_NAME = "REACHAI_REGISTRY_APP_SECRET";
 
     private static final List<String> SKILL_FILES = List.of(
@@ -80,6 +83,14 @@ public class AiAssistController {
             "templates/angular/reachai-page-action.service.ts",
             "templates/angular/page-registry.example.ts",
             "scripts/reachai-page-assistant.ps1"
+    );
+
+    private static final List<String> WORKFLOW_AI_CODING_SKILL_FILES = List.of(
+            "SKILL.md",
+            "references/graphspec.md",
+            "references/page-assistant.md",
+            "references/safety.md",
+            "references/workflow-apis.md"
     );
 
     private final ScanProjectService scanProjectService;
@@ -122,6 +133,22 @@ public class AiAssistController {
         ));
     }
 
+    @GetMapping("/skills/workflow-ai-coding/latest")
+    public ResponseEntity<SkillPackageResponse> latestWorkflowAiCodingSkill(HttpServletRequest request) {
+        String baseUrl = requestBaseUrl(request);
+        String downloadUrl = baseUrl + "/api/ai-assist/skills/" + WORKFLOW_AI_CODING_SKILL_NAME + "/latest.zip";
+        List<SkillFileResponse> files = WORKFLOW_AI_CODING_SKILL_FILES.stream()
+                .map(SkillFileResponse::new)
+                .toList();
+        return ResponseEntity.ok(new SkillPackageResponse(
+                WORKFLOW_AI_CODING_SKILL_NAME,
+                WORKFLOW_AI_CODING_SKILL_VERSION,
+                "ReachAI Workflow AI Coding skill for editing, validating, and debugging workflow drafts.",
+                downloadUrl,
+                files
+        ));
+    }
+
     @GetMapping(value = "/skills/reachai-onboarding/latest.zip", produces = "application/zip")
     public ResponseEntity<byte[]> downloadLatestSkill() throws IOException {
         byte[] body = zipSkillFiles(SKILL_NAME, SKILL_ROOT, SKILL_FILES);
@@ -141,6 +168,22 @@ public class AiAssistController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
                         .filename(PAGE_ASSISTANT_SKILL_NAME + "-" + PAGE_ASSISTANT_SKILL_VERSION + ".zip", StandardCharsets.UTF_8)
+                        .build()
+                        .toString())
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .contentLength(body.length)
+                .body(body);
+    }
+
+    @GetMapping(value = "/skills/workflow-ai-coding/latest.zip", produces = "application/zip")
+    public ResponseEntity<byte[]> downloadLatestWorkflowAiCodingSkill() throws IOException {
+        byte[] body = zipSkillFiles(
+                WORKFLOW_AI_CODING_SKILL_NAME,
+                WORKFLOW_AI_CODING_SKILL_ROOT,
+                WORKFLOW_AI_CODING_SKILL_FILES);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename(WORKFLOW_AI_CODING_SKILL_NAME + "-" + WORKFLOW_AI_CODING_SKILL_VERSION + ".zip", StandardCharsets.UTF_8)
                         .build()
                         .toString())
                 .contentType(MediaType.parseMediaType("application/zip"))
@@ -835,11 +878,32 @@ public class AiAssistController {
                         baseUrl + "/api/agents/" + globalAgentKeySlug + "/workflow-bindings",
                         baseUrl + "/api/agents/" + globalAgentKeySlug + "/workflow-bindings/resolve-preview"
                 ),
+                buildWorkflowAiCodingManifest(baseUrl),
                 List.of(
                         "Provision or reuse one project-level PAGE_COPILOT Agent entry.",
                         "Store every executable graph as an ai_workflow draft or version.",
                         "Create ai_agent_workflow_binding rows for DEFAULT, PAGE, ACTION, ROUTE, or INTENT routing.",
-                        "Do not treat LangGraph runtime configuration as the Agent identity."
+                        "Do not treat LangGraph runtime configuration as the Agent identity.",
+                        "Use Workflow AI Coding REST APIs or the workflow-ai-coding skill for draft edits, validation, debug runs, and release readiness checks."
+                )
+        );
+    }
+
+    private WorkflowAiCodingManifest buildWorkflowAiCodingManifest(String baseUrl) {
+        return new WorkflowAiCodingManifest(
+                baseUrl + "/api/ai-assist/skills/" + WORKFLOW_AI_CODING_SKILL_NAME + "/latest.zip",
+                baseUrl + "/api/workflows/ai-coding/workflows",
+                baseUrl + "/api/workflows/{workflowId}/ai-coding/context",
+                baseUrl + "/api/workflows/{workflowId}/ai-coding/patch",
+                baseUrl + "/api/workflows/{workflowId}/ai-coding/validate",
+                baseUrl + "/api/workflows/{workflowId}/ai-coding/run",
+                baseUrl + "/api/workflows/{workflowId}/ai-coding/versions",
+                baseUrl + "/api/workflows/{workflowId}/ai-coding/runs",
+                List.of(
+                        "Download and install the workflow-ai-coding skill before editing graphs from AI tools.",
+                        "All Workflow AI Coding endpoints require project aiCodingKey (query aiCodingKey or header X-ReachAI-AiCoding-Key); manage the key in project detail.",
+                        "Read /context before patch; use workflow.updatedAt as baseRevision when saving.",
+                        "AI tools must not publish; stop at /versions readiness and hand off to a human operator."
                 )
         );
     }
@@ -1292,6 +1356,20 @@ public class AiAssistController {
             String sdkGraphWorkflowType,
             String bindingStrategy,
             AgentWorkflowEndpoints endpoints,
+            WorkflowAiCodingManifest workflowAiCoding,
+            List<String> requiredSteps
+    ) {
+    }
+
+    record WorkflowAiCodingManifest(
+            String skillPackageUrl,
+            String createUrl,
+            String contextUrlTemplate,
+            String patchUrlTemplate,
+            String validateUrlTemplate,
+            String runUrlTemplate,
+            String versionsUrlTemplate,
+            String runsUrlTemplate,
             List<String> requiredSteps
     ) {
     }

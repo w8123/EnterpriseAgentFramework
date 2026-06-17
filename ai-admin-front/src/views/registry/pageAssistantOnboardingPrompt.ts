@@ -108,6 +108,9 @@ export function buildPageAssistantOnboardingPrompt(context: PageAssistantOnboard
 - 优先让 AI 操作当前页面已有 UI、组件状态、查询服务和路由，不要为了简单查询绕过页面去新增后端 API Tool。
 - 不要重写页面，不要改无关业务逻辑，不要绕过页面权限。
 - 不要要求用户提供真实密钥，也不要把真实密钥写入代码、日志、文档或最终总结。
+- 如果本次只补 Page Action bridge，不要改造 Chat Embed 消息发送逻辑；若必须触碰已有聊天发送代码，ReachAI Chat Message API 固定为 POST /api/embed/chat/sessions/{sessionId}/messages，Body 必须是 { "message": "用户输入的自然语言问题" }。
+- Do not send chat requests with content, text, or question as the top-level field；如果业务 UI 状态字段叫 content/text/question，请在调用 ReachAI API 边界映射为 message。
+- Page Action 返回结果里的 message 只是动作状态说明，不是 Chat Message API 的请求字段。
 
 Agent / Workflow 架构说明：
 - 业务系统里出现的统一 AI 按钮使用项目下的 PAGE_COPILOT Agent；该 Agent 通常由 SDK 快速接入阶段通过 ReachAI provisioning 自动创建或复用。

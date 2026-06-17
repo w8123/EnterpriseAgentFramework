@@ -404,7 +404,7 @@
             </div>
 
             <div v-if="draftIssueCount" class="studio-ready-issues">
-              <span v-for="item in draftPreview.validationErrors" :key="item">{{ item }}</span>
+              <span v-for="item in draftIssues" :key="item">{{ item }}</span>
             </div>
 
             <div class="studio-ready-actions">
@@ -867,7 +867,11 @@ const selectedPage = computed(() =>
 )
 const draftNodeCount = computed(() => draftPreview.value?.graphSpec?.nodes?.length || 0)
 const draftEdgeCount = computed(() => draftPreview.value?.graphSpec?.edges?.length || 0)
-const draftIssueCount = computed(() => draftPreview.value?.validationErrors?.length || 0)
+const draftIssues = computed(() => [
+  ...(draftPreview.value?.validationErrors || []),
+  ...(draftPreview.value?.placeholderNodes || []).map((item) => `${item.label || item.nodeId}: ${item.reason || '节点仍需配置'}`),
+])
+const draftIssueCount = computed(() => draftIssues.value.length)
 const selectedModelLabel = computed(() => {
   const model = modelOptions.value.find((item) => item.id === modelInstanceId.value)
   return model ? modelOptionLabel(model) : modelInstanceId.value || '未选择'
@@ -1225,12 +1229,32 @@ async function loadAll() {
 function defaultRequirement() {
   const pageName = selectedPage.value?.name || selectedPageKey.value || '当前业务页面'
   const actionNames = selectedActions.value.map((item) => item.title || item.actionKey).join('、') || '已选择的页面动作'
+  const actionKeys = selectedActions.value.map((item) => item.actionKey).filter(Boolean)
+  const hasSetFilters = actionKeys.some((key) => /set_?filters?/i.test(key))
+  const hasSearch = actionKeys.some((key) => key === 'search' || /search|query/i.test(key))
+  const hasReadTable = actionKeys.some((key) => key === 'readTable' || /read.*table|table.*read/i.test(key))
+  const flowParts = ['USER_INPUT']
+  if (hasSetFilters) {
+    flowParts.push('LLM筛选提取(extracted_filters)', 'setFilters')
+  }
+  if (hasSearch) flowParts.push('search')
+  if (hasReadTable) flowParts.push('readTable')
+  flowParts.push('ANSWER')
+  const filterInstruction = hasSetFilters
+    ? `LLM 提取节点需 outputAlias=extracted_filters、outputFormat=json，并从用户问题提取 setFilters 的 inputSchema 字段。
+setFilters 节点 args 必须映射为 extracted_filters.<字段名>，不可留空。`
+    : '本次已选动作不包含 setFilters，不要生成 setFilters/设置筛选节点；只能使用已选页面动作完成流程，无法执行的筛选能力要在草稿问题中提示。'
   const goalText = {
     query: '根据用户自然语言提取查询条件，并触发页面查询/筛选动作。',
     operate: '根据用户确认后的意图触发页面动作，必要时先让用户确认。',
     queryThenAction: '先理解用户查询意图，必要时调用后端资产补充信息，再联动页面动作。',
   }[assistantGoal.value]
-  return `为${pageName}创建页面助手。${goalText}可用页面动作：${actionNames}。生成 USER_INPUT、参数提取/LLM、PAGE_ACTION 和 ANSWER 组成的可发布草稿。`
+  return `为${pageName}创建 PAGE_ASSISTANT 页面助手。${goalText}可用页面动作：${actionNames}。
+必须生成可发布草稿，只能使用已选择的 actionKeys：${actionKeys.join('、') || '无'}。
+推荐节点顺序：${flowParts.join(' -> ')}。
+${filterInstruction}
+search/readTable/getPageState 等触发类动作 args 可为空，除非动作 schema 明确要求参数。
+ANSWER 节点使用固定中文状态文案，不要使用 {{ lastOutput }}。`
 }
 
 function workflowKeyPart(value: unknown, fallback: string) {
@@ -1574,6 +1598,7 @@ async function generateDraft() {
       agentName: agentName.value,
       projectCode: projectCode.value,
       modelInstanceId: modelInstanceId.value,
+      draftScenario: 'PAGE_ASSISTANT',
       requirement: requirement.value || defaultRequirement(),
       pageActions: selectedActions.value.map(pageActionToResource),
       tools: selectedApiAssets.value.map(apiAssetToResource),
@@ -1610,6 +1635,10 @@ async function loadPageCopilotAgent() {
 
 async function confirmCreateWorkflow() {
   if (!draftPreview.value) return
+  if (draftIssueCount.value) {
+    ElMessage.warning('草稿仍有校验问题或占位节点，请修复后再创建 Workflow')
+    return
+  }
   creatingWorkflow.value = true
   try {
     const graphSpecJson = JSON.stringify(draftPreview.value.graphSpec)

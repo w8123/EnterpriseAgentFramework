@@ -88,6 +88,7 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
     static final String TOKEN_USAGE = "tokenUsage";
     static final String FINISH_REASON = "finishReason";
     static final String LAST_OUTPUT = "lastOutput";
+    static final String PAGE_ACTION_QUEUE = "pageActionQueue";
     static final String LAST_SUCCESS = "lastSuccess";
     static final String LAST_ERROR = "lastError";
     static final String LAST_ROUTE = "lastRoute";
@@ -261,7 +262,7 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
                     .orElseThrow(() -> new IllegalStateException("LangGraph4j execution returned no final state"));
 
             String answer = finalAnswer(finalState);
-            UiRequestPayload uiRequest = uiRequestFromOutput(finalState.value(LAST_OUTPUT).orElse(null));
+            UiRequestPayload uiRequest = uiRequestFromState(finalState);
             long elapsed = System.currentTimeMillis() - start;
             Map<String, Object> metadata = metadata(request, runtimeContext, graphSpec, elapsed, finalState, nodes);
             logRuntimeRun(context, request, runtimeContext, metadata, true, null, elapsed);
@@ -423,7 +424,7 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
                                     .graphId(graphRunId(runtimeContext) + ":resume:" + approvalNodeId)
                                     .build())
                     .orElseThrow(() -> new IllegalStateException("LangGraph4j resume returned no final state"));
-            UiRequestPayload uiRequest = uiRequestFromOutput(finalState.value(LAST_OUTPUT).orElse(null));
+            UiRequestPayload uiRequest = uiRequestFromState(finalState);
             long elapsed = System.currentTimeMillis() - start;
             Map<String, Object> metadata = metadata(request, runtimeContext, resumedSpec, elapsed, finalState, resumedNodes);
             metadata.put("resumedFrom", approvalNodeId);
@@ -480,7 +481,7 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
                 .agentName(runtimeContext.getName())
                 .steps(steps(nodes))
                 .toolCalls(toolCalls(nodes))
-                .uiRequest(uiRequestFromOutput(state.value(LAST_OUTPUT).orElse(null)))
+                .uiRequest(uiRequestFromState(state))
                 .tokenUsage(asMap(state.value(TOKEN_USAGE).orElse(null)))
                 .metadata(metadata)
                 .build();
@@ -1348,10 +1349,23 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
     private Map<String, Object> executeAnswer(LangGraphState state, GraphSpec.Node node) {
         Map<String, Object> config = safeMap(node.getConfig());
         String template = firstNonBlank(asString(config.get(CONFIG_TEMPLATE)), "{{ lastOutput }}");
-        String rendered = renderTemplate(state, template);
+        Object lastOutput = state.value(LAST_OUTPUT).orElse(null);
+        Map<String, Object> pageActionRequest = asPageActionRequest(lastOutput);
+        List<Map<String, Object>> queue = collectPageActionQueue(state);
+        String rendered;
+        Object preservedOutput;
+        if (pageActionRequest != null) {
+            rendered = queue.size() > 1
+                    ? "正在按你的条件查询页面数据，请稍候…"
+                    : pageActionUserMessage(pageActionRequest);
+            preservedOutput = pageActionRequest;
+        } else {
+            rendered = renderTemplate(state, template);
+            preservedOutput = rendered;
+        }
         Map<String, Object> update = new LinkedHashMap<>();
         update.put(ANSWER, rendered);
-        update.put(LAST_OUTPUT, rendered);
+        update.put(LAST_OUTPUT, preservedOutput);
         update.put(LAST_SUCCESS, true);
         update.put(LAST_ERROR, "");
         update.put(nodeOutputKey(node.getId()), rendered);
@@ -1484,6 +1498,9 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
         update.put(LAST_ERROR, "");
         update.put(nodeOutputKey(node.getId()), request);
         putOutputAlias(update, node, request);
+        List<Map<String, Object>> queue = new ArrayList<>(collectPageActionQueue(state));
+        queue.add(request);
+        update.put(PAGE_ACTION_QUEUE, queue);
         return update;
     }
 
@@ -2231,6 +2248,13 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
         return "form";
     }
 
+    private UiRequestPayload uiRequestFromState(LangGraphState state) {
+        Object source = findFirstPageActionRequest(state)
+                .map(request -> (Object) request)
+                .orElseGet(() -> state.value(LAST_OUTPUT).orElse(null));
+        return uiRequestFromOutput(source);
+    }
+
     private UiRequestPayload uiRequestFromDebugOutput(Object rawOutput) {
         return uiRequestFromOutput(rawOutput);
     }
@@ -2241,8 +2265,8 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
     }
 
     private UiRequestPayload uiRequestFromPageAction(Object rawOutput) {
-        Map<String, Object> raw = safeMap(asMap(rawOutput));
-        if (!"page.action.requested".equals(asString(raw.get("type")))) {
+        Map<String, Object> raw = asPageActionRequest(rawOutput);
+        if (raw == null) {
             return null;
         }
         Map<String, Object> extension = new LinkedHashMap<>();
@@ -2253,7 +2277,7 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
                 .interactionId(asString(raw.get("requestId")))
                 .title(firstNonBlank(asString(raw.get("title")), asString(raw.get("actionKey")), "Page action"))
                 .message(firstNonBlank(asString(raw.get("message")),
-                        "Page action requested: " + asString(raw.get("actionKey"))))
+                        pageActionUserMessage(raw)))
                 .data(raw)
                 .summary(Map.of(
                         "actionKey", asString(raw.get("actionKey")),
@@ -2261,6 +2285,50 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
                 .schema(Map.of("eventType", "page.action.requested"))
                 .extension(extension)
                 .build();
+    }
+
+    private Map<String, Object> asPageActionRequest(Object rawOutput) {
+        Map<String, Object> raw = safeMap(asMap(rawOutput));
+        if (!"page.action.requested".equals(asString(raw.get("type")))) {
+            return null;
+        }
+        return raw;
+    }
+
+    private java.util.Optional<Map<String, Object>> findFirstPageActionRequest(LangGraphState state) {
+        List<Map<String, Object>> queue = collectPageActionQueue(state);
+        if (!queue.isEmpty()) {
+            return java.util.Optional.of(queue.get(0));
+        }
+        return java.util.Optional.ofNullable(asPageActionRequest(state.value(LAST_OUTPUT).orElse(null)));
+    }
+
+    private java.util.Optional<Map<String, Object>> findLatestPageActionRequest(LangGraphState state) {
+        List<Map<String, Object>> queue = collectPageActionQueue(state);
+        if (!queue.isEmpty()) {
+            return java.util.Optional.of(queue.get(queue.size() - 1));
+        }
+        return java.util.Optional.ofNullable(asPageActionRequest(state.value(LAST_OUTPUT).orElse(null)));
+    }
+
+    private List<Map<String, Object>> collectPageActionQueue(LangGraphState state) {
+        Object raw = state.value(PAGE_ACTION_QUEUE).orElse(null);
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        List<Map<String, Object>> queue = new ArrayList<>();
+        for (Object item : list) {
+            Map<String, Object> request = asPageActionRequest(item);
+            if (request != null) {
+                queue.add(request);
+            }
+        }
+        return queue;
+    }
+
+    private String pageActionUserMessage(Map<String, Object> request) {
+        String title = firstNonBlank(asString(request.get("title")), asString(request.get("actionKey")), "页面动作");
+        return "正在执行页面动作：" + title;
     }
 
     private UiRequestPayload uiRequestFromPresentOutput(Object rawOutput) {
@@ -2587,6 +2655,7 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
         metadata.put("provider", state.value(PROVIDER).orElse(null));
         metadata.put("finishReason", state.value(FINISH_REASON).orElse(null));
         metadata.put("finalOutput", state.value(LAST_OUTPUT).orElse(null));
+        metadata.put("pageActionQueue", collectPageActionQueue(state));
         return metadata;
     }
 
@@ -3334,12 +3403,13 @@ public class LangGraph4jRuntimeAdapter implements AgentRuntimeAdapter {
         if (!answer.isBlank()) {
             return answer;
         }
-        Object lastOutput = state.value(LAST_OUTPUT).orElse("");
-        Map<String, Object> pageAction = safeMap(asMap(lastOutput));
-        if ("page.action.requested".equals(asString(pageAction.get("type")))) {
-            return firstNonBlank(asString(pageAction.get("message")), asString(pageAction.get("title")), "已为你准备页面查询。");
+        List<Map<String, Object>> queue = collectPageActionQueue(state);
+        if (queue.size() > 1) {
+            return "正在按你的条件查询页面数据，请稍候…";
         }
-        return stringify(lastOutput);
+        return findLatestPageActionRequest(state)
+                .map(this::pageActionUserMessage)
+                .orElseGet(() -> stringify(state.value(LAST_OUTPUT).orElse("")));
     }
 
     private List<String> steps(List<GraphSpec.Node> nodes) {

@@ -169,6 +169,7 @@ export interface WorkflowDraftGenerationRequest {
   requirement: string
   projectCode?: string | null
   modelInstanceId?: string
+  draftScenario?: 'PAGE_ASSISTANT' | string
   currentCanvas?: Record<string, unknown>
   tools?: WorkflowDraftResource[]
   capabilities?: WorkflowDraftResource[]

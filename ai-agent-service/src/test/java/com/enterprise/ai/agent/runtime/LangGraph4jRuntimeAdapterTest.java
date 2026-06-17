@@ -301,6 +301,39 @@ class LangGraph4jRuntimeAdapterTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void pageAssistantChainWithAnswerPublishesLatestPageAction() {
+        LangGraph4jRuntimeAdapter adapter = adapter(null);
+
+        AgentRuntimeResult result = adapter.execute(AgentRuntimeRequest.builder()
+                .traceId("trace-page-assistant-chain")
+                .sessionId("session-page-assistant-chain")
+                .message("帮我查询一下班组负责人为靳圣辉的班组信息")
+                .metadata(Map.of("pageInstanceId", "page-team-archive"))
+                .graphSpec(pageAssistantChainGraph())
+                .graphRuntimeContext(GraphRuntimeContext.builder()
+                        .runtimeType(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
+                        .build())
+                .build());
+
+        assertTrue(result.isSuccess());
+        assertEquals("正在按你的条件查询页面数据，请稍候…", result.getAnswer());
+        assertNotNull(result.getUiRequest());
+        Map<String, Object> request = (Map<String, Object>) result.getUiRequest().getExtension().get("pageActionRequest");
+        assertEquals("page.action.requested", request.get("type"));
+        assertEquals("setFilters", request.get("actionKey"));
+        assertEquals("page-team-archive", ((Map<String, Object>) request.get("target")).get("pageInstanceId"));
+
+        List<Map<String, Object>> queue = (List<Map<String, Object>>) result.getMetadata().get("pageActionQueue");
+        assertNotNull(queue);
+        assertEquals(3, queue.size());
+        assertEquals("setFilters", queue.get(0).get("actionKey"));
+        assertEquals("search", queue.get(1).get("actionKey"));
+        assertEquals("readTable", queue.get(2).get("actionKey"));
+        assertEquals("靳圣辉", ((Map<String, Object>) queue.get(0).get("args")).get("managerName"));
+    }
+
+    @Test
     void interactionCollectInputPublishesExplicitTargetArgs() {
         LangGraph4jRuntimeAdapter adapter = adapter(null);
 
@@ -1709,6 +1742,67 @@ class LangGraph4jRuntimeAdapterTest {
                         .build())
                 .edge(GraphSpec.Edge.builder().from("START").to(nodeId).condition("always").build())
                 .edge(GraphSpec.Edge.builder().from(nodeId).to("END").condition("always").build())
+                .build();
+    }
+
+    private GraphSpec pageAssistantChainGraph() {
+        return GraphSpec.builder()
+                .code("page-assistant-chain")
+                .name("页面助手链路")
+                .runtimeHint(AgentRuntimeAdapter.LANGGRAPH4J_RUNTIME_TYPE)
+                .entry("extract_filters")
+                .finishNode("answer")
+                .node(GraphSpec.Node.builder()
+                        .id("extract_filters")
+                        .type("DOCUMENT_EXTRACT")
+                        .name("抽取筛选条件")
+                        .config(Map.of(
+                                "sourceExpression", "input",
+                                "outputAlias", "filters",
+                                "fields", List.of(
+                                        Map.of("name", "managerName", "type", "STRING",
+                                                "source", "regex:(?:负责人|班组负责人)(?:为|是|叫|=|：|:)?[ ]*([^，。,. 的]+)"))))
+                        .build())
+                .node(GraphSpec.Node.builder()
+                        .id("set_filters")
+                        .type("PAGE_ACTION")
+                        .name("设置筛选条件")
+                        .config(Map.of(
+                                "actionKey", "setFilters",
+                                "title", "设置筛选条件",
+                                "confirm", false,
+                                "args", Map.of("managerName", "filters.managerName")))
+                        .build())
+                .node(GraphSpec.Node.builder()
+                        .id("search")
+                        .type("PAGE_ACTION")
+                        .name("执行查询")
+                        .config(Map.of(
+                                "actionKey", "search",
+                                "title", "执行查询",
+                                "confirm", false))
+                        .build())
+                .node(GraphSpec.Node.builder()
+                        .id("read_table")
+                        .type("PAGE_ACTION")
+                        .name("读取表格结果")
+                        .config(Map.of(
+                                "actionKey", "readTable",
+                                "title", "读取表格结果",
+                                "confirm", false))
+                        .build())
+                .node(GraphSpec.Node.builder()
+                        .id("answer")
+                        .type("ANSWER")
+                        .name("返回结果")
+                        .config(Map.of("template", "{{ lastOutput }}"))
+                        .build())
+                .edge(GraphSpec.Edge.builder().from("START").to("extract_filters").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("extract_filters").to("set_filters").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("set_filters").to("search").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("search").to("read_table").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("read_table").to("answer").condition("always").build())
+                .edge(GraphSpec.Edge.builder().from("answer").to("END").condition("always").build())
                 .build();
     }
 

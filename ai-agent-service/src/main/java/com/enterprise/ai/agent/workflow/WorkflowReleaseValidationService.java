@@ -37,6 +37,20 @@ public class WorkflowReleaseValidationService {
         return report.build();
     }
 
+    public WorkflowReleaseValidationResult validateProposed(WorkflowDefinitionEntity workflow, GraphSpec graphSpec) {
+        WorkflowReleaseValidationResult.Builder report = WorkflowReleaseValidationResult.builder();
+        if (workflow == null) {
+            report.error("WORKFLOW_NOT_FOUND", null, "Workflow does not exist");
+            return report.build();
+        }
+        if (graphSpec == null) {
+            report.error("GRAPH_SPEC_MISSING", null, "GraphSpec is required");
+            return report.build();
+        }
+        validateGraph(workflow, graphSpec, report);
+        return report.build();
+    }
+
     private GraphSpec readGraph(String graphSpecJson, WorkflowReleaseValidationResult.Builder report) {
         if (!StringUtils.hasText(graphSpecJson)) {
             report.error("GRAPH_SPEC_MISSING", null, "Workflow publishing requires GraphSpec");

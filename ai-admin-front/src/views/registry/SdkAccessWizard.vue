@@ -274,23 +274,24 @@
         title="复制提示词到 Cursor、Claude Code 或 Codex，让 AI 在业务系统代码仓库里完成 SDK 接入。"
         description="提示词不会包含 App Secret；AI 只会被要求使用本机环境变量或密钥管理器。"
       />
-      <section class="ai-coding-key-panel">
+      <section class="ai-coding-key-panel ai-coding-key-readonly">
         <div class="ai-coding-key-head">
           <div>
             <strong>AI Coding 接入秘钥</strong>
-            <span>用于 Cursor、Claude Code、Codex 免登录读取本项目接入清单。</span>
+            <span>在项目详情中统一管理；此处只读展示，用于生成 AI 提示词 URL。</span>
           </div>
-          <el-switch v-model="aiCodingAccessEnabled" active-text="启用" inactive-text="关闭" />
+          <el-tag :type="aiCodingAccessEnabled ? 'success' : 'info'" effect="plain">
+            {{ aiCodingAccessEnabled ? '已启用' : '未启用' }}
+          </el-tag>
         </div>
         <div class="ai-coding-key-form">
           <el-input
-            v-model="aiCodingAccessKey"
-            :disabled="!aiCodingAccessEnabled"
+            :model-value="aiCodingAccessDisplayKey"
+            disabled
             show-password
-            placeholder="保存时为空会自动生成；清空并关闭后 AI 工具无法连接"
+            placeholder="未启用或未生成；请前往项目详情启用"
           />
-          <el-button :loading="aiCodingAccessSaving" @click="saveAiCodingAccess">保存</el-button>
-          <el-button @click="clearAiCodingAccess">清空并关闭</el-button>
+          <el-button link type="primary" @click="goProjectDetail">前往项目详情管理</el-button>
         </div>
       </section>
       <el-tabs v-model="aiPromptTool" class="ai-tool-tabs">
@@ -338,7 +339,6 @@ import {
   getScanProjects,
   runAiAccessSessionChecks,
   startAiAccessSession,
-  updateAiCodingAccess,
 } from '@/api/scanProject'
 import { useTheme } from '@/composables/useTheme'
 import type { ApiAssetItem } from '@/types/apiAsset'
@@ -365,13 +365,15 @@ const apiAssets = ref<ApiAssetItem[]>([])
 const loading = ref(false)
 const checking = ref(false)
 const aiPromptLoading = ref(false)
-const aiCodingAccessSaving = ref(false)
 const aiPromptDialogVisible = ref(false)
 const aiPromptTool = ref<'cursor' | 'claude' | 'codex'>('cursor')
 const aiOnboardingManifest = ref<AiOnboardingManifest | null>(null)
 const accessSession = ref<AiAccessSession | null>(null)
 const aiCodingAccessEnabled = ref(false)
 const aiCodingAccessKey = ref('')
+const aiCodingAccessDisplayKey = computed(() =>
+  aiCodingAccessEnabled.value && aiCodingAccessKey.value.trim() ? aiCodingAccessKey.value.trim() : '',
+)
 const activeStep = ref<WizardStepKey>('overview')
 const selectedApiAssetId = ref<number | null>(null)
 const argsText = ref('{}')
@@ -926,37 +928,6 @@ async function ensureAccessSession(projectId: number) {
   return data
 }
 
-async function saveAiCodingAccess() {
-  const p = project.value
-  if (!p?.id) return
-  aiCodingAccessSaving.value = true
-  try {
-    const { data } = await updateAiCodingAccess(p.id, {
-      enabled: aiCodingAccessEnabled.value,
-      accessKey: aiCodingAccessKey.value.trim() || null,
-    })
-    aiCodingAccessEnabled.value = data.enabled
-    aiCodingAccessKey.value = data.accessKey || ''
-    if (aiOnboardingManifest.value) {
-      aiOnboardingManifest.value.aiCodingAccess = {
-        enabled: data.enabled,
-        accessKey: data.accessKey || null,
-      }
-    }
-    ElMessage.success(data.enabled ? 'AI Coding 接入秘钥已保存' : 'AI Coding 接入已关闭')
-  } catch (error) {
-    ElMessage.error((error as Error).message || '保存 AI Coding 接入秘钥失败')
-  } finally {
-    aiCodingAccessSaving.value = false
-  }
-}
-
-async function clearAiCodingAccess() {
-  aiCodingAccessEnabled.value = false
-  aiCodingAccessKey.value = ''
-  await saveAiCodingAccess()
-}
-
 async function runCheck() {
   const p = project.value
   if (!p?.id) return
@@ -991,6 +962,10 @@ async function runCheck() {
 
 function goBack() {
   router.push({ name: 'RegistryProjectDetail', params: { projectCode: projectCode.value } })
+}
+
+function goProjectDetail() {
+  goBack()
 }
 
 function goPrev() {

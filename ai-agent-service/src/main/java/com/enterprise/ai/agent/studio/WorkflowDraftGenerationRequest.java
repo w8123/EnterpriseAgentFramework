@@ -25,6 +25,8 @@ public class WorkflowDraftGenerationRequest {
 
     private String modelInstanceId;
 
+    private String draftScenario;
+
     private Map<String, Object> currentCanvas;
 
     @Singular

@@ -1,12 +1,14 @@
 package com.enterprise.ai.agent.platform.auth;
 
 import com.enterprise.ai.agent.governance.GuardDecisionLogService;
+import com.enterprise.ai.agent.workflow.aicoding.WorkflowAiCodingPaths;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.nio.charset.StandardCharsets;
@@ -22,10 +24,16 @@ public class PlatformAuthInterceptor implements HandlerInterceptor {
     private final GuardDecisionLogService guardDecisionLogService;
     private final ObjectMapper objectMapper;
 
+    private static final String AI_CODING_KEY_HEADER = "X-ReachAI-AiCoding-Key";
+
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         String path = request.getRequestURI();
+        captureAiCodingKey(request);
         if (isPublic(request) || "OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
+        if (isWorkflowAiCodingAccess(path)) {
             return true;
         }
         Optional<PlatformPrincipal> principal = authService.authenticate(extractBearer(request));
@@ -51,6 +59,7 @@ public class PlatformAuthInterceptor implements HandlerInterceptor {
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
         PlatformAuthContext.clear();
+        AiCodingKeyContext.clear();
     }
 
     private boolean isPublic(HttpServletRequest request) {
@@ -67,6 +76,22 @@ public class PlatformAuthInterceptor implements HandlerInterceptor {
                 || isAiCodingAgentProvisionAccess(request, path)
                 || isAiCodingAccessSessionAccess(request, path)
                 || isAiCodingPageAssistantAccess(request, path);
+    }
+
+    private boolean isWorkflowAiCodingAccess(String path) {
+        return WorkflowAiCodingPaths.matchesRequestPath(path);
+    }
+
+    private void captureAiCodingKey(HttpServletRequest request) {
+        String headerValue = request.getHeader(AI_CODING_KEY_HEADER);
+        if (StringUtils.hasText(headerValue)) {
+            AiCodingKeyContext.set(headerValue);
+            return;
+        }
+        String queryValue = request.getParameter("aiCodingKey");
+        if (StringUtils.hasText(queryValue)) {
+            AiCodingKeyContext.set(queryValue);
+        }
     }
 
     private boolean isAiCodingManifestAccess(HttpServletRequest request, String path) {

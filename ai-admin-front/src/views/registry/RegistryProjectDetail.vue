@@ -90,6 +90,34 @@
       </div>
     </el-card>
 
+    <el-card class="detail-card ai-coding-key-card" shadow="never">
+      <template #header>
+        <div class="section-title">
+          <span class="title-mark" />
+          <span>AI Coding 接入秘钥</span>
+        </div>
+      </template>
+      <div class="ai-coding-key-panel">
+        <div class="ai-coding-key-head">
+          <div>
+            <strong>项目级统一秘钥</strong>
+            <span>启用后供 Cursor、Claude Code、Codex 免登录接入本项目的页面助手与 Workflow AI Coding。</span>
+          </div>
+          <el-switch v-model="aiCodingAccessEnabled" active-text="启用" inactive-text="关闭" />
+        </div>
+        <div class="ai-coding-key-form">
+          <el-input
+            v-model="aiCodingAccessKey"
+            :disabled="!aiCodingAccessEnabled"
+            show-password
+            placeholder="保存时为空会自动生成；清空并关闭后 AI 工具无法连接"
+          />
+          <el-button :loading="aiCodingAccessSaving" type="primary" @click="saveAiCodingAccess">保存</el-button>
+          <el-button @click="clearAiCodingAccess">清空并关闭</el-button>
+        </div>
+      </div>
+    </el-card>
+
     <section class="workbench-grid">
       <el-card v-for="group in workbenchGroups" :key="group.title" class="detail-card workbench-card" shadow="never">
         <template #header>
@@ -336,9 +364,11 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   deleteScanProject,
+  getAiOnboardingManifest,
   getScanProjectDetail,
   getScanProjectOperationBlockers,
   getScanProjects,
+  updateAiCodingAccess,
   updateScanProject,
   updateScanProjectRegistryCredential,
 } from '@/api/scanProject'
@@ -389,6 +419,9 @@ const editDialogVisible = ref(false)
 const editSaving = ref(false)
 const deleteLoading = ref(false)
 const editAccessLockedToSdk = ref(false)
+const aiCodingAccessSaving = ref(false)
+const aiCodingAccessEnabled = ref(false)
+const aiCodingAccessKey = ref('')
 
 const projectKindOptions: { value: ProjectKind; label: string }[] = [
   { value: 'SCAN', label: '扫描接入' },
@@ -590,6 +623,7 @@ async function refresh() {
     try {
       const { data: detail } = await getScanProjectDetail(found.id)
       project.value = detail
+      await loadAiCodingAccess(found.id)
     } catch {
       project.value = found
     }
@@ -598,6 +632,42 @@ async function refresh() {
   }
   await loadInstances()
   await loadPageCatalog()
+}
+
+async function loadAiCodingAccess(projectId: number) {
+  try {
+    const { data } = await getAiOnboardingManifest(projectId)
+    aiCodingAccessEnabled.value = data.aiCodingAccess?.enabled ?? false
+    aiCodingAccessKey.value = data.aiCodingAccess?.accessKey || ''
+  } catch {
+    aiCodingAccessEnabled.value = false
+    aiCodingAccessKey.value = ''
+  }
+}
+
+async function saveAiCodingAccess() {
+  const p = project.value
+  if (!p?.id) return
+  aiCodingAccessSaving.value = true
+  try {
+    const { data } = await updateAiCodingAccess(p.id, {
+      enabled: aiCodingAccessEnabled.value,
+      accessKey: aiCodingAccessKey.value.trim() || null,
+    })
+    aiCodingAccessEnabled.value = data.enabled
+    aiCodingAccessKey.value = data.accessKey || ''
+    ElMessage.success(data.enabled ? 'AI Coding 接入秘钥已保存' : 'AI Coding 接入已关闭')
+  } catch (error) {
+    ElMessage.error((error as Error).message || '保存 AI Coding 接入秘钥失败')
+  } finally {
+    aiCodingAccessSaving.value = false
+  }
+}
+
+async function clearAiCodingAccess() {
+  aiCodingAccessEnabled.value = false
+  aiCodingAccessKey.value = ''
+  await saveAiCodingAccess()
 }
 
 async function loadInstances() {
@@ -1048,9 +1118,53 @@ function goSdkAccessWizard() {
 }
 
 .health-card,
+.ai-coding-key-card,
 .workbench-grid,
 .page-action-summary-card {
   margin-bottom: 14px;
+}
+
+.ai-coding-key-card :deep(.el-card__body) {
+  padding: 16px 20px 20px;
+}
+
+.ai-coding-key-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-coding-key-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ai-coding-key-head strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--el-text-color-primary);
+}
+
+.ai-coding-key-head span {
+  display: block;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ai-coding-key-form {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+@media (max-width: 960px) {
+  .ai-coding-key-form {
+    grid-template-columns: 1fr;
+  }
 }
 
 .health-card :deep(.el-card__body),

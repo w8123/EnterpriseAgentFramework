@@ -56,6 +56,8 @@ Prefer minimal, reviewable changes:
    - Pass `pageKey`, `pageInstanceId`, `route`, and `origin` into the token request so ReachAI can isolate sessions and route the current page to the right Workflow.
    - Pass the same stable `pageKey` through `createEafChat({ page: { pageKey, routePattern } })`; the browser SDK will create the chat session with `pageKey`, `route`, `pageInstanceId`, and registered page actions.
    - Do not reuse the business login token for ReachAI chat session or message calls. Use the broker-returned short-lived embed token for `/api/reachai/embed/**`, `/api/embed/chat/sessions`, and message APIs.
+   - Chat message calls must use `POST /api/embed/chat/sessions/{sessionId}/messages` or the `/messages/stream` variant with body `{ "message": "..." }`.
+   - Do not send ReachAI chat requests as `{ "content": "..." }`, `{ "text": "..." }`, or `{ "question": "..." }`; map any business UI field to `message` at the ReachAI API boundary.
    - Cache embed tokens only until before their `expiresIn` boundary. If a session or message request returns `embed token is expired`, clear the cached embed token, call the broker again, and retry once.
 10. Run the smallest meaningful verification commands for the touched backend, gateway, and front-end modules.
 11. Call the manifest's `sdkAccessCheckUrl` only after local compile/config succeeds, including `gatewayBaseUrl` and `embedTokenPath`, or explain why a live check cannot run.

@@ -60,7 +60,7 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
 
         DraftResponse draft;
         try {
-            String raw = llmService.chat(systemPrompt(), userPrompt(request), request.getModelInstanceId());
+            String raw = llmService.chat(systemPrompt(request), userPrompt(request), request.getModelInstanceId());
             JsonNode root = normalizeDraftJson(objectMapper.readTree(extractJsonObject(raw)));
             draft = objectMapper.treeToValue(root, DraftResponse.class);
         } catch (Exception ex) {
@@ -74,8 +74,15 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
         }
 
         List<DraftNode> normalizedNodes = normalizeNodes(draft.nodes(), request, resources, warnings, validationErrors, placeholders);
+        boolean backfilledPageActions = false;
+        if (isPageAssistantDraft(request)) {
+            backfilledPageActions = backfillPageAssistantActionsWhenMissing(request, normalizedNodes, warnings);
+            normalizePageAssistantDraft(request, normalizedNodes, warnings);
+        }
         List<DraftEdge> normalizedEdges = normalizeEdges(draft.edges(), normalizedNodes, validationErrors);
-        if (normalizedEdges.isEmpty() && !normalizedNodes.isEmpty()) {
+        if (backfilledPageActions) {
+            normalizedEdges = defaultEdges(normalizedNodes);
+        } else if (normalizedEdges.isEmpty() && !normalizedNodes.isEmpty()) {
             normalizedEdges = defaultEdges(normalizedNodes);
         }
         return result(request, normalizedNodes, normalizedEdges, warnings, placeholders, validationErrors);
@@ -147,7 +154,7 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
                 normalizeKnowledgeConfig(config, request, resources, warnings, placeholders, id, firstText(raw.label(), id));
             } else if (type == AgentGraphNodeType.PAGE_ACTION) {
                 normalizePageActionConfig(config, request, resources, warnings, placeholders, id, firstText(raw.label(), id),
-                        usedPageActions, pageActionNodeIndex++);
+                        usedPageActions, pageActionNodeIndex++, validationErrors);
             } else if (type.isToolLike() || type == AgentGraphNodeType.HTTP_REQUEST || type == AgentGraphNodeType.MCP_CALL) {
                 normalizeCapabilityConfig(config, type, request, resources, warnings, placeholders, id, firstText(raw.label(), id));
             }
@@ -504,10 +511,19 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
                                            String nodeId,
                                            String label,
                                            Set<String> usedPageActions,
-                                           int pageActionNodeIndex) {
+                                           int pageActionNodeIndex,
+                                           List<String> validationErrors) {
         String ref = firstText(text(config.get("ref")), text(config.get("name")), text(config.get("qualifiedName")),
                 text(config.get("actionKey")), text(config.get("action")));
         WorkflowDraftResource resource = resource(ref, resources);
+        if (resource == null && StringUtils.hasText(ref) && isPageAssistantDraft(request)) {
+            markPlaceholder(config, warnings, placeholders, nodeId, "pageAction", label,
+                    "页面动作未在本次选择/注册的 actionKeys 中：" + ref);
+            validationErrors.add("PAGE_ASSISTANT pageAction is not supplied by selected pageActions: " + ref);
+            config.put("args", mutableMap(config.get("args")));
+            config.put("outputAlias", firstText(text(config.get("outputAlias")), "page_action_result"));
+            return;
+        }
         if (resource == null) {
             resource = singlePageActionResource(request);
         }
@@ -989,8 +1005,341 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
         return resources.get(compactToken(ref));
     }
 
-    private String systemPrompt() {
-        return """
+    private boolean backfillPageAssistantActionsWhenMissing(WorkflowDraftGenerationRequest request,
+                                                            List<DraftNode> nodes,
+                                                            List<String> warnings) {
+        if (request == null || request.getPageActions() == null || request.getPageActions().isEmpty()) {
+            return false;
+        }
+        boolean hasPageAction = nodes.stream().anyMatch(node -> "pageAction".equals(node.kind()));
+        if (hasPageAction) {
+            return false;
+        }
+
+        List<DraftNode> actionNodes = pageAssistantActionNodes(request);
+        if (actionNodes.isEmpty()) {
+            return false;
+        }
+
+        int insertAt = firstNodeIndex(nodes, "answer");
+        if (insertAt < 0) {
+            insertAt = nodes.size();
+        }
+        nodes.addAll(insertAt, actionNodes);
+        warnings.add("页面助手草稿未包含页面动作节点，已按已选 actionKeys 自动补齐执行链路");
+        return true;
+    }
+
+    private List<DraftNode> pageAssistantActionNodes(WorkflowDraftGenerationRequest request) {
+        List<DraftNode> nodes = new ArrayList<>();
+        if (hasPageAction(request, "setFilters")) {
+            nodes.add(new DraftNode(
+                    "extract_filters",
+                    "llm",
+                    "LLM",
+                    "提取筛选条件",
+                    "从用户问题提取页面筛选条件",
+                    new LinkedHashMap<>(Map.of(
+                            "configVersion", 2,
+                            "source", "AI_DRAFT",
+                            "outputAlias", "extracted_filters")),
+                    List.of(),
+                    List.of()));
+        }
+        Set<String> added = new LinkedHashSet<>();
+        List<String> preferred = List.of("setFilters", "search", "readTable", "getPageState", "reset", "openRowAction");
+        for (String actionKey : preferred) {
+            WorkflowDraftResource resource = findPageActionResource(request, actionKey);
+            if (resource != null) {
+                nodes.add(pageAssistantActionNode(request, resource));
+                added.add(compactToken(actionResourceKey(resource)));
+            }
+        }
+        for (WorkflowDraftResource resource : request.getPageActions()) {
+            if (resource == null) {
+                continue;
+            }
+            String compact = compactToken(actionResourceKey(resource));
+            if (added.contains(compact)) {
+                continue;
+            }
+            nodes.add(pageAssistantActionNode(request, resource));
+            added.add(compact);
+        }
+        return nodes;
+    }
+
+    private DraftNode pageAssistantActionNode(WorkflowDraftGenerationRequest request, WorkflowDraftResource resource) {
+        Map<String, Object> metadata = mutableMap(resource.getMetadata());
+        String actionKey = actionResourceKey(resource);
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put("configVersion", 2);
+        config.put("source", "AI_DRAFT");
+        config.put("projectCode", firstText(text(metadata.get("projectCode")), resource.getProjectCode(), request.getProjectCode()));
+        config.put("pageKey", text(metadata.get("pageKey")));
+        config.put("routePattern", text(metadata.get("routePattern")));
+        config.put("actionKey", actionKey);
+        config.put("title", firstText(resource.getDescription(), actionKey));
+        config.put("confirm", bool(metadata.get("confirmRequired")));
+        config.put("args", Map.of());
+        config.put("outputAlias", "page_action_result");
+        config.put("metadata", Map.of(
+                "source", "AI_DRAFT",
+                "inputSchema", mutableMap(metadata.get("inputSchema")),
+                "outputSchema", mutableMap(metadata.get("outputSchema")),
+                "sampleArgs", mutableMap(metadata.get("sampleArgs"))));
+        return new DraftNode(
+                pageAssistantActionNodeId(actionKey),
+                "pageAction",
+                "PAGE_ACTION",
+                firstText(resource.getDescription(), actionKey),
+                firstText(resource.getDescription(), actionKey),
+                config,
+                List.of(),
+                List.of());
+    }
+
+    private String actionResourceKey(WorkflowDraftResource resource) {
+        if (resource == null) {
+            return "";
+        }
+        Map<String, Object> metadata = mutableMap(resource.getMetadata());
+        return firstText(text(metadata.get("actionKey")), resource.getName());
+    }
+
+    private String pageAssistantActionNodeId(String actionKey) {
+        String compact = compactToken(actionKey);
+        if ("setfilters".equals(compact)) {
+            return "set_filters";
+        }
+        if ("readtable".equals(compact)) {
+            return "read_table";
+        }
+        if ("getpagestate".equals(compact)) {
+            return "get_page_state";
+        }
+        if ("openrowaction".equals(compact)) {
+            return "open_row_action";
+        }
+        return slug(actionKey);
+    }
+
+    private int firstNodeIndex(List<DraftNode> nodes, String kind) {
+        for (int i = 0; i < nodes.size(); i++) {
+            if (kind.equals(nodes.get(i).kind())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void normalizePageAssistantDraft(WorkflowDraftGenerationRequest request,
+                                           List<DraftNode> nodes,
+                                           List<String> warnings) {
+        if (nodes.isEmpty()) {
+            return;
+        }
+        DraftNode extractNode = findPageAssistantExtractNode(nodes);
+        String extractAlias = extractNode == null
+                ? "extracted_filters"
+                : normalizePageAssistantExtractNode(extractNode, request, warnings);
+        for (DraftNode node : nodes) {
+            if (!"pageAction".equals(node.kind())) {
+                continue;
+            }
+            String actionKey = firstText(text(node.config().get("actionKey")), text(node.config().get("action")));
+            if (isSetFiltersAction(actionKey)) {
+                ensureSetFiltersArgs(node, extractAlias, request, warnings);
+            }
+        }
+        normalizePageAssistantAnswerNodes(nodes);
+    }
+
+    private DraftNode findPageAssistantExtractNode(List<DraftNode> nodes) {
+        int firstPageActionIndex = -1;
+        for (int i = 0; i < nodes.size(); i++) {
+            if ("pageAction".equals(nodes.get(i).kind())) {
+                firstPageActionIndex = i;
+                break;
+            }
+        }
+        if (firstPageActionIndex <= 0) {
+            return null;
+        }
+        for (int i = firstPageActionIndex - 1; i >= 0; i--) {
+            DraftNode candidate = nodes.get(i);
+            if ("userInput".equals(candidate.kind())) {
+                continue;
+            }
+            if ("llm".equals(candidate.kind()) || "parameter".equals(candidate.kind())) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private String normalizePageAssistantExtractNode(DraftNode node,
+                                                     WorkflowDraftGenerationRequest request,
+                                                     List<String> warnings) {
+        Map<String, Object> config = node.config();
+        String alias = firstText(text(config.get("outputAlias")), "extracted_filters");
+        config.put("outputAlias", alias);
+        String fieldGuide = buildFilterFieldGuide(filterFieldNames(request));
+        String systemPrompt = buildPageAssistantExtractSystemPrompt(fieldGuide);
+        config.put("systemPrompt", systemPrompt);
+        config.put("userPrompt", "{{ params.question }}");
+        config.put("outputFormat", "json");
+        config.put("structuredOutput", true);
+        config.put("strictJsonSchema", true);
+        config.put("contextVariables", List.of("input", "lastOutput", "params"));
+        config.put("messages", List.of(
+                Map.of("id", "system", "role", "system", "content", systemPrompt, "templateEngine", "mustache", "enabled", true),
+                Map.of("id", "user", "role", "user", "content", "{{ params.question }}", "templateEngine", "mustache", "enabled", true)));
+        config.put("promptTemplateMode", "messages");
+        warnings.add(node.label() + "：已按 setFilters 的 inputSchema 自动补强筛选提取 prompt");
+        return alias;
+    }
+
+    private void ensureSetFiltersArgs(DraftNode node,
+                                      String extractAlias,
+                                      WorkflowDraftGenerationRequest request,
+                                      List<String> warnings) {
+        Map<String, Object> config = node.config();
+        Map<String, Object> args = mutableMap(config.get("args"));
+        if (!args.isEmpty() && args.values().stream().anyMatch(value -> StringUtils.hasText(text(value)))) {
+            rewriteSetFiltersArgAliases(args, extractAlias);
+            config.put("args", args);
+            return;
+        }
+        List<String> fields = filterFieldNames(request);
+        if (fields.isEmpty()) {
+            warnings.add(node.label() + "：setFilters 未提供 inputSchema/sampleArgs，无法自动生成 args");
+            return;
+        }
+        Map<String, Object> wired = new LinkedHashMap<>();
+        for (String field : fields) {
+            wired.put(field, extractAlias + "." + field);
+        }
+        config.put("args", wired);
+        warnings.add(node.label() + "：已根据 setFilters inputSchema 自动生成 args 映射");
+    }
+
+    private void rewriteSetFiltersArgAliases(Map<String, Object> args, String extractAlias) {
+        args.replaceAll((key, value) -> {
+            String raw = text(value);
+            if (!StringUtils.hasText(raw)) {
+                return extractAlias + "." + key;
+            }
+            String normalized = raw.replace("{{", "").replace("}}", "").trim();
+            int dot = normalized.indexOf('.');
+            if (dot <= 0) {
+                return raw;
+            }
+            String suffix = normalized.substring(dot + 1);
+            if (!StringUtils.hasText(suffix)) {
+                return raw;
+            }
+            return extractAlias + "." + suffix;
+        });
+    }
+
+    private void normalizePageAssistantAnswerNodes(List<DraftNode> nodes) {
+        boolean hasPageAction = nodes.stream().anyMatch(node -> "pageAction".equals(node.kind()));
+        if (!hasPageAction) {
+            return;
+        }
+        for (DraftNode node : nodes) {
+            if (!"answer".equals(node.kind())) {
+                continue;
+            }
+            Map<String, Object> config = node.config();
+            String template = text(config.get("template"));
+            if (!StringUtils.hasText(template) || template.contains("lastOutput")) {
+                config.put("template", "正在按你的条件查询页面数据，请稍候…");
+            }
+        }
+    }
+
+    private List<String> filterFieldNames(WorkflowDraftGenerationRequest request) {
+        WorkflowDraftResource setFilters = findPageActionResource(request, "setFilters");
+        if (setFilters == null) {
+            return List.of();
+        }
+        Map<String, Object> metadata = mutableMap(setFilters.getMetadata());
+        Map<String, Object> sampleArgs = mutableMap(metadata.get("sampleArgs"));
+        if (!sampleArgs.isEmpty()) {
+            return sampleArgs.keySet().stream().sorted().toList();
+        }
+        Map<String, Object> inputSchema = mutableMap(metadata.get("inputSchema"));
+        Map<String, Object> properties = mutableMap(inputSchema.get("properties"));
+        if (!properties.isEmpty()) {
+            return properties.keySet().stream().sorted().toList();
+        }
+        return List.of();
+    }
+
+    private WorkflowDraftResource findPageActionResource(WorkflowDraftGenerationRequest request, String actionKey) {
+        if (request == null || request.getPageActions() == null || !StringUtils.hasText(actionKey)) {
+            return null;
+        }
+        String targetCompact = compactToken(actionKey);
+        for (WorkflowDraftResource resource : request.getPageActions()) {
+            if (resource == null) {
+                continue;
+            }
+            if (actionKey.equalsIgnoreCase(resource.getName())) {
+                return resource;
+            }
+            Map<String, Object> metadata = mutableMap(resource.getMetadata());
+            String metaActionKey = text(metadata.get("actionKey"));
+            if (actionKey.equalsIgnoreCase(metaActionKey)) {
+                return resource;
+            }
+            if (StringUtils.hasText(targetCompact)
+                    && (targetCompact.equals(compactToken(resource.getName()))
+                    || targetCompact.equals(compactToken(metaActionKey)))) {
+                return resource;
+            }
+        }
+        return null;
+    }
+
+    private boolean isSetFiltersAction(String actionKey) {
+        if (!StringUtils.hasText(actionKey)) {
+            return false;
+        }
+        String compact = compactToken(actionKey);
+        return "setfilters".equals(compact)
+                || actionKey.toLowerCase(Locale.ROOT).contains("setfilter")
+                || actionKey.toLowerCase(Locale.ROOT).contains("set_filter");
+    }
+
+    private String buildFilterFieldGuide(List<String> fields) {
+        if (fields.isEmpty()) {
+            return "按页面 setFilters 动作可接受的筛选字段输出 JSON；字段名与页面动作 inputSchema 保持一致。";
+        }
+        return "仅输出以下字段组成的 JSON 对象（键名必须完全一致）：" + String.join("、", fields)
+                + "。用户未提及的字段不要编造，可省略该键。";
+    }
+
+    private String buildPageAssistantExtractSystemPrompt(String fieldGuide) {
+        return "你是页面助手工作流中的筛选条件提取节点。"
+                + fieldGuide
+                + " 只输出 JSON 对象，不要输出解释、Markdown 或代码块。";
+    }
+
+    private boolean isPageAssistantDraft(WorkflowDraftGenerationRequest request) {
+        if (request == null) {
+            return false;
+        }
+        if ("PAGE_ASSISTANT".equalsIgnoreCase(text(request.getDraftScenario()))) {
+            return true;
+        }
+        return request.getPageActions() != null && !request.getPageActions().isEmpty();
+    }
+
+    private String systemPrompt(WorkflowDraftGenerationRequest request) {
+        StringBuilder prompt = new StringBuilder("""
                 You are Agent Studio's workflow draft generator. Return only strict JSON.
                 Generate a complete workflow draft from the user's requirement.
                 Use only node kinds listed in nodeTypes. Use only supplied tools/capabilities/knowledgeBases/pageActions when binding real resources.
@@ -1000,7 +1349,22 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
                 Required JSON shape:
                 {"summary":"short summary","nodes":[{"id":"stable_snake_case","kind":"userInput|llm|tool|skill|knowledge|pageAction|classifier|condition|answer|approval|parameter|http|code|aggregate|loop|template|variable|mcp","label":"display name","description":"what it does","config":{},"inputs":[],"outputs":[]}],"edges":[{"id":"optional","from":"START or node id","to":"node id or END","condition":"always|approved|rejected|route:key|success|error","sourceHandle":"optional","targetHandle":"optional"}],"warnings":[]}
                 inputs and outputs must be arrays of port objects like {"id":"portId","name":"portName","type":"any"}, never bare strings.
-                """;
+                """);
+        if (isPageAssistantDraft(request)) {
+            prompt.append("""
+
+                    PAGE_ASSISTANT draft rules (mandatory when pageActions are supplied):
+                    - Never invent or assume pageAction actionKeys. Use only actionKeys present in pageActions/allowedActionKeys.
+                    - Do not create setFilters unless pageActions contains setFilters. If setFilters is absent, skip the filter-setting step and use the supplied actions only.
+                    - Build a linear flow using the supplied pageActions in recommendedFlow order; omit any missing optional action.
+                    - When setFilters is available, add one LLM extract node before it with outputAlias=extracted_filters, outputFormat=json, structuredOutput=true.
+                    - setFilters pageAction config.args must map each inputSchema field to extracted_filters.<fieldName>; never leave args empty when setFilters is selected.
+                    - search/readTable/reset/getPageState pageAction nodes usually use empty args unless the action schema requires parameters.
+                    - answer node must use a fixed Chinese status sentence, not {{ lastOutput }}, when the flow ends after page actions.
+                    - Bind each pageAction config.ref to the exact actionKey from pageActions.
+                    """);
+        }
+        return prompt.toString();
     }
 
     private String userPrompt(WorkflowDraftGenerationRequest request) throws JsonProcessingException {
@@ -1008,6 +1372,7 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
         payload.put("agentId", request.getAgentId());
         payload.put("agentName", request.getAgentName());
         payload.put("projectCode", request.getProjectCode());
+        payload.put("draftScenario", request.getDraftScenario());
         payload.put("requirement", request.getRequirement());
         payload.put("modelInstanceId", request.getModelInstanceId());
         payload.put("nodeTypes", AgentGraphNodeType.catalog());
@@ -1015,8 +1380,68 @@ public class LlmWorkflowDraftGenerator implements WorkflowDraftGenerator {
         payload.put("capabilities", request.getCapabilities() == null ? List.of() : request.getCapabilities());
         payload.put("knowledgeBases", request.getKnowledgeBases() == null ? List.of() : request.getKnowledgeBases());
         payload.put("pageActions", request.getPageActions() == null ? List.of() : request.getPageActions());
+        if (isPageAssistantDraft(request)) {
+            Map<String, Object> template = new LinkedHashMap<>();
+            template.put("entry", "user_input");
+            template.put("allowedActionKeys", pageAssistantAllowedActionKeys(request));
+            template.put("recommendedFlow", pageAssistantRecommendedFlow(request));
+            if (hasPageAction(request, "setFilters")) {
+                template.put("extractNode", Map.of(
+                        "id", "extract_filters",
+                        "outputAlias", "extracted_filters",
+                        "outputFormat", "json",
+                        "structuredOutput", true));
+                template.put("setFiltersArgsPattern", "extracted_filters.<fieldName>");
+            }
+            template.put("answerTemplate", "正在按你的条件查询页面数据，请稍候…");
+            payload.put("pageAssistantTemplate", template);
+        }
         payload.put("currentCanvas", request.getCurrentCanvas() == null ? Map.of() : request.getCurrentCanvas());
         return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(payload);
+    }
+
+    private List<String> pageAssistantAllowedActionKeys(WorkflowDraftGenerationRequest request) {
+        if (request == null || request.getPageActions() == null) {
+            return List.of();
+        }
+        return request.getPageActions().stream()
+                .filter(Objects::nonNull)
+                .map(resource -> {
+                    Map<String, Object> metadata = mutableMap(resource.getMetadata());
+                    return firstText(text(metadata.get("actionKey")), resource.getName());
+                })
+                .filter(StringUtils::hasText)
+                .distinct()
+                .toList();
+    }
+
+    private List<String> pageAssistantRecommendedFlow(WorkflowDraftGenerationRequest request) {
+        List<String> flow = new ArrayList<>();
+        flow.add("user_input");
+        if (hasPageAction(request, "setFilters")) {
+            flow.add("extract_filters");
+            flow.add("set_filters");
+        }
+        List<String> preferred = List.of("search", "readTable", "getPageState", "reset", "openRowAction");
+        Set<String> added = new LinkedHashSet<>();
+        for (String actionKey : preferred) {
+            if (hasPageAction(request, actionKey)) {
+                flow.add(slug(actionKey));
+                added.add(compactToken(actionKey));
+            }
+        }
+        for (String actionKey : pageAssistantAllowedActionKeys(request)) {
+            String compact = compactToken(actionKey);
+            if (!added.contains(compact) && !isSetFiltersAction(actionKey)) {
+                flow.add(slug(actionKey));
+            }
+        }
+        flow.add("answer");
+        return flow;
+    }
+
+    private boolean hasPageAction(WorkflowDraftGenerationRequest request, String actionKey) {
+        return findPageActionResource(request, actionKey) != null;
     }
 
     private JsonNode normalizeDraftJson(JsonNode root) {

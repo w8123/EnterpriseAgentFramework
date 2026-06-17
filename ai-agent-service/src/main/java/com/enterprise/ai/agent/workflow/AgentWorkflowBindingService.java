@@ -36,6 +36,16 @@ public class AgentWorkflowBindingService {
         return mapper.selectList(query);
     }
 
+    public List<AgentWorkflowBindingEntity> listByWorkflowId(String workflowId) {
+        if (!StringUtils.hasText(workflowId)) {
+            return List.of();
+        }
+        return mapper.selectList(Wrappers.<AgentWorkflowBindingEntity>lambdaQuery()
+                .eq(AgentWorkflowBindingEntity::getWorkflowId, workflowId.trim())
+                .orderByDesc(AgentWorkflowBindingEntity::getPriority)
+                .orderByDesc(AgentWorkflowBindingEntity::getUpdatedAt));
+    }
+
     @Transactional
     public AgentWorkflowBindingEntity create(String agentId, AgentWorkflowBindingEntity entity) {
         if (entity == null) {

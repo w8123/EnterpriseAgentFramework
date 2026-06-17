@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,11 @@ public interface ModelServiceClient {
 
     @GetMapping("/instances/{id}")
     ModelInstanceResult getModelInstance(@PathVariable("id") String id);
+
+    @GetMapping("/instances")
+    ModelInstanceListResult listModelInstances(@RequestParam(value = "modelType", required = false) String modelType,
+                                               @RequestParam(value = "provider", required = false) String provider,
+                                               @RequestParam(value = "workspaceId", required = false) String workspaceId);
 
     // ==================== Request / Response DTOs ====================
 
@@ -132,6 +138,15 @@ public interface ModelServiceClient {
         private int dimension;
         private String model;
         private String provider;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    class ModelInstanceListResult {
+        private int code;
+        private String message;
+        private List<ModelInstanceData> data;
     }
 
     @Data

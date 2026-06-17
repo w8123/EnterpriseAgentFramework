@@ -144,6 +144,13 @@ class AiAssistControllerTest {
                 .contains("/api/ai-assist/projects/1/agents/provision?aiCodingKey=rac_valid"));
         assertEquals("demo-service-page-copilot", agentWorkflowBody.get("globalAgentKeySlug"));
         assertEquals("PAGE_COPILOT", agentWorkflowBody.get("globalAgentKind"));
+        Map<String, Object> workflowAiCodingBody = objectMapper.convertValue(
+                agentWorkflowBody.get("workflowAiCoding"), new TypeReference<>() {
+                });
+        assertTrue(workflowAiCodingBody.get("skillPackageUrl").toString()
+                .endsWith("/api/ai-assist/skills/workflow-ai-coding/latest.zip"));
+        assertTrue(workflowAiCodingBody.get("createUrl").toString()
+                .endsWith("/api/workflows/ai-coding/workflows"));
     }
 
     @Test
@@ -783,6 +790,8 @@ class AiAssistControllerTest {
                     assertTrue(content.contains("DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST"));
                     assertTrue(content.contains("Do not reuse the business login token"));
                     assertTrue(content.contains("access-sessions"));
+                    assertTrue(content.contains("POST /api/embed/chat/sessions/{sessionId}/messages"));
+                    assertTrue(content.contains("{ \"message\": \"...\" }"));
                 }
                 if ("reachai-onboarding/references/java-sdk-access.md".equals(entry.getName())) {
                     String content = new String(zip.readAllBytes(), StandardCharsets.UTF_8);
@@ -792,6 +801,7 @@ class AiAssistControllerTest {
                             && content.contains("gateway authentication whitelist")
                             && content.contains("DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST")
                             && content.contains("Never use the business login token as the chat session token")
+                            && content.contains("Do not send ReachAI chat requests as { \"content\": \"...\" }")
                             && content.contains("access-sessions");
                 }
             }
@@ -816,6 +826,43 @@ class AiAssistControllerTest {
         assertEquals("reachai-page-assistant-onboarding", response.getBody().name());
         assertTrue(response.getBody().downloadUrl().endsWith("/api/ai-assist/skills/reachai-page-assistant-onboarding/latest.zip"));
         assertTrue(response.getBody().files().stream().anyMatch(file -> "scripts/reachai-page-assistant.ps1".equals(file.path())));
+    }
+
+    @Test
+    void latestWorkflowAiCodingSkillMetadataPointsToDownloadUrl() {
+        ResponseEntity<AiAssistController.SkillPackageResponse> response = controller.latestWorkflowAiCodingSkill(request());
+
+        assertEquals("workflow-ai-coding", response.getBody().name());
+        assertTrue(response.getBody().downloadUrl().endsWith("/api/ai-assist/skills/workflow-ai-coding/latest.zip"));
+        assertTrue(response.getBody().files().stream().anyMatch(file -> "references/workflow-apis.md".equals(file.path())));
+    }
+
+    @Test
+    void latestWorkflowAiCodingSkillZipContainsSkillEntry() throws Exception {
+        ResponseEntity<byte[]> response = controller.downloadLatestWorkflowAiCodingSkill();
+
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().length > 0);
+        boolean hasSkill = false;
+        boolean hasWorkflowApis = false;
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(response.getBody()))) {
+            for (var entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+                if ("workflow-ai-coding/SKILL.md".equals(entry.getName())) {
+                    hasSkill = true;
+                    String content = new String(zip.readAllBytes(), StandardCharsets.UTF_8);
+                    assertTrue(content.contains("Workflow AI Coding"));
+                    assertTrue(content.contains("manual publish"));
+                }
+                if ("workflow-ai-coding/references/workflow-apis.md".equals(entry.getName())) {
+                    hasWorkflowApis = true;
+                    String content = new String(zip.readAllBytes(), StandardCharsets.UTF_8);
+                    assertTrue(content.contains("/api/workflows/ai-coding/workflows"));
+                    assertTrue(content.contains("/ai-coding/versions"));
+                }
+            }
+        }
+        assertTrue(hasSkill);
+        assertTrue(hasWorkflowApis);
     }
 
     @Test
