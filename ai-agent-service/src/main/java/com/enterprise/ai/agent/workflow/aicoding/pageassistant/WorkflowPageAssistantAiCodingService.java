@@ -381,8 +381,9 @@ public class WorkflowPageAssistantAiCodingService {
 
     private PageContext resolvePageContext(WorkflowDefinitionEntity workflow) {
         Map<String, Object> extra = readJsonMap(workflow.getExtraJson());
-        String pageKey = text(extra.get("pageKey"));
-        String routePattern = text(extra.get("routePattern"));
+        Map<String, Object> pageAssistantExtra = pageAssistantExtra(extra);
+        String pageKey = firstText(text(extra.get("pageKey")), text(pageAssistantExtra.get("pageKey")));
+        String routePattern = firstText(text(extra.get("routePattern")), text(pageAssistantExtra.get("routePattern")));
         for (AgentWorkflowBindingEntity binding : bindingService.listByWorkflowId(workflow.getId())) {
             if (!StringUtils.hasText(pageKey) && StringUtils.hasText(binding.getPageKey())) {
                 pageKey = binding.getPageKey();
@@ -499,6 +500,13 @@ public class WorkflowPageAssistantAiCodingService {
         } catch (Exception ex) {
             return Map.of();
         }
+    }
+
+    private Map<String, Object> pageAssistantExtra(Map<String, Object> extra) {
+        if (extra == null || !(extra.get("pageAssistant") instanceof Map<?, ?> raw)) {
+            return Map.of();
+        }
+        return objectMapper.convertValue(raw, MAP_TYPE);
     }
 
     private boolean hasBridgeContext(Map<String, Object> runtimeContext) {

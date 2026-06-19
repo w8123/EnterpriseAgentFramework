@@ -739,9 +739,13 @@ public class WorkflowAiCodingService {
             return null;
         }
         Map<String, Object> extra = readExtraJson(workflow.getExtraJson());
-        String pageKey = text(extra.get("pageKey"));
-        String routePattern = text(extra.get("routePattern"));
+        Map<String, Object> pageAssistantExtra = pageAssistantExtra(extra);
+        String pageKey = firstText(text(extra.get("pageKey")), text(pageAssistantExtra.get("pageKey")));
+        String routePattern = firstText(text(extra.get("routePattern")), text(pageAssistantExtra.get("routePattern")));
         List<String> actionKeys = toStringList(extra.get("actionKeys"));
+        if (actionKeys.isEmpty()) {
+            actionKeys = toStringList(pageAssistantExtra.get("actionKeys"));
+        }
 
         List<AgentWorkflowBindingEntity> bindings = bindingService.listByWorkflowId(workflow.getId());
         for (AgentWorkflowBindingEntity binding : bindings) {
@@ -952,6 +956,13 @@ public class WorkflowAiCodingService {
         } catch (Exception ex) {
             return Map.of();
         }
+    }
+
+    private Map<String, Object> pageAssistantExtra(Map<String, Object> extra) {
+        if (extra == null || !(extra.get("pageAssistant") instanceof Map<?, ?> raw)) {
+            return Map.of();
+        }
+        return objectMapper.convertValue(raw, MAP_TYPE);
     }
 
     @SuppressWarnings("unchecked")

@@ -81,6 +81,31 @@ class WorkflowPageAssistantAiCodingServiceTest {
     }
 
     @Test
+    void catalogReadsNestedPageAssistantExtraFromAiCodingCreate() throws Exception {
+        WorkflowDefinitionService workflowService = mock(WorkflowDefinitionService.class);
+        PageActionRegistryMapper actionMapper = mock(PageActionRegistryMapper.class);
+        WorkflowPageAssistantAiCodingService service = newService(workflowService, actionMapper);
+
+        WorkflowDefinitionEntity workflow = pageAssistantWorkflow();
+        workflow.setExtraJson(objectMapper.writeValueAsString(Map.of(
+                "pageAssistant", Map.of(
+                        "pageKey", "orders.list",
+                        "routePattern", "/orders",
+                        "actionKeys", List.of("openDetail")
+                )
+        )));
+        when(workflowService.findById("wf-page")).thenReturn(Optional.of(workflow));
+        when(actionMapper.selectList(any())).thenReturn(List.of(activeCatalogAction()));
+
+        WorkflowPageAssistantCatalogResponse response = service.getCatalog("wf-page");
+
+        assertEquals("orders.list", response.getPageKey());
+        assertEquals("/orders", response.getRoutePattern());
+        assertEquals(WorkflowPageAssistantCatalogResponse.MatchStatus.MATCHED,
+                response.getPageActionNodes().get(0).getMatchStatus());
+    }
+
+    @Test
     void validateReportsMissingCatalog() throws Exception {
         WorkflowDefinitionService workflowService = mock(WorkflowDefinitionService.class);
         PageActionRegistryMapper actionMapper = mock(PageActionRegistryMapper.class);

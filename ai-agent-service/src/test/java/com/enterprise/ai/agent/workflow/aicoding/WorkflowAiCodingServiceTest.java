@@ -627,6 +627,33 @@ class WorkflowAiCodingServiceTest {
     }
 
     @Test
+    void pageAssistantContextReadsNestedPageAssistantExtraFromAiCodingCreate() throws Exception {
+        WorkflowDefinitionService workflowService = mock(WorkflowDefinitionService.class);
+        WorkflowReleaseValidationService validationService = mock(WorkflowReleaseValidationService.class);
+        AgentWorkflowBindingService bindingService = mock(AgentWorkflowBindingService.class);
+        WorkflowAiCodingService service = newService(workflowService, validationService, bindingService, null);
+
+        WorkflowDefinitionEntity workflow = pageAssistantWorkflow();
+        workflow.setExtraJson(objectMapper.writeValueAsString(Map.of(
+                "pageAssistant", Map.of(
+                        "pageKey", "orders.list",
+                        "routePattern", "/orders",
+                        "actionKeys", List.of("search", "reset")
+                )
+        )));
+        when(workflowService.findById("wf-page")).thenReturn(Optional.of(workflow));
+        when(validationService.validate(workflow)).thenReturn(WorkflowReleaseValidationResult.ok());
+        when(bindingService.listByWorkflowId("wf-page")).thenReturn(List.of());
+
+        WorkflowAiCodingContextResponse context = service.getContext("wf-page");
+
+        assertNotNull(context.getPageAssistantContext());
+        assertEquals("orders.list", context.getPageAssistantContext().getPageKey());
+        assertEquals("/orders", context.getPageAssistantContext().getRoutePattern());
+        assertEquals(List.of("search", "reset"), context.getPageAssistantContext().getActionKeys());
+    }
+
+    @Test
     void createRejectsMismatchedProjectCode() {
         ScanProjectService scanProjectService = mock(ScanProjectService.class);
         when(scanProjectService.matchesAiCodingAccessKey(7L, TEST_AI_CODING_KEY)).thenReturn(true);
