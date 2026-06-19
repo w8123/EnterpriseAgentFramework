@@ -26,6 +26,36 @@ These endpoints do **not** accept platform Bearer login. Admin UI (Workflow Stud
 
 API base URL depends on deployment; prefer relative paths from onboarding manifest.
 
+## Windows / PowerShell UTF-8 Requirements
+
+If requests are sent from Windows, the POST body must be UTF-8 bytes. Terminal display encoding alone is not enough.
+
+1. Prefer PowerShell 7+ (`pwsh`).
+2. Set script encoding explicitly:
+
+   ```powershell
+   [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+   [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+   $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+   ```
+
+3. Save complex JSON as a standalone UTF-8 `.json` file.
+4. Prefer `curl.exe --data-binary @file` with an explicit charset:
+
+   ```powershell
+   curl.exe -X POST $url -H "Content-Type: application/json; charset=utf-8" --data-binary "@request.json"
+   ```
+
+5. If using `Invoke-RestMethod`, convert JSON to UTF-8 bytes:
+
+   ```powershell
+   $json = Get-Content .\request.json -Raw -Encoding utf8
+   $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+   Invoke-RestMethod -Method Post -Uri $url -ContentType "application/json; charset=utf-8" -Body $bodyBytes
+   ```
+
+Do not inline JSON containing Chinese text directly in the command line.
+
 ## Endpoints
 
 | Method | Path | Purpose |

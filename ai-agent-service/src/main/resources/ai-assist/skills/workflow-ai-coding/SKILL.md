@@ -22,6 +22,37 @@ Authentication: Workflow AI Coding endpoints use **aiCodingKey only** (no platfo
 
 Do not use platform login cookies or Bearer tokens for `/api/workflows/**/ai-coding/**`.
 
+## Windows / PowerShell UTF-8 Requirements
+
+When calling Workflow AI Coding APIs from Windows, prevent Chinese text from being stored as `????`:
+
+1. Prefer PowerShell 7+ (`pwsh`).
+2. At the top of scripts, set UTF-8 explicitly:
+
+   ```powershell
+   [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+   [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+   $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+   ```
+
+3. Write complex request bodies to standalone `.json` files saved as UTF-8.
+4. Use `curl.exe`, not the PowerShell `curl` alias:
+
+   ```powershell
+   curl.exe -X POST $url -H "Content-Type: application/json; charset=utf-8" --data-binary "@request.json"
+   ```
+
+5. If using `Invoke-RestMethod`, send UTF-8 bytes rather than a plain string body:
+
+   ```powershell
+   $json = Get-Content .\request.json -Raw -Encoding utf8
+   $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+   Invoke-RestMethod -Method Post -Uri $url -ContentType "application/json; charset=utf-8" -Body $bodyBytes
+   ```
+
+6. Save generated script files as UTF-8. In Windows PowerShell 5.1, specify UTF-8 explicitly when writing files.
+7. Do not inline JSON containing Chinese text directly in the command line.
+
 ## Standard Workflow Loop
 
 1. Optional create: `POST /api/workflows/ai-coding/workflows`
