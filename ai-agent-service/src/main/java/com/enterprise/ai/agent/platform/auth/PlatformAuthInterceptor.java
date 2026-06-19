@@ -108,7 +108,8 @@ public class PlatformAuthInterceptor implements HandlerInterceptor {
             return false;
         }
         return ("GET".equalsIgnoreCase(request.getMethod()) && path.endsWith("/access-sessions/latest"))
-                || ("POST".equalsIgnoreCase(request.getMethod()) && path.endsWith("/report"));
+                || ("POST".equalsIgnoreCase(request.getMethod()) && path.endsWith("/report"))
+                || ("POST".equalsIgnoreCase(request.getMethod()) && path.endsWith("/checks/run"));
     }
 
     private boolean isAiCodingAgentProvisionAccess(HttpServletRequest request, String path) {

@@ -12,6 +12,7 @@ Treat the ReachAI platform repository and live API responses as the source of tr
 Core mental model:
 
 - `GraphSpec` is runtime semantics; `canvas_json` is layout only.
+- Patch/create default `layout.autoLayout=true`: platform saves rank-based `canvas_json.nodes[].position` (Studio-aligned). Before reporting back, confirm positions are spread across levels/lanes; do not patch GraphSpec only and skip canvas layout.
 - Workflow AI Coding updates **draft definition** only.
 - **AI tools must not publish.** Publishing is a manual admin action after release validation passes.
 - Always read `GET .../context` before patching. Use `workflow.updatedAt` as `baseRevision` when saving.

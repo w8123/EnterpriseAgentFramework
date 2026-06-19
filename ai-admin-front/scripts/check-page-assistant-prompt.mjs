@@ -203,6 +203,24 @@ assert.match(wizardSource, /使用该 Workflow 继续/)
 assert.match(wizardSource, /useAiCodingWorkflowDraft/)
 assert.match(wizardSource, /openAiCodingWorkflowStudio/)
 
+assert.match(wizardSource, /draftSource|DraftSource/)
+assert.match(wizardSource, /AI_CODING_RETURNED/)
+assert.match(wizardSource, /PLATFORM_GENERATED/)
+assert.match(wizardSource, /confirmSwitchToPlatformGeneration/)
+assert.match(wizardSource, /改用平台生成/)
+assert.match(wizardSource, /不会删除 AI Coding 已创建的 Workflow/)
+assert.match(wizardSource, /生成 \/ 选择 Workflow 草稿/)
+
+assert.match(wizardSource, /draftSource\.value = 'AI_CODING_RETURNED'/)
+assert.match(wizardSource, /useAiCodingWorkflowDraft[\s\S]*selectStep\('bind'\)/)
+assert.doesNotMatch(
+  wizardSource.match(/async function useAiCodingWorkflowDraft\(\) \{[\s\S]*?^}/m)?.[0] || 'async function useAiCodingWorkflowDraft() {}',
+  /draftPreview\.value = data/,
+)
+
+assert.match(wizardSource, /async function generateDraft[\s\S]*confirmSwitchToPlatformGeneration/)
+assert.match(wizardSource, /function requiredStepComplete[\s\S]*AI_CODING_RETURNED/)
+
 const workflowAiCodingPromptBlock = wizardSource.match(
   /const workflowAiCodingPrompt = computed\([\s\S]*?\n\}\)\)/,
 )?.[0] || ''
@@ -307,6 +325,9 @@ assert.match(prompt, /第一步/)
 assert.match(prompt, /reachai-page-assistant\.ps1 scaffold/)
 assert.match(prompt, /reachai-page-assistant\.ps1 verify/)
 assert.match(prompt, /window\.__REACHAI_PAGE_BRIDGE__/)
+assert.match(prompt, /\/repository\/\*\*/)
+assert.match(prompt, /\/npm\/\*\*/)
+assert.match(prompt, /Maven repository/)
 assert.match(prompt, /绑定目标页时/)
 assert.match(prompt, /同步目录时/)
 assert.match(prompt, /page-assistant/)
@@ -365,6 +386,16 @@ function extractRuntimeProbeNodeScript(ps1Source) {
 
 for (const scriptPath of helperScriptPaths) {
   const helperSource = readFileSync(scriptPath, 'utf8')
+  assert.doesNotMatch(
+    helperSource,
+    /event\.source\?\.postMessage/,
+    `${scriptPath} should not use event.source?.postMessage because Angular 12 DOM types can reject MessageEventSource`,
+  )
+  assert.match(
+    helperSource,
+    /const target = event\.source as \{ postMessage: \(message: unknown, targetOrigin: string\) => void \} \| null;/,
+    `${scriptPath} should cast MessageEvent.source to a postMessage-capable target`,
+  )
   assert.match(
     helperSource,
     /reachai-runtime-probe-[\s\S]*?\.cjs/,

@@ -116,6 +116,9 @@ public class WorkflowAiCodingService {
             Map<String, Object> canvas = request.getCanvas() == null
                     ? Map.of("version", 2, "nodes", List.of(), "edges", List.of())
                     : request.getCanvas();
+            if (graphSpec.getNodes() != null && !graphSpec.getNodes().isEmpty()) {
+                canvas = graphPatchService.layoutCanvas(graphSpec, canvas, true);
+            }
             entity.setCanvasJson(objectMapper.writeValueAsString(canvas));
             if (request.getExtra() != null && !request.getExtra().isEmpty()) {
                 entity.setExtraJson(objectMapper.writeValueAsString(request.getExtra()));

@@ -251,11 +251,10 @@
           <div class="panel-head">
             <div>
               <span class="step-kicker">步骤 4</span>
-              <h2>配置并生成草稿</h2>
+              <h2>生成 / 选择 Workflow 草稿</h2>
             </div>
             <div class="panel-actions">
               <el-tag effect="plain">{{ selectedApiAssets.length }} 个 API 资产</el-tag>
-              <el-button :icon="DocumentCopy" @click="openWorkflowAiCodingPromptDialog">使用 AI Coding 生成</el-button>
             </div>
           </div>
 
@@ -266,40 +265,65 @@
             <span>API：{{ selectedApiAssets.length }} 个</span>
           </div>
 
-          <div v-if="workflowAiCodingDraftStep" class="workflow-ai-coding-result-card">
-            <div class="workflow-ai-coding-result-head">
-              <el-tag :type="stepStatusTagType(workflowAiCodingDraftStep.status)" effect="plain">
-                AI Coding {{ workflowAiCodingDraftStep.status }}
-              </el-tag>
-              <strong>{{ workflowAiCodingDraftStep.message || 'Workflow AI Coding 草稿已回传' }}</strong>
+          <section class="draft-entry-section ai-coding-entry">
+            <div class="draft-entry-head">
+              <div>
+                <h3>AI Coding 生成</h3>
+                <small>由外部 AI 工具创建 Workflow 并回传结果</small>
+              </div>
+              <el-button :icon="DocumentCopy" @click="openWorkflowAiCodingPromptDialog">使用 AI Coding 生成</el-button>
             </div>
-            <div class="studio-ready-metrics compact">
-              <div>
-                <span>workflowId</span>
-                <strong>{{ workflowAiCodingDraftEvidence.workflowId || '—' }}</strong>
+
+            <div v-if="isAiCodingWorkflowSelected" class="draft-source-banner ai-coding">
+              <strong>已选用 AI Coding Workflow</strong>
+              <span>workflowId：{{ createdWorkflowId }}</span>
+              <el-button size="small" type="primary" @click="focusStepCard('bind')">去挂载智能体</el-button>
+            </div>
+
+            <div v-else-if="workflowAiCodingDraftStep" class="workflow-ai-coding-result-card">
+              <div class="workflow-ai-coding-result-head">
+                <el-tag :type="stepStatusTagType(workflowAiCodingDraftStep.status)" effect="plain">
+                  AI Coding {{ workflowAiCodingDraftStep.status }}
+                </el-tag>
+                <strong>{{ workflowAiCodingDraftStep.message || 'Workflow AI Coding 草稿已回传' }}</strong>
               </div>
-              <div>
-                <span>keySlug</span>
-                <strong>{{ workflowAiCodingDraftEvidence.keySlug || '—' }}</strong>
+              <div class="studio-ready-metrics compact">
+                <div>
+                  <span>workflowId</span>
+                  <strong>{{ workflowAiCodingDraftEvidence.workflowId || '—' }}</strong>
+                </div>
+                <div>
+                  <span>keySlug</span>
+                  <strong>{{ workflowAiCodingDraftEvidence.keySlug || '—' }}</strong>
+                </div>
+                <div>
+                  <span>validate</span>
+                  <strong>{{ workflowAiCodingValidationSummary || '—' }}</strong>
+                </div>
+                <div>
+                  <span>page-assistant validate</span>
+                  <strong>{{ workflowAiCodingPageAssistantValidationSummary || '—' }}</strong>
+                </div>
+                <div>
+                  <span>browser runtime</span>
+                  <strong>{{ workflowAiCodingRuntimeVerificationSummary || '—' }}</strong>
+                </div>
               </div>
-              <div>
-                <span>validate</span>
-                <strong>{{ workflowAiCodingValidationSummary || '—' }}</strong>
-              </div>
-              <div>
-                <span>page-assistant validate</span>
-                <strong>{{ workflowAiCodingPageAssistantValidationSummary || '—' }}</strong>
-              </div>
-              <div>
-                <span>browser runtime</span>
-                <strong>{{ workflowAiCodingRuntimeVerificationSummary || '—' }}</strong>
+              <div class="workflow-ai-coding-result-actions">
+                <el-button size="small" @click="openAiCodingWorkflowStudio">打开 Studio</el-button>
+                <el-button size="small" type="primary" @click="useAiCodingWorkflowDraft">使用该 Workflow 继续</el-button>
               </div>
             </div>
-            <div class="workflow-ai-coding-result-actions">
-              <el-button size="small" @click="openAiCodingWorkflowStudio">打开 Studio</el-button>
-              <el-button size="small" type="primary" @click="useAiCodingWorkflowDraft">使用该 Workflow 继续</el-button>
+          </section>
+
+          <section class="draft-entry-section platform-entry">
+            <div class="draft-entry-head">
+              <div>
+                <h3>平台内生成</h3>
+                <small>配置模型与要求，在平台内生成 GraphSpec 草稿</small>
+              </div>
+              <el-tag v-if="draftPreview && draftSource === 'PLATFORM_GENERATED'" effect="plain" type="success">已有平台草稿</el-tag>
             </div>
-          </div>
 
           <el-form label-position="top" class="draft-form draft-console">
             <section class="draft-config-card">
@@ -380,8 +404,14 @@
           </el-form>
 
           <div class="draft-generate-row">
-            <el-button type="primary" :icon="MagicStick" :loading="generating" @click="generateDraft">生成 Workflow 草稿</el-button>
+            <template v-if="isAiCodingWorkflowSelected">
+              <el-button link type="primary" @click="confirmSwitchToPlatformGeneration">改用平台生成</el-button>
+            </template>
+            <template v-else>
+              <el-button type="primary" :icon="MagicStick" :loading="generating" @click="generateDraft">生成 Workflow 草稿</el-button>
+            </template>
           </div>
+          </section>
         </div>
 
         <div v-else-if="displayedStep === 'confirm'" :key="'confirm'" class="step-screen">
@@ -392,7 +422,52 @@
             </div>
           </div>
 
-          <div v-if="draftPreview" class="studio-ready">
+          <div v-if="isAiCodingWorkflowSelected" class="studio-ready">
+            <div class="studio-ready-hero">
+              <div class="studio-ready-icon">
+                <el-icon><Finished /></el-icon>
+              </div>
+              <div class="studio-ready-copy">
+                <span>AI Coding 链路</span>
+                <strong>已选择 AI Coding Workflow，可直接挂载智能体</strong>
+                <p>该 Workflow 已由外部 AI 工具创建，无需在此步再次创建。</p>
+              </div>
+              <div class="studio-ready-state">
+                <em>Skipped</em>
+              </div>
+            </div>
+
+            <div class="studio-ready-metrics">
+              <div>
+                <span>workflowId</span>
+                <strong>{{ createdWorkflowId }}</strong>
+              </div>
+              <div>
+                <span>pageKey</span>
+                <strong>{{ selectedPageKey || '未选择' }}</strong>
+              </div>
+              <div>
+                <span>routePattern</span>
+                <strong>{{ selectedPage?.routePattern || '未设置' }}</strong>
+              </div>
+              <div>
+                <span>已选动作</span>
+                <strong>{{ selectedActions.map((item) => item.actionKey).join('、') || '无' }}</strong>
+              </div>
+            </div>
+
+            <div class="studio-ready-actions">
+              <button type="button" class="secondary" @click="focusStepCard('draft')">
+                返回选择 Workflow
+              </button>
+              <button type="button" class="primary" @click="selectStep('bind')">
+                <el-icon><Finished /></el-icon>
+                去挂载智能体
+              </button>
+            </div>
+          </div>
+
+          <div v-else-if="draftPreview" class="studio-ready">
             <div class="studio-ready-hero" :class="{ warning: draftIssueCount }">
               <div class="studio-ready-icon">
                 <el-icon>
@@ -514,8 +589,8 @@
             </div>
 
             <div class="studio-ready-actions">
-              <button type="button" class="secondary" @click="selectStep('confirm')">
-                返回确认草稿
+              <button type="button" class="secondary" @click="focusStepCard(isAiCodingWorkflowSelected ? 'draft' : 'confirm')">
+                {{ isAiCodingWorkflowSelected ? '返回选择 Workflow' : '返回确认草稿' }}
               </button>
               <button type="button" class="primary" :disabled="bindingAgent" @click="bindToPageCopilot">
                 <el-icon><Connection /></el-icon>
@@ -873,7 +948,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import type { Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Close, Connection, DocumentCopy, Finished, MagicStick, Operation, Plus, Search, Warning } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { bindPageAssistantWorkflow, createWorkflow, generateWorkflowDraft, listAgentEntries, saveWorkflowStudio } from '@/api/workflow'
 import { listApiAssets } from '@/api/apiAsset'
 import {
@@ -902,6 +977,7 @@ import { buildPageAssistantOnboardingPrompt } from './pageAssistantOnboardingPro
 
 type WizardStepKey = 'connect' | 'page' | 'action' | 'draft' | 'confirm' | 'bind' | 'studio'
 type AssistantGoal = 'query' | 'operate' | 'queryThenAction'
+type DraftSource = 'NONE' | 'PLATFORM_GENERATED' | 'AI_CODING_RETURNED'
 
 const WORKFLOW_AI_CODING_DRAFT_STEP_KEY = 'workflow-ai-coding-draft'
 
@@ -931,6 +1007,7 @@ const generating = ref(false)
 const creatingWorkflow = ref(false)
 const bindingAgent = ref(false)
 const draftPreview = ref<WorkflowDraftGenerationResult | null>(null)
+const draftSource = ref<DraftSource>('NONE')
 const createdWorkflowId = ref('')
 const bindingResult = ref<PageAssistantWorkflowBindingResult | null>(null)
 const pageCopilotAgent = ref<AgentEntry | null>(null)
@@ -976,11 +1053,24 @@ const assistantGoalOptions: Array<{ value: AssistantGoal; icon: Component; tone:
 
 const filteredActions = computed(() => pageActions.value.filter((action) => !selectedPageKey.value || action.pageKey === selectedPageKey.value))
 const activeActionCount = computed(() => pageActions.value.filter((action) => action.status === 'ACTIVE').length)
+const isAiCodingWorkflowSelected = computed(() =>
+  draftSource.value === 'AI_CODING_RETURNED' && Boolean(createdWorkflowId.value),
+)
+const isDraftStepComplete = computed(() => {
+  if (draftSource.value === 'AI_CODING_RETURNED') {
+    return Boolean(createdWorkflowId.value)
+  }
+  return Boolean(draftPreview.value)
+})
 const activeStep = computed(() => {
   if (!pageRegistry.value.length && !pageActions.value.length) return 'connect'
   if (!selectedPageKey.value) return 'page'
   if (!selectedActions.value.length) return 'action'
-  if (!draftPreview.value) return 'draft'
+  if (!isDraftStepComplete.value) return 'draft'
+  if (isAiCodingWorkflowSelected.value) {
+    if (!bindingResult.value) return 'bind'
+    return 'studio'
+  }
   if (!createdWorkflowId.value) return 'confirm'
   if (!bindingResult.value) return 'bind'
   return 'studio'
@@ -1010,8 +1100,20 @@ const steps = computed(() => [
   { index: 1, key: 'connect' as const, title: '接入准备', desc: 'AI 或手动接入页面动作', done: pageRegistry.value.length > 0 || pageActions.value.length > 0 },
   { index: 2, key: 'page' as const, title: '选择页面', desc: selectedPage.value?.name || selectedPageKey.value || '定位业务页面', done: Boolean(selectedPageKey.value) },
   { index: 3, key: 'action' as const, title: '选择动作', desc: '声明可执行能力', done: selectedActions.value.length > 0 },
-  { index: 4, key: 'draft' as const, title: '生成草稿', desc: '构建 GraphSpec', done: Boolean(draftPreview.value) },
-  { index: 5, key: 'confirm' as const, title: '确认草稿', desc: '创建 Workflow', done: Boolean(createdWorkflowId.value) },
+  {
+    index: 4,
+    key: 'draft' as const,
+    title: '生成 / 选择草稿',
+    desc: isAiCodingWorkflowSelected.value ? 'AI Coding Workflow' : '构建 GraphSpec',
+    done: isDraftStepComplete.value,
+  },
+  {
+    index: 5,
+    key: 'confirm' as const,
+    title: '确认草稿',
+    desc: '创建 Workflow',
+    done: isAiCodingWorkflowSelected.value ? isAiCodingWorkflowSelected.value : Boolean(createdWorkflowId.value),
+  },
   { index: 6, key: 'bind' as const, title: '挂载智能体', desc: '绑定 PAGE_COPILOT', done: Boolean(bindingResult.value) },
   { index: 7, key: 'studio' as const, title: '进入 Studio', desc: '预览保存发布', done: false },
 ])
@@ -1279,6 +1381,7 @@ function clearPersistedWizardState(options: { includePreview?: boolean } = {}) {
     draftPreview.value = null
   }
   createdWorkflowId.value = ''
+  draftSource.value = 'NONE'
   bindingResult.value = null
   pageCopilotAgent.value = null
 }
@@ -1328,8 +1431,18 @@ function clearFilteredActions() {
 function requiredStepComplete(key: WizardStepKey) {
   if (key === 'page') return Boolean(selectedPageKey.value)
   if (key === 'action') return selectedActions.value.length > 0
-  if (key === 'draft') return Boolean(draftPreview.value)
-  if (key === 'confirm') return Boolean(createdWorkflowId.value)
+  if (key === 'draft') {
+    if (draftSource.value === 'AI_CODING_RETURNED') {
+      return Boolean(createdWorkflowId.value)
+    }
+    return Boolean(draftPreview.value)
+  }
+  if (key === 'confirm') {
+    if (draftSource.value === 'AI_CODING_RETURNED') {
+      return true
+    }
+    return Boolean(createdWorkflowId.value)
+  }
   if (key === 'bind') return Boolean(bindingResult.value)
   return true
 }
@@ -1388,9 +1501,15 @@ function selectStep(key: WizardStepKey) {
     return false
   }
   if (['page', 'action', 'draft'].includes(key) && createdWorkflowId.value && !bindingResult.value) {
+    const wasAiCoding = draftSource.value === 'AI_CODING_RETURNED'
     createdWorkflowId.value = ''
+    draftSource.value = 'NONE'
     pageCopilotAgent.value = null
-    ElMessage.warning('已创建但未挂载的 Workflow 状态已清空，请重新确认创建')
+    ElMessage.warning(
+      wasAiCoding
+        ? '已选择的 AI Coding Workflow 状态已清空，请重新选择或生成'
+        : '已创建但未挂载的 Workflow 状态已清空，请重新确认创建',
+    )
   }
   focusStepCard(key)
   return true
@@ -1704,13 +1823,33 @@ function openAiCodingWorkflowStudio() {
   router.push(studioUrl.startsWith('/') ? studioUrl : `/${studioUrl}`)
 }
 
+async function confirmSwitchToPlatformGeneration() {
+  try {
+    await ElMessageBox.confirm(
+      '这不会删除 AI Coding 已创建的 Workflow，但会取消当前选择并重新生成平台草稿。',
+      '改用平台生成',
+      { type: 'warning', confirmButtonText: '确认改用', cancelButtonText: '取消' },
+    )
+    createdWorkflowId.value = ''
+    bindingResult.value = null
+    pageCopilotAgent.value = null
+    draftPreview.value = null
+    draftSource.value = 'NONE'
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function useAiCodingWorkflowDraft() {
   const workflowId = workflowAiCodingDraftEvidence.value.workflowId
   if (!workflowId) {
     ElMessage.warning('尚未收到 AI Coding 回传的 workflowId')
     return
   }
+  draftPreview.value = null
   createdWorkflowId.value = workflowId
+  draftSource.value = 'AI_CODING_RETURNED'
   bindingResult.value = null
   workflowAiCodingPromptDialogVisible.value = false
   await loadPageCopilotAgent()
@@ -1869,6 +2008,10 @@ async function generateDraft() {
     ElMessage.warning('请选择模型实例')
     return
   }
+  if (draftSource.value === 'AI_CODING_RETURNED' && createdWorkflowId.value) {
+    const confirmed = await confirmSwitchToPlatformGeneration()
+    if (!confirmed) return
+  }
   generating.value = true
   try {
     const { data } = await generateWorkflowDraft({
@@ -1883,7 +2026,10 @@ async function generateDraft() {
       currentCanvas: { version: 2, nodes: [], edges: [] },
     })
     draftPreview.value = data
-    clearPersistedWizardState({ includePreview: false })
+    draftSource.value = 'PLATFORM_GENERATED'
+    createdWorkflowId.value = ''
+    bindingResult.value = null
+    pageCopilotAgent.value = null
     selectStep('confirm')
     if (data.validationErrors?.length) {
       ElMessage.warning('草稿已返回，但仍有校验问题，请查看提示')
@@ -1948,6 +2094,7 @@ async function confirmCreateWorkflow() {
     }
     const { data: workflow } = await createWorkflow(workflowDraft)
     await saveWorkflowStudio(workflow.id, { graphSpecJson, canvasJson, extraJson })
+    draftSource.value = 'PLATFORM_GENERATED'
     createdWorkflowId.value = workflow.id
     bindingResult.value = null
     await loadPageCopilotAgent()
@@ -3754,6 +3901,58 @@ onMounted(loadAll)
 .ai-prompt-dialog {
   display: grid;
   gap: 14px;
+}
+
+.draft-entry-section {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(167, 190, 230, 0.42);
+  border-radius: 12px;
+  background: rgba(252, 253, 255, 0.88);
+}
+
+.draft-entry-section.platform-entry {
+  margin-top: 14px;
+}
+
+.draft-entry-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.draft-entry-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.draft-entry-head small {
+  display: block;
+  margin-top: 4px;
+  color: #718096;
+  font-size: 12px;
+}
+
+.draft-source-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.draft-source-banner.ai-coding {
+  border: 1px solid rgba(103, 194, 58, 0.35);
+  background: rgba(240, 249, 235, 0.82);
+}
+
+.draft-source-banner strong {
+  font-size: 14px;
 }
 
 .workflow-ai-coding-result-card {

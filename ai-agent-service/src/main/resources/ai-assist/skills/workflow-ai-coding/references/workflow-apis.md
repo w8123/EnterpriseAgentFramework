@@ -82,6 +82,7 @@ Important fields:
 - `dryRun` (default `true`)
 - `baseRevision` (required for save; use `workflow.updatedAt` from context)
 - `reason`
+- `layout.autoLayout` (default `true`): when enabled, patch/create saves rank-based canvas positions aligned with Workflow Studio auto-layout (`x = 80 + level * 260`, `y = 120 + lane * 150`). Verify `canvas.nodes[].position` before reporting back; do not patch GraphSpec only and ignore canvas layout.
 
 ## Validate Request
 

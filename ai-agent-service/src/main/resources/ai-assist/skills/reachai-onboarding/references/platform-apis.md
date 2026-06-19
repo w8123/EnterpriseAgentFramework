@@ -35,6 +35,8 @@ Important fields:
 
 The manifest does not include `appSecret`.
 
+The manifest also does not declare a Maven repository, npm registry, or browser SDK download endpoint. Do not derive artifact URLs from the platform base URL. In particular, do not request `/repository/**`, `/maven/**`, `/repository/maven/**`, `/api/embed/sdk`, or `/npm/**` from the ReachAI platform. If SDK artifacts are not available from the business repo's existing artifact sources, report the missing artifact source instead of guessing a platform URL.
+
 Before front-end embed work, call `agentProvisioning.provisionAgentUrl` when present. Use the response `agent.keySlug` as the business front-end `agentId`. The call is idempotent, so it is safe for Cursor or another AI coding tool to retry. Do not ask the business user to choose an Agent id. If provisioning is unavailable, fall back to `agentProvisioning.defaultKeySlug`, `agentWorkflow.globalAgentKeySlug`, `embed.defaultAgentKeySlug`, or `embed.defaultAgentId`.
 
 ## Agent Provisioning

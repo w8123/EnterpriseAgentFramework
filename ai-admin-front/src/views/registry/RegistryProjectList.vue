@@ -183,13 +183,13 @@
             </el-form-item>
             <el-row :gutter="16">
               <el-col :span="12">
-                <el-form-item label="App Key">
-                  <el-input v-model="sdkForm.appKey" placeholder="留空由后端策略处理" />
+                <el-form-item label="App Key" required>
+                  <el-input v-model="sdkForm.appKey" placeholder="业务系统 Registry App Key" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="App Secret">
-                  <el-input v-model="sdkForm.appSecret" show-password placeholder="留空由后端策略处理" />
+                <el-form-item label="App Secret" required>
+                  <el-input v-model="sdkForm.appSecret" show-password placeholder="业务系统 Registry App Secret" />
                 </el-form-item>
               </el-col>
             </el-row>
@@ -522,16 +522,22 @@ function openAccessDialog(tab: 'sdk' | 'scan' = 'sdk') {
 }
 
 async function saveSdkProject() {
+  const appKey = String(sdkForm.appKey || '').trim()
+  const appSecret = String(sdkForm.appSecret || '').trim()
   if (!sdkForm.name.trim() || !sdkForm.projectCode.trim() || !sdkForm.baseUrl.trim()) {
     ElMessage.warning('请填写项目名称、项目编码和 Base URL')
+    return
+  }
+  if (!appKey || !appSecret) {
+    ElMessage.warning('请填写 App Key 和 App Secret')
     return
   }
   saving.value = true
   try {
     await registerRegistryProject({
       ...sdkForm,
-      appKey: sdkForm.appKey || undefined,
-      appSecret: sdkForm.appSecret || undefined,
+      appKey,
+      appSecret,
     })
     ElMessage.success('SDK 接入项目已创建')
     accessDialogVisible.value = false

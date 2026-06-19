@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc && vite build",
+    "check:studio-canvas": "node scripts/check-studio-canvas-node-data.mjs",
     "build:sdk": "vite build --config vite.sdk.config.ts",
     "preview": "vite preview"
   },

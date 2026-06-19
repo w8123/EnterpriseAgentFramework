@@ -122,7 +122,7 @@
 
             <section class="config-section">
               <h3>1. 引入依赖（Maven）</h3>
-              <p>将以下依赖添加到业务服务的 pom.xml 中。</p>
+              <p>将以下依赖添加到业务服务的 pom.xml 中；依赖必须来自已有 Maven 仓库或本机 install，平台地址不是 Maven 仓库。</p>
               <div class="code-shell">
                 <div class="code-toolbar">
                   <span>pom.xml</span>
@@ -674,6 +674,13 @@ const aiOnboardingPrompt = computed(() => {
     '- ReachAI resolves the runnable Workflow from ai_agent_workflow_binding by current pageKey/action/intent.',
     '- Do not create one floating AI button per workflow. Page assistants are page workflows bound to the page copilot Agent entry.'
   ].join('\n')
+  const dependencyResolutionBlock = [
+    '- ReachAI 平台地址、Skill 包地址和 manifest 地址只用于读取接入资料、回传进度和自检；它们不是 Maven 仓库、npm registry 或 SDK 文件服务器。',
+    '- 禁止把 ReachAI 平台 baseUrl 配成 Maven repository，禁止请求 /repository/**、/maven/**、/repository/maven/**、/api/embed/sdk 或 /npm/** 这类猜测路径。',
+    '- Java 依赖必须来自业务仓库已有的公司 Maven 仓库、已发布的 ReachAI Maven 仓库，或先在 ReachAI 仓库执行 mvn -pl reachai-spring-boot2-starter -am install -DskipTests 后使用本地 Maven 仓库。',
+    '- 如果 reachai-capability-sdk 或 reachai-spring-boot2-starter 无法解析，请停止并报告需要安装/发布 Maven 产物，不要虚构下载 URL。',
+    '- 前端 SDK 同理：若业务仓库没有可用 npm 包或本地构建产物，不要从 ReachAI 平台猜测 /api/embed/sdk 或 /npm/**；应按 manifest 的 embed HTTP 合同实现最小调用，或报告需要提供正式前端 SDK 包。',
+  ].join('\n')
   const aiCodingKeyLine =
     aiCodingAccessEnabled.value && aiCodingAccessKey.value.trim()
       ? `AI Coding 接入秘钥：${aiCodingAccessKey.value.trim()}`
@@ -700,6 +707,10 @@ const aiOnboardingPrompt = computed(() => {
   const sessionCheckUrl = sessionId
     ? `${platformUrl}/api/ai-assist/projects/${projectId}/access-sessions/${sessionId}/checks/run`
     : `${platformUrl}/api/ai-assist/projects/${projectId}/access-sessions/{sessionId}/checks/run`
+  const sessionCheckUrlWithKey =
+    aiCodingAccessEnabled.value && aiCodingAccessKey.value.trim()
+      ? appendQuery(sessionCheckUrl, 'aiCodingKey', aiCodingAccessKey.value.trim())
+      : sessionCheckUrl
   const installHint =
     aiPromptTool.value === 'cursor'
       ? '如果当前工具不支持直接安装 Skill，请下载 zip 后读取其中的 SKILL.md，并把 references/、templates/、scripts/ 作为本次任务的工作资料。'
@@ -722,7 +733,7 @@ const aiOnboardingPrompt = computed(() => {
 - AI 接入会话 ID：${sessionId || '请先用 latest session 接口获取'}
 - AI 接入会话查询：${latestSessionUrl}
 - 步骤进度回传 URL：${reportUrlPatternWithKey}
-- 平台会话化自检 URL：${sessionCheckUrl}
+- 平台会话化自检 URL：${sessionCheckUrlWithKey}
 - Embed Token Broker：${manifest?.embed?.tokenPath || embedTokenPath.value || '/api/reachai/embed-token'}
 - ${embedAgentLine}
 - ${allowedAgentLine}
@@ -735,6 +746,9 @@ ${agentProvisioningBlock}
 
 Global AI page routing contract:
 ${globalPageRoutingBlock}
+
+SDK artifact resolution contract:
+${dependencyResolutionBlock}
 
 安装/读取要求：
 ${installHint}
@@ -763,7 +777,7 @@ ${installHint}
 15. 业务前端缓存 embed token 时必须按 expiresIn 提前失效；如果创建 session 或发送消息返回 embed token is expired，应清空缓存、重新调用 token broker 获取新 embed token 并重试一次。
 16. 保证网关转发时透传 X-ReachAI-Invocation-Token、X-ReachAI-Trace-Id、X-ReachAI-Run-Id，以及业务身份所需的 Authorization / 用户上下文头；业务接口不能只凭普通 X-ReachAI-* 上下文头放行。
 17. 分别运行业务后端、网关和业务前端的最小可行编译/构建/测试。
-18. 如果业务系统、网关和 ReachAI 服务可访问，调用 manifest 中的 sdkAccessCheckUrl 做接入自检，body 中带 gatewayBaseUrl=${gatewayBaseUrl.value || 'http://localhost:8080'} 与 embedTokenPath=${embedTokenPath.value || '/api/reachai/embed-token'}；否则说明缺少的本地前置条件。
+18. 如果业务系统、网关和 ReachAI 服务可访问，调用“平台会话化自检 URL”做接入自检，URL 必须保留 aiCodingKey；body 中带 gatewayBaseUrl=${gatewayBaseUrl.value || 'http://localhost:8080'} 与 embedTokenPath=${embedTokenPath.value || '/api/reachai/embed-token'}。如果只能拿到 manifest.endpoints.sdkAccessCheckUrl 且该接口返回 platform login required，请回到会话化自检 URL；否则说明缺少的本地前置条件。
 19. 最后给出修改文件清单、验证结果、仍需人工配置的密钥或环境变量。
 
 进度回传要求：

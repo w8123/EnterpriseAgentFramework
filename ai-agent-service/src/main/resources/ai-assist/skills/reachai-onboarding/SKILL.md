@@ -15,6 +15,8 @@ Prefer minimal, reviewable changes:
 - Add ReachAI dependencies only to the modules that need them.
 - Put `reachai-spring-boot2-starter` in the runnable Spring Boot application module.
 - Put `reachai-capability-sdk` in modules that declare `@ReachCapability` methods or DTO field metadata.
+- Do not use the ReachAI platform base URL as a Maven repository, npm registry, or SDK file server. The platform onboarding URLs are only for the manifest, skill package, access-session reporting, and self-check APIs.
+- Do not invent dependency download paths such as `/repository/**`, `/maven/**`, `/repository/maven/**`, `/api/embed/sdk`, or `/npm/**`. If Java or front-end artifacts cannot be resolved from the business repo's existing repositories, a corporate artifact repository, or the user's local Maven/npm cache, stop and report the missing artifact source.
 - Avoid changing unrelated business logic, package structure, formatting, or dependency versions.
 - For automatic Spring MVC scanning, restrict ReachAI to business-owned packages. Do not sync framework, platform, third-party, starter, or shared infrastructure controllers as business APIs.
 

@@ -7,6 +7,8 @@ Use this skill when a business frontend repository needs to connect one concrete
 - This is page assistant onboarding, not project SDK onboarding.
 - Do not add backend API Tools for simple page queries when the current page can expose Page Actions.
 - Do not implement gateway, SDK, or embed token broker work unless the user explicitly switches to project AI quick access.
+- Do not use the ReachAI platform base URL as a Maven repository, npm registry, or generic SDK file server. Page assistant onboarding may only use the manifest, `endpoints.scriptDownloadUrl`, `endpoints.skillPackageUrl`, and page-assistant endpoints.
+- Do not invent dependency paths such as `/repository/**`, `/maven/**`, `/repository/maven/**`, `/api/embed/sdk`, or `/npm/**`. If SDK or browser packages are missing, report them as project AI quick access prerequisites.
 - Do not create or manage Agents manually. Page assistant traffic enters through the project `PAGE_COPILOT` Agent, which SDK quick access provisioning creates or reuses.
 - Registering a page through `endpoints.registerPageUrl` creates or reuses a `PAGE_ASSISTANT` Workflow and mounts it to the `PAGE_COPILOT` Agent through `ai_agent_workflow_binding`.
 - Workflow graph editing, debugging, publishing, versions, traces, and replay belong to Workflow Studio. Agent Studio is retired.

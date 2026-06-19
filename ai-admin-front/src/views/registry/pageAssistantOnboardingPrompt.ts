@@ -105,6 +105,8 @@ export function buildPageAssistantOnboardingPrompt(context: PageAssistantOnboard
 任务边界：
 - 当前任务是“页面助手接入”，目标是让 ReachAI Agent 通过当前业务页面的 Page Action 操作页面。
 - 项目级 SDK / 网关 / embed token broker / 嵌入式对话框接入属于“项目 AI 快速接入”，不是本次任务；如果发现这些基础能力缺失，只列为前置条件或待办，不要在本次任务里扩大范围。
+- 不要把 ReachAI 平台地址当成 Maven repository、npm registry 或通用 SDK 文件服务器；页面助手只允许使用上面给出的 scriptDownloadUrl / skillPackageUrl / page-assistant 专用接口。
+- 禁止请求 /repository/**、/maven/**、/repository/maven/**、/api/embed/sdk 或 /npm/** 这类猜测路径；如果 SDK 或前端包缺失，只在总结里列为项目 AI 快速接入前置条件。
 - 优先让 AI 操作当前页面已有 UI、组件状态、查询服务和路由，不要为了简单查询绕过页面去新增后端 API Tool。
 - 不要重写页面，不要改无关业务逻辑，不要绕过页面权限。
 - 不要要求用户提供真实密钥，也不要把真实密钥写入代码、日志、文档或最终总结。

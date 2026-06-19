@@ -13,6 +13,24 @@ Use this reference after reading the onboarding manifest.
 
 Use the versions from the manifest. If no manifest version is available, use the platform-provided template.
 
+## Maven Artifact Resolution
+
+Do not use the ReachAI platform base URL as a Maven repository. The platform URLs in the onboarding prompt and manifest are API endpoints, not artifact repositories.
+
+Do not add repository URLs or probe paths such as:
+- `/repository/**`
+- `/maven/**`
+- `/repository/maven/**`
+
+Resolve `reachai-capability-sdk` and `reachai-spring-boot2-starter` from one of these sources:
+- The business repository's existing corporate Maven repository or dependency-management setup.
+- A Maven repository where the ReachAI artifacts have already been published.
+- The local Maven repository after running, in the ReachAI repository, `mvn -pl reachai-spring-boot2-starter -am install -DskipTests`.
+
+If the artifacts still cannot be resolved, stop and report that the Java artifacts must be installed or published. Do not invent platform download URLs.
+
+The same rule applies to front-end packages: do not fetch a browser SDK from `/api/embed/sdk`, `/npm/**`, or any other guessed ReachAI platform path. Use an installed package, an already built local SDK artifact, or implement against the documented embed HTTP contract and report the packaging gap.
+
 ```xml
 <dependency>
   <groupId>com.enterprise.ai</groupId>

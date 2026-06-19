@@ -530,16 +530,45 @@ function graphNodeChrome(node: CanvasNode) {
 export function definitionToCanvas(def: WorkflowCanvasSource): CanvasSnapshot {
   if (def.canvasJson) {
     const parsed = JSON.parse(def.canvasJson) as CanvasSnapshot
-    return normalizeCanvasSnapshot({
+    const canvasSnapshot = normalizeCanvasSnapshot({
       version: 2,
       nodes: (parsed.nodes || []).map((node) => ensureNodeV2(node, def as unknown as AgentForm)),
       edges: parsed.edges || [],
     })
+    if (def.graphSpec?.nodes?.length) {
+      return overlayCanvasLayout(
+        normalizeCanvasSnapshot(graphSpecToCanvas(def.graphSpec, def)),
+        canvasSnapshot,
+      )
+    }
+    return canvasSnapshot
   }
   if (!def.graphSpec?.nodes?.length) {
     return emptyCanvas()
   }
   return normalizeCanvasSnapshot(graphSpecToCanvas(def.graphSpec, def))
+}
+
+function overlayCanvasLayout(semantic: CanvasSnapshot, layout: CanvasSnapshot): CanvasSnapshot {
+  const layoutNodes = new Map(layout.nodes.map((node) => [node.id, node]))
+  return {
+    version: 2,
+    nodes: semantic.nodes.map((node) => {
+      const layoutNode = layoutNodes.get(node.id)
+      if (!layoutNode) return node
+      return {
+        ...node,
+        position: layoutNode.position || node.position,
+        data: {
+          ...node.data,
+          collapsed: typeof layoutNode.data?.collapsed === 'boolean'
+            ? layoutNode.data.collapsed
+            : node.data.collapsed,
+        },
+      }
+    }),
+    edges: semantic.edges,
+  }
 }
 
 function graphSpecToCanvas(graphSpec: AgentGraphSpec, def: WorkflowCanvasSource): CanvasSnapshot {
@@ -1161,11 +1190,16 @@ function defaultOutputAlias(kind: CanvasNodeKind) {
 }
 
 function ensureNodeV2(node: CanvasNode, base: AgentForm): CanvasNode {
-  const defaults = createDefaultNodeData(node.data.kind, node.data.label, base)
-  const data = node.data.configVersion === 2 ? node.data : defaults
+  const kind = (node.data?.kind ?? node.type) as CanvasNodeKind
+  const label = node.data?.label ?? kind
+  const defaults = createDefaultNodeData(kind, label, base)
+  const data = node.data ?? {}
   const mergedData = {
     ...defaults,
     ...data,
+    configVersion: 2 as const,
+    kind,
+    label: data.label ?? defaults.label,
     inputs: data.inputs?.length ? data.inputs : defaults.inputs,
     outputs: data.outputs?.length ? data.outputs : defaults.outputs,
     retry: data.retry || defaults.retry,

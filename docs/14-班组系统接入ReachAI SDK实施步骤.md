@@ -64,6 +64,8 @@ agentId: team-archive-assistant
 
 接入前需要确保这两个产物已经发布到业务系统可访问的 Maven 仓库，或已经安装到本地 Maven 仓库。
 
+ReachAI 平台服务地址不是 Maven 仓库，也不是 npm registry。不要把平台 baseUrl 配成 Maven repository，不要请求 `/repository/**`、`/maven/**`、`/repository/maven/**`、`/api/embed/sdk` 或 `/npm/**` 这类猜测路径。若业务系统无法解析 SDK 依赖，应先发布到公司 Maven 仓库，或在 ReachAI 仓库本地执行 install。
+
 本地安装可在 ReachAI 仓库执行：
 
 ```powershell

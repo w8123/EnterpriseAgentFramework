@@ -25,6 +25,10 @@ import java.util.stream.Collectors;
 public class WorkflowGraphPatchService {
 
     private static final String END = "END";
+    private static final double LAYOUT_ORIGIN_X = 80;
+    private static final double LAYOUT_ORIGIN_Y = 120;
+    private static final double LAYOUT_LEVEL_GAP = 260;
+    private static final double LAYOUT_LANE_GAP = 150;
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
@@ -66,6 +70,9 @@ public class WorkflowGraphPatchService {
         }
 
         GraphSpec patched = graph.toGraphSpec();
+        if (autoLayout) {
+            applyRankBasedLayout(canvas, patched);
+        }
         return PatchResult.builder()
                 .graphSpec(patched)
                 .canvas(canvas)
@@ -73,6 +80,212 @@ public class WorkflowGraphPatchService {
                 .changedEdges(List.copyOf(changedEdges))
                 .errors(errors)
                 .build();
+    }
+
+    /**
+     * Applies rank-based canvas layout aligned with Workflow Studio auto-layout.
+     * When {@code autoLayout} is false, returns a mutable copy without repositioning nodes.
+     */
+    public Map<String, Object> layoutCanvas(GraphSpec graphSpec, Map<String, Object> canvas, boolean autoLayout) {
+        Map<String, Object> mutable = mutableCanvas(canvas);
+        if (autoLayout && graphSpec != null) {
+            applyRankBasedLayout(mutable, graphSpec);
+        }
+        return mutable;
+    }
+
+    private void applyRankBasedLayout(Map<String, Object> canvas, GraphSpec graphSpec) {
+        syncCanvasNodesFromGraph(canvas, graphSpec);
+        List<Map<String, Object>> nodes = canvasNodes(canvas);
+        if (nodes.isEmpty()) {
+            return;
+        }
+
+        Map<String, Integer> ranks = computeNodeRanks(graphSpec, nodes);
+        int maxRank = ranks.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        List<String> orderedNodeIds = buildStableNodeOrder(nodes, graphSpec);
+        Map<Integer, Integer> lanes = new LinkedHashMap<>();
+
+        for (String nodeId : orderedNodeIds) {
+            Map<String, Object> canvasNode = findCanvasNode(nodes, nodeId);
+            if (canvasNode == null) {
+                continue;
+            }
+            int level = ranks.getOrDefault(nodeId, maxRank + 1);
+            int lane = lanes.getOrDefault(level, 0);
+            lanes.put(level, lane + 1);
+
+            Map<String, Object> position = new LinkedHashMap<>();
+            position.put("x", LAYOUT_ORIGIN_X + level * LAYOUT_LEVEL_GAP);
+            position.put("y", LAYOUT_ORIGIN_Y + lane * LAYOUT_LANE_GAP);
+            canvasNode.put("position", position);
+        }
+        canvas.put("nodes", nodes);
+    }
+
+    private void syncCanvasNodesFromGraph(Map<String, Object> canvas, GraphSpec graphSpec) {
+        if (graphSpec.getNodes() == null || graphSpec.getNodes().isEmpty()) {
+            return;
+        }
+        List<Map<String, Object>> nodes = canvasNodes(canvas);
+        Set<String> existingIds = nodes.stream()
+                .map(node -> text(node.get("id")))
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        for (GraphSpec.Node node : graphSpec.getNodes()) {
+            if (node == null || !StringUtils.hasText(node.getId())) {
+                continue;
+            }
+            String nodeId = node.getId().trim();
+            if (existingIds.contains(nodeId)) {
+                continue;
+            }
+            syncCanvasNodeAdd(canvas, node, false);
+            existingIds.add(nodeId);
+        }
+    }
+
+    private Map<String, Integer> computeNodeRanks(GraphSpec graphSpec, List<Map<String, Object>> canvasNodes) {
+        Map<String, List<String>> outgoing = buildOutgoingAdjacency(graphSpec);
+        Set<String> graphNodeIds = collectGraphNodeIds(graphSpec);
+        Set<String> incomingTargets = collectIncomingTargets(graphSpec);
+
+        List<String> seeds = new ArrayList<>();
+        if (StringUtils.hasText(graphSpec.getEntry())) {
+            seeds.add(graphSpec.getEntry().trim());
+        }
+        for (String nodeId : graphNodeIds) {
+            if (!incomingTargets.contains(nodeId) && !seeds.contains(nodeId)) {
+                seeds.add(nodeId);
+            }
+        }
+        if (seeds.isEmpty() && !canvasNodes.isEmpty()) {
+            String fallback = text(canvasNodes.get(0).get("id"));
+            if (StringUtils.hasText(fallback)) {
+                seeds.add(fallback);
+            }
+        }
+
+        Map<String, Integer> ranks = new LinkedHashMap<>();
+        List<String> queue = new ArrayList<>();
+        int maxReachableRank = Math.max(0, Math.max(graphNodeIds.size(), canvasNodes.size()) - 1);
+        for (String seed : seeds) {
+            if (!graphNodeIds.contains(seed) && canvasNodes.stream().noneMatch(node -> seed.equals(text(node.get("id"))))) {
+                continue;
+            }
+            ranks.putIfAbsent(seed, 0);
+            if (!queue.contains(seed)) {
+                queue.add(seed);
+            }
+        }
+
+        for (int index = 0; index < queue.size(); index++) {
+            String current = queue.get(index);
+            int currentRank = ranks.getOrDefault(current, 0);
+            for (String target : outgoing.getOrDefault(current, List.of())) {
+                if (END.equalsIgnoreCase(target) || !graphNodeIds.contains(target)) {
+                    continue;
+                }
+                int nextRank = currentRank + 1;
+                if (nextRank > maxReachableRank) {
+                    continue;
+                }
+                Integer existing = ranks.get(target);
+                if (existing == null || existing < nextRank) {
+                    ranks.put(target, nextRank);
+                    queue.add(target);
+                }
+            }
+        }
+
+        int maxRank = ranks.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        for (String nodeId : graphNodeIds) {
+            ranks.putIfAbsent(nodeId, maxRank + 1);
+        }
+        for (Map<String, Object> node : canvasNodes) {
+            String nodeId = text(node.get("id"));
+            if (StringUtils.hasText(nodeId)) {
+                ranks.putIfAbsent(nodeId, maxRank + 1);
+            }
+        }
+        return ranks;
+    }
+
+    private Map<String, List<String>> buildOutgoingAdjacency(GraphSpec graphSpec) {
+        Map<String, List<String>> outgoing = new LinkedHashMap<>();
+        if (graphSpec.getEdges() == null) {
+            return outgoing;
+        }
+        for (GraphSpec.Edge edge : graphSpec.getEdges()) {
+            if (edge == null || !StringUtils.hasText(edge.getFrom()) || !StringUtils.hasText(edge.getTo())) {
+                continue;
+            }
+            String from = edge.getFrom().trim();
+            String to = edge.getTo().trim();
+            outgoing.computeIfAbsent(from, key -> new ArrayList<>()).add(to);
+        }
+        return outgoing;
+    }
+
+    private Set<String> collectGraphNodeIds(GraphSpec graphSpec) {
+        Set<String> ids = new LinkedHashSet<>();
+        if (graphSpec.getNodes() == null) {
+            return ids;
+        }
+        for (GraphSpec.Node node : graphSpec.getNodes()) {
+            if (node != null && StringUtils.hasText(node.getId())) {
+                ids.add(node.getId().trim());
+            }
+        }
+        return ids;
+    }
+
+    private Set<String> collectIncomingTargets(GraphSpec graphSpec) {
+        Set<String> incoming = new LinkedHashSet<>();
+        if (graphSpec.getEdges() == null) {
+            return incoming;
+        }
+        for (GraphSpec.Edge edge : graphSpec.getEdges()) {
+            if (edge == null || !StringUtils.hasText(edge.getTo())) {
+                continue;
+            }
+            String to = edge.getTo().trim();
+            if (!END.equalsIgnoreCase(to)) {
+                incoming.add(to);
+            }
+        }
+        return incoming;
+    }
+
+    private List<String> buildStableNodeOrder(List<Map<String, Object>> canvasNodes, GraphSpec graphSpec) {
+        List<String> ordered = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (Map<String, Object> node : canvasNodes) {
+            String nodeId = text(node.get("id"));
+            if (StringUtils.hasText(nodeId) && seen.add(nodeId)) {
+                ordered.add(nodeId);
+            }
+        }
+        if (graphSpec.getNodes() != null) {
+            for (GraphSpec.Node node : graphSpec.getNodes()) {
+                if (node != null && StringUtils.hasText(node.getId())) {
+                    String nodeId = node.getId().trim();
+                    if (seen.add(nodeId)) {
+                        ordered.add(nodeId);
+                    }
+                }
+            }
+        }
+        return ordered;
+    }
+
+    private Map<String, Object> findCanvasNode(List<Map<String, Object>> nodes, String nodeId) {
+        for (Map<String, Object> node : nodes) {
+            if (Objects.equals(text(node.get("id")), nodeId)) {
+                return node;
+            }
+        }
+        return null;
     }
 
     private void applyAddNode(MutableGraph graph,

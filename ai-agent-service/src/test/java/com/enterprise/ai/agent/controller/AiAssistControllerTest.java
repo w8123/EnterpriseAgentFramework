@@ -863,6 +863,9 @@ class AiAssistControllerTest {
                     assertTrue(content.contains("access-sessions"));
                     assertTrue(content.contains("POST /api/embed/chat/sessions/{sessionId}/messages"));
                     assertTrue(content.contains("{ \"message\": \"...\" }"));
+                    assertTrue(content.contains("Do not use the ReachAI platform base URL as a Maven repository"));
+                    assertTrue(content.contains("/repository/**"));
+                    assertTrue(content.contains("/npm/**"));
                 }
                 if ("reachai-onboarding/references/java-sdk-access.md".equals(entry.getName())) {
                     String content = new String(zip.readAllBytes(), StandardCharsets.UTF_8);
@@ -873,6 +876,10 @@ class AiAssistControllerTest {
                             && content.contains("DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST")
                             && content.contains("Never use the business login token as the chat session token")
                             && content.contains("Do not send ReachAI chat requests as { \"content\": \"...\" }")
+                            && content.contains("Maven Artifact Resolution")
+                            && content.contains("Do not use the ReachAI platform base URL as a Maven repository")
+                            && content.contains("/repository/**")
+                            && content.contains("/npm/**")
                             && content.contains("access-sessions");
                 }
             }

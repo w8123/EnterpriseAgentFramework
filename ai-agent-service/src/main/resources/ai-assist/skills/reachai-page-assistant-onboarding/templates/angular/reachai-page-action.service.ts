@@ -93,7 +93,8 @@ export class ReachAiPageActionService implements ReachAiPageBridge, OnDestroy {
       confirmed: payload.confirmed,
       requestId: payload.requestId,
     });
-    event.source?.postMessage({
+    const target = event.source as { postMessage: (message: unknown, targetOrigin: string) => void } | null;
+    target?.postMessage({
       type: 'reachai.pageAction.result',
       requestId: payload.requestId,
       pageKey: payload.pageKey,
@@ -106,4 +107,3 @@ export class ReachAiPageActionService implements ReachAiPageBridge, OnDestroy {
     return `${pageKey}::${actionKey}`;
   }
 }
-
