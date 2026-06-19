@@ -35,6 +35,30 @@ Common node families:
 - Integrations: `HTTP_REQUEST`, `TOOL`, `CAPABILITY`, `MCP_CALL`, `KNOWLEDGE_WRITE`
 - Page automation: `PAGE_ACTION` (PAGE_ASSISTANT only)
 
+## START / END Endpoints
+
+`START` and `END` are virtual GraphSpec edge endpoints. They do not appear in `nodeTypes` and must not be added to `nodes`.
+
+Required shape:
+
+- Create a real entry node, usually `USER_INPUT`.
+- Set `graphSpec.entry` to the entry node id.
+- Add an edge `START -> <entryNodeId>` with `condition=always`.
+- Connect every terminal branch to `END`.
+- Do not create ordinary nodes with `id=START`, `id=END`, `type=START`, or `type=END`.
+
+For branching flows, every route must end at `END`:
+
+```json
+[
+  { "from": "START", "to": "user_input", "condition": "always" },
+  { "from": "classifier", "to": "query_action", "condition": "route:query_intent" },
+  { "from": "query_answer", "to": "END", "condition": "always" },
+  { "from": "classifier", "to": "clarify_answer", "condition": "route:else" },
+  { "from": "clarify_answer", "to": "END", "condition": "always" }
+]
+```
+
 ## Node Config Examples
 
 ### USER_INPUT
@@ -158,6 +182,28 @@ Use a real tool from `context.availableTools`:
 ```
 
 Prefer `toolName` or `qualifiedName` that exists in `availableTools`.
+
+### PARAMETER_EXTRACT
+
+Use this node when extracting query/filter parameters from natural language. For Page Assistant query filters, default to LLM extraction.
+
+```json
+{
+  "op": "ADD_NODE",
+  "node": {
+    "id": "extract_filters",
+    "type": "PARAMETER_EXTRACT",
+    "name": "Extract filters",
+    "config": {
+      "extractMode": "llm",
+      "modelInstanceId": "<ACTIVE_LLM_MODEL_ID>",
+      "fields": []
+    }
+  }
+}
+```
+
+If the workflow has `defaultModelInstanceId`, use that as `modelInstanceId`; otherwise pick an ACTIVE LLM from `context.availableModels`.
 
 ## Patch Operations
 

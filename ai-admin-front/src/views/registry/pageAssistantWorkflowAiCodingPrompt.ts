@@ -69,6 +69,7 @@ function formatFlowPlan(plan: PageAssistantFlowPlan) {
     `- flowMode: ${plan.flowMode}`,
     `- selectedActionKeys: ${plan.selectedActionKeys.join('、') || '无'}`,
     `- recommendedFlow: ${plan.recommendedFlow.join(' -> ')}`,
+    `- requiredGraphFlow: START -> ${plan.recommendedFlow.join(' -> ')} -> END`,
   ]
   if (plan.intentClasses.length) {
     lines.push('- intentClasses:')
@@ -293,6 +294,12 @@ ${JSON.stringify(createBody, null, 2)}
 
 ## GraphSpec 关键规则
 
+- START/END 是虚拟端点，不是 nodeTypes 里的节点；不要把 START 或 END 放进 nodes。
+- 必须创建真实 USER_INPUT 节点，并设置 graphSpec.entry 为该 USER_INPUT 节点 id。
+- 必须添加 START -> <USER_INPUT节点id> 连线，condition=always；否则 Studio 会显示缺少开始节点。
+- 每个终态分支最后都必须连接到 END；也就是每条 route 最后一个 ANSWER/PAGE_ACTION/INTERACTION 后必须有 <lastNode> -> END 连线。
+- 不要创建普通 id=end/type=END 节点；结束只能通过虚拟端点 END 表达，Studio 会映射为结束节点。
+- 需要从自然语言提取筛选/查询参数时，使用 PARAMETER_EXTRACT，且 config.extractMode=llm，modelInstanceId 使用 defaultModelInstanceId 或 context.availableModels 中的 ACTIVE LLM。
 - LINEAR_QUERY：不要创建 INTENT_CLASSIFIER。
 - INTENT_ROUTER：必须创建 INTENT_CLASSIFIER；strategy=HYBRID；classes 含 id/label/description/keywords；defaultRoute=else。
 - 连线使用 \`route:<classId>\` 或 \`route:else\`。

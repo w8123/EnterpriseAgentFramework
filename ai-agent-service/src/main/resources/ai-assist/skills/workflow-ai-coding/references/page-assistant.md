@@ -13,6 +13,13 @@ Use these endpoints only when `workflow.workflowType=PAGE_ASSISTANT`.
 
 Prefer workflow `extraJson` and bindings as resolved by the platform; do not guess page keys.
 
+## Graph Shape
+
+- Always connect `START -> USER_INPUT` and set `graphSpec.entry` to the `USER_INPUT` node id.
+- `START/END` are virtual endpoints, not `nodes`.
+- Every intent route and default route must finish by connecting its terminal node to `END`.
+- When extracting query/filter parameters from natural language, use `PARAMETER_EXTRACT` with `config.extractMode=llm` unless the user explicitly asks for expression-only extraction.
+
 ## Catalog
 
 `GET /api/workflows/{workflowId}/ai-coding/page-assistant/catalog`

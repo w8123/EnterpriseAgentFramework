@@ -13,6 +13,8 @@ Core mental model:
 
 - `GraphSpec` is runtime semantics; `canvas_json` is layout only.
 - Patch/create default `layout.autoLayout=true`: platform saves rank-based `canvas_json.nodes[].position` (Studio-aligned). Before reporting back, confirm positions are spread across levels/lanes; do not patch GraphSpec only and skip canvas layout.
+- `START` and `END` are virtual GraphSpec edge endpoints, not node types. Do not add them to `nodes`.
+- Every workflow must include a real entry node, set `graphSpec.entry` to that node id, add `START -> <entryNode>` with `condition=always`, and connect every terminal branch to `END`.
 - Workflow AI Coding updates **draft definition** only.
 - **AI tools must not publish.** Publishing is a manual admin action after release validation passes.
 - Always read `GET .../context` before patching. Use `workflow.updatedAt` as `baseRevision` when saving.
