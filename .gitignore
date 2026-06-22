@@ -13,6 +13,8 @@
 *.tar.gz
 *.rar
 target/
+tmp/
+.codex-logs/
 
 # ---- JVM crash logs ----
 hs_err_pid*
