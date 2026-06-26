@@ -7,7 +7,7 @@ import com.enterprise.ai.agent.model.interactive.UiSubmitPayload;
 import com.enterprise.ai.agent.runtime.AgentRuntimeRequest;
 import com.enterprise.ai.agent.runtime.AgentRuntimeResult;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
-import com.enterprise.ai.agent.runtime.LangGraph4jRuntimeAdapter;
+import com.enterprise.ai.agent.runtime.host.LangGraph4jRuntimeAdapter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;

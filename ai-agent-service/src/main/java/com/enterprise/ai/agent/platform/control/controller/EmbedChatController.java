@@ -1,33 +1,33 @@
 package com.enterprise.ai.agent.platform.control.controller;
 
-import com.enterprise.ai.agent.context.memory.RuntimeMemoryCandidateIdentity;
-import com.enterprise.ai.agent.context.memory.RuntimeMemoryCandidateResult;
-import com.enterprise.ai.agent.context.memory.RuntimeMemoryCandidateService;
-import com.enterprise.ai.agent.context.ContextPackageResponse;
-import com.enterprise.ai.agent.context.ContextSearchResult;
-import com.enterprise.ai.agent.context.runtime.RuntimeContextInjectionResult;
-import com.enterprise.ai.agent.context.runtime.RuntimeContextPackageService;
+import com.enterprise.ai.agent.platform.control.context.memory.RuntimeMemoryCandidateIdentity;
+import com.enterprise.ai.agent.platform.control.context.memory.RuntimeMemoryCandidateResult;
+import com.enterprise.ai.agent.platform.control.context.memory.RuntimeMemoryCandidateService;
+import com.enterprise.ai.agent.platform.control.context.ContextPackageResponse;
+import com.enterprise.ai.agent.platform.control.context.ContextSearchResult;
+import com.enterprise.ai.agent.platform.control.context.runtime.RuntimeContextInjectionResult;
+import com.enterprise.ai.agent.platform.control.context.runtime.RuntimeContextPackageService;
 import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
 import com.enterprise.ai.agent.workflow.AgentEntryEntity;
 import com.enterprise.ai.agent.workflow.AgentEntryService;
 import com.enterprise.ai.agent.agentscope.AgentRouter;
-import com.enterprise.ai.agent.identity.BusinessPrincipal;
-import com.enterprise.ai.agent.identity.BusinessUserBatchSyncResult;
-import com.enterprise.ai.agent.identity.BusinessUserDirectoryService;
-import com.enterprise.ai.agent.identity.BusinessUserSyncCommand;
-import com.enterprise.ai.agent.identity.BusinessUserSyncResult;
-import com.enterprise.ai.agent.identity.EmbedAuditEventService;
-import com.enterprise.ai.agent.identity.EmbedChatStreamEvent;
-import com.enterprise.ai.agent.identity.EmbedChatStreamEventFactory;
-import com.enterprise.ai.agent.identity.EmbedRendererAuthorizationService;
-import com.enterprise.ai.agent.identity.EmbedSessionEntity;
-import com.enterprise.ai.agent.identity.EmbedSessionService;
-import com.enterprise.ai.agent.identity.EmbedTokenClaims;
-import com.enterprise.ai.agent.identity.EmbedTokenException;
-import com.enterprise.ai.agent.identity.EmbedTokenIssueCommand;
-import com.enterprise.ai.agent.identity.EmbedTokenIssueResult;
-import com.enterprise.ai.agent.identity.EmbedTokenService;
-import com.enterprise.ai.agent.governance.GuardDecisionLogService;
+import com.enterprise.ai.agent.platform.control.identity.BusinessPrincipal;
+import com.enterprise.ai.agent.platform.control.identity.BusinessUserBatchSyncResult;
+import com.enterprise.ai.agent.platform.control.identity.BusinessUserDirectoryService;
+import com.enterprise.ai.agent.platform.control.identity.BusinessUserSyncCommand;
+import com.enterprise.ai.agent.platform.control.identity.BusinessUserSyncResult;
+import com.enterprise.ai.agent.platform.control.identity.EmbedAuditEventService;
+import com.enterprise.ai.agent.platform.control.identity.EmbedChatStreamEvent;
+import com.enterprise.ai.agent.platform.control.identity.EmbedChatStreamEventFactory;
+import com.enterprise.ai.agent.platform.control.identity.EmbedRendererAuthorizationService;
+import com.enterprise.ai.agent.platform.control.identity.EmbedSessionEntity;
+import com.enterprise.ai.agent.platform.control.identity.EmbedSessionService;
+import com.enterprise.ai.agent.platform.control.identity.EmbedTokenClaims;
+import com.enterprise.ai.agent.platform.control.identity.EmbedTokenException;
+import com.enterprise.ai.agent.platform.control.identity.EmbedTokenIssueCommand;
+import com.enterprise.ai.agent.platform.control.identity.EmbedTokenIssueResult;
+import com.enterprise.ai.agent.platform.control.identity.EmbedTokenService;
+import com.enterprise.ai.agent.platform.control.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.model.ChatResponse;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
@@ -361,7 +361,7 @@ public class EmbedChatController {
         }
     }
 
-    private PageActionDispatchResponse toPageActionDispatch(com.enterprise.ai.agent.identity.PageActionEventEntity event) {
+    private PageActionDispatchResponse toPageActionDispatch(com.enterprise.ai.agent.platform.control.identity.PageActionEventEntity event) {
         Map<String, Object> args = readObjectMap(event.getArgsJson());
         Map<String, Object> target = new LinkedHashMap<>();
         if (StringUtils.hasText(event.getTargetPageInstanceId())) {

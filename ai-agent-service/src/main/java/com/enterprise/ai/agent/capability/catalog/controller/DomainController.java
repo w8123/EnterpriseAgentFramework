@@ -1,13 +1,13 @@
 package com.enterprise.ai.agent.capability.catalog.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.enterprise.ai.agent.domain.DomainAssignmentEntity;
-import com.enterprise.ai.agent.domain.DomainAssignmentService;
-import com.enterprise.ai.agent.domain.DomainClassification;
-import com.enterprise.ai.agent.domain.DomainClassifier;
-import com.enterprise.ai.agent.domain.DomainDefEntity;
-import com.enterprise.ai.agent.domain.DomainDefMapper;
-import com.enterprise.ai.agent.domain.KeywordDomainClassifier;
+import com.enterprise.ai.agent.capability.catalog.domain.DomainAssignmentEntity;
+import com.enterprise.ai.agent.capability.catalog.domain.DomainAssignmentService;
+import com.enterprise.ai.agent.capability.catalog.domain.DomainClassification;
+import com.enterprise.ai.agent.capability.catalog.domain.DomainClassifier;
+import com.enterprise.ai.agent.capability.catalog.domain.DomainDefEntity;
+import com.enterprise.ai.agent.capability.catalog.domain.DomainDefMapper;
+import com.enterprise.ai.agent.capability.catalog.domain.KeywordDomainClassifier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;

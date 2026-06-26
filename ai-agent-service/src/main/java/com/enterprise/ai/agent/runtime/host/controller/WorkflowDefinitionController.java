@@ -1,8 +1,8 @@
 package com.enterprise.ai.agent.runtime.host.controller;
 
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
-import com.enterprise.ai.agent.scan.ScanProjectEntity;
-import com.enterprise.ai.agent.scan.ScanProjectService;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectService;
 import com.enterprise.ai.agent.workflow.PageAssistantWorkflowBindRequest;
 import com.enterprise.ai.agent.workflow.PageAssistantWorkflowBindingResult;
 import com.enterprise.ai.agent.workflow.PageAssistantWorkflowBindingService;

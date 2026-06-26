@@ -1,14 +1,14 @@
 package com.enterprise.ai.agent.aicoding;
 
-import com.enterprise.ai.agent.context.ContextSourceType;
-import com.enterprise.ai.agent.context.ContextVisibility;
-import com.enterprise.ai.agent.context.MemoryLane;
-import com.enterprise.ai.agent.context.memory.ContextMemoryCandidateCreateRequest;
-import com.enterprise.ai.agent.context.memory.ContextMemoryCandidateQueryRequest;
-import com.enterprise.ai.agent.context.memory.ContextMemoryCandidateResponse;
-import com.enterprise.ai.agent.context.memory.ContextMemoryCandidateService;
-import com.enterprise.ai.agent.context.memory.ContextMemoryCandidateType;
-import com.enterprise.ai.agent.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.platform.control.context.ContextSourceType;
+import com.enterprise.ai.agent.platform.control.context.ContextVisibility;
+import com.enterprise.ai.agent.platform.control.context.MemoryLane;
+import com.enterprise.ai.agent.platform.control.context.memory.ContextMemoryCandidateCreateRequest;
+import com.enterprise.ai.agent.platform.control.context.memory.ContextMemoryCandidateQueryRequest;
+import com.enterprise.ai.agent.platform.control.context.memory.ContextMemoryCandidateResponse;
+import com.enterprise.ai.agent.platform.control.context.memory.ContextMemoryCandidateService;
+import com.enterprise.ai.agent.platform.control.context.memory.ContextMemoryCandidateType;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;

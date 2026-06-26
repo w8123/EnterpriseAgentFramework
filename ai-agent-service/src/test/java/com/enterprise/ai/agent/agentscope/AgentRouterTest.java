@@ -1,20 +1,20 @@
 package com.enterprise.ai.agent.agentscope;
 
-import com.enterprise.ai.agent.context.runtime.RuntimeContextIdentity;
-import com.enterprise.ai.agent.context.runtime.RuntimeContextInjectionResult;
-import com.enterprise.ai.agent.context.runtime.RuntimeContextPackageService;
+import com.enterprise.ai.agent.platform.control.context.runtime.RuntimeContextIdentity;
+import com.enterprise.ai.agent.platform.control.context.runtime.RuntimeContextInjectionResult;
+import com.enterprise.ai.agent.platform.control.context.runtime.RuntimeContextPackageService;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.runtime.AgentRuntimeAdapter;
 import com.enterprise.ai.agent.runtime.AgentRuntimeProfile;
 import com.enterprise.ai.agent.runtime.AgentRuntimeRequest;
 import com.enterprise.ai.agent.runtime.AgentRuntimeResult;
-import com.enterprise.ai.agent.runtime.AgentRuntimeSelector;
+import com.enterprise.ai.agent.runtime.host.AgentRuntimeSelector;
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchRequest;
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchResult;
-import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchService;
+import com.enterprise.ai.agent.runtime.host.EmbeddedRuntimeDispatchService;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
-import com.enterprise.ai.agent.governance.GuardDecisionLogService;
+import com.enterprise.ai.agent.platform.control.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.runtime.host.service.IntentService;
 import com.enterprise.ai.agent.workflow.AgentEntryService;
 import com.enterprise.ai.agent.workflow.AgentWorkflowBindingService;

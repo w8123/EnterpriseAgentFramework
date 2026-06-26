@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.skill;
 
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.workflow;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
-import com.enterprise.ai.agent.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;

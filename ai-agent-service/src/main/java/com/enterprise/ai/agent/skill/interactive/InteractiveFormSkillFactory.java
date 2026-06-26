@@ -1,9 +1,9 @@
 package com.enterprise.ai.agent.skill.interactive;
 
 import com.enterprise.ai.agent.tools.ToolRegistry;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionService;
 import com.enterprise.ai.runtime.contract.SideEffectLevel;
 import com.enterprise.ai.runtime.contract.SkillMetadata;
 import com.enterprise.ai.runtime.contract.ToolParameter;

@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.mining;
 
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;

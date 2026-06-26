@@ -1,10 +1,10 @@
 package com.enterprise.ai.agent.platform.control.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.enterprise.ai.agent.acl.ToolAclDecision;
-import com.enterprise.ai.agent.acl.ToolAclEntity;
-import com.enterprise.ai.agent.acl.ToolAclService;
-import com.enterprise.ai.agent.acl.ToolAclService.ToolAclTargetRef;
+import com.enterprise.ai.agent.platform.control.acl.ToolAclDecision;
+import com.enterprise.ai.agent.platform.control.acl.ToolAclEntity;
+import com.enterprise.ai.agent.platform.control.acl.ToolAclService;
+import com.enterprise.ai.agent.platform.control.acl.ToolAclService.ToolAclTargetRef;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;

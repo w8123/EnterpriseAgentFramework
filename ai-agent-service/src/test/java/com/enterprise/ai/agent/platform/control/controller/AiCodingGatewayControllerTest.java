@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.platform.control.controller;
 
 import com.enterprise.ai.agent.aicoding.AiCodingAccessGuard;
-import com.enterprise.ai.agent.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;

@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.registry;
 
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationClaims;
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationToken;
 import org.junit.jupiter.api.Test;

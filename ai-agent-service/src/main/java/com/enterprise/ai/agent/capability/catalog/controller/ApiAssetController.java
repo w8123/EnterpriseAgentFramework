@@ -1,13 +1,13 @@
 package com.enterprise.ai.agent.capability.catalog.controller;
 
-import com.enterprise.ai.agent.scan.ScanModuleEntity;
-import com.enterprise.ai.agent.scan.ScanModuleService;
-import com.enterprise.ai.agent.scan.ScanProjectEntity;
-import com.enterprise.ai.agent.scan.ScanProjectService;
-import com.enterprise.ai.agent.scan.ScanProjectToolEntity;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleService;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectService;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;

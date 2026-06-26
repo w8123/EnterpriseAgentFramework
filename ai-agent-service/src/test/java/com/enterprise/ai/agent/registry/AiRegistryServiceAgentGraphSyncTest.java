@@ -1,17 +1,17 @@
 package com.enterprise.ai.agent.registry;
 
-import com.enterprise.ai.agent.acl.ToolAclMapper;
+import com.enterprise.ai.agent.platform.control.acl.ToolAclMapper;
 import com.enterprise.ai.agent.workflow.AgentEntryService;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.registry.RegistryContracts.AgentGraphRegistration;
 import com.enterprise.ai.agent.registry.RegistryContracts.AgentGraphSyncRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.AgentGraphSyncResponse;
-import com.enterprise.ai.agent.scan.ScanModuleService;
-import com.enterprise.ai.agent.scan.ScanProjectEntity;
-import com.enterprise.ai.agent.scan.ScanProjectMapper;
-import com.enterprise.ai.agent.scan.ScanProjectService;
-import com.enterprise.ai.agent.scan.ScanProjectToolService;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanModuleService;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectMapper;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectService;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolService;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionService;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionEntity;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;
 import com.fasterxml.jackson.databind.ObjectMapper;

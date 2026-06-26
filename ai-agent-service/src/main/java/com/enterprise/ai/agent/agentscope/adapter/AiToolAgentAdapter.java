@@ -2,7 +2,7 @@ package com.enterprise.ai.agent.agentscope.adapter;
 
 import com.enterprise.ai.agent.skill.ToolExecutionContextHolder;
 import com.enterprise.ai.agent.skill.interactive.InteractionSuspendedException;
-import com.enterprise.ai.agent.tool.governance.ToolRateLimiter;
+import com.enterprise.ai.agent.platform.control.tool.governance.ToolRateLimiter;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
 import com.enterprise.ai.agent.tools.schema.LlmJsonSchemaProvider;

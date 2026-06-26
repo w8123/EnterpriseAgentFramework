@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.workflow;
 
-import com.enterprise.ai.agent.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;

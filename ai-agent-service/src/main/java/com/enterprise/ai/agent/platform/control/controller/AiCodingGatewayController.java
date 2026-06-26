@@ -1,10 +1,10 @@
 package com.enterprise.ai.agent.platform.control.controller;
 
 import com.enterprise.ai.agent.aicoding.AiCodingAccessGuard;
-import com.enterprise.ai.agent.context.ContextSourceType;
-import com.enterprise.ai.agent.context.MemoryLane;
-import com.enterprise.ai.agent.context.memory.ContextMemoryCandidateType;
-import com.enterprise.ai.agent.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.platform.control.context.ContextSourceType;
+import com.enterprise.ai.agent.platform.control.context.MemoryLane;
+import com.enterprise.ai.agent.platform.control.context.memory.ContextMemoryCandidateType;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.tools.dynamic;
 
-import com.enterprise.ai.agent.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
 import org.springframework.util.StringUtils;
 
 import java.net.URI;

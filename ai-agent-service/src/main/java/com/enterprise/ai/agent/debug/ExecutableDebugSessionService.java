@@ -3,7 +3,7 @@ package com.enterprise.ai.agent.debug;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.model.interactive.UiRequestPayload;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
-import com.enterprise.ai.agent.runtime.LangGraph4jRuntimeAdapter;
+import com.enterprise.ai.agent.runtime.host.LangGraph4jRuntimeAdapter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;

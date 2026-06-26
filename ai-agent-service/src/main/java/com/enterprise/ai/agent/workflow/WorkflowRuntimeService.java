@@ -3,7 +3,7 @@ package com.enterprise.ai.agent.workflow;
 import com.enterprise.ai.agent.agentscope.AgentRouter;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.model.AgentResult;
-import com.enterprise.ai.agent.context.runtime.RuntimeContextInjectionResult;
+import com.enterprise.ai.agent.platform.control.context.runtime.RuntimeContextInjectionResult;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

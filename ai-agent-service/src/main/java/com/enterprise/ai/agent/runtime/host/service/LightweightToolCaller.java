@@ -2,7 +2,7 @@ package com.enterprise.ai.agent.runtime.host.service;
 
 import com.enterprise.ai.runtime.contract.AiTool;
 import com.enterprise.ai.agent.tools.ToolRegistry;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;

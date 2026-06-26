@@ -1,9 +1,9 @@
 package com.enterprise.ai.agent.registry;
 
-import com.enterprise.ai.agent.scan.ScanProjectEntity;
-import com.enterprise.ai.agent.scan.ScanProjectService;
-import com.enterprise.ai.agent.scan.ScanProjectToolEntity;
-import com.enterprise.ai.agent.scan.ScanProjectToolService;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectService;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

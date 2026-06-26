@@ -1,8 +1,8 @@
 package com.enterprise.ai.agent.runtime.host.controller;
 
 import com.enterprise.ai.agent.platform.control.controller.AiCodingGatewayController;
-import com.enterprise.ai.agent.platform.auth.PlatformAuthContext;
-import com.enterprise.ai.agent.platform.auth.PlatformPrincipal;
+import com.enterprise.ai.agent.platform.control.auth.PlatformAuthContext;
+import com.enterprise.ai.agent.platform.control.auth.PlatformPrincipal;
 import com.enterprise.ai.agent.workflow.aicoding.WorkflowAccessDeniedException;
 import com.enterprise.ai.agent.workflow.aicoding.WorkflowAiCodingUnauthorizedException;
 import com.enterprise.ai.agent.workflow.aicoding.WorkflowAiCodingContextResponse;

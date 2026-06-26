@@ -2,8 +2,8 @@ package com.enterprise.ai.agent.tools.dynamic;
 
 import com.enterprise.ai.agent.skill.ToolExecutionContextHolder;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionEntity;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.tools.schema.LlmJsonSchemaProvider;
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationToken;
 import com.enterprise.ai.runtime.contract.AiTool;

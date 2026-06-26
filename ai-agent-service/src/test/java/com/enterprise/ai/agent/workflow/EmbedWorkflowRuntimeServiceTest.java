@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.workflow;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
-import com.enterprise.ai.agent.identity.EmbedSessionEntity;
+import com.enterprise.ai.agent.platform.control.identity.EmbedSessionEntity;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;

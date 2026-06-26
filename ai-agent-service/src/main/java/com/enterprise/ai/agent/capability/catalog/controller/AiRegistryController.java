@@ -1,8 +1,8 @@
 package com.enterprise.ai.agent.capability.catalog.controller;
 
-import com.enterprise.ai.agent.identity.PageActionCatalogContracts.PageCatalogRegisterRequest;
-import com.enterprise.ai.agent.identity.PageActionCatalogService;
-import com.enterprise.ai.agent.identity.PageCatalogRegisterResult;
+import com.enterprise.ai.agent.platform.control.identity.PageActionCatalogContracts.PageCatalogRegisterRequest;
+import com.enterprise.ai.agent.platform.control.identity.PageActionCatalogService;
+import com.enterprise.ai.agent.platform.control.identity.PageCatalogRegisterResult;
 import com.enterprise.ai.agent.registry.AiRegistryService;
 import com.enterprise.ai.agent.registry.ProjectInstanceEntity;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;

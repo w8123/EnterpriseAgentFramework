@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.workflow;
 
-import com.enterprise.ai.agent.context.runtime.RuntimeContextInjectionResult;
+import com.enterprise.ai.agent.platform.control.context.runtime.RuntimeContextInjectionResult;
 import lombok.Builder;
 import lombok.Data;
 

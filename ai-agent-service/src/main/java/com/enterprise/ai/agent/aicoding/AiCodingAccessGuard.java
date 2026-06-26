@@ -1,8 +1,8 @@
 package com.enterprise.ai.agent.aicoding;
 
-import com.enterprise.ai.agent.platform.auth.AiCodingKeyContext;
-import com.enterprise.ai.agent.scan.ScanProjectEntity;
-import com.enterprise.ai.agent.scan.ScanProjectService;
+import com.enterprise.ai.agent.platform.control.auth.AiCodingKeyContext;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;

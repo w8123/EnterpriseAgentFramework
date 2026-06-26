@@ -1,10 +1,10 @@
 package com.enterprise.ai.agent.platform.control.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.enterprise.ai.agent.a2a.A2aCallLogEntity;
-import com.enterprise.ai.agent.a2a.A2aCallLogService;
-import com.enterprise.ai.agent.a2a.A2aEndpointEntity;
-import com.enterprise.ai.agent.a2a.A2aEndpointService;
+import com.enterprise.ai.agent.platform.control.a2a.A2aCallLogEntity;
+import com.enterprise.ai.agent.platform.control.a2a.A2aCallLogService;
+import com.enterprise.ai.agent.platform.control.a2a.A2aEndpointEntity;
+import com.enterprise.ai.agent.platform.control.a2a.A2aEndpointService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;

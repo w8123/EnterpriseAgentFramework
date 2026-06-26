@@ -2,12 +2,12 @@ package com.enterprise.ai.agent.platform.control.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.enterprise.ai.agent.mcp.McpCallLogEntity;
-import com.enterprise.ai.agent.mcp.McpCallLogMapper;
-import com.enterprise.ai.agent.mcp.McpClientEntity;
-import com.enterprise.ai.agent.mcp.McpClientService;
-import com.enterprise.ai.agent.mcp.McpVisibilityEntity;
-import com.enterprise.ai.agent.mcp.McpVisibilityService;
+import com.enterprise.ai.agent.platform.control.mcp.McpCallLogEntity;
+import com.enterprise.ai.agent.platform.control.mcp.McpCallLogMapper;
+import com.enterprise.ai.agent.platform.control.mcp.McpClientEntity;
+import com.enterprise.ai.agent.platform.control.mcp.McpClientService;
+import com.enterprise.ai.agent.platform.control.mcp.McpVisibilityEntity;
+import com.enterprise.ai.agent.platform.control.mcp.McpVisibilityService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;

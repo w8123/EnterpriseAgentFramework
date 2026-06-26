@@ -2,9 +2,9 @@ package com.enterprise.ai.agent.runtime.host.controller;
 
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchRequest;
 import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchResult;
-import com.enterprise.ai.agent.runtime.EmbeddedRuntimeDispatchService;
+import com.enterprise.ai.agent.runtime.host.EmbeddedRuntimeDispatchService;
 import com.enterprise.ai.agent.runtime.RuntimeRegistryEntry;
-import com.enterprise.ai.agent.runtime.RuntimeRegistryService;
+import com.enterprise.ai.agent.runtime.host.RuntimeRegistryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;

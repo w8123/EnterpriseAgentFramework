@@ -1,17 +1,17 @@
 package com.enterprise.ai.agent.agentscope;
 
-import com.enterprise.ai.agent.acl.ToolAclDecision;
-import com.enterprise.ai.agent.acl.ToolAclService;
+import com.enterprise.ai.agent.platform.control.acl.ToolAclDecision;
+import com.enterprise.ai.agent.platform.control.acl.ToolAclService;
 import com.enterprise.ai.agent.config.LLMConfig;
 import com.enterprise.ai.agent.capability.catalog.config.ToolRetrievalProperties;
-import com.enterprise.ai.agent.governance.GuardDecisionLogService;
-import com.enterprise.ai.agent.tool.governance.ToolRateLimiter;
+import com.enterprise.ai.agent.platform.control.governance.GuardDecisionLogService;
+import com.enterprise.ai.agent.platform.control.tool.governance.ToolRateLimiter;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;
 import com.enterprise.ai.agent.tool.log.ToolExecutionContext;
-import com.enterprise.ai.agent.tool.retrieval.ToolRetrievalService;
+import com.enterprise.ai.agent.capability.catalog.tool.retrieval.ToolRetrievalService;
 import com.enterprise.ai.agent.tools.ToolRegistry;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionMapper;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionService;
 import com.enterprise.ai.runtime.contract.AiTool;
 import com.enterprise.ai.runtime.contract.ToolParameter;
 import com.fasterxml.jackson.databind.ObjectMapper;

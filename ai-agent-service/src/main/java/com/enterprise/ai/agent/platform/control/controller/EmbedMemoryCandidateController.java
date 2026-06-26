@@ -1,11 +1,11 @@
 package com.enterprise.ai.agent.platform.control.controller;
 
-import com.enterprise.ai.agent.context.memory.*;
-import com.enterprise.ai.agent.identity.EmbedSessionEntity;
-import com.enterprise.ai.agent.identity.EmbedSessionService;
-import com.enterprise.ai.agent.identity.EmbedTokenClaims;
-import com.enterprise.ai.agent.identity.EmbedTokenException;
-import com.enterprise.ai.agent.identity.EmbedTokenService;
+import com.enterprise.ai.agent.platform.control.context.memory.*;
+import com.enterprise.ai.agent.platform.control.identity.EmbedSessionEntity;
+import com.enterprise.ai.agent.platform.control.identity.EmbedSessionService;
+import com.enterprise.ai.agent.platform.control.identity.EmbedTokenClaims;
+import com.enterprise.ai.agent.platform.control.identity.EmbedTokenException;
+import com.enterprise.ai.agent.platform.control.identity.EmbedTokenService;
 import com.enterprise.ai.common.dto.ApiResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;

@@ -1,14 +1,14 @@
 package com.enterprise.ai.agent.assist;
 
 import com.enterprise.ai.agent.registry.SdkAccessCheckService;
-import com.enterprise.ai.agent.scan.ScanProjectEntity;
-import com.enterprise.ai.agent.scan.ScanProjectService;
-import com.enterprise.ai.agent.identity.PageActionRegistryEntity;
-import com.enterprise.ai.agent.identity.PageActionRegistryMapper;
-import com.enterprise.ai.agent.identity.PageActionCatalogContracts;
-import com.enterprise.ai.agent.identity.PageRegistryEntity;
-import com.enterprise.ai.agent.identity.PageRegistryMapper;
-import com.enterprise.ai.agent.identity.PageCatalogRegisterResult;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectService;
+import com.enterprise.ai.agent.platform.control.identity.PageActionRegistryEntity;
+import com.enterprise.ai.agent.platform.control.identity.PageActionRegistryMapper;
+import com.enterprise.ai.agent.platform.control.identity.PageActionCatalogContracts;
+import com.enterprise.ai.agent.platform.control.identity.PageRegistryEntity;
+import com.enterprise.ai.agent.platform.control.identity.PageRegistryMapper;
+import com.enterprise.ai.agent.platform.control.identity.PageCatalogRegisterResult;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

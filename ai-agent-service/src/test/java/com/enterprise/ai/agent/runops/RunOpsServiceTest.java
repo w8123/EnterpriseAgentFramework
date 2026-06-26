@@ -2,7 +2,7 @@ package com.enterprise.ai.agent.runops;
 
 import com.enterprise.ai.agent.agentscope.AgentRouter;
 import com.enterprise.ai.agent.graph.GraphSpec;
-import com.enterprise.ai.agent.governance.GuardDecisionLogService;
+import com.enterprise.ai.agent.platform.control.governance.GuardDecisionLogService;
 import com.enterprise.ai.agent.model.AgentResult;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
 import com.enterprise.ai.agent.tool.log.ToolCallLogService;

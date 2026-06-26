@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.registry;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionParameter;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
 
 import java.util.List;
 import java.util.Map;

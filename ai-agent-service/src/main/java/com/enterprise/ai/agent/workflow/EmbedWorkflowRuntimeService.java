@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.workflow;
 
-import com.enterprise.ai.agent.identity.EmbedSessionEntity;
+import com.enterprise.ai.agent.platform.control.identity.EmbedSessionEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;

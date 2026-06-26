@@ -4,7 +4,7 @@ import com.enterprise.ai.agent.aicoding.AiCodingAccessDeniedException;
 import com.enterprise.ai.agent.aicoding.AiCodingAccessGuard;
 import com.enterprise.ai.agent.aicoding.AiCodingUnauthorizedException;
 import com.enterprise.ai.agent.assist.AiAccessSessionService;
-import com.enterprise.ai.agent.identity.PageActionCatalogContracts;
+import com.enterprise.ai.agent.platform.control.identity.PageActionCatalogContracts;
 import com.enterprise.ai.agent.registry.SdkAccessCheckService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;

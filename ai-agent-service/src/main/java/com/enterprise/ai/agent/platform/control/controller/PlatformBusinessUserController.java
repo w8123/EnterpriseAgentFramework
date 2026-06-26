@@ -1,8 +1,8 @@
 package com.enterprise.ai.agent.platform.control.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.enterprise.ai.agent.identity.BusinessUserDirectoryService;
-import com.enterprise.ai.agent.identity.BusinessUserEntity;
+import com.enterprise.ai.agent.platform.control.identity.BusinessUserDirectoryService;
+import com.enterprise.ai.agent.platform.control.identity.BusinessUserEntity;
 import com.enterprise.ai.common.dto.ApiResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

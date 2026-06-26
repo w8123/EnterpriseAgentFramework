@@ -2,12 +2,12 @@ package com.enterprise.ai.agent.workflow.aicoding.pageassistant;
 
 import com.enterprise.ai.agent.aicoding.AiCodingAccessGuard;
 import com.enterprise.ai.agent.graph.GraphSpec;
-import com.enterprise.ai.agent.identity.PageActionRegistryEntity;
-import com.enterprise.ai.agent.identity.PageActionRegistryMapper;
-import com.enterprise.ai.agent.platform.auth.AiCodingKeyContext;
-import com.enterprise.ai.agent.platform.auth.PlatformAuthContext;
-import com.enterprise.ai.agent.scan.ScanProjectEntity;
-import com.enterprise.ai.agent.scan.ScanProjectService;
+import com.enterprise.ai.agent.platform.control.identity.PageActionRegistryEntity;
+import com.enterprise.ai.agent.platform.control.identity.PageActionRegistryMapper;
+import com.enterprise.ai.agent.platform.control.auth.AiCodingKeyContext;
+import com.enterprise.ai.agent.platform.control.auth.PlatformAuthContext;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
+import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectService;
 import com.enterprise.ai.agent.workflow.AgentWorkflowBindingService;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionEntity;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;

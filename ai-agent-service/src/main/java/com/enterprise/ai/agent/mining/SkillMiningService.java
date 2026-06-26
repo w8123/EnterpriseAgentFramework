@@ -3,8 +3,8 @@ package com.enterprise.ai.agent.mining;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.enterprise.ai.agent.tool.log.ToolCallLogEntity;
 import com.enterprise.ai.agent.tool.log.ToolCallLogMapper;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionService;
-import com.enterprise.ai.agent.tools.definition.ToolDefinitionUpsertRequest;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionService;
+import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionUpsertRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 

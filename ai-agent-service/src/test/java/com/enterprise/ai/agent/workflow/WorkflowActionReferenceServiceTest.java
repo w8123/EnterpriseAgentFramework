@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.workflow;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
-import com.enterprise.ai.agent.identity.PageActionRegistryEntity;
+import com.enterprise.ai.agent.platform.control.identity.PageActionRegistryEntity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 

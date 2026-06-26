@@ -49,6 +49,77 @@ function assertNoFilesUnder(rel, suffix) {
   }
 }
 
+function assertNoPackageDeclarationUnder(rel, packageName) {
+  const base = path.join(root, rel)
+  if (!fs.existsSync(base)) {
+    return
+  }
+  const needle = `package ${packageName};`
+  const matches = []
+  const stack = [base]
+  while (stack.length > 0) {
+    const current = stack.pop()
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const target = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        stack.push(target)
+        continue
+      }
+      if (!entry.name.endsWith('.java')) {
+        continue
+      }
+      const text = fs.readFileSync(target, 'utf8')
+      if (text.includes(needle)) {
+        matches.push(path.relative(root, target).replace(/\\/g, '/'))
+      }
+    }
+  }
+  if (matches.length > 0) {
+    console.error(`[stale package] ${packageName}`)
+    for (const match of matches) {
+      console.error(`  ${match}`)
+    }
+    failures += matches.length
+  }
+}
+
+function assertPackagePrefixUnder(rel, packagePrefix) {
+  const base = path.join(root, rel)
+  if (!fs.existsSync(base)) {
+    console.error(`[missing] ${rel}`)
+    failures += 1
+    return
+  }
+  const mismatches = []
+  const stack = [base]
+  while (stack.length > 0) {
+    const current = stack.pop()
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const target = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        stack.push(target)
+        continue
+      }
+      if (!entry.name.endsWith('.java')) {
+        continue
+      }
+      const text = fs.readFileSync(target, 'utf8')
+      const match = text.match(/^package\s+([^;]+);/m)
+      const actual = match ? match[1] : '(missing package)'
+      if (actual !== packagePrefix && !actual.startsWith(`${packagePrefix}.`)) {
+        mismatches.push(`${path.relative(root, target).replace(/\\/g, '/')}: ${actual}`)
+      }
+    }
+  }
+  if (mismatches.length > 0) {
+    console.error(`[package prefix mismatch] ${rel}: expected ${packagePrefix}`)
+    for (const mismatch of mismatches) {
+      console.error(`  ${mismatch}`)
+    }
+    failures += mismatches.length
+  }
+}
+
 function assertIncludes(rel, needle) {
   const text = read(rel)
   if (!text.includes(needle)) {
@@ -78,7 +149,8 @@ function addedDiffLines() {
   try {
     output = execFileSync('git', ['diff', '--no-ext-diff', '--unified=0', '--', '.'], {
       cwd: root,
-      encoding: 'utf8'
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024
     })
   } catch (error) {
     console.error(`[git diff failed] ${error.message}`)
@@ -164,6 +236,45 @@ assertMatches('ai-admin-front/vite.config.ts', /['"]\/api['"]:\s*\{[\s\S]*?targe
 assertMatches('ai-admin-front/vite.config.ts', /\^\/model\/\(providers\|instances\|chat\)[\s\S]*?target:\s*['"]http:\/\/localhost:18601['"]/, '/model proxy -> 18601')
 assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/controller', '.java')
 assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/service', '.java')
+assertNoFilesUnder('ai-agent-service/src/test/java/com/enterprise/ai/agent/controller', '.java')
+assertNoPackageDeclarationUnder('ai-agent-service/src/test/java', 'com.enterprise.ai.agent.controller')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/scan', '.java')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/domain', '.java')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/semantic', '.java')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/tool/retrieval', '.java')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/tools/definition', '.java')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/auth', '.java')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/identity', '.java')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/mcp', '.java')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/a2a', '.java')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/acl', '.java')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/governance', '.java')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/market', '.java')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/context', '.java')
+assertNoFilesUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/tool/governance', '.java')
+assertNoFilesUnder('ai-agent-service/src/test/java/com/enterprise/ai/agent/scan', '.java')
+assertNoFilesUnder('ai-agent-service/src/test/java/com/enterprise/ai/agent/tool/retrieval', '.java')
+assertNoFilesUnder('ai-agent-service/src/test/java/com/enterprise/ai/agent/platform/auth', '.java')
+assertNoFilesUnder('ai-agent-service/src/test/java/com/enterprise/ai/agent/identity', '.java')
+assertNoFilesUnder('ai-agent-service/src/test/java/com/enterprise/ai/agent/mcp', '.java')
+assertNoFilesUnder('ai-agent-service/src/test/java/com/enterprise/ai/agent/acl', '.java')
+assertNoFilesUnder('ai-agent-service/src/test/java/com/enterprise/ai/agent/context', '.java')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/runtime/host', 'com.enterprise.ai.agent.runtime.host')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/capability/catalog/scan', 'com.enterprise.ai.agent.capability.catalog.scan')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/capability/catalog/domain', 'com.enterprise.ai.agent.capability.catalog.domain')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/capability/catalog/semantic', 'com.enterprise.ai.agent.capability.catalog.semantic')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/capability/catalog/tool/retrieval', 'com.enterprise.ai.agent.capability.catalog.tool.retrieval')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/capability/catalog/tool/definition', 'com.enterprise.ai.agent.capability.catalog.tool.definition')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/capability/catalog/graph', 'com.enterprise.ai.agent.capability.catalog.graph')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/auth', 'com.enterprise.ai.agent.platform.control.auth')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/identity', 'com.enterprise.ai.agent.platform.control.identity')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/mcp', 'com.enterprise.ai.agent.platform.control.mcp')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/a2a', 'com.enterprise.ai.agent.platform.control.a2a')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/acl', 'com.enterprise.ai.agent.platform.control.acl')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/governance', 'com.enterprise.ai.agent.platform.control.governance')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/market', 'com.enterprise.ai.agent.platform.control.market')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/context', 'com.enterprise.ai.agent.platform.control.context')
+assertPackagePrefixUnder('ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/tool/governance', 'com.enterprise.ai.agent.platform.control.tool.governance')
 
 const keyApiPaths = [
   ['ai-model-service/src/main/java/com/enterprise/ai/model/controller/ModelController.java', '@RequestMapping("/model")'],
@@ -221,8 +332,8 @@ const keyApiPaths = [
   ['ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/controller/SlotExtractLogController.java', '@RequestMapping("/api")'],
   ['ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/controller/SlotExtractorController.java', '@RequestMapping("/api/slot-extractors")'],
   ['ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/controller/ToolAclController.java', '@RequestMapping("/api/tool-acl")'],
-  ['ai-agent-service/src/main/java/com/enterprise/ai/agent/mcp/McpServerEndpoint.java', '@RequestMapping("/mcp")'],
-  ['ai-agent-service/src/main/java/com/enterprise/ai/agent/a2a/A2aServerEndpoint.java', '@RequestMapping("/a2a")']
+  ['ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/mcp/McpServerEndpoint.java', '@RequestMapping("/mcp")'],
+  ['ai-agent-service/src/main/java/com/enterprise/ai/agent/platform/control/a2a/A2aServerEndpoint.java', '@RequestMapping("/a2a")']
 ]
 
 for (const [rel, apiPath] of keyApiPaths) {

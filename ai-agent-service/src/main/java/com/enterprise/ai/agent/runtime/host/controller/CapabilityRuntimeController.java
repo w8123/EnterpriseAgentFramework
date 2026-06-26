@@ -1,8 +1,8 @@
 package com.enterprise.ai.agent.runtime.host.controller;
 
 import com.enterprise.ai.agent.runtime.CapabilityRuntimeRequest;
-import com.enterprise.ai.agent.runtime.CompositionRuntimeExecutor;
-import com.enterprise.ai.agent.runtime.ToolRuntimeExecutor;
+import com.enterprise.ai.agent.runtime.host.CompositionRuntimeExecutor;
+import com.enterprise.ai.agent.runtime.host.ToolRuntimeExecutor;
 import com.enterprise.ai.agent.runtime.ToolRuntimeRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;

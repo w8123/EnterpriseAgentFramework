@@ -19,6 +19,7 @@ class WorkflowAiCodingAuthGuardTest {
             "patch",
             "run",
             "getVersions",
+            "publish",
             "listRuns",
             "getRunDetail");
 

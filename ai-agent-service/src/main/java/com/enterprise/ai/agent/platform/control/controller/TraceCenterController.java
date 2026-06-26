@@ -1,8 +1,8 @@
 package com.enterprise.ai.agent.platform.control.controller;
 
-import com.enterprise.ai.agent.governance.GuardDecisionLogEntity;
-import com.enterprise.ai.agent.governance.GuardDecisionLogService;
-import com.enterprise.ai.agent.governance.GuardRuntimeService;
+import com.enterprise.ai.agent.platform.control.governance.GuardDecisionLogEntity;
+import com.enterprise.ai.agent.platform.control.governance.GuardDecisionLogService;
+import com.enterprise.ai.agent.platform.control.governance.GuardRuntimeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;

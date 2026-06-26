@@ -1,10 +1,10 @@
 package com.enterprise.ai.agent.platform.control.controller;
 
-import com.enterprise.ai.agent.platform.auth.PlatformAuthContext;
-import com.enterprise.ai.agent.platform.auth.PlatformAuthService;
-import com.enterprise.ai.agent.platform.auth.PlatformLoginRequest;
-import com.enterprise.ai.agent.platform.auth.PlatformLoginResult;
-import com.enterprise.ai.agent.platform.auth.PlatformPrincipal;
+import com.enterprise.ai.agent.platform.control.auth.PlatformAuthContext;
+import com.enterprise.ai.agent.platform.control.auth.PlatformAuthService;
+import com.enterprise.ai.agent.platform.control.auth.PlatformLoginRequest;
+import com.enterprise.ai.agent.platform.control.auth.PlatformLoginResult;
+import com.enterprise.ai.agent.platform.control.auth.PlatformPrincipal;
 import com.enterprise.ai.common.dto.ApiResult;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;

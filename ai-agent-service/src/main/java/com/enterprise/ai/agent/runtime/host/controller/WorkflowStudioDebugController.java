@@ -2,7 +2,7 @@ package com.enterprise.ai.agent.runtime.host.controller;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.runtime.GraphRuntimeContext;
-import com.enterprise.ai.agent.runtime.LangGraph4jRuntimeAdapter;
+import com.enterprise.ai.agent.runtime.host.LangGraph4jRuntimeAdapter;
 import com.enterprise.ai.agent.workflow.WorkflowRuntimeGraphAdapter;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionEntity;
 import com.enterprise.ai.agent.workflow.WorkflowDefinitionService;

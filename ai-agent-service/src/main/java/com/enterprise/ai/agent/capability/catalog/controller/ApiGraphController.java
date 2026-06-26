@@ -1,9 +1,9 @@
 package com.enterprise.ai.agent.capability.catalog.controller;
 
-import com.enterprise.ai.agent.graph.ApiGraphEdgeEntity;
-import com.enterprise.ai.agent.graph.ApiGraphLayoutEntity;
-import com.enterprise.ai.agent.graph.ApiGraphNodeEntity;
-import com.enterprise.ai.agent.graph.ApiGraphService;
+import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphEdgeEntity;
+import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphLayoutEntity;
+import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphNodeEntity;
+import com.enterprise.ai.agent.capability.catalog.graph.ApiGraphService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;

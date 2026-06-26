@@ -1,11 +1,11 @@
 package com.enterprise.ai.agent.capability.catalog.controller;
 
-import com.enterprise.ai.agent.tool.retrieval.RetrievalScope;
-import com.enterprise.ai.agent.tool.retrieval.ToolCandidate;
-import com.enterprise.ai.agent.tool.retrieval.ToolEmbeddingService;
-import com.enterprise.ai.agent.tool.retrieval.ToolEmbeddingRebuildManager;
-import com.enterprise.ai.agent.tool.retrieval.ToolEmbeddingRebuildTask;
-import com.enterprise.ai.agent.tool.retrieval.ToolRetrievalService;
+import com.enterprise.ai.agent.capability.catalog.tool.retrieval.RetrievalScope;
+import com.enterprise.ai.agent.capability.catalog.tool.retrieval.ToolCandidate;
+import com.enterprise.ai.agent.capability.catalog.tool.retrieval.ToolEmbeddingService;
+import com.enterprise.ai.agent.capability.catalog.tool.retrieval.ToolEmbeddingRebuildManager;
+import com.enterprise.ai.agent.capability.catalog.tool.retrieval.ToolEmbeddingRebuildTask;
+import com.enterprise.ai.agent.capability.catalog.tool.retrieval.ToolRetrievalService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;

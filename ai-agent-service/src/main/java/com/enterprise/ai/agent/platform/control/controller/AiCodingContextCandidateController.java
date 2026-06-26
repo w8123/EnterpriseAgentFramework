@@ -1,9 +1,9 @@
 package com.enterprise.ai.agent.platform.control.controller;
 
 import com.enterprise.ai.agent.aicoding.AiCodingContextCandidateSubmissionService;
-import com.enterprise.ai.agent.context.memory.ContextMemoryCandidateCreateRequest;
-import com.enterprise.ai.agent.context.memory.ContextMemoryCandidateQueryRequest;
-import com.enterprise.ai.agent.context.memory.ContextMemoryCandidateResponse;
+import com.enterprise.ai.agent.platform.control.context.memory.ContextMemoryCandidateCreateRequest;
+import com.enterprise.ai.agent.platform.control.context.memory.ContextMemoryCandidateQueryRequest;
+import com.enterprise.ai.agent.platform.control.context.memory.ContextMemoryCandidateResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;

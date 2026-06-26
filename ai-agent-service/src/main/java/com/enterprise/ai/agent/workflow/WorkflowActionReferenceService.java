@@ -3,7 +3,7 @@ package com.enterprise.ai.agent.workflow;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
-import com.enterprise.ai.agent.identity.PageActionRegistryEntity;
+import com.enterprise.ai.agent.platform.control.identity.PageActionRegistryEntity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.platform.control.controller;
 
-import com.enterprise.ai.agent.platform.auth.PlatformAuthProviderConfigService;
+import com.enterprise.ai.agent.platform.control.auth.PlatformAuthProviderConfigService;
 import com.enterprise.ai.common.dto.ApiResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

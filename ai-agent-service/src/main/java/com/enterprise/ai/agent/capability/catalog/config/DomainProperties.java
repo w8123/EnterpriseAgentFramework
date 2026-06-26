@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Configuration;
 @ConfigurationProperties(prefix = "ai.domain")
 public class DomainProperties {
 
-    /** 总开关；关闭后 {@link com.enterprise.ai.agent.domain.DomainTagger#tag(String)} 直接返回 null。 */
+    /** 总开关；关闭后 {@link com.enterprise.ai.agent.capability.catalog.domain.DomainTagger#tag(String)} 直接返回 null。 */
     private boolean enabled = false;
 
     /** 分类器 top-K。 */

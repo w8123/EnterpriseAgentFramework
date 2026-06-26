@@ -1,11 +1,11 @@
 package com.enterprise.ai.agent.platform.control.controller;
 
-import com.enterprise.ai.agent.context.ContextRuntimeUserMappingCreateRequest;
-import com.enterprise.ai.agent.context.ContextRuntimeUserMappingQueryRequest;
-import com.enterprise.ai.agent.context.ContextRuntimeUserMappingResponse;
-import com.enterprise.ai.agent.context.ContextRuntimeUserMappingService;
-import com.enterprise.ai.agent.platform.auth.PlatformAuthContext;
-import com.enterprise.ai.agent.platform.auth.PlatformPrincipal;
+import com.enterprise.ai.agent.platform.control.context.ContextRuntimeUserMappingCreateRequest;
+import com.enterprise.ai.agent.platform.control.context.ContextRuntimeUserMappingQueryRequest;
+import com.enterprise.ai.agent.platform.control.context.ContextRuntimeUserMappingResponse;
+import com.enterprise.ai.agent.platform.control.context.ContextRuntimeUserMappingService;
+import com.enterprise.ai.agent.platform.control.auth.PlatformAuthContext;
+import com.enterprise.ai.agent.platform.control.auth.PlatformPrincipal;
 import com.enterprise.ai.common.dto.ApiResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;

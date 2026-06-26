@@ -1,7 +1,7 @@
 package com.enterprise.ai.agent.platform.control.controller;
 
-import com.enterprise.ai.agent.market.MarketItemEntity;
-import com.enterprise.ai.agent.market.MarketService;
+import com.enterprise.ai.agent.platform.control.market.MarketItemEntity;
+import com.enterprise.ai.agent.platform.control.market.MarketService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
