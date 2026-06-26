@@ -11,8 +11,8 @@
     </parent>
 
     <artifactId>ai-model-service</artifactId>
-    <name>AI Model Service</name>
-    <description>模型网关 — 统一 LLM Chat / Embedding 接入，多 Provider 适配（通义、极视角、OpenAI）</description>
+    <name>ReachAI Model Gateway Service</name>
+    <description>ReachAI Model Gateway deployment unit — 统一 LLM Chat、Embedding、Rerank 接入与多 Provider 适配</description>
 
     <dependencies>
         <!-- 内部公共库 -->

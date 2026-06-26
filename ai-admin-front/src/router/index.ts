@@ -45,7 +45,7 @@ const routes: RouteRecordRaw[] = [
         path: 'agent/:id/studio',
         name: 'AgentStudio',
         component: () => import('@/views/agent/AgentStudioCompatibility.vue'),
-        meta: { title: 'Agent Studio 画布' },
+        meta: { title: 'Workflow Studio 画布' },
       },
       {
         path: 'agent/:id/versions',

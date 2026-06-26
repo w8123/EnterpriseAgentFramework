@@ -11,8 +11,8 @@
     </parent>
 
     <artifactId>ai-skills-service</artifactId>
-    <name>AI Skills Service</name>
-    <description>RAG 与技能 / Tooling — 知识库、文档 Pipeline、向量检索、OpenAPI/Controller 扫描、业务索引</description>
+    <name>ReachAI Knowledge Retrieval Service</name>
+    <description>ReachAI Knowledge / Retrieval deployment unit — 知识库、文档 Pipeline、RAG、向量检索、业务索引和历史 OpenAPI/Controller 扫描实现</description>
 
     <dependencies>
         <!-- 内部公共库 -->

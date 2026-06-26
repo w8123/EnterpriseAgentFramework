@@ -1,6 +1,6 @@
 # ai-admin-front — AI 平台统一管理前端
 
-基于 **Vue 3 + TypeScript + Element Plus + Vite 6** 构建的企业级 **AI 平台管理控制台**，对接单仓内的 **ai-skills-service**（RAG / 知识库）、**ai-agent-service**（Agent / 对话）、**ai-model-service**（模型网关），用于日常运维、配置与联调。
+基于 **Vue 3 + TypeScript + Element Plus + Vite 6** 构建的企业级 **AI 平台管理控制台**，对接单仓内的 **ai-skills-service**（Knowledge / Retrieval）、**ai-agent-service**（Capability Catalog / Runtime Host / Platform Control）、**ai-model-service**（Model Gateway），用于日常运维、配置与联调。
 
 ---
 
@@ -54,9 +54,9 @@
 
 | 实例 | baseURL | 典型路径 | 后端服务（默认端口） |
 |------|---------|----------|----------------------|
-| `textRequest`（默认导出） | `/ai` | `/knowledge/*`、`/file/*`、`/retrieval/*`、`/biz-index/*` | ai-skills-service `:18602`（context-path `/ai`） |
-| `agentRequest` | `''`（站点根） | `/api/agents`、`/api/workflows`、`/api/chat/*`、`/api/tools/*` | ai-agent-service `:18603` |
-| `modelRequest` | `/model` | `/model/chat`、`/model/providers` 等 | ai-model-service `:18601` |
+| `textRequest`（默认导出） | `/ai` | `/knowledge/*`、`/file/*`、`/retrieval/*`、`/biz-index/*` | Knowledge / Retrieval deployment unit：ai-skills-service `:18602`（context-path `/ai`） |
+| `agentRequest` | `''`（站点根） | `/api/agents`、`/api/workflows`、`/api/chat/*`、`/api/tools/*` | Capability Catalog / Runtime Host / Platform Control：ai-agent-service `:18603` |
+| `modelRequest` | `/model` | `/model/chat`、`/model/providers` 等 | Model Gateway：ai-model-service `:18601` |
 
 开发环境下 **Vite 代理**（`vite.config.ts`）：
 
@@ -209,7 +209,7 @@ ai-admin-front/
 | POST | `/api/scan-projects/{id}/rescan` | 重新扫描 |
 | GET | `/api/scan-projects/{id}/tools` | 查看该项目下的扫描工具 |
 
-说明：以上扫描项目接口由 `ai-agent-service` 提供，扫描执行阶段会通过 Feign 远程调用 `ai-skills-service` 的 `/ai/scanner/openapi` 与 `/ai/scanner/controller`。
+说明：以上扫描项目接口由 `ai-agent-service` 的 Capability Catalog 边界提供，扫描执行阶段会通过 Feign 远程调用 Knowledge / Retrieval deployment unit（当前 `ai-skills-service`）的 `/ai/scanner/openapi` 与 `/ai/scanner/controller`。
 
 ---
 
@@ -219,9 +219,9 @@ ai-admin-front/
 
 - Node.js >= 18
 - 按需启动后端：
-  - **仅知识库功能**：`ai-skills-service`（默认 `http://localhost:18602`）
-  - **Agent / 调试台**：`ai-agent-service`（`:18603`）
-  - **模型调试台 / Provider**：`ai-model-service`（`:18601`），并配置有效 **DashScope API Key**（环境变量 `DASHSCOPE_API_KEY` 或 `application.yml`）
+  - **仅知识库 / 检索功能**：Knowledge / Retrieval deployment unit（当前 `ai-skills-service`，默认 `http://localhost:18602`）
+  - **Agent / Workflow / 运行治理 / 开放协议**：`ai-agent-service`（`:18603`）
+  - **模型调试台 / Provider**：Model Gateway（当前 `ai-model-service`，`:18601`），并配置有效 **DashScope API Key**（环境变量 `DASHSCOPE_API_KEY` 或 `application.yml`）
 
 ### 安装与开发
 
@@ -301,7 +301,7 @@ server {
 2. **模型调用 401**：多为 `ai-model-service` 未配置或配置了失效的 DashScope Key，与前端无关。
 3. **流式输出**：依赖后端返回标准 SSE；前端已剥离 `data:` 前缀，仅拼接正文。
 4. **Tool 页为空**：请先在后端实现并注册 `/api/tools` 等接口。
-5. **扫描项目路径**：`scanPath` 需要对实际执行扫描的 `ai-skills-service` 进程可访问（通常与 `ai-agent-service` 同机部署），不是浏览器本地路径。
+5. **扫描项目路径**：`scanPath` 需要对实际执行扫描的 Knowledge / Retrieval deployment unit（当前 `ai-skills-service`）进程可访问（通常与 `ai-agent-service` 同机部署），不是浏览器本地路径。
 6. **Agent / Workflow 模型**：Agent 管理只改 `/api/agents`；画布编辑只走 `/workflows/:id/studio`，不要在 Agent 编辑页维护 GraphSpec。
 
 ---

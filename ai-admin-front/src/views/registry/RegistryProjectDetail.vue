@@ -699,7 +699,7 @@ const workbenchGroups = computed(() => [
         : []),
       {
         title: '创建页面助手',
-        desc: '从后端接口资产 + 前端页面动作生成 Agent Studio 草稿。',
+        desc: '从后端接口资产 + 前端页面动作生成 Workflow Studio 草稿。',
         icon: Star,
         tone: 'violet',
         disabled: !project.value?.id,

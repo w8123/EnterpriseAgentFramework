@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2>平台用户与角色</h2>
-        <p>维护 Agent Studio 管理端账号的角色授权，支持全局与项目两种作用域。</p>
+        <p>维护管理端与 Workflow Studio 账号的角色授权，支持全局与项目两种作用域。</p>
       </div>
       <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
     </div>

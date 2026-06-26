@@ -23,9 +23,9 @@
 ## Modules
 
 - `ai-admin-front/`: Vue 3 + Element Plus 管理端，包含项目注册、能力目录、Agent 入口、Workflow Studio、RunOps、模型、知识库、MCP/A2A、嵌入审计等页面。
-- `ai-agent-service/`: Agent 入口（`ai_agent`）、Workflow 编排（`ai_workflow`）、Workflow Studio、Runtime、发布、Trace、Tool ACL、注册中心、嵌入式身份、Gateway、MCP、A2A 等核心服务。
-- `ai-skills-service/`: 知识库、文件、chunk、业务索引、语义文档等能力支撑。
-- `ai-model-service/`: 模型实例中心和模型配置。
+- `ai-agent-service/`: 当前平台核心部署单元，内部承载 Capability Catalog、Runtime Host、Platform Control；包括 Agent 入口（`ai_agent`）、Workflow 编排（`ai_workflow`）、Workflow Studio、Runtime、发布、Trace、Tool ACL、注册中心、能力资产、嵌入式身份、Gateway、MCP、A2A 等核心服务。
+- `ai-skills-service/`: 当前 Knowledge / Retrieval 部署单元，承载知识库、文件、chunk、文档 pipeline、RAG、业务索引、向量检索和历史扫描器实现；不要再把它描述成“技能服务”。
+- `ai-model-service/`: 当前 Model Gateway 部署单元，承载模型实例中心、模型配置、Chat、Embedding、Rerank 和 OpenAI 兼容代理。
 - `ai-common/`: 通用模型、响应、工具类。
 - `reachai-capability-sdk/`: JDK8 兼容的业务系统能力声明 SDK 契约。
 - `reachai-spring-boot2-starter/`: Spring Boot 2 接入、扫描、注册、心跳、能力同步和 SDK 图同步。
@@ -45,8 +45,21 @@
 - `06-项目背景技术与功能说明.md`
 - `07-平台身份与授权模型.md`
 - `08-平台对话框对外嵌入支持.md`
+- `16-后端逻辑边界与命名重塑.md`
 
 不要新增阶段型验收清单作为主知识库。新文档应按产品能力组织，并指向真实代码、接口、SQL 表或前端页面。
+
+## Backend Logical Boundaries
+
+当前架构表达按五个长期逻辑域组织，而不是按当前三服务名组织：
+
+- Model Gateway：当前承载于 `ai-model-service`。
+- Knowledge / Retrieval：当前承载于 `ai-skills-service`。
+- Capability Catalog：当前承载于 `ai-agent-service` 内部边界，覆盖注册中心、能力快照、扫描目录、语义文档、Tool/Capability 资产。
+- Runtime Host：当前承载于 `ai-agent-service` 内部边界，覆盖 Agent 入口、Workflow、GraphSpec 执行、调试、人工交互和 Runtime Adapter。
+- Platform Control：当前承载于 `ai-agent-service` 内部边界，覆盖身份、RBAC、ACL、Guard、Gateway、MCP、A2A、市场、RunOps/Trace 管理面。
+
+本轮重塑不改变端口、路由、SQL 表名、Maven artifactId 或前端页面结构。
 
 ## SQL Baseline
 

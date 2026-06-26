@@ -11,8 +11,8 @@
     </parent>
 
     <artifactId>ai-agent-service</artifactId>
-    <name>AI Agent Service</name>
-    <description>ReachAI Agent orchestration service</description>
+    <name>ReachAI Platform Core Service</name>
+    <description>ReachAI platform core deployment unit for Capability Catalog, Runtime Host, and Platform Control</description>
 
     <dependencies>
         <dependency>

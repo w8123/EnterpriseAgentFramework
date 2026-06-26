@@ -23,12 +23,14 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 4. Runtime 通过 `AgentRuntimeAdapter` 解耦 AgentScope、LangGraph4j 和未来运行时。
 5. RunOps、Trace、Tool ACL、Guard、Gateway、MCP、A2A、嵌入式对话和企业身份共同组成生产治理边界。
 
+当前后端重塑采用“先拆职责，不先拆服务”的边界：现有 `ai-model-service`、`ai-skills-service`、`ai-agent-service` 三个部署单元暂时不变；长期逻辑域按 Model Gateway、Knowledge / Retrieval、Capability Catalog、Runtime Host、Platform Control 五类理解。新增代码和文档先归入正确逻辑域，再决定是否需要物理拆分。
+
 ## 关键目录
 
 - `ai-admin-front/`: Vue 3 + Element Plus 管理端。
-- `ai-agent-service/`: Agent、Studio、Runtime、注册中心、身份、开放协议等核心后端。
-- `ai-skills-service/`: 知识库、业务索引、语义文档等能力支撑服务。
-- `ai-model-service/`: 模型实例中心。
+- `ai-agent-service/`: 当前平台核心部署单元，内部承载 Capability Catalog、Runtime Host、Platform Control；包括 Agent 入口、Workflow、Runtime、注册中心、能力资产、身份、开放协议、治理和运行观测。
+- `ai-skills-service/`: 当前 Knowledge / Retrieval 部署单元；包括知识库、文件、chunk、RAG、业务索引、向量检索和历史扫描器实现。不要再把它描述成“技能服务”。
+- `ai-model-service/`: 当前 Model Gateway 部署单元；包括模型实例中心、Chat、Embedding、Rerank 和 OpenAI 兼容代理。
 - `reachai-capability-sdk/`: JDK8 兼容的业务能力声明 SDK 契约。
 - `reachai-spring-boot2-starter/`: Spring Boot 2 业务系统接入、扫描、注册和 SDK 图同步。
 - `ai-runtime-contract/`: 中台内部 Tool / Skill 运行时契约。

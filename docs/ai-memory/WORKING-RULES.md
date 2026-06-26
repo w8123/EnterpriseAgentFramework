@@ -54,7 +54,7 @@
 - Vue 3 + Element Plus + Vite 是主线。
 - 管理端是工作台产品，优先密度、稳定布局和重复操作效率。
 - 主题、色彩、暗色/亮色优先改 CSS 变量和共享主题，不要页面级硬编码。
-- Agent Studio 改动要关注画布、配置面板、AI 预览/应用、发布校验、调试会话和 Runtime 合同。
+- Workflow Studio 改动要关注画布、配置面板、AI 预览/应用、发布校验、调试会话和 Runtime 合同。
 - 改路由、侧边栏、项目范围选择时先看 `MainLayout.vue`、`ProjectSelector.vue`、router 和 project store。
 
 ## MCP Tool Rules
@@ -75,6 +75,8 @@
 ## Naming Rules
 
 - 默认使用 `Capability / 能力` 描述产品能力。
+- 当前后端逻辑域按 Model Gateway、Knowledge / Retrieval、Capability Catalog、Runtime Host、Platform Control 组织；现有三服务名只是部署单元。
+- `ai-skills-service` 是当前 Knowledge / Retrieval 部署单元，不再在产品、文档或 UI 中描述成“技能服务”。
 - `Skill` 多为历史代码、legacy SQL 或内部旧命名。
 - 不要盲目全局替换 `Skill`，尤其不要自动重命名 SQL 表、字段、API 路径或 SDK 契约。
 - 如果做命名迁移，应分阶段：用户可见文案 -> 前端类型/目录 -> 后端类/包 -> SQL/API，且每阶段都要验证。

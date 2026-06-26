@@ -229,13 +229,27 @@ ReachAI 不只服务自己的管理端。平台可以通过 Gateway、MCP、A2A 
 | --- | --- |
 | `reachai-capability-sdk` | JDK8 兼容的业务能力声明 SDK 契约 |
 | `reachai-spring-boot2-starter` | Spring Boot 2 业务系统接入 Starter，支持注册、心跳、能力同步和 SDK 图同步 |
-| `ai-agent-service` | Agent、Workflow、注册中心、Runtime、RunOps、ACL、MCP、A2A、Gateway、嵌入式身份与开放协议 |
-| `ai-skills-service` | 知识库、文档处理、RAG、业务索引、扫描和语义基础能力 |
-| `ai-model-service` | 模型实例、Chat、Embedding、Rerank 和 OpenAI 兼容代理 |
+| `ai-agent-service` | 当前平台核心部署单元，承载 Capability Catalog、Runtime Host 和 Platform Control 三个逻辑域 |
+| `ai-skills-service` | 当前 Knowledge / Retrieval 部署单元，承载知识库、文档处理、RAG、业务索引、向量检索和历史扫描器实现 |
+| `ai-model-service` | 当前 Model Gateway 部署单元，承载模型实例、Chat、Embedding、Rerank 和 OpenAI 兼容代理 |
 | `ai-runtime-contract` | 中台内部 Tool / Skill 运行时契约 |
 | `ai-admin-front` | Vue 3 管理端，承载注册中心、Workflow Studio、RunOps、模型、知识、治理和开放协议页面 |
 | `sql` | 统一 SQL 基线和升级脚本 |
 | `docs` | 系统知识库、产品说明和截图资料 |
+
+## 当前部署单元与目标逻辑域
+
+本轮架构重塑不先拆服务，先拆职责。当前仍保持三个 Spring Boot 部署单元，但架构表达收敛到五个长期逻辑域：
+
+| 长期逻辑域 | 当前主要承载 | 长期目标名 | 说明 |
+| --- | --- | --- | --- |
+| Model Gateway | `ai-model-service` | `reachai-model-service` | 模型实例、供应商适配、Chat、Embedding、Rerank、OpenAI 兼容代理 |
+| Knowledge / Retrieval | `ai-skills-service` | `reachai-knowledge-service` 或 `reachai-retrieval-service` | 知识库、文件、chunk、RAG、向量检索、业务索引 |
+| Capability Catalog | `ai-agent-service` 内部边界 | `reachai-capability-service` | 项目注册、能力快照、字段级 diff、评审 apply/ignore、扫描目录、语义文档、Tool/Capability 资产 |
+| Runtime Host | `ai-agent-service` 内部边界 | `reachai-runtime-service` | Agent 入口、Workflow、GraphSpec 执行、调试、人工交互、Runtime Adapter |
+| Platform Control | `ai-agent-service` 内部边界 | `reachai-control-service` | 身份、RBAC、ACL、Guard、Gateway、MCP、A2A、市场、RunOps/Trace 管理面 |
+
+这次调整不改变端口、路由、SQL 表名、前端代理或页面结构。详细规则见 [后端逻辑边界与命名重塑](docs/16-后端逻辑边界与命名重塑.md)。
 
 ## 快速开始
 
@@ -260,15 +274,15 @@ mvn clean install -DskipTests
 ### 4. 启动服务
 
 ```bash
-# 模型服务，默认 8601
+# Model Gateway，默认 18601
 cd ai-model-service
 mvn spring-boot:run
 
-# 知识、RAG、扫描和语义支撑，默认 8602
+# Knowledge / Retrieval，默认 18602
 cd ../ai-skills-service
 mvn spring-boot:run
 
-# Agent、Workflow、注册中心、治理和开放协议，默认 8603
+# Capability Catalog + Runtime Host + Platform Control，默认 18603
 cd ../ai-agent-service
 mvn spring-boot:run
 ```

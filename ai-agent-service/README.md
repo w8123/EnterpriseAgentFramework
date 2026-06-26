@@ -1,91 +1,80 @@
 # ai-agent-service
 
-睿池 ReachAI 的智能体编排服务，负责意图识别、AgentScope 编排、动态 Tool 注册与最小安全降级。
+`ai-agent-service` 是 ReachAI 当前平台核心部署单元。它暂时仍承载多个长期逻辑域，但新增代码和文档不应继续把这些职责都归入模糊的 Agent 概念。
 
-## 定位
+当前内部边界：
 
-`ai-agent-service` 当前只承载这几类职责：
-
-- 智能体编排：`AgentRouter`、`AgentFactory`、`AgentOrchestrator`
-- Tool 运行时：`ToolRegistry`、`ToolRegistryAdapter`、`DynamicHttpAiTool`
-- 扫描项目后端：`ScanProjectService`、`ToolDefinitionService`、`/api/scan-projects/*`
-- 会话与轻量对话：`ChatService`、`LightweightToolCaller`、Redis 会话记忆
-- 最小安全降级：仅保留 `KNOWLEDGE_QA` 与 `GENERAL_CHAT`
-
-不再承载的职责：
-
-- 业务示例 Tool 模块
-- `query_database` / `call_business_api` / `query_user_profile` 这类硬编码代码 Tool
-- 独立 scanner 模块实现
+| 逻辑域 | 当前职责 | 典型代码 |
+| --- | --- | --- |
+| Capability Catalog | 项目注册、实例心跳、能力快照、字段级 diff、评审 apply/ignore、扫描目录、语义文档、Tool/Capability 资产 | `registry/`、`scan/`、`semantic/`、`tools/definition/`、`capability/` |
+| Runtime Host | Agent 入口、Workflow、GraphSpec 执行、调试、人工交互、Runtime Adapter | `workflow/`、`runtime/`、`agentscope/`、`skill/interactive/`、`debug/` |
+| Platform Control | 平台身份、RBAC、ACL、Guard、Gateway、MCP、A2A、市场、运行治理入口 | `identity/`、`platform/`、`acl/`、`governance/`、`mcp/`、`a2a/`、`market/` |
+| Observability | Trace、RunOps、Tool 调用日志、Guard 决策日志 | `trace/`、`runops/`、相关 mapper/service |
+| Context Governance | 项目治理记忆与 Runtime 用户记忆候选治理 | `context/` |
 
 ## 当前依赖关系
 
 ```text
 ai-agent-service
-├── ai-runtime-contract  Tool / Skill 运行时契约
-├── ai-skills-service   知识检索 + scanner 核心代码
-├── ai-model-service  LLM 调用网关（Feign / OpenAI 兼容代理）
-└── ai-admin-front    管理端入口（通过 REST API 调用本服务）
+├── ai-runtime-contract  内部 Tool / Skill 运行时契约
+├── ai-skills-service    Knowledge / Retrieval deployment unit（/ai）
+├── ai-model-service     Model Gateway（/model）
+└── ai-admin-front       管理端通过 /api、/embed 等路径调用本服务
 ```
+
+`Skill` 在这里仍可能作为运行时契约、legacy SQL/API 或内部历史类名存在。产品和文档主语应使用 `Capability / 能力`。
 
 ## 关键链路
 
-### 1. 历史项目扫描 -> 动态 Tool
+### 1. Capability 接入与资产沉淀
 
 ```text
-管理端创建扫描项目
-  -> POST /api/scan-projects
-  -> POST /api/scan-projects/{id}/scan
-  -> ScanProjectService 调用 ai-skills-service 中的 scanner 核心
-  -> 扫描结果写入 scan_project / tool_definition
-  -> ToolDefinitionService 注册 DynamicHttpAiTool
+业务系统 SDK / Starter 或低侵入扫描
+  -> /api/registry/projects/register 或 /api/scan-projects/*
+  -> 能力快照 / scan_project_tool / semantic_doc
+  -> diff review / apply / ignore
+  -> tool_definition、tool_asset、composition_definition、interaction_definition
+  -> Capability Catalog
 ```
 
-### 2. Agent 执行
+### 2. Agent 与 Workflow 执行
 
 ```text
-POST /api/agent/execute
-  -> AgentOrchestrator
-  -> AgentScope 主路径：AgentRouter -> AgentFactory -> ReActAgent / Pipeline
-  -> 失败时降级：AgentWorkflow
-       - KNOWLEDGE_QA -> RAG
-       - 其他意图 -> GENERAL_CHAT
+AgentEntry（ai_agent）
+  -> ai_agent_workflow_binding
+  -> 已发布 Workflow（ai_workflow + ai_workflow_version）
+  -> GraphSpec
+  -> AgentRuntimeAdapter / LangGraph4jRuntimeAdapter
+  -> Trace / RunOps / Guard / ACL
 ```
 
-### 3. 轻量对话
+Agent 是入口和策略，Workflow 是 GraphSpec 编排和版本，Runtime Host 负责执行。
+
+### 3. 开放协议与平台治理
 
 ```text
-POST /api/chat
-  -> ChatService
-  -> LightweightToolCaller
-  -> 仅执行数据库中允许的轻量 Tool
+Platform Auth / RBAC
+  -> ACL / Guard
+  -> Gateway / MCP / A2A / Embed Chat
+  -> RunOps / Trace / audit
 ```
 
-## 模块结构
+这部分属于 Platform Control，不应和 Workflow Runtime 或 Knowledge/Retrieval 混写。
 
-```text
-src/main/java/com/enterprise/ai/agent/
-├── agent/         AgentDefinition / AgentWorkflow / AgentOrchestrator
-├── agentscope/    AgentRouter / AgentFactory / ToolRegistryAdapter
-├── controller/    Agent / Chat / Tool / ScanProject REST API
-├── scan/          扫描项目实体、Mapper、Service
-├── service/       ChatService / IntentService / LightweightToolCaller
-├── tools/         KnowledgeSearchTool / DynamicHttpAiTool
-├── rag/           调 ai-skills-service 的知识检索封装
-├── client/        调 ai-model-service / ai-skills-service / 极视角客户端
-└── config/        LLM、Scanner、Tool 等配置
-```
+## 边界规则
+
+- 新增能力资产、扫描、语义、注册中心代码，先归入 Capability Catalog。
+- 新增 GraphSpec 执行、调试、人工交互、Runtime Adapter 代码，先归入 Runtime Host。
+- 新增身份、ACL、Guard、Gateway、MCP、A2A、市场代码，先归入 Platform Control。
+- 新增知识库、RAG、业务索引、文档入库代码，优先放在 `ai-skills-service` 的 Knowledge / Retrieval 边界。
+- 不因本轮命名重塑改动 SQL 表名、API 路径、Maven artifactId 或端口。
 
 ## 配置要点
 
-- `agent.definitions.file`：Agent 定义持久化文件，默认 `agent-definitions.json`
-- `services.model-service.url`：模型网关地址（也可通过环境变量 `MODEL_SERVICE_URL` 覆盖，与 `application.yml` 一致）
-- `services.skills-service.url`：知识 / Tooling 基础层地址；**生产与本机统一通过环境变量 `SKILLS_SERVICE_URL` 配置**（未设置时默认 `http://localhost:8602`）
-- `agent.agents.*`：意图开关；当前默认仅保留知识问答与通用对话安全可用
+- `services.model-service.url`：Model Gateway 地址，默认 `http://localhost:18601`。
+- `services.skills-service.url`：Knowledge / Retrieval 地址，默认 `http://localhost:18602`。
+- `agent.workflow-credential-secret`：Workflow 凭证加密密钥。
+- `ai.agent-runtime.*`：Runtime Host 可用运行时与执行位置策略。
+- `ai.tool-retrieval.*`：Tool 语义召回配置，当前仍在本服务内使用 Milvus 和模型 embedding。
 
-## 当前默认行为
-
-- 默认 Agent 定义只保留 `KNOWLEDGE_QA` 与 `GENERAL_CHAT`
-- `ToolRegistryAdapter` 默认只桥接 `search_knowledge`
-- `AgentWorkflow` 不再依赖任何业务代码 Tool
-- 历史项目接入统一走“扫描入库 -> 页面编辑 -> 动态注册”
+详细架构说明见 `docs/16-后端逻辑边界与命名重塑.md`。

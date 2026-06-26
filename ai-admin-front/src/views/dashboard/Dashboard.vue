@@ -54,7 +54,7 @@
               <div class="topo-node-icon agent-bg">
                 <el-icon :size="20"><Cpu /></el-icon>
               </div>
-              <span class="topo-node-name">Agent Service</span>
+              <span class="topo-node-name">Platform Core</span>
               <span class="topo-node-status">
                 <span class="status-dot" :class="serviceHealth['ai-agent-service'] || 'offline'" />
                 {{ serviceHealth['ai-agent-service'] === 'online' ? '正常' : '异常' }}
@@ -70,7 +70,7 @@
               <div class="topo-node-icon skill-bg">
                 <el-icon :size="20"><SetUp /></el-icon>
               </div>
-              <span class="topo-node-name">知识库服务</span>
+              <span class="topo-node-name">Knowledge / Retrieval</span>
               <span class="topo-node-status">
                 <span class="status-dot" :class="serviceHealth['ai-skills-service'] || 'offline'" />
                 {{ serviceHealth['ai-skills-service'] === 'online' ? '正常' : '异常' }}
@@ -80,7 +80,7 @@
               <div class="topo-node-icon model-bg">
                 <el-icon :size="20"><Coin /></el-icon>
               </div>
-              <span class="topo-node-name">Model Service</span>
+              <span class="topo-node-name">Model Gateway</span>
               <span class="topo-node-status">
                 <span class="status-dot" :class="serviceHealth['ai-model-service'] || 'offline'" />
                 {{ serviceHealth['ai-model-service'] === 'online' ? '正常' : '异常' }}

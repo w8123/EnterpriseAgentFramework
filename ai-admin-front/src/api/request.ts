@@ -57,13 +57,13 @@ function createInstance(baseURL: string): AxiosInstance {
   return instance
 }
 
-/** ai-skills-service (RAG / 知识库) — /ai prefix via context-path */
+/** Knowledge / Retrieval deployment unit (current ai-skills-service) — /ai prefix via context-path */
 const textRequest = createInstance(import.meta.env.VITE_API_BASE_URL || '/ai')
 
-/** ai-agent-service (Agent / Chat / Tool) — /api prefix */
+/** ai-agent-service (Capability Catalog / Runtime Host / Platform Control) — /api prefix */
 export const agentRequest = createInstance('')
 
-/** ai-model-service (模型网关) — /model prefix */
+/** Model Gateway deployment unit (current ai-model-service) — /model prefix */
 export const modelRequest = createInstance('/model')
 
 export default textRequest

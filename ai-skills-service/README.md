@@ -1,6 +1,8 @@
-# AI Skills Service
+# ReachAI Knowledge / Retrieval Service
 
-企业级 **知识层 + Tooling 层** 服务：在单进程内提供 RAG、向量检索、知识库与文档处理、业务语义索引，以及 **OpenAPI / Spring MVC Controller 扫描**（供 `ai-agent-service` 通过 Feign 调用，支撑扫描项目与动态 Tool 注册）。
+`ai-skills-service` 是当前 Knowledge / Retrieval 部署单元。目录名和 Maven artifactId 暂时保留，但产品与文档口径不再称它为“技能服务”。
+
+它在单进程内提供 RAG、向量检索、知识库与文档处理、业务语义索引，以及历史 **OpenAPI / Spring MVC Controller 扫描**实现（供 `ai-agent-service` 的 Capability Catalog 边界通过 Feign 调用，支撑扫描项目与能力资产沉淀）。
 
 **技术栈概要：** Java 17、Spring Boot 3.4.x、MyBatis-Plus、Milvus、MySQL、Redis；Embedding/LLM 可对接通义等（可替换实现）。
 
@@ -14,7 +16,7 @@
 | **语义查重** | 单库 / 多库相似度检测 |
 | **Embedding** | 文本向量化，实现可插拔 |
 | **知识库** | 知识库与文件、Chunk、检索测试、切分策略配置等管理闭环 |
-| **Tooling 扫描** | OpenAPI 与 Controller 源码扫描，产出 `ToolManifest` |
+| **历史扫描器** | OpenAPI 与 Controller 源码扫描，产出 `ToolManifest`；长期归属 Capability Catalog，当前实现仍在本部署单元 |
 | **业务语义索引** | 多业务线结构化数据 + 附件的向量化与语义检索（独立 Collection） |
 
 **横切能力：** 文件级权限、多知识库隔离、接口与实现解耦。
@@ -26,7 +28,6 @@
 ```
 ai-skills-service/
 ├── pom.xml
-├── sql/                        # 建表与数据迁移脚本（按部署说明执行）
 ├── src/main/java/com/enterprise/ai/
 │   ├── AiSkillsServiceApplication.java
 │   ├── config/                 # Milvus、Redis、HTTP、MyBatis、全局异常等
@@ -51,14 +52,14 @@ ai-skills-service/
 
 > 服务默认 **context-path：`/ai`**。下列路径均相对于该前缀（如完整 RAG 路径为 `POST /ai/rag/query`）。
 
-### 1. Tooling 扫描（供 `ai-agent-service` 等调用）
+### 1. 历史扫描器（供 `ai-agent-service` 等调用）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/scanner/openapi` | 基于 OpenAPI 规范扫描，返回 `ToolManifest` |
 | POST | `/scanner/controller` | 基于 Spring MVC Controller 扫描，返回 `ToolManifest` |
 
-核心实现包：`com.enterprise.ai.text.tooling.scanner.openapi`、`com.enterprise.ai.text.tooling.scanner.controller`、`com.enterprise.ai.text.tooling.scanner.manifest`。
+核心实现包：`com.enterprise.ai.text.tooling.scanner.openapi`、`com.enterprise.ai.text.tooling.scanner.controller`、`com.enterprise.ai.text.tooling.scanner.manifest`。该能力长期属于 Capability Catalog；当前为避免影响部署和扫描流程，仍由本服务承载。
 
 ### 2. RAG 问答
 
@@ -95,7 +96,7 @@ ai-skills-service/
 
 | 模块 | 职责 |
 |------|------|
-| **Tooling 扫描** | OpenAPI/Controller 解析、ToolManifest 组装、Scanner REST |
+| **历史扫描器** | OpenAPI/Controller 解析、ToolManifest 组装、Scanner REST |
 | **Embedding** | `EmbeddingService` 及实现；新模型：新实现 + `@Service` 与主候选配置 |
 | **Vector** | `VectorService` / `MilvusVectorService`，Collection 与索引管理 |
 | **RAG** | `RagService` 全链路；`LlmService`、`PromptBuilder` |
@@ -137,7 +138,7 @@ ai-skills-service/
    ```
 
 3. **管理端（同仓库，可选）**  
-   知识库、业务索引、扫描等运维界面在 **`ai-admin-front`**（Vue 3 + Vite）中，开发时通过其代理或环境变量指向本服务（默认开发常指向 `http://localhost:8602`，与 `server.servlet.context-path` 为 `/ai` 一致）。  
+   知识库、业务索引、扫描等运维界面在 **`ai-admin-front`**（Vue 3 + Vite）中，开发时通过其代理或环境变量指向本服务（默认开发指向 `http://localhost:18602`，与 `server.servlet.context-path` 为 `/ai` 一致）。
 
 ---
 
@@ -203,6 +204,6 @@ ai-skills-service/
 - 文档与 Chunk 级语义检索  
 - 查重与相似度风控  
 - 多业务线统一语义检索中台（业务语义索引）  
-- 为 Agent 层提供可扫描、可入库的 **Tool 清单** 能力  
+- 为 Capability Catalog 提供历史扫描 manifest，实现低侵入能力接入
 
 与 **`ai-agent-service`（编排、扫描项目、Tool 管理）**、**`ai-model-service`（模型网关）**、**`ai-admin-front`（运维与调试）** 联调时，请统一网络与 `context-path`、鉴权等约定。
