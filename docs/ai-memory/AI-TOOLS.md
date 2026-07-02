@@ -31,7 +31,7 @@ The DBHub configuration is intentionally read-only:
 Use it for:
 
 - Checking whether tables, columns, or indexes exist in `ai_text_service`.
-- Comparing live schema state with `sql/init.sql` and `sql/upgrade-*.sql`.
+- Comparing live schema state with `sql/init.sql` and any current `sql/upgrade-*.sql` created for an active database change.
 - Inspecting small reference rows needed to diagnose UI or backend behavior.
 
 Do not use it for:
@@ -52,7 +52,7 @@ Use dbhub_ai_mysql to inspect the columns and indexes for api_graph_edge, then c
 
 ## Required Local Setup
 
-Cursor can load the project-level MCP config at `.cursor/mcp.json`. Codex usually uses user-level MCP configuration, so use this project file as the source of truth when adding equivalent Codex MCP servers.
+Cursor can load local MCP config from `.cursor/mcp.json`, and DBHub can read `.cursor/dbhub-ai-mysql.toml`. These files are machine-local and ignored by Git; keep only environment-variable based examples in shared docs. Codex usually uses user-level MCP configuration, so mirror the same server settings there when needed.
 
 Install the MCP packages:
 

@@ -1,9 +1,9 @@
-/// <reference types="vite/client" />
+﻿/// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** 管理端生成「业务系统配置示例」时 eaf.registry.url 指向的 ai-agent-service 根地址（含端口），如 http://localhost:18603 */
-  readonly VITE_AI_AGENT_SERVICE_URL?: string
-  /** 项目未配置 Base URL 时，示例里 base-url 的占位（含端口），如 http://127.0.0.1:8611 */
+  /** 绠＄悊绔敓鎴愩€屼笟鍔＄郴缁熼厤缃ず渚嬨€嶆椂 eaf.registry.url 鎸囧悜鐨?ReachAI Control public API 鏍瑰湴鍧€锛堝惈绔彛锛夛紝濡?http://localhost:18603 */
+  readonly VITE_REACHAI_CONTROL_SERVICE_URL?: string
+  /** 椤圭洰鏈厤缃?Base URL 鏃讹紝绀轰緥閲?base-url 鐨勫崰浣嶏紙鍚鍙ｏ級锛屽 http://127.0.0.1:8611 */
   readonly VITE_EXAMPLE_BUSINESS_BASE_URL?: string
 }
 

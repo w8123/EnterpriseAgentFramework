@@ -1,4 +1,4 @@
-import { agentRequest } from './request'
+﻿import { controlRequest } from './request'
 
 export interface EmbedSessionView {
   id: number
@@ -197,65 +197,65 @@ export interface PageRegistryDeleteResult {
 }
 
 export function listEmbedSessions(params: Record<string, unknown> = {}) {
-  return agentRequest.get<EmbedSessionView[]>('/api/platform/embed/sessions', { params })
+  return controlRequest.get<EmbedSessionView[]>('/api/platform/embed/sessions', { params })
 }
 
 export function listPageActionEvents(params: Record<string, unknown> = {}) {
-  return agentRequest.get<PageActionEventView[]>('/api/platform/embed/page-actions', { params })
+  return controlRequest.get<PageActionEventView[]>('/api/platform/embed/page-actions', { params })
 }
 
 export function listPageRegistry(params: Record<string, unknown> = {}) {
-  return agentRequest.get<PageRegistryView[]>('/api/platform/embed/pages', { params })
+  return controlRequest.get<PageRegistryView[]>('/api/platform/embed/pages', { params })
 }
 
 export function deletePageRegistry(id: number) {
-  return agentRequest.delete<PageRegistryDeleteResult>(`/api/platform/embed/pages/${id}`)
+  return controlRequest.delete<PageRegistryDeleteResult>(`/api/platform/embed/pages/${id}`)
 }
 
 export function listPageActionCatalog(params: Record<string, unknown> = {}) {
-  return agentRequest.get<PageActionRegistryView[]>('/api/platform/embed/page-actions/catalog', { params })
+  return controlRequest.get<PageActionRegistryView[]>('/api/platform/embed/page-actions/catalog', { params })
 }
 
 export function debugPageActionCatalog(id: number, payload: PageActionDebugRequest) {
-  return agentRequest.post<PageActionDebugResponse>(`/api/platform/embed/page-actions/catalog/${id}/debug`, payload)
+  return controlRequest.post<PageActionDebugResponse>(`/api/platform/embed/page-actions/catalog/${id}/debug`, payload)
 }
 
 export function getPageActionDebugResult(requestId: string) {
-  return agentRequest.get<PageActionEventView>(`/api/platform/embed/page-actions/debug/${requestId}`)
+  return controlRequest.get<PageActionEventView>(`/api/platform/embed/page-actions/debug/${requestId}`)
 }
 
 export function listPageActionReferences(id: number) {
-  return agentRequest.get<PageActionReferenceView[]>(`/api/platform/embed/page-actions/catalog/${id}/references`)
+  return controlRequest.get<PageActionReferenceView[]>(`/api/platform/embed/page-actions/catalog/${id}/references`)
 }
 
 export function declarePageActionCatalog(payload: PageActionManualDeclarePayload) {
-  return agentRequest.post<PageActionManualDeclareResponse>('/api/platform/embed/page-actions/catalog/manual', payload)
+  return controlRequest.post<PageActionManualDeclareResponse>('/api/platform/embed/page-actions/catalog/manual', payload)
 }
 
 export function listEmbedChatEvents(sessionId: string, limit = 200) {
-  return agentRequest.get<EmbedChatEventView[]>('/api/platform/embed/chat-events', { params: { sessionId, limit } })
+  return controlRequest.get<EmbedChatEventView[]>('/api/platform/embed/chat-events', { params: { sessionId, limit } })
 }
 
 export function listEmbedRenderers(params: Record<string, unknown> = {}) {
-  return agentRequest.get<EmbedRendererView[]>('/api/platform/embed/renderers', { params })
+  return controlRequest.get<EmbedRendererView[]>('/api/platform/embed/renderers', { params })
 }
 
 export function listEmbedCredentialPolicies(params: Record<string, unknown> = {}) {
-  return agentRequest.get<EmbedCredentialPolicyView[]>('/api/platform/embed/credentials', { params })
+  return controlRequest.get<EmbedCredentialPolicyView[]>('/api/platform/embed/credentials', { params })
 }
 
 export function updateEmbedCredentialPolicy(id: number, payload: EmbedCredentialPolicyPayload) {
-  return agentRequest.put<EmbedCredentialPolicyView>(`/api/platform/embed/credentials/${id}/policy`, payload)
+  return controlRequest.put<EmbedCredentialPolicyView>(`/api/platform/embed/credentials/${id}/policy`, payload)
 }
 
 export function createEmbedRenderer(payload: EmbedRendererPayload) {
-  return agentRequest.post<EmbedRendererView>('/api/platform/embed/renderers', payload)
+  return controlRequest.post<EmbedRendererView>('/api/platform/embed/renderers', payload)
 }
 
 export function updateEmbedRenderer(id: number, payload: EmbedRendererPayload) {
-  return agentRequest.put<EmbedRendererView>(`/api/platform/embed/renderers/${id}`, payload)
+  return controlRequest.put<EmbedRendererView>(`/api/platform/embed/renderers/${id}`, payload)
 }
 
 export function disableEmbedRenderer(id: number) {
-  return agentRequest.post<void>(`/api/platform/embed/renderers/${id}/disable`)
+  return controlRequest.post<void>(`/api/platform/embed/renderers/${id}/disable`)
 }

@@ -1,115 +1,116 @@
-# ReachAI Verification Commands
+# ReachAI Verification
 
 这些命令是 AI 编程工具完成修改后的常用验证入口。根据任务范围选择最小但真实的验证集合。
 
-## General
+## 路线A后端拆分
+
+边界、命名、路由和依赖 guard：
 
 ```powershell
-git status --short
-git diff --check
+node scripts/check-backend-boundary-naming.mjs
+node scripts/check-frontend-public-api-routes.test.mjs
+node scripts/check-frontend-public-api-routes.mjs
+node scripts/check-physical-service-smoke.test.mjs
+node scripts/check-physical-service-route-contracts.test.mjs
+node scripts/check-physical-service-route-contracts.mjs
+node scripts/check-backend-domain-dependencies.test.mjs
+node scripts/check-backend-domain-dependencies.mjs
+node scripts/check-service-table-ownership.test.mjs
+node scripts/check-service-table-ownership.mjs
+node scripts/check-internal-api-contracts.test.mjs
+node scripts/check-internal-api-contracts.mjs
 ```
 
-## Backend
-
-根目录编译：
+五服务编译：
 
 ```powershell
-mvn clean install
+& "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-control-service,reachai-runtime-service,reachai-capability-service,reachai-knowledge-service,reachai-model-service -am -DskipTests compile
 ```
 
-目标模块编译：
+五服务都通过 IDEA 或命令行启动后，运行 live smoke：
 
 ```powershell
-mvn -pl ai-agent-service -am compile
-mvn -pl ai-skills-service -am compile
-mvn -pl ai-model-service -am compile
-mvn -pl reachai-spring-boot2-starter -am compile
+node scripts/check-physical-service-smoke.mjs --wait-ms 120000 --interval-ms 3000
 ```
 
-目标测试示例：
+live smoke 检查：
+
+- `reachai-control-service` 的 `/actuator/health`
+- `reachai-runtime-service` 的 `/internal/runtime/health`
+- `reachai-capability-service` 的 `/internal/capability/health`
+- `reachai-knowledge-service` 的 `/ai/actuator/health`
+- `reachai-model-service` 的 `/actuator/health`
+- Control 的 `/api/internal-services/health` 是否能聚合 Runtime 和 Capability
+
+## 单模块后端验证
 
 ```powershell
-mvn -pl ai-agent-service "-Dtest=LlmWorkflowDraftGeneratorTest,WorkflowDraftGenerationServiceTest,WorkflowDraftEditServiceTest" test
-mvn -pl reachai-spring-boot2-starter -am test
+& "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-control-service -am test
+& "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-runtime-service -am test
+& "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-capability-service -am test
+& "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-knowledge-service -am test
+& "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-model-service -am test
 ```
 
-## Frontend
+如果只需要编译，把 `test` 换成 `compile`，或加 `-DskipTests compile`。
+
+旧 `ai-agent-service` module 已删除，不再提供 legacy fallback 编译入口。
+
+## 前端验证
 
 ```powershell
 cd ai-admin-front
 npm run build
 ```
 
-类型检查：
+类型风险高或改动涉及共享类型时：
 
 ```powershell
 cd ai-admin-front
 npx vue-tsc --noEmit
 ```
 
-## SQL
+前端代理事实：
 
-检查目标表、列、索引是否在基线和升级脚本中同时出现：
+- `/api/**` -> `reachai-control-service:18603`
+- `/ai/**` -> `reachai-knowledge-service:18602`
+- `/model/**` -> `reachai-model-service:18601`
 
-```powershell
-rg -n "target_table|target_column|target_index" sql\init.sql sql\upgrade-*.sql
-```
+## SQL 验证
 
-有 MySQL 环境时执行：
-
-```powershell
-mysql -uroot -p < sql/init.sql
-mysql -uroot -p ai_text_service < sql/upgrade-YYYYMMDD-short-name.sql
-```
-
-如果 Cursor/Codex 已配置 `dbhub_ai_mysql`，可用它做只读 live-schema 验证，例如：
-
-```text
-Use dbhub_ai_mysql to check whether target_table exists and list its columns and indexes. Do not modify data.
-```
-
-## Browser UI
-
-如果 Cursor/Codex 已配置 Playwright MCP，可用它做 UI 验证和截图，例如：
-
-```text
-Use Playwright to open the local admin frontend, capture a screenshot, and report visible layout, console, and network errors.
-```
-
-## Page Action Loop
-
-当修改前端页面动作目录、嵌入式会话、Page Action 调试或业务系统接入示例时，可以在 ReachAI 后端已启动且数据库已包含目标项目凭证后执行：
+SQL 改动至少检查：
 
 ```powershell
-.\scripts\verify-page-action-loop.ps1 -BaseUrl http://localhost:18603
+rg -n "目标表|目标字段|目标索引" sql/init.sql
+Get-ChildItem sql -Filter "upgrade-*.sql"
+git diff -- sql/init.sql sql/README.md
 ```
 
-该脚本会完整验证：
+有 MySQL 环境且当前任务新增了 upgrade SQL 时，执行对应 upgrade SQL，并确认新环境可以只依赖 `sql/init.sql`。
 
-1. 项目级 `appKey/appSecret` 签名上报页面和 `actionKey`。
-2. 页面动作目录的新增、变更和 `replaceActions=true` 删除语义；脚本会检查旧动作被标记为 `REMOVED`。
-3. 动作 `inputSchema/outputSchema/sampleArgs/allowedAgentIds` 元数据写入目录。
-4. 带 `principal.externalUserId` 换取 embed token。
-5. 创建嵌入式 session。
-6. 平台侧从页面动作目录发起 debug 请求。
-7. 业务页侧 pending 接口能拉到 page action。
-8. result 接口回传 `SUCCESS`。
-9. 平台侧 debug result 查询到 `SUCCESS`。
+## 文档与规则验证
 
-如果本地 ReachAI 运行在临时端口，显式传入 `-BaseUrl`。如果项目凭证或 Agent 不同，同时传入 `-ProjectCode`、`-AppKey`、`-AppSecret`、`-AgentId`。
-
-## Docs And Links
+```powershell
+git diff --check
+node scripts/check-backend-boundary-naming.mjs
+node scripts/check-frontend-public-api-routes.mjs
+node scripts/check-service-table-ownership.mjs
+node scripts/check-internal-api-contracts.mjs
+```
 
 检查 Markdown 中的本地链接和关键路径时，优先用 `rg` 做静态确认：
 
 ```powershell
-rg -n "docs/ai-memory|AGENTS.md|sql/init.sql|GraphSpec|AgentRuntimeAdapter" README.md docs AGENTS.md .cursor/rules
+rg -n "ai-agent-service|ai-skills-service|ai-model-service|LEGACY_AGENT_SERVICE_DISABLED|disabled route|技能服务" README.md docs AGENTS.md
 ```
 
-## When Verification Cannot Run
+注意：`docs/architecture/public-route-contracts.md` 和 `legacy-retirement.md` 可能为了契约说明保留旧 alias 或 retired route；主线入口、当前规则和启动说明不得把旧服务描述为当前运行单元。
 
-最终回复必须明确说明：
+## 最终说明
 
-- 哪个验证没跑。
-- 为什么没跑。
-- 已经做了什么替代检查。
+最终回复必须明确：
+
+- 改了哪些文件。
+- 跑了哪些验证命令。
+- 哪些验证未跑及原因。
+- 是否涉及 SQL、前端代理、启动端口或公共 API 契约。

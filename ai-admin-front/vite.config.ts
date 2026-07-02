@@ -17,7 +17,7 @@ export default defineConfig({
         target: 'http://localhost:18602',
         changeOrigin: true,
       },
-      /** ai-agent-service：统一走 18603，避免新增 /api/capabilities、/api/tool-acl 等路径漏配代理 */
+      /** reachai-control-service：统一收口 /api，避免前端直连 Runtime/Capability 内部服务 */
       '/api': {
         target: 'http://localhost:18603',
         changeOrigin: true,

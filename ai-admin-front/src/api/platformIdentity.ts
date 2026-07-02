@@ -1,4 +1,4 @@
-import { agentRequest } from './request'
+﻿import { controlRequest } from './request'
 
 export interface PageResult<T> {
   records: T[]
@@ -72,17 +72,17 @@ export function listBusinessUsers(params: {
   keyword?: string
   status?: string
 }) {
-  return agentRequest.get<PageResult<BusinessUserView>>('/api/platform/business-users', { params })
+  return controlRequest.get<PageResult<BusinessUserView>>('/api/platform/business-users', { params })
 }
 
 export function updateBusinessUser(id: number, body: BusinessUserUpdateCommand) {
-  return agentRequest.put<BusinessUserView>(`/api/platform/business-users/${id}`, body)
+  return controlRequest.put<BusinessUserView>(`/api/platform/business-users/${id}`, body)
 }
 
 export function listBusinessUserIdentities(id: number) {
-  return agentRequest.get<ExternalIdentityView[]>(`/api/platform/business-users/${id}/identities`)
+  return controlRequest.get<ExternalIdentityView[]>(`/api/platform/business-users/${id}/identities`)
 }
 
 export function saveBusinessUserIdentity(id: number, body: ExternalIdentityCommand) {
-  return agentRequest.post<ExternalIdentityView>(`/api/platform/business-users/${id}/identities`, body)
+  return controlRequest.post<ExternalIdentityView>(`/api/platform/business-users/${id}/identities`, body)
 }

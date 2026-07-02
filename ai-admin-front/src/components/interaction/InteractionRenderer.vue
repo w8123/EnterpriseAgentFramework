@@ -132,6 +132,16 @@
           {{ stringify(item.value) }}
         </el-descriptions-item>
       </el-descriptions>
+      <div v-if="actionButtons.length" class="interaction-actions">
+        <el-button
+          v-for="action in actionButtons"
+          :key="actionKey(action)"
+          :type="actionButtonType(action)"
+          @click="emitSubmit(actionKey(action), actionValues(action))"
+        >
+          {{ actionLabel(action) }}
+        </el-button>
+      </div>
     </div>
 
     <div v-else-if="rendererKind === 'custom'" class="custom-renderer-card">
@@ -271,6 +281,10 @@ const pageActionTitle = computed(() => {
   return actionKey ? `页面动作请求：${actionKey}` : '页面动作请求'
 })
 
+const actionButtons = computed(() => {
+  return (props.uiRequest.actions || []).filter(isRecord)
+})
+
 const tableColumns = computed(() => {
   const schemaColumns = (props.uiRequest.schema?.columns || []) as Array<{ key: string; label?: string }>
   if (schemaColumns.length) {
@@ -388,6 +402,23 @@ function stringify(value: unknown) {
   if (value == null) return ''
   if (typeof value === 'string') return value
   return JSON.stringify(value, null, 2)
+}
+
+function actionKey(action: Record<string, unknown>) {
+  return String(action.action || action.key || action.value || action.label || 'submit')
+}
+
+function actionLabel(action: Record<string, unknown>) {
+  return String(action.label || action.name || action.action || action.key || 'Submit')
+}
+
+function actionValues(action: Record<string, unknown>) {
+  return isRecord(action.values) ? action.values : {}
+}
+
+function actionButtonType(action: Record<string, unknown>) {
+  const key = actionKey(action)
+  return key === 'submit' || key === 'confirm' ? 'primary' : 'default'
 }
 </script>
 

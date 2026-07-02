@@ -1,0 +1,9 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="01 ReachAI Model Service" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="reachai-model-service" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.enterprise.ai.model.ReachAiModelServiceApplication" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

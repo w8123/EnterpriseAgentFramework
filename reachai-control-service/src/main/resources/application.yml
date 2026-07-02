@@ -1,0 +1,38 @@
+server:
+  port: ${SERVER_PORT:18603}
+
+spring:
+  application:
+    name: reachai-control-service
+
+  datasource:
+    url: ${AI_MYSQL_URL:jdbc:mysql://39.106.238.224:33106/ai_text_service?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai}
+    username: ${AI_MYSQL_USER:ai_text_service}
+    password: ${AI_MYSQL_PASSWORD:2b4sSjymF7BcZZBA}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+services:
+  runtime-service:
+    url: ${RUNTIME_SERVICE_URL:http://localhost:18604}
+  capability-service:
+    url: ${CAPABILITY_SERVICE_URL:http://localhost:18605}
+  model-service:
+    url: ${MODEL_SERVICE_URL:http://localhost:18601}
+  knowledge-service:
+    url: ${KNOWLEDGE_SERVICE_URL:http://localhost:18602}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true

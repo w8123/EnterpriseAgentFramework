@@ -1,18 +1,18 @@
-import { agentRequest } from './request'
+﻿import { controlRequest } from './request'
 import type { WorkflowCredential, WorkflowCredentialPayload } from '@/types/workflowCredential'
 
 export function listWorkflowCredentials(params?: { projectId?: number | null; projectCode?: string | null }) {
-  return agentRequest.get<WorkflowCredential[]>('/api/agent/workflow-credentials', { params })
+  return controlRequest.get<WorkflowCredential[]>('/api/workflows/credentials', { params })
 }
 
 export function createWorkflowCredential(data: WorkflowCredentialPayload) {
-  return agentRequest.post<WorkflowCredential>('/api/agent/workflow-credentials', data)
+  return controlRequest.post<WorkflowCredential>('/api/workflows/credentials', data)
 }
 
 export function updateWorkflowCredential(id: number, data: WorkflowCredentialPayload) {
-  return agentRequest.put<WorkflowCredential>(`/api/agent/workflow-credentials/${id}`, data)
+  return controlRequest.put<WorkflowCredential>(`/api/workflows/credentials/${id}`, data)
 }
 
 export function deleteWorkflowCredential(id: number) {
-  return agentRequest.delete(`/api/agent/workflow-credentials/${id}`)
+  return controlRequest.delete(`/api/workflows/credentials/${id}`)
 }

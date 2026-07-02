@@ -1,4 +1,4 @@
-import { agentRequest } from './request'
+﻿import { controlRequest } from './request'
 
 export interface GuardDecisionLog {
   id: number
@@ -24,5 +24,5 @@ export interface GuardDecisionQuery {
 }
 
 export function listGuardDecisions(params: GuardDecisionQuery = {}) {
-  return agentRequest.get<GuardDecisionLog[]>('/api/trace-center/guard-decisions', { params })
+  return controlRequest.get<GuardDecisionLog[]>('/api/trace-center/guard-decisions', { params })
 }

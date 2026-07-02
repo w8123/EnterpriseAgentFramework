@@ -1,0 +1,5 @@
+﻿FROM eclipse-temurin:17-jre-alpine
+WORKDIR /app
+COPY reachai-knowledge-service/target/reachai-knowledge-service-*.jar app.jar
+EXPOSE 18602
+ENTRYPOINT ["java", "-jar", "app.jar"]

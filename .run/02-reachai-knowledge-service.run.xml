@@ -1,0 +1,9 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="02 ReachAI Knowledge Service" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="reachai-knowledge-service" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.enterprise.ai.ReachAiKnowledgeServiceApplication" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

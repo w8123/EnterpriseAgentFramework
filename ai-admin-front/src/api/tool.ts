@@ -1,11 +1,11 @@
-import { agentRequest } from './request'
+﻿import { controlRequest } from './request'
 import type { ToolInfo, ToolListQuery, ToolPageResult, ToolTestResult, ToolUpsertRequest } from '@/types/tool'
 
 const TOOL_SELECTOR_PAGE_SIZE = 100
 const TOOL_SELECTOR_MAX_PAGES = 20
 
 export function getTools(params?: ToolListQuery) {
-  return agentRequest.get<ToolPageResult>('/api/tools', { params })
+  return controlRequest.get<ToolPageResult>('/api/tools', { params })
 }
 
 export async function listAllTools(
@@ -35,25 +35,25 @@ export async function listAllTools(
 }
 
 export function getToolDetail(name: string) {
-  return agentRequest.get<ToolInfo>(`/api/tools/${name}`)
+  return controlRequest.get<ToolInfo>(`/api/tools/${name}`)
 }
 
 export function createTool(data: ToolUpsertRequest) {
-  return agentRequest.post<ToolInfo>('/api/tools', data)
+  return controlRequest.post<ToolInfo>('/api/tools', data)
 }
 
 export function updateTool(name: string, data: ToolUpsertRequest) {
-  return agentRequest.put<ToolInfo>(`/api/tools/${name}`, data)
+  return controlRequest.put<ToolInfo>(`/api/tools/${name}`, data)
 }
 
 export function deleteTool(name: string) {
-  return agentRequest.delete(`/api/tools/${name}`)
+  return controlRequest.delete(`/api/tools/${name}`)
 }
 
 export function toggleTool(name: string, enabled: boolean) {
-  return agentRequest.put<ToolInfo>(`/api/tools/${name}/toggle`, { enabled })
+  return controlRequest.put<ToolInfo>(`/api/tools/${name}/toggle`, { enabled })
 }
 
 export function testTool(name: string, args: Record<string, unknown>) {
-  return agentRequest.post<ToolTestResult>(`/api/tools/${name}/test`, { args })
+  return controlRequest.post<ToolTestResult>(`/api/tools/${name}/test`, { args })
 }

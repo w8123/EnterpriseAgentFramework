@@ -45,9 +45,9 @@ Get-Content -Encoding UTF8 path\to\file.md
 
 不要把 mojibake 文本当作业务命名继续复制到代码里。
 
-## Agent Definition And Agent Studio Legacy
+## Agent Definition And Legacy Agent Canvas
 
-症状：新代码仍读写 `agent_definition`、调用 `/api/agent/definitions`，或把用户导向 `agent/:id/studio`（Agent Studio 兼容路由）。
+症状：新代码仍读写 `agent_definition`、调用 `/api/agent/definitions`，或把用户导向 `agent/:id/studio`（历史 Agent 画布兼容路由）。
 
 处理顺序：
 
@@ -61,7 +61,7 @@ Get-Content -Encoding UTF8 path\to\file.md
 - 在 `agent_definition` 上保存 `graph_spec_json` 会导致 Runtime 与 Studio 数据源分裂。
 - 遗留 `/api/agents/{agentId}/versions` 与 Workflow 版本并存时，新发布应只走 `/api/workflows/{workflowId}/versions`。
 
-## Agent Studio Build Failures
+## Legacy Studio Panel Build Failures
 
 Workflow Studio 页面复杂，中文模板、条件面板、节点配置和类型定义容易互相影响。处理方式：
 

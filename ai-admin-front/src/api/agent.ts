@@ -1,4 +1,4 @@
-import { agentRequest } from './request'
+﻿import { controlRequest } from './request'
 import type {
   AgentResult,
   PendingHumanApproval,
@@ -29,105 +29,105 @@ export {
 } from './workflow'
 
 export function debugAgentNode(data: AgentNodeDebugRequest) {
-  return agentRequest.post<AgentNodeDebugResult>('/api/agent/studio/debug-node', data)
+  return controlRequest.post<AgentNodeDebugResult>('/api/workflows/studio/debug-node', data)
 }
 
 export function debugAgentWorkflowRun(data: AgentWorkflowDebugRunRequest) {
-  return agentRequest.post<AgentWorkflowDebugRunResult>('/api/agent/studio/debug-run', data)
+  return controlRequest.post<AgentWorkflowDebugRunResult>('/api/workflows/studio/debug-run', data)
 }
 
 export function createExecutableDebugSession(data: ExecutableDebugSessionCreateRequest) {
-  return agentRequest.post<ExecutableDebugSessionView>('/api/runtime/debug-sessions', data)
+  return controlRequest.post<ExecutableDebugSessionView>('/api/runtime/debug-sessions', data)
 }
 
 export function getExecutableDebugSession(sessionId: string) {
-  return agentRequest.get<ExecutableDebugSessionView>(`/api/runtime/debug-sessions/${encodeURIComponent(sessionId)}`)
+  return controlRequest.get<ExecutableDebugSessionView>(`/api/runtime/debug-sessions/${encodeURIComponent(sessionId)}`)
 }
 
 export function submitExecutableDebugSession(sessionId: string, data: ExecutableDebugSessionSubmitRequest) {
-  return agentRequest.post<ExecutableDebugSessionView>(
+  return controlRequest.post<ExecutableDebugSessionView>(
     `/api/runtime/debug-sessions/${encodeURIComponent(sessionId)}/submit`,
     data,
   )
 }
 
 export function cancelExecutableDebugSession(sessionId: string) {
-  return agentRequest.post<ExecutableDebugSessionView>(
+  return controlRequest.post<ExecutableDebugSessionView>(
     `/api/runtime/debug-sessions/${encodeURIComponent(sessionId)}/cancel`,
   )
 }
 
 export function generateWorkflowDraft(data: WorkflowDraftGenerationRequest) {
-  return agentRequest.post<WorkflowDraftGenerationResult>('/api/agent/studio/generate-draft', data)
+  return controlRequest.post<WorkflowDraftGenerationResult>('/api/workflows/studio/generate-draft', data)
 }
 
 export function editWorkflowDraft(data: WorkflowDraftEditRequest) {
-  return agentRequest.post<WorkflowDraftEditResult>('/api/agent/studio/edit-draft', data)
+  return controlRequest.post<WorkflowDraftEditResult>('/api/workflows/studio/edit-draft', data)
 }
 
 export function executeAgent(data: ChatRequest) {
-  return agentRequest.post<ChatResponse>('/api/agent/execute', data)
+  return controlRequest.post<ChatResponse>('/api/runtime/agents/execute', data)
 }
 
 export function listPendingHumanApprovals(params?: { agentId?: number | string; userId?: string; limit?: number }) {
-  return agentRequest.get<PendingHumanApproval[]>('/api/agent/interactions/human-approvals', { params })
+  return controlRequest.get<PendingHumanApproval[]>('/api/runtime/interactions/human-approvals', { params })
 }
 
 export function submitHumanApproval(
   interactionId: string,
   data: { action?: string; values?: Record<string, unknown>; userId?: string; sessionId?: string },
 ) {
-  return agentRequest.post<AgentResult>(
-    `/api/agent/interactions/human-approvals/${encodeURIComponent(interactionId)}/submit`,
+  return controlRequest.post<AgentResult>(
+    `/api/runtime/interactions/human-approvals/${encodeURIComponent(interactionId)}/submit`,
     data,
   )
 }
 
 export function cancelHumanApproval(interactionId: string, userId?: string) {
-  return agentRequest.delete<AgentResult>(
-    `/api/agent/interactions/human-approvals/${encodeURIComponent(interactionId)}`,
+  return controlRequest.delete<AgentResult>(
+    `/api/runtime/interactions/human-approvals/${encodeURIComponent(interactionId)}`,
     { params: { userId } },
   )
 }
 
 export function executeAgentDetailed(data: ChatRequest) {
-  return agentRequest.post<AgentResult>('/api/agent/execute/detailed', data)
+  return controlRequest.post<AgentResult>('/api/runtime/agents/execute/detailed', data)
 }
 
-/** @deprecated Agent 版本已迁移至 Workflow 版本 */
+/** @deprecated Agent 版本语义已逐步收敛为 Workflow 版本语义 */
 export function listAgentVersions(agentId: string) {
-  return agentRequest.get<AgentVersion[]>(`/api/agents/${agentId}/versions`)
+  return controlRequest.get<AgentVersion[]>(`/api/agents/${agentId}/versions`)
 }
 
-/** @deprecated Agent 版本已迁移至 Workflow 版本 */
+/** @deprecated Agent 版本语义已逐步收敛为 Workflow 版本语义 */
 export function publishAgentVersion(agentId: string, data: PublishVersionRequest) {
-  return agentRequest.post<AgentVersion>(`/api/agents/${agentId}/versions`, data)
+  return controlRequest.post<AgentVersion>(`/api/agents/${agentId}/versions`, data)
 }
 
-/** @deprecated Agent 版本已迁移至 Workflow 版本 */
+/** @deprecated Agent 版本语义已逐步收敛为 Workflow 版本语义 */
 export function listAgentReleaseEvents(agentId: string, limit = 100) {
-  return agentRequest.get<AgentReleaseEvent[]>(`/api/agents/${agentId}/versions/events`, {
+  return controlRequest.get<AgentReleaseEvent[]>(`/api/agents/${agentId}/versions/events`, {
     params: { limit },
   })
 }
 
-/** @deprecated Agent 版本已迁移至 Workflow 版本 */
+/** @deprecated Agent 版本语义已逐步收敛为 Workflow 版本语义 */
 export function validateAgentRelease(
   agentId: string,
   data?: { version?: string; rolloutPercent?: number; operator?: string },
 ) {
-  return agentRequest.post<AgentReleaseValidationResult>(`/api/agents/${agentId}/versions/validate`, data ?? {})
+  return controlRequest.post<AgentReleaseValidationResult>(`/api/agents/${agentId}/versions/validate`, data ?? {})
 }
 
-/** @deprecated Agent 版本已迁移至 Workflow 版本 */
+/** @deprecated Agent 版本语义已逐步收敛为 Workflow 版本语义 */
 export function rollbackAgentVersion(agentId: string, versionId: number, operator?: string) {
-  return agentRequest.post<AgentVersion>(
+  return controlRequest.post<AgentVersion>(
     `/api/agents/${agentId}/versions/${versionId}/rollback`,
     { operator },
   )
 }
 
-/** 通过发布端点调用 Agent（{key} 对应 keySlug） */
+/** 通过网关入口调用 Agent Chat（key 对应 keySlug）。 */
 export function gatewayChat(key: string, data: { message: string; sessionId?: string; userId?: string }) {
-  return agentRequest.post<ChatResponse>(`/api/v1/agents/${key}/chat`, data)
+  return controlRequest.post<ChatResponse>(`/api/v1/agents/${key}/chat`, data)
 }

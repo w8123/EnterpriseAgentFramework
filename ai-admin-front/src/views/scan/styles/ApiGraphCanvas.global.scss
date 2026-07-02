@@ -1,0 +1,75 @@
+/* 关联图放大对话框：视口居中 */
+.el-overlay-dialog:has(.relation-zoom-dialog) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.relation-zoom-dialog.el-dialog {
+  margin: 0 !important;
+}
+
+.api-graph-field-desc-tooltip {
+  max-width: min(400px, 85vw);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+/* 参数来源 / 目标入参级联：固定每列宽度；列从右向左排（一级在最右，子级依次向左） */
+.api-graph-param-cascader-popper.el-popper {
+  --el-cascader-menu-min-width: 216px;
+}
+
+.api-graph-param-cascader-popper {
+  .el-cascader-panel {
+    display: flex;
+    flex-direction: row-reverse;
+    flex-wrap: nowrap;
+  }
+
+  .el-cascader-menu {
+    box-sizing: border-box;
+    min-width: 216px !important;
+    width: 216px !important;
+    max-width: 216px !important;
+    flex: 0 0 216px !important;
+  }
+
+  /* 子级在左侧展开，箭头改为朝左 */
+  .el-cascader-node__postfix .el-icon {
+    transform: scaleX(-1);
+  }
+
+  .el-cascader-node__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+}
+
+/* Teleport 到 body：横向条宽度/水平位置与 .graph-container 对齐，底边贴视口 */
+.api-graph-hscroll-dock {
+  position: fixed;
+  bottom: 0;
+  z-index: 90;
+  box-sizing: border-box;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: color-mix(in srgb, var(--el-bg-color, #fff) 94%, transparent);
+  border-top: 1px solid var(--el-border-color-lighter, #ebeef5);
+  box-shadow: 0 -6px 20px rgba(15, 23, 42, 0.06);
+}
+
+.api-graph-hscroll-track {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+}
+
+.api-graph-hscroll-spacer {
+  height: 1px;
+  pointer-events: none;
+}

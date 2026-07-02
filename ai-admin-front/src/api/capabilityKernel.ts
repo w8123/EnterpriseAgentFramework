@@ -1,4 +1,4 @@
-import { agentRequest } from './request'
+﻿import { controlRequest } from './request'
 
 export interface CapabilityModule {
   id?: number
@@ -80,53 +80,53 @@ export interface RuntimeExecuteResult {
 }
 
 export function listCapabilityModules() {
-  return agentRequest.get<CapabilityModule[]>('/api/capabilities')
+  return controlRequest.get<CapabilityModule[]>('/api/capabilities')
 }
 
 export function saveCapabilityModule(data: CapabilityModule) {
-  return agentRequest.post<CapabilityModule>('/api/capabilities', data)
+  return controlRequest.post<CapabilityModule>('/api/capabilities', data)
 }
 
 export function listModuleTools(code: string) {
-  return agentRequest.get<ToolAsset[]>(`/api/capabilities/${encodeURIComponent(code)}/tools`)
+  return controlRequest.get<ToolAsset[]>(`/api/capabilities/${encodeURIComponent(code)}/tools`)
 }
 
 export function saveModuleTool(code: string, data: ToolAsset) {
-  return agentRequest.post<ToolAsset>(`/api/capabilities/${encodeURIComponent(code)}/tools`, data)
+  return controlRequest.post<ToolAsset>(`/api/capabilities/${encodeURIComponent(code)}/tools`, data)
 }
 
 export function listModuleCompositions(code: string) {
-  return agentRequest.get<CompositionDefinition[]>(`/api/capabilities/${encodeURIComponent(code)}/compositions`)
+  return controlRequest.get<CompositionDefinition[]>(`/api/capabilities/${encodeURIComponent(code)}/compositions`)
 }
 
 export function saveModuleComposition(code: string, data: CompositionDefinition) {
-  return agentRequest.post<CompositionDefinition>(`/api/capabilities/${encodeURIComponent(code)}/compositions`, data)
+  return controlRequest.post<CompositionDefinition>(`/api/capabilities/${encodeURIComponent(code)}/compositions`, data)
 }
 
 export function listModuleInteractions(code: string) {
-  return agentRequest.get<InteractionDefinition[]>(`/api/capabilities/${encodeURIComponent(code)}/interactions`)
+  return controlRequest.get<InteractionDefinition[]>(`/api/capabilities/${encodeURIComponent(code)}/interactions`)
 }
 
 export function saveModuleInteraction(code: string, data: InteractionDefinition) {
-  return agentRequest.post<InteractionDefinition>(`/api/capabilities/${encodeURIComponent(code)}/interactions`, data)
+  return controlRequest.post<InteractionDefinition>(`/api/capabilities/${encodeURIComponent(code)}/interactions`, data)
 }
 
 export function executeToolAsset(qualifiedName: string, params: Record<string, unknown>) {
-  return agentRequest.post<RuntimeExecuteResult>(
+  return controlRequest.post<RuntimeExecuteResult>(
     `/api/runtime/tools/${encodeURIComponent(qualifiedName)}/execute`,
     { params },
   )
 }
 
 export function resumeInteraction(sessionId: string, params: Record<string, unknown>) {
-  return agentRequest.post<RuntimeExecuteResult>(
+  return controlRequest.post<RuntimeExecuteResult>(
     `/api/runtime/interactions/${encodeURIComponent(sessionId)}/resume`,
     { params },
   )
 }
 
 export function executeComposition(qualifiedName: string, params: Record<string, unknown>) {
-  return agentRequest.post<RuntimeExecuteResult>(
+  return controlRequest.post<RuntimeExecuteResult>(
     `/api/runtime/compositions/${encodeURIComponent(qualifiedName)}/execute`,
     { params },
   )

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="studio-page">
     <header class="studio-header">
       <div class="header-left">
@@ -1024,7 +1024,7 @@
           <div v-else class="node-property-overview">
             <div class="node-property-head">
               <div class="node-property-icon" :style="{ background: kindColor(selectedNode!.data.kind).bg, color: kindColor(selectedNode!.data.kind).border }">
-                <el-icon><component :is="nodeIconMap[selectedNode!.data.kind] || Operation" /></el-icon>
+                <el-icon><component :is="nodeIcon(selectedNode!.data.kind) || Operation" /></el-icon>
               </div>
               <div class="node-property-title">
                 <div>
@@ -1128,12 +1128,12 @@
       <template #header>
         <div class="node-dialog-header">
           <div class="node-dialog-icon" :style="{ '--node-accent': selectedNode ? kindColor(selectedNode.data.kind).border : '#4f46e5' }">
-            <el-icon v-if="selectedNode"><component :is="nodeIconMap[selectedNode.data.kind] || Operation" /></el-icon>
+            <el-icon v-if="selectedNode"><component :is="nodeIcon(selectedNode.data.kind) || Operation" /></el-icon>
             <el-icon v-else><SetUp /></el-icon>
           </div>
           <div class="node-dialog-title">
             <strong>{{ selectedNode?.data.label || selectedNode?.id || '节点' }}</strong>
-            <span>{{ propertyDetailSectionLabel }} · {{ selectedNode ? studioNodeLabel(selectedNode.data.kind) : '节点配置' }}</span>
+            <span>{{ propertyDetailSectionLabel }} · {{ selectedNode ? nodeKindLabel(selectedNode.data.kind) : '节点配置' }}</span>
           </div>
           <div v-if="selectedNode" class="node-dialog-tags">
             <el-tag size="small" :type="selectedNode.data.source === 'SDK' ? 'warning' : 'success'">
@@ -1151,7 +1151,7 @@
                 <strong>身份信息</strong>
                 <span>用于画布展示、运行日志和上游节点引用</span>
               </div>
-              <el-tag size="small" effect="plain">{{ studioNodeLabel(selectedNode.data.kind) }}</el-tag>
+              <el-tag size="small" effect="plain">{{ nodeKindLabel(selectedNode.data.kind) }}</el-tag>
             </div>
             <el-form-item label="节点 ID">
               <el-input v-model="selectedNode.id" disabled />
@@ -1970,7 +1970,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type { Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import {
   Aim,
   ArrowLeft,
@@ -2019,35 +2019,17 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 import {
-  debugWorkflowNode,
-  debugWorkflowRun,
-  editWorkflowDraft,
-  generateWorkflowDraft,
-  getWorkflowGraphNodeTypes,
-  getWorkflowStudio,
-  listWorkflowVersions,
-  publishWorkflowVersion,
-  saveWorkflowStudio as saveWorkflowStudioApi,
-  updateWorkflow,
-  validateWorkflowRuntime as validateWorkflowRuntimeApi,
-  validateWorkflowVersion,
-  createWorkflowDebugSession,
   getWorkflowDebugSession,
-  submitWorkflowDebugSession,
-  cancelWorkflowDebugSession,
+  validateWorkflowRuntime as validateWorkflowRuntimeApi,
 } from '@/api/workflow'
 import { extractDraftFromTrace } from '@/api/capabilityMining'
-import { getTraceDetail } from '@/api/trace'
 import type { TraceNode } from '@/types/trace'
-import { getRecentRunOps, getRunOpsDetail } from '@/api/runops'
 import type { RunDetail, RunSpan, RunSummary, WorkflowPathItem } from '@/types/runops'
 import type { ChatResponse } from '@/types/chat'
 import type {
   WorkflowDebugRunResult,
   WorkflowDraftEditResult,
   WorkflowDraftGenerationResult,
-  WorkflowDraftResource,
-  WorkflowGraphNodeTypeDescriptor,
   WorkflowNodeDebugResult,
   WorkflowPublishRequest,
   WorkflowReleaseValidationItem,
@@ -2056,8 +2038,6 @@ import type {
   WorkflowDebugMessage,
   WorkflowDebugSessionView,
   WorkflowDebugStepResult,
-  WorkflowDraftEditOperation,
-  WorkflowDraftEditOperationType,
 } from '@/types/workflow'
 import type {
   CanvasEdge,
@@ -2067,24 +2047,12 @@ import type {
   InteractionCallNodeRequest,
   StudioVariableOption,
 } from '@/types/studio'
-import { getApiGraphParamHints } from '@/api/apiGraph'
-import type { ApiGraphParamSourceHint } from '@/api/apiGraph'
-import { listAllCompositions } from '@/api/composition'
-import type { CompositionInfo } from '@/types/composition'
-import { getKnowledgeList } from '@/api/knowledge'
-import type { KnowledgeBase } from '@/types/knowledge'
-import { getModelInstances } from '@/api/model'
 import type { ModelInstance } from '@/types/model'
-import { listAllTools } from '@/api/tool'
-import type { ToolInfo } from '@/types/tool'
-import { listWorkflowCredentials } from '@/api/workflowCredential'
-import type { WorkflowCredential } from '@/types/workflowCredential'
 import TraceTimeline from '@/components/TraceTimeline.vue'
 import InteractionRenderer from '@/components/interaction/InteractionRenderer.vue'
 import type { UiFieldPayload, UiRequestPayload } from '@/types/interaction'
 import {
   createWorkflowCanvasNode,
-  buildWorkflowDebugDraftPayload,
   workflowCanvasToSaveRequest,
   workflowStudioToCanvas,
 } from '@/utils/workflowStudio'
@@ -2092,51 +2060,59 @@ import {
   runDisplayName,
   runMatchesCurrentWorkflow,
 } from '@/utils/workflowRunOps'
-import { listApiAssets } from '@/api/apiAsset'
-import type { ApiAssetItem } from '@/types/apiAsset'
-import type { ToolParameter } from '@/types/tool'
 import LlmModelIcon from '@/components/icons/LlmModelIcon.vue'
 import SendIcon from '@/components/icons/SendIcon.vue'
 import type { StudioFieldSchema } from '@/types/studio'
-import { interactionOutputPorts, normalizeCanvasEdgeHandles } from '@/utils/studio'
+import { normalizeCanvasEdgeHandles } from '@/utils/studio'
+import NodeConfigPanel from '@/views/workflow/studio-panels/NodeConfigPanel.vue'
+import { useWorkflowStudioNodeMetadata } from '@/views/workflow/composables/useWorkflowStudioNodeMetadata'
+import { useWorkflowStudioPalette } from '@/views/workflow/composables/useWorkflowStudioPalette'
+import { useWorkflowStudioDebugSession } from '@/views/workflow/composables/useWorkflowStudioDebugSession'
+import { useWorkflowStudioSessionLifecycle } from '@/views/workflow/composables/useWorkflowStudioSessionLifecycle'
+import { useWorkflowStudioCanvasSearch } from '@/views/workflow/composables/useWorkflowStudioCanvasSearch'
+import { useWorkflowStudioPersistence } from '@/views/workflow/composables/useWorkflowStudioPersistence'
+import { useWorkflowStudioRelease } from '@/views/workflow/composables/useWorkflowStudioRelease'
 import {
-  STUDIO_NODE_GROUPS,
-  STUDIO_NODE_REGISTRY,
-  enabledStudioNodeKinds,
-  studioNodeCapabilityMap,
-  studioNodeLabel,
-} from '@/utils/studioNodeRegistry'
-import NodeConfigPanel from '@/views/agent/studio-panels/NodeConfigPanel.vue'
-
-type GraphLintItem = {
-  level: 'error' | 'warning'
-  message: string
-  nodeId?: string
-  edgeId?: string
-}
+  useWorkflowStudioCanvasActions,
+  type WorkflowNodeTraceState,
+} from '@/views/workflow/composables/useWorkflowStudioCanvasActions'
+import {
+  useWorkflowStudioDebugRun,
+  debugStepStatus,
+  stringifyDebugPayload,
+  formatElapsed,
+} from '@/views/workflow/composables/useWorkflowStudioDebugRun'
+import { useWorkflowStudioAiDraft } from '@/views/workflow/composables/useWorkflowStudioAiDraft'
+import { useWorkflowStudioAiDraftActions } from '@/views/workflow/composables/useWorkflowStudioAiDraftActions'
+import { useWorkflowStudioEval } from '@/views/workflow/composables/useWorkflowStudioEval'
+import { useWorkflowStudioHistory } from '@/views/workflow/composables/useWorkflowStudioHistory'
+import { useWorkflowStudioApiQueryTemplate } from '@/views/workflow/composables/useWorkflowStudioApiQueryTemplate'
+import { useWorkflowStudioResources } from '@/views/workflow/composables/useWorkflowStudioResources'
+import {
+  useWorkflowStudioGraphAnalysis,
+  type GraphLintItem,
+} from '@/views/workflow/composables/useWorkflowStudioGraphAnalysis'
+import { formatJson, normalizeJson } from '@/views/workflow/composables/workflowStudioJson'
 
 const route = useRoute()
 const router = useRouter()
 const { fitView, screenToFlowCoordinate, setCenter, zoomIn, zoomOut, getViewport } = useVueFlow()
-const DEBUG_DRAWER_WIDTH_RATIO = 0.58
-const DEBUG_DRAWER_MAX_WIDTH = 960
-
 const workflowId = computed(() => String(route.params.workflowId || route.params.id || ''))
 const studio = ref<WorkflowStudioState | null>(null)
 const graphSpecJson = ref('')
 const canvasJson = ref('')
+const emptyWorkspaceGraphSpec = formatJson('{"nodes":[],"edges":[]}')
+const emptyWorkspaceCanvas = formatJson('{"nodes":[],"edges":[]}')
 const activeTab = ref('visual')
 const loading = ref(false)
 const saving = ref(false)
 const validating = ref(false)
 const publishing = ref(false)
-const nodeTypesLoading = ref(false)
 const nodeKeyword = ref('')
 const canvasSearchOpen = ref(false)
 const canvasSearchKeyword = ref('')
 const canvasSearchIndex = ref(0)
 const canvasSearchInputRef = ref()
-const nodeTypes = ref<WorkflowGraphNodeTypeDescriptor[]>([])
 const nodes = ref<CanvasNode[]>([])
 const edges = ref<CanvasEdge[]>([])
 const selectedNodeId = ref<string | null>(null)
@@ -2184,16 +2160,6 @@ const aiEditLoading = ref(false)
 const aiEditMinimized = ref(false)
 const aiDraftPreview = ref<WorkflowDraftGenerationResult | null>(null)
 const aiEditPreview = ref<WorkflowDraftEditResult | null>(null)
-const evalOpen = ref(false)
-const evalRunning = ref(false)
-const evalRepeatCount = ref(1)
-const evalRunName = ref('')
-const modelOptions = ref<ModelInstance[]>([])
-const knowledgeOptions = ref<KnowledgeBase[]>([])
-const toolOptions = ref<ToolInfo[]>([])
-const compositionOptions = ref<CompositionInfo[]>([])
-const credentialOptions = ref<WorkflowCredential[]>([])
-const paramSourceHints = ref<ApiGraphParamSourceHint[]>([])
 const paletteExpanded = ref(false)
 const activePaletteGroup = ref('推理')
 const propertyPanelCollapsed = ref(true)
@@ -2204,7 +2170,6 @@ const nodeSearchKeyword = ref('')
 const propertyDetailOpen = ref(false)
 type PropertyDetailSection = 'base' | 'node' | 'debug' | 'trace'
 const propertyDetailSection = ref<PropertyDetailSection>('base')
-const graphNodeTypeCapabilitiesLoaded = ref(false)
 const jsonDrawerVisible = ref(false)
 const debugOpen = ref(false)
 const publishDialogOpen = ref(false)
@@ -2225,107 +2190,50 @@ const workflowMeta = reactive({
   description: '',
   defaultModelInstanceId: '',
 })
-const apiQueryTemplateOpen = ref(false)
-const apiQueryTemplateLoading = ref(false)
-const apiQueryTemplateAssets = ref<ApiAssetItem[]>([])
-const apiQueryTemplateTotal = ref(0)
-const apiQueryTemplateActionKey = ref('page.search.applyFilters')
-const apiQueryTemplateRouteAssetId = ref<number | null>(null)
-const apiQueryTemplateFilters = reactive({
-  keyword: '',
-  toolLinkStatus: '',
-  page: 1,
-  pageSize: 10,
-})
 const aiDraftDialogOpen = ref(false)
+
+const selectedToolName = computed(() => {
+  const node = nodes.value.find((item) => item.id === selectedNodeId.value) || null
+  return node?.data.kind === 'tool' ? node.data.toolConfig?.ref || '' : ''
+})
+
+const {
+  nodeTypesLoading,
+  nodeTypes,
+  modelOptions,
+  knowledgeOptions,
+  toolOptions,
+  compositionOptions,
+  credentialOptions,
+  paramSourceHints,
+  graphNodeTypeCapabilitiesLoaded,
+  availableTools,
+  availableCompositions,
+  aiDraftModelOptions,
+  selectedAiEditModel,
+  selectedToolInfo,
+  loadNodeTypes,
+  loadToolOptions,
+  loadCompositionOptions,
+  loadModelOptions,
+  loadKnowledgeOptions,
+  loadCredentialOptions,
+  handleCredentialCreated,
+  refreshParamSourceHints,
+} = useWorkflowStudioResources({
+  studio,
+  aiModelInstanceId,
+  selectedToolName,
+})
 
 const studioReadOnly = computed(() => {
   const managed = studio.value?.managedBy
   return managed === 'SDK' || managed === 'AI_QUICK_ACCESS'
 })
 
-const evalCases = ref<WorkflowEvalCase[]>(createDefaultEvalCases())
-const evalResults = ref<WorkflowEvalResult[]>([])
-
-interface WorkflowEvalCase {
-  id: string
-  caseNo: string
-  message: string
-  inputParamsJson: string
-  expectedText: string
-  enabled: boolean
-}
-
-interface WorkflowEvalResult {
-  id: string
-  roundNo: number
-  caseNo: string
-  runtimeSuccess: boolean
-  assertionPassed: boolean
-  elapsedMs: number
-  answer: string
-  errorMessage: string
-}
-
-interface WorkflowNodeTraceState {
-  nodeId: string
-  status: 'success' | 'error' | 'waiting' | 'running'
-  elapsedMs?: number
-  spanType?: string
-  toolName?: string
-  input?: string
-  output?: string
-  errorCode?: string
-  route?: string
-  interactionId?: string
-  createdAt?: string
-}
-
-interface PaletteItem {
-  kind: CanvasNodeKind
-  label: string
-  meta: string
-  icon: Component
-  hint: string
-}
-
-interface PaletteGroup {
-  title: string
-  icon: Component
-  items: PaletteItem[]
-}
-
-const availableTools = computed(() =>
-  toolOptions.value.filter((tool) => tool.enabled && tool.agentVisible),
-)
-
-const availableCompositions = computed(() =>
-  compositionOptions.value.filter((composition) => composition.enabled && composition.agentVisible && !composition.draft),
-)
-
-const aiDraftModelOptions = computed(() => {
-  const llmOptions = modelOptions.value.filter((item) => item.modelType === 'LLM')
-  return llmOptions.length ? llmOptions : modelOptions.value
-})
-
-const selectedAiEditModel = computed(() => {
-  const id = aiModelInstanceId.value || studio.value?.defaultModelInstanceId || aiDraftModelOptions.value[0]?.id || ''
-  if (!id) return null
-  return aiDraftModelOptions.value.find((item) => item.id === id)
-    || modelOptions.value.find((item) => item.id === id)
-    || null
-})
-
 const selectedAiEditModelLabel = computed(() =>
   selectedAiEditModel.value ? modelOptionLabel(selectedAiEditModel.value) : '',
 )
-
-const selectedToolInfo = computed(() => {
-  const refName = selectedNode.value?.data.kind === 'tool'
-    ? selectedNode.value.data.toolConfig?.ref
-    : ''
-  return toolOptions.value.find((tool) => tool.name === refName) ?? null
-})
 
 const statusTagType = computed(() => {
   if (studio.value?.status === 'ACTIVE') return 'success'
@@ -2378,23 +2286,6 @@ const connectionLineOptions = {
   type: ConnectionLineType.SmoothStep,
 }
 
-const publishWarnings = computed(() => {
-  const warnings: string[] = []
-  if (!studio.value?.keySlug) {
-    warnings.push('未配置 keySlug，业务系统可能无法稳定访问发布后的 Workflow。')
-  }
-  const callableNodeCount = nodes.value.filter((node) =>
-    ['tool', 'skill', 'http', 'pageAction', 'mcp'].includes(node.data.kind),
-  ).length
-  if (!callableNodeCount) {
-    warnings.push('画布中没有工具、能力、接口、页面动作或 MCP 节点，本版本只能进行纯流程/纯对话编排。')
-  }
-  if ((publishForm.rolloutPercent ?? 100) === 100) {
-    warnings.push('本次为全量发布，会替换该 Workflow 的历史 ACTIVE 全量版本。')
-  }
-  return warnings
-})
-
 function visibilityLabel(value?: string | null) {
   const normalized = String(value || '').toUpperCase()
   const labels: Record<string, string> = {
@@ -2427,82 +2318,98 @@ const propertyDetailSectionLabel = computed(() => {
   return sectionLabel[propertyDetailSection.value]
 })
 
-const graphNodeCompositionByKind = computed(() => studioNodeCapabilityMap(nodeTypes.value))
-const enabledPaletteKinds = computed(() =>
-  enabledStudioNodeKinds(nodeTypes.value, graphNodeTypeCapabilitiesLoaded.value),
-)
-
-const nodeIconMap: Record<CanvasNodeKind, Component> = {
-  start: ArrowLeft,
-  end: Finished,
-  userInput: SetUp,
-  interaction: SetUp,
-  pageAction: Link,
-  llm: LlmModelIcon,
-  skill: Briefcase,
-  tool: Tools,
-  knowledge: Coin,
-  condition: Switch,
-  variable: SetUp,
-  template: Document,
-  parameter: MagicStick,
-  http: Link,
-  answer: Finished,
-  code: Document,
-  classifier: Switch,
-  aggregate: SetUp,
-  approval: Finished,
-  loop: RefreshRight,
-  knowledgeWrite: Collection,
-  documentExtract: Files,
-  mcp: Connection,
-}
-
-const groupIconMap: Record<string, Component> = {
-  Cpu: LlmModelIcon,
-  Operation,
-  Connection,
-  Collection,
-}
-
-const paletteGroups = computed<PaletteGroup[]>(() => STUDIO_NODE_GROUPS.map((group) => ({
-  title: group.title,
-  icon: groupIconMap[group.icon] || Operation,
-  items: Object.values(STUDIO_NODE_REGISTRY)
-    .filter((item) =>
-      item.group === group.title
-      && item.category !== 'system'
-      && enabledPaletteKinds.value.has(item.kind),
-    )
-    .map((item) => {
-      const capability = graphNodeCompositionByKind.value[item.kind]
-      return {
-        kind: item.kind,
-        label: item.label,
-        meta: capability?.type || item.meta,
-        icon: nodeIconMap[item.kind],
-        hint: item.hint,
-      }
-    }),
-})).filter((group) => group.items.length))
-
-const filteredPaletteGroups = computed<PaletteGroup[]>(() => {
-  const keyword = nodeSearchKeyword.value.trim().toLowerCase()
-  const groups = paletteGroups.value
-  if (!keyword) return groups
-  return groups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) =>
-        [item.label, item.meta, item.hint, item.kind, group.title].some((value) =>
-          String(value).toLowerCase().includes(keyword),
-        ),
-      ),
-    }))
-    .filter((group) => group.items.length > 0)
+const {
+  paletteGroups,
+  filteredPaletteGroups,
+  flatFilteredPalette,
+  openPaletteGroup,
+  kindColor,
+  nodeIcon,
+} = useWorkflowStudioPalette({
+  nodeSearchKeyword,
+  activePaletteGroup,
+  paletteExpanded,
+  nodeTypes,
+  graphNodeTypeCapabilitiesLoaded,
 })
 
-const flatFilteredPalette = computed(() => filteredPaletteGroups.value.flatMap((group) => group.items))
+const {
+  nodeKindLabel,
+  assignmentCount,
+  userInputFieldCount,
+  interactionFieldCount,
+  interactionTypeLabel,
+} = useWorkflowStudioNodeMetadata()
+
+const {
+  rememberDebugSession,
+  forgetDebugSession,
+  applyDebugSession,
+  clearDebugSessionView,
+  loadStoredDebugSession,
+} = useWorkflowStudioDebugSession({
+  workflowId,
+  workflowKeySlug: computed(() => workflowMeta.keySlug),
+  debugSession,
+  debugRunResult,
+  selectedDebugStepIndex,
+  currentDebugNodeId,
+  currentTraceId,
+  replayTraceInput,
+  selectedRecentTraceId,
+  refreshWorkflowNodeClasses: () => refreshWorkflowNodeClasses(),
+  getDebugSessionById: async (sessionId: string) => {
+    const { data } = await getWorkflowDebugSession(sessionId)
+    return data
+  },
+})
+
+const {
+  canvasSearchMatches,
+  openCanvasSearch,
+  closeCanvasSearch,
+  focusCanvasSearchMatch,
+  focusNextCanvasSearch,
+  focusPrevCanvasSearch,
+} = useWorkflowStudioCanvasSearch({
+  canvasSearchOpen,
+  canvasSearchKeyword,
+  canvasSearchIndex,
+  canvasSearchInputRef,
+  nodes,
+  selectedNodeId,
+  selectedEdgeId,
+  setCenter,
+}, nextTick)
+
+const { resetWorkflowSessionState, clearWorkflowDocumentState } = useWorkflowStudioSessionLifecycle({
+  closeCanvasSearch,
+  selectedNodeId,
+  selectedEdgeId,
+  debugNodeId,
+  currentDebugNodeId,
+  selectedDebugStepIndex,
+  nodeDebugResult,
+  debugRunResult,
+  debugSession,
+  debugResult,
+  aiDraftPreview,
+  aiEditPreview,
+  validation,
+  visualDirty,
+  historyPast,
+  historyFuture,
+  historyReady,
+  studio,
+  graphSpecJson,
+  canvasJson,
+  nodes,
+  edges,
+  emptyGraphSpecJson: emptyWorkspaceGraphSpec,
+  emptyCanvasJson: emptyWorkspaceCanvas,
+  resetHistorySnapshot: () => resetHistorySnapshot(),
+  forgetDebugSession,
+})
 
 const selectedNodeTrace = computed(() =>
   selectedNodeId.value ? nodeTraceStates.value[selectedNodeId.value] || null : null,
@@ -2576,236 +2483,12 @@ const selectedEdgeConditionOptions = computed(() => [
   ...selectedEdgeRouteOptions.value,
 ])
 
-const canvasStats = computed(() => ({
-  nodes: nodes.value.length,
-  edges: edges.value.length,
-}))
-
-const graphVariables = computed(() => {
-  const vars: { name: string; source: string; nodeId: string; label?: string; group?: string; description?: string }[] = []
-  for (const node of nodes.value) {
-    if (node.data.kind === 'start' || node.data.kind === 'end') continue
-    if (node.data.kind === 'userInput') {
-      const alias = node.data.userInputConfig?.outputAlias || node.data.outputAlias || 'params'
-      const nodeLabel = node.data.label || node.id
-      vars.push({ name: alias, source: nodeLabel, nodeId: node.id, label: `${nodeLabel} · 全部输入`, group: '用户输入', description: alias })
-      for (const field of node.data.userInputConfig?.fields || []) {
-        const name = field.name?.trim()
-        if (name) {
-          vars.push({
-            name: `${alias}.${name}`,
-            source: nodeLabel,
-            nodeId: node.id,
-            label: `${nodeLabel} · ${field.description || field.name}`,
-            group: '用户输入',
-            description: `${alias}.${name}`,
-          })
-        }
-      }
-      continue
-    }
-    if (node.data.kind === 'interaction') {
-      const alias = node.data.interactionConfig?.outputAlias || node.data.outputAlias || 'interaction_output'
-      const nodeLabel = node.data.interactionConfig?.title || node.data.label || node.id
-      vars.push({ name: alias, source: nodeLabel, nodeId: node.id, label: `${nodeLabel} · 交互输出`, group: '交互变量', description: alias })
-      for (const field of node.data.interactionConfig?.fields || []) {
-        const name = (field.key || field.name || '').trim()
-        if (name) {
-          vars.push({
-            name: `${alias}.${name}`,
-            source: nodeLabel,
-            nodeId: node.id,
-            label: `${nodeLabel} · ${field.description || name}`,
-            group: '交互变量',
-            description: `${alias}.${name}`,
-          })
-        }
-      }
-      continue
-    }
-    if (node.data.outputAlias) {
-      vars.push({
-        name: node.data.outputAlias,
-        source: node.data.label || node.id,
-        nodeId: node.id,
-        label: `${node.data.label || node.id} · 输出`,
-        group: '节点输出',
-        description: `业务别名：${node.data.outputAlias}`,
-      })
-    }
-    vars.push({
-      name: `nodeOutput.${node.id}`,
-      source: node.data.label || node.id,
-      nodeId: node.id,
-      label: `${node.data.label || node.id} · 节点输出`,
-      group: '节点输出',
-      description: node.data.kind,
-    })
-  }
-  return vars
-})
-
-const graphLintItems = computed<GraphLintItem[]>(() => {
-  const items: GraphLintItem[] = []
-  const nodeIds = new Set(nodes.value.map((node) => node.id))
-  const incoming = new Map<string, number>()
-  const outgoing = new Map<string, number>()
-  for (const edge of edges.value) {
-    if (!nodeIds.has(edge.source)) {
-      items.push({ level: 'error', edgeId: edge.id, message: `连线来源不存在：${edge.source}` })
-    }
-    if (!nodeIds.has(edge.target)) {
-      items.push({ level: 'error', edgeId: edge.id, message: `连线目标不存在：${edge.target}` })
-    }
-    outgoing.set(edge.source, (outgoing.get(edge.source) || 0) + 1)
-    incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1)
-    if (!isSupportedCanvasCondition(edge.condition || edge.label)) {
-      items.push({ level: 'warning', edgeId: edge.id, message: `连线条件可能无法命中：${edge.condition || edge.label}` })
-    }
-  }
-  const startCount = nodes.value.filter((node) => node.data.kind === 'start').length
-  const endCount = nodes.value.filter((node) => node.data.kind === 'end').length
-  if (startCount !== 1) items.push({ level: 'error', message: `画布需要且仅需要 1 个开始节点，当前 ${startCount} 个` })
-  if (endCount !== 1) items.push({ level: 'error', message: `画布需要且仅需要 1 个结束节点，当前 ${endCount} 个` })
-  if (!(outgoing.get('start') || 0)) items.push({ level: 'error', nodeId: 'start', message: '开始节点没有出边' })
-  if (!(incoming.get('end') || 0)) items.push({ level: 'warning', nodeId: 'end', message: '结束节点没有入边，保存时会尝试自动补边' })
-  for (const node of nodes.value) {
-    if (node.data.kind === 'start' || node.data.kind === 'end') continue
-    if (!(incoming.get(node.id) || 0)) {
-      items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 没有入边` })
-    }
-    if (!(outgoing.get(node.id) || 0)) {
-      items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 没有出边` })
-    }
-    if ((node.data.kind === 'tool' || node.data.kind === 'skill') && !node.data.toolConfig?.ref) {
-      items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 未选择引用能力` })
-    }
-    const mapping = nodeInputMapping(node.data)
-    for (const input of node.data.inputs || []) {
-      const target = input.id || input.name || ''
-      if (input.required && target && !mapping[target] && !input.source) {
-        items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 必填输入未绑定：${target}` })
-      }
-      const source = mapping[target] || input.source || ''
-      if (source && isProbablyVariableReference(source) && !isKnownVariableReference(source, node.id)) {
-        items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 引用了不存在的变量：${source}` })
-      }
-    }
-    if (node.data.kind === 'userInput') {
-      const fields = node.data.userInputConfig?.fields || []
-      if (!fields.length) {
-        items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 没有输入字段` })
-      }
-    }
-    if (node.data.kind === 'interaction') {
-      const config = node.data.interactionConfig
-      const interactionType = config?.interactionType || 'COLLECT_INPUT'
-      const needsFields = ['COLLECT_INPUT', 'USER_CHOICE', 'CONFIRM_ACTION', 'REVIEW_EDIT'].includes(interactionType)
-      const fields = config?.fields || []
-      if (needsFields && !fields.length) {
-        items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 没有交互字段` })
-      }
-    }
-    if (node.data.kind === 'classifier' && !(node.data.classifierConfig?.classes || []).length) {
-      items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 没有分类分支` })
-    }
-    if (node.data.kind === 'pageAction' && !node.data.pageActionConfig?.actionKey?.trim()) {
-      items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 未配置 actionKey` })
-    }
-    if (node.data.kind === 'knowledge' && !(node.data.knowledgeConfig?.knowledgeBaseCodes || []).length) {
-      items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 未配置知识库` })
-    }
-    if (node.data.kind === 'http' && !node.data.httpConfig?.url) {
-      items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 未配置 URL` })
-    }
-    if (node.data.kind === 'variable' && Object.keys(node.data.assignments || {}).length === 0) {
-      items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 没有变量赋值` })
-    }
-    if (node.data.kind === 'parameter' && !(node.data.parameterConfig?.fields || []).length) {
-      items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 没有参数字段` })
-    }
-    if (node.data.kind === 'template' && !node.data.template) {
-      items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 没有模板内容` })
-    }
-    if (node.data.kind === 'answer' && !node.data.answerConfig?.template) {
-      items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 没有回复模板` })
-    }
-    if (node.data.kind === 'code' && !Object.keys(node.data.codeConfig?.outputs || {}).length) {
-      items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 没有输出字段` })
-    }
-    if (node.data.kind === 'classifier' && (outgoing.get(node.id) || 0) > 1) {
-      const routeEdges = edges.value.filter((edge) => edge.source === node.id && isRouteCondition(edge.condition || edge.label))
-      if (!routeEdges.length) {
-        items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 有多条出边，但还没有配置 route 分支条件` })
-      }
-    }
-    if (node.data.kind === 'aggregate' && !(node.data.aggregateConfig?.items || []).length) {
-      items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 没有聚合项` })
-    }
-    if (node.data.kind === 'approval' && !node.data.approvalConfig?.prompt) {
-      items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 没有确认内容` })
-    }
-    if (node.data.kind === 'loop' && (node.data.loopConfig?.maxIterations || 0) < 1) {
-      items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 循环次数必须大于 0` })
-    }
-    if (node.data.kind === 'knowledgeWrite' && !node.data.knowledgeWriteConfig?.knowledgeBaseCode) {
-      items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 未选择写入知识库` })
-    }
-    if (node.data.kind === 'documentExtract' && !node.data.documentExtractConfig?.sourceExpression) {
-      items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 没有文档来源表达式` })
-    }
-    if (node.data.kind === 'mcp' && !node.data.mcpConfig?.toolName) {
-      items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 未配置 MCP 工具名称` })
-    }
-  }
-  return items
-})
-
-const graphLintErrors = computed(() => graphLintItems.value.filter((item) => item.level === 'error'))
-const graphLintWarnings = computed(() => graphLintItems.value.filter((item) => item.level === 'warning'))
-
-const canvasSearchMatches = computed(() => {
-  const keyword = canvasSearchKeyword.value.trim().toLowerCase()
-  if (!keyword) return []
-  return nodes.value.filter((node) => {
-    const data = node.data
-    const haystack = [
-      node.id,
-      data.label,
-      data.kind,
-      data.description,
-      data.outputAlias,
-      data.toolConfig?.ref,
-      data.toolConfig?.qualifiedName,
-      data.httpConfig?.url,
-      data.knowledgeConfig?.knowledgeBaseCodes?.join(' '),
-      data.pageActionConfig?.pageKey,
-      data.pageActionConfig?.actionKey,
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase()
-    return haystack.includes(keyword)
-  })
-})
-
-const selectedNodeIdsForAi = computed(() => {
-  const ids = new Set<string>()
-  for (const node of nodes.value) {
-    if ((node as CanvasNode & { selected?: boolean }).selected) ids.add(node.id)
-  }
-  if (selectedNodeId.value) ids.add(selectedNodeId.value)
-  return Array.from(ids)
-})
-
-const selectedEdgeIdsForAi = computed(() => {
-  const ids = new Set<string>()
-  for (const edge of edges.value) {
-    if ((edge as CanvasEdge & { selected?: boolean }).selected) ids.add(edge.id)
-  }
-  if (selectedEdgeId.value) ids.add(selectedEdgeId.value)
-  return Array.from(ids)
-})
+const canCopySelectedNode = computed(() =>
+  !!selectedNode.value && !['start', 'end'].includes(selectedNode.value.data.kind),
+)
+const canDeleteSelection = computed(() =>
+  !!selectedEdge.value || (!!selectedNode.value && !['start', 'end'].includes(selectedNode.value.data.kind)),
+)
 
 const debugInputFields = computed<StudioFieldSchema[]>(() => {
   const userInputNode = nodes.value.find((node) => node.data.kind === 'userInput')
@@ -3030,25 +2713,392 @@ const nodeTraceStates = computed<Record<string, WorkflowNodeTraceState>>(() => {
   return states
 })
 
-const aiEditScopeLabel = computed(() => {
-  const nodeCount = selectedNodeIdsForAi.value.length
-  const edgeCount = selectedEdgeIdsForAi.value.length
-  if (!nodeCount && !edgeCount) return 'Whole workflow'
-  const parts = [
-    nodeCount ? `${nodeCount} node${nodeCount > 1 ? 's' : ''}` : '',
-    edgeCount ? `${edgeCount} edge${edgeCount > 1 ? 's' : ''}` : '',
-  ].filter(Boolean)
-  return `Selected ${parts.join(' / ')}`
+function markCanvasDirty() {
+  visualDirty.value = true
+}
+
+function lastRouteForNode(nodeId: string) {
+  if (nodeDebugResult.value?.nodeId === nodeId) {
+    const route = nodeDebugResult.value.lastRoute || String(nodeDebugResult.value.outputState?.lastRoute || '')
+    if (route) return route
+  }
+  const fromWorkflow = workflowPath.value.find((item) => item.fromNodeId === nodeId && item.route)?.route
+  if (fromWorkflow) return fromWorkflow
+  const trace = nodeTraceStates.value[nodeId]
+  if (trace?.route) return trace.route
+  if (!trace?.output) return ''
+  try {
+    const parsed = JSON.parse(trace.output)
+    return String(parsed.lastRoute || parsed.outputState?.lastRoute || '')
+  } catch {
+    const match = trace.output.match(/lastRoute[=:]\s*([A-Za-z0-9_-]+)/)
+    return match?.[1] || ''
+  }
+}
+
+const {
+  decorateWorkflowEdge,
+  decorateWorkflowNode,
+  decorateWorkflowEdges,
+  refreshWorkflowNodeClasses,
+  canvasSnapshot,
+  onConnect,
+  copySelectedNode,
+  pasteCopiedNode,
+  deleteSelection,
+  deleteSelectedNode,
+  syncSelectedEdgeLabel,
+  applySelectedEdgeCondition,
+  cloneCanvasNode,
+  previewEdgeLabel,
+  connectionCondition,
+  edgeDisplayLabel,
+  isDynamicCondition,
+  stripTransientNodeClasses,
+} = useWorkflowStudioCanvasActions({
+  studioReadOnly,
+  nodes,
+  edges,
+  selectedNodeId,
+  selectedEdgeId,
+  debugNodeId,
+  copiedNode,
+  currentDebugNodeId,
+  nodeTraceStates,
+  canCopySelectedNode,
+  selectedNode,
+  selectedEdge,
+  workflowPath,
+  workflowHitEdgeKeys,
+  workflowPathSourceNodeIds,
+  getNodeDebugState: (nodeId) => nodeDebugStateForCanvas(nodeId),
+  getLastRouteForNode: lastRouteForNode,
+  markCanvasDirty,
+  syncJsonFromCanvas: () => syncJsonFromCanvas(),
+  activeTab,
+  propertyDetailOpen,
+  fitView,
+  nextTick,
 })
 
-const canUndo = computed(() => historyPast.value.length > 1)
-const canRedo = computed(() => historyFuture.value.length > 0)
-const canCopySelectedNode = computed(() =>
-  !!selectedNode.value && !['start', 'end'].includes(selectedNode.value.data.kind),
-)
-const canDeleteSelection = computed(() =>
-  !!selectedEdge.value || (!!selectedNode.value && !['start', 'end'].includes(selectedNode.value.data.kind)),
-)
+const {
+  canvasStats,
+  graphVariables,
+  graphLintItems,
+  graphLintErrors,
+  graphLintWarnings,
+  autoLayoutWorkflowCanvas,
+} = useWorkflowStudioGraphAnalysis({
+  nodes,
+  edges,
+  decorateWorkflowNode,
+  markCanvasDirty,
+  syncJsonFromCanvas,
+})
+
+const {
+  canUndo,
+  canRedo,
+  currentSnapshotText,
+  pushHistorySnapshot,
+  resetHistorySnapshot,
+  undoCanvas,
+  redoCanvas,
+} = useWorkflowStudioHistory({
+  historyPast,
+  historyFuture,
+  historyApplying,
+  historyReady,
+  nodes,
+  edges,
+  selectedNodeId,
+  selectedEdgeId,
+  visualDirty,
+  stripTransientNodeClasses,
+  decorateWorkflowNode,
+  decorateWorkflowEdge,
+  syncJsonFromCanvas: () => syncJsonFromCanvas(),
+  nextTick,
+})
+
+function applyCanvasFromStudio(state: WorkflowStudioState) {
+  const snapshot = workflowStudioToCanvas(state)
+  nodes.value = (snapshot.nodes || []).map(decorateWorkflowNode)
+  edges.value = (snapshot.edges || []).map(decorateWorkflowEdge)
+  selectedNodeId.value = null
+  selectedEdgeId.value = null
+  visualDirty.value = false
+  nextTick(() => fitView({ padding: 0.2, duration: 240 }))
+}
+
+function syncJsonFromCanvas() {
+  if (!studio.value) return
+  const saveRequest = workflowCanvasToSaveRequest(studio.value, canvasSnapshot())
+  graphSpecJson.value = formatJson(saveRequest.graphSpecJson)
+  canvasJson.value = formatJson(saveRequest.canvasJson || '{"nodes":[],"edges":[]}')
+  visualDirty.value = false
+  validation.value = null
+}
+
+const {
+  syncWorkflowMetaFromStudio,
+  workflowMetaDirty,
+  loadStudio,
+  saveStudio,
+} = useWorkflowStudioPersistence({
+  workflowId,
+  studioReadOnly,
+  saving,
+  loading,
+  studio,
+  graphSpecJson,
+  canvasJson,
+  nodes,
+  workflowMeta,
+  visualDirty,
+  lastSavedAt,
+  validation,
+  aiModelInstanceId,
+  applyCanvasFromStudio,
+  syncJsonFromCanvas,
+  resetHistorySnapshot: () => resetHistorySnapshot(),
+  loadCredentialOptions,
+  clearWorkflowDocumentState,
+})
+
+const {
+  resolveAiModelInstanceId,
+  toolToDraftResource,
+  compositionToDraftResource,
+  knowledgeToDraftResource,
+} = useWorkflowStudioAiDraft({
+  aiModelInstanceId,
+  studio,
+  aiDraftModelOptions,
+})
+
+const {
+  buildDebugBaseRequest,
+  buildWorkflowDebugDraftDefinition,
+  currentStudioStateForDebug,
+  nodeDebugState: resolveNodeDebugState,
+  nodeRunClass: resolveNodeRunClass,
+  nodeRunLabel: resolveNodeRunLabel,
+  focusDebugNode,
+  selectDebugStep,
+  openNodeTrace,
+  handleDebug,
+  handleRunDraftDebug,
+  handleDebugUiSubmit,
+  handleCancelDebugSession,
+  loadRecentStudioRuns,
+  handleLoadTraceReplay,
+  handleRecentTraceChange,
+  clearTraceReplay,
+  recentRunLabel,
+  handleRunPublishedDebug,
+  runNodeDebug,
+  handleRunNodeDebug,
+  clearWorkflowDebugView,
+  isDebugStepRunning,
+} = useWorkflowStudioDebugRun({
+  workflowId,
+  studio,
+  workflowMeta,
+  graphSpecJson,
+  canvasJson,
+  nodes,
+  debugOpen,
+  propertyPanelCollapsed,
+  debugLoading,
+  nodeDebugLoading,
+  traceReplayLoading,
+  recentRunsLoading,
+  debugNodeId,
+  debugMessage,
+  nodeDebugMessage,
+  nodeDebugStateJson,
+  debugInputParams,
+  debugInteractionParams,
+  currentTraceId,
+  traceNodes,
+  runOpsDetail,
+  replayTraceInput,
+  selectedRecentTraceId,
+  recentRuns,
+  selectedDebugStepIndex,
+  currentDebugNodeId,
+  debugPlaybackToken,
+  nodeDebugResult,
+  debugRunResult,
+  debugSession,
+  debugResult,
+  selectedNodeId,
+  selectedEdgeId,
+  selectedNode,
+  nodeDebugStateText,
+  debugInputFields,
+  debugWaitingFields,
+  resolveAiModelInstanceId,
+  syncJsonFromCanvas,
+  canvasSnapshot,
+  refreshWorkflowNodeClasses,
+  applyDebugSession,
+  forgetDebugSession,
+  clearDebugSessionView,
+  loadStoredDebugSession,
+  getViewport,
+  setCenter,
+  nextTick,
+  findNodePosition: (nodeId) => {
+    const node = nodes.value.find((item) => item.id === nodeId)
+    return node ? node.position : null
+  },
+  parseOptionalObject,
+})
+
+const {
+  evalOpen,
+  evalRunning,
+  evalRepeatCount,
+  evalRunName,
+  evalCases,
+  evalResults,
+  enabledEvalCases,
+  evalSummary,
+  openEvalDrawer,
+  addEvalCase,
+  removeEvalCase,
+  resetEvalCases,
+  formatEvalRate,
+  runWorkflowEval,
+} = useWorkflowStudioEval({
+  studio,
+  buildDebugBaseRequest,
+  parseOptionalObject,
+})
+
+const {
+  selectedNodeIdsForAi,
+  selectedEdgeIdsForAi,
+  activeAiPreview,
+  aiDraftPreviewNodes,
+  aiDraftPreviewEdges,
+  aiDraftPreviewNodeLabels,
+  aiEditOperationGroups,
+  aiPreviewPlaceholderNodes,
+  draftPreviewTitle,
+  draftPreviewSummary,
+  draftPreviewIssues,
+  aiEditScopeLabel,
+  openAiDraftDialog,
+  generateAiDraft,
+  editAiDraft,
+  applyAiPreview,
+  clearAiPreview,
+  clearAiEditPreview,
+  applyAiEditPreview,
+  handleApplyAiDraft,
+  operationKey,
+  previewNodeLabel,
+  workflowEditOperationLabel,
+  operationTarget,
+} = useWorkflowStudioAiDraftActions({
+  workflowId,
+  studioReadOnly,
+  studio,
+  graphSpecJson,
+  canvasJson,
+  nodes,
+  edges,
+  selectedNodeId,
+  selectedEdgeId,
+  activeTab,
+  validation,
+  aiModelInstanceId,
+  aiRequirement,
+  aiEditInstruction,
+  aiDraftLoading,
+  aiEditLoading,
+  aiDraftPreview,
+  aiEditPreview,
+  aiDraftDialogOpen,
+  availableTools,
+  availableCompositions,
+  knowledgeOptions,
+  resolveAiModelInstanceId,
+  toolToDraftResource,
+  compositionToDraftResource,
+  knowledgeToDraftResource,
+  syncJsonFromCanvas,
+  canvasSnapshot,
+  applyCanvasFromStudio,
+})
+
+const {
+  apiQueryTemplateOpen,
+  apiQueryTemplateLoading,
+  apiQueryTemplateAssets,
+  apiQueryTemplateTotal,
+  apiQueryTemplateActionKey,
+  apiQueryTemplateFilters,
+  openApiQueryTemplateDialog,
+  reloadApiQueryTemplateAssets,
+  loadApiQueryTemplateAssets,
+  applyApiAssetRouteContext,
+  apiQueryTemplateRowClassName,
+  apiQueryTemplateSelectable,
+  apiQueryTemplateStatusLabel,
+  generateApiQueryTemplate,
+} = useWorkflowStudioApiQueryTemplate({
+  studio,
+  nodes,
+  edges,
+  selectedNodeId,
+  selectedEdgeId,
+  propertyPanelCollapsed,
+  decorateWorkflowNode,
+  decorateWorkflowEdge,
+  markCanvasDirty,
+  syncJsonFromCanvas,
+})
+
+const {
+  publishWarnings,
+  publishWorkflow,
+  preloadPublishValidation,
+  releaseValidationKey,
+  formatReleaseValidationItem,
+  handlePublishWorkflow,
+} = useWorkflowStudioRelease({
+  workflowId,
+  studioReadOnly,
+  studio,
+  nodes,
+  publishing,
+  publishDialogOpen,
+  releaseErrors,
+  releaseWarnings,
+  publishForm,
+  saveStudio,
+  loadStudio,
+})
+
+function nodeDebugStateForCanvas(nodeId: string) {
+  return resolveNodeDebugState(nodeId, nodeTraceStates.value)
+}
+
+function nodeDebugState(nodeId: string) {
+  return nodeDebugStateForCanvas(nodeId)
+}
+
+function nodeRunClass(nodeId: string) {
+  return resolveNodeRunClass(nodeId, nodeTraceStates.value)
+}
+
+function nodeRunLabel(nodeId: string) {
+  return resolveNodeRunLabel(nodeId, nodeTraceStates.value)
+}
 
 const variableOptions = computed<StudioVariableOption[]>(() => {
   const options: StudioVariableOption[] = [
@@ -3096,96 +3146,6 @@ const variableOptions = computed<StudioVariableOption[]>(() => {
     seen.add(item.value)
     return true
   })
-})
-
-const activeAiPreview = computed(() => aiDraftPreview.value || aiEditPreview.value)
-
-const aiDraftPreviewNodes = computed(() => {
-  const snapshot = aiDraftPreview.value?.canvasSnapshot as { nodes?: unknown } | undefined
-  return Array.isArray(snapshot?.nodes) ? snapshot.nodes as CanvasNode[] : []
-})
-
-const aiDraftPreviewEdges = computed(() => {
-  const snapshot = aiDraftPreview.value?.canvasSnapshot as { edges?: unknown } | undefined
-  return Array.isArray(snapshot?.edges) ? snapshot.edges as CanvasEdge[] : []
-})
-
-const aiDraftPreviewNodeLabels = computed(() => {
-  const labels = new Map<string, string>()
-  for (const node of aiDraftPreviewNodes.value) {
-    labels.set(node.id, node.data?.label || node.id)
-  }
-  return labels
-})
-
-const aiEditOperationGroups = computed(() => {
-  const operations = aiEditPreview.value?.operations || []
-  const order: WorkflowDraftEditOperationType[] = [
-    'ADD_NODE',
-    'UPDATE_NODE',
-    'DELETE_NODE',
-    'ADD_EDGE',
-    'UPDATE_EDGE',
-    'DELETE_EDGE',
-  ]
-  return order
-    .map((type) => ({
-      type,
-      label: workflowEditOperationLabel(type),
-      items: operations.filter((item) => item.type === type),
-    }))
-    .filter((group) => group.items.length)
-})
-
-const aiPreviewPlaceholderNodes = computed(() => activeAiPreview.value?.placeholderNodes || [])
-
-const enabledEvalCases = computed(() => evalCases.value.filter((item) => item.enabled))
-
-const evalSummary = computed(() => {
-  const rows = evalResults.value
-  const total = rows.length
-  if (!total) {
-    return {
-      assertionRate: 0,
-      runtimeSuccessRate: 0,
-      p95LatencyMs: 0,
-      biasCount: 0,
-    }
-  }
-  const sortedLatency = rows.map((row) => row.elapsedMs).sort((a, b) => a - b)
-  const p95Index = Math.min(sortedLatency.length - 1, Math.ceil(sortedLatency.length * 0.95) - 1)
-  return {
-    assertionRate: rows.filter((row) => row.assertionPassed).length / total,
-    runtimeSuccessRate: rows.filter((row) => row.runtimeSuccess).length / total,
-    p95LatencyMs: sortedLatency[p95Index] || 0,
-    biasCount: rows.filter((row) => row.runtimeSuccess && !row.assertionPassed).length,
-  }
-})
-
-const draftPreviewTitle = computed(() => {
-  if (aiEditPreview.value) return aiEditPreview.value.summary || 'AI edit preview'
-  return aiDraftPreview.value?.graphSpec?.name || 'AI draft preview'
-})
-
-const draftPreviewSummary = computed(() => {
-  const preview = activeAiPreview.value
-  if (!preview) return '生成后可应用到当前 Workflow 草稿'
-  if ('summary' in preview && typeof preview.summary === 'string' && preview.summary.trim()) {
-    return preview.summary
-  }
-  const graphSpec = preview.graphSpec as Record<string, unknown> | undefined
-  return typeof graphSpec?.description === 'string' && graphSpec.description.trim()
-    ? graphSpec.description
-    : '生成后可应用到当前 Workflow 草稿'
-})
-
-const draftPreviewIssues = computed(() => {
-  const preview = activeAiPreview.value
-  return [
-    ...(preview?.validationErrors || []),
-    ...(preview?.warnings || []),
-    ...(preview?.placeholderNodes || []).map((item) => `${item.label}: ${item.reason}`),
-  ]
 })
 
 onMounted(async () => {
@@ -3277,152 +3237,6 @@ watch(
   },
 )
 
-async function loadStudio() {
-  if (!workflowId.value) return
-  loading.value = true
-  try {
-    const { data } = await getWorkflowStudio(workflowId.value)
-    studio.value = data
-    syncWorkflowMetaFromStudio(data)
-    if (!aiModelInstanceId.value && data.defaultModelInstanceId) {
-      aiModelInstanceId.value = data.defaultModelInstanceId
-    }
-    graphSpecJson.value = formatJson(data.graphSpecJson || '{"nodes":[],"edges":[]}')
-    canvasJson.value = formatJson(data.canvasJson || '{"nodes":[],"edges":[]}')
-    applyCanvasFromStudio(data)
-    await loadCredentialOptions(data)
-    resetHistorySnapshot()
-    validation.value = null
-  } catch {
-    clearWorkflowDocumentState()
-  } finally {
-    loading.value = false
-  }
-}
-
-function resetWorkflowSessionState() {
-  closeCanvasSearch()
-  selectedNodeId.value = null
-  selectedEdgeId.value = null
-  debugNodeId.value = ''
-  currentDebugNodeId.value = ''
-  selectedDebugStepIndex.value = null
-  nodeDebugResult.value = null
-  debugRunResult.value = null
-  debugSession.value = null
-  debugResult.value = null
-  forgetDebugSession()
-  aiDraftPreview.value = null
-  aiEditPreview.value = null
-  validation.value = null
-  visualDirty.value = false
-  historyPast.value = []
-  historyFuture.value = []
-  historyReady.value = false
-}
-
-function clearWorkflowDocumentState() {
-  studio.value = null
-  graphSpecJson.value = formatJson('{"nodes":[],"edges":[]}')
-  canvasJson.value = formatJson('{"nodes":[],"edges":[]}')
-  nodes.value = []
-  edges.value = []
-  visualDirty.value = false
-  resetHistorySnapshot()
-}
-
-async function loadNodeTypes() {
-  nodeTypesLoading.value = true
-  try {
-    const { data } = await getWorkflowGraphNodeTypes()
-    nodeTypes.value = Array.isArray(data) ? data : []
-    graphNodeTypeCapabilitiesLoaded.value = true
-  } catch {
-    nodeTypes.value = []
-    graphNodeTypeCapabilitiesLoaded.value = false
-  } finally {
-    nodeTypesLoading.value = false
-  }
-}
-
-async function loadToolOptions() {
-  try {
-    toolOptions.value = await listAllTools({ enabled: true })
-  } catch {
-    toolOptions.value = []
-  }
-}
-
-async function loadCompositionOptions() {
-  try {
-    compositionOptions.value = await listAllCompositions({ enabled: true, draft: false })
-  } catch {
-    compositionOptions.value = []
-  }
-}
-
-async function loadModelOptions() {
-  try {
-    const { data } = await getModelInstances({ modelType: 'LLM' })
-    modelOptions.value = normalizeModelInstanceList(data).filter((item) => isActiveModelInstance(item))
-    if (!aiModelInstanceId.value && studio.value?.defaultModelInstanceId) {
-      aiModelInstanceId.value = studio.value.defaultModelInstanceId
-    }
-  } catch {
-    modelOptions.value = []
-  }
-}
-
-function normalizeModelInstanceList(payload: unknown): ModelInstance[] {
-  if (Array.isArray(payload)) {
-    return payload as ModelInstance[]
-  }
-  if (payload !== null && typeof payload === 'object' && 'data' in payload) {
-    const wrapped = (payload as { data?: unknown }).data
-    return Array.isArray(wrapped) ? (wrapped as ModelInstance[]) : []
-  }
-  return []
-}
-
-function isActiveModelInstance(item: ModelInstance) {
-  return String(item.status ?? '').toUpperCase() === 'ACTIVE'
-}
-
-async function loadKnowledgeOptions() {
-  try {
-    const { data } = await getKnowledgeList()
-    knowledgeOptions.value = Array.isArray(data?.data) ? data.data : []
-  } catch {
-    knowledgeOptions.value = []
-  }
-}
-
-async function loadCredentialOptions(state: WorkflowStudioState | null = studio.value) {
-  try {
-    const { data } = await listWorkflowCredentials({
-      projectId: state?.projectId || null,
-      projectCode: state?.projectCode || null,
-    })
-    credentialOptions.value = Array.isArray(data) ? data : []
-  } catch {
-    credentialOptions.value = []
-  }
-}
-
-async function refreshParamSourceHints() {
-  paramSourceHints.value = []
-  const tool = selectedToolInfo.value
-  if (!tool?.projectId || !tool.name) {
-    return
-  }
-  try {
-    const { data } = await getApiGraphParamHints(tool.projectId, tool.name)
-    paramSourceHints.value = Array.isArray(data) ? data : []
-  } catch {
-    paramSourceHints.value = []
-  }
-}
-
 async function validateRuntime() {
   validating.value = true
   try {
@@ -3441,203 +3255,6 @@ async function validateRuntime() {
   } finally {
     validating.value = false
   }
-}
-
-function openEvalDrawer() {
-  evalOpen.value = true
-}
-
-function createDefaultEvalCases(): WorkflowEvalCase[] {
-  return [
-    {
-      id: `eval-${Date.now()}-1`,
-      caseNo: 'case-001',
-      message: '查询订单1001是否可以退款',
-      inputParamsJson: JSON.stringify({ question: '查询订单1001是否可以退款' }, null, 2),
-      expectedText: '',
-      enabled: true,
-    },
-    {
-      id: `eval-${Date.now()}-2`,
-      caseNo: 'case-002',
-      message: '总结当前页面可执行的操作',
-      inputParamsJson: JSON.stringify({ question: '总结当前页面可执行的操作' }, null, 2),
-      expectedText: '',
-      enabled: false,
-    },
-  ]
-}
-
-function addEvalCase() {
-  const nextIndex = evalCases.value.length + 1
-  evalCases.value.push({
-    id: `eval-${Date.now()}-${nextIndex}`,
-    caseNo: `case-${String(nextIndex).padStart(3, '0')}`,
-    message: '',
-    inputParamsJson: '{}',
-    expectedText: '',
-    enabled: true,
-  })
-}
-
-function removeEvalCase(id: string) {
-  evalCases.value = evalCases.value.filter((item) => item.id !== id)
-}
-
-function resetEvalCases() {
-  evalCases.value = createDefaultEvalCases()
-  evalResults.value = []
-}
-
-async function runWorkflowEval() {
-  const cases = enabledEvalCases.value
-  if (!cases.length) {
-    ElMessage.warning('请至少启用一条评测用例')
-    return
-  }
-  evalRunning.value = true
-  evalResults.value = []
-  evalRunName.value = `${studio.value?.name || 'Workflow'} 发布前评测`
-  try {
-    const results: WorkflowEvalResult[] = []
-    const baseRequest = buildDebugBaseRequest()
-    for (let roundNo = 1; roundNo <= evalRepeatCount.value; roundNo += 1) {
-      for (const evalCase of cases) {
-        const startedAt = Date.now()
-        try {
-          const { data } = await debugWorkflowRun({
-            ...baseRequest,
-            message: evalCase.message || undefined,
-            inputParams: parseOptionalObject(evalCase.inputParamsJson || '{}', `${evalCase.caseNo} input params`),
-            debugOptions: {
-              evalMode: true,
-              sandboxSideEffects: true,
-            },
-          })
-          const answer = answerFromDebugRun(data)
-          results.push({
-            id: `${evalCase.id}-${roundNo}`,
-            roundNo,
-            caseNo: evalCase.caseNo,
-            runtimeSuccess: data.success,
-            assertionPassed: data.success && evalAssertionPassed(answer, evalCase.expectedText),
-            elapsedMs: data.steps?.reduce((sum, step) => sum + (step.elapsedMs || 0), 0) || Date.now() - startedAt,
-            answer,
-            errorMessage: data.errorMessage || '',
-          })
-        } catch (err) {
-          results.push({
-            id: `${evalCase.id}-${roundNo}`,
-            roundNo,
-            caseNo: evalCase.caseNo,
-            runtimeSuccess: false,
-            assertionPassed: false,
-            elapsedMs: Date.now() - startedAt,
-            answer: '',
-            errorMessage: (err as Error).message,
-          })
-        }
-        evalResults.value = [...results]
-      }
-    }
-    ElMessage[evalSummary.value.biasCount ? 'warning' : 'success'](
-      evalSummary.value.biasCount ? '评测完成，存在结果偏差' : '评测完成，全部通过',
-    )
-  } finally {
-    evalRunning.value = false
-  }
-}
-
-function answerFromDebugRun(result: WorkflowDebugRunResult) {
-  if (result.answer) return result.answer
-  const outputStep = [...(result.steps || [])].reverse().find((step) => debugStepOutput(step) !== null)
-  const output = outputStep ? debugStepOutput(outputStep) : result.finalState
-  return stringifyDebugPayload(output)
-}
-
-function evalAssertionPassed(answer: string, expectedText: string) {
-  const expected = expectedText.trim()
-  if (!expected) return true
-  return answer.toLowerCase().includes(expected.toLowerCase())
-}
-
-function formatEvalRate(value: number) {
-  return `${Math.round(value * 1000) / 10}%`
-}
-
-async function saveStudio() {
-  if (studioReadOnly.value) {
-    ElMessage.info('代码托管 Workflow 当前为只读草稿，请修改后重启同步。')
-    return
-  }
-  saving.value = true
-  try {
-    if (nodes.value.length) {
-      syncJsonFromCanvas()
-    }
-    const graph = normalizeJson(graphSpecJson.value, 'GraphSpec')
-    const canvas = normalizeJson(canvasJson.value || '{}', 'Canvas')
-    if (studio.value && workflowMetaDirty()) {
-      await updateWorkflow(workflowId.value, {
-        name: workflowMeta.name.trim() || studio.value.name || 'Workflow',
-        keySlug: (workflowMeta.keySlug.trim() || studio.value.keySlug || '') || undefined,
-        description: workflowMeta.description?.trim() || undefined,
-        workflowType: workflowMeta.workflowType.trim() || studio.value.workflowType || undefined,
-        defaultModelInstanceId: workflowMeta.defaultModelInstanceId || undefined,
-      })
-    }
-    const { data } = await saveWorkflowStudioApi(workflowId.value, {
-      graphSpecJson: graph,
-      canvasJson: canvas,
-      extraJson: studio.value?.extraJson || null,
-    })
-    graphSpecJson.value = formatJson(data.graphSpecJson || graph)
-    canvasJson.value = formatJson(data.canvasJson || canvas)
-    studio.value = {
-      workflowId: data.id,
-      projectId: data.projectId,
-      projectCode: data.projectCode,
-      keySlug: data.keySlug,
-      name: data.name,
-      description: data.description,
-      graphSpecJson: data.graphSpecJson || graph,
-      canvasJson: data.canvasJson,
-      workflowType: data.workflowType,
-      runtimeType: data.runtimeType || 'LANGGRAPH4J',
-      defaultModelInstanceId: data.defaultModelInstanceId,
-      defaultResourceConfigJson: data.defaultResourceConfigJson,
-      status: data.status || 'DRAFT',
-      managedBy: data.managedBy || 'MANUAL',
-      extraJson: data.extraJson,
-    }
-    syncWorkflowMetaFromStudio(studio.value)
-    visualDirty.value = false
-    lastSavedAt.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-    resetHistorySnapshot()
-    ElMessage.success('Workflow 草稿已保存')
-  } finally {
-    saving.value = false
-  }
-}
-
-function syncWorkflowMetaFromStudio(state: WorkflowStudioState | null) {
-  if (!state) return
-  workflowMeta.name = state.name || ''
-  workflowMeta.keySlug = state.keySlug || ''
-  workflowMeta.workflowType = state.workflowType || 'WORKFLOW'
-  workflowMeta.description = state.description || ''
-  workflowMeta.defaultModelInstanceId = state.defaultModelInstanceId || ''
-}
-
-function workflowMetaDirty() {
-  if (!studio.value) return false
-  return (
-    workflowMeta.name !== (studio.value.name || '')
-    || workflowMeta.keySlug !== (studio.value.keySlug || '')
-    || workflowMeta.workflowType !== (studio.value.workflowType || 'WORKFLOW')
-    || workflowMeta.description !== (studio.value.description || '')
-    || workflowMeta.defaultModelInstanceId !== (studio.value.defaultModelInstanceId || '')
-  )
 }
 
 function onDragStart(event: DragEvent, kind: CanvasNodeKind) {
@@ -3696,16 +3313,6 @@ function openPropertyDetail(section: PropertyDetailSection) {
   propertyDetailOpen.value = true
 }
 
-function applyCanvasFromStudio(state: WorkflowStudioState) {
-  const snapshot = workflowStudioToCanvas(state)
-  nodes.value = (snapshot.nodes || []).map(decorateWorkflowNode)
-  edges.value = (snapshot.edges || []).map(decorateWorkflowEdge)
-  selectedNodeId.value = null
-  selectedEdgeId.value = null
-  visualDirty.value = false
-  nextTick(() => fitView({ padding: 0.2, duration: 240 }))
-}
-
 function refreshCanvasFromJson() {
   if (!studio.value) return
   const state: WorkflowStudioState = {
@@ -3714,226 +3321,6 @@ function refreshCanvasFromJson() {
     canvasJson: canvasJson.value,
   }
   applyCanvasFromStudio(state)
-}
-
-function normalizeNodeClassNames(value: CanvasNode['class']): string[] {
-  if (!value) return []
-  if (Array.isArray(value)) return value.filter(Boolean)
-  if (typeof value === 'string') return value.split(/\s+/).filter(Boolean)
-  return Object.entries(value)
-    .filter(([, enabled]) => enabled)
-    .map(([name]) => name)
-}
-
-function stripTransientNodeClasses(node: CanvasNode): CanvasNode {
-  const classes = normalizeNodeClassNames(node.class)
-    .filter((name) => !['run-current', 'run-success', 'run-error', 'run-waiting', 'run-running'].includes(name))
-  return {
-    ...node,
-    class: classes.length ? classes : undefined,
-  }
-}
-
-function decorateWorkflowNode(node: CanvasNode): CanvasNode {
-  const classes = normalizeNodeClassNames(node.class)
-    .filter((name) =>
-      ![
-        'workflow-node-collapsed',
-        'run-current',
-        'run-success',
-        'run-error',
-        'run-waiting',
-        'run-running',
-      ].includes(name),
-    )
-  const trace = nodeTraceStates.value[node.id]
-  if (node.data.collapsed) classes.push('workflow-node-collapsed')
-  if (currentDebugNodeId.value === node.id) classes.push('run-current')
-  if (trace) classes.push(`run-${trace.status}`)
-  return {
-    ...node,
-    class: classes.length ? classes : undefined,
-  }
-}
-
-function refreshWorkflowNodeClasses() {
-  nodes.value = nodes.value.map(decorateWorkflowNode)
-  decorateWorkflowEdges()
-}
-
-function decorateWorkflowEdges() {
-  edges.value = edges.value.map(decorateWorkflowEdge)
-}
-
-function currentSnapshotText() {
-  return JSON.stringify({
-    nodes: nodes.value.map(stripTransientNodeClasses),
-    edges: edges.value.map(decorateWorkflowEdge),
-  })
-}
-
-function restoreSnapshotText(text: string) {
-  historyApplying.value = true
-  try {
-    const parsed = JSON.parse(text) as { nodes?: CanvasNode[]; edges?: CanvasEdge[] }
-    nodes.value = (parsed.nodes || []).map(decorateWorkflowNode)
-    edges.value = (parsed.edges || []).map(decorateWorkflowEdge)
-    selectedNodeId.value = null
-    selectedEdgeId.value = null
-    syncJsonFromCanvas()
-    visualDirty.value = true
-  } finally {
-    nextTick(() => {
-      historyApplying.value = false
-    })
-  }
-}
-
-function resetHistorySnapshot() {
-  historyReady.value = false
-  historyPast.value = []
-  historyFuture.value = []
-  nextTick(() => {
-    pushHistorySnapshot()
-    historyReady.value = true
-  })
-}
-
-function pushHistorySnapshot() {
-  const text = currentSnapshotText()
-  if (historyPast.value[historyPast.value.length - 1] === text) return
-  historyPast.value.push(text)
-  if (historyPast.value.length > 80) historyPast.value.shift()
-  historyFuture.value = []
-}
-
-function undoCanvas() {
-  if (!canUndo.value) return
-  const current = historyPast.value.pop()
-  if (current) historyFuture.value.unshift(current)
-  const previous = historyPast.value[historyPast.value.length - 1]
-  if (previous) restoreSnapshotText(previous)
-}
-
-function redoCanvas() {
-  const next = historyFuture.value.shift()
-  if (!next) return
-  historyPast.value.push(next)
-  restoreSnapshotText(next)
-}
-
-function syncJsonFromCanvas() {
-  if (!studio.value) return
-  const saveRequest = workflowCanvasToSaveRequest(studio.value, canvasSnapshot())
-  graphSpecJson.value = formatJson(saveRequest.graphSpecJson)
-  canvasJson.value = formatJson(saveRequest.canvasJson || '{"nodes":[],"edges":[]}')
-  visualDirty.value = false
-  validation.value = null
-}
-
-function canvasSnapshot(): CanvasSnapshot {
-  return {
-    version: 2,
-    nodes: nodes.value.map(stripTransientNodeClasses),
-    edges: edges.value.map(decorateWorkflowEdge),
-  }
-}
-
-function onConnect(connection: {
-  source?: string | null
-  target?: string | null
-  sourceHandle?: string | null
-  targetHandle?: string | null
-}) {
-  if (studioReadOnly.value || !connection.source || !connection.target) return
-  const sourceNode = nodes.value.find((node) => node.id === connection.source)
-  const sourceHandle = connection.sourceHandle || undefined
-  const targetHandle = connection.targetHandle || undefined
-  const condition = connectionCondition(sourceNode, sourceHandle)
-  const edge = decorateWorkflowEdge({
-    id: `e-${connection.source}-${connection.target}-${Date.now()}`,
-    source: connection.source,
-    target: connection.target,
-    sourceHandle,
-    targetHandle,
-    condition,
-    label: condition,
-  })
-  edges.value.push(edge)
-  selectedEdgeId.value = edge.id
-  selectedNodeId.value = null
-  markCanvasDirty()
-}
-
-function copySelectedNode() {
-  if (!canCopySelectedNode.value || !selectedNode.value) return
-  copiedNode.value = cloneCanvasNode(selectedNode.value)
-  ElMessage.success('节点已复制')
-}
-
-function pasteCopiedNode() {
-  if (studioReadOnly.value) return
-  if (!copiedNode.value) return
-  const copy = cloneCanvasNode(copiedNode.value)
-  const id = `${copy.data.kind}-${Date.now()}`
-  copy.id = id
-  copy.position = {
-    x: copy.position.x + 48,
-    y: copy.position.y + 48,
-  }
-  copy.data = {
-    ...copy.data,
-    label: `${copy.data.label || copy.data.kind} Copy`,
-    source: 'CANVAS',
-  }
-  nodes.value.push(decorateWorkflowNode(copy))
-  selectedNodeId.value = id
-  selectedEdgeId.value = null
-  debugNodeId.value = id
-  markCanvasDirty()
-  syncJsonFromCanvas()
-  activeTab.value = 'visual'
-  nextTick(() => fitView({ padding: 0.2, duration: 180 }))
-}
-
-function deleteSelection() {
-  if (studioReadOnly.value) return
-  if (selectedEdge.value) {
-    edges.value = edges.value.filter((edge) => edge.id !== selectedEdge.value?.id)
-    selectedEdgeId.value = null
-    markCanvasDirty()
-    syncJsonFromCanvas()
-    return
-  }
-  deleteSelectedNode()
-}
-
-function deleteSelectedNode() {
-  if (studioReadOnly.value) return
-  if (!selectedNode.value) return
-  if (['start', 'end'].includes(selectedNode.value.data.kind)) {
-    ElMessage.warning('开始和结束节点不能删除')
-    return
-  }
-  const id = selectedNode.value.id
-  nodes.value = nodes.value.filter((node) => node.id !== id)
-  edges.value = edges.value.filter((edge) => edge.source !== id && edge.target !== id)
-  selectedNodeId.value = null
-  selectedEdgeId.value = null
-  propertyDetailOpen.value = false
-  markCanvasDirty()
-  syncJsonFromCanvas()
-}
-
-function cloneCanvasNode(node: CanvasNode): CanvasNode {
-  return JSON.parse(JSON.stringify(node)) as CanvasNode
-}
-
-function handleCredentialCreated(credential: WorkflowCredential) {
-  credentialOptions.value = [
-    credential,
-    ...credentialOptions.value.filter((item) => item.credentialRef !== credential.credentialRef),
-  ]
 }
 
 function handleCreateInteractionCallNode(request: InteractionCallNodeRequest) {
@@ -4020,84 +3407,9 @@ function handleZoomOut() {
   zoomOut({ duration: 180 })
 }
 
-function openCanvasSearch() {
-  canvasSearchOpen.value = true
-  nextTick(() => {
-    canvasSearchInputRef.value?.focus?.()
-  })
-}
-
-function closeCanvasSearch() {
-  canvasSearchOpen.value = false
-  canvasSearchKeyword.value = ''
-  canvasSearchIndex.value = 0
-}
-
-function focusCanvasSearchMatch(index = canvasSearchIndex.value) {
-  const matches = canvasSearchMatches.value
-  if (!matches.length) return
-  const normalized = ((index % matches.length) + matches.length) % matches.length
-  canvasSearchIndex.value = normalized
-  const node = matches[normalized]
-  selectedNodeId.value = node.id
-  selectedEdgeId.value = null
-  setCenter(node.position.x + 110, node.position.y + 70, { zoom: 1, duration: 260 })
-}
-
-function focusNextCanvasSearch() {
-  focusCanvasSearchMatch(canvasSearchIndex.value + 1)
-}
-
-function focusPrevCanvasSearch() {
-  focusCanvasSearchMatch(canvasSearchIndex.value - 1)
-}
-
 async function handleAutoLayout() {
-  const rank = graphRanks()
-  const lanes = new Map<number, number>()
-  nodes.value = nodes.value.map((node) => {
-    const level = rank.get(node.id) ?? (node.data.kind === 'end' ? maxRank(rank) + 1 : 1)
-    const lane = lanes.get(level) ?? 0
-    lanes.set(level, lane + 1)
-    return decorateWorkflowNode({
-      ...node,
-      position: {
-        x: 80 + level * 260,
-        y: 120 + lane * 150,
-      },
-    })
-  })
-  markCanvasDirty()
-  syncJsonFromCanvas()
+  autoLayoutWorkflowCanvas()
   await handleFitView()
-}
-
-function graphRanks() {
-  const ranks = new Map<string, number>()
-  const outgoing = new Map<string, string[]>()
-  for (const edge of edges.value) {
-    outgoing.set(edge.source, [...(outgoing.get(edge.source) || []), edge.target])
-  }
-  const startId = nodes.value.find((node) => node.data.kind === 'start')?.id || nodes.value[0]?.id
-  if (!startId) return ranks
-  const queue: string[] = [startId]
-  ranks.set(startId, 0)
-  for (let i = 0; i < queue.length; i += 1) {
-    const current = queue[i]
-    const currentRank = ranks.get(current) ?? 0
-    for (const target of outgoing.get(current) || []) {
-      const nextRank = currentRank + 1
-      if ((ranks.get(target) ?? -1) < nextRank) {
-        ranks.set(target, nextRank)
-        queue.push(target)
-      }
-    }
-  }
-  return ranks
-}
-
-function maxRank(ranks: Map<string, number>) {
-  return Math.max(0, ...Array.from(ranks.values()))
 }
 
 function toggleSelectedNodeCollapsed() {
@@ -4167,87 +3479,10 @@ function handleStudioShortcut(event: KeyboardEvent) {
   }
 }
 
-function markCanvasDirty() {
-  visualDirty.value = true
-}
-
 function onEdgeClick(event: EdgeMouseEvent) {
   selectedEdgeId.value = event.edge?.id || null
   selectedNodeId.value = null
   propertyPanelCollapsed.value = false
-}
-
-function syncSelectedEdgeLabel() {
-  if (studioReadOnly.value) return
-  if (!selectedEdge.value) return
-  const condition = selectedEdge.value.condition?.trim() || ''
-  selectedEdge.value.label = edgeDisplayLabel(condition, selectedEdge.value) || undefined
-  selectedEdge.value.animated = isDynamicCondition(condition)
-  markCanvasDirty()
-}
-
-function applySelectedEdgeCondition(condition: string) {
-  if (studioReadOnly.value) return
-  if (!selectedEdge.value) return
-  selectedEdge.value.condition = condition
-  syncSelectedEdgeLabel()
-}
-
-function edgeDisplayLabel(condition?: string, edge?: CanvasEdge | null) {
-  const raw = (condition || '').trim()
-  const normalized = raw.toLowerCase()
-  const source = edge ? nodes.value.find((node) => node.id === edge.source) : null
-  if (!raw || normalized === 'always' || normalized === 'default') {
-    return source?.data.kind === 'condition' || source?.data.kind === 'classifier' || source?.data.kind === 'approval' || source?.data.kind === 'loop' ? '默认' : ''
-  }
-  const labels: Record<string, string> = {
-    success: '成功',
-    error: '失败',
-    failure: '失败',
-    else: '否则',
-    empty: '为空',
-    not_empty: '非空',
-  }
-  if (labels[normalized]) return labels[normalized]
-  if (normalized.startsWith('route:')) return raw.slice('route:'.length).trim() || '分支'
-  if (normalized.startsWith('contains:')) return `包含 ${raw.slice('contains:'.length).trim()}`
-  if (normalized.startsWith('not_contains:')) return `不含 ${raw.slice('not_contains:'.length).trim()}`
-  if (normalized.startsWith('equals:')) return `等于 ${raw.slice('equals:'.length).trim()}`
-  if (normalized.startsWith('not_equals:')) return `不等于 ${raw.slice('not_equals:'.length).trim()}`
-  return raw
-}
-
-function isDynamicCondition(condition?: string) {
-  const normalized = (condition || '').trim().toLowerCase()
-  return !!normalized && normalized !== 'always' && normalized !== 'default'
-}
-
-function connectionCondition(source?: CanvasNode | null, sourceHandle?: string) {
-  if (!sourceHandle) return 'always'
-  if (['condition', 'classifier', 'approval', 'loop'].includes(source?.data.kind || '')) {
-    const normalized = sourceHandle.trim()
-    if (!normalized) return 'always'
-    return normalized === 'else' || normalized === 'default' ? 'else' : `route:${normalized}`
-  }
-  return 'always'
-}
-
-function isRouteCondition(condition?: string) {
-  const normalized = (condition || '').trim().toLowerCase()
-  return normalized === 'else' || normalized === 'default' || normalized.startsWith('route:')
-}
-
-function isSupportedCanvasCondition(condition?: string) {
-  const normalized = (condition || '').trim().toLowerCase()
-  if (!normalized) return true
-  if (['always', 'default', 'else', 'success', 'error', 'failure', 'empty', 'not_empty'].includes(normalized)) {
-    return true
-  }
-  return normalized.startsWith('contains:')
-    || normalized.startsWith('not_contains:')
-    || normalized.startsWith('equals:')
-    || normalized.startsWith('not_equals:')
-    || normalized.startsWith('route:')
 }
 
 function focusLintItem(item: GraphLintItem) {
@@ -4263,102 +3498,6 @@ function focusLintItem(item: GraphLintItem) {
     selectedNodeId.value = null
     propertyPanelCollapsed.value = false
   }
-}
-
-function nodeInputMapping(data: CanvasNode['data']) {
-  if (data.kind === 'tool' || data.kind === 'skill') return data.toolConfig?.inputMapping || data.inputMapping || {}
-  if (data.kind === 'mcp') return data.mcpConfig?.inputMapping || data.inputMapping || {}
-  return data.inputMapping || {}
-}
-
-function isProbablyVariableReference(source: string) {
-  const value = source.trim()
-  if (!value || value.startsWith('const:') || value.startsWith('"') || value.startsWith("'")) return false
-  if (['true', 'false', 'null'].includes(value)) return false
-  return Number.isNaN(Number(value))
-}
-
-function isKnownVariableReference(source: string, currentNodeId?: string) {
-  const value = source.trim().replace(/^\$/, '')
-  if (!value) return true
-  if (['input', 'answer', 'lastOutput', 'previousOutput', 'lastRoute', 'lastSuccess', 'lastError', 'params', 'sys'].includes(value)) return true
-  if (value.startsWith('params.') || value.startsWith('sys.')) return true
-  if (value.startsWith('nodeOutput.')) {
-    const nodeId = value.slice('nodeOutput.'.length).split('.', 1)[0]
-    return nodes.value.some((node) => node.id === nodeId)
-  }
-  if (value.startsWith('var.')) {
-    const alias = value.slice('var.'.length).split('.', 1)[0]
-    return graphVariables.value.some((item) => item.name === alias)
-  }
-  const alias = value.split('.', 1)[0]
-  return graphVariables.value.some((item) => item.name === alias || item.nodeId === alias) || alias === currentNodeId
-}
-
-function decorateWorkflowEdge(edge: CanvasEdge): CanvasEdge {
-  const nodesById = new Map(nodes.value.map((node) => [node.id, node]))
-  const normalized = normalizeCanvasEdgeHandles(edge, nodesById)
-  const condition = normalized.condition || normalized.label || 'always'
-  return {
-    ...normalized,
-    condition,
-    type: normalized.type || 'smoothstep',
-    markerEnd: normalized.markerEnd || 'arrowclosed',
-    interactionWidth: normalized.interactionWidth || 18,
-    animated: normalized.animated ?? isDynamicCondition(condition),
-    label: edgeDisplayLabel(condition, normalized) || undefined,
-    class: edgeRuntimeClass(normalized, condition),
-  }
-}
-
-function lastRouteForNode(nodeId: string) {
-  if (nodeDebugResult.value?.nodeId === nodeId) {
-    const route = nodeDebugResult.value.lastRoute || String(nodeDebugResult.value.outputState?.lastRoute || '')
-    if (route) return route
-  }
-  const fromWorkflow = workflowPath.value.find((item) => item.fromNodeId === nodeId && item.route)?.route
-  if (fromWorkflow) return fromWorkflow
-  const trace = nodeTraceStates.value[nodeId]
-  if (trace?.route) return trace.route
-  if (!trace?.output) return ''
-  try {
-    const parsed = JSON.parse(trace.output)
-    return String(parsed.lastRoute || parsed.outputState?.lastRoute || '')
-  } catch {
-    const match = trace.output.match(/lastRoute[=:]\s*([A-Za-z0-9_-]+)/)
-    return match?.[1] || ''
-  }
-}
-
-function edgeRuntimeClass(edge: CanvasEdge, rawCondition?: string) {
-  const condition = (rawCondition || edge.condition || edge.label || '').trim()
-  const source = nodes.value.find((node) => node.id === edge.source)
-  const route = lastRouteForNode(edge.source)
-  const classes: string[] = []
-  const key = edgeKey(edge.source, edge.target)
-  if (workflowHitEdgeKeys.value.has(key)) {
-    classes.push('edge-route-hit')
-  } else if (workflowPath.value.length && workflowPathSourceNodeIds.value.has(edge.source)) {
-    classes.push('edge-route-miss')
-  }
-  if ((source?.data.kind === 'condition' || source?.data.kind === 'classifier' || source?.data.kind === 'approval' || source?.data.kind === 'loop') && route) {
-    const expected = condition.toLowerCase().startsWith('route:')
-      ? condition.slice('route:'.length).trim()
-      : condition === 'else' || condition === 'default'
-        ? 'else'
-        : ''
-    if (expected) {
-      classes.push(expected === route ? 'edge-route-hit' : 'edge-route-miss')
-    }
-  }
-  const state = nodeDebugState(edge.source)
-  if (state?.status === 'error' && ['error', 'failure'].includes(condition.toLowerCase())) {
-    classes.push('edge-route-hit')
-  }
-  if (state?.status === 'success' && condition.toLowerCase() === 'success') {
-    classes.push('edge-route-hit')
-  }
-  return classes.join(' ')
 }
 
 function normalizeCanvasKind(type: string): CanvasNodeKind {
@@ -4419,77 +3558,6 @@ function findNodeDescriptor(kind: CanvasNodeKind) {
   return nodeTypes.value.find((item) => normalizeCanvasKind(item.canvasKind || item.type || '') === kind)
 }
 
-function openPaletteGroup(title: string) {
-  if (activePaletteGroup.value === title && paletteExpanded.value) {
-    paletteExpanded.value = false
-    return
-  }
-  activePaletteGroup.value = title
-  paletteExpanded.value = true
-}
-
-function kindColor(kind: CanvasNodeKind) {
-  if (['start', 'end', 'answer', 'approval'].includes(kind)) {
-    return { border: '#34d399', bg: 'rgba(52, 211, 153, 0.12)' }
-  }
-  if (['llm', 'classifier'].includes(kind)) {
-    return { border: '#7c6cff', bg: 'rgba(124, 108, 255, 0.12)' }
-  }
-  if (['tool', 'skill', 'http', 'mcp'].includes(kind)) {
-    return { border: '#5b8def', bg: 'rgba(91, 141, 239, 0.12)' }
-  }
-  if (['knowledge', 'knowledgeWrite', 'documentExtract'].includes(kind)) {
-    return { border: '#22c55e', bg: 'rgba(34, 197, 94, 0.12)' }
-  }
-  if (['condition', 'variable', 'aggregate', 'loop'].includes(kind)) {
-    return { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' }
-  }
-  return { border: '#6f63ff', bg: 'rgba(111, 99, 255, 0.12)' }
-}
-
-function nodeIcon(kind: CanvasNodeKind): Component {
-  const iconMap: Partial<Record<CanvasNodeKind, Component>> = {
-    start: VideoPlay,
-    end: Finished,
-    userInput: SetUp,
-    interaction: Operation,
-    pageAction: Link,
-    llm: MagicStick,
-    skill: Briefcase,
-    tool: Tools,
-    knowledge: Coin,
-    condition: Switch,
-    variable: SetUp,
-    template: Document,
-    parameter: Tickets,
-    http: Link,
-    answer: Finished,
-    code: Document,
-    classifier: Switch,
-    aggregate: SetUp,
-    approval: Finished,
-    loop: RefreshRight,
-    knowledgeWrite: Collection,
-    documentExtract: Files,
-    mcp: Connection,
-  }
-  return iconMap[kind] || Operation
-}
-
-function nodeTypeClass(kind: CanvasNodeKind) {
-  const classMap: Partial<Record<CanvasNodeKind, string>> = {
-    userInput: 'user-input-node',
-    pageAction: 'page-action-node',
-    knowledgeWrite: 'knowledge-write-node',
-    documentExtract: 'document-extract-node',
-  }
-  return classMap[kind] || `${kind}-node`
-}
-
-function nodeKindLabel(kind: CanvasNodeKind) {
-  return studioNodeLabel(kind)
-}
-
 function sourceLabel(value?: string | null) {
   const normalized = String(value || 'CANVAS').toUpperCase()
   if (normalized === 'SDK') return 'SDK 托管'
@@ -4507,102 +3575,6 @@ function nodeTraceTagType(status: WorkflowNodeTraceState['status']) {
   if (status === 'running') return 'primary'
   if (status === 'waiting') return 'warning'
   return status === 'success' ? 'success' : 'danger'
-}
-
-async function handleRunNodeDebug() {
-  if (!selectedNode.value) return
-  debugNodeId.value = selectedNode.value.id
-  if (nodeDebugMessage.value.trim()) {
-    debugMessage.value = nodeDebugMessage.value
-  }
-  nodeDebugStateJson.value = nodeDebugStateText.value
-  await runNodeDebug()
-}
-
-function nodeFamilyLabel(kind: CanvasNodeKind) {
-  if (['llm', 'classifier', 'answer'].includes(kind)) return '推理'
-  if (['tool', 'skill', 'http', 'mcp'].includes(kind)) return '集成'
-  if (['knowledge', 'knowledgeWrite', 'documentExtract'].includes(kind)) return '知识'
-  if (kind === 'approval') return '治理'
-  return '流程'
-}
-
-function nodeHint(kind: CanvasNodeKind, descriptor?: WorkflowGraphNodeTypeDescriptor) {
-  if (descriptor?.aliases?.length) return descriptor.aliases.join(' / ')
-  const hintMap: Record<CanvasNodeKind, string> = {
-    start: 'Workflow 入口',
-    end: 'Workflow 结束',
-    userInput: '声明用户输入字段和上下文入口',
-    interaction: '向前端发起可确认的交互请求',
-    pageAction: '调用当前页面注册的动作',
-    llm: '调用模型并生成结构化输出',
-    skill: '调用平台能力或组合能力',
-    tool: '调用项目注册工具',
-    knowledge: '从知识库检索上下文',
-    condition: '根据条件分支流转',
-    variable: '写入或转换变量',
-    template: '用模板拼接上下文',
-    parameter: '抽取结构化参数',
-    http: '调用外部 HTTP 服务',
-    answer: '生成最终回复',
-    code: '执行轻量脚本逻辑',
-    classifier: '分类用户意图并路由',
-    aggregate: '聚合多个节点输出',
-    approval: '插入人工审批',
-    loop: '循环处理列表或步骤',
-    knowledgeWrite: '写入知识库',
-    documentExtract: '从文档中抽取内容',
-    mcp: '调用 MCP 工具',
-  }
-  return hintMap[kind] || 'Workflow 节点'
-}
-
-function nodeStateLabel(data: CanvasNode['data']) {
-  if (data.needsConfiguration) return '待配置'
-  if (data.collapsed) return '已折叠'
-  return '就绪'
-}
-
-function nodeTitle(id: string, data: CanvasNode['data']) {
-  return data.label || nodeKindLabel(data.kind) || id
-}
-
-function nodeDescription(data: CanvasNode['data']) {
-  if (data.description) return data.description
-  if (data.pageActionConfig?.actionKey) {
-    return `${data.pageActionConfig.pageKey || '当前页面'} / ${data.pageActionConfig.actionKey}`
-  }
-  if (data.toolConfig?.qualifiedName || data.toolConfig?.ref) {
-    return data.toolConfig.qualifiedName || data.toolConfig.ref || ''
-  }
-  if (data.httpConfig?.url) return data.httpConfig.url
-  if (data.knowledgeConfig?.knowledgeBaseCodes?.length) {
-    return data.knowledgeConfig.knowledgeBaseCodes.join(', ')
-  }
-  return nodeHint(data.kind)
-}
-
-function assignmentCount(assignments?: Record<string, string>) {
-  return assignments ? Object.keys(assignments).length : 0
-}
-
-function userInputFieldCount(data: CanvasNode['data']) {
-  return data.userInputConfig?.fields?.filter((field) => !!field.name?.trim()).length || 0
-}
-
-function interactionFieldCount(data: CanvasNode['data']) {
-  return data.interactionConfig?.fields?.filter((field) => !!(field.key || field.name)?.trim()).length || 0
-}
-
-function interactionTypeLabel(type?: string) {
-  const labels: Record<string, string> = {
-    COLLECT_INPUT: '采集输入',
-    PRESENT_OUTPUT: '展示输出',
-    USER_CHOICE: '用户选择',
-    CONFIRM_ACTION: '确认动作',
-    REVIEW_EDIT: '审阅编辑',
-  }
-  return labels[type || ''] || '交互'
 }
 
 function conditionRouteRows(data: CanvasNode['data']) {
@@ -4706,494 +3678,6 @@ function portSummary(ports: CanvasNode['data']['inputs'] | CanvasNode['data']['o
   return labels.length ? labels.join(', ') : fallback
 }
 
-function nodeDebugState(nodeId: string): WorkflowNodeTraceState | null {
-  const runState = nodeTraceStates.value[nodeId]
-  if (runState) return runState
-  if (nodeDebugResult.value?.nodeId === nodeId) {
-    return {
-      nodeId,
-      status: nodeDebugResult.value.success ? 'success' : 'error',
-      elapsedMs: nodeDebugResult.value.elapsedMs,
-      output: stringifyDebugPayload(nodeDebugResult.value.outputState || nodeDebugResult.value.nodeOutput),
-      errorCode: nodeDebugResult.value.errorCode,
-    }
-  }
-  return null
-}
-
-function nodeRunClass(nodeId: string) {
-  const classes: string[] = []
-  const state = nodeDebugState(nodeId)
-  if (currentDebugNodeId.value === nodeId) classes.push('run-current')
-  if (state) classes.push(`run-${state.status}`)
-  return classes
-}
-
-function nodeRunLabel(nodeId: string) {
-  const state = nodeDebugState(nodeId)
-  if (!state) return '未运行'
-  const statusMap: Record<WorkflowNodeTraceState['status'], string> = {
-    success: '成功',
-    error: '异常',
-    waiting: '等待',
-    running: '运行中',
-  }
-  const elapsed = state.elapsedMs ? ` · ${formatElapsed(state.elapsedMs)}` : ''
-  return `${statusMap[state.status] || state.status}${elapsed}`
-}
-
-function openNodeTrace(nodeId: string) {
-  const index = debugRunResult.value?.steps?.findIndex((step) => step.nodeId === nodeId) ?? -1
-  if (index >= 0) {
-    selectDebugStep(index)
-  } else {
-    selectedNodeId.value = nodeId
-    selectedEdgeId.value = null
-    debugNodeId.value = nodeId
-    currentDebugNodeId.value = nodeId
-    refreshWorkflowNodeClasses()
-    void focusDebugNode(nodeId)
-  }
-  propertyPanelCollapsed.value = false
-}
-
-async function handleDebug() {
-  debugOpen.value = true
-  propertyPanelCollapsed.value = false
-  for (const field of debugInputFields.value) {
-    if (!(field.name in debugInputParams)) {
-      debugInputParams[field.name] = field.defaultValue ?? (field.name === 'question' ? debugMessage.value : '')
-    }
-  }
-  if (!recentRuns.value.length) {
-    loadRecentStudioRuns()
-  }
-  await loadStoredDebugSession()
-}
-
-function openAiDraftDialog() {
-  aiModelInstanceId.value = aiModelInstanceId.value || studio.value?.defaultModelInstanceId || aiDraftModelOptions.value[0]?.id || ''
-  if (!aiRequirement.value.trim()) {
-    aiRequirement.value = studio.value?.description || '基于当前 Workflow 目标，生成或补全可执行流程。'
-  }
-  aiDraftPreview.value = null
-  aiDraftDialogOpen.value = true
-}
-
-function openApiQueryTemplateDialog() {
-  apiQueryTemplateOpen.value = true
-  apiQueryTemplateActionKey.value = apiQueryTemplateActionKey.value || 'page.search.applyFilters'
-  apiQueryTemplateFilters.page = 1
-  loadApiQueryTemplateAssets()
-}
-
-function reloadApiQueryTemplateAssets() {
-  apiQueryTemplateFilters.page = 1
-  loadApiQueryTemplateAssets()
-}
-
-async function loadApiQueryTemplateAssets() {
-  apiQueryTemplateLoading.value = true
-  try {
-    const { data } = await listApiAssets({
-      projectId: studio.value?.projectId || undefined,
-      keyword: apiQueryTemplateFilters.keyword || undefined,
-      toolLinkStatus: apiQueryTemplateFilters.toolLinkStatus || undefined,
-      page: apiQueryTemplateFilters.page,
-      pageSize: apiQueryTemplateFilters.pageSize,
-    })
-    apiQueryTemplateAssets.value = prioritizeRouteApiAsset(data.items || [])
-    apiQueryTemplateTotal.value = data.total || 0
-  } catch {
-    apiQueryTemplateAssets.value = []
-    apiQueryTemplateTotal.value = 0
-    ElMessage.error('加载 API 资产失败')
-  } finally {
-    apiQueryTemplateLoading.value = false
-  }
-}
-
-function queryString(value: unknown) {
-  if (Array.isArray(value)) return value[0] == null ? '' : String(value[0])
-  return value == null ? '' : String(value)
-}
-
-function routeApiAssetContext() {
-  if (queryString(route.query.intent) !== 'api-query-template') return null
-  const id = Number(queryString(route.query.apiAssetId))
-  const tool = queryString(route.query.apiAssetTool)
-  const name = queryString(route.query.apiAssetName)
-  if (!Number.isFinite(id) && !tool && !name) return null
-  return {
-    id: Number.isFinite(id) && id > 0 ? id : null,
-    keyword: tool || name,
-  }
-}
-
-function applyApiAssetRouteContext() {
-  const context = routeApiAssetContext()
-  if (!context) return
-  apiQueryTemplateRouteAssetId.value = context.id
-  apiQueryTemplateFilters.keyword = context.keyword
-  apiQueryTemplateFilters.toolLinkStatus = 'LINKED'
-  openApiQueryTemplateDialog()
-}
-
-function prioritizeRouteApiAsset(items: ApiAssetItem[]) {
-  if (!apiQueryTemplateRouteAssetId.value) return items
-  const index = items.findIndex((item) => item.apiId === apiQueryTemplateRouteAssetId.value)
-  if (index <= 0) return items
-  const next = [...items]
-  const [matched] = next.splice(index, 1)
-  next.unshift(matched)
-  return next
-}
-
-function apiQueryTemplateRowClassName({ row }: { row: ApiAssetItem }) {
-  return row.apiId === apiQueryTemplateRouteAssetId.value ? 'is-route-api-asset' : ''
-}
-
-function apiQueryTemplateSelectable(asset: ApiAssetItem) {
-  return asset.toolLinkStatus === 'LINKED' && !!asset.globalToolName && asset.enabled && asset.agentVisible && !asset.removedFromSource
-}
-
-function apiQueryTemplateStatusLabel(asset: ApiAssetItem) {
-  if (asset.removedFromSource) return '源接口已移除'
-  if (asset.toolLinkStatus !== 'LINKED') return '需先关联 Tool'
-  if (!asset.enabled) return '未启用'
-  if (!asset.agentVisible) return 'Workflow 不可见'
-  return '可生成'
-}
-
-function addWorkflowStudioNode(kind: CanvasNodeKind, position: { x: number; y: number }, select = true) {
-  if (!studio.value) throw new Error('Workflow 未加载')
-  const node = decorateWorkflowNode(createWorkflowCanvasNode(kind, position, studio.value))
-  nodes.value.push(node)
-  if (select) {
-    selectedNodeId.value = node.id
-    selectedEdgeId.value = null
-  }
-  return node
-}
-
-function ensureCanvasEdge(source: string, target: string) {
-  if (edges.value.some((edge) => edge.source === source && edge.target === target)) return
-  edges.value.push(decorateWorkflowEdge({
-    id: `e-${source}-${target}-${Date.now()}`,
-    source,
-    target,
-    condition: 'always',
-    label: 'always',
-  }))
-}
-
-function generateApiQueryTemplate(asset: ApiAssetItem) {
-  if (!studio.value) return
-  if (!apiQueryTemplateSelectable(asset)) {
-    ElMessage.warning('该接口还不能生成查询流程，请先完成 Tool 关联并开启 Workflow 可见。')
-    return
-  }
-  const baseName = normalizeTemplateName(asset.name || asset.globalToolName || 'api')
-  const queryAlias = `${baseName}_query`
-  const actionAlias = `${baseName}_page_action`
-  const resultAlias = `${baseName}_result`
-  const displayAlias = `${baseName}_display`
-  const y = 180 + Math.max(0, nodes.value.length - 2) * 18
-  const interactionNode = addWorkflowStudioNode('interaction', { x: 260, y }, false)
-  const pageActionNode = addWorkflowStudioNode('pageAction', { x: 600, y }, false)
-  const toolNode = addWorkflowStudioNode('tool', { x: 940, y }, false)
-  const displayNode = addWorkflowStudioNode('interaction', { x: 1280, y }, false)
-  const fields = apiAssetToInteractionFields(asset)
-  const inputMapping = apiAssetInputMapping(asset, queryAlias)
-
-  interactionNode.data.label = `${asset.name} 查询条件`
-  interactionNode.data.description = asset.aiDescription || asset.description || '从 API 资产生成的查询条件收集节点'
-  interactionNode.data.outputAlias = queryAlias
-  interactionNode.data.interactionConfig = {
-    interactionType: 'COLLECT_INPUT',
-    binding: {
-      sourceKind: 'API',
-      ref: asset.globalToolName || asset.name,
-      qualifiedName: asset.globalToolQualifiedName || asset.globalToolName || asset.name,
-      projectCode: asset.projectCode || null,
-      projectId: asset.projectId,
-      apiNodeId: asset.apiId,
-      apiMethod: asset.httpMethod || null,
-      apiPath: asset.endpointPath || null,
-      generatedFrom: `API:${asset.apiId}`,
-      autoCreateCallNode: true,
-      autoCreateDisplayNode: true,
-      callNodeId: toolNode.id,
-      displayNodeId: displayNode.id,
-    },
-    title: `${asset.name} 查询条件`,
-    component: 'FORM',
-    fields,
-    dataExpression: 'lastOutput',
-    outputAlias: queryAlias,
-    dataSources: { apiAsset: apiAssetTemplateMetadata(asset) },
-    behavior: { askMissing: true, maxTurns: 6 },
-    renderSchema: {},
-  }
-  interactionNode.data.outputs = interactionOutputPorts(interactionNode.data.interactionConfig, queryAlias)
-
-  pageActionNode.data.label = '驱动页面查询'
-  pageActionNode.data.description = '请求嵌入的业务页面填入查询条件并触发搜索'
-  pageActionNode.data.outputAlias = actionAlias
-  pageActionNode.data.pageActionConfig = {
-    projectCode: asset.projectCode || '',
-    actionKey: apiQueryTemplateActionKey.value.trim() || 'page.search.applyFilters',
-    title: `页面查询：${asset.name}`,
-    confirm: false,
-    args: apiAssetPageActionMapping(asset, queryAlias),
-    outputAlias: actionAlias,
-    metadata: {
-      projectCode: asset.projectCode || null,
-      apiId: asset.apiId,
-      apiName: asset.name,
-      endpointPath: asset.endpointPath || null,
-    },
-  }
-  pageActionNode.data.inputs = [{ id: queryAlias, name: queryAlias, type: 'object', required: false, source: queryAlias }]
-  pageActionNode.data.outputs = [{ id: actionAlias, name: actionAlias, type: 'object' }]
-
-  toolNode.data.label = `调用 ${asset.globalToolName || asset.name}`
-  toolNode.data.description = asset.aiDescription || asset.description || '调用已关联的 API Tool'
-  toolNode.data.outputAlias = resultAlias
-  toolNode.data.inputs = callNodeInputsFromMapping(inputMapping)
-  toolNode.data.outputs = [{ id: resultAlias, name: resultAlias, type: 'any' }]
-  toolNode.data.toolConfig = {
-    ref: asset.globalToolName || asset.name,
-    qualifiedName: asset.globalToolQualifiedName || asset.globalToolName || asset.name,
-    projectCode: asset.projectCode || null,
-    visibility: 'PROJECT',
-    credentialRef: '',
-    maxRequestTimeMs: 180000,
-    inputMapping,
-    mappingNote: `由 API 查询流程向导生成：${asset.httpMethod || ''} ${asset.endpointPath || asset.name}`.trim(),
-  }
-
-  displayNode.data.label = `${asset.name} 查询结果`
-  displayNode.data.description = '展示查询接口返回结果'
-  displayNode.data.outputAlias = displayAlias
-  displayNode.data.interactionConfig = {
-    interactionType: 'PRESENT_OUTPUT',
-    binding: { sourceKind: 'NONE' },
-    title: `${asset.name} 查询结果`,
-    component: 'TABLE',
-    fields: [],
-    dataExpression: resultAlias,
-    outputAlias: displayAlias,
-    dataSources: {
-      source: { nodeId: toolNode.id, outputAlias: resultAlias, apiId: asset.apiId },
-    },
-    behavior: { acknowledge: false },
-    renderSchema: {
-      apiName: asset.name,
-      endpointPath: asset.endpointPath || null,
-      responseType: asset.responseType || null,
-    },
-  }
-  displayNode.data.outputs = interactionOutputPorts(displayNode.data.interactionConfig, displayAlias)
-
-  ensureCanvasEdge(interactionNode.id, pageActionNode.id)
-  ensureCanvasEdge(pageActionNode.id, toolNode.id)
-  ensureCanvasEdge(toolNode.id, displayNode.id)
-  selectedNodeId.value = interactionNode.id
-  selectedEdgeId.value = null
-  propertyPanelCollapsed.value = false
-  apiQueryTemplateOpen.value = false
-  markCanvasDirty()
-  syncJsonFromCanvas()
-  ElMessage.success('已生成 API 查询流程')
-}
-
-function apiAssetToInteractionFields(asset: ApiAssetItem): StudioFieldSchema[] {
-  const fields = (asset.parameters || []).flatMap((parameter) => apiParameterToFields(parameter))
-  if (fields.length) return fields
-  return [{
-    name: 'query',
-    key: 'query',
-    type: 'string',
-    required: true,
-    description: '查询条件',
-    component: 'input',
-    source: 'input.message',
-    targetPath: 'query',
-    slotFilling: templateSlotFillingForField('query', '查询条件'),
-  }]
-}
-
-function apiParameterToFields(parameter: ToolParameter, prefix = ''): StudioFieldSchema[] {
-  if (!isApiInputParameter(parameter)) return []
-  const rawName = parameter.name || 'param'
-  const targetPath = prefix ? `${prefix}.${rawName}` : rawName
-  const children = (parameter.children || []).filter(isApiInputParameter)
-  if (children.length) {
-    return children.flatMap((child) => apiParameterToFields(child, targetPath))
-  }
-  const name = normalizeTemplateName(targetPath.replace(/\./g, '_'))
-  return [{
-    name,
-    key: name,
-    type: apiFieldType(parameter.type),
-    required: Boolean(parameter.required),
-    description: parameter.description || rawName,
-    component: apiFieldComponent(parameter.type),
-    source: targetPath,
-    targetPath,
-    slotFilling: templateSlotFillingForField(rawName, parameter.description || rawName),
-  }]
-}
-
-function apiAssetPageActionMapping(asset: ApiAssetItem, queryAlias: string) {
-  const mapping: Record<string, string> = {}
-  for (const parameter of asset.parameters || []) {
-    collectPageActionMapping(parameter, mapping, queryAlias)
-  }
-  if (!Object.keys(mapping).length) {
-    mapping.query = `${queryAlias}.targetArgs.query`
-  }
-  return mapping
-}
-
-function collectPageActionMapping(parameter: ToolParameter, mapping: Record<string, string>, queryAlias: string, prefix = '') {
-  if (!isApiInputParameter(parameter)) return
-  const rawName = parameter.name || 'param'
-  const targetPath = prefix ? `${prefix}.${rawName}` : rawName
-  const children = (parameter.children || []).filter(isApiInputParameter)
-  if (children.length) {
-    for (const child of children) collectPageActionMapping(child, mapping, queryAlias, targetPath)
-    return
-  }
-  mapping[targetPath] = `${queryAlias}.targetArgs.${targetPath}`
-}
-
-function apiAssetInputMapping(asset: ApiAssetItem, queryAlias: string) {
-  const mapping: Record<string, string> = {}
-  for (const parameter of asset.parameters || []) {
-    collectApiInputMapping(parameter, mapping, queryAlias)
-  }
-  if (!Object.keys(mapping).length) {
-    mapping.query = `${queryAlias}.targetArgs.query`
-  }
-  return mapping
-}
-
-function collectApiInputMapping(parameter: ToolParameter, mapping: Record<string, string>, queryAlias: string, prefix = '') {
-  if (!isApiInputParameter(parameter)) return
-  const rawName = parameter.name || 'param'
-  const targetPath = prefix ? `${prefix}.${rawName}` : rawName
-  const children = (parameter.children || []).filter(isApiInputParameter)
-  if (children.length) {
-    for (const child of children) collectApiInputMapping(child, mapping, queryAlias, targetPath)
-    return
-  }
-  mapping[targetPath] = `${queryAlias}.targetArgs.${targetPath}`
-}
-
-function isApiInputParameter(parameter: ToolParameter) {
-  return (parameter.location || '').toUpperCase() !== 'RESPONSE'
-}
-
-function templateSlotFillingForField(name: string, description?: string | null): NonNullable<StudioFieldSchema['slotFilling']> {
-  const patterns = slotRulePatterns(name, description || '')
-  return {
-    enabled: true,
-    strategies: patterns.length ? ['RULE', 'LLM'] : ['LLM'],
-    confirmPolicy: patterns.length ? 'NEVER' : 'LOW_CONFIDENCE',
-    confidenceThreshold: 0.85,
-    llmPrompt: '',
-    modelInstanceId: '',
-    patterns,
-    dictionaryValues: [],
-  }
-}
-
-function slotRulePatterns(name: string, description: string) {
-  const value = '([^，。,.\\s的]+)'
-  return fieldRuleAliases(name, description)
-    .map(alias => `${escapeRegex(alias)}(?:为|是|叫|包含|包括|有|=|：|:)?\\s*${value}`)
-}
-
-function fieldRuleAliases(name: string, description: string) {
-  const aliases = new Set<string>()
-  const add = (value?: string | null) => {
-    const alias = String(value || '').trim()
-    if (alias && alias.length <= 30) aliases.add(alias)
-  }
-  add(name)
-  if (description && description.length <= 80) {
-    description.split(/[/、,，;；|\s]+/).forEach(add)
-  }
-  return Array.from(aliases)
-}
-
-function escapeRegex(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function apiFieldType(type?: string | null): StudioFieldSchema['type'] {
-  const normalized = String(type || '').toLowerCase()
-  if (['int', 'integer', 'long', 'double', 'float', 'decimal', 'number'].includes(normalized)) return 'number'
-  if (['bool', 'boolean'].includes(normalized)) return 'boolean'
-  if (['array', 'list'].includes(normalized)) return 'array'
-  if (['object', 'json'].includes(normalized)) return 'object'
-  return 'string'
-}
-
-function apiFieldComponent(type?: string | null): StudioFieldSchema['component'] {
-  const normalized = String(type || '').toLowerCase()
-  if (['bool', 'boolean'].includes(normalized)) return 'switch'
-  if (['array', 'list', 'object', 'json'].includes(normalized)) return 'textarea'
-  return 'input'
-}
-
-function normalizeTemplateName(value: string) {
-  const normalized = value
-    .trim()
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .replace(/[^a-zA-Z0-9_]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .toLowerCase()
-  return normalized || 'api'
-}
-
-function apiAssetTemplateMetadata(asset: ApiAssetItem) {
-  return {
-    apiId: asset.apiId,
-    name: asset.name,
-    globalToolName: asset.globalToolName || null,
-    qualifiedName: asset.globalToolQualifiedName || null,
-    projectCode: asset.projectCode || null,
-    httpMethod: asset.httpMethod || null,
-    endpointPath: asset.endpointPath || null,
-  }
-}
-
-function callNodeInputsFromMapping(mapping: Record<string, string>) {
-  return Object.keys(mapping).map((key) => ({
-    id: key,
-    name: key,
-    type: 'any' as const,
-    required: false,
-    source: mapping[key],
-  }))
-}
-
-function handleApplyAiDraft() {
-  applyAiPreview()
-  aiDraftDialogOpen.value = false
-}
-
-function previewEdgeLabel(edge: CanvasEdge) {
-  const condition = edge.condition || edge.label || 'always'
-  if (condition === 'always') return '连线'
-  if (condition === 'else') return '默认分支'
-  if (condition.startsWith('route:')) return `分支：${condition.slice('route:'.length) || edge.sourceHandle || '未命名'}`
-  return condition
-}
-
 function handleHeaderCommand(command: string | number | object) {
   if (command === 'json') {
     jsonDrawerVisible.value = true
@@ -5228,258 +3712,6 @@ function handleHeaderCommand(command: string | number | object) {
   }
 }
 
-function publishWorkflow() {
-  if (studioReadOnly.value) {
-    ElMessage.info('代码托管 Workflow 当前为只读草稿，请修改后重启同步。')
-    return
-  }
-  publishDialogOpen.value = true
-  void preloadPublishValidation()
-}
-
-async function preloadPublishValidation() {
-  if (!workflowId.value) return
-  try {
-    const validationResult = await validateWorkflowVersion(workflowId.value)
-    releaseErrors.value = validationResult.data.errors || []
-    releaseWarnings.value = validationResult.data.warnings || []
-  } catch {
-    releaseErrors.value = []
-    releaseWarnings.value = []
-  }
-}
-
-function releaseValidationKey(item: WorkflowReleaseValidationItem) {
-  return `${item.level || ''}-${item.code}-${item.nodeId || ''}-${item.message}`
-}
-
-function formatReleaseValidationItem(item: WorkflowReleaseValidationItem) {
-  return item.nodeId
-    ? `[${item.code}] ${item.nodeId}: ${item.message}`
-    : `[${item.code}] ${item.message}`
-}
-
-function workflowEditOperationLabel(type: WorkflowDraftEditOperationType) {
-  const labels: Record<WorkflowDraftEditOperationType, string> = {
-    ADD_NODE: '新增节点',
-    UPDATE_NODE: '修改节点',
-    DELETE_NODE: '删除节点',
-    ADD_EDGE: '新增连线',
-    UPDATE_EDGE: '修改连线',
-    DELETE_EDGE: '删除连线',
-  }
-  return labels[type] || type
-}
-
-function operationKey(item: WorkflowDraftEditOperation) {
-  return `${item.type}:${item.nodeId || item.edgeId || operationTarget(item)}:${item.reason || ''}`
-}
-
-function operationTarget(item: WorkflowDraftEditOperation) {
-  const node = item.node as { id?: string; data?: { label?: string } } | undefined
-  const edge = item.edge as { id?: string; source?: string; target?: string } | undefined
-  if (item.nodeId) return item.nodeId
-  if (item.edgeId) return item.edgeId
-  if (node?.data?.label) return node.data.label
-  if (node?.id) return node.id
-  if (edge?.source || edge?.target) return `${edge?.source || '?'} → ${edge?.target || '?'}`
-  return workflowEditOperationLabel(item.type)
-}
-
-function previewNodeLabel(nodeId?: string) {
-  if (!nodeId) return '?'
-  return aiDraftPreviewNodeLabels.value.get(nodeId) || nodeId
-}
-
-async function handlePublishWorkflow() {
-  if (studioReadOnly.value) {
-    ElMessage.info('代码托管 Workflow 当前为只读草稿，请修改后重启同步。')
-    return
-  }
-  if (!publishForm.version?.trim()) {
-    ElMessage.warning('请先填写版本号')
-    return
-  }
-  publishing.value = true
-  releaseErrors.value = []
-  releaseWarnings.value = []
-  try {
-    await saveStudio()
-    const validationResult = await validateWorkflowVersion(workflowId.value)
-    releaseErrors.value = validationResult.data.errors || []
-    releaseWarnings.value = validationResult.data.warnings || []
-    if (!validationResult.data.valid) {
-      ElMessage.error('Workflow 发布门禁未通过，请先修复阻断项')
-      return
-    }
-    const warnings = [
-      ...publishWarnings.value,
-      ...releaseWarnings.value.map(formatReleaseValidationItem),
-    ]
-    if (warnings.length) {
-      try {
-        await ElMessageBox.confirm(
-          warnings.join('\n'),
-          '确认继续发布？',
-          { type: 'warning', confirmButtonText: '继续发布', cancelButtonText: '返回检查' },
-        )
-      } catch {
-        return
-      }
-    }
-    await publishWorkflowVersion(workflowId.value, {
-      version: publishForm.version.trim(),
-      rolloutPercent: publishForm.rolloutPercent ?? 100,
-      note: publishForm.note,
-      publishedBy: publishForm.publishedBy,
-    })
-    ElMessage.success(`已发布 Workflow ${publishForm.version}（灰度 ${publishForm.rolloutPercent ?? 100}%）`)
-    publishDialogOpen.value = false
-    await loadStudio()
-  } catch (err) {
-    ElMessage.error('发布 Workflow 失败：' + (err as Error).message)
-  } finally {
-    publishing.value = false
-  }
-}
-
-async function generateAiDraft() {
-  const requirement = aiRequirement.value.trim()
-  if (!requirement) {
-    ElMessage.warning('请先输入流程需求')
-    return
-  }
-  const modelInstanceId = resolveAiModelInstanceId()
-  if (!modelInstanceId) {
-    ElMessage.warning('请先选择或配置可用的 LLM 模型实例')
-    return
-  }
-  aiDraftLoading.value = true
-  try {
-    const { data } = await generateWorkflowDraft({
-      workflowId: workflowId.value,
-      workflowName: studio.value?.name || undefined,
-      agentName: studio.value?.name || undefined,
-      projectCode: studio.value?.projectCode || null,
-      requirement,
-      modelInstanceId,
-      currentCanvas: parseCurrentCanvas(),
-      tools: availableTools.value.map(toolToDraftResource),
-      capabilities: availableCompositions.value.map(compositionToDraftResource),
-      knowledgeBases: knowledgeOptions.value.map(knowledgeToDraftResource),
-    })
-    aiDraftPreview.value = data
-    aiEditPreview.value = null
-    ElMessage.success('AI 流程草稿预览已生成')
-  } catch (err) {
-    ElMessage.error('生成流程草稿失败：' + (err as Error).message)
-  } finally {
-    aiDraftLoading.value = false
-  }
-}
-
-async function editAiDraft() {
-  const instruction = aiEditInstruction.value.trim()
-  if (!instruction) {
-    ElMessage.warning('请先输入要修改的流程指令')
-    return
-  }
-  const modelInstanceId = resolveAiModelInstanceId()
-  if (!modelInstanceId) {
-    ElMessage.warning('请先选择或配置可用的 LLM 模型实例')
-    return
-  }
-  aiEditLoading.value = true
-  try {
-    const { data } = await editWorkflowDraft({
-      workflowId: workflowId.value,
-      workflowName: studio.value?.name || undefined,
-      agentName: studio.value?.name || undefined,
-      projectCode: studio.value?.projectCode || null,
-      instruction,
-      modelInstanceId,
-      currentCanvas: parseCurrentCanvas(),
-      selectedNodeIds: selectedNodeIdsForAi.value,
-      selectedEdgeIds: selectedEdgeIdsForAi.value,
-      tools: availableTools.value.map(toolToDraftResource),
-      capabilities: availableCompositions.value.map(compositionToDraftResource),
-      knowledgeBases: knowledgeOptions.value.map(knowledgeToDraftResource),
-    })
-    aiEditPreview.value = data
-    aiDraftPreview.value = null
-    ElMessage.success('AI 修改预览已生成')
-  } catch (err) {
-    ElMessage.error((err as Error).message)
-  } finally {
-    aiEditLoading.value = false
-  }
-}
-
-function applyAiPreview() {
-  const preview = activeAiPreview.value
-  if (!preview) {
-    ElMessage.warning('请先生成 AI 修改预览')
-    return
-  }
-  if (preview.validationErrors?.length) {
-    ElMessage.warning('请先修复 AI 修改预览中的校验问题')
-    return
-  }
-  graphSpecJson.value = formatJson(JSON.stringify(preview.graphSpec))
-  canvasJson.value = formatJson(JSON.stringify(preview.canvasSnapshot || { nodes: [], edges: [] }))
-  if (studio.value) {
-    applyCanvasFromStudio({
-      ...studio.value,
-      graphSpecJson: graphSpecJson.value,
-      canvasJson: canvasJson.value,
-    })
-  }
-  validation.value = null
-  aiDraftPreview.value = null
-  aiEditPreview.value = null
-  activeTab.value = 'visual'
-  ElMessage.success('AI 修改已应用到 Workflow 草稿')
-}
-
-function clearAiPreview() {
-  aiDraftPreview.value = null
-  aiEditPreview.value = null
-}
-
-function clearAiEditPreview() {
-  aiEditPreview.value = null
-}
-
-function applyAiEditPreview() {
-  if (studioReadOnly.value) {
-    ElMessage.info('代码托管 Workflow 当前为只读草稿，请修改后重启同步。')
-    return
-  }
-  if (!aiEditPreview.value) {
-    ElMessage.warning('请先生成 AI 修改预览')
-    return
-  }
-  if (aiEditPreview.value.validationErrors?.length) {
-    ElMessage.warning('请先修复 AI 修改预览中的校验问题')
-    return
-  }
-  const preview = aiEditPreview.value
-  graphSpecJson.value = formatJson(JSON.stringify(preview.graphSpec))
-  canvasJson.value = formatJson(JSON.stringify(preview.canvasSnapshot || { nodes: [], edges: [] }))
-  if (studio.value) {
-    applyCanvasFromStudio({
-      ...studio.value,
-      graphSpecJson: graphSpecJson.value,
-      canvasJson: canvasJson.value,
-    })
-  }
-  validation.value = null
-  aiEditPreview.value = null
-  aiDraftPreview.value = null
-  activeTab.value = 'visual'
-  ElMessage.success('AI 修改已应用到 Workflow 草稿')
-}
-
 function debugStepStatusClass(status?: string) {
   return `is-${debugStepStatus(status)}`
 }
@@ -5498,31 +3730,6 @@ function debugStepTagType(status?: string) {
 
 function debugStepOutput(step: WorkflowDebugStepResult) {
   return step.output ?? step.rawOutput ?? step.statePatch ?? step.uiRequest ?? step.artifact ?? null
-}
-
-function formatElapsed(value?: number) {
-  if (value === null || value === undefined) return '-'
-  if (value < 1000) return `${value}ms`
-  return `${(value / 1000).toFixed(2)}s`
-}
-
-function stringifyDebugPayload(value: unknown) {
-  if (value === null || value === undefined || value === '') return '-'
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
-
-function debugStepStatus(status?: string): WorkflowNodeTraceState['status'] {
-  const normalized = (status || '').trim().toUpperCase()
-  if (normalized === 'RUNNING' || normalized === 'EXECUTING') return 'running'
-  if (normalized === 'WAITING') return 'waiting'
-  if (normalized === 'ERROR' || normalized === 'FAILED' || normalized === 'FAILURE' || normalized === 'FAIL') return 'error'
-  if (['SUCCESS', 'OK', 'COMPLETED'].includes(normalized)) return 'success'
-  return 'success'
 }
 
 function debugSessionVisualClass(status?: string) {
@@ -5639,395 +3846,6 @@ function spanToNodeTraceState(span: RunSpan): WorkflowNodeTraceState | null {
   }
 }
 
-function currentStudioStateForDebug(): WorkflowStudioState {
-  if (!studio.value) {
-    throw new Error('Workflow 未加载')
-  }
-  if (nodes.value.length) {
-    syncJsonFromCanvas()
-  }
-  return {
-    ...studio.value,
-    name: workflowMeta.name || studio.value.name,
-    keySlug: workflowMeta.keySlug || studio.value.keySlug,
-    workflowType: workflowMeta.workflowType || studio.value.workflowType,
-    description: workflowMeta.description || studio.value.description,
-    defaultModelInstanceId: workflowMeta.defaultModelInstanceId || studio.value.defaultModelInstanceId,
-    graphSpecJson: graphSpecJson.value,
-    canvasJson: canvasJson.value,
-  }
-}
-
-function buildWorkflowDebugDraftDefinition() {
-  return buildWorkflowDebugDraftPayload(
-    currentStudioStateForDebug(),
-    canvasSnapshot(),
-    resolveAiModelInstanceId() || undefined,
-  )
-}
-
-function buildDebugInputParams() {
-  const params: Record<string, unknown> = {}
-  for (const field of debugInputFields.value) {
-    const raw = debugInputParams[field.name]
-    if (field.type === 'number' || field.type === 'integer') {
-      params[field.name] = raw === '' || raw === undefined || raw === null ? undefined : Number(raw)
-    } else if (field.type === 'boolean') {
-      params[field.name] = Boolean(raw)
-    } else if (field.type === 'object' || field.type === 'array') {
-      params[field.name] = parseDebugJsonLike(raw)
-    } else {
-      params[field.name] = raw === undefined || raw === null ? '' : String(raw)
-    }
-  }
-  if (!debugInputFields.value.length) {
-    params.input = debugMessage.value
-    params.question = debugMessage.value
-  }
-  return params
-}
-
-function parseDebugJsonLike(value: unknown) {
-  if (typeof value !== 'string') return value
-  const text = value.trim()
-  if (!text) return ''
-  try {
-    return JSON.parse(text)
-  } catch {
-    return text
-  }
-}
-
-function debugMessageFromParams(params: Record<string, unknown>) {
-  const preferred = params.question ?? params.input ?? params.message
-  if (preferred !== undefined && preferred !== null && String(preferred).trim()) {
-    return String(preferred)
-  }
-  const firstValue = Object.values(params).find((value) => value !== undefined && value !== null && String(value).trim())
-  return firstValue === undefined ? debugMessage.value : String(firstValue)
-}
-
-function buildInteractionDebugParams() {
-  const params: Record<string, unknown> = {}
-  for (const field of debugWaitingFields.value) {
-    const key = debugUiFieldKey(field)
-    if (!key) continue
-    const value = coerceDebugUiFieldValue(debugInteractionParams[key], field.type)
-    params[key] = value
-    if (field.targetPath) {
-      params[field.targetPath] = value
-      params[field.targetPath.replace(/\./g, '_')] = value
-    }
-  }
-  return params
-}
-
-function coerceDebugUiFieldValue(value: unknown, type?: string) {
-  if (type === 'number' || type === 'integer') {
-    return value === '' || value === undefined || value === null ? undefined : Number(value)
-  }
-  if (type === 'boolean') {
-    return Boolean(value)
-  }
-  if (type === 'object' || type === 'array') {
-    return parseDebugJsonLike(value)
-  }
-  return value === undefined || value === null ? '' : String(value)
-}
-
-function debugSessionStorageKey() {
-  return `workflow-studio-debug-session:${workflowId.value || workflowMeta.keySlug || 'draft'}`
-}
-
-function rememberDebugSession(sessionId?: string) {
-  if (!sessionId || typeof window === 'undefined') return
-  window.localStorage.setItem(debugSessionStorageKey(), sessionId)
-}
-
-function forgetDebugSession() {
-  if (typeof window === 'undefined') return
-  window.localStorage.removeItem(debugSessionStorageKey())
-}
-
-function applyDebugSession(data: WorkflowDebugSessionView) {
-  debugSession.value = data
-  debugRunResult.value = data
-  rememberDebugSession(data.sessionId)
-}
-
-function clearDebugSessionView() {
-  debugSession.value = null
-  debugRunResult.value = null
-  selectedDebugStepIndex.value = null
-  currentDebugNodeId.value = ''
-  forgetDebugSession()
-  refreshWorkflowNodeClasses()
-}
-
-async function loadStoredDebugSession() {
-  if (typeof window === 'undefined' || debugSession.value) return
-  const sessionId = window.localStorage.getItem(debugSessionStorageKey())
-  if (!sessionId) return
-  try {
-    const { data } = await getWorkflowDebugSession(sessionId)
-    applyDebugSession(data)
-    currentTraceId.value = data.traceId || ''
-    replayTraceInput.value = data.traceId || ''
-    selectedRecentTraceId.value = data.traceId || ''
-    refreshWorkflowNodeClasses()
-    if (data.steps?.length) {
-      selectedDebugStepIndex.value = data.steps.length - 1
-    }
-  } catch {
-    forgetDebugSession()
-  }
-}
-
-async function handleRunDraftDebug() {
-  const inputParams = buildDebugInputParams()
-  const message = debugMessageFromParams(inputParams)
-  if (!message.trim()) {
-    ElMessage.warning('请输入测试消息或用户输入字段')
-    return
-  }
-  await executeDraftDebug(inputParams, message)
-}
-
-async function executeDraftDebug(inputParams: Record<string, unknown>, message: string) {
-  debugLoading.value = true
-  currentTraceId.value = ''
-  traceNodes.value = []
-  runOpsDetail.value = null
-  debugResult.value = null
-  debugRunResult.value = null
-  debugSession.value = null
-  forgetDebugSession()
-  selectedDebugStepIndex.value = null
-  currentDebugNodeId.value = ''
-  debugPlaybackToken.value += 1
-  try {
-    const payload = buildWorkflowDebugDraftDefinition()
-    const { data } = await createWorkflowDebugSession({
-      targetType: 'WORKFLOW_DRAFT',
-      draftDefinition: payload,
-      message,
-      inputParams,
-      debugOptions: {},
-    })
-    applyDebugSession(data)
-    currentTraceId.value = data.traceId || ''
-    replayTraceInput.value = data.traceId || ''
-    selectedRecentTraceId.value = data.traceId || ''
-    refreshWorkflowNodeClasses()
-    await replayDebugSteps(data.steps || [])
-    selectedDebugStepIndex.value = data.steps?.length ? data.steps.length - 1 : null
-    if (debugStepStatus(data.status) === 'waiting') {
-      ElMessage.warning('当前 Workflow 草稿等待用户补充信息')
-    } else {
-      ElMessage[data.success ? 'success' : 'error'](data.success ? '当前草稿调试完成' : '当前草稿调试失败')
-    }
-  } catch (err) {
-    ElMessage.error('草稿调试失败：' + (err as Error).message)
-  } finally {
-    debugLoading.value = false
-  }
-}
-
-async function handleDebugUiSubmit(values: Record<string, unknown>) {
-  if (!debugSession.value?.sessionId) {
-    ElMessage.warning('当前没有可继续的调试会话')
-    return
-  }
-  debugLoading.value = true
-  try {
-    const { data } = await submitWorkflowDebugSession(debugSession.value.sessionId, {
-      action: 'submit',
-      values,
-    })
-    applyDebugSession(data)
-    currentTraceId.value = data.traceId || ''
-    replayTraceInput.value = data.traceId || ''
-    selectedRecentTraceId.value = data.traceId || ''
-    refreshWorkflowNodeClasses()
-    await replayDebugSteps(data.steps || [])
-    selectedDebugStepIndex.value = data.steps?.length ? data.steps.length - 1 : null
-    ElMessage[debugStepStatus(data.status) === 'waiting' ? 'warning' : data.success ? 'success' : 'error'](
-      debugStepStatus(data.status) === 'waiting'
-        ? '调试会话等待继续输入'
-        : data.success ? '调试会话已继续执行' : '调试会话执行失败',
-    )
-  } catch (err) {
-    ElMessage.error('提交交互失败：' + (err as Error).message)
-  } finally {
-    debugLoading.value = false
-  }
-}
-
-async function handleCancelDebugSession() {
-  if (!debugSession.value?.sessionId) return
-  debugLoading.value = true
-  try {
-    const { data } = await cancelWorkflowDebugSession(debugSession.value.sessionId)
-    applyDebugSession(data)
-    currentDebugNodeId.value = ''
-    refreshWorkflowNodeClasses()
-    ElMessage.success('调试会话已取消')
-  } catch (err) {
-    ElMessage.error('取消调试会话失败：' + (err as Error).message)
-  } finally {
-    debugLoading.value = false
-  }
-}
-
-async function loadTraceArtifacts(traceId: string) {
-  const [trace, runOps] = await Promise.allSettled([
-    getTraceDetail(traceId),
-    getRunOpsDetail(traceId),
-  ])
-  if (trace.status === 'fulfilled') {
-    traceNodes.value = trace.value.data?.nodes ?? []
-  } else {
-    traceNodes.value = []
-  }
-  if (runOps.status === 'fulfilled') {
-    runOpsDetail.value = runOps.value.data ?? null
-  } else {
-    runOpsDetail.value = null
-  }
-  refreshWorkflowNodeClasses()
-}
-
-async function loadRecentStudioRuns() {
-  recentRunsLoading.value = true
-  try {
-    const { data } = await getRecentRunOps({ days: 7, limit: 100 })
-    recentRuns.value = data ?? []
-  } catch {
-    ElMessage.error('加载最近运行失败')
-  } finally {
-    recentRunsLoading.value = false
-  }
-}
-
-async function handleLoadTraceReplay(traceId = replayTraceInput.value) {
-  const value = String(traceId || '').trim()
-  if (!value) {
-    ElMessage.warning('请输入 traceId')
-    return
-  }
-  traceReplayLoading.value = true
-  currentTraceId.value = value
-  replayTraceInput.value = value
-  selectedRecentTraceId.value = value
-  debugResult.value = null
-  debugRunResult.value = null
-  selectedDebugStepIndex.value = null
-  currentDebugNodeId.value = ''
-  debugPlaybackToken.value += 1
-  try {
-    await loadTraceArtifacts(value)
-    if (!runOpsDetail.value && !traceNodes.value.length) {
-      ElMessage.warning('未读取到这次运行的链路数据')
-    } else {
-      ElMessage.success('已回放到画布')
-    }
-  } catch (err) {
-    ElMessage.error('回放失败：' + (err as Error).message)
-  } finally {
-    traceReplayLoading.value = false
-  }
-}
-
-function handleRecentTraceChange(value: string | number | boolean | undefined) {
-  const traceId = String(value || '').trim()
-  if (traceId) {
-    void handleLoadTraceReplay(traceId)
-  }
-}
-
-function clearTraceReplay() {
-  currentTraceId.value = ''
-  replayTraceInput.value = ''
-  selectedRecentTraceId.value = ''
-  traceNodes.value = []
-  runOpsDetail.value = null
-  debugResult.value = null
-  selectedDebugStepIndex.value = null
-  currentDebugNodeId.value = ''
-  debugPlaybackToken.value += 1
-  refreshWorkflowNodeClasses()
-}
-
-function recentRunLabel(run: RunSummary) {
-  const status = run.status || '-'
-  const name = runDisplayName(run)
-  const time = run.startedAt ? run.startedAt.replace('T', ' ').slice(0, 19) : '-'
-  return `${status} · ${name} · ${time} · ${run.traceId}`
-}
-
-async function handleRunPublishedDebug() {
-  const inputParams = buildDebugInputParams()
-  const message = debugMessageFromParams(inputParams)
-  if (!message.trim()) {
-    ElMessage.warning('请输入测试消息')
-    return
-  }
-  debugLoading.value = true
-  currentTraceId.value = ''
-  traceNodes.value = []
-  runOpsDetail.value = null
-  debugRunResult.value = null
-  debugSession.value = null
-  selectedDebugStepIndex.value = null
-  currentDebugNodeId.value = ''
-  debugPlaybackToken.value += 1
-  try {
-    const { data: versions } = await listWorkflowVersions(workflowId.value)
-    const active = versions.find((item) => (item.status || '').toUpperCase() === 'ACTIVE')
-    if (!active?.graphSpecSnapshotJson) {
-      ElMessage.warning('没有可验证的 ACTIVE 发布版本')
-      return
-    }
-    const { data } = await debugWorkflowRun({
-      ...buildDebugBaseRequest(),
-      graphSpecJson: normalizeJson(active.graphSpecSnapshotJson, 'GraphSpec'),
-      canvasJson: active.canvasSnapshotJson ? normalizeJson(active.canvasSnapshotJson, 'Canvas') : undefined,
-      message,
-      inputParams,
-      debugOptions: {
-        publishedVersion: active.version,
-        publishedVersionId: active.id,
-      },
-    })
-    debugResult.value = {
-      answer: data.answer || data.errorMessage || '',
-      metadata: {
-        traceId: data.traceId,
-        version: active.version,
-        workflowKeySlug: studio.value?.keySlug,
-        workflowId: workflowId.value,
-        runtimeType: studio.value?.runtimeType,
-        projectCode: studio.value?.projectCode,
-      },
-    } as ChatResponse
-    if (data.traceId) {
-      currentTraceId.value = data.traceId
-      replayTraceInput.value = data.traceId
-      selectedRecentTraceId.value = data.traceId
-      try {
-        await loadTraceArtifacts(data.traceId)
-      } catch {
-        // trace 可能尚未写入
-      }
-    }
-    ElMessage[data.success ? 'success' : 'error'](data.success ? '发布版本验证完成' : '发布版本验证失败')
-  } catch (err) {
-    ElMessage.error('发布版本验证失败：' + (err as Error).message)
-  } finally {
-    debugLoading.value = false
-  }
-}
-
 async function handleExtractCompositionDraft() {
   if (!currentTraceId.value) {
     ElMessage.warning('请先执行调试获取 trace')
@@ -6052,130 +3870,6 @@ async function handleExtractCompositionDraft() {
   }
 }
 
-function isDebugStepRunning(step: WorkflowDebugStepResult) {
-  if (debugStepStatus(step.status) === 'running') return true
-  const sessionCurrentNodeId = debugSession.value?.currentNodeId || debugRunResult.value?.currentNodeId || ''
-  return debugStepStatus(debugSession.value?.status || debugRunResult.value?.status) === 'running'
-    && !!sessionCurrentNodeId
-    && sessionCurrentNodeId === step.nodeId
-}
-
-function clearWorkflowDebugView() {
-  clearDebugSessionView()
-}
-
-function selectDebugStep(index: number) {
-  if (selectedDebugStepIndex.value === index) {
-    selectedDebugStepIndex.value = null
-    return
-  }
-  selectedDebugStepIndex.value = index
-  const step = debugRunResult.value?.steps?.[index]
-  if (step?.nodeId) {
-    selectedNodeId.value = step.nodeId
-    selectedEdgeId.value = null
-    currentDebugNodeId.value = step.nodeId
-    focusDebugNode(step.nodeId)
-  }
-  refreshWorkflowNodeClasses()
-}
-
-function focusDebugNode(nodeId: string, duration = 360) {
-  const node = nodes.value.find((item) => item.id === nodeId)
-  if (!node) return
-  const viewport = getViewport()
-  const zoom = viewport.zoom || 1
-  const drawerOffset = debugOpen.value && typeof window !== 'undefined'
-    ? (Math.min(DEBUG_DRAWER_MAX_WIDTH, window.innerWidth * DEBUG_DRAWER_WIDTH_RATIO) / 2) / zoom
-    : 0
-  setCenter(node.position.x + 125 + drawerOffset, node.position.y + 70, {
-    zoom: Math.max(zoom, 0.85),
-    duration,
-  })
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
-}
-
-async function replayDebugSteps(steps: WorkflowDebugStepResult[] = []) {
-  const token = debugPlaybackToken.value + 1
-  debugPlaybackToken.value = token
-  await nextTick()
-  for (let index = 0; index < steps.length; index += 1) {
-    if (debugPlaybackToken.value !== token) return
-    const step = steps[index]
-    selectedDebugStepIndex.value = index
-    currentDebugNodeId.value = step.nodeId
-    selectedNodeId.value = step.nodeId
-    selectedEdgeId.value = null
-    focusDebugNode(step.nodeId, 360)
-    await sleep(420)
-  }
-  if (debugPlaybackToken.value === token) {
-    currentDebugNodeId.value = ''
-  }
-}
-
-async function runNodeDebug() {
-  if (!debugNodeId.value.trim()) {
-    ElMessage.warning('请输入节点 ID')
-    return
-  }
-  nodeDebugLoading.value = true
-  try {
-    const { data } = await debugWorkflowNode({
-      ...buildDebugBaseRequest(),
-      nodeId: debugNodeId.value.trim(),
-      message: debugMessage.value || undefined,
-      state: parseOptionalObject(nodeDebugStateJson.value, 'Node state'),
-    })
-    nodeDebugResult.value = data
-    debugRunResult.value = null
-    debugSession.value = null
-    selectedDebugStepIndex.value = null
-    currentDebugNodeId.value = data.nodeId || debugNodeId.value.trim()
-    selectedNodeId.value = currentDebugNodeId.value
-    selectedEdgeId.value = null
-    refreshWorkflowNodeClasses()
-    ElMessage.success(data.success ? 'Node debug completed' : 'Node debug failed')
-  } catch (err) {
-    ElMessage.error((err as Error).message)
-  } finally {
-    nodeDebugLoading.value = false
-  }
-}
-
-function buildDebugBaseRequest() {
-  if (nodes.value.length) {
-    syncJsonFromCanvas()
-  }
-  return {
-    workflowId: workflowId.value,
-    workflowKeySlug: studio.value?.keySlug || undefined,
-    workflowName: studio.value?.name || undefined,
-    workflowType: studio.value?.workflowType || undefined,
-    projectCode: studio.value?.projectCode || undefined,
-    runtimeType: studio.value?.runtimeType || 'LANGGRAPH4J',
-    modelInstanceId: resolveAiModelInstanceId() || undefined,
-    graphSpecJson: normalizeJson(graphSpecJson.value, 'GraphSpec'),
-    canvasJson: canvasJson.value.trim() ? normalizeJson(canvasJson.value, 'Canvas') : undefined,
-  }
-}
-
-function parseCurrentCanvas() {
-  if (nodes.value.length) {
-    syncJsonFromCanvas()
-  }
-  const canvas = nodes.value.length
-    ? canvasSnapshot()
-    : readJsonObject(canvasJson.value, { version: 2, nodes: [], edges: [] })
-  return {
-    ...canvas,
-    graphSpec: readJsonObject(graphSpecJson.value, {}),
-  }
-}
-
 function parseOptionalObject(value: string, label: string) {
   if (!value.trim()) return undefined
   const parsed = JSON.parse(value)
@@ -6185,75 +3879,12 @@ function parseOptionalObject(value: string, label: string) {
   return parsed as Record<string, unknown>
 }
 
-function resolveAiModelInstanceId() {
-  return aiModelInstanceId.value.trim()
-    || studio.value?.defaultModelInstanceId
-    || aiDraftModelOptions.value[0]?.id
-    || ''
-}
-
 function modelOptionLabel(item: ModelInstance) {
   return `${item.name || item.id} / ${item.provider || '-'} / ${item.modelName || '-'}`
 }
 
-function toolToDraftResource(tool: ToolInfo): WorkflowDraftResource {
-  return {
-    kind: 'TOOL',
-    name: tool.name,
-    qualifiedName: tool.qualifiedName,
-    projectCode: tool.projectCode,
-    description: tool.aiDescription || tool.description,
-  }
-}
-
-function compositionToDraftResource(composition: CompositionInfo): WorkflowDraftResource {
-  return {
-    kind: 'SKILL',
-    name: composition.name,
-    qualifiedName: composition.qualifiedName,
-    projectCode: composition.projectCode,
-    description: composition.aiDescription || composition.description,
-  }
-}
-
-function knowledgeToDraftResource(knowledge: KnowledgeBase): WorkflowDraftResource {
-  return {
-    kind: 'KNOWLEDGE',
-    name: knowledge.code,
-    projectCode: knowledge.projectCode,
-    description: knowledge.description || knowledge.name,
-  }
-}
-
 function formatDebugResult(value: unknown) {
   return JSON.stringify(value, null, 2)
-}
-
-function normalizeJson(value: string, label: string) {
-  try {
-    return JSON.stringify(JSON.parse(value))
-  } catch {
-    throw new Error(`${label} is not valid JSON`)
-  }
-}
-
-function formatJson(value: string) {
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2)
-  } catch {
-    return value
-  }
-}
-
-function readJsonObject(value: string, fallback: Record<string, unknown>) {
-  try {
-    const parsed = JSON.parse(value)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : fallback
-  } catch {
-    return fallback
-  }
 }
 </script>
 

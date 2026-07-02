@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="00 ReachAI Five Services" type="CompoundRunConfigurationType">
+    <toRun name="01 ReachAI Model Service" type="SpringBootApplicationConfigurationType" />
+    <toRun name="02 ReachAI Knowledge Service" type="SpringBootApplicationConfigurationType" />
+    <toRun name="03 ReachAI Capability Service" type="SpringBootApplicationConfigurationType" />
+    <toRun name="04 ReachAI Runtime Service" type="SpringBootApplicationConfigurationType" />
+    <toRun name="05 ReachAI Control Service" type="SpringBootApplicationConfigurationType" />
+    <method v="2" />
+  </configuration>
+</component>

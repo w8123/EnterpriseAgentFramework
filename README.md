@@ -26,7 +26,7 @@
 
 ## 产品截图
 
-> 以下截图先使用仓库现有图片占位，后续可以替换为更适合 README 首屏展示的新版截图。
+>
 
 | SDK 快速接入 | Workflow Studio / GraphSpec |
 | --- | --- |
@@ -229,9 +229,11 @@ ReachAI 不只服务自己的管理端。平台可以通过 Gateway、MCP、A2A 
 | --- | --- |
 | `reachai-capability-sdk` | JDK8 兼容的业务能力声明 SDK 契约 |
 | `reachai-spring-boot2-starter` | Spring Boot 2 业务系统接入 Starter，支持注册、心跳、能力同步和 SDK 图同步 |
-| `ai-agent-service` | 当前平台核心部署单元，承载 Capability Catalog、Runtime Host 和 Platform Control 三个逻辑域 |
-| `ai-skills-service` | 当前 Knowledge / Retrieval 部署单元，承载知识库、文档处理、RAG、业务索引、向量检索和历史扫描器实现 |
-| `ai-model-service` | 当前 Model Gateway 部署单元，承载模型实例、Chat、Embedding、Rerank 和 OpenAI 兼容代理 |
+| `reachai-control-service` | 当前 Platform Control / public API BFF 主入口，承接 `/api/**`、`/embed/**` 和 SDK 注册公开入口 |
+| `reachai-runtime-service` | 当前 Runtime Host 部署单元，承接 Agent、Workflow、GraphSpec、Trace、RunOps、调试和运行时内部 API |
+| `reachai-capability-service` | 当前 Capability Catalog 部署单元，承接 SDK 注册、项目实例、能力快照、diff/review/apply、扫描目录和能力资产 API |
+| `reachai-knowledge-service` | 当前 Knowledge / Retrieval 部署单元，承接知识库、文件、chunk、RAG、业务索引、向量检索和历史扫描器实现 |
+| `reachai-model-service` | 当前 Model Gateway 部署单元，承接模型实例、Chat、Embedding、Rerank 和 OpenAI 兼容代理 |
 | `ai-runtime-contract` | 中台内部 Tool / Skill 运行时契约 |
 | `ai-admin-front` | Vue 3 管理端，承载注册中心、Workflow Studio、RunOps、模型、知识、治理和开放协议页面 |
 | `sql` | 统一 SQL 基线和升级脚本 |
@@ -239,17 +241,17 @@ ReachAI 不只服务自己的管理端。平台可以通过 Gateway、MCP、A2A 
 
 ## 当前部署单元与目标逻辑域
 
-本轮架构重塑不先拆服务，先拆职责。当前仍保持三个 Spring Boot 部署单元，但架构表达收敛到五个长期逻辑域：
+当前后端重塑已进入物理服务拆分后的旧结构退场阶段。第一阶段保持同一个 MySQL 库，不拆库；公共入口由 `reachai-control-service` 保持 `/api/**`、`/embed/**` 和 SDK 注册入口兼容。默认 Maven reactor、本地启动和部署清单收敛到五个当前物理服务：
 
-| 长期逻辑域 | 当前主要承载 | 长期目标名 | 说明 |
-| --- | --- | --- | --- |
-| Model Gateway | `ai-model-service` | `reachai-model-service` | 模型实例、供应商适配、Chat、Embedding、Rerank、OpenAI 兼容代理 |
-| Knowledge / Retrieval | `ai-skills-service` | `reachai-knowledge-service` 或 `reachai-retrieval-service` | 知识库、文件、chunk、RAG、向量检索、业务索引 |
-| Capability Catalog | `ai-agent-service` 内部边界 | `reachai-capability-service` | 项目注册、能力快照、字段级 diff、评审 apply/ignore、扫描目录、语义文档、Tool/Capability 资产 |
-| Runtime Host | `ai-agent-service` 内部边界 | `reachai-runtime-service` | Agent 入口、Workflow、GraphSpec 执行、调试、人工交互、Runtime Adapter |
-| Platform Control | `ai-agent-service` 内部边界 | `reachai-control-service` | 身份、RBAC、ACL、Guard、Gateway、MCP、A2A、市场、RunOps/Trace 管理面 |
+| 目标逻辑域 | 当前部署单元 | 说明 |
+| --- | --- | --- |
+| Model Gateway | `reachai-model-service` | 模型实例、供应商适配、Chat、Embedding、Rerank、OpenAI 兼容代理 |
+| Knowledge / Retrieval | `reachai-knowledge-service` | 知识库、文件、chunk、RAG、向量检索、业务索引 |
+| Capability Catalog | `reachai-capability-service` | SDK 注册、能力快照、字段级 diff、评审 apply/ignore、扫描目录、语义文档、Tool/Capability 资产 |
+| Runtime Host | `reachai-runtime-service` | Agent 入口、Workflow、GraphSpec 执行、调试、人工交互、Runtime Adapter |
+| Platform Control | `reachai-control-service` | 身份、RBAC、ACL、Guard、Gateway、MCP、A2A、市场、RunOps/Trace 管理面和 public API/BFF |
 
-这次调整不改变端口、路由、SQL 表名、前端代理或页面结构。详细规则见 [后端逻辑边界与命名重塑](docs/16-后端逻辑边界与命名重塑.md)。
+这次拆分不改变公开路由、SQL 表名、前端代理或页面结构。旧 `ai-agent-service` 已从仓库主路径删除，不再是平台主后端、Maven module、IDEA 后端项目、本地启动项或部署单元；剩余兼容路径必须显式迁入 owning service 本地实现，或正式删除。公共路由主路径、冻结兼容 alias 和 retired route 见 [Public Route Contracts](docs/architecture/public-route-contracts.md)；详细规则见 [Backend Boundaries And Naming](docs/architecture/backend-boundaries-and-naming.md)、[Physical Split Route Ownership](docs/architecture/physical-split-route-ownership.md) 和 [Legacy Retirement](docs/architecture/legacy-retirement.md)。
 
 ## 快速开始
 
@@ -271,20 +273,57 @@ mysql -h localhost -u root -proot < sql/init.sql
 mvn clean install -DskipTests
 ```
 
+默认 Maven reactor 只包含当前主路径模块和五服务部署单元；旧 `ai-agent-service` module 已删除。
+
 ### 4. 启动服务
+
+仓库已提供 IDEA 共享 Run Configurations：`00 ReachAI Five Services` 可一键启动五个服务，`01 ReachAI Model Service` 到 `05 ReachAI Control Service` 可按编号单独启动和调试。在 IDEA 重新加载 Maven 项目后即可使用；这些配置只指定 Spring Boot 主类和 Maven module，不写入任何本机密钥。
 
 ```bash
 # Model Gateway，默认 18601
-cd ai-model-service
+cd reachai-model-service
 mvn spring-boot:run
 
-# Knowledge / Retrieval，默认 18602
-cd ../ai-skills-service
+# Knowledge / Retrieval，默认 18602，context-path /ai
+cd ../reachai-knowledge-service
 mvn spring-boot:run
 
-# Capability Catalog + Runtime Host + Platform Control，默认 18603
-cd ../ai-agent-service
+# Capability Catalog，默认 18605
+cd ../reachai-capability-service
 mvn spring-boot:run
+
+# Runtime Host，默认 18604
+cd ../reachai-runtime-service
+mvn spring-boot:run
+
+# Platform Control / public API BFF，默认 18603
+cd ../reachai-control-service
+mvn spring-boot:run
+```
+
+本地推荐启动顺序：`reachai-model-service`（18601）→ `reachai-knowledge-service`（18602，`/ai`）→ `reachai-capability-service`（18605）→ `reachai-runtime-service`（18604）→ `reachai-control-service`（18603）。默认五服务拓扑不再包含 `ai-agent-service:18606`；剩余 public route 必须逐路由确认由 owning service 本地实现承接，或正式删除。
+
+常用环境变量：
+
+```powershell
+$env:AI_MYSQL_URL="jdbc:mysql://localhost:3306/ai_text_service?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai"
+$env:AI_MYSQL_USER="ai_text_service"
+$env:AI_MYSQL_PASSWORD="2b4sSjymF7BcZZBA"
+$env:REDIS_HOST="localhost"
+$env:REDIS_PORT="6379"
+$env:REDIS_PASSWORD=""
+$env:MILVUS_HOST="localhost"
+$env:MILVUS_PORT="19530"
+$env:MODEL_SERVICE_URL="http://localhost:18601"
+$env:KNOWLEDGE_SERVICE_URL="http://localhost:18602"
+$env:CAPABILITY_SERVICE_URL="http://localhost:18605"
+$env:RUNTIME_SERVICE_URL="http://localhost:18604"
+```
+
+五个服务都启动后，在仓库根目录执行一次启动链路自检：
+
+```powershell
+node scripts/check-physical-service-smoke.mjs --wait-ms 120000 --interval-ms 3000
 ```
 
 ### 5. 启动管理端

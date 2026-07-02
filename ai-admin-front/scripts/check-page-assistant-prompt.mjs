@@ -23,28 +23,28 @@ const scanProjectTypesSource = readFileSync(join(process.cwd(), 'src/types/scanP
 const pageAssistantSkillSource = readFileSync(
   join(
     process.cwd(),
-    '../ai-agent-service/src/main/resources/ai-assist/skills/reachai-page-assistant-onboarding/SKILL.md',
+    '../reachai-control-service/src/main/resources/ai-assist/skills/reachai-page-assistant-onboarding/SKILL.md',
   ),
   'utf8',
 )
 const onboardingSecuritySource = readFileSync(
   join(
     process.cwd(),
-    '../ai-agent-service/src/main/resources/ai-assist/skills/reachai-onboarding/references/security.md',
+    '../reachai-control-service/src/main/resources/ai-assist/skills/reachai-onboarding/references/security.md',
   ),
   'utf8',
 )
 const onboardingSkillSource = readFileSync(
   join(
     process.cwd(),
-    '../ai-agent-service/src/main/resources/ai-assist/skills/reachai-onboarding/SKILL.md',
+    '../reachai-control-service/src/main/resources/ai-assist/skills/reachai-onboarding/SKILL.md',
   ),
   'utf8',
 )
 const onboardingJavaSdkAccessSource = readFileSync(
   join(
     process.cwd(),
-    '../ai-agent-service/src/main/resources/ai-assist/skills/reachai-onboarding/references/java-sdk-access.md',
+    '../reachai-control-service/src/main/resources/ai-assist/skills/reachai-onboarding/references/java-sdk-access.md',
   ),
   'utf8',
 )
@@ -625,7 +625,7 @@ const helperScriptPaths = [
   join(repoRoot, 'scripts/reachai-page-assistant.ps1'),
   join(
     repoRoot,
-    'ai-agent-service/src/main/resources/ai-assist/skills/reachai-page-assistant-onboarding/scripts/reachai-page-assistant.ps1',
+    'reachai-control-service/src/main/resources/ai-assist/skills/reachai-page-assistant-onboarding/scripts/reachai-page-assistant.ps1',
   ),
 ]
 

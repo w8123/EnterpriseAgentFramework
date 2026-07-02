@@ -1,56 +1,57 @@
-# 睿池 ReachAI 文档入口
+# ReachAI 文档入口
 
-本目录只保留当前系统的权威知识库。旧的升级计划、阶段验收清单和临时讨论稿已经被合并到下面几份主文档中；阅读时优先看当前能力、代码位置和未完成边界，不再按历史阶段编号追溯。
+本目录是 ReachAI 的内部知识库入口。根目录 `README.md` 面向快速了解和启动；本目录用于解释产品能力、实现边界、接口归属、SQL 基线和后续 AI 编程工具的上下文。
 
-根目录 `README.md` 已按当前定位重写为对外入口；本目录继续作为更细的系统知识库和实现索引。
+## 当前后端拓扑
 
-## 当前定位
+当前后端主路径是五个部署单元：
 
-睿池 ReachAI 是面向 Java 企业系统的 Agent 开发与治理中台。它把业务系统中的接口、领域能力、知识、模型、流程、权限和运行审计，沉淀成 Agent 可以理解、编排、调用、治理和开放的资产。
+| 服务 | 默认端口 | 定位 |
+| --- | ---: | --- |
+| `reachai-control-service` | 18603 | Public API / BFF / Platform Control |
+| `reachai-runtime-service` | 18604 | Runtime Host |
+| `reachai-capability-service` | 18605 | Capability Catalog |
+| `reachai-knowledge-service` | 18602 | Knowledge / Retrieval |
+| `reachai-model-service` | 18601 | Model Gateway |
 
-当前系统不是单纯的“扫描历史项目生成 Tool”，而是由以下主线组成：
+第一阶段保持同一个 MySQL 库，不拆库。公共 `/api/**`、`/embed/**` 和 SDK 注册入口由 `reachai-control-service` 收口；前端不直接调用 Runtime 或 Capability 内部端口。旧 `ai-agent-service` module 已从仓库主路径删除，不再作为 Maven、IDEA、本地启动或部署单元存在。
 
-- 项目与能力注册中心：业务系统可通过 `reachai-spring-boot2-starter` 与 `reachai-capability-sdk` 主动注册项目、实例、能力和 SDK 图。
-- 能力资产治理：`tool_definition` 统一承载 Tool 与粗粒度 Capability，扫描接入和 SDK 注册都进入同一资产目录。
-- Agent 入口与 Workflow Studio：Agent（`ai_agent`）负责身份/策略/绑定，Workflow（`ai_workflow`）负责 GraphSpec 与画布；Workflow Studio 是唯一画布编辑器，Runtime 通过 AgentEntry + binding 执行已发布 Workflow。
-- 运行治理与开放协议：RunOps、Trace、Tool ACL、Guard 决策、MCP、A2A 和 Gateway 共同承担生产运行边界。
-- 企业资产底座：模型实例、知识库、业务索引、领域归属和市场资产为 Agent 提供可复用上下文。
-
-## 阅读顺序
+## 推荐阅读顺序
 
 | 文档 | 适合回答的问题 |
 | --- | --- |
-| [01-平台定位与架构总览.md](./01-平台定位与架构总览.md) | 系统现在是什么、有哪些服务、管理端有哪些页面、统一 SQL 基线覆盖什么 |
-| [02-项目注册与能力资产.md](./02-项目注册与能力资产.md) | 业务系统如何接入，扫描、SDK 注册、能力同步、Tool/Capability 资产如何落库 |
-| [03-Agent-Studio与Runtime.md](./03-Agent-Studio与Runtime.md) | Agent/Workflow 解耦、`/api/agents` 与 `/api/workflows`、Workflow Studio、GraphSpec、binding 解析、调试、发布与 Runtime 如何工作 |
-| [04-运行治理与开放协议.md](./04-运行治理与开放协议.md) | Trace、RunOps、ACL、Guard、MCP、A2A、Gateway 如何保护和开放能力 |
-| [05-知识模型与企业资产.md](./05-知识模型与企业资产.md) | 模型实例、知识库、业务索引、领域、市场资产如何被 Agent 使用 |
-| [09-AI长任务代码审计提示词.md](./09-AI长任务代码审计提示词.md) | 交给长上下文 AI 执行只读全仓代码审计、死代码过滤、文档/SQL/前后端漂移检查的完整提示词 |
-| [11-ReachAI-JDK8接入SDK与JDK17-Runtime分层方案.md](./11-ReachAI-JDK8接入SDK与JDK17-Runtime分层方案.md) | JDK8 业务接入 SDK 与 JDK17 中台 Runtime 分层的当前落地模块、协议边界和验证方式 |
-| [14-班组系统接入ReachAI SDK实施步骤.md](./14-班组系统接入ReachAI%20SDK实施步骤.md) | 班组微服务接入 ReachAI SDK、网关 token broker、前端嵌入对话框和 Page Action 的标准步骤 |
-| [15-创建页面助手轻闭环.md](./15-创建页面助手轻闭环.md) | 项目详情页创建页面助手向导、手工声明页面动作、生成 Workflow Studio 草稿的 v1 边界 |
-| [16-后端逻辑边界与命名重塑.md](./16-后端逻辑边界与命名重塑.md) | 当前三部署单元与五个长期逻辑域的边界、命名规则和本轮不改变的运行合同 |
-| [ai-memory/README.md](./ai-memory/README.md) | 给 Cursor、Codex 等 AI 编程工具看的项目规则、记忆和历史坑位 |
+| [01-平台定位与架构总览.md](./01-平台定位与架构总览.md) | 系统定位、核心能力、管理端页面、统一 SQL 基线 |
+| [02-项目注册与能力资产.md](./02-项目注册与能力资产.md) | 业务系统接入、SDK 注册、扫描接入、Tool/Capability 资产 |
+| [03-Workflow-Studio与Runtime.md](./03-Workflow-Studio与Runtime.md) | Agent/Workflow 解耦、Workflow Studio、GraphSpec、binding、调试和发布 |
+| [04-运行治理与开放协议.md](./04-运行治理与开放协议.md) | Trace、RunOps、ACL、Guard、MCP、A2A、Gateway |
+| [05-知识模型与企业资产.md](./05-知识模型与企业资产.md) | 模型实例、知识库、业务索引、领域和市场资产 |
 
-## 当前已落地
+## 专题入口
 
-- `docs` 根目录已经收敛为主文档集合，覆盖平台总览、注册与能力、Studio 与 Runtime、运行治理、企业资产和后端逻辑边界。
-- 旧的里程碑交付、临时规划说明和试点说明内容已经被吸收到主文档。
-- `docs/系统截图/` 保持原路径，避免影响暂未重写的根目录 `README.md`。
-- `docs/superpowers/plans/` 保持为执行计划产物，不纳入主知识库。
-- `docs/ai-memory/` 是给 AI 编程工具看的项目记忆，不替代主知识库和对外 README。
+| 目录 | 用途 |
+| --- | --- |
+| [architecture/](./architecture/) | 后端物理拆分、public route、internal API、服务表所有权和旧结构退场事实源 |
+| [guides/](./guides/) | 面向业务系统接入方的操作型指南和样例 |
+| [reference/](./reference/) | 身份授权、嵌入式对话、AI Coding、Context Governance 等长篇专题参考 |
+| [ai-memory/](./ai-memory/) | 给 Codex、Cursor、Claude Code 等 AI 编程工具看的项目记忆入口 |
 
-## 仍待补齐
+## 架构契约
 
-- 根目录 `README.md` 已完成对外定位重写，后续应随这套知识结构持续同步。
-- 主文档目前是架构和产品级知识，不替代逐页操作手册。
-- 如果代码继续演进，应优先更新这些主文档，而不是新增阶段型文档。
+| 文档 | 适合回答的问题 |
+| --- | --- |
+| [architecture/public-route-contracts.md](./architecture/public-route-contracts.md) | 前端和外部调用应使用的公共路由、冻结兼容 alias 和 retired route |
+| [architecture/physical-split-route-ownership.md](./architecture/physical-split-route-ownership.md) | public route owning service 归属 |
+| [architecture/internal-api-contracts.md](./architecture/internal-api-contracts.md) | 服务间 internal API 契约、owner/consumer 和前端禁用边界 |
+| [architecture/service-table-ownership.md](./architecture/service-table-ownership.md) | 同库阶段的服务表所有权 |
+| [architecture/backend-boundaries-and-naming.md](./architecture/backend-boundaries-and-naming.md) | 五服务边界、同库策略、命名规则和公共入口 |
+| [architecture/physical-services-and-startup.md](./architecture/physical-services-and-startup.md) | 五服务启动、IDEA 配置、环境变量和验证入口 |
+| [architecture/legacy-retirement.md](./architecture/legacy-retirement.md) | 旧 agent 主入口退场、兼容面生命周期和启动清单 |
 
 ## 文档维护规则
 
-- 新文档按产品能力组织，不再新增阶段型验收清单。
-- 默认使用 `Capability / 能力`。当文档必须解释旧代码、表名或枚举时，才使用 `Skill`，并明确它是 legacy naming。
-- 所有实现说明应指向真实代码模块、前端页面、接口路径或 SQL 表。
-- 每份主文档都必须区分“当前已落地”和“仍待补齐”，避免规划与实现混在一起。
-- `docs/superpowers/plans/` 是执行计划产物，不属于主知识库。
-- `docs/ai-memory/` 只记录会影响未来 AI 编程判断的规则、决策和坑位；如果与当前代码冲突，以当前代码为准并同步更新记忆。
+- 当前代码、SQL、接口和启动配置永远优先于文档。
+- 新文档按产品能力和当前边界组织，不新增阶段型临时清单作为主知识库。
+- 一次性执行计划、审计提示词、阶段任务拆解和已完成的联调讨论不再保留在 `docs/`；需要长期保留的结论应沉淀到当前事实文档、`docs/architecture/` 或 `docs/ai-memory/`。
+- 默认使用 `Capability / 能力`；只有解释历史代码、SQL 名称或兼容路径时才使用 `Skill`。
+- 实现说明必须指向真实代码模块、前端页面、接口路径或 SQL 表。
+- 如果旧 `ai-agent-service`、旧三服务命名或旧代理策略再次出现在当前入口文档中，应视为边界回退并修正。

@@ -23,7 +23,7 @@
           <div class="stat-label">{{ card.label }}</div>
         </div>
         <div class="stat-trend" :class="card.trendDir">
-          <span v-if="card.trend" class="trend-arrow">{{ card.trendDir === 'up' ? '↑' : card.trendDir === 'down' ? '↓' : '→' }}</span>
+          <span v-if="card.trend" class="trend-arrow">{{ card.trendDir === 'up' ? 'up' : card.trendDir === 'down' ? 'down' : 'flat' }}</span>
           <span v-if="card.trend" class="trend-value">{{ card.trend }}</span>
         </div>
         <div class="stat-sparkline">
@@ -50,40 +50,73 @@
         </h3>
         <div class="topology">
           <div class="topo-row">
-            <div class="topo-node" :class="serviceHealth['ai-agent-service']">
+            <div class="topo-node" :class="serviceHealth['reachai-control-service']">
               <div class="topo-node-icon agent-bg">
                 <el-icon :size="20"><Cpu /></el-icon>
               </div>
-              <span class="topo-node-name">Platform Core</span>
+              <span class="topo-node-name">Platform Control</span>
               <span class="topo-node-status">
-                <span class="status-dot" :class="serviceHealth['ai-agent-service'] || 'offline'" />
-                {{ serviceHealth['ai-agent-service'] === 'online' ? '正常' : '异常' }}
+                <span class="status-dot" :class="serviceHealth['reachai-control-service'] || 'offline'" />
+                {{ serviceHealth['reachai-control-service'] === 'online' ? '正常' : '异常' }}
               </span>
             </div>
           </div>
           <div class="topo-connector">
-            <div class="connector-line" :class="{ active: serviceHealth['ai-agent-service'] === 'online' }" />
+            <div class="connector-line" :class="{ active: serviceHealth['reachai-control-service'] === 'online' }" />
             <div class="connector-dot" />
           </div>
           <div class="topo-row topo-row-split">
-            <div class="topo-node" :class="serviceHealth['ai-skills-service']">
+            <div class="topo-node" :class="serviceHealth['reachai-runtime-service']">
+              <div class="topo-node-icon runtime-bg">
+                <el-icon :size="20"><Cpu /></el-icon>
+              </div>
+              <span class="topo-node-name">Runtime Host</span>
+              <span class="topo-node-status">
+                <span class="status-dot" :class="serviceHealth['reachai-runtime-service'] || 'offline'" />
+                {{ serviceHealth['reachai-runtime-service'] === 'online' ? '正常' : '异常' }}
+              </span>
+            </div>
+            <div class="topo-node" :class="serviceHealth['reachai-capability-service']">
+              <div class="topo-node-icon capability-bg">
+                <el-icon :size="20"><SetUp /></el-icon>
+              </div>
+              <span class="topo-node-name">Capability Catalog</span>
+              <span class="topo-node-status">
+                <span class="status-dot" :class="serviceHealth['reachai-capability-service'] || 'offline'" />
+                {{ serviceHealth['reachai-capability-service'] === 'online' ? '正常' : '异常' }}
+              </span>
+            </div>
+          </div>
+          <div class="topo-connector">
+            <div
+              class="connector-line"
+              :class="{
+                active:
+                  serviceHealth['reachai-runtime-service'] === 'online' ||
+                  serviceHealth['reachai-capability-service'] === 'online',
+              }"
+            />
+            <div class="connector-dot" />
+          </div>
+          <div class="topo-row topo-row-split">
+            <div class="topo-node" :class="serviceHealth['reachai-knowledge-service']">
               <div class="topo-node-icon skill-bg">
                 <el-icon :size="20"><SetUp /></el-icon>
               </div>
               <span class="topo-node-name">Knowledge / Retrieval</span>
               <span class="topo-node-status">
-                <span class="status-dot" :class="serviceHealth['ai-skills-service'] || 'offline'" />
-                {{ serviceHealth['ai-skills-service'] === 'online' ? '正常' : '异常' }}
+                <span class="status-dot" :class="serviceHealth['reachai-knowledge-service'] || 'offline'" />
+                {{ serviceHealth['reachai-knowledge-service'] === 'online' ? '正常' : '异常' }}
               </span>
             </div>
-            <div class="topo-node" :class="serviceHealth['ai-model-service']">
+            <div class="topo-node" :class="serviceHealth['reachai-model-service']">
               <div class="topo-node-icon model-bg">
                 <el-icon :size="20"><Coin /></el-icon>
               </div>
               <span class="topo-node-name">Model Gateway</span>
               <span class="topo-node-status">
-                <span class="status-dot" :class="serviceHealth['ai-model-service'] || 'offline'" />
-                {{ serviceHealth['ai-model-service'] === 'online' ? '正常' : '异常' }}
+                <span class="status-dot" :class="serviceHealth['reachai-model-service'] || 'offline'" />
+                {{ serviceHealth['reachai-model-service'] === 'online' ? '正常' : '异常' }}
               </span>
             </div>
           </div>
@@ -110,7 +143,7 @@
             </div>
           </div>
           <div v-if="activityEvents.length === 0" class="timeline-empty">
-            <el-empty description="暂无最近活动" :image-size="48" />
+            <el-empty description="No recent activity" :image-size="48" />
           </div>
         </div>
       </div>
@@ -174,7 +207,7 @@
               <div class="preview-card-name">{{ kb.name }}</div>
               <div class="preview-card-meta">{{ kb.code }}</div>
             </div>
-            <span class="preview-card-count">{{ kb.fileCount ?? 0 }} 文件</span>
+            <span class="preview-card-count">{{ kb.fileCount ?? 0 }} 鏂囦欢</span>
           </div>
           <div v-if="recentKnowledge.length === 0" class="preview-empty">
             暂无知识库
@@ -243,7 +276,7 @@ function generateSparkline(data: number[], w = 80, h = 30): { linePath: string; 
 
 const statCards = computed(() => [
   {
-    label: 'Agent 数量',
+    label: 'Agent 鏁伴噺',
     value: stats.agentCount,
     icon: Cpu,
     gradient: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
@@ -253,7 +286,7 @@ const statCards = computed(() => [
     ...generateSparkline([3, 5, 4, 7, 6, 8, 10, 9, 11, stats.agentCount || 12]),
   },
   {
-    label: '知识库数量',
+    label: 'Knowledge bases',
     value: stats.knowledgeBaseCount,
     icon: Collection,
     gradient: 'linear-gradient(135deg, #22d3ee, #06b6d4)',
@@ -263,7 +296,7 @@ const statCards = computed(() => [
     ...generateSparkline([2, 3, 3, 4, 5, 5, 6, 6, 7, stats.knowledgeBaseCount || 8]),
   },
   {
-    label: 'Tool 数量',
+    label: 'Tool 鏁伴噺',
     value: stats.toolCount,
     icon: SetUp,
     gradient: 'linear-gradient(135deg, #f59e0b, #d97706)',
@@ -322,20 +355,50 @@ async function fetchStats() {
 }
 
 async function checkHealth() {
-  const services = [
-    { name: 'ai-agent-service', url: 'http://localhost:18603', healthPath: '/actuator/health' },
-    { name: 'ai-skills-service', url: 'http://localhost:18602', healthPath: '/ai/actuator/health' },
-    { name: 'ai-model-service', url: 'http://localhost:18601', healthPath: '/actuator/health' },
-  ]
+  await Promise.all([
+    checkControlAndInternalServices(),
+    checkHttpService('reachai-knowledge-service', '/ai/actuator/health'),
+    checkHttpService('reachai-model-service', '/model/providers'),
+  ])
+}
 
-  for (const svc of services) {
-    try {
-      const resp = await fetch(svc.healthPath, { signal: AbortSignal.timeout(5000) })
-      serviceHealth[svc.name] = resp.ok ? 'online' : 'offline'
-    } catch {
-      serviceHealth[svc.name] = 'offline'
+async function checkControlAndInternalServices() {
+  try {
+    const resp = await fetch('/api/internal-services/health', { signal: AbortSignal.timeout(5000) })
+    serviceHealth['reachai-control-service'] = resp.ok ? 'online' : 'offline'
+    if (!resp.ok) {
+      serviceHealth['reachai-runtime-service'] = 'offline'
+      serviceHealth['reachai-capability-service'] = 'offline'
+      return
     }
+    const body = await resp.json() as InternalServicesHealthResponse
+    serviceHealth['reachai-runtime-service'] = isUp(body.services?.runtime) ? 'online' : 'offline'
+    serviceHealth['reachai-capability-service'] = isUp(body.services?.capability) ? 'online' : 'offline'
+  } catch {
+    serviceHealth['reachai-control-service'] = 'offline'
+    serviceHealth['reachai-runtime-service'] = 'offline'
+    serviceHealth['reachai-capability-service'] = 'offline'
   }
+}
+
+async function checkHttpService(name: string, healthPath: string) {
+  try {
+    const resp = await fetch(healthPath, { signal: AbortSignal.timeout(5000) })
+    serviceHealth[name] = resp.ok ? 'online' : 'offline'
+  } catch {
+    serviceHealth[name] = 'offline'
+  }
+}
+
+interface InternalServicesHealthResponse {
+  services?: {
+    runtime?: { status?: string }
+    capability?: { status?: string }
+  }
+}
+
+function isUp(service?: { status?: string }) {
+  return service?.status === 'UP'
 }
 
 function buildActivityEvents() {
@@ -344,21 +407,21 @@ function buildActivityEvents() {
   const recent = recentAgents.value
   if (recent.length > 0) {
     events.push({
-      text: `Agent "${recent[0].name}" 最近更新`,
+      text: `Agent "${recent[0].name}" updated`,
       time: formatTime(now, 0),
       type: 'info',
     })
   }
   if (recentKnowledge.value.length > 0) {
     events.push({
-      text: `知识库 "${recentKnowledge.value[0].name}" 可用`,
+      text: `Knowledge base "${recentKnowledge.value[0].name}" available`,
       time: formatTime(now, 5),
       type: 'success',
     })
   }
   const allOnline = Object.values(serviceHealth).every(s => s === 'online')
   events.push({
-    text: allOnline ? '所有服务运行正常' : '部分服务异常，请检查',
+    text: allOnline ? 'All services online' : 'Some services are offline',
     time: formatTime(now, 10),
     type: allOnline ? 'success' : 'warning',
   })
@@ -562,6 +625,14 @@ onMounted(refresh)
 
   &.skill-bg {
     background: linear-gradient(135deg, #22d3ee, #06b6d4);
+  }
+
+  &.runtime-bg {
+    background: linear-gradient(135deg, #14b8a6, #0f766e);
+  }
+
+  &.capability-bg {
+    background: linear-gradient(135deg, #f97316, #dc2626);
   }
 
   &.model-bg {
@@ -805,7 +876,7 @@ onMounted(refresh)
   }
 }
 
-// ── 日间模式覆盖 ──
+// 日间模式覆盖
 :global([data-theme="light"]) {
   .topo-node {
     background: #ffffff;

@@ -37,7 +37,7 @@
         <el-table-column prop="toolCount" label="接口数" width="90" align="center" />
         <el-table-column label="状态" width="110" align="center">
           <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status)" size="small">{{ formatScanStatusLabel(row.status) }}</el-tag>
+            <el-tag :type="scanProjectStatusTagType(row.status)" size="small">{{ formatScanStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="错误信息" min-width="220">
@@ -172,6 +172,7 @@ import {
   formatScanProjectBlockersMessage,
   parseScanProjectBlockersFromError,
 } from '@/utils/scanProjectBlockers'
+import { scanProjectStatusTagType } from '@/views/scan/scanProjectDetailViewModel'
 
 const router = useRouter()
 const projects = ref<ScanProject[]>([])
@@ -211,13 +212,6 @@ function applyForm(project: ScanProjectUpsertRequest) {
   form.scanPath = project.scanPath
   form.scanType = project.scanType
   form.specFile = project.specFile || ''
-}
-
-function statusTagType(status: ScanProject['status']) {
-  if (status === 'scanned') return 'success'
-  if (status === 'failed') return 'danger'
-  if (status === 'scanning') return 'warning'
-  return 'info'
 }
 
 function kindTagType(kind?: string) {

@@ -1,4 +1,4 @@
-import { agentRequest } from './request'
+﻿import { controlRequest } from './request'
 
 export type ApiGraphNodeKind = 'API' | 'FIELD_IN' | 'FIELD_OUT' | 'DTO' | 'MODULE'
 export type ApiGraphEdgeKind = 'REQUEST_REF' | 'RESPONSE_REF' | 'MODEL_REF' | 'BELONGS_TO'
@@ -13,7 +13,7 @@ export interface ApiGraphNode {
   parentId: number | null
   label: string
   typeName: string | null
-  /** 后端透传的原始 JSON 字符串；前端按需 JSON.parse */
+  /** 扫描时自动落表后的字段 JSON 字符串，使用前请先执行 JSON.parse。 */
   propsJson: string | null
 }
 
@@ -79,78 +79,78 @@ export interface ApiGraphLayoutSaveRequest {
 }
 
 export function getApiGraphSnapshot(projectId: number) {
-  return agentRequest.get<ApiGraphSnapshot>(`/api/api-graph/projects/${projectId}/snapshot`)
+  return controlRequest.get<ApiGraphSnapshot>(`/api/api-graph/projects/${projectId}/snapshot`)
 }
 
-/** 校验并规范化图谱快照（兼容裸 REST 或 ApiResult 包裹后的 body） */
+/** 兼容历史包装响应：若返回 ApiResult，优先解析其 body。 */
 export function parseApiGraphSnapshot(raw: unknown): ApiGraphSnapshot {
   let body = raw
   if (body !== null && typeof body === 'object' && typeof (body as Record<string, unknown>).code === 'number') {
     const wrap = body as { code: number; message?: string; data?: unknown }
     if (wrap.code !== 200 && wrap.code !== 0) {
-      throw new Error(wrap.message || '请求失败')
+      throw new Error(wrap.message || '璇锋眰澶辫触')
     }
     body = wrap.data
   }
   if (body === null || typeof body !== 'object') {
-    throw new Error('图谱响应为空')
+    throw new Error('解析返回数据失败')
   }
   const s = body as Record<string, unknown>
   if (!Array.isArray(s.nodes) || !Array.isArray(s.edges) || !Array.isArray(s.layouts)) {
-    throw new Error('图谱快照格式错误：缺少 nodes / edges / layouts')
+    throw new Error('解析返回数据格式异常，缺少 nodes / edges / layouts')
   }
   return body as ApiGraphSnapshot
 }
 
 export function rebuildApiGraph(projectId: number) {
-  return agentRequest.post<ApiGraphSnapshot>(`/api/api-graph/projects/${projectId}/rebuild`, {})
+  return controlRequest.post<ApiGraphSnapshot>(`/api/api-graph/projects/${projectId}/rebuild`, {})
 }
 
-/** 删除本项目图谱后按扫描结果全量再生（节点 ID 会变；手工连线与布局丢失） */
+/** 删除图谱后先重建图谱再继续关联；否则会影响历史节点 ID 与画布布局关系。 */
 export function regenerateApiGraph(projectId: number) {
-  return agentRequest.post<ApiGraphSnapshot>(`/api/api-graph/projects/${projectId}/regenerate`, {})
+  return controlRequest.post<ApiGraphSnapshot>(`/api/api-graph/projects/${projectId}/regenerate`, {})
 }
 
 export function inferApiGraphModelEdges(projectId: number) {
-  return agentRequest.post<ApiGraphInferResult>(`/api/api-graph/projects/${projectId}/infer`, {})
+  return controlRequest.post<ApiGraphInferResult>(`/api/api-graph/projects/${projectId}/infer`, {})
 }
 
 export function inferApiGraphRequestResponseEdges(projectId: number) {
-  return agentRequest.post<ApiGraphInferResult>(`/api/api-graph/projects/${projectId}/infer/request-response`, {})
+  return controlRequest.post<ApiGraphInferResult>(`/api/api-graph/projects/${projectId}/infer/request-response`, {})
 }
 
 export function listApiGraphCandidates(projectId: number, status = 'CANDIDATE', minConfidence?: number) {
-  return agentRequest.get<ApiGraphEdge[]>(`/api/api-graph/projects/${projectId}/candidates`, {
+  return controlRequest.get<ApiGraphEdge[]>(`/api/api-graph/projects/${projectId}/candidates`, {
     params: { status, minConfidence },
   })
 }
 
 export function confirmApiGraphCandidate(projectId: number, edgeId: number, confirmedBy = 'operator') {
-  return agentRequest.post<ApiGraphEdge>(`/api/api-graph/projects/${projectId}/candidates/${edgeId}/confirm`, {
+  return controlRequest.post<ApiGraphEdge>(`/api/api-graph/projects/${projectId}/candidates/${edgeId}/confirm`, {
     confirmedBy,
   })
 }
 
 export function rejectApiGraphCandidate(projectId: number, edgeId: number, rejectReason?: string) {
-  return agentRequest.post<ApiGraphEdge>(`/api/api-graph/projects/${projectId}/candidates/${edgeId}/reject`, {
+  return controlRequest.post<ApiGraphEdge>(`/api/api-graph/projects/${projectId}/candidates/${edgeId}/reject`, {
     rejectReason,
   })
 }
 
 export function getApiGraphParamHints(projectId: number, toolName: string) {
-  return agentRequest.get<ApiGraphParamSourceHint[]>(
+  return controlRequest.get<ApiGraphParamSourceHint[]>(
     `/api/api-graph/projects/${projectId}/tools/${encodeURIComponent(toolName)}/param-hints`
   )
 }
 
 export function upsertApiGraphEdge(projectId: number, payload: ApiGraphEdgeUpsertRequest) {
-  return agentRequest.post<ApiGraphEdge>(`/api/api-graph/projects/${projectId}/edges`, payload)
+  return controlRequest.post<ApiGraphEdge>(`/api/api-graph/projects/${projectId}/edges`, payload)
 }
 
 export function deleteApiGraphEdge(projectId: number, edgeId: number) {
-  return agentRequest.delete(`/api/api-graph/projects/${projectId}/edges/${edgeId}`)
+  return controlRequest.delete(`/api/api-graph/projects/${projectId}/edges/${edgeId}`)
 }
 
 export function saveApiGraphLayout(projectId: number, payload: ApiGraphLayoutSaveRequest) {
-  return agentRequest.put(`/api/api-graph/projects/${projectId}/layout`, payload)
+  return controlRequest.put(`/api/api-graph/projects/${projectId}/layout`, payload)
 }

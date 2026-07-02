@@ -1,0 +1,259 @@
+.sdk-config-dialog .el-dialog__body {
+  padding-top: 8px;
+}
+
+.sdk-config-dialog .sdk-config-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.sdk-config-dialog .sdk-credential-form {
+  padding: 16px 16px 2px;
+  border: 1px solid #e7ebf3;
+  border-radius: 8px;
+  background: #fbfcff;
+}
+
+.sdk-config-dialog .sdk-code-shell {
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid #111827;
+  background: #05070d;
+}
+
+.sdk-config-dialog .sdk-code-toolbar {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  background: #0b1020;
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sdk-config-dialog .sdk-code-panel {
+  max-height: 430px;
+  min-height: 320px;
+  margin: 0;
+  overflow: auto;
+  padding: 18px 20px;
+  background: #05070d;
+  color: #e5e7eb;
+  font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.sdk-config-dialog .sdk-code-panel code {
+  display: block;
+  min-width: max-content;
+  white-space: pre;
+}
+
+[data-theme="dark"] .registry-detail-page {
+  background:
+    radial-gradient(circle at 28% -8%, rgb(var(--brand-primary-rgb) / 0.18), transparent 34%),
+    #0b1020;
+  color: #e5e7eb;
+
+  .back-btn {
+    color: #cbd5e1;
+
+    &:hover {
+      color: #ffffff;
+    }
+  }
+
+  .project-mark {
+    background: linear-gradient(180deg, rgb(var(--brand-primary-rgb) / 0.22), rgba(30, 41, 59, 0.8));
+    border-color: rgb(var(--brand-hover-rgb) / 0.45);
+    color: var(--brand-selected-bg);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.28);
+  }
+
+  .title-row h1,
+  .project-meta b,
+  .section-title,
+  .item-value,
+  .quick-copy strong {
+    color: #f8fafc;
+  }
+
+  .code-tag {
+    color: var(--brand-selected-bg);
+    border-color: rgba(148, 163, 184, 0.35);
+    background: rgba(15, 23, 42, 0.82);
+  }
+
+  .env-tag {
+    color: #86efac;
+    border-color: rgba(34, 197, 94, 0.34);
+    background: rgba(20, 83, 45, 0.26);
+  }
+
+  .project-meta {
+    color: #94a3b8;
+
+    .el-icon {
+      color: #94a3b8;
+    }
+  }
+
+  .detail-card {
+    background: rgba(15, 23, 42, 0.88);
+    border-color: rgba(148, 163, 184, 0.18);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
+
+    .el-card__header {
+      border-bottom-color: rgba(148, 163, 184, 0.14);
+      background: rgba(15, 23, 42, 0.48);
+    }
+  }
+
+  .overview-item {
+    border-right-color: rgba(148, 163, 184, 0.14);
+    border-bottom-color: rgba(148, 163, 184, 0.14);
+  }
+
+  .item-icon {
+    color: #cbd5e1;
+    background: rgba(148, 163, 184, 0.1);
+  }
+
+  .item-label,
+  .quick-copy small,
+  .table-footer,
+  .line-no {
+    color: #94a3b8;
+  }
+
+  .link-value {
+    color: var(--brand-disabled);
+  }
+
+  .info-icon,
+  .quick-arrow {
+    color: #64748b;
+  }
+
+  .code-panel {
+    background: #0a0f1e;
+  }
+
+  .code-line {
+    code {
+      color: var(--brand-selected-bg);
+    }
+  }
+
+  .line-no {
+    border-right-color: rgba(148, 163, 184, 0.22);
+  }
+
+  .yaml-key {
+    color: var(--brand-disabled);
+  }
+
+  .yaml-bool {
+    color: #fda4af;
+  }
+
+  .yaml-url {
+    color: #cbd5e1;
+  }
+
+  .quick-entry {
+    background: rgba(15, 23, 42, 0.72);
+    border-color: rgba(148, 163, 184, 0.18);
+
+    &:hover:not(:disabled) {
+      border-color: rgb(var(--brand-hover-rgb) / 0.62);
+      box-shadow: 0 16px 34px rgba(0, 0, 0, 0.24);
+    }
+  }
+
+  .health-item,
+  .task-entry,
+  .summary-metric {
+    background: rgba(15, 23, 42, 0.72);
+    border-color: rgba(148, 163, 184, 0.18);
+  }
+
+  .health-item.good {
+    background: rgba(20, 83, 45, 0.24);
+    border-color: rgba(34, 197, 94, 0.32);
+  }
+
+  .health-item.attention {
+    background: rgba(120, 53, 15, 0.2);
+    border-color: rgba(245, 158, 11, 0.32);
+  }
+
+  .health-icon {
+    background: rgb(var(--brand-primary-rgb) / 0.2);
+    color: var(--brand-selected-bg);
+  }
+
+  .health-item strong,
+  .task-topline strong,
+  .summary-metric strong {
+    color: #f8fafc;
+  }
+
+  .health-label,
+  .health-item small,
+  .task-content small,
+  .summary-metric span {
+    color: #94a3b8;
+  }
+
+  .instance-table {
+    .el-table,
+    .el-table__inner-wrapper,
+    .el-table__body-wrapper,
+    .el-table__header-wrapper {
+      background: transparent;
+    }
+
+    th.el-table__cell {
+      background: rgba(30, 41, 59, 0.76);
+      color: #cbd5e1;
+      border-bottom-color: rgba(148, 163, 184, 0.16);
+    }
+
+    td.el-table__cell {
+      background: rgba(15, 23, 42, 0.58);
+      color: #e2e8f0;
+      border-bottom-color: rgba(148, 163, 184, 0.12);
+    }
+
+    .el-table__row:hover > td.el-table__cell {
+      background: rgba(30, 41, 59, 0.92);
+    }
+  }
+
+  .instance-id {
+    color: var(--brand-disabled);
+  }
+
+  .status-pill {
+    background: rgba(20, 83, 45, 0.3);
+    color: #86efac;
+    border-color: rgba(34, 197, 94, 0.38);
+
+    &.offline {
+      background: rgba(51, 65, 85, 0.52);
+      color: #cbd5e1;
+      border-color: rgba(148, 163, 184, 0.22);
+    }
+  }
+
+  .table-footer {
+    border-top-color: rgba(148, 163, 184, 0.14);
+  }
+}

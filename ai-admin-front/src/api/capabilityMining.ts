@@ -1,4 +1,4 @@
-import { agentRequest } from './request'
+﻿import { controlRequest } from './request'
 
 const BASE = '/api/capability-mining'
 
@@ -10,7 +10,7 @@ export interface CapabilityMiningPrecheck {
   recommendedScenarios: string[]
 }
 
-/** 与后端 skill_draft 表序列化一致（legacy 存储命名） */
+/** 后续流程把 skill_draft 能力草稿统一转换为能力草稿（legacy 名称保留，仅作兼容）。 */
 export interface CapabilityDraft {
   id: number
   name: string
@@ -22,28 +22,28 @@ export interface CapabilityDraft {
 }
 
 export function getCapabilityMiningPrecheck(days = 7) {
-  return agentRequest.get<CapabilityMiningPrecheck>(`${BASE}/precheck`, { params: { days } })
+  return controlRequest.get<CapabilityMiningPrecheck>(`${BASE}/precheck`, { params: { days } })
 }
 
 export function generateCapabilityDrafts(data: { days: number; minSupport: number; limit: number }) {
-  return agentRequest.post<CapabilityDraft[]>(`${BASE}/drafts/generate`, data)
+  return controlRequest.post<CapabilityDraft[]>(`${BASE}/drafts/generate`, data)
 }
 
 export function listCapabilityDrafts() {
-  return agentRequest.get<CapabilityDraft[]>(`${BASE}/drafts`)
+  return controlRequest.get<CapabilityDraft[]>(`${BASE}/drafts`)
 }
 
 export function updateCapabilityDraftStatus(id: number, data: { status: string; reviewNote?: string }) {
-  return agentRequest.post(`${BASE}/drafts/${id}/status`, data)
+  return controlRequest.post(`${BASE}/drafts/${id}/status`, data)
 }
 
 export function publishCapabilityDraft(id: number) {
-  return agentRequest.post(`${BASE}/drafts/${id}/publish`)
+  return controlRequest.post(`${BASE}/drafts/${id}/publish`)
 }
 
-/** Trace → 能力草稿一键抽取 */
+/** Trace 仅做聚合分析后产生草稿能力；输出保持兼容字段。 */
 export function extractDraftFromTrace(data: { traceId: string; toolNames?: string[] }) {
-  return agentRequest.post<CapabilityDraft>(`${BASE}/drafts/from-trace`, data)
+  return controlRequest.post<CapabilityDraft>(`${BASE}/drafts/from-trace`, data)
 }
 
 export function extractDraftFromCanvas(data: {
@@ -51,7 +51,7 @@ export function extractDraftFromCanvas(data: {
   toolNames: string[]
   canvasJson?: string | null
 }) {
-  return agentRequest.post<CapabilityDraft>(`${BASE}/drafts/from-canvas`, data)
+  return controlRequest.post<CapabilityDraft>(`${BASE}/drafts/from-canvas`, data)
 }
 
 export interface DemoTraceResult {
@@ -65,9 +65,9 @@ export function generateDemoTraces(data: {
   successRate: number
   noiseRate: number
 }) {
-  return agentRequest.post<DemoTraceResult>(`${BASE}/demo-traces/generate`, data)
+  return controlRequest.post<DemoTraceResult>(`${BASE}/demo-traces/generate`, data)
 }
 
 export function clearDemoTraces() {
-  return agentRequest.post<{ deleted: number }>(`${BASE}/demo-traces/clear`)
+  return controlRequest.post<{ deleted: number }>(`${BASE}/demo-traces/clear`)
 }

@@ -1,5 +1,5 @@
 # ============================================
-# Enterprise Agent Framework — Unified .gitignore
+# Enterprise Agent Framework - Unified .gitignore
 # ============================================
 
 # ---- Compiled / Build ----
@@ -12,9 +12,11 @@
 *.zip
 *.tar.gz
 *.rar
+*.pid
 target/
 tmp/
 .codex-logs/
+logs/
 
 # ---- JVM crash logs ----
 hs_err_pid*
@@ -25,12 +27,27 @@ replay_pid*
 *.iml
 .vscode/
 .worktrees/
-.cursor/playwright-output/
 .classpath
 .project
 .settings/
 .factorypath
 .springBeans
+
+# Shared IntelliJ run configs for the five ReachAI services are intentionally tracked.
+# Keep .run/ out of this ignore list.
+
+# ---- AI / Local Assistant Tooling ----
+.claude/
+.mimocode/
+.playwright-cli/
+.superpowers/
+.cursor/*
+!.cursor/
+!.cursor/rules/
+!.cursor/rules/**
+.cursor/playwright-output/
+.cursor/mcp.json
+.cursor/dbhub-ai-mysql.toml
 
 # ---- Frontend (ai-admin-front) ----
 ai-admin-front/node_modules/

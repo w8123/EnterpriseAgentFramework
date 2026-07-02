@@ -1,4 +1,4 @@
-import { agentRequest } from './request'
+﻿import { controlRequest } from './request'
 import type {
   ContextAuditEvent,
   ContextBinding,
@@ -44,70 +44,70 @@ export function listContextNamespaces(params: {
   namespaceType?: string
   status?: string
 }) {
-  return agentRequest.get<ContextNamespace[]>('/api/context/namespaces', { params })
+  return controlRequest.get<ContextNamespace[]>('/api/context/namespaces', { params })
 }
 
 export function createContextNamespace(data: ContextNamespaceRequest) {
-  return agentRequest.post<ContextNamespace>('/api/context/namespaces', data)
+  return controlRequest.post<ContextNamespace>('/api/context/namespaces', data)
 }
 
 export function getContextNamespace(id: number) {
-  return agentRequest.get<ContextNamespace>(`/api/context/namespaces/${id}`)
+  return controlRequest.get<ContextNamespace>(`/api/context/namespaces/${id}`)
 }
 
 export function deleteContextNamespace(id: number) {
-  return agentRequest.delete<ContextNamespace>(`/api/context/namespaces/${id}`)
+  return controlRequest.delete<ContextNamespace>(`/api/context/namespaces/${id}`)
 }
 
 export function listContextItems(params: ContextItemListParams) {
-  return agentRequest.get<ContextItem[]>('/api/context/items', { params })
+  return controlRequest.get<ContextItem[]>('/api/context/items', { params })
 }
 
 export function getContextItem(id: number, scope: ContextScope) {
-  return agentRequest.get<ContextItem>(`/api/context/items/${id}`, { params: scopeParams(scope) })
+  return controlRequest.get<ContextItem>(`/api/context/items/${id}`, { params: scopeParams(scope) })
 }
 
 export function createContextItem(data: ContextItemCreateRequest) {
-  return agentRequest.post<ContextItem>('/api/context/items', data)
+  return controlRequest.post<ContextItem>('/api/context/items', data)
 }
 
 export function updateContextItem(id: number, data: ContextItemUpdateRequest, scope: ContextScope) {
-  return agentRequest.put<ContextItem>(`/api/context/items/${id}`, data, { params: scopeParams(scope) })
+  return controlRequest.put<ContextItem>(`/api/context/items/${id}`, data, { params: scopeParams(scope) })
 }
 
 export function revokeContextItem(id: number, scope: ContextScope) {
-  return agentRequest.post<ContextItem>(`/api/context/items/${id}/revoke`, scopeParams(scope))
+  return controlRequest.post<ContextItem>(`/api/context/items/${id}/revoke`, scopeParams(scope))
 }
 
 export function markContextItemStale(id: number, scope: ContextScope) {
-  return agentRequest.post<ContextItem>(`/api/context/items/${id}/stale`, scopeParams(scope))
+  return controlRequest.post<ContextItem>(`/api/context/items/${id}/stale`, scopeParams(scope))
 }
 
 export function verifyContextItem(
   id: number,
   body: { confidence?: number; trustLevel?: string } & ContextScope,
 ) {
-  return agentRequest.post<ContextItem>(`/api/context/items/${id}/verify`, body)
+  return controlRequest.post<ContextItem>(`/api/context/items/${id}/verify`, body)
 }
 
 export function deleteContextItem(id: number, scope: ContextScope) {
-  return agentRequest.delete<ContextItem>(`/api/context/items/${id}`, { data: scopeParams(scope) })
+  return controlRequest.delete<ContextItem>(`/api/context/items/${id}`, { data: scopeParams(scope) })
 }
 
 export function listContextEvidence(itemId: number, scope: ContextScope) {
-  return agentRequest.get<ContextEvidence[]>(`/api/context/items/${itemId}/evidence`, {
+  return controlRequest.get<ContextEvidence[]>(`/api/context/items/${itemId}/evidence`, {
     params: scopeParams(scope),
   })
 }
 
 export function addContextEvidence(itemId: number, data: ContextEvidenceRequest, scope: ContextScope) {
-  return agentRequest.post<ContextEvidence>(`/api/context/items/${itemId}/evidence`, data, {
+  return controlRequest.post<ContextEvidence>(`/api/context/items/${itemId}/evidence`, data, {
     params: scopeParams(scope),
   })
 }
 
 export function listContextBindings(itemId: number, scope: ContextScope) {
-  return agentRequest.get<ContextBinding[]>(`/api/context/items/${itemId}/bindings`, {
+  return controlRequest.get<ContextBinding[]>(`/api/context/items/${itemId}/bindings`, {
     params: scopeParams(scope),
   })
 }
@@ -127,35 +127,35 @@ export function listContextAudit(params: {
   dateTo?: string
   limit?: number
 }) {
-  return agentRequest.get<ContextAuditEvent[]>('/api/context/audit', { params })
+  return controlRequest.get<ContextAuditEvent[]>('/api/context/audit', { params })
 }
 
 export function listContextMemoryCandidates(params: ContextMemoryCandidateListParams) {
-  return agentRequest.get<ContextMemoryCandidate[]>('/api/context/memory/candidates', { params })
+  return controlRequest.get<ContextMemoryCandidate[]>('/api/context/memory/candidates', { params })
 }
 
 export function createContextMemoryCandidate(data: ContextMemoryCandidateCreateRequest) {
-  return agentRequest.post<ContextMemoryCandidate>('/api/context/memory/candidates', data)
+  return controlRequest.post<ContextMemoryCandidate>('/api/context/memory/candidates', data)
 }
 
 export function approveContextMemoryCandidate(id: number, data: ContextMemoryCandidateReviewRequest) {
-  return agentRequest.post<ContextMemoryCandidate>(`/api/context/memory/candidates/${id}/approve`, data)
+  return controlRequest.post<ContextMemoryCandidate>(`/api/context/memory/candidates/${id}/approve`, data)
 }
 
 export function rejectContextMemoryCandidate(id: number, data: ContextMemoryCandidateReviewRequest) {
-  return agentRequest.post<ContextMemoryCandidate>(`/api/context/memory/candidates/${id}/reject`, data)
+  return controlRequest.post<ContextMemoryCandidate>(`/api/context/memory/candidates/${id}/reject`, data)
 }
 
 export function updateContextMemoryCandidate(id: number, data: ContextMemoryCandidateUpdateRequest) {
-  return agentRequest.put<ContextMemoryCandidate>(`/api/context/memory/candidates/${id}`, data)
+  return controlRequest.put<ContextMemoryCandidate>(`/api/context/memory/candidates/${id}`, data)
 }
 
 export function approveContextMemoryCandidateBatch(data: ContextMemoryCandidateBatchReviewRequest) {
-  return agentRequest.post<ContextMemoryCandidate[]>('/api/context/memory/candidates/batch/approve', data)
+  return controlRequest.post<ContextMemoryCandidate[]>('/api/context/memory/candidates/batch/approve', data)
 }
 
 export function rejectContextMemoryCandidateBatch(data: ContextMemoryCandidateBatchReviewRequest) {
-  return agentRequest.post<ContextMemoryCandidate[]>('/api/context/memory/candidates/batch/reject', data)
+  return controlRequest.post<ContextMemoryCandidate[]>('/api/context/memory/candidates/batch/reject', data)
 }
 
 export function getContextOpsSummary(params: {
@@ -165,7 +165,7 @@ export function getContextOpsSummary(params: {
   memoryLane?: MemoryLane
   includeRuntimeUser?: boolean
 }) {
-  return agentRequest.get<ContextOpsSummary>('/api/context/ops/summary', { params })
+  return controlRequest.get<ContextOpsSummary>('/api/context/ops/summary', { params })
 }
 
 export function runContextLifecycleDryRun(body: {
@@ -175,7 +175,7 @@ export function runContextLifecycleDryRun(body: {
   dryRun: boolean
   includeRuntimeUserItems?: boolean
 }) {
-  return agentRequest.post<ContextLifecycleRunResult>('/api/context/lifecycle/run', body)
+  return controlRequest.post<ContextLifecycleRunResult>('/api/context/lifecycle/run', body)
 }
 
 export function composeContextPackage(body: {
@@ -190,7 +190,7 @@ export function composeContextPackage(body: {
   maxItems?: number
   tokenBudget?: number
 }) {
-  return agentRequest.post<ContextPackageResponse>('/api/context/package', body)
+  return controlRequest.post<ContextPackageResponse>('/api/context/package', body)
 }
 
 export function queryContextItems(body: {
@@ -203,17 +203,17 @@ export function queryContextItems(body: {
   itemTypes?: string[]
   topK?: number
 }) {
-  return agentRequest.post<ContextSearchResult[]>('/api/context/query', body)
+  return controlRequest.post<ContextSearchResult[]>('/api/context/query', body)
 }
 
 export function listContextRuntimeUserMappings(params: ContextRuntimeUserMappingListParams) {
-  return agentRequest.get<ContextRuntimeUserMapping[]>('/api/context/runtime-user-mappings', { params })
+  return controlRequest.get<ContextRuntimeUserMapping[]>('/api/context/runtime-user-mappings', { params })
 }
 
 export function createContextRuntimeUserMapping(data: ContextRuntimeUserMappingCreateRequest) {
-  return agentRequest.post<ContextRuntimeUserMapping>('/api/context/runtime-user-mappings', data)
+  return controlRequest.post<ContextRuntimeUserMapping>('/api/context/runtime-user-mappings', data)
 }
 
 export function deleteContextRuntimeUserMapping(id: number) {
-  return agentRequest.delete<ContextRuntimeUserMapping>(`/api/context/runtime-user-mappings/${id}`)
+  return controlRequest.delete<ContextRuntimeUserMapping>(`/api/context/runtime-user-mappings/${id}`)
 }

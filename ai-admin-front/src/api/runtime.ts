@@ -1,6 +1,6 @@
-import { agentRequest } from './request'
+﻿import { controlRequest } from './request'
 import type { RuntimeRegistryEntry } from '@/types/agent'
 
 export function listRuntimeRegistry() {
-  return agentRequest.get<RuntimeRegistryEntry[]>('/api/runtimes')
+  return controlRequest.get<RuntimeRegistryEntry[]>('/api/runtimes')
 }

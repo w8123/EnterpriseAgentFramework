@@ -1,31 +1,11 @@
 -- ============================================================================
 -- 睿池 ReachAI — 首次上线统一初始化脚本
--- 数据库：ai_text_service（ai-skills-service / ai-model-service / ai-agent-service 共用同一库）
+-- 数据库：ai_text_service（五服务第一阶段共用同一库；旧 ai-agent-service module 已删除）
 --
--- 本脚本覆盖以下历史迁移（按原文件名列出）：
---   ai-skills-service/sql/init.sql                 v1
---   ai-skills-service/sql/upgrade_v2.sql           v2
---   ai-skills-service/sql/business_index_v3.sql    v3
---   ai-skills-service/sql/tool_definition_v4.sql   v4（与 v1 重复，此处合并）
---   ai-skills-service/sql/scan_project_v5.sql      v5
---   ai-skills-service/sql/semantic_docs_v6.sql     v6
---   ai-skills-service/sql/scan_project_tool_v7.sql v7
---   ai-agent-service/sql/tool_call_log_v8.sql      v8（Phase 1 审计日志）
---   ai-agent-service/sql/skill_phase2_0.sql        Phase 2.0 SubAgentSkill
---   ai-agent-service/sql/backfill_side_effect.sql  Phase 2.0.1 sideEffect 回填
---   ai-agent-service/sql/tool_call_log_index_phase2_0_1.sql Phase 2.0.1 索引
---   ai-agent-service/sql/skill_mining_phase2_1.sql Phase 2.1 Skill Mining
---   ai-agent-service/sql/agent_studio_phase3_0.sql Phase 3.0 Agent Studio（已退役，见 ai_agent / ai_workflow）
---   ai-agent-service/sql/scan_project_auth.sql  scan_project HTTP 鉴权列（旧库可单独打补丁，幂等）
---   ai-agent-service/sql/tool_retrieval_setting.sql  Tool 语义检索：库表持久化 Embedding 实例 ID
---   ai-agent-service/sql/skill_draft_tool_definition.sql Skill 草稿：tool_definition.draft（kind=SKILL 时暂存）
---   ai-agent-service/sql/skill_interaction_phase2_x.sql Phase 2.x InteractiveFormSkill 挂起/恢复表 skill_interaction
---   ai-agent-service/sql/ai_capability_metadata.sql @ReachCapability 能力声明元数据
---   ai-model-service/sql/model_instance_v1.sql       模型实例表
---   ai-model-service/sql/model_instance_seed_common_v2.sql  常用模型实例种子（默认 DISABLED）
---   ai-skills-service/sql/model_instance_binding_v11.sql  v11（知识库 / 业务索引绑定模型实例）
---   ai-skills-service/sql/model_instance_only_v12.sql  v12（知识库 / 业务索引 legacy embedding_model 回填清理）
---   ai-agent-service/sql/model_instance_only_v4.sql   v4（Agent legacy model_name 回填清理）
+-- 本脚本是当前唯一 SQL 基线，已合并历史服务目录和历史 upgrade 脚本中的表、
+-- 补列、补索引、种子数据和必要清理结果。根目录 sql/ 默认只保留 init.sql
+-- 与 README.md；后续 schema/索引/种子变化仍需新增当次 upgrade 脚本，确认
+-- 并入下一版基线后再清理。
 --
 -- 幂等设计：
 --   - 建库 / 建表统一 IF NOT EXISTS；
@@ -117,7 +97,7 @@ DELIMITER ;
 
 
 -- ============================================================================
--- 零、模型实例中心（对应 ai-model-service，历史 v1 + v2 seed）
+-- 零、模型实例中心（当前归属 reachai-model-service，历史 v1 + v2 seed）
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS `ai_model_instance` (
@@ -293,7 +273,7 @@ VALUES
 
 
 -- ============================================================================
--- 一、知识库模块（对应 ai-skills-service，历史 v1 + v2）
+-- 一、知识库模块（当前归属 reachai-knowledge-service，历史 v1 + v2）
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS `knowledge_base` (
@@ -927,7 +907,7 @@ CREATE TABLE IF NOT EXISTS `ai_agent_workflow_binding` (
     KEY `idx_ai_binding_workflow` (`workflow_id`, `enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 到 Workflow 路由绑定';
 
--- Agent Studio Eval MVP：草稿流程自动评测
+-- Workflow Studio Eval：草稿流程自动评测
 CREATE TABLE IF NOT EXISTS `agent_eval_dataset` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
   `agent_id` VARCHAR(64) DEFAULT NULL COMMENT '关联 ai_agent.id；草稿评测可为空',
@@ -940,7 +920,7 @@ CREATE TABLE IF NOT EXISTS `agent_eval_dataset` (
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   KEY `idx_eval_dataset_agent` (`agent_id`, `create_time`),
   KEY `idx_eval_dataset_name` (`name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Studio 评测数据集';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 评测数据集';
 
 CREATE TABLE IF NOT EXISTS `agent_eval_case` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -955,7 +935,7 @@ CREATE TABLE IF NOT EXISTS `agent_eval_case` (
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY `idx_eval_case_dataset` (`dataset_id`, `enabled`, `id`),
   UNIQUE KEY `uk_eval_case_no` (`dataset_id`, `case_no`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Studio 评测用例';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 评测用例';
 
 CREATE TABLE IF NOT EXISTS `agent_eval_run` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -975,7 +955,7 @@ CREATE TABLE IF NOT EXISTS `agent_eval_run` (
   KEY `idx_eval_run_dataset` (`dataset_id`, `create_time`),
   KEY `idx_eval_run_agent` (`agent_id`, `create_time`),
   KEY `idx_eval_run_status` (`status`, `create_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Studio 评测运行任务';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 评测运行任务';
 
 CREATE TABLE IF NOT EXISTS `agent_eval_case_result` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -1000,7 +980,7 @@ CREATE TABLE IF NOT EXISTS `agent_eval_case_result` (
   KEY `idx_eval_result_run` (`run_id`, `case_id`, `round_no`),
   KEY `idx_eval_result_case` (`case_id`, `create_time`),
   KEY `idx_eval_result_status` (`run_id`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Studio 评测用例结果';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 评测用例结果';
 
 
 -- ============================================================================
@@ -2270,7 +2250,7 @@ CREATE TABLE IF NOT EXISTS `agent_workflow_credential` (
     UNIQUE KEY `uk_workflow_credential_ref` (`credential_ref`),
     KEY `idx_workflow_credential_project` (`project_id`, `status`),
     KEY `idx_workflow_credential_code` (`project_code`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Studio ?????????';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 节点凭证';
 
 CREATE TABLE IF NOT EXISTS `market_item` (
     `id`                       BIGINT       NOT NULL AUTO_INCREMENT,

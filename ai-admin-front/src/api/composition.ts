@@ -1,4 +1,4 @@
-import { agentRequest } from './request'
+﻿import { controlRequest } from './request'
 import type {
   CompositionAdminTestPendingItem,
   CompositionInfo,
@@ -14,7 +14,7 @@ const COMPOSITION_SELECTOR_PAGE_SIZE = 100
 const COMPOSITION_SELECTOR_MAX_PAGES = 20
 
 export function listCompositions(params?: CompositionListQuery) {
-  return agentRequest.get<CompositionPageResult>(BASE, { params })
+  return controlRequest.get<CompositionPageResult>(BASE, { params })
 }
 
 export async function listAllCompositions(
@@ -44,51 +44,51 @@ export async function listAllCompositions(
 }
 
 export function getCompositionDetail(name: string) {
-  return agentRequest.get<CompositionInfo>(`${BASE}/${encodeURIComponent(name)}`)
+  return controlRequest.get<CompositionInfo>(`${BASE}/${encodeURIComponent(name)}`)
 }
 
 export function createComposition(data: CompositionUpsertRequest) {
-  return agentRequest.post<CompositionInfo>(BASE, data)
+  return controlRequest.post<CompositionInfo>(BASE, data)
 }
 
 export function updateComposition(name: string, data: CompositionUpsertRequest) {
-  return agentRequest.put<CompositionInfo>(`${BASE}/${encodeURIComponent(name)}`, data)
+  return controlRequest.put<CompositionInfo>(`${BASE}/${encodeURIComponent(name)}`, data)
 }
 
 export function deleteComposition(name: string) {
-  return agentRequest.delete(`${BASE}/${encodeURIComponent(name)}`)
+  return controlRequest.delete(`${BASE}/${encodeURIComponent(name)}`)
 }
 
 export function toggleComposition(name: string, enabled: boolean) {
-  return agentRequest.put<CompositionInfo>(`${BASE}/${encodeURIComponent(name)}/toggle`, { enabled })
+  return controlRequest.put<CompositionInfo>(`${BASE}/${encodeURIComponent(name)}/toggle`, { enabled })
 }
 
 export function testComposition(name: string, args: Record<string, unknown>) {
-  return agentRequest.post<CompositionTestResult>(`${BASE}/${encodeURIComponent(name)}/test`, { args })
+  return controlRequest.post<CompositionTestResult>(`${BASE}/${encodeURIComponent(name)}/test`, { args })
 }
 
-/** 交互式表单能力挂起后继续（确认卡 / 表单批交等） */
+/** 浜や簰寮忚〃鍗曡兘鍔涙寕璧峰悗缁х画锛堢‘璁ゅ崱 / 琛ㄥ崟鎵逛氦绛夛級 */
 export function testCompositionResume(
   name: string,
   body: { interactionId: string; action?: string; values?: Record<string, unknown> },
 ) {
-  return agentRequest.post<CompositionTestResult>(`${BASE}/${encodeURIComponent(name)}/test/resume`, body)
+  return controlRequest.post<CompositionTestResult>(`${BASE}/${encodeURIComponent(name)}/test/resume`, body)
 }
 
 export function getCompositionMetrics(name: string, days = 7) {
-  return agentRequest.get<CompositionMetrics>(`${BASE}/${encodeURIComponent(name)}/metrics`, {
+  return controlRequest.get<CompositionMetrics>(`${BASE}/${encodeURIComponent(name)}/metrics`, {
     params: { days },
   })
 }
 
 export function getAdminTestPendingInteractions() {
-  return agentRequest.get<CompositionAdminTestPendingItem[]>(`${BASE}/pending-interactions/admin-test`)
+  return controlRequest.get<CompositionAdminTestPendingItem[]>(`${BASE}/pending-interactions/admin-test`)
 }
 
 export function cancelAdminTestPendingInteraction(interactionId: string) {
-  return agentRequest.delete(`${BASE}/pending-interactions/admin-test/${encodeURIComponent(interactionId)}`)
+  return controlRequest.delete(`${BASE}/pending-interactions/admin-test/${encodeURIComponent(interactionId)}`)
 }
 
 export function cancelAllAdminTestPendingInteractions() {
-  return agentRequest.post<{ cancelled: number }>(`${BASE}/pending-interactions/admin-test/cancel-all`)
+  return controlRequest.post<{ cancelled: number }>(`${BASE}/pending-interactions/admin-test/cancel-all`)
 }

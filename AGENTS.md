@@ -19,33 +19,33 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 
 1. 业务系统通过 `reachai-spring-boot2-starter`、`reachai-capability-sdk`、`@ReachCapability`、`@ReachParam` 主动注册项目、实例、能力和 SDK 图。
 2. 平台侧形成能力快照、字段级 diff、评审 apply/ignore，并沉淀到能力资产目录。
-3. Workflow Studio 使用 `GraphSpec` 编排 Workflow（`ai_workflow`）；Agent 入口（`ai_agent`）通过 binding 绑定 Workflow。AI 生成/局部修改、调试、发布和回放均在 Workflow Studio 闭环。
+3. Workflow Studio 使用 `GraphSpec` 编排 Workflow（`ai_workflow`）；Agent 入口（`ai_agent`）通过 binding 绑定 Workflow。AI 生成、局部修改、调试、发布和回放均在 Workflow Studio 闭环。
 4. Runtime 通过 `AgentRuntimeAdapter` 解耦 AgentScope、LangGraph4j 和未来运行时。
 5. RunOps、Trace、Tool ACL、Guard、Gateway、MCP、A2A、嵌入式对话和企业身份共同组成生产治理边界。
 
-当前后端重塑采用“先拆职责，不先拆服务”的边界：现有 `ai-model-service`、`ai-skills-service`、`ai-agent-service` 三个部署单元暂时不变；长期逻辑域按 Model Gateway、Knowledge / Retrieval、Capability Catalog、Runtime Host、Platform Control 五类理解。新增代码和文档先归入正确逻辑域，再决定是否需要物理拆分。
+当前后端重塑已进入物理服务拆分后的旧结构退场阶段。目标拓扑是 `reachai-control-service`、`reachai-runtime-service`、`reachai-capability-service`、`reachai-knowledge-service`、`reachai-model-service`。第一阶段保持同一个 MySQL 库，不拆库；公共入口由 `reachai-control-service` 保持 `/api/**`、`/embed/**` 和 SDK 注册入口兼容。旧 `ai-agent-service` module 已从仓库主路径删除，不再作为 Maven、IDEA、本地启动或部署单元存在。任何新增代码必须遵守服务表所有权和服务间 API 边界，不允许为了快速编译跨服务直接写对方表。
 
 ## 关键目录
 
 - `ai-admin-front/`: Vue 3 + Element Plus 管理端。
-- `ai-agent-service/`: 当前平台核心部署单元，内部承载 Capability Catalog、Runtime Host、Platform Control；包括 Agent 入口、Workflow、Runtime、注册中心、能力资产、身份、开放协议、治理和运行观测。
-- `ai-skills-service/`: 当前 Knowledge / Retrieval 部署单元；包括知识库、文件、chunk、RAG、业务索引、向量检索和历史扫描器实现。不要再把它描述成“技能服务”。
-- `ai-model-service/`: 当前 Model Gateway 部署单元；包括模型实例中心、Chat、Embedding、Rerank 和 OpenAI 兼容代理。
+- `reachai-control-service/`: 当前 Platform Control / public API BFF 主入口，保持 `/api/**`、`/embed/**` 和 SDK 注册公开入口。
+- `reachai-runtime-service/`: 当前 Runtime Host 部署单元，承接 Agent、Workflow、GraphSpec、Trace、RunOps、调试和运行时内部 API。
+- `reachai-capability-service/`: 当前 Capability Catalog 部署单元，承接 SDK 注册、能力快照、diff/review/apply、扫描目录和能力资产 API。
+- `reachai-knowledge-service/`: 当前 Knowledge / Retrieval 部署单元；包括知识库、文件、chunk、RAG、业务索引、向量检索和历史扫描器实现。不要再把它描述成“技能服务”。
+- `reachai-model-service/`: 当前 Model Gateway 部署单元；包括模型实例中心、Chat、Embedding、Rerank 和 OpenAI 兼容代理。
 - `reachai-capability-sdk/`: JDK8 兼容的业务能力声明 SDK 契约。
 - `reachai-spring-boot2-starter/`: Spring Boot 2 业务系统接入、扫描、注册和 SDK 图同步。
 - `ai-runtime-contract/`: 中台内部 Tool / Skill 运行时契约。
 - `sql/init.sql`: 当前唯一 SQL 基线入口。
-- `sql/upgrade-*.sql`: 已有环境升级脚本。
+- `sql/upgrade-*.sql`: 仅用于当次数据库变更升级已有开发/测试库；历史升级脚本已并入 `sql/init.sql` 后清理，确认合入新基线后可再次清理。
 - `docs/`: 当前权威知识库。
 - `docs/ai-memory/`: 给 AI 编程工具看的项目记忆。
 
 ## SQL 规则
 
 - 任何 schema、索引、种子数据、字段语义相关改动，都必须检查 `sql/init.sql`。
-- 如果改动需要数据库变化，必须同时：
-  - 修改 `sql/init.sql`，让全新环境直接可用。
-  - 新增一份 `sql/upgrade-YYYYMMDD-short-name.sql`，让已有开发/测试库可升级。
-  - 更新 `sql/README.md` 或相关文档中的执行说明。
+- 如果改动需要数据库变化，必须至少修改 `sql/init.sql`，让全新环境直接可用。
+- 如果该数据库变化还需要落到已有开发/测试库，必须新增一份 `sql/upgrade-YYYYMMDD-short-name.sql`，写清升级影响，并更新 `sql/README.md` 或相关文档中的执行说明。
 - 不再使用 `ai-agent-service/sql`、`ai-model-service/sql`、`ai-skills-service/sql` 作为活跃迁移目录。
 - 默认不为旧数据做复杂兼容迁移；如果必须清理、重建、重命名或丢弃旧字段，直接在升级 SQL 和变更说明里写清楚。
 - MySQL 5.7/8 兼容性要看 `sql/init.sql` 已有写法，优先沿用现有 `information_schema` 判空和幂等模式。
@@ -53,7 +53,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 ## GraphSpec 与 Runtime
 
 - `GraphSpec` 是运行语义，归属 Workflow；`canvas_json` 只是画布布局。
-- 后端类型以 `ai-agent-service/src/main/java/com/enterprise/ai/agent/graph/GraphSpec.java` 为准。
+- 后端类型以当前主路径服务中的 `com.enterprise.ai.agent.graph.GraphSpec` 为准；`reachai-runtime-service` 是 Runtime 执行主路径，后续再评估 shared-kernel 抽取。
 - 前端 Workflow 图语义类型以 `ai-admin-front/src/types/workflow.ts` 为准（Studio 状态、Workflow 定义等；共享节点/边结构仍可见于 `agent.ts` 的 `AgentGraphSpec`）。
 - DB 字段：`ai_workflow.graph_spec_json`（运行语义）、`ai_workflow.canvas_json`（画布布局）。
 - 发布校验由 `WorkflowReleaseValidationService` 负责；Runtime 执行主线在 `LangGraph4jRuntimeAdapter`（经 binding 解析 Workflow）。
@@ -79,7 +79,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 - 后端优先跑相关 Maven 模块测试；小改动至少跑对应模块编译或目标测试。
 - 前端改动优先在 `ai-admin-front` 下跑 `npm run build`，必要时先跑 `npx vue-tsc --noEmit`。
 - 文档和规则改动至少跑 `git diff --check`，并检查链接/路径是否指向真实文件。
-- SQL 改动至少检查 `sql/init.sql` 和新增 upgrade SQL 都包含目标表/列/索引；有 MySQL 环境时再执行验证。
+- SQL 改动至少检查 `sql/init.sql`；如果当前任务新增 upgrade SQL，还要确认 upgrade SQL 包含目标表/列/索引。有 MySQL 环境时再执行验证。
 - 如果用户报告具体错误，必须复现或对照同一错误签名后再声明修复完成。
 
 ## AI 记忆入口

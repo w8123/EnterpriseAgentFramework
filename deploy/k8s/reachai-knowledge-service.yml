@@ -1,0 +1,68 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reachai-knowledge-service
+  labels:
+    app: reachai-knowledge-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: reachai-knowledge-service
+  template:
+    metadata:
+      labels:
+        app: reachai-knowledge-service
+    spec:
+      containers:
+        - name: reachai-knowledge-service
+          image: registry.enterprise.com/ai/reachai-knowledge-service:latest
+          ports:
+            - containerPort: 18602
+          env:
+            - name: AI_MYSQL_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: mysql-url
+            - name: AI_MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: mysql-user
+            - name: AI_MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: mysql-password
+            - name: REDIS_HOST
+              value: redis
+            - name: MILVUS_HOST
+              value: milvus
+            - name: MODEL_SERVICE_URL
+              value: http://reachai-model-service:18601
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /ai/actuator/health
+              port: 18602
+            initialDelaySeconds: 30
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reachai-knowledge-service
+spec:
+  selector:
+    app: reachai-knowledge-service
+  ports:
+    - port: 18602
+      targetPort: 18602
+  type: ClusterIP

@@ -12,7 +12,7 @@ alwaysApply: true
 - 以当前仓库为事实源。先查真实代码、SQL、接口、前端页面和文档，再下结论。
 - 可以修改前端、后端、SQL、文档和构建配置，但改动必须聚焦当前任务。
 - 默认不考虑旧数据兼容；当前正确设计优先。
-- 数据库变化必须同时修改 `sql/init.sql` 并新增 `sql/upgrade-YYYYMMDD-short-name.sql`。
+- 数据库变化必须先检查并修改 `sql/init.sql`；如当前任务需要升级已有开发/测试库，再新增 `sql/upgrade-YYYYMMDD-short-name.sql`。
 - 不要使用 service 目录下的历史 SQL 作为活跃迁移入口。
 - 不要回滚、格式化或重写与任务无关的用户改动。
 - 中文文件统一按 UTF-8 读写。
@@ -31,7 +31,8 @@ alwaysApply: true
 ## Core Architecture
 
 - ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Builder。
-- 主线是 `ai-spring-boot-starter` + `@AiCapability` / `@AiParam` 注册能力，平台治理后进入 Agent Studio 和 Runtime。
+- 主线是 `reachai-spring-boot2-starter`、`reachai-capability-sdk`、`@ReachCapability` / `@ReachParam` 注册项目、实例、能力和 SDK 图，平台治理后进入能力资产目录、Workflow Studio 和 Runtime。
+- 当前后端主路径是 `reachai-control-service`、`reachai-runtime-service`、`reachai-capability-service`、`reachai-knowledge-service`、`reachai-model-service`；旧 `ai-agent-service` 不再作为 Maven、IDEA、本地启动或部署单元存在。
 - `GraphSpec` 是运行语义，`canvas_json` 只是画布布局。
 - `AgentRuntimeAdapter` 是运行时统一执行契约。
 - `Capability / 能力` 是产品默认命名；`Skill` 多为历史命名或兼容敏感存储名，不能盲目全局替换。
@@ -40,7 +41,7 @@ alwaysApply: true
 
 - 后端改动跑相关 Maven 模块测试或编译。
 - 前端改动在 `ai-admin-front` 跑 `npm run build`，必要时跑 `npx vue-tsc --noEmit`。
-- SQL 改动检查 `sql/init.sql` 和 upgrade SQL 都覆盖目标变更。
+- SQL 改动检查 `sql/init.sql`，以及当前任务新增的 upgrade SQL 是否覆盖目标变更。
 - 文档/规则改动至少跑 `git diff --check`。
 
 ## MCP Tools
@@ -48,4 +49,4 @@ alwaysApply: true
 - 需要浏览器调试、截图、DOM 快照、console 或 network 观察时，优先使用 Playwright MCP。
 - 需要查看实时 MySQL schema 或少量只读数据时，优先使用 `dbhub_ai_mysql`。
 - `dbhub_ai_mysql` 只能用于只读诊断，不执行 DDL/DML，不导出批量数据，不读取密钥或无关业务隐私。
-- 项目级 MCP 示例在 `.cursor/mcp.json`，数据库配置模板在 `.cursor/dbhub-ai-mysql.toml`；真实数据库密码必须来自本机环境变量，不要写入仓库。
+- `.cursor/mcp.json` 和 `.cursor/dbhub-ai-mysql.toml` 属于本机 MCP 配置，默认不提交；真实数据库密码必须来自本机环境变量，不要写入仓库。

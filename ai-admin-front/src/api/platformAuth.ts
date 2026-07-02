@@ -1,4 +1,4 @@
-import { agentRequest } from '@/api/request'
+﻿import { controlRequest } from '@/api/request'
 import { clearPlatformToken, setPlatformToken, setPlatformUser, type PlatformUserProfile } from '@/utils/platformAuth'
 
 export interface PlatformLoginResult {
@@ -59,11 +59,11 @@ export interface PlatformUserRoleGrantCommand {
 }
 
 export function loginPlatform(data: { username: string; password: string }) {
-  return agentRequest.post<PlatformLoginResult>('/api/platform/auth/login', data)
+  return controlRequest.post<PlatformLoginResult>('/api/platform/auth/login', data)
 }
 
 export function getCurrentPlatformUser() {
-  return agentRequest.get<PlatformUserProfile>('/api/platform/auth/me')
+  return controlRequest.get<PlatformUserProfile>('/api/platform/auth/me')
 }
 
 export function applyPlatformLogin(result: PlatformLoginResult) {
@@ -73,32 +73,32 @@ export function applyPlatformLogin(result: PlatformLoginResult) {
 
 export async function logoutPlatform() {
   try {
-    await agentRequest.post('/api/platform/auth/logout')
+    await controlRequest.post('/api/platform/auth/logout')
   } finally {
     clearPlatformToken()
   }
 }
 
 export function listPlatformAuthProviders() {
-  return agentRequest.get<PlatformAuthProviderView[]>('/api/platform/auth-providers')
+  return controlRequest.get<PlatformAuthProviderView[]>('/api/platform/auth-providers')
 }
 
 export function savePlatformAuthProvider(body: PlatformAuthProviderCommand) {
-  return agentRequest.post<PlatformAuthProviderView>('/api/platform/auth-providers', body)
+  return controlRequest.post<PlatformAuthProviderView>('/api/platform/auth-providers', body)
 }
 
 export function listPlatformUsers() {
-  return agentRequest.get<PlatformUserView[]>('/api/platform/users')
+  return controlRequest.get<PlatformUserView[]>('/api/platform/users')
 }
 
 export function listPlatformRoles() {
-  return agentRequest.get<PlatformRoleView[]>('/api/platform/roles')
+  return controlRequest.get<PlatformRoleView[]>('/api/platform/roles')
 }
 
 export function listPlatformUserRoleGrants(userId: number) {
-  return agentRequest.get<PlatformUserRoleGrant[]>(`/api/platform/users/${userId}/roles`)
+  return controlRequest.get<PlatformUserRoleGrant[]>(`/api/platform/users/${userId}/roles`)
 }
 
 export function savePlatformUserRoleGrants(userId: number, body: PlatformUserRoleGrantCommand[]) {
-  return agentRequest.put<PlatformUserRoleGrant[]>(`/api/platform/users/${userId}/roles`, body)
+  return controlRequest.put<PlatformUserRoleGrant[]>(`/api/platform/users/${userId}/roles`, body)
 }

@@ -1,4 +1,4 @@
-import { agentRequest } from './request'
+﻿import { controlRequest } from './request'
 import type {
   DomainAssignment,
   DomainClassifyResponse,
@@ -8,40 +8,40 @@ import type {
 } from '@/types/domain'
 
 export function listDomains() {
-  return agentRequest.get<DomainDef[]>('/api/domains')
+  return controlRequest.get<DomainDef[]>('/api/domains')
 }
 
 export function createDomain(body: DomainDef) {
-  return agentRequest.post<DomainDef>('/api/domains', body)
+  return controlRequest.post<DomainDef>('/api/domains', body)
 }
 
 export function updateDomain(id: number, body: DomainDef) {
-  return agentRequest.put<DomainDef>(`/api/domains/${id}`, body)
+  return controlRequest.put<DomainDef>(`/api/domains/${id}`, body)
 }
 
 export function deleteDomain(id: number) {
-  return agentRequest.delete(`/api/domains/${id}`)
+  return controlRequest.delete(`/api/domains/${id}`)
 }
 
 export function listAssignments(code: string) {
-  return agentRequest.get<DomainAssignment[]>(`/api/domains/${code}/assignments`)
+  return controlRequest.get<DomainAssignment[]>(`/api/domains/${code}/assignments`)
 }
 
 export function grantAssignmentBatch(code: string, targets: TargetRefBody[]) {
-  return agentRequest.post<{ ok: boolean; count: number }>(
+  return controlRequest.post<{ ok: boolean; count: number }>(
     `/api/domains/${code}/assignments`,
     { targets },
   )
 }
 
 export function deleteAssignment(id: number) {
-  return agentRequest.delete(`/api/domains/assignments/${id}`)
+  return controlRequest.delete(`/api/domains/assignments/${id}`)
 }
 
 export function classifyDomain(text: string, topK = 5) {
-  return agentRequest.post<DomainClassifyResponse>('/api/domains/classify', { text, topK })
+  return controlRequest.post<DomainClassifyResponse>('/api/domains/classify', { text, topK })
 }
 
 export function getDomainCoverage() {
-  return agentRequest.get<DomainCoverageRow[]>('/api/domains/coverage')
+  return controlRequest.get<DomainCoverageRow[]>('/api/domains/coverage')
 }

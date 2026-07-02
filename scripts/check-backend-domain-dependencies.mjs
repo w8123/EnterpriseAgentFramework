@@ -2,22 +2,70 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const root = process.cwd()
-const javaRoot = 'ai-agent-service/src/main/java'
-const testRoot = 'ai-agent-service/src/test/java'
 let failures = 0
 
-// Runtime Host should not depend on Platform Control implementations. Keep this
-// empty unless a transition needs a reviewed, temporary exception.
-const runtimeHostPlatformAllowlist = new Map([
-])
+const services = [
+  {
+    name: 'control',
+    root: 'reachai-control-service/src/main/java',
+    ownedPrefixes: ['com.enterprise.ai.control']
+  },
+  {
+    name: 'runtime',
+    root: 'reachai-runtime-service/src/main/java',
+    ownedPrefixes: ['com.enterprise.ai.runtime', 'com.enterprise.ai.agent.graph']
+  },
+  {
+    name: 'capability',
+    root: 'reachai-capability-service/src/main/java',
+    ownedPrefixes: [
+      'com.enterprise.ai.capability',
+      'com.enterprise.ai.agent.capability',
+      'com.enterprise.ai.agent.registry'
+    ]
+  },
+  {
+    name: 'knowledge',
+    root: 'reachai-knowledge-service/src/main/java',
+    ownedPrefixes: ['com.enterprise.ai']
+  },
+  {
+    name: 'model',
+    root: 'reachai-model-service/src/main/java',
+    ownedPrefixes: ['com.enterprise.ai.model']
+  }
+]
 
-function toPosix(value) {
-  return value.replace(/\\/g, '/')
+const retiredSourceRoots = [
+  'ai-agent-service/src/main/java',
+  'ai-agent-service/src/test/java',
+  'ai-skills-service/src/main/java',
+  'ai-skills-service/src/test/java',
+  'ai-model-service/src/main/java',
+  'ai-model-service/src/test/java'
+]
+
+const forbiddenMainlineText = [
+  'LEGACY_AGENT_SERVICE_DISABLED',
+  'X-ReachAI-Legacy-Proxy',
+  'LegacyProxyObservability',
+  'no longer proxied to ai-agent-service',
+  'migrate it into reachai-'
+]
+
+function relPath(abs) {
+  return path.relative(root, abs).replace(/\\/g, '/')
 }
 
-function walkJava(rel) {
+function existsRel(rel) {
+  return fs.existsSync(path.join(root, rel))
+}
+
+function walkJavaFiles(rel) {
   const base = path.join(root, rel)
   if (!fs.existsSync(base)) {
+    console.error(`[missing source root] ${rel}`)
+    failures += 1
     return []
   }
   const files = []
@@ -28,135 +76,99 @@ function walkJava(rel) {
       const target = path.join(current, entry.name)
       if (entry.isDirectory()) {
         stack.push(target)
-      } else if (entry.name.endsWith('.java')) {
-        files.push(toPosix(path.relative(root, target)))
+      } else if (entry.isFile() && entry.name.endsWith('.java')) {
+        files.push(target)
       }
     }
   }
-  return files.sort()
+  return files
 }
 
-function read(rel) {
-  return fs.readFileSync(path.join(root, rel), 'utf8')
-}
-
-function packageName(text) {
+function parsePackage(text) {
   return text.match(/^package\s+([^;]+);/m)?.[1] ?? ''
 }
 
-function imports(text) {
-  return [...text.matchAll(/^import\s+(?:static\s+)?([^;]+);/gm)].map((match) => match[1])
+function parseImports(text) {
+  return Array.from(text.matchAll(/^import\s+(?:static\s+)?([^;]+);/gm), (match) => match[1])
 }
 
-function javaFiles() {
-  return [...walkJava(javaRoot), ...walkJava(testRoot)]
+function startsWithAny(value, prefixes) {
+  return prefixes.some((prefix) => value === prefix || value.startsWith(`${prefix}.`))
 }
 
-function sourceFiles() {
-  return walkJava(javaRoot)
+function report(file, message) {
+  console.error(`${file}: ${message}`)
+  failures += 1
 }
 
-function sourceInfos() {
-  return sourceFiles().map((file) => {
-    const text = read(file)
-    return { file, text, pkg: packageName(text), imports: imports(text) }
-  })
-}
-
-function report(label, matches) {
-  if (matches.length === 0) {
-    return
+for (const rel of retiredSourceRoots) {
+  if (existsRel(rel)) {
+    report(rel, 'retired service source root must not exist in the active repository')
   }
-  console.error(`[domain dependency] ${label}`)
-  for (const match of matches) {
-    const reason = match.reason ? ` (${match.reason})` : ''
-    console.error(`  ${match.file}: ${match.importName}${reason}`)
+}
+
+const serviceByName = new Map(services.map((service) => [service.name, service]))
+
+function owningServiceOfImport(importName) {
+  for (const service of services) {
+    if (service.name === 'knowledge') {
+      continue
+    }
+    if (startsWithAny(importName, service.ownedPrefixes)) {
+      return service.name
+    }
   }
-  failures += matches.length
-}
-
-function isUnderPackage(pkg, prefix) {
-  return pkg === prefix || pkg.startsWith(`${prefix}.`)
-}
-
-const infos = sourceInfos()
-
-report('runtime contract must not import implementation domains',
-  infos.flatMap((info) => {
-    if (!isUnderPackage(info.pkg, 'com.enterprise.ai.agent.runtime')
-        || isUnderPackage(info.pkg, 'com.enterprise.ai.agent.runtime.host')) {
-      return []
-    }
-    return info.imports
-      .filter((importName) => /^(com\.enterprise\.ai\.agent\.runtime\.host|com\.enterprise\.ai\.agent\.platform\.control|com\.enterprise\.ai\.agent\.capability\.catalog)\./.test(importName))
-      .map((importName) => ({ file: info.file, importName }))
-  }))
-
-report('capability.catalog must not import runtime.host or platform.control',
-  infos.flatMap((info) => {
-    if (!isUnderPackage(info.pkg, 'com.enterprise.ai.agent.capability.catalog')) {
-      return []
-    }
-    return info.imports
-      .filter((importName) => /^(com\.enterprise\.ai\.agent\.runtime\.host|com\.enterprise\.ai\.agent\.platform\.control)\./.test(importName))
-      .map((importName) => ({ file: info.file, importName }))
-  }))
-
-report('runtime.host must not import platform.control',
-  infos.flatMap((info) => {
-    if (!isUnderPackage(info.pkg, 'com.enterprise.ai.agent.runtime.host')) {
-      return []
-    }
-    return info.imports
-      .filter((importName) => importName.startsWith('com.enterprise.ai.agent.platform.control.'))
-      .filter((importName) => {
-        const key = `${info.file}::${importName}`
-        return !runtimeHostPlatformAllowlist.has(key)
-      })
-      .map((importName) => ({ file: info.file, importName }))
-  }))
-
-const staleRootRefs = [
-  {
-    pattern: /com\.enterprise\.ai\.agent\.controller(?:\.|;|\s|$)/,
-    description: 'com.enterprise.ai.agent.controller'
-  },
-  {
-    pattern: /com\.enterprise\.ai\.agent\.service(?:\.|;|\s|$)/,
-    description: 'com.enterprise.ai.agent.service'
-  },
-  {
-    pattern: /com\.enterprise\.ai\.agent\.client\.ScannerServiceClient(?:;|\s|$)/,
-    description: 'com.enterprise.ai.agent.client.ScannerServiceClient'
-  },
-  {
-    pattern: /com\.enterprise\.ai\.agent\.config\.DomainProperties(?:;|\s|$)/,
-    description: 'com.enterprise.ai.agent.config.DomainProperties'
-  },
-  {
-    pattern: /com\.enterprise\.ai\.agent\.config\.ToolRetrievalProperties(?:;|\s|$)/,
-    description: 'com.enterprise.ai.agent.config.ToolRetrievalProperties'
-  },
-  {
-    pattern: /com\.enterprise\.ai\.agent\.config\.ToolRateLimitProperties(?:;|\s|$)/,
-    description: 'com.enterprise.ai.agent.config.ToolRateLimitProperties'
+  if (importName.startsWith('com.enterprise.ai.agent.')) {
+    return 'legacy-agent'
   }
-]
-
-for (const { pattern, description } of staleRootRefs) {
-  const matches = javaFiles().flatMap((file) => {
-    const lines = read(file).split(/\r?\n/)
-    return lines.flatMap((line, index) => (
-      pattern.test(line)
-        ? [{ file: `${file}:${index + 1}`, importName: description }]
-        : []
-    ))
-  })
-  report(`stale root package reference: ${description}`, matches)
+  return null
 }
 
-if (runtimeHostPlatformAllowlist.size > 0) {
-  console.log(`runtime.host -> platform.control allowlist entries: ${runtimeHostPlatformAllowlist.size}`)
+function isAllowedLegacyAgentImport(serviceName, importName) {
+  if (serviceName === 'runtime') {
+    return importName === 'com.enterprise.ai.agent.graph.GraphSpec' ||
+        importName === 'com.enterprise.ai.agent.graph.AgentGraphNodeType' ||
+        importName.startsWith('com.enterprise.ai.agent.graph.')
+  }
+  if (serviceName === 'capability') {
+    return importName.startsWith('com.enterprise.ai.agent.capability.') ||
+        importName.startsWith('com.enterprise.ai.agent.registry.')
+  }
+  return false
+}
+
+for (const service of services) {
+  for (const file of walkJavaFiles(service.root)) {
+    const relative = relPath(file)
+    const text = fs.readFileSync(file, 'utf8')
+    const packageName = parsePackage(text)
+
+    if (!startsWithAny(packageName, service.ownedPrefixes)) {
+      report(relative, `package ${packageName || '(missing)'} is outside ${service.name} ownership`)
+    }
+
+    for (const forbidden of forbiddenMainlineText) {
+      if (text.includes(forbidden)) {
+        report(relative, `retired legacy proxy marker is not allowed in active service source: ${forbidden}`)
+      }
+    }
+
+    for (const importName of parseImports(text)) {
+      const owner = owningServiceOfImport(importName)
+      if (!owner || owner === service.name) {
+        continue
+      }
+      if (owner === 'legacy-agent' && isAllowedLegacyAgentImport(service.name, importName)) {
+        continue
+      }
+      if (owner === 'legacy-agent') {
+        report(relative, `imports retired agent package ${importName}`)
+        continue
+      }
+      const ownerService = serviceByName.get(owner)
+      report(relative, `imports ${ownerService.name} implementation package ${importName}; use a local client/contract boundary`)
+    }
+  }
 }
 
 if (failures > 0) {
