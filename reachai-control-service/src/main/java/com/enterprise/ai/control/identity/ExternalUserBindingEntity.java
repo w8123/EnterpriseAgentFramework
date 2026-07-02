@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("eaf_external_user_binding")
+@TableName("control_external_user_binding")
 public class ExternalUserBindingEntity {
 
     @TableId(type = IdType.AUTO)

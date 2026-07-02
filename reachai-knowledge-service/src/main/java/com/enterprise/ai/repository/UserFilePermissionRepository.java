@@ -11,6 +11,6 @@ import java.util.List;
 @Mapper
 public interface UserFilePermissionRepository extends BaseMapper<UserFilePermission> {
 
-    @Select("SELECT file_id FROM user_file_permission WHERE user_id = #{userId}")
+    @Select("SELECT file_id FROM knowledge_user_file_permission WHERE user_id = #{userId}")
     List<String> selectFileIdsByUserId(@Param("userId") String userId);
 }

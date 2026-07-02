@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
  * <p>一个业务记录（bizId）可对应多个附件，每个附件可产生多个 Chunk。</p>
  */
 @Data
-@TableName("business_index_attachment")
+@TableName("knowledge_business_index_attachment")
 public class BusinessIndexAttachment {
 
     @TableId(type = IdType.AUTO)
@@ -22,7 +22,7 @@ public class BusinessIndexAttachment {
     /** 关联的业务主键 */
     private String bizId;
 
-    /** 关联 business_index_record.id */
+    /** 关联 knowledge_business_index_record.id */
     private Long recordId;
 
     /** 附件原始文件名 */

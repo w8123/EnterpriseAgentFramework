@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("tool_acl")
+@TableName("control_tool_acl")
 public class ControlToolAclEntity {
 
     @TableId(type = IdType.AUTO)

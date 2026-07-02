@@ -8,11 +8,11 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 扫描项目下的接口定义；「添加为 Tool」后在 {@code tool_definition} 增加一条并写入
+ * 扫描项目下的接口定义；「添加为 Tool」后在 {@code capability_tool_definition} 增加一条并写入
  * {@link #globalToolDefinitionId}，本行仍保留供扫描结果页展示与项目内测试。
  */
 @Data
-@TableName("scan_project_tool")
+@TableName("capability_scan_project_tool")
 public class ScanProjectToolEntity {
 
     @TableId(type = IdType.AUTO)
@@ -58,7 +58,7 @@ public class ScanProjectToolEntity {
 
     private Boolean lightweightEnabled;
 
-    /** 已注册为全局 Tool 时非空，对应 {@code tool_definition.id} */
+    /** 已注册为全局 Tool 时非空，对应 {@code capability_tool_definition.id} */
     private Long globalToolDefinitionId;
 
     /**

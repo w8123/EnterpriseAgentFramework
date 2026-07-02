@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("guard_decision_log")
+@TableName("runtime_guard_decision_log")
 public class RuntimeGuardDecisionLogEntity {
 
     @TableId(type = IdType.AUTO)

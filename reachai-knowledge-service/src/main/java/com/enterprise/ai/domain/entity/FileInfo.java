@@ -6,7 +6,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("file_info")
+@TableName("knowledge_file_info")
 public class FileInfo {
 
     @TableId(type = IdType.AUTO)

@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("eaf_embed_renderer")
+@TableName("control_embed_renderer")
 public class PlatformEmbedRendererEntity {
 
     @TableId(type = IdType.AUTO)

@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
  * <p>通过 index_code + biz_id 唯一标识一条业务数据，支持 upsert 语义。</p>
  */
 @Data
-@TableName("business_index_record")
+@TableName("knowledge_business_index_record")
 public class BusinessIndexRecord {
 
     @TableId(type = IdType.AUTO)

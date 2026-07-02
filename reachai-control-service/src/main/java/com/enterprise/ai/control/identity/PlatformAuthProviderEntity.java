@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("platform_auth_provider")
+@TableName("control_platform_auth_provider")
 public class PlatformAuthProviderEntity {
 
     @TableId(type = IdType.AUTO)

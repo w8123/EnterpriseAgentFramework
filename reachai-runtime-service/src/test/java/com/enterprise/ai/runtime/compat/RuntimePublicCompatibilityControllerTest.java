@@ -112,7 +112,7 @@ class RuntimePublicCompatibilityControllerTest {
         RuntimePublicCompatibilityController controller = controller(traceQueryService);
         RuntimeTraceDetailView detail = new RuntimeTraceDetailView("trace-1", List.of(new RuntimeTraceNodeView(
                 1L,
-                "tool_call_log",
+                "runtime_tool_call_log",
                 "trace-1",
                 "Order Agent",
                 "order.lookup",

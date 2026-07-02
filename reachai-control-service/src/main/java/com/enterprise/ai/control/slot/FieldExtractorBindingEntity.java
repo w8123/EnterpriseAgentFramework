@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("field_extractor_binding")
+@TableName("control_field_extractor_binding")
 public class FieldExtractorBindingEntity {
 
     @TableId(type = IdType.AUTO)

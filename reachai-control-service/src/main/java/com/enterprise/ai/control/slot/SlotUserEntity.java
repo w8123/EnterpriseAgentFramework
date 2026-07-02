@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("slot_dict_user")
+@TableName("control_slot_dict_user")
 public class SlotUserEntity {
 
     @TableId(type = IdType.AUTO)

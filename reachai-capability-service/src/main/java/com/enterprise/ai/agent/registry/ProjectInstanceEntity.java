@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("ai_project_instance")
+@TableName("capability_project_instance")
 public class ProjectInstanceEntity {
 
     @TableId(type = IdType.AUTO)

@@ -84,7 +84,7 @@ public class RuntimeTraceQueryService {
     private RuntimeTraceNodeView toNode(RuntimeToolCallLogEntity log) {
         return new RuntimeTraceNodeView(
                 log.getId(),
-                "tool_call_log",
+                "runtime_tool_call_log",
                 log.getTraceId(),
                 log.getAgentName(),
                 log.getToolName(),
@@ -106,7 +106,7 @@ public class RuntimeTraceQueryService {
     private RuntimeTraceNodeView toNode(RuntimeAgentTraceSpanEntity span) {
         return new RuntimeTraceNodeView(
                 span.getId(),
-                "agent_trace_span",
+                "runtime_agent_trace_span",
                 span.getTraceId(),
                 span.getAgentName(),
                 traceSpanName(span),

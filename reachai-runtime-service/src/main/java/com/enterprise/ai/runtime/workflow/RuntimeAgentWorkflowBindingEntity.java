@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("ai_agent_workflow_binding")
+@TableName("runtime_agent_workflow_binding")
 public class RuntimeAgentWorkflowBindingEntity {
 
     @TableId(type = IdType.AUTO)

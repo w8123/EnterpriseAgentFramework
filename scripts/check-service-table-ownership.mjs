@@ -47,15 +47,15 @@ function fail(message) {
   failures += 1
 }
 
-function walk(dir, matches = []) {
+function walk(dir, matches = [], extensions = ['.java']) {
   if (!fs.existsSync(dir)) {
     return matches
   }
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const target = path.join(dir, entry.name)
     if (entry.isDirectory()) {
-      walk(target, matches)
-    } else if (entry.name.endsWith('.java')) {
+      walk(target, matches, extensions)
+    } else if (extensions.some(extension => entry.name.endsWith(extension))) {
       matches.push(target)
     }
   }
@@ -66,6 +66,70 @@ function normalizeCell(cell) {
   return cell.trim().replace(/^`|`$/g, '').trim()
 }
 
+function addTableAccess(byTable, table, service, file) {
+  if (!table) {
+    return
+  }
+  if (!byTable.has(table)) {
+    byTable.set(table, [])
+  }
+  byTable.get(table).push({
+    service,
+    file: path.relative(root, file).replace(/\\/g, '/')
+  })
+}
+
+function stripSqlComments(sql) {
+  return sql
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\r\n]*/g, ' ')
+}
+
+function extractTableName(match) {
+  return match[2] || match[1]
+}
+
+function extractTablesFromSql(sql) {
+  const clean = stripSqlComments(sql)
+  const tableRef = '`?([A-Za-z_][A-Za-z0-9_]*)`?(?:\\s*\\.\\s*`?([A-Za-z_][A-Za-z0-9_]*)`?)?'
+  const patterns = [
+    new RegExp(`\\b(?:from|join|update)\\s+${tableRef}`, 'gi'),
+    new RegExp(`\\b(?:insert|replace)\\s+(?:ignore\\s+)?into\\s+${tableRef}`, 'gi'),
+    new RegExp(`\\bdelete\\s+from\\s+${tableRef}`, 'gi')
+  ]
+  const tables = new Set()
+  for (const pattern of patterns) {
+    for (const match of clean.matchAll(pattern)) {
+      const table = extractTableName(match)
+      if (!['select', 'where', 'set', 'values'].includes(table.toLowerCase())) {
+        tables.add(table)
+      }
+    }
+  }
+  return tables
+}
+
+function extractJavaStringLiterals(text) {
+  return [...text.matchAll(/"((?:\\.|[^"\\])*)"/g)]
+    .map(match => match[1].replace(/\\"/g, '"'))
+}
+
+function extractAnnotationSqlSnippets(text) {
+  const snippets = []
+  for (const match of text.matchAll(/@(Select|Update|Insert|Delete)\s*\(([\s\S]*?)\)/g)) {
+    snippets.push(extractJavaStringLiterals(match[2]).join(' '))
+  }
+  return snippets
+}
+
+function extractJdbcTemplateSqlSnippets(text) {
+  if (!/\b(?:NamedParameterJdbcTemplate|JdbcTemplate)\b/.test(text)) {
+    return []
+  }
+  return extractJavaStringLiterals(text)
+    .filter(value => /\b(?:select|update|insert|delete)\b/i.test(value))
+}
+
 function tableAccesses() {
   const byTable = new Map()
   for (const service of serviceRoots) {
@@ -73,14 +137,23 @@ function tableAccesses() {
     for (const file of walk(javaRoot)) {
       const text = fs.readFileSync(file, 'utf8')
       for (const match of text.matchAll(/@TableName\(\s*"([^"]+)"\s*\)/g)) {
-        const table = match[1]
-        if (!byTable.has(table)) {
-          byTable.set(table, [])
+        addTableAccess(byTable, match[1], service, file)
+      }
+      for (const snippet of [
+        ...extractAnnotationSqlSnippets(text),
+        ...extractJdbcTemplateSqlSnippets(text)
+      ]) {
+        for (const table of extractTablesFromSql(snippet)) {
+          addTableAccess(byTable, table, service, file)
         }
-        byTable.get(table).push({
-          service,
-          file: path.relative(root, file).replace(/\\/g, '/')
-        })
+      }
+    }
+
+    const resourcesRoot = path.join(root, service, 'src/main/resources')
+    for (const file of walk(resourcesRoot, [], ['.xml'])) {
+      const text = fs.readFileSync(file, 'utf8')
+      for (const table of extractTablesFromSql(text)) {
+        addTableAccess(byTable, table, service, file)
       }
     }
   }
@@ -122,12 +195,27 @@ function parseOwnershipDoc() {
   return rows
 }
 
+function parseInitTables() {
+  const initPath = path.join(root, 'sql/initV2.sql')
+  if (!fs.existsSync(initPath)) {
+    return new Set()
+  }
+
+  const text = fs.readFileSync(initPath, 'utf8')
+  const tables = new Set()
+  for (const match of text.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`([^`]+)`/gi)) {
+    tables.add(match[1])
+  }
+  return tables
+}
+
 function startsWithPackage(value, prefix) {
   return value === prefix || value.startsWith(`${prefix}.`)
 }
 
 function tableOrMapperClass(importedClass) {
-  const simpleName = importedClass.split('.').at(-1)
+  const parts = importedClass.split('.')
+  const simpleName = parts[parts.length - 1]
   return simpleName.endsWith('Mapper') || simpleName.endsWith('Entity')
 }
 
@@ -161,16 +249,25 @@ function checkCrossServiceMapperImports() {
 
 const accesses = tableAccesses()
 const ownership = parseOwnershipDoc()
+const initTables = parseInitTables()
 checkCrossServiceMapperImports()
+
+for (const table of [...initTables].sort()) {
+  if (!ownership.has(table)) {
+    fail(`[missing ownership row] ${table}`)
+  }
+}
+
+for (const [table, row] of [...ownership.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+  if (!serviceRoots.includes(row.owner)) {
+    fail(`[invalid owner service] ${table}: ${row.owner}`)
+  }
+}
 
 for (const [table, refs] of [...accesses.entries()].sort(([a], [b]) => a.localeCompare(b))) {
   const row = ownership.get(table)
   if (!row) {
     fail(`[missing ownership row] ${table}`)
-    continue
-  }
-  if (!serviceRoots.includes(row.owner)) {
-    fail(`[invalid owner service] ${table}: ${row.owner}`)
     continue
   }
 
@@ -190,8 +287,8 @@ for (const [table, refs] of [...accesses.entries()].sort(([a], [b]) => a.localeC
 }
 
 for (const table of [...ownership.keys()].sort()) {
-  if (!accesses.has(table)) {
-    fail(`[ownership row has no current @TableName access] ${table}`)
+  if (!accesses.has(table) && !initTables.has(table)) {
+    fail(`[ownership row has no current direct code access or SQL baseline table] ${table}`)
   }
 }
 

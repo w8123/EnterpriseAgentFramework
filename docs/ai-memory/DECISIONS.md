@@ -30,7 +30,7 @@
 
 `GraphSpec` 是运行语义，归属 Workflow；`canvas_json` 只是画布布局。
 
-- DB 字段：`ai_workflow.graph_spec_json` 和 `ai_workflow.canvas_json`。
+- DB 字段：`runtime_workflow.graph_spec_json` 和 `runtime_workflow.canvas_json`。
 - Workflow Studio 负责 AI 生成、局部编辑、调试、发布校验和运行预览。
 - Agent 入口通过 binding 解析到 Workflow 活跃版本。
 - Runtime 执行主线在 `reachai-runtime-service`，LangGraph4j、AgentScope 和未来运行时通过 `AgentRuntimeAdapter` 解耦。
@@ -41,19 +41,19 @@
 
 产品和文档默认使用 `Capability / 能力`。
 
-`Skill` 多为历史命名或兼容存储名。`skill_draft`、`skill_eval_snapshot`、`skill_interaction`、`skill_name`、`skill_kind` 等 SQL 名称是兼容敏感存储名，除非有明确迁移任务，不要盲目重命名。
+`Skill` 多为历史命名或兼容存储名。V2 新库基线已把历史 SQL 表 `skill_draft`、`skill_eval_snapshot`、`skill_interaction` 收敛为 `capability_draft`、`capability_eval_snapshot`、`runtime_skill_interaction`。`skill_name`、`skill_kind` 等字段如仍承载业务语义，不做无关改名。
 
 `reachai-knowledge-service` 是 Knowledge / Retrieval 部署单元，不再称为“技能服务”。
 
 ## SQL 决策
 
-`sql/init.sql` 是唯一 SQL 基线入口。任何 schema、索引、种子数据、字段语义相关改动，都必须同时维护：
+`sql/initV2.sql` 是当前新库 SQL 基线入口；旧 `sql/init.sql` 已退场，不再保留为活跃或历史基线。任何 schema、索引、种子数据、字段语义相关改动，都必须同时维护：
 
-- `sql/init.sql`
+- `sql/initV2.sql`
 - `sql/upgrade-YYYYMMDD-short-name.sql`
 - `sql/README.md` 或相关说明
 
-默认不为旧数据做复杂兼容迁移。需要清理、重建、重命名或丢弃旧字段时，在升级 SQL 和变更说明里写清楚影响即可。
+默认不为旧数据做复杂兼容迁移。V2 按新库重建处理，不提供旧表名兼容视图或旧数据迁移脚本；后续如需要面向存量库升级，再新增当次 upgrade SQL 并写清影响。
 
 ## 品牌与技术身份
 

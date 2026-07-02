@@ -6,7 +6,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("user_file_permission")
+@TableName("knowledge_user_file_permission")
 public class UserFilePermission {
 
     @TableId(type = IdType.AUTO)

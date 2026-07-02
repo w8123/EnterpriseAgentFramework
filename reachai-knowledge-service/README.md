@@ -71,7 +71,7 @@ Common environment variables:
 | `AI_MILVUS_HOST`, `AI_MILVUS_PORT` | Milvus connection. |
 | `MODEL_SERVICE_URL` | Base URL for `reachai-model-service`. |
 
-第一阶段仍保持同一个 MySQL 库，不拆库。Schema 基线统一在 `sql/init.sql`，已有环境升级脚本统一放在 `sql/upgrade-*.sql`。
+第一阶段仍保持同一个 MySQL 库，不拆库。Schema 基线统一在 `sql/initV2.sql`，已有环境升级脚本统一放在 `sql/upgrade-*.sql`。
 
 ## Local Build And Run
 

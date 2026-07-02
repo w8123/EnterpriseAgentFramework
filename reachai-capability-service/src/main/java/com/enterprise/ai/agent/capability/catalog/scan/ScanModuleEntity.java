@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("scan_module")
+@TableName("capability_scan_module")
 public class ScanModuleEntity {
 
     @TableId(type = IdType.AUTO)

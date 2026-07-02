@@ -14,7 +14,7 @@ provided, it prompts for the password securely.
 .\scripts\set-ai-mysql-env.ps1
 
 .EXAMPLE
-.\scripts\set-ai-mysql-env.ps1 -UserName ai_text_service -HostName 127.0.0.1 -Port 3306 -Database ai_text_service -SetSpringUrl
+.\scripts\set-ai-mysql-env.ps1 -UserName reach_ai -HostName 127.0.0.1 -Port 3306 -Database reach_ai -SetSpringUrl
 #>
 
 [CmdletBinding()]
@@ -93,8 +93,8 @@ if ($SetSpringUrl) {
         throw '-SetSpringUrl requires -HostName.'
     }
 
-    $springPort = if ($PSBoundParameters.ContainsKey('Port')) { $Port } else { 33106 }
-    $springDatabase = if (-not [string]::IsNullOrWhiteSpace($Database)) { $Database } else { 'ai_text_service' }
+    $springPort = if ($PSBoundParameters.ContainsKey('Port')) { $Port } else { 3306 }
+    $springDatabase = if (-not [string]::IsNullOrWhiteSpace($Database)) { $Database } else { 'reach_ai' }
     $url = "jdbc:mysql://$HostName`:$springPort/$springDatabase`?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai"
     Set-EnvValue -Name 'AI_MYSQL_URL' -Value $url
 }

@@ -6,7 +6,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("chunk")
+@TableName("knowledge_chunk")
 public class Chunk {
 
     @TableId(type = IdType.AUTO)

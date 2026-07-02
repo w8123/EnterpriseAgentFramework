@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("agent_workflow_credential")
+@TableName("runtime_agent_workflow_credential")
 public class RuntimeWorkflowCredentialEntity {
 
     @TableId(type = IdType.AUTO)

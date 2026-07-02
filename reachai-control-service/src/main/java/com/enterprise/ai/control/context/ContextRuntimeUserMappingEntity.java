@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("context_runtime_user_mapping")
+@TableName("control_context_runtime_user_mapping")
 public class ContextRuntimeUserMappingEntity {
 
     @TableId(type = IdType.AUTO)

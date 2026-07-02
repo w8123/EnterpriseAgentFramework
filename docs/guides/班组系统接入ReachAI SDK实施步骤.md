@@ -33,7 +33,7 @@
 http://localhost:18603
 ```
 
-3. 确认 ReachAI 数据库已经执行最新 `sql/init.sql` 或对应升级脚本。
+3. 确认 ReachAI 数据库已经执行最新 `sql/initV2.sql` 或对应升级脚本。
 4. 在 ReachAI 中台中准备班组项目凭证：
 
 ```text

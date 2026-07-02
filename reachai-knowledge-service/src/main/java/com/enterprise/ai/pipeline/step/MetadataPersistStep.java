@@ -22,7 +22,7 @@ import java.util.List;
  *
  * <p>保存：
  * <ul>
- *   <li>file_info 记录（文件元信息、chunk 数量、处理状态）</li>
+ *   <li>knowledge_file_info 记录（文件元信息、chunk 数量、处理状态）</li>
  *   <li>chunk 记录（文本内容、向量 ID、所属 collection）</li>
  * </ul></p>
  */

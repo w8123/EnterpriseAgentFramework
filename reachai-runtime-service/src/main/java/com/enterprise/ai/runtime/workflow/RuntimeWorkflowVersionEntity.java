@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("ai_workflow_version")
+@TableName("runtime_workflow_version")
 public class RuntimeWorkflowVersionEntity {
 
     @TableId(type = IdType.AUTO)

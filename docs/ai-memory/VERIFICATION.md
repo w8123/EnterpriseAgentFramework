@@ -21,6 +21,8 @@ node scripts/check-internal-api-contracts.test.mjs
 node scripts/check-internal-api-contracts.mjs
 ```
 
+`check-service-table-ownership.mjs` 覆盖同库阶段的表边界治理：优先检查 `sql/initV2.sql` 中每张 `CREATE TABLE` 表必须登记 owner；后端 `@TableName`、MyBatis 注解 SQL、MyBatis XML SQL 和 JdbcTemplate SQL 不得跨服务直接访问非 owner 表，除非在 `docs/architecture/service-table-ownership.md` 的 `Additional direct access` 中登记临时例外。
+
 五服务编译：
 
 ```powershell
@@ -81,12 +83,14 @@ npx vue-tsc --noEmit
 SQL 改动至少检查：
 
 ```powershell
-rg -n "目标表|目标字段|目标索引" sql/init.sql
+rg -n "目标表|目标字段|目标索引" sql/initV2.sql
 Get-ChildItem sql -Filter "upgrade-*.sql"
-git diff -- sql/init.sql sql/README.md
+git diff -- sql/initV2.sql sql/README.md
+node scripts/check-service-table-ownership.test.mjs
+node scripts/check-service-table-ownership.mjs
 ```
 
-有 MySQL 环境且当前任务新增了 upgrade SQL 时，执行对应 upgrade SQL，并确认新环境可以只依赖 `sql/init.sql`。
+有 MySQL 环境且当前任务新增了 upgrade SQL 时，执行对应 upgrade SQL，并确认新环境可以只依赖 `sql/initV2.sql`。当前 V2 新库重建场景不要求旧数据迁移。
 
 ## 文档与规则验证
 

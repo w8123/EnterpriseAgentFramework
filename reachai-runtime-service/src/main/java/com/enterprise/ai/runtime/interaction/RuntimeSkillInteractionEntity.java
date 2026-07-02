@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("skill_interaction")
+@TableName("runtime_skill_interaction")
 public class RuntimeSkillInteractionEntity {
 
     @TableId(type = IdType.INPUT)

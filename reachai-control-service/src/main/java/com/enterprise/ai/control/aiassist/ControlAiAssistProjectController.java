@@ -415,7 +415,7 @@ public class ControlAiAssistProjectController {
                 "agent-workflow.decoupled.v1",
                 globalAgentKeySlug,
                 PAGE_COPILOT_KIND,
-                "ai_workflow",
+                "runtime_workflow",
                 "SDK_GRAPH",
                 "Bind page/action/intent workflows to the project page copilot Agent instead of creating one agent per workflow.",
                 new AgentWorkflowEndpoints(
@@ -440,8 +440,8 @@ public class ControlAiAssistProjectController {
                                 "After the first valid workflow draft is saved, call /publish once to create the initial ACTIVE workflow version.")),
                 List.of(
                         "Provision or reuse one project-level PAGE_COPILOT Agent entry.",
-                        "Store every executable graph as an ai_workflow draft or version.",
-                        "Create ai_agent_workflow_binding rows for DEFAULT, PAGE, ACTION, ROUTE, or INTENT routing.",
+                        "Store every executable graph as an runtime_workflow draft or version.",
+                        "Create runtime_agent_workflow_binding rows for DEFAULT, PAGE, ACTION, ROUTE, or INTENT routing.",
                         "Use Workflow AI Coding REST APIs or the workflow-ai-coding skill for draft edits, validation, debug runs, release readiness checks, and first publish."));
     }
 

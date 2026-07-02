@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
  * 手动边而不在重扫时丢失。{@link #kind} 取值见 {@link ApiGraphNodeKind}。
  */
 @Data
-@TableName("api_graph_node")
+@TableName("capability_api_graph_node")
 public class ApiGraphNodeEntity {
 
     @TableId(type = IdType.AUTO)
@@ -25,7 +25,7 @@ public class ApiGraphNodeEntity {
     /** API / FIELD_IN / FIELD_OUT / DTO / MODULE */
     private String kind;
 
-    /** 业务表外键：API → scan_project_tool.id；MODULE → scan_module.id；FIELD/DTO 为 null。 */
+    /** 业务表外键：API → capability_scan_project_tool.id；MODULE → capability_scan_module.id；FIELD/DTO 为 null。 */
     private Long refId;
 
     /** 字段树嵌套：指向父字段节点；DTO 内部 children 也建节点。 */

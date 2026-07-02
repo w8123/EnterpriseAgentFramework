@@ -40,9 +40,9 @@ public class SlotManagementController {
     public ResponseEntity<List<SlotExtractorInfo>> listExtractors() {
         return ResponseEntity.ok(List.of(
                 new SlotExtractorInfo("DeptSlotExtractor", "部门字典提取器", 100,
-                        Map.of("source", "slot_dict_dept", "strategy", "dictionary")),
+                        Map.of("source", "control_slot_dict_dept", "strategy", "dictionary")),
                 new SlotExtractorInfo("UserSlotExtractor", "人员字典提取器", 90,
-                        Map.of("source", "slot_dict_user", "strategy", "dictionary")),
+                        Map.of("source", "control_slot_dict_user", "strategy", "dictionary")),
                 new SlotExtractorInfo("RuleSlotExtractor", "基础规则提取器", 10,
                         Map.of("strategy", "contains"))));
     }

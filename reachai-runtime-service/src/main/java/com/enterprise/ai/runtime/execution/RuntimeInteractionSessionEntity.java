@@ -7,7 +7,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("interaction_session")
+@TableName("runtime_interaction_session")
 public class RuntimeInteractionSessionEntity {
 
     @TableId

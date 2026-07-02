@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("platform_login_session")
+@TableName("control_platform_login_session")
 public class PlatformLoginSessionEntity {
 
     @TableId(type = IdType.AUTO)

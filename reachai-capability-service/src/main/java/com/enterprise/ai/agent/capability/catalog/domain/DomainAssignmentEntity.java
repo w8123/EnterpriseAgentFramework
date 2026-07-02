@@ -17,7 +17,7 @@ import java.time.LocalDateTime;
  * </ul>
  */
 @Data
-@TableName("domain_assignment")
+@TableName("capability_domain_assignment")
 public class DomainAssignmentEntity {
 
     @TableId(type = IdType.AUTO)

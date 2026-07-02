@@ -1,4 +1,4 @@
-<p align="center">
+﻿<p align="center">
   <img src="ai-admin-front/public/reachai-logo-horizontal.svg" alt="ReachAI" width="340" />
 </p>
 
@@ -264,7 +264,7 @@ docker compose -f deploy/docker-compose.infra.yml up -d
 ### 2. 初始化数据库
 
 ```bash
-mysql -h localhost -u root -proot < sql/init.sql
+mysql -h localhost -u root -proot < sql/initV2.sql
 ```
 
 ### 3. 构建后端
@@ -306,9 +306,12 @@ mvn spring-boot:run
 常用环境变量：
 
 ```powershell
-$env:AI_MYSQL_URL="jdbc:mysql://localhost:3306/ai_text_service?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai"
-$env:AI_MYSQL_USER="ai_text_service"
-$env:AI_MYSQL_PASSWORD="2b4sSjymF7BcZZBA"
+$env:AI_MYSQL_HOST="localhost"
+$env:AI_MYSQL_PORT="3306"
+$env:AI_MYSQL_DATABASE="reach_ai"
+$env:AI_MYSQL_USER="reach_ai"
+$env:AI_MYSQL_PASSWORD="<your-mysql-password>"
+$env:AI_MYSQL_URL="jdbc:mysql://$env:AI_MYSQL_HOST`:$env:AI_MYSQL_PORT/$env:AI_MYSQL_DATABASE?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai"
 $env:REDIS_HOST="localhost"
 $env:REDIS_PORT="6379"
 $env:REDIS_PASSWORD=""
@@ -351,7 +354,7 @@ npm run dev
 ## 命名说明
 
 - 产品语义中，可编排、可治理、可复用的业务单元统一称为 **Capability / 能力**。
-- 历史代码、接口和数据表中仍可能出现 `skill`、`skills`、`skill_draft`、`skill_interaction` 等命名，它们属于 legacy storage/API naming。
+- 历史代码和接口中仍可能出现 `skill`、`skills` 等命名；V2 新库表名已收敛为 service/domain 前缀，例如 `capability_draft`、`runtime_skill_interaction`。
 - `GraphSpec` 是 Workflow 的运行语义，`canvas_json` 是画布布局，不应把画布 JSON 当作运行时语义来源。
 - `eaf.*`、`X-EAF-*`、`Eaf*` 等历史技术标识仍可能作为兼容边界存在；产品品牌和新接入默认使用 ReachAI。
 

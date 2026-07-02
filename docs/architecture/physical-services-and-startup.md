@@ -1,4 +1,4 @@
-# 后端物理服务与启动验证
+﻿# 后端物理服务与启动验证
 
 ## 当前结论
 
@@ -66,7 +66,7 @@
 
 | 变量 | 说明 |
 | --- | --- |
-| `AI_MYSQL_URL`、`AI_MYSQL_USER`、`AI_MYSQL_PASSWORD` | 共享 MySQL 连接；本地默认密码与 `reachai-knowledge-service` yml 保持一致：`2b4sSjymF7BcZZBA` |
+| `AI_MYSQL_HOST`、`AI_MYSQL_PORT`、`AI_MYSQL_DATABASE`、`AI_MYSQL_URL`、`AI_MYSQL_USER`、`AI_MYSQL_PASSWORD` | 共享 MySQL 连接。仓库默认端口为 `3306`；个人机器需要其它端口时，用本地环境变量覆盖，不要写入仓库。 |
 | `REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD` | Redis |
 | `MILVUS_HOST`、`MILVUS_PORT` | Milvus |
 | `MODEL_SERVICE_URL` | 默认 `http://localhost:18601` |

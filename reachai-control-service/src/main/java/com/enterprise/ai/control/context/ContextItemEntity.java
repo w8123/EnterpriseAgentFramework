@@ -9,7 +9,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("context_item")
+@TableName("control_context_item")
 public class ContextItemEntity {
 
     @TableId(type = IdType.AUTO)

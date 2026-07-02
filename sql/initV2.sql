@@ -1,9 +1,9 @@
 -- ============================================================================
 -- 睿池 ReachAI — 首次上线统一初始化脚本
--- 数据库：ai_text_service（五服务第一阶段共用同一库；旧 ai-agent-service module 已删除）
+-- 数据库：reach_ai（五服务第一阶段共用同一库；旧 ai-agent-service module 已删除）
 --
 -- 本脚本是当前唯一 SQL 基线，已合并历史服务目录和历史 upgrade 脚本中的表、
--- 补列、补索引、种子数据和必要清理结果。根目录 sql/ 默认只保留 init.sql
+-- 补列、补索引、种子数据和必要清理结果。根目录 sql/ 默认只保留 initV2.sql
 -- 与 README.md；后续 schema/索引/种子变化仍需新增当次 upgrade 脚本，确认
 -- 并入下一版基线后再清理。
 --
@@ -13,17 +13,17 @@
 --   - sideEffect 回填 UPDATE 写明白了"仅覆盖 NULL/空/WRITE"，重复跑不会覆盖人工修正值。
 --
 -- 执行方式：
---   mysql -uroot -p < sql/init.sql
+--   mysql -uroot -p < sql/initV2.sql
 --
 -- 首次上线后，常规业务建议通过应用的 Liquibase/Flyway 管理后续增量，
 -- 本脚本仍可重复执行用于"对齐基线"，但生产变更请先备份。
 -- ============================================================================
 
-CREATE DATABASE IF NOT EXISTS `ai_text_service`
+CREATE DATABASE IF NOT EXISTS `reach_ai`
     DEFAULT CHARACTER SET utf8mb4
     COLLATE utf8mb4_unicode_ci;
 
-USE `ai_text_service`;
+USE `reach_ai`;
 
 -- ----------------------------------------------------------------------------
 -- 共用工具过程：add_col_if_absent / add_idx_if_absent
@@ -100,7 +100,7 @@ DELIMITER ;
 -- 零、模型实例中心（当前归属 reachai-model-service，历史 v1 + v2 seed）
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `ai_model_instance` (
+CREATE TABLE IF NOT EXISTS `model_instance` (
     `id`                   VARCHAR(64)   NOT NULL PRIMARY KEY,
     `name`                 VARCHAR(128)  NOT NULL COMMENT 'Human-readable model instance name',
     `provider`             VARCHAR(64)   NOT NULL COMMENT 'Provider key, e.g. tongyi/openai/mimo/ollama',
@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS `ai_model_instance` (
     KEY `idx_ai_model_instance_workspace` (`workspace_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Database-backed model instances';
 
-INSERT IGNORE INTO `ai_model_instance`
+INSERT IGNORE INTO `model_instance`
 (`id`, `name`, `provider`, `model_type`, `model_name`, `endpoint_type`, `workspace_id`,
  `credential_json`, `default_options_json`, `params_schema_json`, `status`, `remark`)
 VALUES
@@ -285,8 +285,8 @@ CREATE TABLE IF NOT EXISTS `knowledge_base` (
     `rerank_model_instance_id` VARCHAR(64) DEFAULT NULL COMMENT 'Rerank model instance id',
     `llm_model_instance_id` VARCHAR(64) DEFAULT NULL COMMENT 'LLM model instance id for answer generation',
     `dimension`       INT          DEFAULT 1536            COMMENT '向量维度',
-    `chunk_size`      INT          DEFAULT 500             COMMENT 'chunk 切分大小（字符数）',
-    `chunk_overlap`   INT          DEFAULT 50              COMMENT 'chunk 重叠大小（字符数）',
+    `chunk_size`      INT          DEFAULT 500             COMMENT 'knowledge_chunk 切分大小（字符数）',
+    `chunk_overlap`   INT          DEFAULT 50              COMMENT 'knowledge_chunk 重叠大小（字符数）',
     `split_type`      VARCHAR(32)  DEFAULT 'FIXED'         COMMENT '切分策略: FIXED / PARAGRAPH / SEMANTIC',
     `status`          TINYINT      DEFAULT 1               COMMENT '状态: 0-禁用 1-启用',
     `create_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -295,14 +295,14 @@ CREATE TABLE IF NOT EXISTS `knowledge_base` (
     UNIQUE KEY `uk_code` (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库';
 
-CREATE TABLE IF NOT EXISTS `file_info` (
+CREATE TABLE IF NOT EXISTS `knowledge_file_info` (
     `id`                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `file_id`           VARCHAR(128) NOT NULL                COMMENT '文件业务ID（对外暴露）',
     `knowledge_base_id` BIGINT       NOT NULL                COMMENT '所属知识库ID',
     `file_name`         VARCHAR(256) DEFAULT NULL            COMMENT '文件名称',
     `file_type`         VARCHAR(32)  DEFAULT NULL            COMMENT '文件类型',
     `file_size`         BIGINT       DEFAULT 0               COMMENT '文件大小（字节）',
-    `chunk_count`       INT          DEFAULT 0               COMMENT 'chunk 数量',
+    `chunk_count`       INT          DEFAULT 0               COMMENT 'knowledge_chunk 数量',
     `status`            TINYINT      DEFAULT 0               COMMENT '状态: 0-处理中 1-已完成 2-失败',
     `raw_text`          LONGTEXT     DEFAULT NULL            COMMENT '解析后的原始文本（用于重新解析）',
     `create_time`       DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -312,12 +312,12 @@ CREATE TABLE IF NOT EXISTS `file_info` (
     KEY `idx_kb_id` (`knowledge_base_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文件信息';
 
-CREATE TABLE IF NOT EXISTS `chunk` (
+CREATE TABLE IF NOT EXISTS `knowledge_chunk` (
     `id`                BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
     `file_id`           VARCHAR(128)  NOT NULL                COMMENT '所属文件ID',
     `knowledge_base_id` BIGINT        NOT NULL                COMMENT '所属知识库ID',
     `content`           TEXT          NOT NULL                COMMENT '文本内容',
-    `chunk_index`       INT           DEFAULT 0               COMMENT 'chunk 在文件内的序号',
+    `chunk_index`       INT           DEFAULT 0               COMMENT 'knowledge_chunk 在文件内的序号',
     `vector_id`         VARCHAR(256)  DEFAULT NULL            COMMENT 'Milvus 中的向量 ID',
     `collection_name`   VARCHAR(64)   DEFAULT NULL            COMMENT '关联的 collection 名称',
     `create_time`       DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -326,7 +326,7 @@ CREATE TABLE IF NOT EXISTS `chunk` (
     KEY `idx_kb_id` (`knowledge_base_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文本块';
 
-CREATE TABLE IF NOT EXISTS `user_file_permission` (
+CREATE TABLE IF NOT EXISTS `knowledge_user_file_permission` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `user_id`         VARCHAR(128) NOT NULL                COMMENT '用户ID',
     `file_id`         VARCHAR(128) NOT NULL                COMMENT '文件业务ID',
@@ -349,16 +349,16 @@ CALL add_col_if_absent('knowledge_base', 'direct_return_threshold', 'FLOAT NOT N
 CALL add_col_if_absent('knowledge_base', 'rerank_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''enable rerank'' AFTER `direct_return_threshold`');
 CALL add_col_if_absent('knowledge_base', 'vector_weight', 'FLOAT NOT NULL DEFAULT 0.7 COMMENT ''hybrid vector weight'' AFTER `rerank_enabled`');
 CALL add_col_if_absent('knowledge_base', 'keyword_weight', 'FLOAT NOT NULL DEFAULT 0.3 COMMENT ''hybrid keyword weight'' AFTER `vector_weight`');
-CALL add_col_if_absent('chunk', 'title', 'VARCHAR(256) DEFAULT NULL COMMENT ''paragraph title'' AFTER `content`');
-CALL add_col_if_absent('chunk', 'hit_count', 'INT NOT NULL DEFAULT 0 COMMENT ''retrieval hit count'' AFTER `collection_name`');
-CALL add_col_if_absent('chunk', 'enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''paragraph enabled flag'' AFTER `hit_count`');
+CALL add_col_if_absent('knowledge_chunk', 'title', 'VARCHAR(256) DEFAULT NULL COMMENT ''paragraph title'' AFTER `content`');
+CALL add_col_if_absent('knowledge_chunk', 'hit_count', 'INT NOT NULL DEFAULT 0 COMMENT ''retrieval hit count'' AFTER `collection_name`');
+CALL add_col_if_absent('knowledge_chunk', 'enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''paragraph enabled flag'' AFTER `hit_count`');
 CALL add_idx_if_absent('knowledge_base', 'idx_kb_workspace_scope', '`workspace_id`, `scope`');
 CALL add_idx_if_absent('knowledge_base', 'idx_kb_project_code', '`project_code`');
-CALL add_idx_if_absent('chunk', 'idx_kb_enabled', '`knowledge_base_id`, `enabled`');
-CALL add_idx_if_absent('chunk', 'idx_kb_hit_count', '`knowledge_base_id`, `hit_count`');
-CALL add_idx_if_absent('chunk', 'idx_file_chunk_index', '`file_id`, `chunk_index`');
-CALL add_idx_if_absent('chunk', 'idx_kb_created', '`knowledge_base_id`, `create_time`');
-CALL add_idx_if_absent('file_info', 'idx_kb_file_created', '`knowledge_base_id`, `create_time`');
+CALL add_idx_if_absent('knowledge_chunk', 'idx_kb_enabled', '`knowledge_base_id`, `enabled`');
+CALL add_idx_if_absent('knowledge_chunk', 'idx_kb_hit_count', '`knowledge_base_id`, `hit_count`');
+CALL add_idx_if_absent('knowledge_chunk', 'idx_file_chunk_index', '`file_id`, `chunk_index`');
+CALL add_idx_if_absent('knowledge_chunk', 'idx_kb_created', '`knowledge_base_id`, `create_time`');
+CALL add_idx_if_absent('knowledge_file_info', 'idx_kb_file_created', '`knowledge_base_id`, `create_time`');
 
 CREATE TABLE IF NOT EXISTS `knowledge_tag` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
@@ -428,7 +428,7 @@ CALL add_idx_if_absent('knowledge_hit_log', 'idx_kb_score_time', '`knowledge_bas
 -- 二、业务语义索引模块（历史 v3）
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `business_index` (
+CREATE TABLE IF NOT EXISTS `knowledge_business_index` (
     `id`              BIGINT       AUTO_INCREMENT PRIMARY KEY,
     `index_code`      VARCHAR(64)  NOT NULL COMMENT '索引编码，唯一标识，对应 Milvus Collection 名称',
     `index_name`      VARCHAR(128) NOT NULL COMMENT '索引显示名称',
@@ -447,7 +447,7 @@ CREATE TABLE IF NOT EXISTS `business_index` (
     UNIQUE KEY `uk_index_code` (`index_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='业务语义索引注册表';
 
-CREATE TABLE IF NOT EXISTS `business_index_record` (
+CREATE TABLE IF NOT EXISTS `knowledge_business_index_record` (
     `id`              BIGINT       AUTO_INCREMENT PRIMARY KEY,
     `index_code`      VARCHAR(64)  NOT NULL COMMENT '所属索引编码',
     `biz_id`          VARCHAR(128) NOT NULL COMMENT '业务主键（由业务系统定义，如合同编号、物资编号）',
@@ -467,11 +467,11 @@ CREATE TABLE IF NOT EXISTS `business_index_record` (
     INDEX `idx_owner_user` (`index_code`, `owner_user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='业务索引记录表';
 
-CREATE TABLE IF NOT EXISTS `business_index_attachment` (
+CREATE TABLE IF NOT EXISTS `knowledge_business_index_attachment` (
     `id`              BIGINT       AUTO_INCREMENT PRIMARY KEY,
     `index_code`      VARCHAR(64)  NOT NULL COMMENT '所属索引编码',
     `biz_id`          VARCHAR(128) NOT NULL COMMENT '关联的业务主键',
-    `record_id`       BIGINT       NOT NULL COMMENT '关联 business_index_record.id',
+    `record_id`       BIGINT       NOT NULL COMMENT '关联 knowledge_business_index_record.id',
     `file_name`       VARCHAR(256) NOT NULL COMMENT '附件原始文件名',
     `file_type`       VARCHAR(32)  DEFAULT NULL COMMENT '文件类型（pdf / docx / txt 等）',
     `raw_text`        MEDIUMTEXT   DEFAULT NULL COMMENT '附件解析后的完整原始文本（用于重建索引）',
@@ -489,7 +489,7 @@ CREATE TABLE IF NOT EXISTS `business_index_attachment` (
 -- 三、Tool 扫描模块：项目 / 模块 / 扫描工具（历史 v1 + v5 + v6 + v7）
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `scan_project` (
+CREATE TABLE IF NOT EXISTS `capability_scan_project` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `name`          VARCHAR(128) NOT NULL                COMMENT '项目名称',
     `base_url`      VARCHAR(256) NOT NULL                COMMENT '项目域名',
@@ -513,14 +513,14 @@ CREATE TABLE IF NOT EXISTS `scan_project` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='扫描项目表';
 
 -- 已存在、且建表时尚无鉴权列的旧库：由下列调用补齐；新库建表已含四列，此处为幂等 no-op
-CALL add_col_if_absent('scan_project', 'auth_type',          'VARCHAR(32) NOT NULL DEFAULT ''none'' COMMENT ''鉴权: none / api_key'' AFTER `error_message`');
-CALL add_col_if_absent('scan_project', 'auth_api_key_in',    'VARCHAR(16) DEFAULT NULL COMMENT ''api_key 时: header / query'' AFTER `auth_type`');
-CALL add_col_if_absent('scan_project', 'auth_api_key_name',  'VARCHAR(128) DEFAULT NULL COMMENT ''API Key 参数名'' AFTER `auth_api_key_in`');
-CALL add_col_if_absent('scan_project', 'auth_api_key_value', 'TEXT DEFAULT NULL COMMENT ''API Key 参数值'' AFTER `auth_api_key_name`');
-CALL add_col_if_absent('scan_project', 'scan_settings',    'JSON DEFAULT NULL COMMENT ''扫描项 JSON 配置'' AFTER `auth_api_key_value`');
-CALL add_col_if_absent('scan_project', 'last_scanned_at', 'DATETIME DEFAULT NULL COMMENT ''上次成功扫描时间（增量基线）'' AFTER `scan_settings`');
+CALL add_col_if_absent('capability_scan_project', 'auth_type',          'VARCHAR(32) NOT NULL DEFAULT ''none'' COMMENT ''鉴权: none / api_key'' AFTER `error_message`');
+CALL add_col_if_absent('capability_scan_project', 'auth_api_key_in',    'VARCHAR(16) DEFAULT NULL COMMENT ''api_key 时: header / query'' AFTER `auth_type`');
+CALL add_col_if_absent('capability_scan_project', 'auth_api_key_name',  'VARCHAR(128) DEFAULT NULL COMMENT ''API Key 参数名'' AFTER `auth_api_key_in`');
+CALL add_col_if_absent('capability_scan_project', 'auth_api_key_value', 'TEXT DEFAULT NULL COMMENT ''API Key 参数值'' AFTER `auth_api_key_name`');
+CALL add_col_if_absent('capability_scan_project', 'scan_settings',    'JSON DEFAULT NULL COMMENT ''扫描项 JSON 配置'' AFTER `auth_api_key_value`');
+CALL add_col_if_absent('capability_scan_project', 'last_scanned_at', 'DATETIME DEFAULT NULL COMMENT ''上次成功扫描时间（增量基线）'' AFTER `scan_settings`');
 
-CREATE TABLE IF NOT EXISTS `scan_module` (
+CREATE TABLE IF NOT EXISTS `capability_scan_module` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `project_id`      BIGINT       NOT NULL                COMMENT '所属扫描项目',
     `name`            VARCHAR(128) NOT NULL                COMMENT '模块唯一名，默认=Controller 类名',
@@ -533,7 +533,7 @@ CREATE TABLE IF NOT EXISTS `scan_module` (
     KEY `idx_scan_module_project` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='扫描项目模块表';
 
-CREATE TABLE IF NOT EXISTS `scan_project_tool` (
+CREATE TABLE IF NOT EXISTS `capability_scan_project_tool` (
     `id`                  BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `project_id`          BIGINT       NOT NULL                COMMENT '扫描项目 ID',
     `module_id`           BIGINT       DEFAULT NULL            COMMENT '扫描模块 ID',
@@ -554,7 +554,7 @@ CREATE TABLE IF NOT EXISTS `scan_project_tool` (
     `enabled`             TINYINT      NOT NULL DEFAULT 0      COMMENT '是否启用',
     `agent_visible`       TINYINT      NOT NULL DEFAULT 0      COMMENT '是否对 Agent 可见',
     `lightweight_enabled` TINYINT      NOT NULL DEFAULT 0      COMMENT '是否轻量可见',
-    `global_tool_definition_id` BIGINT DEFAULT NULL            COMMENT '已注册为全局 tool_definition.id，未注册为 NULL',
+    `global_tool_definition_id` BIGINT DEFAULT NULL            COMMENT '已注册为全局 capability_tool_definition.id，未注册为 NULL',
     `create_time`         DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`         DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
@@ -563,12 +563,12 @@ CREATE TABLE IF NOT EXISTS `scan_project_tool` (
     KEY `idx_module_id`  (`module_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='扫描项目接口（未注册为全局 Tool 前）';
 
-CALL add_col_if_absent('scan_project_tool', 'capability_metadata_json', 'MEDIUMTEXT DEFAULT NULL COMMENT ''@ReachCapability 能力声明元数据 JSON'' AFTER `ai_description`');
-CALL add_col_if_absent('scan_project_tool', 'sensitive_data_json', 'TEXT DEFAULT NULL COMMENT ''敏感数据扫描结果 JSON'' AFTER `capability_metadata_json`');
-CALL add_col_if_absent('scan_project_tool', 'removed_from_source', 'TINYINT NOT NULL DEFAULT 0 COMMENT ''1=扫描或 SDK 源中已无此接口（墓碑行，可能仍关联全局 Tool）'' AFTER `global_tool_definition_id`');
-CALL add_col_if_absent('scan_project_tool', 'removed_at', 'DATETIME DEFAULT NULL COMMENT ''标记为从源移除的时间'' AFTER `removed_from_source`');
+CALL add_col_if_absent('capability_scan_project_tool', 'capability_metadata_json', 'MEDIUMTEXT DEFAULT NULL COMMENT ''@ReachCapability 能力声明元数据 JSON'' AFTER `ai_description`');
+CALL add_col_if_absent('capability_scan_project_tool', 'sensitive_data_json', 'TEXT DEFAULT NULL COMMENT ''敏感数据扫描结果 JSON'' AFTER `capability_metadata_json`');
+CALL add_col_if_absent('capability_scan_project_tool', 'removed_from_source', 'TINYINT NOT NULL DEFAULT 0 COMMENT ''1=扫描或 SDK 源中已无此接口（墓碑行，可能仍关联全局 Tool）'' AFTER `global_tool_definition_id`');
+CALL add_col_if_absent('capability_scan_project_tool', 'removed_at', 'DATETIME DEFAULT NULL COMMENT ''标记为从源移除的时间'' AFTER `removed_from_source`');
 
-CREATE TABLE IF NOT EXISTS `semantic_doc` (
+CREATE TABLE IF NOT EXISTS `capability_semantic_doc` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `level`           VARCHAR(16)  NOT NULL                COMMENT '层级: project / module / tool',
     `project_id`      BIGINT       DEFAULT NULL            COMMENT '归属项目 ID',
@@ -595,7 +595,7 @@ CREATE TABLE IF NOT EXISTS `semantic_doc` (
 --    kind = 'SKILL' → 能力粒度（Phase 2.0 仅 SUB_AGENT，spec_json 承载专属参数）
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `tool_definition` (
+CREATE TABLE IF NOT EXISTS `capability_tool_definition` (
     `id`                  BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
     `name`                VARCHAR(128)  NOT NULL                COMMENT '能力唯一标识 (snake_case)',
     `kind`                VARCHAR(16)   NOT NULL DEFAULT 'TOOL' COMMENT '能力形态: TOOL / SKILL',
@@ -613,7 +613,7 @@ CREATE TABLE IF NOT EXISTS `tool_definition` (
     `request_body_type`   VARCHAR(256)  DEFAULT NULL            COMMENT '请求体类型',
     `response_type`       VARCHAR(256)  DEFAULT NULL            COMMENT '响应类型',
     `project_id`          BIGINT        DEFAULT NULL            COMMENT '关联的扫描项目 ID',
-    `module_id`           BIGINT        DEFAULT NULL            COMMENT '所属模块（scan_module.id）',
+    `module_id`           BIGINT        DEFAULT NULL            COMMENT '所属模块（capability_scan_module.id）',
     `enabled`             TINYINT       NOT NULL DEFAULT 1      COMMENT '是否启用',
     `agent_visible`       TINYINT       NOT NULL DEFAULT 1      COMMENT '是否对 ReAct Agent 可见',
     `side_effect`         VARCHAR(24)   NOT NULL DEFAULT 'WRITE' COMMENT '副作用等级: NONE / READ_ONLY / IDEMPOTENT_WRITE / WRITE / IRREVERSIBLE',
@@ -629,28 +629,28 @@ CREATE TABLE IF NOT EXISTS `tool_definition` (
     KEY        `idx_kind_enabled_visible` (`kind`, `enabled`, `agent_visible`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool/Skill 统一能力表（Phase 2.0 起 kind 区分）';
 
--- 兼容老库：如果 tool_definition 已存在但缺少 Phase 2 新列，这里补齐（CREATE TABLE IF NOT EXISTS 不会重建）
-CALL add_col_if_absent('tool_definition', 'kind',             'VARCHAR(16) NOT NULL DEFAULT ''TOOL'' COMMENT ''能力形态: TOOL / SKILL'' AFTER `name`');
-CALL add_col_if_absent('tool_definition', 'ai_description',   'MEDIUMTEXT DEFAULT NULL COMMENT ''LLM 生成的业务语义描述'' AFTER `description`');
-CALL add_col_if_absent('tool_definition', 'capability_metadata_json', 'MEDIUMTEXT DEFAULT NULL COMMENT ''@ReachCapability 能力声明元数据 JSON'' AFTER `ai_description`');
-CALL add_col_if_absent('tool_definition', 'spec_json',        'MEDIUMTEXT DEFAULT NULL COMMENT ''Skill 专属 spec JSON'' AFTER `parameters_json`');
-CALL add_col_if_absent('tool_definition', 'project_id',       'BIGINT DEFAULT NULL COMMENT ''关联的扫描项目 ID'' AFTER `response_type`');
-CALL add_col_if_absent('tool_definition', 'module_id',        'BIGINT DEFAULT NULL COMMENT ''所属模块'' AFTER `project_id`');
-CALL add_col_if_absent('tool_definition', 'side_effect',      'VARCHAR(24) NOT NULL DEFAULT ''WRITE'' COMMENT ''副作用等级'' AFTER `agent_visible`');
-CALL add_col_if_absent('tool_definition', 'skill_kind',       'VARCHAR(24) DEFAULT NULL COMMENT ''Skill 形态子类型'' AFTER `side_effect`');
-CALL add_idx_if_absent('tool_definition', 'idx_project_id',           'project_id');
-CALL add_idx_if_absent('tool_definition', 'idx_tool_module_id',       'module_id');
-CALL add_idx_if_absent('tool_definition', 'idx_kind_enabled_visible', 'kind, enabled, agent_visible');
+-- 兼容老库：如果 capability_tool_definition 已存在但缺少 Phase 2 新列，这里补齐（CREATE TABLE IF NOT EXISTS 不会重建）
+CALL add_col_if_absent('capability_tool_definition', 'kind',             'VARCHAR(16) NOT NULL DEFAULT ''TOOL'' COMMENT ''能力形态: TOOL / SKILL'' AFTER `name`');
+CALL add_col_if_absent('capability_tool_definition', 'ai_description',   'MEDIUMTEXT DEFAULT NULL COMMENT ''LLM 生成的业务语义描述'' AFTER `description`');
+CALL add_col_if_absent('capability_tool_definition', 'capability_metadata_json', 'MEDIUMTEXT DEFAULT NULL COMMENT ''@ReachCapability 能力声明元数据 JSON'' AFTER `ai_description`');
+CALL add_col_if_absent('capability_tool_definition', 'spec_json',        'MEDIUMTEXT DEFAULT NULL COMMENT ''Skill 专属 spec JSON'' AFTER `parameters_json`');
+CALL add_col_if_absent('capability_tool_definition', 'project_id',       'BIGINT DEFAULT NULL COMMENT ''关联的扫描项目 ID'' AFTER `response_type`');
+CALL add_col_if_absent('capability_tool_definition', 'module_id',        'BIGINT DEFAULT NULL COMMENT ''所属模块'' AFTER `project_id`');
+CALL add_col_if_absent('capability_tool_definition', 'side_effect',      'VARCHAR(24) NOT NULL DEFAULT ''WRITE'' COMMENT ''副作用等级'' AFTER `agent_visible`');
+CALL add_col_if_absent('capability_tool_definition', 'skill_kind',       'VARCHAR(24) DEFAULT NULL COMMENT ''Skill 形态子类型'' AFTER `side_effect`');
+CALL add_idx_if_absent('capability_tool_definition', 'idx_project_id',           'project_id');
+CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_module_id',       'module_id');
+CALL add_idx_if_absent('capability_tool_definition', 'idx_kind_enabled_visible', 'kind, enabled, agent_visible');
 
 -- Skill 草稿：kind=SKILL 时 draft=1 表示暂存，不参与注册与执行（与 skill_draft_tool_definition.sql 一致）
-CALL add_col_if_absent('tool_definition', 'draft', 'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''1=Skill草稿暂存，不落registry、不可执行'' AFTER `skill_kind`');
+CALL add_col_if_absent('capability_tool_definition', 'draft', 'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''1=Skill草稿暂存，不落registry、不可执行'' AFTER `skill_kind`');
 
 
 -- ============================================================================
 -- 五、Agent 调用审计日志（Phase 1 + Phase 2.0.1 索引）
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `tool_call_log` (
+CREATE TABLE IF NOT EXISTS `runtime_tool_call_log` (
     `id`                   BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `trace_id`             VARCHAR(64)  NOT NULL                COMMENT '一次 Agent 执行的 trace id',
     `session_id`           VARCHAR(64)  DEFAULT NULL            COMMENT '会话 ID',
@@ -676,11 +676,11 @@ CREATE TABLE IF NOT EXISTS `tool_call_log` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Tool 调用审计日志（Phase 1 采集 / Phase 2 Skill Mining 数据源）';
 
 -- 兼容老库：加 Phase 2.0.1 新增的三个索引
-CALL add_idx_if_absent('tool_call_log', 'idx_create_time',      'create_time');
-CALL add_idx_if_absent('tool_call_log', 'idx_user_create_time', 'user_id, create_time');
-CALL add_idx_if_absent('tool_call_log', 'idx_intent_create',    'intent_type, create_time');
+CALL add_idx_if_absent('runtime_tool_call_log', 'idx_create_time',      'create_time');
+CALL add_idx_if_absent('runtime_tool_call_log', 'idx_user_create_time', 'user_id, create_time');
+CALL add_idx_if_absent('runtime_tool_call_log', 'idx_intent_create',    'intent_type, create_time');
 
-CREATE TABLE IF NOT EXISTS `agent_trace_span` (
+CREATE TABLE IF NOT EXISTS `runtime_agent_trace_span` (
     `id`                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `trace_id`          VARCHAR(64)  NOT NULL                COMMENT '一次 Agent 执行的 trace id',
     `span_id`           VARCHAR(64)  NOT NULL                COMMENT 'Span ID',
@@ -711,22 +711,22 @@ CREATE TABLE IF NOT EXISTS `agent_trace_span` (
     KEY `idx_agent_node` (`agent_id`, `node_id`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 平台统一执行 Trace Span';
 
-CALL add_idx_if_absent('agent_trace_span', 'idx_trace',      'trace_id, created_at');
-CALL add_idx_if_absent('agent_trace_span', 'idx_parent',     'trace_id, parent_span_id');
-CALL add_idx_if_absent('agent_trace_span', 'idx_agent_node', 'agent_id, node_id, created_at');
-CALL add_col_if_absent('agent_trace_span', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `project_code`');
-CALL add_col_if_absent('agent_trace_span', 'app_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''嵌入式业务应用 ID，等同 project_code'' AFTER `tenant_id`');
-CALL add_col_if_absent('agent_trace_span', 'external_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务系统内用户 ID'' AFTER `app_id`');
-CALL add_col_if_absent('agent_trace_span', 'global_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''跨系统稳定用户 ID'' AFTER `external_user_id`');
-CALL add_col_if_absent('agent_trace_span', 'page_instance_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务前端页面实例 ID'' AFTER `global_user_id`');
-CALL add_idx_if_absent('agent_trace_span', 'idx_trace_embed_user', '`app_id`, `external_user_id`, `created_at`');
+CALL add_idx_if_absent('runtime_agent_trace_span', 'idx_trace',      'trace_id, created_at');
+CALL add_idx_if_absent('runtime_agent_trace_span', 'idx_parent',     'trace_id, parent_span_id');
+CALL add_idx_if_absent('runtime_agent_trace_span', 'idx_agent_node', 'agent_id, node_id, created_at');
+CALL add_col_if_absent('runtime_agent_trace_span', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `project_code`');
+CALL add_col_if_absent('runtime_agent_trace_span', 'app_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''嵌入式业务应用 ID，等同 project_code'' AFTER `tenant_id`');
+CALL add_col_if_absent('runtime_agent_trace_span', 'external_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务系统内用户 ID'' AFTER `app_id`');
+CALL add_col_if_absent('runtime_agent_trace_span', 'global_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''跨系统稳定用户 ID'' AFTER `external_user_id`');
+CALL add_col_if_absent('runtime_agent_trace_span', 'page_instance_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务前端页面实例 ID'' AFTER `global_user_id`');
+CALL add_idx_if_absent('runtime_agent_trace_span', 'idx_trace_embed_user', '`app_id`, `external_user_id`, `created_at`');
 
 
 -- ============================================================================
 -- 六、Skill Mining（Phase 2.1）：草稿 + 评估快照
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `skill_draft` (
+CREATE TABLE IF NOT EXISTS `capability_draft` (
     `id`                BIGINT       NOT NULL AUTO_INCREMENT,
     `name`              VARCHAR(128) NOT NULL                     COMMENT '草稿生成名（首尾 tool ASCII 片段 + 6 位 hash）',
     `description`       VARCHAR(512) DEFAULT NULL                 COMMENT '草稿描述',
@@ -742,9 +742,9 @@ CREATE TABLE IF NOT EXISTS `skill_draft` (
     KEY `idx_draft_name`    (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Skill 挖掘草稿表（Phase 2.1）';
 
-CREATE TABLE IF NOT EXISTS `skill_eval_snapshot` (
+CREATE TABLE IF NOT EXISTS `capability_eval_snapshot` (
     `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
-    `skill_name`         VARCHAR(128) NOT NULL                 COMMENT '被评估的 Skill 名（= tool_definition.name where kind=SKILL）',
+    `skill_name`         VARCHAR(128) NOT NULL                 COMMENT '被评估的 Skill 名（= capability_tool_definition.name where kind=SKILL）',
     `call_count`         INT          NOT NULL DEFAULT 0       COMMENT '统计窗口内调用次数',
     `hit_rate`           DOUBLE       DEFAULT NULL             COMMENT '命中率（覆盖率：有调用日的天数 / 总天数）',
     `replacement_rate`   DOUBLE       DEFAULT NULL             COMMENT '替代率（Skill 调用次数 / (Skill + 同意图多工具 trace)）',
@@ -764,7 +764,7 @@ CREATE TABLE IF NOT EXISTS `skill_eval_snapshot` (
 --   与历史 skill_interaction_phase2_x 补丁一致（CREATE IF NOT EXISTS，幂等）
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `skill_interaction` (
+CREATE TABLE IF NOT EXISTS `runtime_skill_interaction` (
   `id`              VARCHAR(64)   NOT NULL COMMENT 'interactionId，与前端 uiRequest.interactionId 对齐',
   `trace_id`        VARCHAR(64)   NOT NULL,
   `session_id`      VARCHAR(64)   DEFAULT NULL,
@@ -793,7 +793,7 @@ COMMENT='交互式表单 Skill 挂起状态';
 --   - 规则与 SideEffectInferrer 对齐
 -- ============================================================================
 
-UPDATE `tool_definition`
+UPDATE `capability_tool_definition`
 SET `side_effect` = CASE
     WHEN UPPER(IFNULL(`http_method`, '')) = 'DELETE'
       OR LOWER(IFNULL(`endpoint_path`, '')) REGEXP 'delete|drop|purge|remove|refund|cancel|void|destroy|erase'
@@ -814,10 +814,10 @@ WHERE UPPER(IFNULL(`kind`, 'TOOL')) = 'TOOL'
 
 
 -- ============================================================================
--- 七.五、ReachAI Agent / Workflow 主模型（ai_agent 为唯一 Agent 主表）
+-- 七.五、ReachAI Agent / Workflow 主模型（runtime_agent 为唯一 Agent 主表）
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `ai_agent` (
+CREATE TABLE IF NOT EXISTS `runtime_agent` (
     `id`                 VARCHAR(32)  NOT NULL,
     `project_id`         BIGINT       DEFAULT NULL,
     `project_code`       VARCHAR(96)  DEFAULT NULL,
@@ -839,7 +839,7 @@ CREATE TABLE IF NOT EXISTS `ai_agent` (
     KEY `idx_ai_agent_project_code` (`project_code`, `agent_kind`, `enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ReachAI 智能体入口（身份、策略、Workflow 路由）';
 
-CREATE TABLE IF NOT EXISTS `ai_workflow` (
+CREATE TABLE IF NOT EXISTS `runtime_workflow` (
     `id`                           VARCHAR(32)  NOT NULL,
     `project_id`                   BIGINT       DEFAULT NULL,
     `project_code`                 VARCHAR(96)  DEFAULT NULL,
@@ -866,7 +866,7 @@ CREATE TABLE IF NOT EXISTS `ai_workflow` (
     KEY `idx_ai_workflow_runtime` (`runtime_type`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ReachAI Workflow 编排资产（GraphSpec / canvas_json）';
 
-CREATE TABLE IF NOT EXISTS `ai_workflow_version` (
+CREATE TABLE IF NOT EXISTS `runtime_workflow_version` (
     `id`                       BIGINT      NOT NULL AUTO_INCREMENT,
     `workflow_id`              VARCHAR(32) NOT NULL,
     `version`                  VARCHAR(32) NOT NULL,
@@ -884,10 +884,10 @@ CREATE TABLE IF NOT EXISTS `ai_workflow_version` (
     KEY `idx_ai_workflow_version_status` (`workflow_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow 发布版本';
 
-CREATE TABLE IF NOT EXISTS `ai_agent_workflow_binding` (
+CREATE TABLE IF NOT EXISTS `runtime_agent_workflow_binding` (
     `id`                BIGINT       NOT NULL AUTO_INCREMENT,
-    `agent_id`          VARCHAR(32)  NOT NULL COMMENT '关联 ai_agent.id',
-    `workflow_id`       VARCHAR(32)  NOT NULL COMMENT '关联 ai_workflow.id',
+    `agent_id`          VARCHAR(32)  NOT NULL COMMENT '关联 runtime_agent.id',
+    `workflow_id`       VARCHAR(32)  NOT NULL COMMENT '关联 runtime_workflow.id',
     `project_code`      VARCHAR(96)  DEFAULT NULL,
     `binding_type`      VARCHAR(32)  NOT NULL DEFAULT 'DEFAULT' COMMENT 'DEFAULT / PAGE / ROUTE / ACTION / INTENT / TASK / FALLBACK',
     `page_key`          VARCHAR(160) DEFAULT NULL,
@@ -908,9 +908,9 @@ CREATE TABLE IF NOT EXISTS `ai_agent_workflow_binding` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 到 Workflow 路由绑定';
 
 -- Workflow Studio Eval：草稿流程自动评测
-CREATE TABLE IF NOT EXISTS `agent_eval_dataset` (
+CREATE TABLE IF NOT EXISTS `runtime_agent_eval_dataset` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
-  `agent_id` VARCHAR(64) DEFAULT NULL COMMENT '关联 ai_agent.id；草稿评测可为空',
+  `agent_id` VARCHAR(64) DEFAULT NULL COMMENT '关联 runtime_agent.id；草稿评测可为空',
   `agent_name` VARCHAR(128) DEFAULT NULL,
   `name` VARCHAR(128) NOT NULL,
   `description` VARCHAR(512) DEFAULT NULL,
@@ -922,7 +922,7 @@ CREATE TABLE IF NOT EXISTS `agent_eval_dataset` (
   KEY `idx_eval_dataset_name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 评测数据集';
 
-CREATE TABLE IF NOT EXISTS `agent_eval_case` (
+CREATE TABLE IF NOT EXISTS `runtime_agent_eval_case` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
   `dataset_id` BIGINT NOT NULL,
   `case_no` VARCHAR(64) NOT NULL,
@@ -937,7 +937,7 @@ CREATE TABLE IF NOT EXISTS `agent_eval_case` (
   UNIQUE KEY `uk_eval_case_no` (`dataset_id`, `case_no`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 评测用例';
 
-CREATE TABLE IF NOT EXISTS `agent_eval_run` (
+CREATE TABLE IF NOT EXISTS `runtime_agent_eval_run` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
   `dataset_id` BIGINT NOT NULL,
   `agent_id` VARCHAR(64) DEFAULT NULL,
@@ -957,7 +957,7 @@ CREATE TABLE IF NOT EXISTS `agent_eval_run` (
   KEY `idx_eval_run_status` (`status`, `create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 评测运行任务';
 
-CREATE TABLE IF NOT EXISTS `agent_eval_case_result` (
+CREATE TABLE IF NOT EXISTS `runtime_agent_eval_case_result` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
   `run_id` BIGINT NOT NULL,
   `dataset_id` BIGINT NOT NULL,
@@ -985,17 +985,17 @@ CREATE TABLE IF NOT EXISTS `agent_eval_case_result` (
 
 -- ============================================================================
 -- 七.六、Tool 语义检索：持久化「重建向量索引」选用的 Embedding 模型实例
--- （与历史 tool_retrieval_setting 补丁一致）
+-- （与历史 capability_tool_retrieval_setting 补丁一致）
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `tool_retrieval_setting` (
+CREATE TABLE IF NOT EXISTS `capability_tool_retrieval_setting` (
     `id`                            CHAR(1)      NOT NULL DEFAULT '1' COMMENT '固定单例行',
     `embedding_model_instance_id`   VARCHAR(64)  DEFAULT NULL COMMENT '上次重建 Tool 向量索引选用的模型实例；对话侧语义召回与用户问题向量化共用',
     `updated_at`                    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool 语义检索全局运行时设置（单例）';
 
-INSERT IGNORE INTO `tool_retrieval_setting` (`id`, `embedding_model_instance_id`) VALUES ('1', NULL);
+INSERT IGNORE INTO `capability_tool_retrieval_setting` (`id`, `embedding_model_instance_id`) VALUES ('1', NULL);
 
 
 -- ============================================================================
@@ -1006,11 +1006,11 @@ INSERT IGNORE INTO `tool_retrieval_setting` (`id`, `embedding_model_instance_id`
 --   - 上下文 roles 为空时走旧行为（不拦截，仅 warn），方便灰度接入。
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `tool_acl` (
+CREATE TABLE IF NOT EXISTS `control_tool_acl` (
     `id`            BIGINT        NOT NULL AUTO_INCREMENT,
     `role_code`     VARCHAR(64)   NOT NULL                     COMMENT '角色编码',
     `target_kind`   VARCHAR(16)   NOT NULL DEFAULT 'TOOL'      COMMENT 'TOOL / SKILL / ALL',
-    `target_name`   VARCHAR(128)  NOT NULL                     COMMENT 'tool_definition.name 或 *',
+    `target_name`   VARCHAR(128)  NOT NULL                     COMMENT 'capability_tool_definition.name 或 *',
     `permission`    VARCHAR(16)   NOT NULL DEFAULT 'ALLOW'     COMMENT 'ALLOW / DENY',
     `note`          VARCHAR(512)  DEFAULT NULL,
     `enabled`       TINYINT(1)    NOT NULL DEFAULT 1,
@@ -1022,24 +1022,24 @@ CREATE TABLE IF NOT EXISTS `tool_acl` (
     KEY `idx_target`         (`target_kind`, `target_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool / Skill 角色访问控制（Phase 3.1）';
 
-CALL add_col_if_absent('tool_acl', 'target_kind', 'VARCHAR(16) NOT NULL DEFAULT ''TOOL'' COMMENT ''TOOL / SKILL / ALL'' AFTER `role_code`');
-CALL add_col_if_absent('tool_acl', 'permission',  'VARCHAR(16) NOT NULL DEFAULT ''ALLOW'' COMMENT ''ALLOW / DENY'' AFTER `target_name`');
-CALL add_idx_if_absent('tool_acl', 'idx_role_enabled', 'role_code, enabled');
-CALL add_idx_if_absent('tool_acl', 'idx_target',       'target_kind, target_name');
+CALL add_col_if_absent('control_tool_acl', 'target_kind', 'VARCHAR(16) NOT NULL DEFAULT ''TOOL'' COMMENT ''TOOL / SKILL / ALL'' AFTER `role_code`');
+CALL add_col_if_absent('control_tool_acl', 'permission',  'VARCHAR(16) NOT NULL DEFAULT ''ALLOW'' COMMENT ''ALLOW / DENY'' AFTER `target_name`');
+CALL add_idx_if_absent('control_tool_acl', 'idx_role_enabled', 'role_code, enabled');
+CALL add_idx_if_absent('control_tool_acl', 'idx_target',       'target_kind, target_name');
 
-INSERT INTO `tool_acl` (`role_code`, `target_kind`, `target_name`, `permission`, `note`)
+INSERT INTO `control_tool_acl` (`role_code`, `target_kind`, `target_name`, `permission`, `note`)
 SELECT * FROM (
     SELECT 'admin'  AS role_code, 'ALL'  AS target_kind, '*' AS target_name, 'ALLOW' AS permission, '内建：管理员默认放行全部能力' AS note UNION ALL
     SELECT 'public',               'TOOL',                 '*',                 'DENY',             '内建：匿名身份默认拒绝所有 TOOL'
 ) AS seed
-WHERE NOT EXISTS (SELECT 1 FROM `tool_acl` LIMIT 1);
+WHERE NOT EXISTS (SELECT 1 FROM `control_tool_acl` LIMIT 1);
 
 
 -- ============================================================================
 -- 七.b、Phase P1 —— SlotExtractor SPI（字典 + 调用日志 + 字段绑定）
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `slot_dict_dept` (
+CREATE TABLE IF NOT EXISTS `control_slot_dict_dept` (
     `id`            BIGINT        NOT NULL AUTO_INCREMENT,
     `parent_id`     BIGINT        DEFAULT NULL,
     `name`          VARCHAR(128)  NOT NULL,
@@ -1056,9 +1056,9 @@ CREATE TABLE IF NOT EXISTS `slot_dict_dept` (
     KEY `idx_project_scope` (`project_scope`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='SlotExtractor 部门字典 (Phase P1)';
 
-CALL add_idx_if_absent('slot_dict_dept', 'idx_project_scope', '`project_scope`');
+CALL add_idx_if_absent('control_slot_dict_dept', 'idx_project_scope', '`project_scope`');
 
-CREATE TABLE IF NOT EXISTS `slot_dict_user` (
+CREATE TABLE IF NOT EXISTS `control_slot_dict_user` (
     `id`            BIGINT        NOT NULL AUTO_INCREMENT,
     `dept_id`       BIGINT        DEFAULT NULL,
     `name`          VARCHAR(128)  NOT NULL,
@@ -1075,9 +1075,9 @@ CREATE TABLE IF NOT EXISTS `slot_dict_user` (
     KEY `idx_employee_no` (`employee_no`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='SlotExtractor 人员字典 (Phase P1)';
 
-CALL add_idx_if_absent('slot_dict_user', 'idx_employee_no', '`employee_no`');
+CALL add_idx_if_absent('control_slot_dict_user', 'idx_employee_no', '`employee_no`');
 
-CREATE TABLE IF NOT EXISTS `slot_extract_log` (
+CREATE TABLE IF NOT EXISTS `control_slot_extract_log` (
     `id`             BIGINT        NOT NULL AUTO_INCREMENT,
     `trace_id`       VARCHAR(64)   DEFAULT NULL,
     `skill_name`     VARCHAR(128)  DEFAULT NULL,
@@ -1096,11 +1096,11 @@ CREATE TABLE IF NOT EXISTS `slot_extract_log` (
     KEY `idx_skill_field`         (`skill_name`, `field_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='SlotExtractor 调用日志 (Phase P1)';
 
-CALL add_col_if_absent('slot_extract_log', 'user_text', 'VARCHAR(4000) DEFAULT NULL COMMENT ''用户原文，用于排查'' AFTER `evidence`');
-CALL add_col_if_absent('slot_extract_log', 'create_time', 'DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT ''创建时间'' AFTER `latency_ms`');
-CALL add_idx_if_absent('slot_extract_log', 'idx_extractor_create', '`extractor_name`, `create_time`');
+CALL add_col_if_absent('control_slot_extract_log', 'user_text', 'VARCHAR(4000) DEFAULT NULL COMMENT ''用户原文，用于排查'' AFTER `evidence`');
+CALL add_col_if_absent('control_slot_extract_log', 'create_time', 'DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT ''创建时间'' AFTER `latency_ms`');
+CALL add_idx_if_absent('control_slot_extract_log', 'idx_extractor_create', '`extractor_name`, `create_time`');
 
-CREATE TABLE IF NOT EXISTS `field_extractor_binding` (
+CREATE TABLE IF NOT EXISTS `control_field_extractor_binding` (
     `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
     `skill_name`           VARCHAR(128) NOT NULL,
     `field_key`            VARCHAR(128) NOT NULL,
@@ -1116,7 +1116,7 @@ CREATE TABLE IF NOT EXISTS `field_extractor_binding` (
 -- 七.c、Phase P1 —— DomainClassifier（领域定义 + 归属挂接）
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `domain_def` (
+CREATE TABLE IF NOT EXISTS `capability_domain_def` (
     `id`             BIGINT        NOT NULL AUTO_INCREMENT,
     `code`           VARCHAR(64)   NOT NULL,
     `name`           VARCHAR(128)  NOT NULL,
@@ -1134,9 +1134,9 @@ CREATE TABLE IF NOT EXISTS `domain_def` (
     KEY `idx_enabled`     (`enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='领域定义 (Phase P1)';
 
-CALL add_idx_if_absent('domain_def', 'idx_parent', '`parent_code`');
+CALL add_idx_if_absent('capability_domain_def', 'idx_parent', '`parent_code`');
 
-CREATE TABLE IF NOT EXISTS `domain_assignment` (
+CREATE TABLE IF NOT EXISTS `capability_domain_assignment` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT,
     `target_kind`   VARCHAR(16)  NOT NULL                COMMENT 'PROJECT / TOOL / SKILL / AGENT',
     `target_name`   VARCHAR(192) NOT NULL,
@@ -1151,14 +1151,14 @@ CREATE TABLE IF NOT EXISTS `domain_assignment` (
     KEY `idx_target` (`target_kind`, `target_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool/Skill/Agent 领域挂接 (Phase P1)';
 
-CALL add_col_if_absent('scan_project', 'default_domain_code', 'VARCHAR(64) DEFAULT NULL COMMENT ''扫描项目默认领域 (Phase P1)''');
+CALL add_col_if_absent('capability_scan_project', 'default_domain_code', 'VARCHAR(64) DEFAULT NULL COMMENT ''扫描项目默认领域 (Phase P1)''');
 
 
 -- ============================================================================
 -- 七.d、Phase P2 —— MCP Server（Client / 调用日志 / 暴露白名单）
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `mcp_client` (
+CREATE TABLE IF NOT EXISTS `control_mcp_client` (
     `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
     `name`                 VARCHAR(128) NOT NULL,
     `api_key_prefix`       VARCHAR(16)  NOT NULL,
@@ -1175,9 +1175,9 @@ CREATE TABLE IF NOT EXISTS `mcp_client` (
     KEY `idx_enabled` (`enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='MCP Client 凭证 (Phase P2)';
 
-CALL add_unique_idx_if_absent('mcp_client', 'uk_api_key_hash', '`api_key_hash`');
+CALL add_unique_idx_if_absent('control_mcp_client', 'uk_api_key_hash', '`api_key_hash`');
 
-CREATE TABLE IF NOT EXISTS `mcp_call_log` (
+CREATE TABLE IF NOT EXISTS `control_mcp_call_log` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT,
     `client_id`     BIGINT       DEFAULT NULL,
     `client_name`   VARCHAR(128) DEFAULT NULL,
@@ -1197,7 +1197,7 @@ CREATE TABLE IF NOT EXISTS `mcp_call_log` (
     KEY `idx_trace`          (`trace_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='MCP 调用审计 (Phase P2)';
 
-CREATE TABLE IF NOT EXISTS `mcp_visibility` (
+CREATE TABLE IF NOT EXISTS `control_mcp_visibility` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT,
     `target_kind`   VARCHAR(16)  NOT NULL                COMMENT 'TOOL / SKILL',
     `target_name`   VARCHAR(192) NOT NULL,
@@ -1209,17 +1209,17 @@ CREATE TABLE IF NOT EXISTS `mcp_visibility` (
     UNIQUE KEY `uk_target` (`target_kind`, `target_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='MCP 暴露白名单 (Phase P2)';
 
-CALL add_unique_idx_if_absent('mcp_visibility', 'uk_target', '`target_kind`, `target_name`');
+CALL add_unique_idx_if_absent('control_mcp_visibility', 'uk_target', '`target_kind`, `target_name`');
 
 
 -- ============================================================================
 -- 七.e、Phase P2 —— A2A 适配（AgentCard endpoint + 调用日志）
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `a2a_endpoint` (
+CREATE TABLE IF NOT EXISTS `control_a2a_endpoint` (
     `id`          BIGINT       NOT NULL AUTO_INCREMENT,
-    `agent_id`    VARCHAR(64)  NOT NULL                 COMMENT 'ai_agent.id',
-    `agent_key`   VARCHAR(128) NOT NULL                 COMMENT 'ai_agent.key_slug 冗余',
+    `agent_id`    VARCHAR(64)  NOT NULL                 COMMENT 'runtime_agent.id',
+    `agent_key`   VARCHAR(128) NOT NULL                 COMMENT 'runtime_agent.key_slug 冗余',
     `card_json`   TEXT         NOT NULL                 COMMENT 'A2A AgentCard JSON',
     `enabled`     TINYINT(1)   NOT NULL DEFAULT 1,
     `created_at`  DATETIME     DEFAULT CURRENT_TIMESTAMP,
@@ -1229,7 +1229,7 @@ CREATE TABLE IF NOT EXISTS `a2a_endpoint` (
     KEY `idx_agent_key` (`agent_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='A2A 暴露的 Agent (Phase P2)';
 
-CREATE TABLE IF NOT EXISTS `a2a_call_log` (
+CREATE TABLE IF NOT EXISTS `control_a2a_call_log` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT,
     `endpoint_id`   BIGINT       DEFAULT NULL,
     `agent_key`     VARCHAR(128) DEFAULT NULL,
@@ -1252,14 +1252,14 @@ CREATE TABLE IF NOT EXISTS `a2a_call_log` (
 
 -- ============================================================================
 -- 七.f、Phase 4.0 接口图谱（ApiCallGraph 一期）
---   - api_graph_node：接口/字段/DTO/模块节点
---   - api_graph_edge：接口间引用关系（请求引用蓝 / 响应引用绿 / 数据模型紫虚线）
---   - api_graph_layout：画布坐标
+--   - capability_api_graph_node：接口/字段/DTO/模块节点
+--   - capability_api_graph_edge：接口间引用关系（请求引用蓝 / 响应引用绿 / 数据模型紫虚线）
+--   - capability_api_graph_layout：画布坐标
 --   - 与历史 api_graph_phase4_0 补丁一致；详见
 --     docs/接口图谱-设计与落地.md
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `api_graph_node` (
+CREATE TABLE IF NOT EXISTS `capability_api_graph_node` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT,
     `project_id`    BIGINT       NOT NULL,
     `kind`          VARCHAR(16)  NOT NULL                       COMMENT 'API / FIELD_IN / FIELD_OUT / DTO / MODULE',
@@ -1277,7 +1277,7 @@ CREATE TABLE IF NOT EXISTS `api_graph_node` (
     KEY `idx_type`         (`project_id`, `type_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接口图谱节点 (Phase 4.0)';
 
-CREATE TABLE IF NOT EXISTS `api_graph_edge` (
+CREATE TABLE IF NOT EXISTS `capability_api_graph_edge` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT,
     `project_id`      BIGINT       NOT NULL,
     `source_node_id`  BIGINT       NOT NULL,
@@ -1303,14 +1303,14 @@ CREATE TABLE IF NOT EXISTS `api_graph_edge` (
     KEY `idx_target_node`  (`target_node_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接口图谱边 (Phase 4.0)';
 
-CALL add_col_if_absent('api_graph_edge', 'status', 'VARCHAR(16) NOT NULL DEFAULT ''CONFIRMED'' COMMENT ''CANDIDATE / CONFIRMED / REJECTED'' AFTER `confidence`');
-CALL add_col_if_absent('api_graph_edge', 'infer_strategy', 'VARCHAR(32) DEFAULT NULL COMMENT ''schema_match / dto_match / trace_value_match / llm_assisted'' AFTER `status`');
-CALL add_col_if_absent('api_graph_edge', 'confirmed_by', 'VARCHAR(64) DEFAULT NULL AFTER `infer_strategy`');
-CALL add_col_if_absent('api_graph_edge', 'confirmed_at', 'DATETIME DEFAULT NULL AFTER `confirmed_by`');
-CALL add_col_if_absent('api_graph_edge', 'reject_reason', 'VARCHAR(512) DEFAULT NULL AFTER `confirmed_at`');
-CALL add_idx_if_absent('api_graph_edge', 'idx_project_status', '`project_id`, `status`');
+CALL add_col_if_absent('capability_api_graph_edge', 'status', 'VARCHAR(16) NOT NULL DEFAULT ''CONFIRMED'' COMMENT ''CANDIDATE / CONFIRMED / REJECTED'' AFTER `confidence`');
+CALL add_col_if_absent('capability_api_graph_edge', 'infer_strategy', 'VARCHAR(32) DEFAULT NULL COMMENT ''schema_match / dto_match / trace_value_match / llm_assisted'' AFTER `status`');
+CALL add_col_if_absent('capability_api_graph_edge', 'confirmed_by', 'VARCHAR(64) DEFAULT NULL AFTER `infer_strategy`');
+CALL add_col_if_absent('capability_api_graph_edge', 'confirmed_at', 'DATETIME DEFAULT NULL AFTER `confirmed_by`');
+CALL add_col_if_absent('capability_api_graph_edge', 'reject_reason', 'VARCHAR(512) DEFAULT NULL AFTER `confirmed_at`');
+CALL add_idx_if_absent('capability_api_graph_edge', 'idx_project_status', '`project_id`, `status`');
 
-CREATE TABLE IF NOT EXISTS `api_graph_layout` (
+CREATE TABLE IF NOT EXISTS `capability_api_graph_layout` (
     `id`         BIGINT     NOT NULL AUTO_INCREMENT,
     `project_id` BIGINT     NOT NULL,
     `node_id`    BIGINT     NOT NULL,
@@ -1328,7 +1328,7 @@ CREATE TABLE IF NOT EXISTS `api_graph_layout` (
 -- 七.g、Phase 4.2 生产护栏：统一治理决策日志
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `guard_decision_log` (
+CREATE TABLE IF NOT EXISTS `runtime_guard_decision_log` (
     `id`             BIGINT       NOT NULL AUTO_INCREMENT,
     `trace_id`       VARCHAR(64)  DEFAULT NULL                 COMMENT '关联 traceId，可为空',
     `decision_type`  VARCHAR(32)  NOT NULL                     COMMENT 'RATE_LIMIT / BREAKER / ACL / SIDE_EFFECT / PREFLIGHT',
@@ -1349,10 +1349,10 @@ CREATE TABLE IF NOT EXISTS `guard_decision_log` (
 -- 七.h、Phase P3 A2A Task Persistence
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `a2a_task` (
+CREATE TABLE IF NOT EXISTS `control_a2a_task` (
     `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
     `task_id`            VARCHAR(64)  NOT NULL                     COMMENT 'A2A task id',
-    `endpoint_id`         BIGINT       DEFAULT NULL                 COMMENT 'a2a_endpoint.id',
+    `endpoint_id`         BIGINT       DEFAULT NULL                 COMMENT 'control_a2a_endpoint.id',
     `agent_key`           VARCHAR(128) NOT NULL,
     `context_id`          VARCHAR(128) DEFAULT NULL,
     `user_id`             VARCHAR(128) DEFAULT NULL,
@@ -1377,126 +1377,24 @@ CREATE TABLE IF NOT EXISTS `a2a_task` (
 -- 七.i、Phase P4 AI 注册中心：项目隔离、实例心跳、能力同步日志
 -- ============================================================================
 
-CALL add_col_if_absent('scan_project', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''稳定项目编码'' AFTER `name`');
-CALL add_col_if_absent('scan_project', 'project_kind', 'VARCHAR(24) NOT NULL DEFAULT ''SCAN'' COMMENT ''SCAN / REGISTERED / HYBRID'' AFTER `project_code`');
-CALL add_col_if_absent('scan_project', 'environment', 'VARCHAR(32) NOT NULL DEFAULT ''default'' COMMENT ''项目环境'' AFTER `project_kind`');
-CALL add_col_if_absent('scan_project', 'owner', 'VARCHAR(128) DEFAULT NULL COMMENT ''负责人或团队'' AFTER `environment`');
-CALL add_col_if_absent('scan_project', 'visibility', 'VARCHAR(24) NOT NULL DEFAULT ''PRIVATE'' COMMENT ''PRIVATE / PROJECT / SHARED / PUBLIC'' AFTER `owner`');
-CALL add_idx_if_absent('scan_project', 'idx_scan_project_code', '`project_code`');
-CALL add_idx_if_absent('scan_project', 'idx_scan_project_env', '`environment`, `status`');
+CALL add_col_if_absent('capability_scan_project', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''稳定项目编码'' AFTER `name`');
+CALL add_col_if_absent('capability_scan_project', 'project_kind', 'VARCHAR(24) NOT NULL DEFAULT ''SCAN'' COMMENT ''SCAN / REGISTERED / HYBRID'' AFTER `project_code`');
+CALL add_col_if_absent('capability_scan_project', 'environment', 'VARCHAR(32) NOT NULL DEFAULT ''default'' COMMENT ''项目环境'' AFTER `project_kind`');
+CALL add_col_if_absent('capability_scan_project', 'owner', 'VARCHAR(128) DEFAULT NULL COMMENT ''负责人或团队'' AFTER `environment`');
+CALL add_col_if_absent('capability_scan_project', 'visibility', 'VARCHAR(24) NOT NULL DEFAULT ''PRIVATE'' COMMENT ''PRIVATE / PROJECT / SHARED / PUBLIC'' AFTER `owner`');
+CALL add_idx_if_absent('capability_scan_project', 'idx_scan_project_code', '`project_code`');
+CALL add_idx_if_absent('capability_scan_project', 'idx_scan_project_env', '`environment`, `status`');
 
-CALL add_col_if_absent('tool_definition', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''冗余项目编码'' AFTER `project_id`');
-CALL add_col_if_absent('tool_definition', 'visibility', 'VARCHAR(24) NOT NULL DEFAULT ''PRIVATE'' COMMENT ''能力可见性'' AFTER `project_code`');
-CALL add_col_if_absent('tool_definition', 'qualified_name', 'VARCHAR(256) DEFAULT NULL COMMENT ''projectCode:name 稳定能力全名'' AFTER `visibility`');
-CALL add_idx_if_absent('tool_definition', 'idx_tool_project_kind', '`project_id`, `kind`, `enabled`, `agent_visible`');
-CALL add_idx_if_absent('tool_definition', 'idx_tool_project_code', '`project_code`, `kind`');
-CALL add_idx_if_absent('tool_definition', 'idx_tool_qualified_name', '`qualified_name`');
+CALL add_col_if_absent('capability_tool_definition', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''冗余项目编码'' AFTER `project_id`');
+CALL add_col_if_absent('capability_tool_definition', 'visibility', 'VARCHAR(24) NOT NULL DEFAULT ''PRIVATE'' COMMENT ''能力可见性'' AFTER `project_code`');
+CALL add_col_if_absent('capability_tool_definition', 'qualified_name', 'VARCHAR(256) DEFAULT NULL COMMENT ''projectCode:name 稳定能力全名'' AFTER `visibility`');
+CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_project_kind', '`project_id`, `kind`, `enabled`, `agent_visible`');
+CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_project_code', '`project_code`, `kind`');
+CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_qualified_name', '`qualified_name`');
 
--- 班组档案嵌入式页面助手种子：ai_agent + ai_workflow + binding（不再写入 agent_definition）
-INSERT INTO `ai_agent`
-(`id`, `key_slug`, `name`, `description`, `agent_kind`, `project_code`, `visibility`,
- `allowed_roles_json`, `system_prompt`, `enabled`, `created_at`, `updated_at`)
-SELECT
-    'team_archive_agent',
-    'team-archive-assistant',
-    '班组档案助手',
-    '面向班组档案页面的嵌入式对话助手，将自然语言查询转换为页面筛选动作。',
-    'PAGE_COPILOT',
-    'qmssmp-teams-construction-service',
-    'PROJECT',
-    '[]',
-    '你是班组档案页面助手，只把用户查询意图转换为页面筛选条件，并触发页面查询。',
-    1,
-    NOW(),
-    NOW()
-WHERE NOT EXISTS (
-    SELECT 1 FROM `ai_agent` WHERE `key_slug` = 'team-archive-assistant'
-);
-
-INSERT INTO `ai_workflow`
-(`id`, `key_slug`, `name`, `description`, `workflow_type`, `runtime_type`,
- `graph_spec_json`, `status`, `managed_by`, `extra_json`, `created_at`, `updated_at`)
-SELECT
-    'team_archive_wf',
-    'team-archive-assistant-wf',
-    '班组档案助手流程',
-    '班组档案页面筛选与查询 Workflow',
-    'PAGE_ACTION',
-    'LANGGRAPH4J',
-    JSON_OBJECT(
-        'code', 'team-archive-assistant',
-        'name', '班组档案助手',
-        'mode', 'WORKFLOW',
-        'runtimeHint', 'LANGGRAPH4J',
-        'entry', 'extract_filters',
-        'finish', JSON_ARRAY('apply_search'),
-        'layout', JSON_OBJECT('engine', 'seed', 'direction', 'LR'),
-        'nodes', JSON_ARRAY(
-            JSON_OBJECT(
-                'id', 'extract_filters',
-                'type', 'DOCUMENT_EXTRACT',
-                'name', '抽取班组筛选条件',
-                'config', JSON_OBJECT(
-                    'sourceExpression', 'input',
-                    'outputAlias', 'filters',
-                    'fields', JSON_ARRAY(
-                        JSON_OBJECT('name', 'managerName', 'type', 'STRING', 'source', 'regex:(?:负责人|负责人姓名)(?:为|是|叫|=|：|:)?[ ]*([^，。,. 的]+)'),
-                        JSON_OBJECT('name', 'teamName', 'type', 'STRING', 'source', 'regex:(?:班组名称|班组名|班组)(?:为|是|叫|=|：|:)[ ]*([^，。,. 的]+)'),
-                        JSON_OBJECT('name', 'memberName', 'type', 'STRING', 'source', 'regex:(?:班组成员|成员)(?:包含|包括|有|为|是|叫|=|：|:)?[ ]*([^，。,. 的]+)')
-                    )
-                )
-            ),
-            JSON_OBJECT(
-                'id', 'apply_search',
-                'type', 'PAGE_ACTION',
-                'name', '执行班组档案页面查询',
-                'config', JSON_OBJECT(
-                    'actionKey', 'qmssmp.teamArchive.search',
-                    'title', '已按你的条件查询班组档案',
-                    'confirm', false,
-                    'args', JSON_OBJECT(
-                        'managerName', 'filters.managerName',
-                        'teamName', 'filters.teamName',
-                        'memberName', 'filters.memberName'
-                    )
-                )
-            )
-        ),
-        'edges', JSON_ARRAY(
-            JSON_OBJECT('id', 'start_extract', 'from', 'START', 'to', 'extract_filters', 'condition', 'always'),
-            JSON_OBJECT('id', 'extract_search', 'from', 'extract_filters', 'to', 'apply_search', 'condition', 'always'),
-            JSON_OBJECT('id', 'search_end', 'from', 'apply_search', 'to', 'END', 'condition', 'always')
-        )
-    ),
-    'ACTIVE',
-    'MANUAL',
-    JSON_OBJECT('source', 'seed', 'scenario', 'qmssmp-team-archive-embedded-chat'),
-    NOW(),
-    NOW()
-WHERE NOT EXISTS (
-    SELECT 1 FROM `ai_workflow` WHERE `key_slug` = 'team-archive-assistant-wf'
-);
-
-INSERT INTO `ai_agent_workflow_binding`
-(`agent_id`, `workflow_id`, `project_code`, `binding_type`, `intent_type`, `priority`, `enabled`, `created_at`, `updated_at`)
-SELECT
-    'team_archive_agent',
-    'team_archive_wf',
-    'qmssmp-teams-construction-service',
-    'DEFAULT',
-    'TEAM_ARCHIVE_PAGE_QUERY',
-    0,
-    1,
-    NOW(),
-    NOW()
-WHERE NOT EXISTS (
-    SELECT 1 FROM `ai_agent_workflow_binding`
-    WHERE `agent_id` = 'team_archive_agent' AND `workflow_id` = 'team_archive_wf'
-);
-
-CALL add_col_if_absent('tool_acl', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''为空表示全局规则'' AFTER `role_code`');
-CALL add_col_if_absent('tool_acl', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''项目编码'' AFTER `project_id`');
-CALL add_idx_if_absent('tool_acl', 'idx_acl_project_role', '`project_id`, `role_code`, `enabled`');
+CALL add_col_if_absent('control_tool_acl', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''为空表示全局规则'' AFTER `role_code`');
+CALL add_col_if_absent('control_tool_acl', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''项目编码'' AFTER `project_id`');
+CALL add_idx_if_absent('control_tool_acl', 'idx_acl_project_role', '`project_id`, `role_code`, `enabled`');
 
 CALL add_col_if_absent('knowledge_base', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `id`');
 CALL add_col_if_absent('knowledge_base', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
@@ -1504,55 +1402,55 @@ CALL add_col_if_absent('knowledge_base', 'environment', 'VARCHAR(32) DEFAULT NUL
 CALL add_col_if_absent('knowledge_base', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
 CALL add_idx_if_absent('knowledge_base', 'idx_kb_project', '`project_id`, `status`');
 
-CALL add_col_if_absent('business_index', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `id`');
-CALL add_col_if_absent('business_index', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
-CALL add_col_if_absent('business_index', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
-CALL add_col_if_absent('business_index', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
-CALL add_idx_if_absent('business_index', 'idx_biz_index_project', '`project_id`, `status`');
+CALL add_col_if_absent('knowledge_business_index', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `id`');
+CALL add_col_if_absent('knowledge_business_index', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
+CALL add_col_if_absent('knowledge_business_index', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
+CALL add_col_if_absent('knowledge_business_index', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
+CALL add_idx_if_absent('knowledge_business_index', 'idx_biz_index_project', '`project_id`, `status`');
 
-CALL add_col_if_absent('tool_call_log', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `intent_type`');
-CALL add_col_if_absent('tool_call_log', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
-CALL add_col_if_absent('tool_call_log', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
-CALL add_col_if_absent('tool_call_log', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
-CALL add_col_if_absent('tool_call_log', 'app_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''嵌入式业务应用 ID，等同 project_code'' AFTER `tenant_id`');
-CALL add_col_if_absent('tool_call_log', 'external_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务系统内用户 ID'' AFTER `app_id`');
-CALL add_col_if_absent('tool_call_log', 'global_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''跨系统稳定用户 ID'' AFTER `external_user_id`');
-CALL add_col_if_absent('tool_call_log', 'page_instance_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务前端页面实例 ID'' AFTER `global_user_id`');
-CALL add_col_if_absent('tool_call_log', 'origin', 'VARCHAR(512) DEFAULT NULL COMMENT ''业务前端 origin'' AFTER `page_instance_id`');
-CALL add_idx_if_absent('tool_call_log', 'idx_tool_log_project_trace', '`project_code`, `trace_id`');
-CALL add_idx_if_absent('tool_call_log', 'idx_tool_log_embed_session', '`app_id`, `external_user_id`, `session_id`');
+CALL add_col_if_absent('runtime_tool_call_log', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `intent_type`');
+CALL add_col_if_absent('runtime_tool_call_log', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
+CALL add_col_if_absent('runtime_tool_call_log', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
+CALL add_col_if_absent('runtime_tool_call_log', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
+CALL add_col_if_absent('runtime_tool_call_log', 'app_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''嵌入式业务应用 ID，等同 project_code'' AFTER `tenant_id`');
+CALL add_col_if_absent('runtime_tool_call_log', 'external_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务系统内用户 ID'' AFTER `app_id`');
+CALL add_col_if_absent('runtime_tool_call_log', 'global_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''跨系统稳定用户 ID'' AFTER `external_user_id`');
+CALL add_col_if_absent('runtime_tool_call_log', 'page_instance_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务前端页面实例 ID'' AFTER `global_user_id`');
+CALL add_col_if_absent('runtime_tool_call_log', 'origin', 'VARCHAR(512) DEFAULT NULL COMMENT ''业务前端 origin'' AFTER `page_instance_id`');
+CALL add_idx_if_absent('runtime_tool_call_log', 'idx_tool_log_project_trace', '`project_code`, `trace_id`');
+CALL add_idx_if_absent('runtime_tool_call_log', 'idx_tool_log_embed_session', '`app_id`, `external_user_id`, `session_id`');
 
-CALL add_col_if_absent('guard_decision_log', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `trace_id`');
-CALL add_col_if_absent('guard_decision_log', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
-CALL add_col_if_absent('guard_decision_log', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
-CALL add_col_if_absent('guard_decision_log', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
-CALL add_idx_if_absent('guard_decision_log', 'idx_guard_project_trace', '`project_code`, `trace_id`');
+CALL add_col_if_absent('runtime_guard_decision_log', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `trace_id`');
+CALL add_col_if_absent('runtime_guard_decision_log', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
+CALL add_col_if_absent('runtime_guard_decision_log', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
+CALL add_col_if_absent('runtime_guard_decision_log', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
+CALL add_idx_if_absent('runtime_guard_decision_log', 'idx_guard_project_trace', '`project_code`, `trace_id`');
 
-CALL add_col_if_absent('mcp_client', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `api_key_prefix`');
-CALL add_col_if_absent('mcp_client', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
-CALL add_col_if_absent('mcp_client', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
-CALL add_col_if_absent('mcp_client', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
-CALL add_idx_if_absent('mcp_client', 'idx_mcp_client_project', '`project_id`, `enabled`');
+CALL add_col_if_absent('control_mcp_client', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `api_key_prefix`');
+CALL add_col_if_absent('control_mcp_client', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
+CALL add_col_if_absent('control_mcp_client', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
+CALL add_col_if_absent('control_mcp_client', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
+CALL add_idx_if_absent('control_mcp_client', 'idx_mcp_client_project', '`project_id`, `enabled`');
 
-CALL add_col_if_absent('mcp_call_log', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `tool_name`');
-CALL add_col_if_absent('mcp_call_log', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
-CALL add_col_if_absent('mcp_call_log', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
-CALL add_col_if_absent('mcp_call_log', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
-CALL add_idx_if_absent('mcp_call_log', 'idx_mcp_log_project_trace', '`project_code`, `trace_id`');
+CALL add_col_if_absent('control_mcp_call_log', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `tool_name`');
+CALL add_col_if_absent('control_mcp_call_log', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
+CALL add_col_if_absent('control_mcp_call_log', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
+CALL add_col_if_absent('control_mcp_call_log', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
+CALL add_idx_if_absent('control_mcp_call_log', 'idx_mcp_log_project_trace', '`project_code`, `trace_id`');
 
-CALL add_col_if_absent('a2a_endpoint', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `agent_key`');
-CALL add_col_if_absent('a2a_endpoint', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
-CALL add_col_if_absent('a2a_endpoint', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
-CALL add_col_if_absent('a2a_endpoint', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
-CALL add_idx_if_absent('a2a_endpoint', 'idx_a2a_endpoint_project', '`project_id`, `enabled`');
+CALL add_col_if_absent('control_a2a_endpoint', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `agent_key`');
+CALL add_col_if_absent('control_a2a_endpoint', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
+CALL add_col_if_absent('control_a2a_endpoint', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
+CALL add_col_if_absent('control_a2a_endpoint', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
+CALL add_idx_if_absent('control_a2a_endpoint', 'idx_a2a_endpoint_project', '`project_id`, `enabled`');
 
-CALL add_col_if_absent('a2a_call_log', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `agent_key`');
-CALL add_col_if_absent('a2a_call_log', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
-CALL add_col_if_absent('a2a_call_log', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
-CALL add_col_if_absent('a2a_call_log', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
-CALL add_idx_if_absent('a2a_call_log', 'idx_a2a_log_project_trace', '`project_code`, `trace_id`');
+CALL add_col_if_absent('control_a2a_call_log', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `agent_key`');
+CALL add_col_if_absent('control_a2a_call_log', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
+CALL add_col_if_absent('control_a2a_call_log', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
+CALL add_col_if_absent('control_a2a_call_log', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
+CALL add_idx_if_absent('control_a2a_call_log', 'idx_a2a_log_project_trace', '`project_code`, `trace_id`');
 
-CREATE TABLE IF NOT EXISTS `ai_project_instance` (
+CREATE TABLE IF NOT EXISTS `capability_project_instance` (
     `id`                BIGINT       NOT NULL AUTO_INCREMENT,
     `project_id`        BIGINT       NOT NULL,
     `project_code`      VARCHAR(96)  NOT NULL,
@@ -1574,7 +1472,7 @@ CREATE TABLE IF NOT EXISTS `ai_project_instance` (
     KEY `idx_heartbeat` (`last_heartbeat_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI 注册中心业务系统实例';
 
-CALL add_col_if_absent('ai_project_instance', 'governance_policy_json', 'JSON DEFAULT NULL COMMENT ''Runtime 治理策略'' AFTER `metadata_json`');
+CALL add_col_if_absent('capability_project_instance', 'governance_policy_json', 'JSON DEFAULT NULL COMMENT ''Runtime 治理策略'' AFTER `metadata_json`');
 
 CREATE TABLE IF NOT EXISTS `capability_sync_log` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT,
@@ -1651,7 +1549,7 @@ CREATE TABLE IF NOT EXISTS `capability_apply_record` (
     KEY `idx_apply_diff_item` (`diff_item_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力评审应用记录';
 
-CREATE TABLE IF NOT EXISTS `registry_project_credential` (
+CREATE TABLE IF NOT EXISTS `capability_registry_project_credential` (
     `id`           BIGINT       NOT NULL AUTO_INCREMENT,
     `project_id`   BIGINT       NOT NULL,
     `project_code` VARCHAR(96)  NOT NULL,
@@ -1669,11 +1567,11 @@ CREATE TABLE IF NOT EXISTS `registry_project_credential` (
     KEY `idx_registry_credential_project` (`project_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='注册中心项目接入凭证';
 
-CALL add_col_if_absent('registry_project_credential', 'allowed_origins_json',   'TEXT DEFAULT NULL COMMENT ''允许嵌入 Chat 的业务前端 origin JSON 数组'' AFTER `expires_at`');
-CALL add_col_if_absent('registry_project_credential', 'allowed_agent_ids_json', 'TEXT DEFAULT NULL COMMENT ''允许申请 embedToken 的 Agent ID / keySlug JSON 数组，空数组表示按项目归属校验'' AFTER `allowed_origins_json`');
-CALL add_col_if_absent('registry_project_credential', 'token_ttl_seconds',      'INT DEFAULT 600 COMMENT ''embedToken 默认有效期（秒）'' AFTER `allowed_agent_ids_json`');
+CALL add_col_if_absent('capability_registry_project_credential', 'allowed_origins_json',   'TEXT DEFAULT NULL COMMENT ''允许嵌入 Chat 的业务前端 origin JSON 数组'' AFTER `expires_at`');
+CALL add_col_if_absent('capability_registry_project_credential', 'allowed_agent_ids_json', 'TEXT DEFAULT NULL COMMENT ''允许申请 embedToken 的 Agent ID / keySlug JSON 数组，空数组表示按项目归属校验'' AFTER `allowed_origins_json`');
+CALL add_col_if_absent('capability_registry_project_credential', 'token_ttl_seconds',      'INT DEFAULT 600 COMMENT ''embedToken 默认有效期（秒）'' AFTER `allowed_agent_ids_json`');
 
-CREATE TABLE IF NOT EXISTS `eaf_business_user` (
+CREATE TABLE IF NOT EXISTS `control_business_user` (
     `id`             BIGINT       NOT NULL AUTO_INCREMENT,
     `tenant_id`      VARCHAR(96)  NOT NULL DEFAULT 'default',
     `global_user_id` VARCHAR(128) NOT NULL,
@@ -1690,7 +1588,7 @@ CREATE TABLE IF NOT EXISTS `eaf_business_user` (
     KEY `idx_business_user_status` (`tenant_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ReachAI 可识别的业务终端用户主体';
 
-CREATE TABLE IF NOT EXISTS `eaf_external_user_binding` (
+CREATE TABLE IF NOT EXISTS `control_external_user_binding` (
     `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
     `tenant_id`          VARCHAR(96)  NOT NULL DEFAULT 'default',
     `business_user_id`   BIGINT       NOT NULL,
@@ -1708,7 +1606,7 @@ CREATE TABLE IF NOT EXISTS `eaf_external_user_binding` (
     KEY `idx_external_binding_user` (`business_user_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务系统外部用户身份绑定';
 
-CREATE TABLE IF NOT EXISTS `eaf_external_user_role_binding` (
+CREATE TABLE IF NOT EXISTS `control_external_user_role_binding` (
     `id`               BIGINT       NOT NULL AUTO_INCREMENT,
     `tenant_id`        VARCHAR(96)  NOT NULL DEFAULT 'default',
     `business_user_id` BIGINT       NOT NULL,
@@ -1725,7 +1623,7 @@ CREATE TABLE IF NOT EXISTS `eaf_external_user_role_binding` (
     KEY `idx_external_role_user` (`business_user_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务系统同步的用户角色绑定';
 
-CREATE TABLE IF NOT EXISTS `eaf_embed_session` (
+CREATE TABLE IF NOT EXISTS `control_embed_session` (
     `id`                  BIGINT       NOT NULL AUTO_INCREMENT,
     `session_id`          VARCHAR(96)  NOT NULL,
     `tenant_id`           VARCHAR(96)  NOT NULL DEFAULT 'default',
@@ -1751,11 +1649,11 @@ CREATE TABLE IF NOT EXISTS `eaf_embed_session` (
     KEY `idx_embed_session_page` (`page_instance_id`, `status`, `expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话会话与页面实例绑定';
 
-CALL add_col_if_absent('eaf_embed_session', 'page_key', 'VARCHAR(160) DEFAULT NULL COMMENT ''业务前端页面稳定标识'' AFTER `global_user_id`');
-CALL add_col_if_absent('eaf_embed_session', 'sdk_version', 'VARCHAR(64) DEFAULT NULL COMMENT ''Chat Embed SDK version'' AFTER `origin`');
-CALL add_idx_if_absent('eaf_embed_session', 'idx_embed_session_page_key', '`project_code`, `agent_id`, `page_key`, `status`, `created_at`');
+CALL add_col_if_absent('control_embed_session', 'page_key', 'VARCHAR(160) DEFAULT NULL COMMENT ''业务前端页面稳定标识'' AFTER `global_user_id`');
+CALL add_col_if_absent('control_embed_session', 'sdk_version', 'VARCHAR(64) DEFAULT NULL COMMENT ''Chat Embed SDK version'' AFTER `origin`');
+CALL add_idx_if_absent('control_embed_session', 'idx_embed_session_page_key', '`project_code`, `agent_id`, `page_key`, `status`, `created_at`');
 
-CREATE TABLE IF NOT EXISTS `eaf_embed_token_revocation` (
+CREATE TABLE IF NOT EXISTS `control_embed_token_revocation` (
     `id`         BIGINT       NOT NULL AUTO_INCREMENT,
     `jti`        VARCHAR(128) NOT NULL,
     `reason`     VARCHAR(256) DEFAULT NULL,
@@ -1766,7 +1664,7 @@ CREATE TABLE IF NOT EXISTS `eaf_embed_token_revocation` (
     KEY `idx_embed_token_revocation_exp` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话 token 撤销表';
 
-CREATE TABLE IF NOT EXISTS `eaf_page_action_event` (
+CREATE TABLE IF NOT EXISTS `control_page_action_event` (
     `id`                      BIGINT       NOT NULL AUTO_INCREMENT,
     `request_id`              VARCHAR(96)  NOT NULL,
     `session_id`              VARCHAR(96)  NOT NULL,
@@ -1790,7 +1688,7 @@ CREATE TABLE IF NOT EXISTS `eaf_page_action_event` (
     KEY `idx_page_action_app_agent` (`tenant_id`, `app_id`, `agent_id`, `requested_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式页面动作请求和执行结果';
 
-CREATE TABLE IF NOT EXISTS `eaf_page_registry` (
+CREATE TABLE IF NOT EXISTS `control_page_registry` (
     `id`                       BIGINT       NOT NULL AUTO_INCREMENT,
     `project_code`             VARCHAR(96)  NOT NULL,
     `app_id`                   VARCHAR(96)  NOT NULL,
@@ -1810,7 +1708,7 @@ CREATE TABLE IF NOT EXISTS `eaf_page_registry` (
     KEY `idx_page_registry_instance` (`current_page_instance_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务前端页面注册目录';
 
-CREATE TABLE IF NOT EXISTS `eaf_page_action_registry` (
+CREATE TABLE IF NOT EXISTS `control_page_action_registry` (
     `id`                     BIGINT       NOT NULL AUTO_INCREMENT,
     `project_code`           VARCHAR(96)  NOT NULL,
     `app_id`                 VARCHAR(96)  NOT NULL,
@@ -1834,7 +1732,7 @@ CREATE TABLE IF NOT EXISTS `eaf_page_action_registry` (
     KEY `idx_page_action_registry_page` (`project_code`, `page_key`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务前端页面动作注册目录';
 
-CREATE TABLE IF NOT EXISTS `eaf_embed_chat_event` (
+CREATE TABLE IF NOT EXISTS `control_embed_chat_event` (
     `id`           BIGINT      NOT NULL AUTO_INCREMENT,
     `session_id`   VARCHAR(96) NOT NULL,
     `event_type`   VARCHAR(64) NOT NULL,
@@ -1848,7 +1746,7 @@ CREATE TABLE IF NOT EXISTS `eaf_embed_chat_event` (
     KEY `idx_embed_chat_event_trace` (`trace_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话事件审计';
 
-CREATE TABLE IF NOT EXISTS `eaf_embed_renderer` (
+CREATE TABLE IF NOT EXISTS `control_embed_renderer` (
     `id`                BIGINT       NOT NULL AUTO_INCREMENT,
     `renderer_key`      VARCHAR(160) NOT NULL,
     `app_id`            VARCHAR(96)  NOT NULL,
@@ -1863,7 +1761,7 @@ CREATE TABLE IF NOT EXISTS `eaf_embed_renderer` (
     UNIQUE KEY `uk_embed_renderer` (`app_id`, `renderer_key`, `version`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话自定义结构化渲染器注册';
 
-CREATE TABLE IF NOT EXISTS `eaf_ai_access_session` (
+CREATE TABLE IF NOT EXISTS `control_ai_access_session` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT,
     `session_id`      VARCHAR(96)  NOT NULL,
     `project_id`      BIGINT       NOT NULL,
@@ -1887,7 +1785,7 @@ CREATE TABLE IF NOT EXISTS `eaf_ai_access_session` (
     KEY `idx_ai_access_session_status` (`project_code`, `status`, `updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI快速接入会话';
 
-CREATE TABLE IF NOT EXISTS `eaf_ai_access_step` (
+CREATE TABLE IF NOT EXISTS `control_ai_access_step` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT,
     `session_id`    VARCHAR(96)  NOT NULL,
     `project_id`    BIGINT       NOT NULL,
@@ -1912,7 +1810,7 @@ CREATE TABLE IF NOT EXISTS `eaf_ai_access_step` (
 -- 本阶段未启用 FULLTEXT（MySQL 5.7/8 中文分词与 ngram 配置差异较大，先用 LIKE 检索）。
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS `context_namespace` (
+CREATE TABLE IF NOT EXISTS `control_context_namespace` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT,
     `namespace_key`   VARCHAR(128) NOT NULL,
     `namespace_type`  VARCHAR(32)  NOT NULL COMMENT 'PERSONAL/PROJECT/MODULE/FEATURE/PAGE/API/WORKFLOW/AGENT/USER/TENANT/SESSION/GLOBAL',
@@ -1934,7 +1832,7 @@ CREATE TABLE IF NOT EXISTS `context_namespace` (
     KEY `idx_context_namespace_owner` (`owner_type`, `owner_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上下文隔离命名空间';
 
-CREATE TABLE IF NOT EXISTS `context_item` (
+CREATE TABLE IF NOT EXISTS `control_context_item` (
     `id`               BIGINT        NOT NULL AUTO_INCREMENT,
     `item_key`         VARCHAR(128)  NOT NULL,
     `namespace_id`     BIGINT        NOT NULL,
@@ -1967,7 +1865,7 @@ CREATE TABLE IF NOT EXISTS `context_item` (
     KEY `idx_context_item_trust` (`trust_level`, `confidence`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上下文资产主表';
 
-CREATE TABLE IF NOT EXISTS `context_binding` (
+CREATE TABLE IF NOT EXISTS `control_context_binding` (
     `id`           BIGINT       NOT NULL AUTO_INCREMENT,
     `item_id`      BIGINT       NOT NULL,
     `bind_type`    VARCHAR(32)  NOT NULL COMMENT 'TENANT/PROJECT/USER/AGENT/WORKFLOW/PAGE/API/SESSION/MODULE/FEATURE',
@@ -1985,7 +1883,7 @@ CREATE TABLE IF NOT EXISTS `context_binding` (
     KEY `idx_context_binding_project` (`project_code`, `bind_type`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上下文资产绑定关系';
 
-CREATE TABLE IF NOT EXISTS `context_evidence` (
+CREATE TABLE IF NOT EXISTS `control_context_evidence` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT,
     `item_id`         BIGINT       NOT NULL,
     `evidence_type`   VARCHAR(48)  NOT NULL COMMENT 'USER_CONFIRMATION/SOURCE_FILE/SQL_SCHEMA/API_RESPONSE/TRACE_SPAN/TOOL_CALL/DOCUMENT/MANUAL_NOTE',
@@ -2001,7 +1899,7 @@ CREATE TABLE IF NOT EXISTS `context_evidence` (
     KEY `idx_context_evidence_type` (`evidence_type`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上下文资产来源证据';
 
-CREATE TABLE IF NOT EXISTS `context_audit_event` (
+CREATE TABLE IF NOT EXISTS `control_context_audit_event` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT,
     `event_type`    VARCHAR(48)  NOT NULL COMMENT 'CREATE/UPDATE/READ/SEARCH/INJECT/DELETE/REVOKE/EXPIRE/VERIFY/MARK_STALE',
     `item_id`       BIGINT       DEFAULT NULL,
@@ -2027,7 +1925,7 @@ CREATE TABLE IF NOT EXISTS `context_audit_event` (
     KEY `idx_context_audit_project_id` (`project_id`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上下文治理审计事件';
 
-CREATE TABLE IF NOT EXISTS `context_memory_candidate` (
+CREATE TABLE IF NOT EXISTS `control_context_memory_candidate` (
     `id`                BIGINT        NOT NULL AUTO_INCREMENT,
     `candidate_key`     VARCHAR(128)  NOT NULL,
     `tenant_id`         VARCHAR(96)   NOT NULL,
@@ -2062,7 +1960,7 @@ CREATE TABLE IF NOT EXISTS `context_memory_candidate` (
     `reviewed_by`       VARCHAR(128)  DEFAULT NULL,
     `reviewed_at`       DATETIME      DEFAULT NULL,
     `review_reason`     VARCHAR(512)  DEFAULT NULL,
-    `approved_item_id`  BIGINT        DEFAULT NULL COMMENT '批准后写入 context_item.id',
+    `approved_item_id`  BIGINT        DEFAULT NULL COMMENT '批准后写入 control_context_item.id',
     `metadata_json`     MEDIUMTEXT    DEFAULT NULL,
     `expires_at`        DATETIME      DEFAULT NULL,
     `created_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -2079,7 +1977,7 @@ CREATE TABLE IF NOT EXISTS `context_memory_candidate` (
     KEY `idx_context_memory_candidate_namespace` (`namespace_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime User Memory 写回候选（确认前缓冲）';
 
-CREATE TABLE IF NOT EXISTS `context_runtime_user_mapping` (
+CREATE TABLE IF NOT EXISTS `control_context_runtime_user_mapping` (
     `id`               BIGINT       NOT NULL AUTO_INCREMENT,
     `tenant_id`        VARCHAR(96)  NOT NULL DEFAULT 'default',
     `platform_user_id` BIGINT       NOT NULL COMMENT '平台管理端用户 ID',
@@ -2099,9 +1997,9 @@ CREATE TABLE IF NOT EXISTS `context_runtime_user_mapping` (
     KEY `idx_context_runtime_user_mapping_runtime` (`tenant_id`, `runtime_user_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台用户代审 Runtime User 记忆的身份映射';
 
-CALL add_idx_if_absent('context_audit_event', 'idx_context_audit_project_id', '`project_id`, `created_at`');
+CALL add_idx_if_absent('control_context_audit_event', 'idx_context_audit_project_id', '`project_id`, `created_at`');
 
-CREATE TABLE IF NOT EXISTS `platform_user` (
+CREATE TABLE IF NOT EXISTS `control_platform_user` (
     `id`               BIGINT       NOT NULL AUTO_INCREMENT,
     `username`         VARCHAR(96)  NOT NULL,
     `display_name`     VARCHAR(128) DEFAULT NULL,
@@ -2119,7 +2017,7 @@ CREATE TABLE IF NOT EXISTS `platform_user` (
     UNIQUE KEY `uk_platform_user_username` (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台管理用户';
 
-CREATE TABLE IF NOT EXISTS `platform_role` (
+CREATE TABLE IF NOT EXISTS `control_platform_role` (
     `id`          BIGINT       NOT NULL AUTO_INCREMENT,
     `role_code`   VARCHAR(64)  NOT NULL,
     `role_name`   VARCHAR(128) NOT NULL,
@@ -2131,7 +2029,7 @@ CREATE TABLE IF NOT EXISTS `platform_role` (
     UNIQUE KEY `uk_platform_role_code` (`role_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台管理角色';
 
-CREATE TABLE IF NOT EXISTS `platform_user_role` (
+CREATE TABLE IF NOT EXISTS `control_platform_user_role` (
     `id`          BIGINT      NOT NULL AUTO_INCREMENT,
     `user_id`     BIGINT      NOT NULL,
     `role_id`     BIGINT      NOT NULL,
@@ -2144,7 +2042,7 @@ CREATE TABLE IF NOT EXISTS `platform_user_role` (
     KEY `idx_platform_user_role_role` (`role_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台用户角色绑定';
 
-CREATE TABLE IF NOT EXISTS `platform_permission` (
+CREATE TABLE IF NOT EXISTS `control_platform_permission` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT,
     `permission_code` VARCHAR(96)  NOT NULL,
     `permission_name` VARCHAR(128) NOT NULL,
@@ -2155,7 +2053,7 @@ CREATE TABLE IF NOT EXISTS `platform_permission` (
     UNIQUE KEY `uk_platform_permission_code` (`permission_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台管理权限';
 
-CREATE TABLE IF NOT EXISTS `platform_role_permission` (
+CREATE TABLE IF NOT EXISTS `control_platform_role_permission` (
     `id`            BIGINT NOT NULL AUTO_INCREMENT,
     `role_id`       BIGINT NOT NULL,
     `permission_id` BIGINT NOT NULL,
@@ -2163,7 +2061,7 @@ CREATE TABLE IF NOT EXISTS `platform_role_permission` (
     UNIQUE KEY `uk_platform_role_permission` (`role_id`, `permission_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台角色权限绑定';
 
-CREATE TABLE IF NOT EXISTS `platform_login_session` (
+CREATE TABLE IF NOT EXISTS `control_platform_login_session` (
     `id`               BIGINT       NOT NULL AUTO_INCREMENT,
     `session_id`       VARCHAR(96)  NOT NULL,
     `user_id`          BIGINT       NOT NULL,
@@ -2181,7 +2079,7 @@ CREATE TABLE IF NOT EXISTS `platform_login_session` (
     KEY `idx_platform_session_user` (`user_id`, `expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台管理端登录会话';
 
-CREATE TABLE IF NOT EXISTS `platform_auth_provider` (
+CREATE TABLE IF NOT EXISTS `control_platform_auth_provider` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT,
     `provider_code`   VARCHAR(32)  NOT NULL,
     `provider_name`   VARCHAR(128) NOT NULL,
@@ -2194,7 +2092,7 @@ CREATE TABLE IF NOT EXISTS `platform_auth_provider` (
     UNIQUE KEY `uk_platform_auth_provider` (`provider_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台管理端身份提供方配置';
 
-INSERT IGNORE INTO `platform_role` (`role_code`, `role_name`, `description`, `status`)
+INSERT IGNORE INTO `control_platform_role` (`role_code`, `role_name`, `description`, `status`)
 VALUES
 ('PLATFORM_ADMIN', '平台管理员', '平台全量管理与配置', 'ACTIVE'),
 ('AGENT_DESIGNER', '智能体设计者', '创建与编辑智能体及工作流', 'ACTIVE'),
@@ -2202,7 +2100,7 @@ VALUES
 ('OPERATOR', '运维操作员', '运行、调试与回放会话', 'ACTIVE'),
 ('AUDITOR', '审计员', '只读审计与追踪', 'ACTIVE');
 
-INSERT IGNORE INTO `platform_permission` (`permission_code`, `permission_name`, `resource_type`, `action`)
+INSERT IGNORE INTO `control_platform_permission` (`permission_code`, `permission_name`, `resource_type`, `action`)
 VALUES
 ('*', 'All platform permissions', 'PLATFORM', '*'),
 ('platform:read', 'Read platform assets', 'PLATFORM', 'READ'),
@@ -2211,30 +2109,30 @@ VALUES
 ('context:runtime-user:review', 'Review runtime user context candidates', 'CONTEXT_RUNTIME_USER', 'REVIEW'),
 ('context:runtime-user:mapping:manage', 'Manage runtime user review mappings', 'CONTEXT_RUNTIME_USER', 'MANAGE_MAPPING');
 
-INSERT IGNORE INTO `platform_role_permission` (`role_id`, `permission_id`)
-SELECT r.id, p.id FROM `platform_role` r JOIN `platform_permission` p
+INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
 WHERE r.role_code = 'PLATFORM_ADMIN'
   AND p.permission_code IN ('*', 'platform:read', 'platform:write', 'platform:admin',
                             'context:runtime-user:review', 'context:runtime-user:mapping:manage');
 
-INSERT IGNORE INTO `platform_role_permission` (`role_id`, `permission_id`)
-SELECT r.id, p.id FROM `platform_role` r JOIN `platform_permission` p
+INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
 WHERE r.role_code IN ('AGENT_DESIGNER', 'PROJECT_OWNER', 'OPERATOR')
   AND p.permission_code IN ('platform:read', 'platform:write');
 
-INSERT IGNORE INTO `platform_role_permission` (`role_id`, `permission_id`)
-SELECT r.id, p.id FROM `platform_role` r JOIN `platform_permission` p
+INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
+SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
 WHERE r.role_code = 'AUDITOR'
   AND p.permission_code = 'platform:read';
 
-INSERT IGNORE INTO `platform_auth_provider` (`provider_code`, `provider_name`, `provider_type`, `status`, `config_json`)
+INSERT IGNORE INTO `control_platform_auth_provider` (`provider_code`, `provider_name`, `provider_type`, `status`, `config_json`)
 VALUES
 ('LOCAL', '本地开发登录', 'LOCAL', 'ACTIVE', '{}'),
 ('HEADER', '受信任网关请求头', 'HEADER', 'ACTIVE', '{}'),
 ('OIDC', '企业 OIDC 登录', 'OIDC', 'INACTIVE', '{}'),
 ('SAML', '企业 SAML 登录', 'SAML', 'INACTIVE', '{}');
 
-CREATE TABLE IF NOT EXISTS `agent_workflow_credential` (
+CREATE TABLE IF NOT EXISTS `runtime_agent_workflow_credential` (
     `id`             BIGINT       NOT NULL AUTO_INCREMENT,
     `credential_ref` VARCHAR(128) NOT NULL,
     `name`           VARCHAR(128) NOT NULL,
@@ -2252,7 +2150,7 @@ CREATE TABLE IF NOT EXISTS `agent_workflow_credential` (
     KEY `idx_workflow_credential_code` (`project_code`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 节点凭证';
 
-CREATE TABLE IF NOT EXISTS `market_item` (
+CREATE TABLE IF NOT EXISTS `control_market_item` (
     `id`                       BIGINT       NOT NULL AUTO_INCREMENT,
     `asset_kind`               VARCHAR(24)  NOT NULL,
     `asset_id`                 VARCHAR(128) NOT NULL,
@@ -2294,7 +2192,7 @@ CREATE TABLE IF NOT EXISTS `capability_module` (
     KEY `idx_capability_module_status` (`status`, `enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力模块/插件';
 
-CREATE TABLE IF NOT EXISTS `tool_asset` (
+CREATE TABLE IF NOT EXISTS `capability_tool_asset` (
     `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
     `capability_module_id` BIGINT       NOT NULL,
     `capability_code`      VARCHAR(96)  NOT NULL,
@@ -2317,7 +2215,7 @@ CREATE TABLE IF NOT EXISTS `tool_asset` (
     KEY `idx_tool_asset_capability` (`capability_code`, `enabled`, `agent_visible`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力模块下的原子工具资产';
 
-CREATE TABLE IF NOT EXISTS `composition_definition` (
+CREATE TABLE IF NOT EXISTS `capability_composition_definition` (
     `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
     `capability_module_id` BIGINT       NOT NULL,
     `capability_code`      VARCHAR(96)  NOT NULL,
@@ -2339,7 +2237,7 @@ CREATE TABLE IF NOT EXISTS `composition_definition` (
     KEY `idx_composition_capability` (`capability_code`, `enabled`, `agent_visible`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力模块下的组合定义';
 
-CREATE TABLE IF NOT EXISTS `interaction_definition` (
+CREATE TABLE IF NOT EXISTS `capability_interaction_definition` (
     `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
     `capability_module_id` BIGINT       NOT NULL,
     `capability_code`      VARCHAR(96)  NOT NULL,
@@ -2361,7 +2259,7 @@ CREATE TABLE IF NOT EXISTS `interaction_definition` (
     KEY `idx_interaction_capability` (`capability_code`, `enabled`, `agent_visible`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Interaction definition assets';
 
-CREATE TABLE IF NOT EXISTS `interaction_session` (
+CREATE TABLE IF NOT EXISTS `runtime_interaction_session` (
     `id`                         VARCHAR(64)  NOT NULL,
     `run_id`                     VARCHAR(64)  DEFAULT NULL,
     `composition_qualified_name` VARCHAR(256) NOT NULL,
@@ -2379,7 +2277,7 @@ CREATE TABLE IF NOT EXISTS `interaction_session` (
     KEY `idx_interaction_session_status` (`status`, `expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Interaction runtime sessions';
 
-CREATE TABLE IF NOT EXISTS `interaction_event` (
+CREATE TABLE IF NOT EXISTS `runtime_interaction_event` (
     `id`           BIGINT       NOT NULL AUTO_INCREMENT,
     `session_id`   VARCHAR(64)  NOT NULL,
     `event_type`   VARCHAR(32)  NOT NULL,
@@ -2390,7 +2288,7 @@ CREATE TABLE IF NOT EXISTS `interaction_event` (
     KEY `idx_interaction_event_session` (`session_id`, `create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Interaction runtime events';
 
-CREATE TABLE IF NOT EXISTS `executable_debug_session` (
+CREATE TABLE IF NOT EXISTS `runtime_executable_debug_session` (
     `id`                    VARCHAR(64)  NOT NULL,
     `run_id`                VARCHAR(128) DEFAULT NULL,
     `trace_id`              VARCHAR(128) DEFAULT NULL,
@@ -2423,7 +2321,7 @@ ON DUPLICATE KEY UPDATE
     `status` = VALUES(`status`),
     `enabled` = VALUES(`enabled`);
 
-INSERT INTO `tool_asset`
+INSERT INTO `capability_tool_asset`
 (`capability_module_id`, `capability_code`, `tool_code`, `name`, `qualified_name`, `description`,
  `input_schema_json`, `output_schema_json`, `executor_type`, `executor_ref`, `side_effect`, `enabled`, `agent_visible`)
 VALUES
@@ -2438,7 +2336,7 @@ ON DUPLICATE KEY UPDATE
     `executor_ref` = VALUES(`executor_ref`),
     `enabled` = VALUES(`enabled`);
 
-INSERT INTO `composition_definition`
+INSERT INTO `capability_composition_definition`
 (`capability_module_id`, `capability_code`, `composition_code`, `name`, `qualified_name`, `description`,
  `graph_spec_json`, `input_schema_json`, `output_schema_json`, `side_effect`, `enabled`, `agent_visible`)
 VALUES
@@ -2453,7 +2351,7 @@ ON DUPLICATE KEY UPDATE
     `graph_spec_json` = VALUES(`graph_spec_json`),
     `enabled` = VALUES(`enabled`);
 
-INSERT INTO `interaction_definition`
+INSERT INTO `capability_interaction_definition`
 (`capability_module_id`, `capability_code`, `interaction_code`, `name`, `qualified_name`, `description`,
  `interaction_type`, `spec_json`, `input_schema_json`, `output_schema_json`, `enabled`, `agent_visible`)
 VALUES
@@ -2474,7 +2372,7 @@ ON DUPLICATE KEY UPDATE
     `spec_json` = VALUES(`spec_json`),
     `enabled` = VALUES(`enabled`);
 
-INSERT INTO `composition_definition`
+INSERT INTO `capability_composition_definition`
 (`capability_module_id`, `capability_code`, `composition_code`, `name`, `qualified_name`, `description`,
  `graph_spec_json`, `input_schema_json`, `output_schema_json`, `side_effect`, `enabled`, `agent_visible`)
 VALUES
@@ -2504,82 +2402,28 @@ CALL add_col_if_absent('knowledge_base', 'rerank_model_instance_id',
     'VARCHAR(64) DEFAULT NULL COMMENT ''Rerank model instance id'' AFTER `embedding_model_instance_id`');
 CALL add_col_if_absent('knowledge_base', 'llm_model_instance_id',
     'VARCHAR(64) DEFAULT NULL COMMENT ''LLM model instance id for answer generation'' AFTER `rerank_model_instance_id`');
-CALL add_col_if_absent('business_index', 'embedding_model_instance_id',
+CALL add_col_if_absent('knowledge_business_index', 'embedding_model_instance_id',
     'VARCHAR(64) DEFAULT NULL COMMENT ''Embedding model instance id'' AFTER `field_schema`');
 
 CALL add_idx_if_absent('knowledge_base', 'idx_kb_embedding_instance', '`embedding_model_instance_id`');
 CALL add_idx_if_absent('knowledge_base', 'idx_kb_rerank_instance', '`rerank_model_instance_id`');
 CALL add_idx_if_absent('knowledge_base', 'idx_kb_llm_instance', '`llm_model_instance_id`');
-CALL add_idx_if_absent('business_index', 'idx_biz_embedding_instance', '`embedding_model_instance_id`');
+CALL add_idx_if_absent('knowledge_business_index', 'idx_biz_embedding_instance', '`embedding_model_instance_id`');
 
 
 -- ============================================================================
--- 十、模型实例 legacy 字段回填与清理（历史 model_instance_only_v4 / v12）
+-- ????????? AI Coding onboarding ?????V2 ?????
 -- ============================================================================
 
 -- AI Coding onboarding access key for external coding tools.
-CALL add_col_if_absent('scan_project', 'ai_coding_access_key', 'VARCHAR(160) DEFAULT NULL COMMENT ''AI Coding access key''');
-CALL add_col_if_absent('scan_project', 'ai_coding_access_enabled', 'TINYINT NOT NULL DEFAULT 0 COMMENT ''1=AI Coding manifest access enabled''');
+CALL add_col_if_absent('capability_scan_project', 'ai_coding_access_key', 'VARCHAR(160) DEFAULT NULL COMMENT ''AI Coding access key''');
+CALL add_col_if_absent('capability_scan_project', 'ai_coding_access_enabled', 'TINYINT NOT NULL DEFAULT 0 COMMENT ''1=AI Coding manifest access enabled''');
 
-DROP PROCEDURE IF EXISTS bind_embedding_instance_from_legacy;
-DROP PROCEDURE IF EXISTS drop_col_if_exists;
 
-DELIMITER $$
 
-CREATE PROCEDURE bind_embedding_instance_from_legacy(IN p_table VARCHAR(64))
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_schema = DATABASE()
-          AND table_name = 'ai_model_instance'
-    ) AND EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = DATABASE()
-          AND table_name = p_table
-          AND column_name = 'embedding_model'
-    ) AND EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = DATABASE()
-          AND table_name = p_table
-          AND column_name = 'embedding_model_instance_id'
-    ) THEN
-        SET @sql = CONCAT(
-            'UPDATE `', p_table, '` t ',
-            'JOIN `ai_model_instance` mi ',
-            '  ON mi.model_type = ''EMBEDDING'' AND mi.model_name = t.embedding_model ',
-            'SET t.embedding_model_instance_id = mi.id ',
-            'WHERE (t.embedding_model_instance_id IS NULL OR t.embedding_model_instance_id = '''')'
-        );
-        PREPARE stmt FROM @sql;
-        EXECUTE stmt;
-        DEALLOCATE PREPARE stmt;
-    END IF;
-END$$
 
-CREATE PROCEDURE drop_col_if_exists(IN p_table VARCHAR(64), IN p_column VARCHAR(64))
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = DATABASE()
-          AND table_name = p_table
-          AND column_name = p_column
-    ) THEN
-        SET @sql = CONCAT('ALTER TABLE `', p_table, '` DROP COLUMN `', p_column, '`');
-        PREPARE stmt FROM @sql;
-        EXECUTE stmt;
-        DEALLOCATE PREPARE stmt;
-    END IF;
-END$$
 
-DELIMITER ;
 
-CALL bind_embedding_instance_from_legacy('knowledge_base');
-CALL bind_embedding_instance_from_legacy('business_index');
-CALL drop_col_if_exists('knowledge_base', 'embedding_model');
-CALL drop_col_if_exists('business_index', 'embedding_model');
-
-DROP PROCEDURE IF EXISTS bind_embedding_instance_from_legacy;
-DROP PROCEDURE IF EXISTS drop_col_if_exists;
 
 
 -- ============================================================================
@@ -2589,4 +2433,4 @@ DROP PROCEDURE IF EXISTS add_col_if_absent;
 DROP PROCEDURE IF EXISTS add_idx_if_absent;
 DROP PROCEDURE IF EXISTS add_unique_idx_if_absent;
 
--- END OF init.sql
+-- END OF initV2.sql

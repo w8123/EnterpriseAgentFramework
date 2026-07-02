@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("context_binding")
+@TableName("control_context_binding")
 public class ContextBindingEntity {
 
     @TableId(type = IdType.AUTO)

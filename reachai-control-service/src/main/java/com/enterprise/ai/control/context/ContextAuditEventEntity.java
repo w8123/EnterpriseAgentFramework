@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("context_audit_event")
+@TableName("control_context_audit_event")
 public class ContextAuditEventEntity {
 
     @TableId(type = IdType.AUTO)

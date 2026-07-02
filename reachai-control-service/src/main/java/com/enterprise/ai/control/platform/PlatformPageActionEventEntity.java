@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("eaf_page_action_event")
+@TableName("control_page_action_event")
 public class PlatformPageActionEventEntity {
 
     @TableId(type = IdType.AUTO)

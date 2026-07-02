@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("mcp_visibility")
+@TableName("control_mcp_visibility")
 public class ControlMcpVisibilityEntity {
 
     @TableId(type = IdType.AUTO)

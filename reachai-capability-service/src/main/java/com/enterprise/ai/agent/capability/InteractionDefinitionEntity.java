@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("interaction_definition")
+@TableName("capability_interaction_definition")
 public class InteractionDefinitionEntity {
 
     @TableId(type = IdType.AUTO)

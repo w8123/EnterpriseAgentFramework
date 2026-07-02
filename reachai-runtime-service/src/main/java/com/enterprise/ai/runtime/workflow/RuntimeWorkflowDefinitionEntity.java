@@ -9,7 +9,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("ai_workflow")
+@TableName("runtime_workflow")
 public class RuntimeWorkflowDefinitionEntity {
 
     @TableId(type = IdType.INPUT)

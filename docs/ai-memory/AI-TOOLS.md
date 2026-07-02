@@ -30,8 +30,8 @@ The DBHub configuration is intentionally read-only:
 
 Use it for:
 
-- Checking whether tables, columns, or indexes exist in `ai_text_service`.
-- Comparing live schema state with `sql/init.sql` and any current `sql/upgrade-*.sql` created for an active database change.
+- Checking whether tables, columns, or indexes exist in `reach_ai`.
+- Comparing live schema state with `sql/initV2.sql` and any current `sql/upgrade-*.sql` created for an active database change.
 - Inspecting small reference rows needed to diagnose UI or backend behavior.
 
 Do not use it for:
@@ -47,7 +47,7 @@ Use dbhub_ai_mysql to check whether agent_workflow_credential and agent_release_
 ```
 
 ```text
-Use dbhub_ai_mysql to inspect the columns and indexes for api_graph_edge, then compare the result with sql/init.sql.
+Use dbhub_ai_mysql to inspect the columns and indexes for capability_api_graph_edge, then compare the result with sql/initV2.sql.
 ```
 
 ## Required Local Setup
@@ -65,8 +65,8 @@ Set the database environment variables on each machine. Do not commit real passw
 
 ```powershell
 [Environment]::SetEnvironmentVariable('AI_MYSQL_HOST', 'your-mysql-host', 'User')
-[Environment]::SetEnvironmentVariable('AI_MYSQL_PORT', '33106', 'User')
-[Environment]::SetEnvironmentVariable('AI_MYSQL_DATABASE', 'ai_text_service', 'User')
+[Environment]::SetEnvironmentVariable('AI_MYSQL_PORT', '3306', 'User')
+[Environment]::SetEnvironmentVariable('AI_MYSQL_DATABASE', 'reach_ai', 'User')
 [Environment]::SetEnvironmentVariable('AI_MYSQL_USER', 'your-readonly-user', 'User')
 [Environment]::SetEnvironmentVariable('AI_MYSQL_PASSWORD', 'your-readonly-password', 'User')
 ```

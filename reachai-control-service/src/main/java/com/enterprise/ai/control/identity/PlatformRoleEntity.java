@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("platform_role")
+@TableName("control_platform_role")
 public class PlatformRoleEntity {
 
     @TableId(type = IdType.AUTO)

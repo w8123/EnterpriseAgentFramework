@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("composition_definition")
+@TableName("capability_composition_definition")
 public class CompositionDefinitionEntity {
 
     @TableId(type = IdType.AUTO)

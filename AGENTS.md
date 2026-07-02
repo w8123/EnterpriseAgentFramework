@@ -19,7 +19,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 
 1. 业务系统通过 `reachai-spring-boot2-starter`、`reachai-capability-sdk`、`@ReachCapability`、`@ReachParam` 主动注册项目、实例、能力和 SDK 图。
 2. 平台侧形成能力快照、字段级 diff、评审 apply/ignore，并沉淀到能力资产目录。
-3. Workflow Studio 使用 `GraphSpec` 编排 Workflow（`ai_workflow`）；Agent 入口（`ai_agent`）通过 binding 绑定 Workflow。AI 生成、局部修改、调试、发布和回放均在 Workflow Studio 闭环。
+3. Workflow Studio 使用 `GraphSpec` 编排 Workflow（V2 表：`runtime_workflow`）；Agent 入口（V2 表：`runtime_agent`）通过 binding 绑定 Workflow。AI 生成、局部修改、调试、发布和回放均在 Workflow Studio 闭环。
 4. Runtime 通过 `AgentRuntimeAdapter` 解耦 AgentScope、LangGraph4j 和未来运行时。
 5. RunOps、Trace、Tool ACL、Guard、Gateway、MCP、A2A、嵌入式对话和企业身份共同组成生产治理边界。
 
@@ -36,26 +36,30 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 - `reachai-capability-sdk/`: JDK8 兼容的业务能力声明 SDK 契约。
 - `reachai-spring-boot2-starter/`: Spring Boot 2 业务系统接入、扫描、注册和 SDK 图同步。
 - `ai-runtime-contract/`: 中台内部 Tool / Skill 运行时契约。
-- `sql/init.sql`: 当前唯一 SQL 基线入口。
-- `sql/upgrade-*.sql`: 仅用于当次数据库变更升级已有开发/测试库；历史升级脚本已并入 `sql/init.sql` 后清理，确认合入新基线后可再次清理。
+- `sql/initV2.sql`: 当前新库 SQL 基线入口；第一阶段仍是同一个 MySQL 库，不拆库。
+- `sql/upgrade-*.sql`: 仅用于当次数据库变更升级已有开发/测试库；当前 V2 新库基线不要求兼容旧数据。
 - `docs/`: 当前权威知识库。
 - `docs/ai-memory/`: 给 AI 编程工具看的项目记忆。
 
 ## SQL 规则
 
-- 任何 schema、索引、种子数据、字段语义相关改动，都必须检查 `sql/init.sql`。
-- 如果改动需要数据库变化，必须至少修改 `sql/init.sql`，让全新环境直接可用。
+- 任何 schema、索引、种子数据、字段语义相关改动，都必须检查 `sql/initV2.sql`。
+- 如果改动需要数据库变化，必须至少修改 `sql/initV2.sql`，让全新环境直接可用。
 - 如果该数据库变化还需要落到已有开发/测试库，必须新增一份 `sql/upgrade-YYYYMMDD-short-name.sql`，写清升级影响，并更新 `sql/README.md` 或相关文档中的执行说明。
 - 不再使用 `ai-agent-service/sql`、`ai-model-service/sql`、`ai-skills-service/sql` 作为活跃迁移目录。
 - 默认不为旧数据做复杂兼容迁移；如果必须清理、重建、重命名或丢弃旧字段，直接在升级 SQL 和变更说明里写清楚。
-- MySQL 5.7/8 兼容性要看 `sql/init.sql` 已有写法，优先沿用现有 `information_schema` 判空和幂等模式。
+- MySQL 5.7/8 兼容性要看 `sql/initV2.sql` 已有写法，优先沿用现有 `information_schema` 判空和幂等模式。
+- 同库阶段仍必须维护 `docs/architecture/service-table-ownership.md`；`sql/initV2.sql` 中每张 `CREATE TABLE` 表都必须有唯一 owning service。
+- 跨服务直接读写表默认违规，扫描范围包括 `@TableName`、MyBatis 注解 SQL、MyBatis XML SQL 和 JdbcTemplate SQL。确有历史兼容需要时，只能作为临时例外写入 `Additional direct access`，并说明访问服务和原因。
+- 服务协作优先通过 owning service 的 internal API、显式 client 或服务自有 read model，不允许为了快速编译跨服务复用对方 Mapper、Entity 或直接 SQL。
+- V2 表名按 owner service / domain 前缀收口，例如 `runtime_workflow`、`runtime_agent`、`capability_draft`、`runtime_skill_interaction`、`control_page_registry`、`runtime_tool_call_log`、`knowledge_base`。本项目当前按新库重建，不要求兼容旧表名或旧数据迁移。
 
 ## GraphSpec 与 Runtime
 
 - `GraphSpec` 是运行语义，归属 Workflow；`canvas_json` 只是画布布局。
 - 后端类型以当前主路径服务中的 `com.enterprise.ai.agent.graph.GraphSpec` 为准；`reachai-runtime-service` 是 Runtime 执行主路径，后续再评估 shared-kernel 抽取。
 - 前端 Workflow 图语义类型以 `ai-admin-front/src/types/workflow.ts` 为准（Studio 状态、Workflow 定义等；共享节点/边结构仍可见于 `agent.ts` 的 `AgentGraphSpec`）。
-- DB 字段：`ai_workflow.graph_spec_json`（运行语义）、`ai_workflow.canvas_json`（画布布局）。
+- DB 字段：`runtime_workflow.graph_spec_json`（运行语义）、`runtime_workflow.canvas_json`（画布布局）。
 - 发布校验由 `WorkflowReleaseValidationService` 负责；Runtime 执行主线在 `LangGraph4jRuntimeAdapter`（经 binding 解析 Workflow）。
 - 新增 Workflow Studio 节点、AI 编辑能力或 Runtime 行为时，必须把可执行语义写入 Workflow `GraphSpec`，不能只改前端画布表现。
 - AI 生成走 `/api/workflows/studio/generate-draft` 和 `LlmWorkflowDraftGenerator`；AI 局部编辑走 `/api/workflows/studio/edit-draft` 和 `WorkflowDraftEditService`。
@@ -64,7 +68,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 
 - 产品和文档默认使用 `Capability / 能力`。
 - `Skill` 在本项目中多为历史命名或代码遗留，不能简单全局替换。
-- `skill_draft`、`skill_eval_snapshot`、`skill_interaction`、`skill_name`、`skill_kind` 等 SQL 名称是兼容敏感存储名。除非任务明确要求迁移，否则不要盲目重命名。
+- V2 新库基线中历史 `skill_draft`、`skill_eval_snapshot`、`skill_interaction` 已收敛为 `capability_draft`、`capability_eval_snapshot`、`runtime_skill_interaction`；`skill_name`、`skill_kind` 等字段名如仍承载业务语义，不做无关改名。
 - `eaf.*`、`X-EAF-*`、`Eaf*` 类名、Maven artifactId、运行时路径属于技术身份，品牌文案改成 ReachAI 时不要顺手改这些兼容敏感标识。
 
 ## 前端规则
@@ -79,7 +83,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 - 后端优先跑相关 Maven 模块测试；小改动至少跑对应模块编译或目标测试。
 - 前端改动优先在 `ai-admin-front` 下跑 `npm run build`，必要时先跑 `npx vue-tsc --noEmit`。
 - 文档和规则改动至少跑 `git diff --check`，并检查链接/路径是否指向真实文件。
-- SQL 改动至少检查 `sql/init.sql`；如果当前任务新增 upgrade SQL，还要确认 upgrade SQL 包含目标表/列/索引。有 MySQL 环境时再执行验证。
+- SQL 改动至少检查 `sql/initV2.sql`；如果当前任务新增 upgrade SQL，还要确认 upgrade SQL 包含目标表/列/索引。有 MySQL 环境时再执行验证。
 - 如果用户报告具体错误，必须复现或对照同一错误签名后再声明修复完成。
 
 ## AI 记忆入口

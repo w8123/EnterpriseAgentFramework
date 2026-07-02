@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("registry_project_credential")
+@TableName("capability_registry_project_credential")
 public class RegistryCredentialEntity {
 
     @TableId(type = IdType.AUTO)

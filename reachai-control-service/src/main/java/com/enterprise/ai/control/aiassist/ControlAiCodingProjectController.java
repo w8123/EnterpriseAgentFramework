@@ -477,7 +477,7 @@ public class ControlAiCodingProjectController {
                 "agent-workflow.decoupled.v1",
                 globalAgentKeySlug,
                 PAGE_COPILOT_KIND,
-                "ai_workflow",
+                "runtime_workflow",
                 "SDK_GRAPH",
                 "Bind page/action/intent workflows to the project page copilot Agent instead of creating one agent per workflow.",
                 new ControlAiAssistProjectController.AgentWorkflowEndpoints(
@@ -500,7 +500,7 @@ public class ControlAiCodingProjectController {
                                 "Read /context before patch; use workflow.updatedAt as baseRevision when saving.")),
                 List.of(
                         "Provision or reuse one project-level PAGE_COPILOT Agent entry.",
-                        "Store every executable graph as an ai_workflow draft or version."));
+                        "Store every executable graph as an runtime_workflow draft or version."));
     }
 
     private RuntimeObject findOrCreateAgent(Long projectId, String projectCode, String keySlug, String projectName) {

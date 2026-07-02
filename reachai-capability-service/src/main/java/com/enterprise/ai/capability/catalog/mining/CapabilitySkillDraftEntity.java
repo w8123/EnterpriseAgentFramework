@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("skill_draft")
+@TableName("capability_draft")
 public class CapabilitySkillDraftEntity {
 
     @TableId(type = IdType.AUTO)

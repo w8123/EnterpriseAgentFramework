@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("eaf_business_user")
+@TableName("control_business_user")
 public class BusinessUserEntity {
 
     @TableId(type = IdType.AUTO)

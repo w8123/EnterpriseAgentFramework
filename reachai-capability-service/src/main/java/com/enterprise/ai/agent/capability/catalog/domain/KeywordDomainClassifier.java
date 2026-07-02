@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 关键词分类器：把 {@code domain_def.keywords_json} 中的关键词作为词典，
+ * 关键词分类器：把 {@code capability_domain_def.keywords_json} 中的关键词作为词典，
  * 对用户输入做 contains 匹配，命中关键词数量 + 长度加权作为 score。
  * <p>
  * 60 秒缓存 keywords，避免每次请求都查 DB。新增 / 编辑领域后调用 {@link #invalidate()} 强制刷新。

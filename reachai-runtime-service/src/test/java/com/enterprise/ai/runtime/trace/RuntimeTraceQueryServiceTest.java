@@ -48,9 +48,9 @@ class RuntimeTraceQueryServiceTest {
 
         assertEquals("trace-1", detail.traceId());
         assertEquals(2, detail.nodes().size());
-        assertEquals("agent_trace_span", detail.nodes().get(0).source());
+        assertEquals("runtime_agent_trace_span", detail.nodes().get(0).source());
         assertEquals("span:llm_1", detail.nodes().get(0).toolName());
-        assertEquals("tool_call_log", detail.nodes().get(1).source());
+        assertEquals("runtime_tool_call_log", detail.nodes().get(1).source());
         assertEquals("order.lookup", detail.nodes().get(1).toolName());
         assertEquals(List.of(Map.of("docId", "doc-1", "score", 0.91D)),
                 detail.nodes().get(1).retrievalCandidates());

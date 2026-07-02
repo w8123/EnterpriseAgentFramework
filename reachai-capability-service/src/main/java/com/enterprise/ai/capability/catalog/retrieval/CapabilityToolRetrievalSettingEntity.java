@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("tool_retrieval_setting")
+@TableName("capability_tool_retrieval_setting")
 public class CapabilityToolRetrievalSettingEntity {
 
     public static final String SINGLETON_ID = "1";

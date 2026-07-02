@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
  * <p>index_code 与 Milvus Collection 一一对应，实现业务系统之间的数据物理隔离。</p>
  */
 @Data
-@TableName("business_index")
+@TableName("knowledge_business_index")
 public class BusinessIndex {
 
     @TableId(type = IdType.AUTO)

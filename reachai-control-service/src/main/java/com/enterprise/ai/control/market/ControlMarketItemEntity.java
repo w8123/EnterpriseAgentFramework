@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("market_item")
+@TableName("control_market_item")
 public class ControlMarketItemEntity {
 
     @TableId(type = IdType.AUTO)

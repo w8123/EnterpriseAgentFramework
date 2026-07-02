@@ -15,7 +15,7 @@ import java.time.LocalDateTime;
  * (project_id, kind, source_node_id, target_node_id, source) 维度幂等 upsert。
  */
 @Data
-@TableName("api_graph_edge")
+@TableName("capability_api_graph_edge")
 public class ApiGraphEdgeEntity {
 
     @TableId(type = IdType.AUTO)

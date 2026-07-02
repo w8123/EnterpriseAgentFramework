@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("tool_definition")
+@TableName("capability_tool_definition")
 public class ToolDefinitionEntity {
 
     @TableId(type = IdType.AUTO)

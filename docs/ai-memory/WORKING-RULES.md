@@ -26,10 +26,12 @@
 
 任何数据库变化必须先完成：
 
-1. 修改 `sql/init.sql`，保证全新环境直接可用。
-2. 如果已有开发/测试库需要升级，新增当次 `sql/upgrade-YYYYMMDD-short-name.sql`，并在确认合入新基线后按规则清理历史 upgrade。
+1. 修改 `sql/initV2.sql`，保证全新环境直接可用。
+2. 如果已有开发/测试库需要升级，新增当次 `sql/upgrade-YYYYMMDD-short-name.sql`，并在确认合入新基线后按规则清理历史 upgrade；当前 V2 新库重建场景不要求旧数据迁移。
 3. 更新 `sql/README.md` 或相关文档。
 4. 检查实体、Mapper、前端类型和 API DTO 是否同步。
+5. 更新 `docs/architecture/service-table-ownership.md`，确保 `sql/initV2.sql` 中新增或保留的 `CREATE TABLE` 有唯一 owning service。
+6. 运行 `node scripts/check-service-table-ownership.test.mjs` 和 `node scripts/check-service-table-ownership.mjs`。
 
 不再新增或依赖：
 
@@ -41,7 +43,10 @@
 
 - Spring Boot / Java 17 是主线。
 - 当前后端主路径是 `reachai-control-service`、`reachai-runtime-service`、`reachai-capability-service`、`reachai-knowledge-service`、`reachai-model-service`。
-- 第一阶段保持同一个 MySQL 库，不拆库，但新增代码必须尊重 owning service 和服务间 API 边界。
+- 第一阶段保持同一个 MySQL 库，不拆库；当前新库基线为 `sql/initV2.sql`，旧 `sql/init.sql` 已退场。
+- `docs/architecture/service-table-ownership.md` 是同库阶段的表所有权矩阵；跨服务直接读写表默认违规。
+- 直接表访问包括 `@TableName`、MyBatis 注解 SQL、MyBatis XML SQL 和 JdbcTemplate SQL。确需临时兼容访问时，必须写入矩阵的 `Additional direct access`，说明访问服务和理由。
+- 服务间协作优先使用 owning service 的 internal API、显式 client 或服务自有 read model；不要跨服务 import 对方 Mapper/Entity。
 - `reachai-control-service` 是公共 `/api/**`、`/embed/**` 和 SDK 注册兼容入口。
 - `reachai-runtime-service` 承接 Agent、Workflow、GraphSpec、Trace、RunOps、调试和 Runtime 内部 API。
 - `reachai-capability-service` 承接 SDK 注册、能力快照、diff/review/apply、扫描目录和能力资产 API。
@@ -87,7 +92,7 @@
 
 - 后端改动：跑目标模块测试或编译。
 - 前端改动：在 `ai-admin-front` 跑 `npm run build`；类型风险高时先跑 `npx vue-tsc --noEmit`。
-- SQL 改动：检查 `sql/init.sql`；如果当前任务新增 upgrade SQL，也检查该 upgrade SQL。有 MySQL 环境时执行验证。
+- SQL 改动：检查 `sql/initV2.sql`；如果当前任务新增 upgrade SQL，也检查该 upgrade SQL。有 MySQL 环境时执行验证。
 - 文档/规则改动：跑 `git diff --check`，再用 `rg` 检查关键路径。
 - 路线A后端拆分相关改动优先跑：
   - `node scripts/check-backend-boundary-naming.mjs`
@@ -97,6 +102,8 @@
   - `node scripts/check-physical-service-route-contracts.mjs`
   - `node scripts/check-backend-domain-dependencies.test.mjs`
   - `node scripts/check-backend-domain-dependencies.mjs`
+  - `node scripts/check-service-table-ownership.test.mjs`
+  - `node scripts/check-service-table-ownership.mjs`
   - `node scripts/check-internal-api-contracts.test.mjs`
   - `node scripts/check-internal-api-contracts.mjs`
   - `node scripts/check-physical-service-smoke.test.mjs`

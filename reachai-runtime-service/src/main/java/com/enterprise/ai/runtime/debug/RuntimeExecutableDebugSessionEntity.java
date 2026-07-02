@@ -7,7 +7,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("executable_debug_session")
+@TableName("runtime_executable_debug_session")
 public class RuntimeExecutableDebugSessionEntity {
 
     @TableId

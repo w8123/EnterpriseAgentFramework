@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("eaf_embed_chat_event")
+@TableName("control_embed_chat_event")
 public class PlatformEmbedChatEventEntity {
 
     @TableId(type = IdType.AUTO)

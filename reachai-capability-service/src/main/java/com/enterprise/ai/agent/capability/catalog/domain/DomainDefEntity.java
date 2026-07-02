@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * 关键词以 JSON 数组字符串存储（避免 MySQL JSON 列查询语法依赖）。
  */
 @Data
-@TableName("domain_def")
+@TableName("capability_domain_def")
 public class DomainDefEntity {
 
     @TableId(type = IdType.AUTO)

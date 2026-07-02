@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("eaf_page_registry")
+@TableName("control_page_registry")
 public class PlatformPageRegistryEntity {
 
     @TableId(type = IdType.AUTO)

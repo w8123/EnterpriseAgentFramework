@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("agent_eval_case_result")
+@TableName("runtime_agent_eval_case_result")
 public class RuntimeAgentEvalCaseResultEntity {
 
     @TableId(type = IdType.AUTO)

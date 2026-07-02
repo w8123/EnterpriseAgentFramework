@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("agent_trace_span")
+@TableName("runtime_agent_trace_span")
 public class RuntimeAgentTraceSpanEntity {
 
     @TableId(type = IdType.AUTO)

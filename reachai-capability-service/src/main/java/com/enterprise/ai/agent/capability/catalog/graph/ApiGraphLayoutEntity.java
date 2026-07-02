@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * 单独表，避免每次写边都去改 {@link ApiGraphNodeEntity}（节点 upsert 频次远高于布局）。
  */
 @Data
-@TableName("api_graph_layout")
+@TableName("capability_api_graph_layout")
 public class ApiGraphLayoutEntity {
 
     @TableId(type = IdType.AUTO)

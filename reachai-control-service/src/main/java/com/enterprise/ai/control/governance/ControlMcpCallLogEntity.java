@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("mcp_call_log")
+@TableName("control_mcp_call_log")
 public class ControlMcpCallLogEntity {
 
     @TableId(type = IdType.AUTO)

@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("context_namespace")
+@TableName("control_context_namespace")
 public class ContextNamespaceEntity {
 
     @TableId(type = IdType.AUTO)

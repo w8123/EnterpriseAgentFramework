@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("semantic_doc")
+@TableName("capability_semantic_doc")
 public class SemanticDocEntity {
 
     public static final String LEVEL_PROJECT = "project";

@@ -65,9 +65,9 @@ public class CapabilityToolRetrievalController {
         return ResponseEntity.ok(new HealthResponse(
                 true,
                 true,
-                "tool_definition",
+                "capability_tool_definition",
                 "KEYWORD_FALLBACK_READY",
-                "Capability Tool Retrieval is served locally from tool_definition keyword matching",
+                "Capability Tool Retrieval is served locally from capability_tool_definition keyword matching",
                 rebuildManager.latest().map(TaskDTO::from).orElse(null)
         ));
     }

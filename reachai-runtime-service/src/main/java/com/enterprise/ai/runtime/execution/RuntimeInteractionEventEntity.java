@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("interaction_event")
+@TableName("runtime_interaction_event")
 public class RuntimeInteractionEventEntity {
 
     @TableId(type = IdType.AUTO)
