@@ -62,6 +62,15 @@ npx -y @playwright/mcp@latest --version
 ```
 
 Set the database environment variables on each machine. Do not commit real passwords.
+Prefer the interactive Windows setup script:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\set-ai-mysql-env.ps1
+```
+
+Or run `scripts\setup-ai-mysql-env.cmd` from `cmd` / File Explorer. Restart IntelliJ IDEA, Cursor, Codex, and open terminals after changing User environment variables.
+
+Manual equivalent:
 
 ```powershell
 [Environment]::SetEnvironmentVariable('AI_MYSQL_HOST', 'your-mysql-host', 'User')

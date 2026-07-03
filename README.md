@@ -305,6 +305,22 @@ mvn spring-boot:run
 
 常用环境变量：
 
+推荐在 Windows 上运行交互式脚本，它会写入当前用户环境变量，并自动生成 `AI_MYSQL_URL`：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\set-ai-mysql-env.ps1
+```
+
+也可以在资源管理器或 `cmd` 中运行：
+
+```cmd
+scripts\setup-ai-mysql-env.cmd
+```
+
+脚本执行后，如果使用 IntelliJ IDEA 启动后端，请重启 IDEA，再重新启动 Spring Boot Run Configuration。Windows 用户环境变量不会自动刷新到已经打开的 IDEA、Cursor、Codex 或 PowerShell 进程中。
+
+只想在当前 PowerShell 窗口临时启动时，可以手动设置：
+
 ```powershell
 $env:AI_MYSQL_HOST="localhost"
 $env:AI_MYSQL_PORT="3306"

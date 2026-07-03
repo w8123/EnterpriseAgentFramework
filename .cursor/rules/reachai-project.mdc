@@ -12,7 +12,7 @@ alwaysApply: true
 - 以当前仓库为事实源。先查真实代码、SQL、接口、前端页面和文档，再下结论。
 - 可以修改前端、后端、SQL、文档和构建配置，但改动必须聚焦当前任务。
 - 默认不考虑旧数据兼容；当前正确设计优先。
-- 数据库变化必须先检查并修改 `sql/init.sql`；如当前任务需要升级已有开发/测试库，再新增 `sql/upgrade-YYYYMMDD-short-name.sql`。
+- 数据库变化必须先检查并修改 `sql/initV2.sql`；如当前任务需要升级已有开发/测试库，再新增 `sql/upgrade-YYYYMMDD-short-name.sql`。
 - 不要使用 service 目录下的历史 SQL 作为活跃迁移入口。
 - 不要回滚、格式化或重写与任务无关的用户改动。
 - 中文文件统一按 UTF-8 读写。
@@ -41,7 +41,7 @@ alwaysApply: true
 
 - 后端改动跑相关 Maven 模块测试或编译。
 - 前端改动在 `ai-admin-front` 跑 `npm run build`，必要时跑 `npx vue-tsc --noEmit`。
-- SQL 改动检查 `sql/init.sql`，以及当前任务新增的 upgrade SQL 是否覆盖目标变更。
+- SQL 改动检查 `sql/initV2.sql`，以及当前任务新增的 upgrade SQL 是否覆盖目标变更。
 - 文档/规则改动至少跑 `git diff --check`。
 
 ## MCP Tools

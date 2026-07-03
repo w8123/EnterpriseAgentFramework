@@ -25,6 +25,8 @@ node scripts/check-internal-api-contracts.mjs
 
 五服务编译：
 
+编译五个 JDK 17 后端服务前，确认 `JAVA_HOME` 指向 JDK 17。Windows 本机如果默认还是 JDK 8，直接跑 Maven 可能报 `无效目标发行版: 17`；可先切到 `C:\Program Files\Java\jdk-17` 或使用 IDE/Maven runner 的 JDK 17 配置。
+
 ```powershell
 & "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-control-service,reachai-runtime-service,reachai-capability-service,reachai-knowledge-service,reachai-model-service -am -DskipTests compile
 ```
