@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SDK 接入入口改造草图</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef7f8;
+      --panel: rgba(255, 255, 255, 0.84);
+      --panel-strong: #ffffff;
+      --line: #d8e6ec;
+      --text: #14213d;
+      --muted: #64748b;
+      --blue: #2f80ed;
+      --cyan: #1daec7;
+      --green: #26a269;
+      --violet: #7357d6;
+      --amber: #c47a1f;
+      --shadow: 0 22px 60px rgba(28, 96, 130, 0.18);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-width: 1180px;
+      background:
+        linear-gradient(115deg, rgba(190, 235, 242, 0.62), rgba(255, 255, 255, 0.42) 38%, rgba(200, 231, 238, 0.76)),
+        var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+    }
+
+    .page {
+      display: grid;
+      grid-template-columns: 238px 1fr;
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      padding: 22px 18px;
+      background: rgba(255, 255, 255, 0.74);
+      border-right: 1px solid rgba(185, 213, 222, 0.72);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 8px 24px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      background: #111c44;
+      color: #7ee2ff;
+      font-weight: 800;
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    .brand span,
+    .menu small,
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .project-pill {
+      margin: 22px 8px;
+      padding: 14px;
+      border: 1px solid #d7e9ee;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .project-pill b {
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: #e8f8ed;
+      color: #238457;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .menu {
+      display: grid;
+      gap: 8px;
+      padding: 8px;
+    }
+
+    .menu div {
+      padding: 11px 12px;
+      border-radius: 8px;
+      color: #41516c;
+      font-weight: 700;
+    }
+
+    .menu .active {
+      background: rgba(45, 166, 192, 0.13);
+      color: #1b7790;
+    }
+
+    .main {
+      padding: 24px 30px 40px;
+    }
+
+    .crumb {
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .screen {
+      margin-top: 18px;
+      border: 1px solid rgba(207, 229, 236, 0.92);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.58);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .screen + .screen {
+      margin-top: 28px;
+    }
+
+    .screen-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      background: rgba(255, 255, 255, 0.64);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .screen-label strong {
+      font-size: 16px;
+    }
+
+    .screen-label span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .hero {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 28px;
+      padding: 28px 30px 20px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 34px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 26px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    .hero p,
+    .card p,
+    .row p {
+      margin-top: 7px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      flex: 0 0 auto;
+    }
+
+    .btn {
+      height: 38px;
+      padding: 0 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: #21304a;
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    .btn.primary {
+      border-color: #1ca9c5;
+      background: #1ca9c5;
+      color: #fff;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      padding: 0 30px 22px;
+    }
+
+    .metric,
+    .card,
+    .side-panel,
+    .detail-panel,
+    .manual-step,
+    .ai-step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .metric {
+      padding: 14px 16px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 8px;
+      font-size: 22px;
+    }
+
+    .entry-zone {
+      padding: 0 30px 30px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .section-title span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .entry-cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .card {
+      position: relative;
+      min-height: 174px;
+      padding: 22px;
+      overflow: hidden;
+    }
+
+    .card::after {
+      content: "";
+      position: absolute;
+      right: -24px;
+      bottom: -42px;
+      width: 142px;
+      height: 142px;
+      border: 1px solid rgba(47, 128, 237, 0.16);
+      border-radius: 8px;
+      transform: rotate(-18deg);
+      background: repeating-linear-gradient(90deg, rgba(47, 128, 237, 0.08), rgba(47, 128, 237, 0.08) 1px, transparent 1px, transparent 18px);
+    }
+
+    .card.manual {
+      border-color: rgba(38, 162, 105, 0.34);
+    }
+
+    .card.ai {
+      border-color: rgba(115, 87, 214, 0.42);
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(244, 241, 255, 0.78));
+    }
+
+    .card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .icon-box {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      background: #eef8fb;
+      color: #2387a2;
+      font-weight: 900;
+    }
+
+    .card.ai .icon-box {
+      background: #f0edff;
+      color: var(--violet);
+    }
+
+    .chip {
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #eef8fb;
+      color: #237f96;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .chip.hot {
+      background: #efeaff;
+      color: var(--violet);
+    }
+
+    .card-footer {
+      display: flex;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .workspace {
+      padding: 24px 30px 30px;
+    }
+
+    .workbench-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .segment {
+      display: flex;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.74);
+    }
+
+    .segment button {
+      height: 34px;
+      min-width: 118px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #52647f;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .segment button.active {
+      background: #17213d;
+      color: #fff;
+    }
+
+    .workbench-body {
+      display: grid;
+      grid-template-columns: 288px 1fr;
+      gap: 16px;
+    }
+
+    .side-panel {
+      padding: 18px;
+    }
+
+    .progress-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      font-weight: 900;
+    }
+
+    .bar {
+      height: 8px;
+      border-radius: 999px;
+      background: #e5edf2;
+      overflow: hidden;
+      margin-bottom: 18px;
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      width: 44%;
+      background: linear-gradient(90deg, #21b7d2, #7357d6);
+    }
+
+    .side-list,
+    .manual-list,
+    .ai-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .row,
+    .side-item {
+      display: grid;
+      grid-template-columns: 26px 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.68);
+      border: 1px solid #e3edf1;
+    }
+
+    .dot {
+      display: grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #eef4f8;
+      color: #68768d;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .done .dot {
+      background: #e7f7ed;
+      color: var(--green);
+    }
+
+    .active-row {
+      border-color: rgba(115, 87, 214, 0.38);
+      background: #f8f6ff;
+    }
+
+    .row small,
+    .side-item small {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .detail-panel {
+      padding: 22px;
+      min-height: 418px;
+    }
+
+    .detail-panel.hidden {
+      display: none;
+    }
+
+    .mode-kicker {
+      color: var(--violet);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .ai-grid {
+      display: grid;
+      grid-template-columns: 1.12fr 0.88fr;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .ai-step,
+    .manual-step {
+      padding: 16px;
+    }
+
+    .copy-block {
+      margin-top: 12px;
+      padding: 14px;
+      border: 1px solid #d7e4ec;
+      border-radius: 8px;
+      background: #f8fbfc;
+      color: #40536f;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .tool-tabs {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .tool-tabs span {
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: #eef4f8;
+      color: #52647f;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .tool-tabs .selected {
+      background: #efeaff;
+      color: var(--violet);
+    }
+
+    .readiness {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .readiness div {
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #dce9ed;
+      background: #ffffff;
+    }
+
+    .readiness strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+
+    .ok {
+      color: var(--green);
+    }
+
+    .todo {
+      color: var(--amber);
+    }
+
+    .manual-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .toggle-note {
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">R</div>
+        <div>
+          <strong>ReachAI</strong>
+          <span>企业AI智能体中台</span>
+        </div>
+      </div>
+
+      <div class="project-pill">
+        <b>班组管理1</b>
+        <span class="status">运行中</span>
+      </div>
+
+      <nav class="menu">
+        <small>工作台</small>
+        <div>概览</div>
+        <small>资产与编排</small>
+        <div class="active">注册中心</div>
+        <div>API 管理</div>
+        <div>Runtime 纳管</div>
+        <div>Workflow 编排</div>
+        <div>模型管理</div>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <div class="crumb">首页 / 注册中心 / 项目管理 / 班组管理1</div>
+
+      <section class="screen">
+        <div class="screen-label">
+          <strong>方案 A：项目详情页直接分流</strong>
+          <span>用户不需要先进入向导，先选“自己接”还是“让 AI 接”</span>
+        </div>
+
+        <div class="hero">
+          <div>
+            <h1>班组管理1</h1>
+            <p>SDK 项目 · bzg1 · dev 环境 · 最近心跳 2 分钟前</p>
+          </div>
+          <div class="hero-actions">
+            <button class="btn">AI Coding 接入信息</button>
+            <button class="btn primary">进入接入工作台</button>
+          </div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric"><span>实例心跳</span><strong>1 在线</strong></div>
+          <div class="metric"><span>能力资产</span><strong>0 能力</strong></div>
+          <div class="metric"><span>页面动作</span><strong>0 页面 / 0 动作</strong></div>
+          <div class="metric"><span>AI Coding</span><strong>已启用</strong></div>
+        </div>
+
+        <div class="entry-zone">
+          <div class="section-title">
+            <h2>选择接入方式</h2>
+            <span>两条路共享同一套项目状态、AI Coding key、接入会话和最终自检</span>
+          </div>
+
+          <div class="entry-cards">
+            <article class="card manual">
+              <div class="card-top">
+                <div class="icon-box">SDK</div>
+                <span class="chip">手动</span>
+              </div>
+              <h3>手动接入</h3>
+              <p>按步骤复制 Maven 依赖、application.yml、网关路由、Embed Token 示例，并在平台发起自检。</p>
+              <div class="card-footer">
+                <button class="btn primary">开始手动接入</button>
+                <button class="btn">查看当前进度</button>
+              </div>
+            </article>
+
+            <article class="card ai">
+              <div class="card-top">
+                <div class="icon-box">AI</div>
+                <span class="chip hot">推荐</span>
+              </div>
+              <h3>AI Coding 接入</h3>
+              <p>复制 manifest、skill 包和提示词，让 Cursor、Claude Code 或 Codex 在业务仓库里完成接入并回传进度。</p>
+              <div class="card-footer">
+                <button class="btn primary">打开 AI Coding 接入</button>
+                <button class="btn">复制全部信息</button>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen">
+        <div class="screen-label">
+          <strong>方案 B：接入工作台内双模式</strong>
+          <span>默认进入上次使用的模式；已有 AI 会话时优先显示 AI Coding</span>
+        </div>
+
+        <div class="workspace">
+          <div class="workbench-head">
+            <div>
+              <h2>项目接入工作台</h2>
+              <p class="hint">班组管理1 · bzg1</p>
+            </div>
+            <div class="segment" aria-label="接入模式">
+              <button id="manualBtn" type="button">手动接入</button>
+              <button id="aiBtn" class="active" type="button">AI Coding 接入</button>
+            </div>
+          </div>
+
+          <div class="workbench-body">
+            <aside class="side-panel">
+              <div class="progress-title">
+                <span>接入进度</span>
+                <strong>3/7</strong>
+              </div>
+              <div class="bar"><i></i></div>
+
+              <div class="side-list">
+                <div class="side-item done"><span class="dot">1</span><b>项目识别</b><small>完成</small></div>
+                <div class="side-item done"><span class="dot">2</span><b>AI Key</b><small>完成</small></div>
+                <div class="side-item active-row"><span class="dot">3</span><b>AI 会话</b><small>进行中</small></div>
+                <div class="side-item"><span class="dot">4</span><b>后端 Starter</b><small>待回传</small></div>
+                <div class="side-item"><span class="dot">5</span><b>网关路由</b><small>待回传</small></div>
+                <div class="side-item"><span class="dot">6</span><b>前端 Embed</b><small>待回传</small></div>
+                <div class="side-item"><span class="dot">7</span><b>最终自检</b><small>待处理</small></div>
+              </div>
+            </aside>
+
+            <section id="aiPanel" class="detail-panel">
+              <span class="mode-kicker">AI Coding 接入</span>
+              <h2>把接入任务交给外部 AI 编程工具</h2>
+              <p class="hint">AI Coding 是一条完整路径，不再藏在右上角按钮里。</p>
+
+              <div class="ai-grid">
+                <div class="ai-step">
+                  <h3>1. 复制给 AI 工具</h3>
+                  <div class="tool-tabs">
+                    <span class="selected">Cursor</span>
+                    <span>Claude Code</span>
+                    <span>Codex</span>
+                  </div>
+                  <div class="copy-block">项目接入清单: /api/ai-coding/projects/42/onboarding-manifest
+Skill 包: /api/ai-assist/skills/reachai-onboarding/latest.zip
+Header: X-ReachAI-AiCoding-Key
+任务: 完成 SDK Starter、网关路由、Embed Token、Workflow 首次发布和最终自检</div>
+                  <div class="card-footer">
+                    <button class="btn primary">复制提示词</button>
+                    <button class="btn">复制 manifest URL</button>
+                  </div>
+                </div>
+
+                <div class="ai-step">
+                  <h3>2. AI 会话回传</h3>
+                  <div class="ai-list" style="margin-top: 12px;">
+                    <div class="row done"><span class="dot">✓</span><b>project-manifest</b><small>PASS</small></div>
+                    <div class="row done"><span class="dot">✓</span><b>backend-sdk</b><small>PASS</small></div>
+                    <div class="row active-row"><span class="dot">3</span><b>gateway-route</b><small>RUNNING</small></div>
+                    <div class="row"><span class="dot">4</span><b>frontend-embed</b><small>TODO</small></div>
+                    <div class="row"><span class="dot">5</span><b>handoff-summary</b><small>TODO</small></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="readiness">
+                <div><strong>CODE_READY</strong><span class="ok">已通过</span></div>
+                <div><strong>RUNTIME_READY</strong><span class="todo">等待实例心跳</span></div>
+                <div><strong>E2E_READY</strong><span class="todo">等待真实调用</span></div>
+              </div>
+            </section>
+
+            <section id="manualPanel" class="detail-panel hidden">
+              <span class="mode-kicker" style="color: var(--green);">手动接入</span>
+              <h2>按步骤完成 SDK 接入</h2>
+              <p class="hint">保留现在的 6 步向导，但入口更清楚，且和 AI Coding 共用最终自检。</p>
+
+              <div class="manual-grid">
+                <div class="manual-step"><h3>1. 后端 Starter</h3><p>复制 Maven 依赖和 application.yml。</p></div>
+                <div class="manual-step"><h3>2. 网关路由</h3><p>配置业务网关，透传 trace、invocation token。</p></div>
+                <div class="manual-step"><h3>3. 业务服务校验</h3><p>确认实例在线、能力同步、项目接口可用。</p></div>
+                <div class="manual-step"><h3>4. 前端 Embed Token</h3><p>浏览器只拿短期 token，不保存 appSecret。</p></div>
+              </div>
+
+              <div class="copy-block">最终动作: 发起平台自检
+检查项: Registry Credential / AI Coding Access / SDK Instance / API Asset / Embed Token
+结果: CODE_READY / RUNTIME_READY / E2E_READY</div>
+            </section>
+          </div>
+
+          <p class="toggle-note">草图要点：项目详情负责“发现入口”，接入工作台负责“继续执行”。手动与 AI Coding 是两个模式，不是一个页面里被弱化的按钮。</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const manualBtn = document.getElementById('manualBtn');
+    const aiBtn = document.getElementById('aiBtn');
+    const manualPanel = document.getElementById('manualPanel');
+    const aiPanel = document.getElementById('aiPanel');
+
+    manualBtn.addEventListener('click', () => {
+      manualBtn.classList.add('active');
+      aiBtn.classList.remove('active');
+      manualPanel.classList.remove('hidden');
+      aiPanel.classList.add('hidden');
+    });
+
+    aiBtn.addEventListener('click', () => {
+      aiBtn.classList.add('active');
+      manualBtn.classList.remove('active');
+      aiPanel.classList.remove('hidden');
+      manualPanel.classList.add('hidden');
+    });
+  </script>
+</body>
+</html>

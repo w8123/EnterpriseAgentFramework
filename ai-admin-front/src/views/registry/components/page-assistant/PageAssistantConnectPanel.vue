@@ -43,10 +43,12 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="step-screen">
-    <div class="panel-head">
-      <div>
+  <div class="step-screen page-assistant-connect-workbench">
+    <div class="connect-hero">
+      <div class="connect-hero-copy">
         <span class="step-kicker">步骤 1</span>
+        <h2>接入准备</h2>
+        <p>通过 AI 快速接入或手动声明页面动作，让业务页面回传页面、动作与接入进度。</p>
       </div>
       <div class="panel-actions">
         <el-button type="primary" :icon="DocumentCopy" @click="emit('openAiPrompt')">AI 快速接入</el-button>
@@ -103,16 +105,18 @@ const emit = defineEmits<{
       </div>
     </div>
 
-    <div class="health-grid">
-      <div v-for="item in stats" :key="item.label" class="health-card" :class="`stat-${item.key}`">
+    <div class="connect-stat-strip">
+      <article v-for="item in stats" :key="item.label" class="connect-stat-card" :class="`stat-${item.key}`">
         <span class="stat-icon">{{ item.icon }}</span>
-        <span class="stat-label">{{ item.label }}</span>
-        <strong>{{ item.value }}</strong>
-      </div>
+        <span class="stat-copy">
+          <small>{{ item.label }}</small>
+          <strong>{{ item.value }}</strong>
+        </span>
+      </article>
     </div>
 
-    <section class="page-access-board">
-      <div class="page-access-board-head">
+    <section class="access-task-panel">
+      <div class="access-task-panel-head">
         <div>
           <h3>页面接入进度</h3>
           <small>{{ pageAssistantAccessCount ? `${pageAssistantAccessCount} 个页面接入任务` : '复制提示词后，Cursor 回传进度会出现在这里' }}</small>
@@ -151,7 +155,13 @@ const emit = defineEmits<{
           </article>
         </div>
       </div>
-      <el-empty v-else description="暂无页面接入任务" :image-size="64" />
+      <div v-else class="access-empty-state">
+        <span class="access-empty-icon">
+          <el-icon><DocumentCopy /></el-icon>
+        </span>
+        <strong>暂无页面接入任务</strong>
+        <p>先复制 AI 快速接入提示词，或打开手动接入模板完成页面动作声明。</p>
+      </div>
     </section>
 
     <div class="step-footer-note">

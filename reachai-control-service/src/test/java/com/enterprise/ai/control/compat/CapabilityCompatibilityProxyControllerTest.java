@@ -36,8 +36,6 @@ class CapabilityCompatibilityProxyControllerTest {
                 "/api/tools/{*path}",
                 "/api/compositions",
                 "/api/compositions/{*path}",
-                "/api/api-assets",
-                "/api/api-assets/{*path}",
                 "/api/api-graph",
                 "/api/api-graph/{*path}",
                 "/api/tool-retrieval",

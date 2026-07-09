@@ -1,9 +1,21 @@
 <template>
-  <div class="registry-project-page" :class="{ 'is-dark': theme === 'dark' }">
+  <div
+    class="registry-project-page"
+    :class="{ 'is-dark': theme === 'dark', 'is-compact': isProjectHeaderCompact }"
+    @wheel.passive="handleProjectWheel"
+  >
     <div class="page-hero">
-      <div>
-        <h1>项目管理</h1>
-        <p>统一管理 AI 项目的注册、SDK 接入、API 接入与能力扫描</p>
+      <div class="hero-copy">
+        <span class="hero-accent" aria-hidden="true" />
+        <div class="hero-text">
+          <h1>项目管理</h1>
+          <p>统一管理 AI 项目的注册、SDK 接入、API 接入与能力扫描。</p>
+          <div class="hero-tags" aria-label="项目管理状态">
+            <span class="tag-brand">项目中心</span>
+            <span class="tag-success">当前 {{ projects.length }} 个项目</span>
+            <span class="tag-info">SDK Starter 可用</span>
+          </div>
+        </div>
       </div>
       <div class="hero-actions">
         <el-button type="primary" size="large" class="primary-action" :icon="Plus" @click="openAccessDialog('sdk')">
@@ -12,22 +24,21 @@
       </div>
     </div>
 
-    <div class="metric-grid">
-      <div v-for="metric in metrics" :key="metric.label" class="metric-card">
-        <div class="metric-icon" :class="metric.tone" aria-hidden="true">
-          <el-icon>
-            <component :is="metric.icon" />
-          </el-icon>
+    <div class="metric-strip">
+      <template v-for="(metric, index) in metrics" :key="metric.label">
+        <div v-if="index > 0" class="metric-divider" aria-hidden="true" />
+        <div class="metric-segment">
+          <MetricIconBg class="metric-segment-icon" :icon-key="metric.iconKey" :tone="metric.tone" />
+          <div class="metric-content">
+            <div class="metric-line">
+              <span class="metric-label">{{ metric.label }}</span>
+              <em v-if="metric.delta" class="metric-delta" :class="metric.deltaTone">{{ metric.delta }}</em>
+            </div>
+            <strong>{{ metric.value }}</strong>
+            <small>{{ metric.caption }}</small>
+          </div>
         </div>
-        <div>
-          <span>{{ metric.label }}</span>
-          <strong>{{ metric.value }}</strong>
-          <small>
-            {{ metric.caption }}
-            <em v-if="metric.delta">{{ metric.delta }}</em>
-          </small>
-        </div>
-      </div>
+      </template>
     </div>
 
     <el-card class="project-card" shadow="never">
@@ -38,6 +49,7 @@
           clearable
           :prefix-icon="Search"
           placeholder="搜索项目名称、描述、负责人"
+          @keyup.enter="handleSearch"
         />
         <el-select v-model="kindFilter" clearable placeholder="接入方式">
           <el-option label="SDK 接入" value="REGISTERED" />
@@ -50,89 +62,83 @@
           <el-option label="已接入" value="scanned" />
           <el-option label="异常" value="failed" />
         </el-select>
-        <el-select v-model="ownerFilter" clearable filterable placeholder="负责人">
-          <el-option v-for="owner in ownerOptions" :key="owner" :label="owner" :value="owner" />
-        </el-select>
-        <el-button @click="resetFilters">重置</el-button>
-        <el-button :icon="Refresh" :loading="loading" @click="loadProjects" />
+        <el-button class="toolbar-reset" @click="resetFilters">重置</el-button>
+        <el-button class="toolbar-search" :icon="Search" :loading="loading" @click="handleSearch">搜索</el-button>
       </div>
 
-      <div v-if="projectStore.currentProjectId" class="context-filter">
-        当前仅展示顶部项目选择器选中的项目。
-        <el-button link type="primary" @click="projectStore.setCurrentProject(null)">查看全部项目</el-button>
-      </div>
-
-      <el-table
-        v-loading="loading"
-        :data="pagedProjects"
-        row-key="id"
-        class="project-table"
-        :max-height="projectTableMaxHeight"
-      >
-        <el-table-column label="项目名称" min-width="230">
-          <template #default="{ row }">
-            <button type="button" class="project-name-cell project-name-cell-btn" @click="goDetail(row)">
-              <div class="project-avatar" :class="avatarClass(row.projectKind)">{{ projectInitial(row.name) }}</div>
-              <div>
-                <strong>{{ row.name }}</strong>
-                <span>{{ row.projectCode || `ID ${row.id}` }}</span>
+      <div class="project-table-shell">
+        <el-table
+          v-loading="loading"
+          :data="pagedProjects"
+          row-key="id"
+          class="project-table"
+          :max-height="projectTableMaxHeight"
+        >
+          <el-table-column label="项目名称" min-width="190">
+            <template #default="{ row }">
+              <button type="button" class="project-name-cell project-name-cell-btn" @click="goDetail(row)">
+                <div class="project-avatar" :class="avatarClass(row.projectKind)">{{ projectInitial(row.name) }}</div>
+                <div>
+                  <strong>{{ row.name }}</strong>
+                  <span>{{ row.projectCode || `ID ${row.id}` }}</span>
+                </div>
+              </button>
+            </template>
+          </el-table-column>
+          <el-table-column label="项目描述" min-width="190" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span class="muted">{{ projectDescription(row) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="接入方式" width="100">
+            <template #default="{ row }">
+              <el-tag :type="kindTagType(row.projectKind)" effect="light">
+                {{ formatProjectKindLabel(row.projectKind || 'SCAN') }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="96">
+            <template #default="{ row }">
+              <span class="status-pill" :class="`status-${row.status || 'created'}`">
+                <i />
+                {{ statusLabel(row) }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="API 数量" width="86" align="center">
+            <template #default="{ row }">{{ apiCountOf(row) }}</template>
+          </el-table-column>
+          <el-table-column label="SDK 版本" width="96" align="center">
+            <template #default="{ row }">{{ sdkVersionLabel(row) }}</template>
+          </el-table-column>
+          <el-table-column label="最近扫描时间" width="124">
+            <template #default="{ row }">
+              <span class="muted">{{ formatDate(row.lastScannedAt) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="负责人" width="110">
+            <template #default="{ row }">
+              <div class="owner-cell">
+                <el-avatar :size="22">{{ projectInitial(row.owner || row.name) }}</el-avatar>
+                <span>{{ row.owner || '未分配' }}</span>
               </div>
-            </button>
-          </template>
-        </el-table-column>
-        <el-table-column label="项目描述" min-width="240" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span class="muted">{{ projectDescription(row) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="接入方式" width="120">
-          <template #default="{ row }">
-            <el-tag :type="kindTagType(row.projectKind)" effect="light">
-              {{ formatProjectKindLabel(row.projectKind || 'SCAN') }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="110">
-          <template #default="{ row }">
-            <span class="status-pill" :class="`status-${row.status || 'created'}`">
-              <i />
-              {{ statusLabel(row) }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column label="API 数量" width="100" align="center">
-          <template #default="{ row }">{{ apiCountOf(row) }}</template>
-        </el-table-column>
-        <el-table-column label="SDK 版本" width="110" align="center">
-          <template #default="{ row }">{{ sdkVersionLabel(row) }}</template>
-        </el-table-column>
-        <el-table-column label="最近扫描时间" width="160">
-          <template #default="{ row }">
-            <span class="muted">{{ formatDate(row.lastScannedAt) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="负责人" width="120">
-          <template #default="{ row }">
-            <div class="owner-cell">
-              <el-avatar :size="22">{{ projectInitial(row.owner || row.name) }}</el-avatar>
-              <span>{{ row.owner || '未分配' }}</span>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
+            </template>
+          </el-table-column>
+        </el-table>
 
-      <div v-if="!loading && filteredProjects.length === 0" class="empty-state">
-        <div class="empty-main">
-          <div class="empty-illustration" aria-hidden="true">
-            <img class="empty-illustration-img" src="/智能化.svg" alt="" />
-          </div>
-          <div class="empty-body">
-            <div class="empty-copy">
-              <h3>还没有接入任何 AI 项目</h3>
-              <p>你可以通过创建接入项目，选择 SDK 接入或扫描接入来发现 AI 能力。</p>
+        <div v-if="!loading && filteredProjects.length === 0" class="empty-state">
+          <div class="empty-main">
+            <div class="empty-illustration" aria-hidden="true">
+              <img class="empty-illustration-img" src="/智能化.svg" alt="" />
             </div>
-            <div class="empty-actions">
-              <el-button type="primary" :icon="Plus" @click="openAccessDialog('sdk')">接入项目</el-button>
+            <div class="empty-body">
+              <div class="empty-copy">
+                <h3>还没有接入任何 AI 项目</h3>
+                <p>你可以通过创建接入项目，选择 SDK 接入或扫描接入来发现 AI 能力。</p>
+              </div>
+              <div class="empty-actions">
+                <el-button type="primary" :icon="Plus" @click="openAccessDialog('sdk')">接入项目</el-button>
+              </div>
             </div>
           </div>
         </div>
@@ -143,6 +149,7 @@
         <el-pagination
           v-model:current-page="currentPage"
           v-model:page-size="pageSize"
+          class="registry-pagination"
           background
           layout="prev, pager, next, sizes"
           :page-sizes="[5, 10, 20, 50]"
@@ -285,17 +292,14 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  Box,
-  Connection,
-  FolderChecked,
   Plus,
-  Refresh,
-  RefreshRight,
   Search,
 } from '@element-plus/icons-vue'
+import MetricIconBg from '@/components/common/MetricIconBg.vue'
 import {
   createScanProject,
   getScanProjects,
+  type ScanProjectListQuery,
 } from '@/api/scanProject'
 import { registerRegistryProject } from '@/api/registry'
 import type { ScanProject, ScanProjectUpsertRequest } from '@/types/scanProject'
@@ -317,18 +321,24 @@ const loading = ref(false)
 const saving = ref(false)
 const projects = ref<ScanProject[]>([])
 const keyword = ref('')
-const kindFilter = ref('')
-const statusFilter = ref('')
-const ownerFilter = ref('')
+const kindFilter = ref<ScanProjectListQuery['projectKind']>('')
+const statusFilter = ref<ScanProjectListQuery['status']>('')
 const currentPage = ref(1)
 const pageSize = ref(10)
 const accessDialogVisible = ref(false)
 const accessDialogTab = ref<'sdk' | 'scan'>('sdk')
+const isProjectHeaderCompact = ref(false)
 
 /** 限制表格主体高度，使横向滚动条落在视口内（靠近浏览器窗口底部），无需先滚到卡片最底 */
 const projectTableMaxHeight = ref(480)
 
+const COMPACT_COLLAPSE_SCROLL_TOP = 80
+const COMPACT_EXPAND_SCROLL_TOP = 24
+const COMPACT_WHEEL_DELTA = 8
+
 let mainContentScrollEl: HTMLElement | null = null
+let projectTableScrollEl: HTMLElement | null = null
+let previousProjectScrollTop = 0
 
 let tableHeightRaf = 0
 function scheduleUpdateProjectTableMaxHeight() {
@@ -336,8 +346,64 @@ function scheduleUpdateProjectTableMaxHeight() {
   if (tableHeightRaf) return
   tableHeightRaf = requestAnimationFrame(() => {
     tableHeightRaf = 0
+    bindProjectTableScrollEl()
+    updateProjectHeaderCompactByScroll()
     updateProjectTableMaxHeight()
   })
+}
+
+function setProjectHeaderCompact(value: boolean) {
+  if (isProjectHeaderCompact.value === value) return
+  isProjectHeaderCompact.value = value
+  nextTick(() => {
+    scheduleUpdateProjectTableMaxHeight()
+    window.setTimeout(scheduleUpdateProjectTableMaxHeight, 220)
+  })
+}
+
+function findProjectTableScrollEl() {
+  const root = document.querySelector('.registry-project-page')
+  return (
+    (root?.querySelector('.project-table .el-scrollbar__wrap') as HTMLElement | null) ||
+    (root?.querySelector('.project-table .el-table__body-wrapper') as HTMLElement | null)
+  )
+}
+
+function bindProjectTableScrollEl() {
+  const nextTableScrollEl = findProjectTableScrollEl()
+  if (projectTableScrollEl === nextTableScrollEl) return
+  projectTableScrollEl?.removeEventListener('scroll', handleProjectAreaScroll)
+  projectTableScrollEl = nextTableScrollEl
+  projectTableScrollEl?.addEventListener('scroll', handleProjectAreaScroll, { passive: true })
+}
+
+function getProjectScrollTop() {
+  return Math.max(mainContentScrollEl?.scrollTop || 0, projectTableScrollEl?.scrollTop || 0)
+}
+
+function updateProjectHeaderCompactByScroll() {
+  const scrollTop = getProjectScrollTop()
+  if (scrollTop > COMPACT_COLLAPSE_SCROLL_TOP) {
+    setProjectHeaderCompact(true)
+  } else if (scrollTop <= COMPACT_EXPAND_SCROLL_TOP && scrollTop < previousProjectScrollTop) {
+    setProjectHeaderCompact(false)
+  }
+  previousProjectScrollTop = scrollTop
+}
+
+function handleProjectAreaScroll() {
+  scheduleUpdateProjectTableMaxHeight()
+}
+
+function handleProjectWheel(event: WheelEvent) {
+  if (Math.abs(event.deltaY) < COMPACT_WHEEL_DELTA) return
+  const scrollTop = getProjectScrollTop()
+  if (event.deltaY > 0) {
+    setProjectHeaderCompact(true)
+  } else if (scrollTop <= COMPACT_EXPAND_SCROLL_TOP) {
+    setProjectHeaderCompact(false)
+  }
+  scheduleUpdateProjectTableMaxHeight()
 }
 
 function updateProjectTableMaxHeight() {
@@ -383,30 +449,7 @@ const sdkForm = reactive<RegistryProjectRegisterRequest>({
 
 const scanForm = reactive<ScanProjectUpsertRequest>(createEmptyScanForm())
 
-const ownerOptions = computed(() => {
-  return Array.from(new Set(projects.value.map((project) => project.owner).filter(Boolean))) as string[]
-})
-
-const filteredProjects = computed(() => {
-  const text = keyword.value.trim().toLowerCase()
-  return projects.value.filter((project) => {
-    const kind = project.projectKind || 'SCAN'
-    const matchesContext = !projectStore.currentProjectId || project.id === projectStore.currentProjectId
-    const matchesKeyword =
-      !text ||
-      [project.name, project.projectCode, project.owner, project.baseUrl, project.environment, project.description]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(text))
-
-    return (
-      matchesContext &&
-      matchesKeyword &&
-      (!kindFilter.value || kind === kindFilter.value) &&
-      (!statusFilter.value || project.status === statusFilter.value) &&
-      (!ownerFilter.value || project.owner === ownerFilter.value)
-    )
-  })
-})
+const filteredProjects = computed(() => projects.value)
 
 const pagedProjects = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
@@ -419,18 +462,18 @@ const metrics = computed(() => {
   const sdkCount = projects.value.filter((project) => ['REGISTERED', 'HYBRID'].includes(project.projectKind || '')).length
   const failedCount = projects.value.filter((project) => project.status === 'failed').length
   const scannedCount = projects.value.filter((project) => project.lastScannedAt).length
-  const ownerCount = ownerOptions.value.length
   return [
-    { label: '已注册项目数', value: total, caption: '统一项目目录', delta: ownerCount ? `${ownerCount} 位负责人` : '', icon: FolderChecked, tone: 'purple' },
-    { label: '已接入 API 数', value: apiCount, caption: '来自 SDK 与扫描', delta: apiCount ? '已同步目录' : '', icon: Connection, tone: 'blue' },
-    { label: '已生成 SDK 数', value: sdkCount, caption: 'SDK / 混合接入', delta: sdkCount ? '可生成接入配置' : '', icon: Box, tone: 'green' },
+    { label: '已注册项目数', value: total, caption: '统一项目目录', delta: total ? '已同步' : '待接入', deltaTone: 'brand', iconKey: 'project', tone: 'brand' },
+    { label: '已接入 API 数', value: apiCount, caption: '来自 SDK 与扫描', delta: apiCount ? '已同步' : '待接入', deltaTone: 'brand', iconKey: 'api', tone: 'brand' },
+    { label: '已生成 SDK 数', value: sdkCount, caption: 'Starter 配置可用', delta: sdkCount ? '可生成' : '待生成', deltaTone: 'success', iconKey: 'sdk', tone: 'brand' },
     {
-      label: '最近扫描情况',
+      label: '异常扫描项目',
       value: `${scannedCount} / ${failedCount}`,
       caption: '扫描项目 / 异常项目',
       delta: failedCount ? `异常 ${failedCount}` : '稳定',
-      icon: RefreshRight,
-      tone: 'orange',
+      deltaTone: failedCount ? 'warning' : 'warning',
+      iconKey: 'scan',
+      tone: 'brand',
     },
   ]
 })
@@ -440,16 +483,26 @@ onMounted(() => {
     nextTick(scheduleUpdateProjectTableMaxHeight)
   })
   mainContentScrollEl = document.querySelector('.main-layout .main-content') as HTMLElement | null
-  mainContentScrollEl?.addEventListener('scroll', scheduleUpdateProjectTableMaxHeight, { passive: true })
+  previousProjectScrollTop = getProjectScrollTop()
+  mainContentScrollEl?.addEventListener('scroll', handleProjectAreaScroll, { passive: true })
+  nextTick(() => {
+    bindProjectTableScrollEl()
+    scheduleUpdateProjectTableMaxHeight()
+  })
   window.addEventListener('resize', scheduleUpdateProjectTableMaxHeight)
 })
 
 onUnmounted(() => {
-  mainContentScrollEl?.removeEventListener('scroll', scheduleUpdateProjectTableMaxHeight)
+  mainContentScrollEl?.removeEventListener('scroll', handleProjectAreaScroll)
+  projectTableScrollEl?.removeEventListener('scroll', handleProjectAreaScroll)
   window.removeEventListener('resize', scheduleUpdateProjectTableMaxHeight)
+  if (tableHeightRaf) {
+    cancelAnimationFrame(tableHeightRaf)
+    tableHeightRaf = 0
+  }
 })
 
-watch([keyword, kindFilter, statusFilter, ownerFilter, () => projectStore.currentProjectId, pageSize], () => {
+watch(pageSize, () => {
   currentPage.value = 1
 })
 
@@ -499,10 +552,19 @@ function applyScanForm(project: ScanProjectUpsertRequest) {
   scanForm.specFile = project.specFile || ''
 }
 
-async function loadProjects() {
+function buildProjectListQuery(): ScanProjectListQuery {
+  const keywordText = keyword.value.trim()
+  return {
+    keyword: keywordText || undefined,
+    projectKind: kindFilter.value || undefined,
+    status: statusFilter.value || undefined,
+  }
+}
+
+async function loadProjects(query: ScanProjectListQuery = buildProjectListQuery()) {
   loading.value = true
   try {
-    const { data } = await getScanProjects()
+    const { data } = await getScanProjects(query)
     projects.value = Array.isArray(data) ? data : []
     projectStore.projects = projects.value
   } catch {
@@ -512,6 +574,11 @@ async function loadProjects() {
     loading.value = false
     nextTick(scheduleUpdateProjectTableMaxHeight)
   }
+}
+
+function handleSearch() {
+  currentPage.value = 1
+  loadProjects()
 }
 
 function openAccessDialog(tab: 'sdk' | 'scan' = 'sdk') {
@@ -574,8 +641,8 @@ function resetFilters() {
   keyword.value = ''
   kindFilter.value = ''
   statusFilter.value = ''
-  ownerFilter.value = ''
   currentPage.value = 1
+  loadProjects()
 }
 
 function kindTagType(kind?: string) {
@@ -584,11 +651,28 @@ function kindTagType(kind?: string) {
   return 'info'
 }
 
+function formatProjectStatusLabel(status?: string | null) {
+  if (!status) return '-'
+  const normalized = String(status).trim()
+  const labels: Record<string, string> = {
+    REGISTERED: '已注册',
+    HYBRID: '混合接入',
+    SCAN: '扫描接入',
+    CREATED: '已创建',
+    SCANNING: '扫描中',
+    SCANNED: '已接入',
+    FAILED: '异常',
+    created: '已创建',
+    scanning: '扫描中',
+    scanned: '已接入',
+    failed: '异常',
+  }
+  return labels[normalized] ?? labels[normalized.toUpperCase()] ?? formatScanStatusLabel(normalized)
+}
+
 function statusLabel(project: ScanProject) {
-  if (project.registryStatusSummary) return project.registryStatusSummary
-  if (project.status === 'scanned') return '已接入'
-  if (project.status === 'failed') return '异常'
-  return formatScanStatusLabel(project.status)
+  if (project.registryStatusSummary) return formatProjectStatusLabel(project.registryStatusSummary)
+  return formatProjectStatusLabel(project.status)
 }
 
 function apiCountOf(project: ScanProject) {
@@ -642,15 +726,14 @@ function goDetail(project: ScanProject) {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
   min-height: 0;
   height: calc(100vh - 56px);
   padding: 24px 28px 24px;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  background: var(--brand-page-bg);
-  background-size: 28px 28px, 28px 28px, auto, auto, auto, auto;
+  background: transparent;
 }
 
 .page-hero {
@@ -740,96 +823,57 @@ function goDetail(project: ScanProject) {
   display: block;
 }
 
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+.metric-strip {
+  display: flex;
+  align-items: stretch;
   width: 100%;
   min-width: 0;
   margin: 0;
   flex-shrink: 0;
 }
 
-.metric-card {
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  min-height: 92px;
-  padding: 18px 20px;
-  border: 1px solid #eaecf5;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 12px 28px rgba(17, 24, 39, 0.035);
+.metric-divider {
+  flex: 0 0 1px;
+  align-self: center;
+  width: 1px;
+  height: 68px;
+  background: rgb(var(--brand-primary-rgb) / 0.18);
+  border-radius: 1px;
+}
 
-  span,
+.metric-segment {
+  display: flex;
+  flex: 1 1 0;
+  gap: 18px;
+  align-items: center;
+  min-width: 0;
+  min-height: 104px;
+  padding: 18px 22px;
+
+  .metric-label,
   small {
     display: block;
-    color: #667085;
+    color: #64748b;
   }
 
-  span {
-    font-size: 12px;
+  .metric-label {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 17px;
   }
 
   strong {
     display: block;
-    margin: 5px 0 4px;
-    color: #101828;
+    margin: 4px 0 2px;
+    color: #0f172a;
     font-size: 25px;
-    font-weight: 800;
-    line-height: 1;
+    font-weight: 700;
+    line-height: 30px;
   }
 
   small {
     font-size: 12px;
-
-    em {
-      margin-left: 6px;
-      color: #039855;
-      font-style: normal;
-      font-weight: 700;
-    }
-  }
-}
-
-.metric-icon {
-  display: grid;
-  place-items: center;
-  width: 48px;
-  height: 48px;
-  border: 1px solid transparent;
-  border-radius: 14px;
-  font-size: 22px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 10px 22px rgba(16, 24, 40, 0.06);
-
-  .el-icon {
-    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.7));
-  }
-
-  &.purple {
-    color: var(--brand-active);
-    border-color: rgb(var(--brand-hover-rgb) / 0.22);
-    background: linear-gradient(135deg, rgb(var(--brand-selected-rgb) / 0.7), rgba(255, 255, 255, 0.86));
-  }
-
-  &.blue {
-    color: var(--brand-primary);
-    border-color: rgb(var(--brand-primary-rgb) / 0.2);
-    background: linear-gradient(135deg, rgb(var(--brand-selected-rgb) / 0.72), rgba(255, 255, 255, 0.88));
-  }
-
-  &.green {
-    color: #16a34a;
-    border-color: #cdefd8;
-    background: linear-gradient(135deg, #ecfdf3, #dcfce7);
-  }
-
-  &.orange {
-    color: #ea580c;
-    border-color: #fedfc2;
-    background: linear-gradient(135deg, #fff7ed, #ffedd5);
+    line-height: 16px;
   }
 }
 
@@ -856,7 +900,7 @@ function goDetail(project: ScanProject) {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 2fr) repeat(3, minmax(150px, 1fr)) auto auto;
+  grid-template-columns: minmax(260px, 2fr) repeat(2, minmax(150px, 1fr)) 74px 74px;
   align-items: center;
   gap: 10px;
   padding: 14px 22px 16px;
@@ -885,18 +929,6 @@ function goDetail(project: ScanProject) {
     min-height: 34px;
     border-radius: 7px;
   }
-}
-
-.context-filter {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 22px;
-  color: var(--brand-primary);
-  background: rgb(var(--brand-selected-rgb) / 0.52);
-  border-bottom: 1px solid rgb(var(--brand-selected-rgb) / 0.72);
-  font-size: 13px;
-  flex-shrink: 0;
 }
 
 .project-table {
@@ -999,23 +1031,26 @@ function goDetail(project: ScanProject) {
 .project-avatar {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  color: #fff;
-  font-weight: 800;
-
-  &.sdk {
-    background: linear-gradient(135deg, var(--brand-hover), var(--brand-active));
-  }
-
-  &.hybrid {
-    background: linear-gradient(135deg, #f97316, #f59e0b);
-  }
-
-  &.scan {
-    background: linear-gradient(135deg, #22c55e, #14b8a6);
-  }
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
+  border-radius: 8px;
+  color: var(--brand-active);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.94) 0%, rgb(var(--brand-selected-rgb) / 0.58) 100%),
+    rgba(255, 255, 255, 0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 8px 16px -14px rgb(var(--brand-primary-rgb) / 0.42);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  transition:
+    border-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
 }
 
 .muted,
@@ -1071,6 +1106,14 @@ function goDetail(project: ScanProject) {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+
+.owner-cell span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .empty-state {
@@ -1118,18 +1161,740 @@ function goDetail(project: ScanProject) {
   font-size: 13px;
   flex-shrink: 0;
   margin-top: auto;
+}
 
-  :deep(.el-pagination.is-background .el-pager li.is-active) {
-    background-color: var(--brand-primary);
+/* Figma: 项目管理 / 项目列表 */
+.registry-project-page {
+  gap: 10px;
+  padding: var(--reachai-workbench-page-padding, var(--reachai-workbench-title-gap, 10px) 28px 16px);
+  background: transparent;
+  transition:
+    gap 0.2s ease,
+    padding 0.2s ease;
+}
+
+.page-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: var(--reachai-workbench-title-height, 120px);
+  padding: var(--reachai-workbench-title-padding, 26px 28px);
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.28);
+  border-radius: var(--reachai-workbench-title-radius, 16px);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.48) 100%),
+    var(--brand-soft-bg, rgba(255, 255, 255, 0.55));
+  box-shadow: 0 16px 28px -12px rgb(var(--brand-primary-rgb) / 0.1);
+  transition:
+    min-height 0.2s ease,
+    padding 0.2s ease,
+    border-radius 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.24s ease;
+}
+
+.registry-project-page > .page-hero {
+  margin: 0;
+}
+
+/* PNG 装饰层：降透明度，避免固定冷色调压住当前主题 */
+.page-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: url('/reachai-project-hero-bg.png') right center / cover no-repeat;
+  opacity: 0.38;
+  pointer-events: none;
+  transition: opacity 0.24s ease;
+}
+
+/* 主题色蒙层：把 PNG 冷色洗成当前 brand 色调 */
+.page-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(
+      90deg,
+      rgb(var(--brand-selected-rgb) / 0.82) 0%,
+      rgb(var(--brand-selected-rgb) / 0.52) 34%,
+      rgb(var(--brand-primary-rgb) / 0.14) 58%,
+      rgba(255, 255, 255, 0.06) 78%,
+      rgba(255, 255, 255, 0) 100%
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.18) 100%);
+  pointer-events: none;
+  transition: background 0.24s ease, opacity 0.24s ease;
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+  transition:
+    gap 0.2s ease,
+    align-items 0.2s ease;
+}
+
+.hero-accent {
+  flex: 0 0 auto;
+  width: 4px;
+  height: 24px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--brand-active) 0%, var(--brand-hover) 100%);
+  box-shadow: 0 6px 14px -8px rgb(var(--brand-primary-rgb) / 0.16);
+  transition:
+    width 0.2s ease,
+    height 0.2s ease,
+    margin 0.2s ease,
+    opacity 0.16s ease,
+    transform 0.2s ease;
+}
+
+.hero-text {
+  min-width: 0;
+}
+
+.page-hero h1 {
+  margin: 0 0 3px;
+  color: #0f172a;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 29px;
+  letter-spacing: 0;
+  transition:
+    margin 0.2s ease,
+    font-size 0.2s ease,
+    line-height 0.2s ease;
+}
+
+.page-hero p {
+  margin: 0;
+  max-height: 18px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 18px;
+  overflow: hidden;
+  transition:
+    max-height 0.18s ease,
+    opacity 0.16s ease,
+    margin 0.18s ease,
+    transform 0.18s ease;
+}
+
+.hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  max-height: 26px;
+  overflow: hidden;
+  transition:
+    max-height 0.18s ease,
+    margin 0.18s ease,
+    opacity 0.16s ease,
+    transform 0.18s ease;
+}
+
+.hero-tags span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  border: none;
+  border-radius: 12px;
+}
+
+.hero-tags .tag-brand {
+  color: var(--brand-active);
+  background: var(--brand-selected-bg);
+}
+
+.hero-tags .tag-success {
+  color: #16a34a;
+  background: #f0fdf4;
+}
+
+.hero-tags .tag-info {
+  color: var(--brand-primary);
+  background: rgb(var(--brand-primary-rgb) / 0.08);
+}
+
+.hero-actions {
+  position: relative;
+  z-index: 1;
+  margin-left: auto;
+}
+
+.primary-action {
+  --el-button-bg-color: transparent;
+  --el-button-border-color: transparent;
+  --el-button-hover-bg-color: transparent;
+  --el-button-hover-border-color: transparent;
+  --el-button-active-bg-color: transparent;
+  --el-button-active-border-color: transparent;
+  min-width: 124px;
+  height: 40px;
+  padding: 0 17px 0 16px;
+  color: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.46);
+  border-radius: 12px;
+  background:
+    linear-gradient(0deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08)),
+    var(--brand-primary-gradient) !important;
+  box-shadow:
+    0 2px 8px -5px rgb(var(--brand-primary-rgb) / 0.1),
+    0 12px 22px -8px rgb(var(--brand-primary-rgb) / 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.54);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  transition:
+    min-width 0.2s ease,
+    height 0.2s ease,
+    padding 0.2s ease,
+    border-radius 0.2s ease,
+    transform 0.16s ease,
+    box-shadow 0.2s ease;
+}
+
+.primary-action:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 18px 28px -14px rgb(var(--brand-primary-rgb) / 0.64),
+    inset 0 1px 0 rgba(255, 255, 255, 0.26);
+}
+
+.primary-action :deep(.el-icon) {
+  margin-right: 8px;
+  font-size: 16px;
+  opacity: 0.92;
+}
+
+.metric-strip {
+  align-items: stretch;
+  min-height: 104px;
+  max-height: 104px;
+  padding: 0;
+  gap: 0;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 18px 42px rgb(var(--brand-primary-rgb) / 0.052);
+  backdrop-filter: blur(9px);
+  overflow: hidden;
+  transition:
+    min-height 0.2s ease,
+    max-height 0.22s ease,
+    padding 0.2s ease,
+    opacity 0.18s ease,
+    transform 0.2s ease;
+}
+
+.metric-segment {
+  position: relative;
+  min-height: 104px;
+  padding: 18px 22px;
+  gap: 18px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  transition:
+    min-height 0.2s ease,
+    padding 0.2s ease,
+    opacity 0.16s ease,
+    transform 0.18s ease;
+}
+
+.metric-segment-icon {
+  flex-shrink: 0;
+  --metric-icon-glyph-size: 24px;
+}
+
+.metric-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.metric-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.metric-segment .metric-label {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metric-delta {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  height: 24px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 18px;
+  border-radius: 12px;
+}
+
+.metric-delta.brand {
+  color: var(--brand-active);
+  background: var(--brand-selected-bg);
+}
+
+.metric-delta.success {
+  color: #16a34a;
+  background: #dcfce7;
+}
+
+.metric-delta.warning {
+  color: #f97316;
+  background: #fff7ed;
+}
+
+.metric-segment strong {
+  margin: 4px 0 2px;
+  color: #0f172a;
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 30px;
+}
+
+.metric-segment small {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.registry-project-page.is-compact {
+  gap: 10px;
+
+  .page-hero {
+    min-height: 64px;
+    padding: 12px 22px;
+    border-radius: 14px;
+    background:
+      linear-gradient(90deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.76) 54%, rgb(var(--brand-selected-rgb) / 0.14) 100%);
+    box-shadow: 0 12px 24px -18px rgb(var(--brand-primary-rgb) / 0.18);
+  }
+
+  .page-hero::after {
+    opacity: 0.22;
+    background-position: right center;
+    background-size: auto 120%;
+  }
+
+  .page-hero::before {
+    opacity: 0.72;
+  }
+
+  .hero-copy {
+    align-items: center;
+    gap: 0;
+  }
+
+  .hero-accent {
+    width: 0;
+    height: 28px;
+    margin: 0;
+    opacity: 0;
+    transform: scaleY(0.72);
+  }
+
+  .page-hero h1 {
+    margin: 0;
+    font-size: 22px;
+    line-height: 30px;
+  }
+
+  .page-hero p,
+  .hero-tags {
+    max-height: 0;
+    margin: 0;
+    opacity: 0;
+    transform: translateY(-4px);
+    pointer-events: none;
+  }
+
+  .primary-action {
+    min-width: 112px;
+    height: 36px;
+    padding: 0 18px;
+    border-radius: 9px;
+  }
+
+  .metric-strip {
+    min-height: 0;
+    max-height: 0;
+    padding: 0;
+    opacity: 0;
+    transform: translateY(-8px);
+    pointer-events: none;
+    border-width: 0;
+  }
+
+  .metric-segment {
+    min-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  .metric-divider {
+    display: none;
+  }
+
+  .toolbar {
+    margin-top: 16px;
+  }
+
+  .project-table-shell {
+    margin-top: 16px;
   }
 }
 
-.registry-project-page.is-dark {
+@media (prefers-reduced-motion: reduce) {
+  .registry-project-page,
+  .page-hero,
+  .page-hero::before,
+  .page-hero::after,
+  .hero-copy,
+  .hero-accent,
+  .page-hero h1,
+  .page-hero p,
+  .hero-tags,
+  .primary-action,
+  .metric-strip,
+  .metric-segment,
+  .project-card,
+  .toolbar,
+  .project-table-shell {
+    transition: none !important;
+  }
+}
+
+.project-card {
+  overflow: hidden;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.14);
+  border-radius: 16px;
   background:
-    radial-gradient(circle at 14% 8%, rgb(var(--brand-primary-rgb) / 0.18), transparent 28%),
-    linear-gradient(180deg, #0a0a0f 0%, #10101a 48%, #0a0a0f 100%);
+    var(--brand-glass-card-bg, rgba(255, 255, 255, 0.76)),
+    rgba(255, 255, 255, 0.76);
+  box-shadow: 0 18px 42px -16px rgb(var(--brand-primary-rgb) / 0.08);
+  backdrop-filter: blur(18px);
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.project-card :deep(.el-card__body) {
+  padding: 0;
+}
+
+.toolbar {
+  grid-template-columns: minmax(340px, 2.4fr) repeat(2, minmax(170px, 1fr)) 74px 88px;
+  gap: 12px;
+  margin: 28px 28px 0;
+  padding: 9px 14px;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.11);
+  border-radius: 12px;
+  background: var(--brand-soft-bg, rgba(238, 242, 255, 0.76));
+  transition:
+    margin 0.2s ease,
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.toolbar :deep(.el-input__wrapper),
+.toolbar :deep(.el-select__wrapper) {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 0 0 1px rgb(var(--brand-primary-rgb) / 0.18) inset;
+}
+
+.toolbar :deep(.el-input__inner),
+.toolbar :deep(.el-select__placeholder),
+.toolbar :deep(.el-select__selected-item) {
+  color: #8290a9;
+  font-size: 13px;
+  line-height: 17px;
+}
+
+.toolbar :deep(.el-input__prefix),
+.toolbar :deep(.el-input__suffix),
+.toolbar :deep(.el-select__suffix),
+.toolbar :deep(.el-select__caret) {
+  color: rgb(var(--brand-primary-rgb) / 0.42);
+}
+
+.toolbar-reset,
+.toolbar-search {
+  height: 40px;
+  min-height: 40px;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.18);
+  border-radius: 10px;
+  font-weight: 700;
+  box-shadow: 0 6px 16px -8px rgba(100, 116, 139, 0.08);
+}
+
+.toolbar-reset {
+  color: #334155;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.toolbar-search {
+  color: #fff;
+  border-color: transparent;
+  background: var(--brand-primary-gradient);
+  box-shadow: 0 10px 18px -10px rgb(var(--brand-primary-rgb) / 0.24);
+}
+
+.toolbar-reset:hover,
+.toolbar-search:hover {
+  border-color: rgb(var(--brand-primary-rgb) / 0.24);
+}
+
+.toolbar-reset:hover {
+  color: var(--brand-active);
+  background: #f8fbff;
+}
+
+.toolbar-search:hover {
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand-hover), var(--brand-primary));
+}
+
+.project-table-shell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin: 22px 28px 0;
+  overflow: hidden;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.68);
+  transition:
+    margin 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.project-table {
+  --el-table-header-bg-color: color-mix(in srgb, var(--brand-selected-bg) 42%, #f1f5fb);
+  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.72);
+  --el-table-border-color: rgb(var(--brand-primary-rgb) / 0.1);
+  background: transparent;
+}
+
+.project-table :deep(.el-table__inner-wrapper::before) {
+  height: 0;
+}
+
+.project-table :deep(.cell) {
+  padding: 0 8px;
+}
+
+.project-table :deep(th.el-table__cell) {
+  height: 44px;
+  color: var(--brand-active);
+  background: color-mix(in srgb, var(--brand-selected-bg) 42%, #f1f5fb) !important;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.project-table :deep(td.el-table__cell) {
+  height: 58px;
+  color: #334155;
+  background: rgba(255, 255, 255, 0.72) !important;
+  border-bottom-color: rgb(var(--brand-primary-rgb) / 0.1);
+}
+
+.project-table :deep(.el-table__row:hover > td.el-table__cell),
+.project-table :deep(.el-table__body tr.hover-row > td.el-table__cell) {
+  background: rgba(255, 255, 255, 0.72) !important;
+}
+
+.project-table :deep(.el-table__empty-block) {
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.project-table :deep(.el-table-fixed-column--right),
+.project-table :deep(.el-table-fixed-column--left) {
+  background-color: rgba(255, 255, 255, 0.88) !important;
+}
+
+.project-table :deep(th.el-table-fixed-column--right),
+.project-table :deep(th.el-table-fixed-column--left) {
+  background-color: rgb(var(--brand-selected-rgb) / 0.34) !important;
+}
+
+.project-table :deep(td.el-table-fixed-column--right),
+.project-table :deep(td.el-table-fixed-column--left) {
+  background-color: rgba(255, 255, 255, 0.88) !important;
+}
+
+.project-name-cell strong {
+  color: #0f172a;
+}
+
+.project-name-cell span,
+.muted,
+.form-hint {
+  color: #64748b;
+}
+
+.project-avatar {
+  color: var(--brand-active);
+  border-color: rgb(var(--brand-primary-rgb) / 0.28);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.96) 0%, rgb(var(--brand-selected-rgb) / 0.88) 100%);
+  box-shadow: 0 8px 16px -12px rgb(var(--brand-primary-rgb) / 0.16);
+}
+
+.project-name-cell-btn:hover .project-avatar {
+  color: var(--brand-primary);
+  border-color: rgb(var(--brand-primary-rgb) / 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 10px 18px -14px rgb(var(--brand-primary-rgb) / 0.46);
+  transform: translateY(-1px);
+}
+
+.owner-cell :deep(.el-avatar) {
+  color: #94a3b8;
+  background: #e2e8f0;
+}
+
+.table-footer {
+  min-height: 64px;
+  padding: 14px 28px 16px;
+  border-top: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.34);
+}
+
+/* Figma: ReachAI/Pagination/CompactGlass */
+.table-footer :deep(.registry-pagination.el-pagination) {
+  --el-pagination-button-width: 34px;
+  --el-pagination-button-height: 34px;
+  --el-pagination-hover-color: var(--brand-active);
+  gap: 6px;
+}
+
+.table-footer :deep(.registry-pagination.is-background .btn-prev),
+.table-footer :deep(.registry-pagination.is-background .btn-next),
+.table-footer :deep(.registry-pagination.is-background .el-pager li:not(.is-active)) {
+  min-width: 34px;
+  height: 34px;
+  line-height: 34px;
+  margin: 0;
+  color: #cbd5e1 !important;
+  border: none !important;
+  border-radius: 8px;
+  background: #f3f7fc !important;
+  box-shadow: none !important;
+}
+
+.table-footer :deep(.registry-pagination.is-background .btn-prev .el-icon),
+.table-footer :deep(.registry-pagination.is-background .btn-next .el-icon) {
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.table-footer :deep(.registry-pagination.is-background .btn-prev:hover:not(:disabled)),
+.table-footer :deep(.registry-pagination.is-background .btn-next:hover:not(:disabled)),
+.table-footer :deep(.registry-pagination.is-background .el-pager li:not(.is-active):hover) {
+  color: var(--brand-active) !important;
+  background: color-mix(in srgb, var(--brand-selected-bg) 42%, #f3f7fc) !important;
+}
+
+.table-footer :deep(.registry-pagination.is-background .el-pager li.is-active) {
+  color: var(--brand-active) !important;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 34px;
+  border: none !important;
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgb(var(--brand-selected-rgb) / 0.8) 0%, rgb(var(--brand-selected-rgb) / 0.64) 100%),
+    rgba(255, 255, 255, 0.72) !important;
+  background-color: rgba(255, 255, 255, 0.72) !important;
+  box-shadow:
+    0 5px 12px -7px rgb(var(--brand-primary-rgb) / 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+.table-footer :deep(.registry-pagination .el-pagination__sizes) {
+  margin-left: 2px;
+}
+
+.table-footer :deep(.registry-pagination .el-pagination__sizes .el-select) {
+  width: 94px;
+}
+
+.table-footer :deep(.registry-pagination .el-pagination__sizes .el-select .el-select__wrapper) {
+  min-height: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.86) !important;
+  box-shadow: 0 0 0 1px rgb(var(--brand-primary-rgb) / 0.12) inset !important;
+}
+
+.table-footer :deep(.registry-pagination .el-pagination__sizes .el-select .el-select__selected-item),
+.table-footer :deep(.registry-pagination .el-pagination__sizes .el-select .el-select__placeholder) {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.empty-state {
+  margin: 20px;
+  border-color: rgb(var(--brand-primary-rgb) / 0.2);
+  background: linear-gradient(135deg, rgb(var(--brand-selected-rgb) / 0.55), rgba(255, 255, 255, 0.62));
+}
+
+.registry-project-page.is-dark {
+  background: transparent;
 
   .page-hero {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%),
+      rgba(255, 255, 255, 0.04);
+
     h1 {
       color: #e2e8f0;
     }
@@ -1137,6 +1902,22 @@ function goDetail(project: ScanProject) {
     p {
       color: #94a3b8;
     }
+  }
+
+  .page-hero::after {
+    opacity: 0.24;
+    mix-blend-mode: soft-light;
+  }
+
+  .page-hero::before {
+    background:
+      linear-gradient(
+        90deg,
+        rgb(var(--brand-primary-rgb) / 0.22) 0%,
+        rgb(var(--brand-primary-rgb) / 0.1) 42%,
+        rgba(15, 23, 42, 0.08) 100%
+      ),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.28) 0%, rgba(15, 23, 42, 0.12) 100%);
   }
 
   .primary-action {
@@ -1157,7 +1938,7 @@ function goDetail(project: ScanProject) {
     }
   }
 
-  .metric-card,
+  .metric-strip,
   .project-card {
     border-color: rgba(255, 255, 255, 0.07);
     background: rgba(255, 255, 255, 0.035);
@@ -1169,8 +1950,8 @@ function goDetail(project: ScanProject) {
     background: linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.22), rgb(var(--brand-hover-rgb) / 0.08));
   }
 
-  .metric-card {
-    span,
+  .metric-strip {
+    .metric-label,
     small {
       color: #94a3b8;
     }
@@ -1180,41 +1961,7 @@ function goDetail(project: ScanProject) {
     }
 
     small em {
-      color: #22d3ee;
-    }
-  }
-
-  .metric-icon {
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 12px 26px rgba(0, 0, 0, 0.18);
-
-    .el-icon {
-      filter: drop-shadow(0 0 10px currentColor);
-    }
-
-    &.purple {
-      color: var(--brand-selected-bg);
-      border-color: rgb(var(--brand-hover-rgb) / 0.22);
-      background: rgb(var(--brand-hover-rgb) / 0.18);
-    }
-
-    &.blue {
-      color: #93c5fd;
-      border-color: rgba(147, 197, 253, 0.18);
-      background: rgba(37, 99, 235, 0.18);
-    }
-
-    &.green {
-      color: #86efac;
-      border-color: rgba(134, 239, 172, 0.16);
-      background: rgba(22, 163, 74, 0.16);
-    }
-
-    &.orange {
-      color: #fdba74;
-      border-color: rgba(253, 186, 116, 0.18);
-      background: rgba(234, 88, 12, 0.16);
+      color: var(--brand-hover);
     }
   }
 
@@ -1268,20 +2015,6 @@ function goDetail(project: ScanProject) {
         color: #e2e8f0;
         background: rgb(var(--brand-primary-rgb) / 0.12);
         border-color: rgb(var(--brand-primary-rgb) / 0.35);
-      }
-    }
-  }
-
-  .context-filter {
-    color: var(--brand-selected-bg);
-    background: rgb(var(--brand-primary-rgb) / 0.12);
-    border-bottom-color: rgb(var(--brand-primary-rgb) / 0.22);
-
-    :deep(.el-button.is-link) {
-      color: var(--brand-disabled);
-
-      &:hover {
-        color: var(--brand-selected-bg);
       }
     }
   }
@@ -1445,6 +2178,22 @@ function goDetail(project: ScanProject) {
     outline-color: rgba(165, 180, 252, 0.45);
   }
 
+  .project-avatar {
+    color: var(--brand-disabled);
+    border-color: rgb(var(--brand-primary-rgb) / 0.26);
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.1) 0%, rgb(var(--brand-primary-rgb) / 0.16) 100%),
+      rgba(15, 23, 42, 0.64);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      0 10px 20px -16px rgb(var(--brand-primary-rgb) / 0.55);
+  }
+
+  .project-name-cell-btn:hover .project-avatar {
+    color: #fff;
+    border-color: rgb(var(--brand-primary-rgb) / 0.42);
+  }
+
   .muted,
   .form-hint {
     color: #94a3b8;
@@ -1467,23 +2216,39 @@ function goDetail(project: ScanProject) {
     color: #94a3b8;
     border-top-color: rgba(255, 255, 255, 0.06);
 
-    :deep(.el-pagination.is-background .btn-prev),
-    :deep(.el-pagination.is-background .btn-next),
-    :deep(.el-pagination.is-background .el-pager li) {
+    :deep(.registry-pagination.is-background .btn-prev),
+    :deep(.registry-pagination.is-background .btn-next),
+    :deep(.registry-pagination.is-background .el-pager li:not(.is-active)) {
+      color: #64748b !important;
+      background: rgba(255, 255, 255, 0.06) !important;
+    }
+
+    :deep(.registry-pagination.is-background .btn-prev .el-icon),
+    :deep(.registry-pagination.is-background .btn-next .el-icon) {
       color: #94a3b8;
-      background: rgba(255, 255, 255, 0.035);
     }
 
-    :deep(.el-pagination.is-background .btn-prev:hover),
-    :deep(.el-pagination.is-background .btn-next:hover),
-    :deep(.el-pagination.is-background .el-pager li:hover) {
-      color: var(--brand-selected-bg);
-      background: rgb(var(--brand-primary-rgb) / 0.12);
+    :deep(.registry-pagination.is-background .btn-prev:hover:not(:disabled)),
+    :deep(.registry-pagination.is-background .btn-next:hover:not(:disabled)),
+    :deep(.registry-pagination.is-background .el-pager li:not(.is-active):hover) {
+      color: var(--brand-selected-bg) !important;
+      background: rgb(var(--brand-primary-rgb) / 0.12) !important;
     }
 
-    :deep(.el-pagination.is-background .el-pager li.is-active) {
-      color: #fff;
-      background: linear-gradient(135deg, var(--brand-primary), var(--brand-hover));
+    :deep(.registry-pagination.is-background .el-pager li.is-active) {
+      color: var(--brand-active) !important;
+      background:
+        linear-gradient(90deg, rgb(var(--brand-selected-rgb) / 0.42) 0%, rgb(var(--brand-selected-rgb) / 0.28) 100%),
+        rgba(255, 255, 255, 0.08) !important;
+      background-color: rgba(255, 255, 255, 0.08) !important;
+      box-shadow:
+        0 5px 12px -7px rgb(0 0 0 / 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+    }
+
+    :deep(.registry-pagination .el-pagination__sizes .el-select .el-select__wrapper) {
+      background: rgba(255, 255, 255, 0.06) !important;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset !important;
     }
 
     :deep(.el-pagination.is-background .btn-prev.is-disabled),
@@ -1518,13 +2283,27 @@ function goDetail(project: ScanProject) {
 }
 
 @media (max-width: 1200px) {
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .metric-strip {
+    flex-direction: column;
+    max-height: none;
+  }
+
+  .metric-divider {
+    width: auto;
+    height: 1px;
+    align-self: stretch;
+    margin: 0 22px;
+  }
+
+  .metric-segment {
+    min-height: 92px;
   }
 
   .page-hero {
     align-items: flex-start;
     flex-direction: column;
+    height: auto;
+    max-height: none;
   }
 
   .empty-main {
@@ -1569,8 +2348,8 @@ function goDetail(project: ScanProject) {
     padding: 18px 14px 24px;
   }
 
-  .metric-grid {
-    grid-template-columns: 1fr;
+  .metric-segment {
+    min-height: 84px;
   }
 
   .toolbar {

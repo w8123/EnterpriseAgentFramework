@@ -1,0 +1,999 @@
+﻿/* Figma node 125:2 — 项目管理 / SDK 接入工作台 - AI Coding */
+
+:global(.main-layout.registry-shell:has(.sdk-access-page) .main-content) {
+  background: var(
+    --brand-page-bg,
+    linear-gradient(180deg, #f2f8ff 0%, #f7fbff 55%, #eef9f5 100%)
+  ) !important;
+  background-size: var(--brand-page-bg-size, auto) !important;
+}
+
+.sdk-access-page,
+.sdk-access-page.is-light-skin,
+.sdk-access-page.is-dark-skin {
+  --sdk-text: var(--el-text-color-primary, #11183a);
+  --sdk-muted: var(--el-text-color-regular, #4f5f81);
+  --sdk-subtle: var(--el-text-color-secondary, #64748b);
+  --sdk-panel-border: rgb(var(--brand-primary-rgb) / 0.24);
+  --sdk-panel-bg: var(--brand-glass-bg, linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgb(var(--brand-selected-rgb) / 0.38)));
+  --sdk-card-bg: var(--brand-glass-card-bg, linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgb(var(--brand-selected-rgb) / 0.34)));
+  --sdk-input-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgb(var(--brand-selected-rgb) / 0.18));
+  --sdk-track-bg: rgba(255, 255, 255, 0.68);
+  --sdk-step-bg: rgba(255, 255, 255, 0.5);
+  --sdk-step-active-bg: linear-gradient(90deg, rgb(var(--brand-selected-rgb) / 0.8) 0%, rgba(255, 255, 255, 0.7) 100%);
+  --sdk-step-line: rgb(var(--brand-primary-rgb) / 0.16);
+  --sdk-glass-highlight: linear-gradient(90deg, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.05) 54%, rgba(255, 255, 255, 0) 100%);
+  --sdk-card-shadow: 0 18px 36px -20px rgb(var(--brand-primary-rgb) / 0.16), inset 0 1px 2px rgba(255, 255, 255, 0.62);
+  position: relative;
+  padding: var(--reachai-workbench-page-padding, var(--reachai-workbench-title-gap, 10px) 28px 16px) !important;
+  overflow: hidden;
+  background: transparent !important;
+  color: var(--sdk-text);
+
+  &::before {
+    content: '';
+    position: absolute;
+    z-index: 0;
+    width: 620px;
+    height: 520px;
+    left: 50%;
+    top: -160px;
+    transform: translateX(-30%);
+    border-radius: 50%;
+    background: rgb(var(--brand-primary-rgb) / 0.13);
+    filter: blur(46px);
+    pointer-events: none;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    z-index: 0;
+    width: 620px;
+    height: 560px;
+    right: -80px;
+    top: 150px;
+    border-radius: 50%;
+    background: rgb(var(--brand-hover-rgb) / 0.12);
+    filter: blur(49px);
+    pointer-events: none;
+  }
+}
+
+.sdk-access-page.is-dark-skin {
+  --sdk-text: #f8fafc;
+  --sdk-muted: #cbd5e1;
+  --sdk-subtle: #94a3b8;
+  --sdk-panel-border: rgb(var(--brand-hover-rgb) / 0.2);
+  --sdk-panel-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.82) 0%, rgba(15, 23, 42, 0.62) 100%);
+  --sdk-card-bg: linear-gradient(145deg, rgba(15, 23, 42, 0.72), rgb(var(--brand-primary-rgb) / 0.12));
+  --sdk-input-bg: rgba(15, 23, 42, 0.66);
+  --sdk-track-bg: rgba(148, 163, 184, 0.16);
+  --sdk-step-bg: rgba(15, 23, 42, 0.46);
+  --sdk-step-active-bg: linear-gradient(90deg, rgb(var(--brand-primary-rgb) / 0.28) 0%, rgba(15, 23, 42, 0.46) 100%);
+  --sdk-step-line: rgba(148, 163, 184, 0.18);
+  --sdk-glass-highlight: linear-gradient(90deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.026) 54%, rgba(255, 255, 255, 0) 100%);
+  --sdk-card-shadow: 0 22px 46px -18px rgba(0, 0, 0, 0.28), inset 0 1px 1px rgba(255, 255, 255, 0.08);
+}
+
+.sdk-access-page .page-ambient-center {
+  position: absolute;
+  z-index: 0;
+  width: min(700px, 60vw);
+  height: 380px;
+  left: 50%;
+  top: 500px;
+  transform: translateX(-42%);
+  border-radius: 50%;
+  background: rgb(var(--brand-selected-rgb) / 0.24);
+  filter: blur(41px);
+  pointer-events: none;
+}
+
+.sdk-access-page .page-header.title-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: stretch;
+  min-height: var(--reachai-workbench-title-height, 120px);
+  height: var(--reachai-workbench-title-height, 120px);
+  margin-bottom: 16px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.28) !important;
+  border-radius: 16px !important;
+  background: transparent !important;
+  box-shadow:
+    0 16px 28px -12px rgb(var(--brand-primary-rgb) / 0.1),
+    inset 0 1px 2px rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(7px);
+}
+
+.sdk-access-page .title-card-layers {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sdk-access-page .title-card-hero-image {
+  position: absolute;
+  inset: 0;
+  background: url('/reachai-project-hero-bg.png') right center / cover no-repeat;
+  opacity: 0.86;
+}
+
+.sdk-access-page .title-card-hero-wash {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgb(var(--brand-selected-rgb) / 0.82) 0%,
+    rgb(var(--brand-selected-rgb) / 0.52) 34%,
+    rgb(var(--brand-primary-rgb) / 0.14) 58%,
+    rgba(255, 255, 255, 0.06) 78%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.sdk-access-page .title-card-hero-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.42) 0%,
+    rgba(255, 255, 255, 0.18) 100%
+  );
+}
+
+.sdk-access-page.is-dark-skin .title-card-hero-image {
+  opacity: 0.22;
+}
+
+.sdk-access-page.is-dark-skin .title-card-hero-wash {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--brand-primary-rgb) / 0.42) 0%,
+    rgb(var(--brand-primary-rgb) / 0.18) 40%,
+    rgba(15, 23, 42, 0.08) 72%,
+    rgba(15, 23, 42, 0) 100%
+  );
+}
+
+.sdk-access-page.is-dark-skin .title-card-hero-overlay {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.74) 0%, rgba(15, 23, 42, 0.44) 100%);
+}
+
+.sdk-access-page .title-card-glass-highlight {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 40px;
+  border-radius: 16px 16px 0 0;
+  background: var(--sdk-glass-highlight);
+  opacity: 0.55;
+}
+
+.sdk-access-page .title-card-body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  min-height: var(--reachai-workbench-title-height, 120px);
+  padding: 26px 28px;
+}
+
+.sdk-access-page .hero-copy {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  min-width: 0;
+}
+
+.sdk-access-page .hero-accent {
+  flex: 0 0 auto;
+  width: 4px;
+  height: 40px;
+  margin-top: 3px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--brand-primary) 0%, var(--brand-hover) 100%);
+}
+
+.sdk-access-page .page-header h1 {
+  margin: 0 0 8px !important;
+  color: var(--sdk-text) !important;
+  font-size: 32px !important;
+  font-weight: 800 !important;
+  line-height: 40px !important;
+  letter-spacing: 0;
+  text-shadow: none !important;
+}
+
+.sdk-access-page .page-header .project-meta {
+  margin: 0 !important;
+  color: var(--sdk-muted) !important;
+  font-size: 16px !important;
+  line-height: 22px !important;
+}
+
+.sdk-access-page .page-header .project-meta::before {
+  content: none !important;
+}
+
+.sdk-access-page .title-mode-switch.access-mode-switch {
+  flex: 0 0 auto;
+  width: 300px;
+  max-width: 100%;
+  margin-left: auto;
+  padding: 5px;
+  gap: 0;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.2);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--brand-selected-bg) 36%, rgba(255, 255, 255, 0.72));
+  box-shadow:
+    0 12px 24px -10px rgb(var(--brand-primary-rgb) / 0.1),
+    inset 0 1px 2px rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(8px);
+}
+
+.sdk-access-page .title-mode-switch button {
+  flex: 0 0 136px;
+  min-width: 0;
+  height: 36px;
+  border-radius: 7px;
+  color: var(--sdk-muted);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 18px;
+}
+
+.sdk-access-page .title-mode-switch .tab-ai-coding {
+  flex-basis: 154px;
+}
+
+.sdk-access-page .title-mode-switch button.active {
+  background: linear-gradient(90deg, var(--brand-primary) 0%, var(--brand-hover) 100%);
+  box-shadow:
+    0 8px 16px rgb(var(--brand-primary-rgb) / 0.3),
+    inset 0 1px 2px rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+.sdk-access-page .title-mode-switch .tab-ai-coding {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.sdk-access-page .title-mode-switch .tab-ai-coding .el-icon {
+  font-size: 17px;
+  color: #fff;
+  filter: drop-shadow(0 1px 4px rgba(255, 255, 255, 0.3));
+}
+
+.sdk-access-page.is-dark-skin .title-mode-switch.access-mode-switch {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.54);
+  box-shadow:
+    0 12px 24px -10px rgba(0, 0, 0, 0.22),
+    inset 0 1px 1px rgba(255, 255, 255, 0.08);
+}
+
+.sdk-access-page .access-workbench {
+  position: relative;
+  z-index: 1;
+}
+
+.sdk-access-page .ai-coding-access-pane {
+  display: grid;
+  grid-template-columns: minmax(280px, 316px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.sdk-access-page .ai-coding-side,
+.sdk-access-page .ai-coding-main {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--sdk-panel-border) !important;
+  border-radius: 16px !important;
+  background: var(--sdk-panel-bg) !important;
+  box-shadow: var(--sdk-card-shadow) !important;
+  backdrop-filter: blur(10px);
+}
+
+.sdk-access-page .panel-glass-highlight {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 48px;
+  border-radius: 16px 16px 0 0;
+  background: var(--sdk-glass-highlight);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.sdk-access-page .ai-coding-side {
+  min-height: 786px;
+  padding: 0;
+}
+
+.sdk-access-page .ai-coding-side .access-progress {
+  position: relative;
+  z-index: 1;
+  padding: 26px 28px 18px;
+  color: var(--sdk-muted);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.sdk-access-page .ai-coding-side .access-progress strong,
+.sdk-access-page .ai-coding-progress-value {
+  margin: 0 6px;
+  color: var(--brand-active) !important;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 22px;
+}
+
+.sdk-access-page .ai-coding-side .access-progress-track {
+  height: 6px;
+  margin-top: 10px;
+  background: var(--sdk-track-bg);
+  box-shadow: none;
+}
+
+.sdk-access-page .ai-coding-side .access-progress-track i {
+  min-width: 1px;
+  background: linear-gradient(90deg, var(--brand-primary), var(--brand-hover));
+  box-shadow: none;
+}
+
+.sdk-access-page .ai-progress-meta {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 18px 10px;
+  padding: 12px 10px;
+  border-radius: 8px;
+  background: var(--sdk-step-bg);
+
+  > span {
+    min-width: 0;
+  }
+
+  strong,
+  small {
+    display: block;
+  }
+
+  strong {
+    color: var(--sdk-text);
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 18px;
+  }
+
+  small {
+    max-width: 160px;
+    margin-top: 4px;
+    overflow: hidden;
+    color: var(--sdk-subtle);
+    font-size: 11px;
+    line-height: 15px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :deep(.el-tag) {
+    flex: 0 0 auto;
+    height: 22px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 4px;
+    background: rgb(var(--brand-primary-rgb) / 0.1) !important;
+    color: var(--brand-active) !important;
+    font-size: 12px;
+    font-weight: 800;
+  }
+}
+
+.sdk-access-page .ai-progress-panel .progress-step {
+  margin: 0 12px;
+  min-height: 70px;
+  border-left-color: transparent;
+  border-bottom-color: var(--sdk-step-line);
+  background: transparent;
+  cursor: default;
+}
+
+.sdk-access-page .ai-progress-panel .progress-step:last-child {
+  border-bottom: 0;
+}
+
+.sdk-access-page .ai-progress-panel .progress-step.active {
+  border-left-color: var(--brand-primary);
+  background: var(--sdk-step-active-bg);
+  box-shadow: inset 12px 0 24px rgb(var(--brand-primary-rgb) / 0.08);
+}
+
+.sdk-access-page .ai-progress-panel .progress-step.warn .step-index,
+.sdk-access-page .ai-progress-panel .progress-step.skipped .step-index {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.sdk-access-page .ai-progress-panel .progress-step.fail .step-index {
+  background: #fee2e2;
+  color: #be123c;
+}
+
+.sdk-access-page .ai-progress-panel .progress-step strong {
+  color: var(--sdk-text);
+}
+
+.sdk-access-page .ai-progress-panel .progress-step small {
+  color: var(--sdk-subtle);
+}
+
+.sdk-access-page .ai-coding-main {
+  min-height: 0;
+  padding: 30px 28px 24px;
+}
+
+.sdk-access-page .ai-coding-main .panel-glass-highlight {
+  height: 58px;
+  background: var(--sdk-glass-highlight);
+}
+
+.sdk-access-page .ai-coding-main .panel-head {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 24px;
+}
+
+.sdk-access-page .ai-coding-main .panel-head h2 {
+  margin: 0 0 8px !important;
+  color: var(--sdk-text) !important;
+  font-size: 28px !important;
+  font-weight: 800 !important;
+  line-height: 34px !important;
+  text-shadow: none !important;
+}
+
+.sdk-access-page .ai-coding-main .panel-head p {
+  max-width: 878px;
+  margin: 0 !important;
+  color: var(--sdk-muted) !important;
+  font-size: 14px !important;
+  line-height: 22px !important;
+}
+
+.sdk-access-page .ai-coding-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.43fr) minmax(280px, 1fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.sdk-access-page .ai-coding-card {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.18) !important;
+  border-radius: 8px !important;
+  background: var(--sdk-card-bg) !important;
+  box-shadow: var(--sdk-card-shadow) !important;
+  backdrop-filter: blur(6px);
+}
+
+.sdk-access-page .ai-coding-card .card-glass-highlight {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 48px;
+  border-radius: 8px 8px 0 0;
+  background: var(--sdk-glass-highlight);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.sdk-access-page .ai-coding-card-inner {
+  position: relative;
+  z-index: 1;
+  padding: 16px 18px 18px;
+}
+
+.sdk-access-page .ai-coding-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.sdk-access-page .ai-coding-card-head h3 {
+  margin: 4px 0 0;
+  color: var(--sdk-text);
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 24px;
+}
+
+.sdk-access-page .ai-coding-card-head p {
+  margin: 8px 0 0;
+  max-width: 250px;
+  color: var(--sdk-subtle);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.sdk-access-page .btn-copy-prompt {
+  flex: 0 0 auto;
+  min-width: 118px;
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.24);
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--brand-primary), var(--brand-hover));
+  box-shadow: 0 8px 16px rgb(var(--brand-primary-rgb) / 0.18);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 14px;
+  cursor: pointer;
+}
+
+.sdk-access-page .btn-self-check {
+  flex: 0 0 auto;
+  min-width: 84px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.18);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--brand-selected-bg) 22%, rgba(255, 255, 255, 0.72));
+  box-shadow: 0 8px 18px rgb(var(--brand-primary-rgb) / 0.08);
+  color: var(--sdk-muted);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 14px;
+  cursor: pointer;
+}
+
+.sdk-access-page.is-dark-skin .btn-self-check {
+  background: rgba(15, 23, 42, 0.56);
+  color: var(--sdk-muted);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+.sdk-access-page .btn-copy-prompt:disabled,
+.sdk-access-page .btn-self-check:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.sdk-access-page .ai-tool-tabs {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 34px;
+  margin: 8px 6px 0;
+  padding-bottom: 16px;
+}
+
+.sdk-access-page .ai-tool-tabs button {
+  border: 0;
+  background: transparent;
+  color: var(--sdk-muted);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.sdk-access-page .ai-tool-tabs button.active {
+  color: var(--brand-active);
+  font-weight: 700;
+}
+
+.sdk-access-page .ai-tool-tabs-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: rgb(var(--brand-primary-rgb) / 0.14);
+}
+
+.sdk-access-page .ai-tool-tabs-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--brand-primary);
+  transition: transform 0.2s ease, width 0.2s ease;
+}
+
+.sdk-access-page .ai-tool-tabs[data-active='cursor'] .ai-tool-tabs-indicator {
+  width: 50px;
+  transform: translateX(0);
+}
+
+.sdk-access-page .ai-tool-tabs[data-active='claude'] .ai-tool-tabs-indicator {
+  width: 92px;
+  transform: translateX(92px);
+}
+
+.sdk-access-page .ai-tool-tabs[data-active='codex'] .ai-tool-tabs-indicator {
+  width: 58px;
+  transform: translateX(232px);
+}
+
+.sdk-access-page .ai-prompt-preview {
+  margin-top: 4px;
+}
+
+.sdk-access-page .ai-prompt-preview :deep(.el-textarea__inner) {
+  min-height: 441px !important;
+  padding: 18px;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.18);
+  border-radius: 8px;
+  background: var(--sdk-input-bg);
+  box-shadow:
+    0 10px 22px -18px rgb(var(--brand-primary-rgb) / 0.12),
+    inset 0 1px 2px rgba(255, 255, 255, 0.44);
+  color: var(--sdk-text);
+  font-family: Inter, 'Noto Sans SC', sans-serif;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.sdk-access-page.is-dark-skin .ai-prompt-preview :deep(.el-textarea__inner) {
+  box-shadow:
+    0 10px 22px -18px rgba(0, 0, 0, 0.34),
+    inset 0 1px 1px rgba(255, 255, 255, 0.08);
+}
+
+.sdk-access-page .ai-self-check-empty {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 340px;
+  margin-top: 16px;
+  padding: 32px 20px 30px;
+  overflow: hidden;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
+  border-radius: 8px;
+  background: var(--sdk-input-bg);
+  box-shadow:
+    0 14px 28px -22px rgb(var(--brand-primary-rgb) / 0.14),
+    inset 0 1px 2px rgba(255, 255, 255, 0.44);
+  backdrop-filter: blur(6px);
+  text-align: center;
+}
+
+.sdk-access-page .ai-self-check-glow {
+  position: absolute;
+  left: 50%;
+  top: 58px;
+  width: 250px;
+  height: 120px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: rgb(var(--brand-primary-rgb) / 0.16);
+  filter: blur(18px);
+  pointer-events: none;
+}
+
+.sdk-access-page .ai-self-check-shield {
+  position: relative;
+  z-index: 1;
+  width: min(296px, 92%);
+  height: auto;
+  margin-top: 0;
+  opacity: 0.98;
+  pointer-events: none;
+  user-select: none;
+}
+
+.sdk-access-page.is-dark-skin .ai-self-check-shield {
+  opacity: 0.9;
+}
+
+.sdk-access-page .ai-self-check-empty strong {
+  position: relative;
+  z-index: 1;
+  margin-top: 2px;
+  color: var(--sdk-text);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 24px;
+}
+
+.sdk-access-page .ai-self-check-empty p {
+  position: relative;
+  z-index: 1;
+  max-width: 244px;
+  margin: 10px 0 0;
+  color: var(--sdk-subtle);
+  font-size: 14px;
+  line-height: 24px;
+}
+
+.sdk-access-page .ai-readiness-list {
+  grid-template-columns: 1fr;
+  margin-top: 12px;
+}
+
+.sdk-access-page .ai-result-list {
+  max-height: 240px;
+  margin-top: 12px;
+  overflow: auto;
+}
+
+@media (max-width: 1280px) {
+  .sdk-access-page .ai-coding-access-pane,
+  .sdk-access-page .ai-coding-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sdk-access-page .ai-coding-side,
+  .sdk-access-page .ai-coding-main {
+    min-height: auto;
+  }
+
+  .sdk-access-page .title-card-body {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 24px;
+  }
+
+  .sdk-access-page .title-mode-switch.access-mode-switch {
+    width: 100%;
+  }
+}
+
+@media (max-width: 980px) {
+  .sdk-access-page .title-mode-switch button {
+    flex: 1;
+  }
+}
+
+/* Final shared background override: page-specific art layers stay in cards,
+   while the page field itself comes from AppPageBackground. */
+:global(.main-layout.registry-shell:has(.sdk-access-page) .main-content) {
+  background: transparent !important;
+}
+
+:global(.main-layout.registry-shell:has(.sdk-access-page) .app-page-background) {
+  box-shadow: none !important;
+}
+
+.sdk-access-page,
+.sdk-access-page.is-light-skin,
+.sdk-access-page.is-dark-skin {
+  background: transparent !important;
+}
+
+/* Shared refined access progress: make the step number the visual anchor and avoid
+   the detached timeline dots shown in the previous layout. */
+.sdk-access-page .step-progress.access-progress--refined {
+  gap: 8px;
+  padding: 18px 12px 20px !important;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .access-progress {
+  padding: 0 14px 12px !important;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .access-progress span {
+  color: #38546b !important;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .access-progress strong {
+  color: var(--brand-active) !important;
+  font-size: 18px;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .access-progress-track {
+  height: 5px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 2px rgb(var(--brand-active-rgb) / 0.08);
+}
+
+.sdk-access-page .step-progress.access-progress--refined .progress-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  min-height: 62px !important;
+  padding: 9px 12px 9px 14px !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .progress-step::before {
+  content: '';
+  position: absolute;
+  top: 45px !important;
+  bottom: -19px !important;
+  left: 29px !important;
+  width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    rgb(var(--brand-active-rgb) / 0.16),
+    rgb(var(--brand-active-rgb) / 0.06)
+  ) !important;
+  transform: none !important;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .progress-step:last-of-type::before {
+  display: none;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .progress-step:hover {
+  border-color: rgb(var(--brand-active-rgb) / 0.14) !important;
+  background: rgba(255, 255, 255, 0.32) !important;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .progress-step.active {
+  border-color: rgb(var(--brand-active-rgb) / 0.3) !important;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.76), rgb(var(--brand-selected-rgb) / 0.38)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 16px 30px rgb(var(--brand-active-rgb) / 0.13) !important;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .step-index {
+  display: none !important;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .step-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .step-title-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .step-number {
+  position: relative;
+  z-index: 1;
+  width: 30px !important;
+  height: 30px !important;
+  flex: 0 0 30px;
+  border: 1px solid rgb(var(--brand-active-rgb) / 0.18) !important;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74) !important;
+  box-shadow:
+    0 0 0 5px rgba(255, 255, 255, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  color: #5f748f !important;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .progress-step.active .step-number {
+  border-color: transparent !important;
+  background: linear-gradient(135deg, var(--brand-primary), var(--brand-hover)) !important;
+  box-shadow:
+    0 0 0 5px rgb(var(--brand-active-rgb) / 0.1),
+    0 9px 18px rgb(var(--brand-active-rgb) / 0.22) !important;
+  color: #fff !important;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .progress-step.done .step-number {
+  border-color: rgb(34 197 94 / 0.2) !important;
+  background: rgb(220 252 231 / 0.9) !important;
+  color: #16a34a !important;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .progress-step.warn .step-number,
+.sdk-access-page .step-progress.access-progress--refined .progress-step.skipped .step-number {
+  border-color: rgb(245 158 11 / 0.24) !important;
+  background: rgb(254 243 199 / 0.9) !important;
+  color: #b45309 !important;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .progress-step.fail .step-number {
+  border-color: rgb(239 68 68 / 0.2) !important;
+  background: rgb(254 226 226 / 0.9) !important;
+  color: #be123c !important;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .step-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #1d2a44 !important;
+  font-size: 14px !important;
+  font-weight: 900;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .step-copy small {
+  margin-left: 40px;
+  padding-left: 0 !important;
+  color: #647891 !important;
+  font-size: 12px !important;
+  line-height: 1.2;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .progress-step.active .step-copy small {
+  color: var(--brand-active) !important;
+  font-weight: 800;
+}
+
+.sdk-access-page .step-progress.access-progress--refined .step-caret {
+  position: relative;
+  z-index: 1;
+  color: var(--brand-active) !important;
+  opacity: 0.72;
+  filter: none !important;
+}
+
+/* AI Coding keeps the same progress-card height as manual access; the right
+   workbench can scroll independently without stretching the progress panel. */
+.sdk-access-page .ai-coding-access-pane {
+  align-items: start !important;
+}
+
+.sdk-access-page .ai-coding-side.access-progress--refined {
+  position: relative !important;
+  top: 0 !important;
+  gap: 6px;
+  height: 580px !important;
+  max-height: calc(100vh - 140px) !important;
+  min-height: 0 !important;
+  overflow: hidden;
+  padding: 16px 12px !important;
+}
+
+.sdk-access-page .ai-coding-side.access-progress--refined .access-progress {
+  padding-bottom: 10px !important;
+}
+
+.sdk-access-page .ai-coding-side.access-progress--refined .ai-progress-meta {
+  margin: 0 14px 8px;
+  padding: 10px;
+}
+
+.sdk-access-page .ai-coding-side.access-progress--refined .progress-step {
+  min-height: 64px !important;
+  padding-top: 9px !important;
+  padding-bottom: 9px !important;
+}
+
+.sdk-access-page .ai-coding-side.access-progress--refined .progress-step::before {
+  top: 45px !important;
+  bottom: -17px !important;
+}

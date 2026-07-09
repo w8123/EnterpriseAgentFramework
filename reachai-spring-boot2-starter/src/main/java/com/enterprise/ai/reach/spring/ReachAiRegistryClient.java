@@ -63,9 +63,6 @@ public class ReachAiRegistryClient {
         try {
             registerProject();
             heartbeat();
-            if (properties.getCapability().isSyncOnStartup()) {
-                syncCapabilities(capabilities());
-            }
         } catch (Exception e) {
             log.warn("[ReachAI Registry] registerAndSync failed project={} registryUrl={} error={}",
                     properties.getProject().getCode(), properties.getRegistry().getUrl(), e.toString());
@@ -80,13 +77,22 @@ public class ReachAiRegistryClient {
         post("/api/registry/projects/{projectCode}/instances/heartbeat", heartbeatBody());
     }
 
-    void syncCapabilities(List<ReachCapabilityDescriptor> capabilities) {
+    public ManualCapabilitySyncResponse scanAndSyncCapabilities() {
+        if (!isConfigured()) {
+            throw new IllegalStateException("ReachAI registry configuration is incomplete: " + configurationProblems());
+        }
+        List<ReachCapabilityDescriptor> descriptors = capabilities();
+        String registryResponse = syncCapabilities(descriptors);
+        return new ManualCapabilitySyncResponse(instanceId, descriptors.size(), registryResponse);
+    }
+
+    String syncCapabilities(List<ReachCapabilityDescriptor> capabilities) {
         Map<String, Object> body = new LinkedHashMap<String, Object>();
         body.put("syncId", UUID.randomUUID().toString());
         body.put("source", "SDK");
         body.put("apply", Boolean.TRUE);
         body.put("capabilities", capabilityRegistrations(capabilities));
-        post("/api/registry/projects/{projectCode}/capabilities/sync", body);
+        return post("/api/registry/projects/{projectCode}/capabilities/sync", body);
     }
 
     List<Map<String, Object>> capabilityRegistrations(List<ReachCapabilityDescriptor> capabilities) {
@@ -161,8 +167,6 @@ public class ReachAiRegistryClient {
     }
 
     Map<String, Object> heartbeatBody() {
-        List<ReachCapabilityDescriptor> descriptors = capabilities();
-
         Map<String, Object> metadata = new LinkedHashMap<String, Object>();
         metadata.put("runtimePlacement", "CAPABILITY_HOST");
         metadata.put("runtimeTypes", Collections.singletonList("SPRING_BOOT2_CAPABILITY_HOST"));
@@ -172,7 +176,6 @@ public class ReachAiRegistryClient {
         metadata.put("supportsAutonomous", Boolean.FALSE);
         metadata.put("supportsEmbeddedExecution", Boolean.FALSE);
         metadata.put("supportsHybridExecution", Boolean.TRUE);
-        metadata.put("capabilityCount", descriptors.size());
 
         Map<String, Object> body = new LinkedHashMap<String, Object>();
         body.put("instanceId", instanceId);
@@ -208,8 +211,8 @@ public class ReachAiRegistryClient {
         post("/api/registry/projects/register", body);
     }
 
-    private void post(String uriTemplate, Object body) {
-        transportExchange("POST", uriTemplate, body);
+    private String post(String uriTemplate, Object body) {
+        return transportExchange("POST", uriTemplate, body);
     }
 
     private String transportExchange(String method, String uriTemplate, Object body) {
@@ -244,7 +247,7 @@ public class ReachAiRegistryClient {
             log.error("[ReachAI Registry] config missing: reachai properties are not available");
             return;
         }
-        log.info("[ReachAI Registry] config registryEnabled={} registryUrl={} projectCode={} projectName={} baseUrl={} contextPath={} appKeyConfigured={} appSecretConfigured={} scanBeans={} syncOnStartup={} heartbeatIntervalMs={}",
+        log.info("[ReachAI Registry] config registryEnabled={} registryUrl={} projectCode={} projectName={} baseUrl={} contextPath={} appKeyConfigured={} appSecretConfigured={} scanBeans={} heartbeatIntervalMs={}",
                 properties.getRegistry().isEnabled(),
                 properties.getRegistry().getUrl(),
                 properties.getProject().getCode(),
@@ -254,7 +257,6 @@ public class ReachAiRegistryClient {
                 StringUtils.hasText(properties.getRegistry().getAppKey()),
                 StringUtils.hasText(properties.getRegistry().getAppSecret()),
                 properties.getCapability().isScanBeans(),
-                properties.getCapability().isSyncOnStartup(),
                 properties.getRegistry().getHeartbeatIntervalMs());
     }
 
@@ -341,5 +343,29 @@ public class ReachAiRegistryClient {
 
     private String defaultString(String value, String fallback) {
         return StringUtils.hasText(value) ? value : fallback;
+    }
+
+    public static class ManualCapabilitySyncResponse {
+        private final String instanceId;
+        private final int capabilityCount;
+        private final String registryResponse;
+
+        ManualCapabilitySyncResponse(String instanceId, int capabilityCount, String registryResponse) {
+            this.instanceId = instanceId;
+            this.capabilityCount = capabilityCount;
+            this.registryResponse = registryResponse;
+        }
+
+        public String getInstanceId() {
+            return instanceId;
+        }
+
+        public int getCapabilityCount() {
+            return capabilityCount;
+        }
+
+        public String getRegistryResponse() {
+            return registryResponse;
+        }
     }
 }

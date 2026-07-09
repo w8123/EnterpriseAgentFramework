@@ -276,7 +276,7 @@ function generateSparkline(data: number[], w = 80, h = 30): { linePath: string; 
 
 const statCards = computed(() => [
   {
-    label: 'Agent 鏁伴噺',
+    label: 'Agent 数量',
     value: stats.agentCount,
     icon: Cpu,
     gradient: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
@@ -296,7 +296,7 @@ const statCards = computed(() => [
     ...generateSparkline([2, 3, 3, 4, 5, 5, 6, 6, 7, stats.knowledgeBaseCount || 8]),
   },
   {
-    label: 'Tool 鏁伴噺',
+    label: 'Tool 数量',
     value: stats.toolCount,
     icon: SetUp,
     gradient: 'linear-gradient(135deg, #f59e0b, #d97706)',

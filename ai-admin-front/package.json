@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vue-tsc && vite build",
     "check:studio-canvas": "node scripts/check-studio-canvas-node-data.mjs",
-    "build:sdk": "vite build --config vite.sdk.config.ts",
+    "check:sdk-access-workbench": "node scripts/check-sdk-access-workbench-ui.mjs",
+    "check:page-assistant-progress": "node scripts/check-page-assistant-progress-ui.mjs",
+    "check:scan-project-detail-ui": "node scripts/check-scan-project-detail-ui.mjs",
+    "build:sdk": "vite build --config vite.sdk.config.ts && node scripts/write-embed-chat-package.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

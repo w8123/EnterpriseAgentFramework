@@ -1,6 +1,6 @@
-import type { ApiAssetItem } from '@/types/apiAsset'
 import type {
   AiAccessStepStatus,
+  ProjectToolInfo,
   SdkAccessCheckStatus,
 } from '@/types/scanProject'
 
@@ -30,8 +30,17 @@ export function aiAccessSessionTagType(
   return 'info'
 }
 
-export function apiAssetLabel(asset: ApiAssetItem): string {
-  const method = asset.httpMethod || 'API'
-  const path = asset.endpointPath || asset.sourceLocation || asset.name
+export function projectApiToolLabel(tool: ProjectToolInfo): string {
+  const method = tool.httpMethod || 'API'
+  const path = tool.endpointPath || tool.sourceLocation || tool.name
   return `${method} ${path}`
 }
+
+export const AI_ACCESS_DISPLAY_STEP_TITLES = [
+  '项目识别',
+  '后端 Starter',
+  '网关路由',
+  '业务服务校验',
+  '前端 Embed Token',
+  '最终自检',
+] as const

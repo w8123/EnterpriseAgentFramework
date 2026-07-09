@@ -143,7 +143,6 @@ reachai:
     visibility: PROJECT
   capability:
     scan-beans: true
-    sync-on-startup: true
   embed:
     allowed-origins:
       - ${REACHAI_EMBED_ORIGIN:http://localhost:9200}
@@ -163,7 +162,6 @@ reachai:
 | `reachai.registry.app-secret` | 业务系统访问 ReachAI 的应用密钥 |
 | `reachai.project.code` | 中台识别业务系统的稳定项目编码 |
 | `reachai.project.base-url` | ReachAI 调用业务能力时使用的基础地址 |
-| `reachai.capability.sync-on-startup` | 启动时同步能力快照 |
 | `reachai.embed.allowed-origins` | 允许嵌入对话框的业务前端 Origin |
 | `reachai.embed.allowed-agent-ids` | 允许该业务系统嵌入的 Agent |
 
@@ -627,8 +625,8 @@ npm run build
 
 1. 项目已注册。
 2. 实例心跳正常。
-3. 能力快照已同步。
-4. `teamArchivePage` 能力存在。
+3. SDK 实例心跳正常。
+4. 如需接口资产，已在 ReachAI API 管理手动触发 SDK 同步，并确认 `teamArchivePage` 能力存在。
 5. 嵌入授权包含 `team-archive-assistant`。
 
 ### 9.3 token 验证

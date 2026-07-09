@@ -1,7 +1,8 @@
 package com.enterprise.ai.control.compat;
 
+import com.enterprise.ai.control.aiassist.ControlAiCodingAccessGuard;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,10 +22,21 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequiredArgsConstructor
 public class RuntimeCompatibilityController {
 
     private final RuntimeProxyClient runtimeProxyClient;
+    private final ControlAiCodingAccessGuard aiCodingAccessGuard;
+
+    RuntimeCompatibilityController(RuntimeProxyClient runtimeProxyClient) {
+        this(runtimeProxyClient, null);
+    }
+
+    @Autowired
+    public RuntimeCompatibilityController(RuntimeProxyClient runtimeProxyClient,
+                                          ControlAiCodingAccessGuard aiCodingAccessGuard) {
+        this.runtimeProxyClient = runtimeProxyClient;
+        this.aiCodingAccessGuard = aiCodingAccessGuard;
+    }
 
     @PostMapping({"/api/agent/execute", "/api/runtime/agents/execute"})
     public ResponseEntity<Map<String, Object>> executeAgent(@RequestBody Map<String, Object> body) {
@@ -217,7 +230,12 @@ public class RuntimeCompatibilityController {
     }
 
     @PostMapping("/api/workflows/ai-coding/workflows")
-    public ResponseEntity<Object> createWorkflowAiCodingWorkflow(@RequestBody Map<String, Object> body) {
+    public ResponseEntity<Object> createWorkflowAiCodingWorkflow(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = ControlAiCodingAccessGuard.AI_CODING_HEADER, required = false) String aiCodingKey) {
+        if (aiCodingAccessGuard != null) {
+            aiCodingAccessGuard.requireWorkflowCreateAccess(body, aiCodingKey);
+        }
         return runtimeProxyClient.createWorkflowAiCodingWorkflow(body);
     }
 

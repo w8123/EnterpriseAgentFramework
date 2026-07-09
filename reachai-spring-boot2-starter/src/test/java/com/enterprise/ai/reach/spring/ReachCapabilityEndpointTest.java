@@ -4,6 +4,9 @@ import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
 import com.enterprise.ai.reach.sdk.annotation.ReachParam;
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationClaims;
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationToken;
+import com.enterprise.ai.reach.sdk.auth.ReachAiSignatureHeaders;
+import com.enterprise.ai.reach.sdk.auth.ReachAiSigner;
+import com.enterprise.ai.reach.sdk.client.ReachAiClientConfig;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
@@ -76,6 +79,44 @@ class ReachCapabilityEndpointTest {
         assertEquals("team-agent", bridged.get().getAgentId());
     }
 
+    @Test
+    void syncEndpointVerifiesPlatformSignatureBeforeScanning() {
+        ReachAiRegistryProperties properties = registryProperties();
+        RecordingRegistryClient registryClient = new RecordingRegistryClient(properties);
+        ReachCapabilitySyncEndpoint endpoint = new ReachCapabilitySyncEndpoint(
+                registryClient,
+                new ReachAiRegistryRequestVerifier(properties));
+        ReachAiSignatureHeaders headers = ReachAiSigner.sign(registryClientConfig(properties),
+                String.valueOf(System.currentTimeMillis()), "nonce-1");
+
+        ReachAiRegistryClient.ManualCapabilitySyncResponse response = endpoint.sync(
+                headers.getAppKey(),
+                headers.getTimestamp(),
+                headers.getNonce(),
+                headers.getSignature(),
+                Collections.<String, Object>emptyMap());
+
+        assertEquals(1, registryClient.scanCalls);
+        assertEquals(2, response.getCapabilityCount());
+    }
+
+    @Test
+    void syncEndpointRejectsInvalidPlatformSignature() {
+        ReachAiRegistryProperties properties = registryProperties();
+        RecordingRegistryClient registryClient = new RecordingRegistryClient(properties);
+        ReachCapabilitySyncEndpoint endpoint = new ReachCapabilitySyncEndpoint(
+                registryClient,
+                new ReachAiRegistryRequestVerifier(properties));
+
+        assertThrows(ReachAiInvocationUnauthorizedException.class, () -> endpoint.sync(
+                "bad-key",
+                String.valueOf(System.currentTimeMillis()),
+                "nonce-1",
+                "bad-signature",
+                Collections.<String, Object>emptyMap()));
+        assertEquals(0, registryClient.scanCalls);
+    }
+
     private ReachAiRegistryProperties invocationProperties() {
         ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
         properties.getProject().setCode("bzsdk");
@@ -83,6 +124,24 @@ class ReachCapabilityEndpointTest {
         properties.getRegistry().setAppSecret("secret");
         properties.getCapability().setRequireInvocationToken(true);
         return properties;
+    }
+
+    private ReachAiRegistryProperties registryProperties() {
+        ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
+        properties.getProject().setCode("bzsdk");
+        properties.getRegistry().setUrl("https://reachai.example.com");
+        properties.getRegistry().setAppKey("demo-key");
+        properties.getRegistry().setAppSecret("secret");
+        return properties;
+    }
+
+    private ReachAiClientConfig registryClientConfig(ReachAiRegistryProperties properties) {
+        return ReachAiClientConfig.builder()
+                .endpoint(properties.getRegistry().getUrl())
+                .projectCode(properties.getProject().getCode())
+                .appKey(properties.getRegistry().getAppKey())
+                .appSecret(properties.getRegistry().getAppSecret())
+                .build();
     }
 
     static class ContractCapability {
@@ -97,6 +156,20 @@ class ReachCapabilityEndpointTest {
         public String query() {
             ReachAiInvocationContext context = ReachAiInvocationContextHolder.getRequired();
             return context.getExternalUserId() + "|" + context.getAgentId();
+        }
+    }
+
+    static class RecordingRegistryClient extends ReachAiRegistryClient {
+        private int scanCalls;
+
+        RecordingRegistryClient(ReachAiRegistryProperties properties) {
+            super(properties, new ReachCapabilityBeanScanner(new Object[0]), new ReachAiRegistryClientTest.RecordingTransport());
+        }
+
+        @Override
+        public ManualCapabilitySyncResponse scanAndSyncCapabilities() {
+            scanCalls++;
+            return new ManualCapabilitySyncResponse("instance-1", 2, "{}");
         }
     }
 }

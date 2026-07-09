@@ -129,8 +129,8 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
     }
     const credentialAppKey = deps.editCredentialForm.appKey.trim()
     const credentialAppSecret = deps.editCredentialForm.appSecret.trim()
-    if (deps.isEditingSdkProject.value && (credentialAppKey || credentialAppSecret) && (!credentialAppKey || !credentialAppSecret)) {
-      ElMessage.warning('更新接入凭据时请同时填写 App Key 和 App Secret')
+    if (deps.isEditingSdkProject.value && (!credentialAppKey || !credentialAppSecret)) {
+      ElMessage.warning('请填写 App Key 和 App Secret')
       return
     }
     deps.editSaving.value = true

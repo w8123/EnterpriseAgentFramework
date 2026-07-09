@@ -88,7 +88,7 @@ export function parseApiGraphSnapshot(raw: unknown): ApiGraphSnapshot {
   if (body !== null && typeof body === 'object' && typeof (body as Record<string, unknown>).code === 'number') {
     const wrap = body as { code: number; message?: string; data?: unknown }
     if (wrap.code !== 200 && wrap.code !== 0) {
-      throw new Error(wrap.message || '璇锋眰澶辫触')
+      throw new Error(wrap.message || '请求失败')
     }
     body = wrap.data
   }

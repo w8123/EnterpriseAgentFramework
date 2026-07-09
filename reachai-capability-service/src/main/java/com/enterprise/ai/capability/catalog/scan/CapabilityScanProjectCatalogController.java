@@ -37,17 +37,25 @@ public class CapabilityScanProjectCatalogController {
 
     private final CapabilityScanProjectCatalogService scanProjectCatalogService;
     private final CapabilitySensitiveDataScanOrchestrator sensitiveDataScanOrchestrator;
+    private final CapabilitySdkSyncTriggerService sdkSyncTriggerService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public CapabilityScanProjectCatalogController(CapabilityScanProjectCatalogService scanProjectCatalogService) {
-        this(scanProjectCatalogService, null);
+        this(scanProjectCatalogService, null, null);
+    }
+
+    public CapabilityScanProjectCatalogController(CapabilityScanProjectCatalogService scanProjectCatalogService,
+                                                  CapabilitySensitiveDataScanOrchestrator sensitiveDataScanOrchestrator) {
+        this(scanProjectCatalogService, sensitiveDataScanOrchestrator, null);
     }
 
     @Autowired
     public CapabilityScanProjectCatalogController(CapabilityScanProjectCatalogService scanProjectCatalogService,
-                                                  CapabilitySensitiveDataScanOrchestrator sensitiveDataScanOrchestrator) {
+                                                  CapabilitySensitiveDataScanOrchestrator sensitiveDataScanOrchestrator,
+                                                  CapabilitySdkSyncTriggerService sdkSyncTriggerService) {
         this.scanProjectCatalogService = scanProjectCatalogService;
         this.sensitiveDataScanOrchestrator = sensitiveDataScanOrchestrator;
+        this.sdkSyncTriggerService = sdkSyncTriggerService;
     }
 
     @PostMapping
@@ -60,8 +68,10 @@ public class CapabilityScanProjectCatalogController {
     }
 
     @GetMapping
-    public ResponseEntity<List<ScanProjectDTO>> list() {
-        return ResponseEntity.ok(scanProjectCatalogService.list().stream()
+    public ResponseEntity<List<ScanProjectDTO>> list(@RequestParam(required = false) String keyword,
+                                                     @RequestParam(required = false) String projectKind,
+                                                     @RequestParam(required = false) String status) {
+        return ResponseEntity.ok(scanProjectCatalogService.list(keyword, projectKind, status).stream()
                 .map(this::toDto)
                 .toList());
     }
@@ -170,6 +180,20 @@ public class CapabilityScanProjectCatalogController {
         } catch (RuntimeException ex) {
             scanProjectCatalogService.markFailed(id, ex.getMessage());
             return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
+        }
+    }
+
+    @PostMapping("/{id}/sdk-sync/scan")
+    public ResponseEntity<?> triggerSdkScan(@PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(sdkSyncTriggerService.triggerScan(id));
+        } catch (IllegalArgumentException ex) {
+            if (isMissing(ex)) {
+                return ResponseEntity.notFound().build();
+            }
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiErrorResponse(ex.getMessage()));
         }
     }
 
@@ -549,7 +573,7 @@ public class CapabilityScanProjectCatalogController {
     }
 
     record SdkAccessCheckRequest(
-            Long apiAssetId,
+            Long scanToolId,
             Map<String, Object> args,
             String gatewayBaseUrl,
             String embedTokenPath

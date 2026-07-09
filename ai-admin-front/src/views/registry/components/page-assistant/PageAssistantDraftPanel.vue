@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { DocumentCopy, MagicStick } from '@element-plus/icons-vue'
 import type { PageActionRegistryView, PageRegistryView } from '@/api/embedOps'
-import type { ApiAssetItem } from '@/types/apiAsset'
+import type { ProjectToolInfo } from '@/types/scanProject'
 import type { ModelInstance } from '@/types/model'
 import type { AiAccessStep } from '@/types/scanProject'
 import type { WorkflowDraftGenerationResult } from '@/types/workflow'
@@ -22,8 +22,8 @@ defineProps<{
   selectedPage: PageRegistryView | null
   selectedPageKey: string
   selectedActions: PageActionRegistryView[]
-  selectedApiAssets: ApiAssetItem[]
-  apiAssets: ApiAssetItem[]
+  selectedProjectApiTools: ProjectToolInfo[]
+  projectApiTools: ProjectToolInfo[]
   modelOptions: ModelInstance[]
   assistantGoalOptions: AssistantGoalOption[]
   isAiCodingWorkflowSelected: boolean
@@ -46,7 +46,7 @@ const emit = defineEmits<{
   resetAiCodingDraft: []
   useAiCodingDraft: []
   useDefaultRequirement: []
-  apiSelectionChange: [assets: ApiAssetItem[]]
+  projectApiSelectionChange: [tools: ProjectToolInfo[]]
   switchToPlatformGeneration: []
   generateDraft: []
 }>()
@@ -60,7 +60,7 @@ const emit = defineEmits<{
         <h2>生成 / 选择 Workflow 草稿</h2>
       </div>
       <div class="panel-actions">
-        <el-tag effect="plain">{{ selectedApiAssets.length }} 个 API 资产</el-tag>
+        <el-tag effect="plain">{{ selectedProjectApiTools.length }} 个项目接口</el-tag>
       </div>
     </div>
 
@@ -68,7 +68,7 @@ const emit = defineEmits<{
       <span>页面：{{ selectedPage?.name || selectedPageKey || '未选择' }}</span>
       <span>动作：{{ selectedActions.length }} 个已选</span>
       <span>模型：{{ modelInstanceId ? '已选择' : '未选择' }}</span>
-      <span>API：{{ selectedApiAssets.length }} 个</span>
+      <span>API：{{ selectedProjectApiTools.length }} 个</span>
     </div>
 
     <section class="draft-entry-section ai-coding-entry">
@@ -196,16 +196,16 @@ const emit = defineEmits<{
 
         <section class="draft-config-card api-resource-card">
           <div class="draft-section-head">
-            <h3>API 资产（可选）</h3>
-            <small>可绑定后端 API 作为工具资源提供给模型</small>
+            <h3>项目接口（可选）</h3>
+            <small>可绑定 API 管理中的接口作为工具资源提供给模型</small>
           </div>
-          <div class="api-assets">
+          <div class="project-apis">
             <el-table
-              v-if="apiAssets.length"
-              :data="apiAssets"
-              row-key="apiId"
+              v-if="projectApiTools.length"
+              :data="projectApiTools"
+              row-key="scanToolId"
               size="small"
-              @selection-change="emit('apiSelectionChange', $event)"
+              @selection-change="emit('projectApiSelectionChange', $event)"
             >
               <el-table-column type="selection" width="42" />
               <el-table-column prop="name" label="API" min-width="180" show-overflow-tooltip />
@@ -215,7 +215,7 @@ const emit = defineEmits<{
             <div v-else class="api-empty-card">
               <span class="api-empty-icon">API</span>
               <div>
-                <strong>暂无可选 API 资产</strong>
+                <strong>暂无可选项目接口</strong>
                 <small>本次将仅基于已选择的页面动作生成 GraphSpec 草稿。</small>
               </div>
             </div>

@@ -76,3 +76,7 @@ SHOW INDEX FROM control_mcp_client;
 node scripts/check-backend-boundary-naming.mjs
 git diff --check
 ```
+
+## Upgrade: 20260709 AI Coding access default
+
+Run `sql/upgrade-20260709-ai-coding-access-default.sql` on existing development or test databases that already have `capability_scan_project` rows. It adds missing AI Coding access columns and backfills generated `aic_...` keys with `ai_coding_access_enabled = 1` only for rows that previously had no key.

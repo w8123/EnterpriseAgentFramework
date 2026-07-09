@@ -12,10 +12,10 @@
 
     <artifactId>reachai-model-service</artifactId>
     <name>ReachAI Model Gateway Service</name>
-    <description>ReachAI Model Gateway deployment unit 鈥?缁熶竴 LLM Chat銆丒mbedding銆丷erank 鎺ュ叆涓庡 Provider 閫傞厤</description>
+    <description>ReachAI Model Gateway deployment unit - 统一 LLM Chat、Embedding、Rerank 接入与多 Provider 适配</description>
 
     <dependencies>
-        <!-- 鍐呴儴鍏叡搴?-->
+        <!-- 内部公共库 -->
         <dependency>
             <groupId>com.enterprise.ai</groupId>
             <artifactId>ai-common</artifactId>

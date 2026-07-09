@@ -39,7 +39,7 @@ Resolve `reachai-capability-sdk` and `reachai-spring-boot2-starter` from one of 
 
 If the artifacts still cannot be resolved, stop and report that the Java artifacts must be installed or published. Do not invent platform download URLs.
 
-The same rule applies to front-end packages: do not fetch a browser SDK from `/api/embed/sdk`, `/npm/**`, or any other guessed ReachAI platform path. Use an installed package, an already built local SDK artifact, or implement against the documented embed HTTP contract and report the packaging gap.
+The same rule applies to front-end packages: do not fetch a browser SDK from `/api/embed/sdk`, `/npm/**`, or any other guessed ReachAI platform path. Prefer the manifest `sdkArtifacts` entry for `@reachai/embed-chat`; use an installed package, an already built local SDK artifact, or implement against the documented embed HTTP contract and report the packaging gap.
 
 ```xml
 <dependency>
@@ -60,18 +60,19 @@ Prefer an existing dependency-management pattern if the business repo already ce
 
 Add `reachai.registry`, `reachai.project`, and `reachai.capability` configuration to the active service configuration. Keep the app secret as an environment variable.
 
-The starter scans Spring beans for `@ReachCapability`, registers the project and instance, sends heartbeat data, and syncs capability snapshots on startup when enabled.
+The starter registers the project and instance and sends heartbeat data during SDK onboarding. Do not add a capability startup-sync setting. SDK interface scan/sync is triggered later from ReachAI **API Management（API 管理）** by choosing the project, adding interfaces, and manually starting SDK sync. 中文产品口径是：接口扫描由 API 管理手动触发。
 
-## Scan Boundary
+## API Management Manual SDK Sync Boundary
 
-ReachAI should sync business APIs, not every controller visible in the Spring application context.
+ReachAI should sync business APIs, not every controller visible in the Spring application context. This boundary is preparation for the later API Management manual SDK sync, not an SDK onboarding completion task.
 
-Before writing `reachai.capability` configuration:
+Before writing optional `reachai.capability` scan boundary configuration:
 - Identify the runnable application's real business package from the `@SpringBootApplication` class, business controller/service packages, and Maven module names.
 - If the application class sits in a broad platform root package, do not use that root as the scan package. Choose narrower business packages instead.
 - Configure `reachai.capability.scan-packages` with business-owned packages only.
 - Configure `reachai.capability.exclude-packages` for framework, platform, starter, generated, and third-party packages.
 - If the business package cannot be determined confidently, stop and ask the user to choose from the candidate packages.
+- Do not add a capability startup-sync setting or call the capability sync endpoint during SDK onboarding.
 
 Recommended examples:
 
@@ -93,7 +94,9 @@ reachai:
 
 Do not set `scan-packages` to generic roots such as `com`, `com.company`, or a platform framework root unless the user explicitly confirms that all controllers under that root are business APIs.
 
-## Capability Selection
+## Optional Capability Metadata Preparation
+
+Do not make project API sync a condition for SDK onboarding. Only prepare annotations when the user explicitly asks to prepare metadata for later API Management manual SDK sync.
 
 Start with low-risk read-only methods:
 - Query by id/code/name.
@@ -120,8 +123,8 @@ Use `@ReachOutput` only on response DTO fields that should be visible to later w
 The SDK access check may return both detailed `checks` and summarized `readiness` levels:
 
 - `CODE_READY`: manifest, dependencies/configuration, registry credentials, gateway base URL, and token broker path are present.
-- `RUNTIME_READY`: the business service has started with `REACHAI_REGISTRY_APP_SECRET`, SDK heartbeat is online, and API assets have synced.
-- `E2E_READY`: a selected API asset or embed chat/token-broker path has completed a real invocation.
+- `RUNTIME_READY`: the business service has started with `REACHAI_REGISTRY_APP_SECRET` and SDK heartbeat is online.
+- `E2E_READY`: the embed chat/token-broker path has completed a real invocation. If SDK interfaces have already been manually synced in API Management, a selected project interface invocation can also be used as optional evidence.
 
 `CODE_READY` can pass while `RUNTIME_READY` or `E2E_READY` remains WARN. Treat that as "code/config looks ready but runtime has not proven itself yet", not as an automatic integration failure.
 
@@ -172,6 +175,7 @@ SecurityWebFilterChain reachAiEmbedProxySecurity(ServerHttpSecurity http) {
 ```
 
 - In Spring Cloud Gateway this usually means both a route rewrite and a gateway authentication whitelist/security matcher. If both the gateway and ReachAI add CORS response headers, add route-level dedupe such as `DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST` so the browser does not hide the real 401/500 response as `status 0 Unknown Error`.
+- ReachAI Control application-level CORS for `/api/embed/**` is controlled by `reachai.embed.cors.enabled` and defaults to `false`. Keep it disabled behind a gateway that owns CORS headers; enable and restrict allowed origins only for direct browser-to-ReachAI deployments.
 - In Nginx or a BFF, apply the same auth bypass and CORS de-duplication rule at the real authentication/proxy boundary.
 
 ### Gateway checklist
@@ -267,7 +271,7 @@ createEafChat({
 })
 ```
 
-`apiBase` must be the ReachAI platform origin (or a gateway host that exposes **`/api/embed/**`**). The SDK requests `${apiBase}/api/embed/chat/sessions`. **Do not** set `apiBase: '/api/reachai/embed'`; that becomes `/api/reachai/embed/api/embed/...`. If the gateway only proxies `/api/reachai/embed/**`, add a `/api/embed/**` route or keep `apiBase` as the ReachAI origin for direct browser access.
+`apiBase` can be the ReachAI platform origin. If the browser must use a gateway prefix, configure `embedPathPrefix`, for example `/api/reachai/embed`; current `@reachai/embed-chat` also treats `/api/embed` and `/api/reachai/embed` as full Embed API roots to avoid appending `/api/embed` twice. Keep token broker paths such as `/api/reachai/embed-token` separate from the Chat embed API root.
 
 Do not create one chat button per Workflow. Keep one global embedded AI button and let ReachAI resolve the page/action/intent Workflow from `pageKey` and `ai_agent_workflow_binding`.
 
@@ -284,8 +288,8 @@ When the ReachAI prompt provides `/api/ai-coding/projects/{projectId}/access-ses
 Recommended reporting points:
 - `project-manifest`: manifest fetched and parsed.
 - `backend-sdk`: Maven dependencies added to the correct modules.
-- `reachai-config`: `reachai.registry`, `reachai.project`, and `reachai.capability` configured with narrow package scans.
-- `capability-scan`: sample capabilities annotated or MVC scanning configured.
+- `reachai-config`: `reachai.registry`, `reachai.project`, and `reachai.capability` configured without a capability startup-sync setting.
+- `api-management-handoff`: SDK interface scan/sync left for ReachAI API Management manual trigger; optional scan boundaries or annotations prepared only if requested.
 - `gateway-route`: capability invocation route configured.
 - `embed-token-broker`: server-side token broker implemented.
 - `gateway-whitelist`: `/api/reachai/embed/**` bypasses business OAuth/JWT filters and forwards the embed token.

@@ -5,7 +5,6 @@ import {
   Grid,
   Key,
   Link,
-  Lock,
   Monitor,
   Operation,
   Star,
@@ -126,14 +125,6 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
           disabled: !deps.project.value?.id,
           action: deps.goPageAssistantWizard,
         },
-        {
-          title: '代码扫描补充上下文',
-          desc: '供 Cursor、Codex、Claude Code 扫描代码后提交项目/页面/API/Workflow 上下文候选。',
-          icon: Collection,
-          tone: 'green',
-          disabled: !deps.project.value?.id,
-          action: deps.goContextCandidateReview,
-        },
       ],
     },
     {
@@ -156,14 +147,6 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
           action: deps.goPageActionGovernance,
         },
         {
-          title: '上下文治理',
-          desc: '维护项目背景、页面/API/Workflow 契约、规则、证据和组包预览。',
-          icon: Collection,
-          tone: 'green',
-          disabled: !deps.project.value?.id,
-          action: deps.goContextGovernance,
-        },
-        {
           title: '工具管理',
           desc: '查看项目下可被 Agent Runtime 调用的 Tool 清单。',
           icon: Tools,
@@ -176,14 +159,6 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
     {
       title: '编排与发布',
       items: [
-        {
-          title: '能力变更评审',
-          desc: '发布前处理能力快照 diff、字段变化、apply / ignore。',
-          icon: Lock,
-          tone: 'green',
-          disabled: !deps.project.value?.id,
-          action: deps.goCapabilitySync,
-        },
         {
           title: 'Workflow 编排',
           desc: '查看并编辑本项目下的可执行 Workflow，进入 Studio、版本和发布链路。',

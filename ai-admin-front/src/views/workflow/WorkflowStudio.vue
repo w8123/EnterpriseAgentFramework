@@ -1737,7 +1737,7 @@
       </el-tabs>
     </el-drawer>
 
-    <el-dialog v-model="apiQueryTemplateOpen" title="从 API 资产生成查询流程" width="900px" class="api-query-template-dialog">
+    <el-dialog v-model="apiQueryTemplateOpen" title="从项目接口生成查询流程" width="900px" class="api-query-template-dialog">
       <div class="api-query-template-body">
         <el-alert
           type="info"
@@ -1750,7 +1750,7 @@
             :prefix-icon="Search"
             clearable
             placeholder="搜索接口名称、路径、描述"
-            @keyup.enter="reloadApiQueryTemplateAssets"
+            @keyup.enter="reloadApiQueryTemplateTools"
           />
           <el-select v-model="apiQueryTemplateFilters.toolLinkStatus" clearable placeholder="Tool 状态">
             <el-option label="已关联 Tool" value="LINKED" />
@@ -1758,16 +1758,16 @@
             <el-option label="全局 Tool 缺失" value="GLOBAL_MISSING" />
           </el-select>
           <el-input v-model="apiQueryTemplateActionKey" placeholder="page.search.applyFilters" />
-          <el-button type="primary" @click="reloadApiQueryTemplateAssets">查询</el-button>
+          <el-button type="primary" @click="reloadApiQueryTemplateTools">查询</el-button>
         </div>
         <el-table
           v-loading="apiQueryTemplateLoading"
-          :data="apiQueryTemplateAssets"
-          row-key="apiId"
+          :data="apiQueryTemplateTools"
+          row-key="scanToolId"
           :row-class-name="apiQueryTemplateRowClassName"
           height="420"
           stripe
-          empty-text="暂无 API 资产"
+          empty-text="暂无项目接口"
         >
           <el-table-column label="接口" min-width="280" show-overflow-tooltip>
             <template #default="{ row }">
@@ -1780,8 +1780,8 @@
           <el-table-column label="项目 / 模块" min-width="190" show-overflow-tooltip>
             <template #default="{ row }">
               <div class="api-template-cell">
-                <strong>{{ row.projectName || row.projectCode || '-' }}</strong>
-                <span>{{ row.moduleName || '-' }}</span>
+                <strong>{{ row.projectCode || studio?.projectCode || '-' }}</strong>
+                <span>{{ row.moduleDisplayName || '-' }}</span>
               </div>
             </template>
           </el-table-column>
@@ -1816,7 +1816,7 @@
             v-model:page-size="apiQueryTemplateFilters.pageSize"
             layout="total, prev, pager, next"
             :total="apiQueryTemplateTotal"
-            @current-change="loadApiQueryTemplateAssets"
+            @current-change="loadApiQueryTemplateTools"
           />
         </div>
       </div>
@@ -3038,14 +3038,14 @@ const {
 const {
   apiQueryTemplateOpen,
   apiQueryTemplateLoading,
-  apiQueryTemplateAssets,
+  apiQueryTemplateTools,
   apiQueryTemplateTotal,
   apiQueryTemplateActionKey,
   apiQueryTemplateFilters,
   openApiQueryTemplateDialog,
-  reloadApiQueryTemplateAssets,
-  loadApiQueryTemplateAssets,
-  applyApiAssetRouteContext,
+  reloadApiQueryTemplateTools,
+  loadApiQueryTemplateTools,
+  applyProjectApiRouteContext,
   apiQueryTemplateRowClassName,
   apiQueryTemplateSelectable,
   apiQueryTemplateStatusLabel,
@@ -3158,7 +3158,7 @@ onMounted(async () => {
     loadModelOptions(),
     loadKnowledgeOptions(),
   ])
-  applyApiAssetRouteContext()
+  applyProjectApiRouteContext()
   resetHistorySnapshot()
   window.addEventListener('resize', updateViewportWidth)
   window.addEventListener('keydown', handleStudioShortcut)

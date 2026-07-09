@@ -93,6 +93,8 @@ When posting results to `POST /api/embed/chat/sessions/{sessionId}/page-actions/
 
 Bridge handlers and Angular templates may use richer internal shapes such as `error: { code, message }`. Map those to string `error` (and an appropriate `status`) at the Embed API boundary. SDK internal statuses like `FAILED`, `CANCELLED`, or `TIMEOUT` should be mapped before posting; successful execution should use `status: SUCCESS`.
 
+Use `references/page-action-result.schema.json` as the standard DTO schema. Use `references/page-action-mock.html` as a runnable mock for consuming `data.metadata.pageActionQueue`, invoking the page bridge, and posting one result per request id.
+
 ## Register Page files
 
 `endpoints.registerPageUrl` accepts:

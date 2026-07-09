@@ -41,7 +41,7 @@ const emit = defineEmits<{
       type="success"
       :closable="false"
       show-icon
-      title="SDK / 注册中心项目"
+      title="SDK 接入项目"
       description="此处配置保存在 scan_settings，业务系统 SDK 下次同步接口能力时按此解析说明与参数。已关联全局 Tool 的接口请在目录中使用「更新到Tool」。"
     />
     <el-alert

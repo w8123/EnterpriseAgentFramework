@@ -3,6 +3,7 @@ package com.enterprise.ai.control.aiassist;
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -13,6 +14,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -51,6 +53,14 @@ class ControlAiCodingProjectControllerTest {
                 response.getBody().endpoints().manifestUrl());
         assertEquals("http://localhost:18603/api/ai-coding/projects/7/page-assistant/onboarding-manifest",
                 response.getBody().endpoints().pageAssistantManifestUrl());
+        assertEquals("com.enterprise.ai:reachai-spring-boot2-starter:1.0.0-SNAPSHOT",
+                response.getBody().sdkArtifacts().get(1).coordinates());
+        assertEquals("npm-or-local-sdk-build",
+                response.getBody().sdkArtifacts().get(2).sourcePolicy());
+        assertEquals("ApiResult", response.getBody().responseShapes().get("embed").wrapper());
+        assertEquals("data.answer", response.getBody().responseShapes().get("embed").fields().get("answer"));
+        assertEquals("bare-json", response.getBody().responseShapes().get("aiAccessSessions").wrapper());
+        assertEquals("sessionId", response.getBody().responseShapes().get("aiAccessSessions").fields().get("sessionId"));
         assertFalse(response.toString().contains("aic_secret"));
         verify(client).getOnboardingProjectById(7L);
     }
@@ -173,7 +183,15 @@ class ControlAiCodingProjectControllerTest {
         assertEquals(true, response.getBody().get("createdDefaultWorkflow"));
         assertEquals(true, response.getBody().get("createdDefaultBinding"));
         verify(runtimeClient).createAgent(org.mockito.ArgumentMatchers.anyMap());
-        verify(runtimeClient).createWorkflow(org.mockito.ArgumentMatchers.anyMap());
+        ArgumentCaptor<Map<String, Object>> workflowBodyCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(runtimeClient).createWorkflow(workflowBodyCaptor.capture());
+        String graphSpecJson = String.valueOf(workflowBodyCaptor.getValue().get("graphSpecJson"));
+        assertFalse(graphSpecJson.contains("\"nodes\":[]"));
+        assertTrue(graphSpecJson.contains("\"entry\":\"user_input\""));
+        assertTrue(graphSpecJson.contains("\"type\":\"USER_INPUT\""));
+        assertTrue(graphSpecJson.contains("\"type\":\"ANSWER\""));
+        assertTrue(graphSpecJson.contains("\"from\":\"user_input\""));
+        assertTrue(graphSpecJson.contains("\"to\":\"answer\""));
         verify(runtimeClient).createAgentWorkflowBinding(org.mockito.ArgumentMatchers.eq("agent-1"),
                 org.mockito.ArgumentMatchers.anyMap());
     }

@@ -1286,20 +1286,6 @@ class DomainController {
     Object coverage() { return null; }
 }
 `)
-writeFile(allowedRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/ApiAssetController.java', `
-package com.enterprise.ai.capability.catalog;
-
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-
-@RestController
-@RequestMapping("/api/api-assets")
-class ApiAssetController {
-    @GetMapping
-    Object list() { return null; }
-}
-`)
 writeFile(allowedRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/registry/CapabilityRegistryCompatibilityController.java', `
 package com.enterprise.ai.capability.registry;
 

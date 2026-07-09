@@ -67,7 +67,7 @@ export function testComposition(name: string, args: Record<string, unknown>) {
   return controlRequest.post<CompositionTestResult>(`${BASE}/${encodeURIComponent(name)}/test`, { args })
 }
 
-/** 浜や簰寮忚〃鍗曡兘鍔涙寕璧峰悗缁х画锛堢‘璁ゅ崱 / 琛ㄥ崟鎵逛氦绛夛級 */
+/** 交互式表单能力挂起后继续（确认卡 / 表单批交等） */
 export function testCompositionResume(
   name: string,
   body: { interactionId: string; action?: string; values?: Record<string, unknown> },

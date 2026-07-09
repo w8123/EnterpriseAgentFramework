@@ -9,3 +9,4 @@
 | [JDK8-SDK与JDK17-Runtime分层.md](./JDK8-SDK与JDK17-Runtime分层.md) | JDK8 业务接入 SDK 与 JDK17 中台 Runtime 分层 |
 | [Workflow-AI-Coding.md](./Workflow-AI-Coding.md) | Workflow AI Coding API、Patch 协议和 Page Assistant 扩展 |
 | [Context-Governance-Kernel.md](./Context-Governance-Kernel.md) | 上下文治理内核定位、API 边界和验证命令 |
+| [前端Glass-Workbench设计系统与UI重构.md](./前端Glass-Workbench设计系统与UI重构.md) | 管理端 Glass Workbench 设计语言、Design Token 三层模型、公共组件规范与本轮 UI 重构实施计划 |

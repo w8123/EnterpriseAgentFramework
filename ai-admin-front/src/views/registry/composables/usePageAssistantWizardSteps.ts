@@ -15,7 +15,7 @@ import {
 export interface UsePageAssistantWizardStepsDeps {
   pageRegistry: Ref<PageRegistryView[]>
   pageActions: Ref<PageActionRegistryView[]>
-  apiAssets: Ref<unknown[]>
+  projectApiTools: Ref<unknown[]>
   selectedPageKey: Ref<string>
   selectedPage: ComputedRef<PageRegistryView | null>
   selectedActions: Ref<PageActionRegistryView[]>
@@ -75,7 +75,7 @@ export function usePageAssistantWizardSteps(deps: UsePageAssistantWizardStepsDep
       pageCount: deps.pageRegistry.value.length,
       actionCount: deps.pageActions.value.length,
       activeActionCount: activeActionCount.value,
-      apiAssetCount: deps.apiAssets.value.length,
+      projectApiCount: deps.projectApiTools.value.length,
     }),
   )
 

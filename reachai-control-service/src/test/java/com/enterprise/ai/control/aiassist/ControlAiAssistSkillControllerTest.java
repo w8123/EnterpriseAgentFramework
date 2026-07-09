@@ -38,6 +38,19 @@ class ControlAiAssistSkillControllerTest {
                 response.getBody().downloadUrl());
         assertTrue(response.getBody().files().stream()
                 .anyMatch(file -> "scripts/reachai-page-assistant.ps1".equals(file.path())));
+        assertTrue(response.getBody().files().stream()
+                .anyMatch(file -> "references/page-action-result.schema.json".equals(file.path())));
+        assertTrue(response.getBody().files().stream()
+                .anyMatch(file -> "references/page-action-mock.html".equals(file.path())));
+    }
+
+    @Test
+    void downloadsReachAiOnboardingSkillZipWithPageActionSchemaAndMock() throws IOException {
+        ResponseEntity<byte[]> response = controller.downloadLatestSkill();
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertZipContains(response.getBody(), "reachai-onboarding/references/page-action-result.schema.json");
+        assertZipContains(response.getBody(), "reachai-onboarding/references/page-action-mock.html");
     }
 
     @Test

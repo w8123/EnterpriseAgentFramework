@@ -6,10 +6,10 @@ import {
   DataBoard,
   Warning,
 } from '@element-plus/icons-vue'
-import type { ApiAssetItem } from '@/types/apiAsset'
 import type { ProjectInstance } from '@/types/registry'
 import type {
   AiAccessSession,
+  ProjectToolInfo,
   ScanProject,
   SdkAccessCheckResponse,
 } from '@/types/scanProject'
@@ -19,7 +19,6 @@ import {
 } from '@/views/registry/sdkAccessWizardViewModel'
 
 export type SdkAccessWizardStepKey =
-  | 'overview'
   | 'starter'
   | 'gateway'
   | 'backend-check'
@@ -36,12 +35,12 @@ export interface UseSdkAccessWizardProgressDeps {
   activeStep: Ref<SdkAccessWizardStepKey>
   project: Ref<ScanProject | null>
   instances: Ref<ProjectInstance[]>
-  apiAssets: Ref<ApiAssetItem[]>
+  projectApiTools: Ref<ProjectToolInfo[]>
   accessSession: Ref<AiAccessSession | null>
   checkResult: Ref<SdkAccessCheckResponse | null>
   isSdkBackedProject: Readonly<Ref<boolean>>
   onlineInstanceCount: Readonly<Ref<number>>
-  callableApiAssets: Readonly<Ref<ApiAssetItem[]>>
+  callableProjectApiTools: Readonly<Ref<ProjectToolInfo[]>>
   gatewayBaseUrl: Ref<string>
   embedTokenPath: Ref<string>
   manualChecks: SdkAccessWizardManualChecks
@@ -51,14 +50,6 @@ export function useSdkAccessWizardProgress(deps: UseSdkAccessWizardProgressDeps)
   const steps = computed(() => [
     {
       index: 1,
-      key: 'overview' as const,
-      title: '项目识别',
-      desc: '确认项目类型与基础状态',
-      status: deps.project.value && deps.isSdkBackedProject.value ? '已完成' : '待确认',
-      done: Boolean(deps.project.value && deps.isSdkBackedProject.value),
-    },
-    {
-      index: 2,
       key: 'starter' as const,
       title: '后端 Starter',
       desc: '复制并确认后端配置',
@@ -66,7 +57,7 @@ export function useSdkAccessWizardProgress(deps: UseSdkAccessWizardProgressDeps)
       done: Boolean(deps.project.value?.registryCredentialConfigured || deps.manualChecks.starter),
     },
     {
-      index: 3,
+      index: 2,
       key: 'gateway' as const,
       title: '网关路由',
       desc: '配置业务网关转发规则',
@@ -74,15 +65,15 @@ export function useSdkAccessWizardProgress(deps: UseSdkAccessWizardProgressDeps)
       done: Boolean(deps.gatewayBaseUrl.value.trim() && deps.manualChecks.gateway),
     },
     {
-      index: 4,
+      index: 3,
       key: 'backend-check' as const,
       title: '业务服务校验',
-      desc: '确认实例与 API 资产',
-      status: deps.onlineInstanceCount.value > 0 && deps.callableApiAssets.value.length > 0 ? '已完成' : '待处理',
-      done: deps.onlineInstanceCount.value > 0 && deps.callableApiAssets.value.length > 0,
+      desc: '确认 SDK 实例心跳',
+      status: deps.onlineInstanceCount.value > 0 ? '已完成' : '待处理',
+      done: deps.onlineInstanceCount.value > 0,
     },
     {
-      index: 5,
+      index: 4,
       key: 'frontend' as const,
       title: '前端 Embed Token',
       desc: '接入短期 token broker',
@@ -90,10 +81,10 @@ export function useSdkAccessWizardProgress(deps: UseSdkAccessWizardProgressDeps)
       done: Boolean(deps.embedTokenPath.value.trim() && deps.manualChecks.frontend),
     },
     {
-      index: 6,
+      index: 5,
       key: 'self-check' as const,
       title: '最终自检',
-      desc: '平台真实调用业务接口',
+      desc: '平台接入自检与可选调用',
       status: deps.checkResult.value?.overallStatus === 'PASS' ? '已完成' : '待处理',
       done: deps.checkResult.value?.overallStatus === 'PASS',
     },
@@ -137,10 +128,12 @@ export function useSdkAccessWizardProgress(deps: UseSdkAccessWizardProgressDeps)
       accent: 'instances',
     },
     {
-      label: 'API 资产',
-      value: `${deps.callableApiAssets.value.length} 可调用`,
-      desc: `${deps.apiAssets.value.length} 个接口已进入目录`,
-      tone: deps.callableApiAssets.value.length > 0 ? 'good' : 'neutral',
+      label: '接口同步',
+      value: 'API 管理手动触发',
+      desc: deps.projectApiTools.value.length > 0
+        ? `${deps.projectApiTools.value.length} 个接口已进入目录`
+        : '接入完成后到 API 管理添加接口',
+      tone: deps.projectApiTools.value.length > 0 ? 'good' : 'neutral',
       icon: Connection,
       iconText: 'API',
       accent: 'assets',
@@ -167,10 +160,10 @@ export function useSdkAccessWizardProgress(deps: UseSdkAccessWizardProgressDeps)
       icon: deps.onlineInstanceCount.value > 0 ? CircleCheck : Warning,
     },
     {
-      label: 'API 资产',
-      desc: deps.callableApiAssets.value.length > 0 ? `${deps.callableApiAssets.value.length} 个可调用接口` : '暂未检测到可调用接口',
-      status: deps.callableApiAssets.value.length > 0 ? 'pass' : 'warn',
-      icon: deps.callableApiAssets.value.length > 0 ? CircleCheck : Warning,
+      label: '接口扫描',
+      desc: '不作为 SDK 接入完成条件；请在 API 管理手动同步 SDK 接口',
+      status: 'pass',
+      icon: CircleCheck,
     },
   ])
 

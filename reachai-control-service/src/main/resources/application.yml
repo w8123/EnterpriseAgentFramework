@@ -27,6 +27,11 @@ services:
   knowledge-service:
     url: ${KNOWLEDGE_SERVICE_URL:http://localhost:18602}
 
+reachai:
+  embed:
+    cors:
+      enabled: ${REACHAI_EMBED_CORS_ENABLED:false}
+
 management:
   endpoints:
     web:

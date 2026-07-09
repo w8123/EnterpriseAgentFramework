@@ -111,7 +111,7 @@ export function debugWorkflowRun(data: WorkflowDebugRunRequest) {
   return controlRequest.post<WorkflowDebugRunResult>('/api/workflows/studio/debug-run', data)
 }
 
-/** Workflow Studio 鍙仮澶嶈皟璇曚細璇濓紙GraphSpec-native锛宼argetType=WORKFLOW_DRAFT锛?*/
+/** Workflow Studio 可恢复调试会话（GraphSpec-native，targetType=WORKFLOW_DRAFT） */
 export function createWorkflowDebugSession(data: WorkflowDebugSessionCreateRequest) {
   return controlRequest.post<WorkflowDebugSessionView>('/api/runtime/debug-sessions', data)
 }

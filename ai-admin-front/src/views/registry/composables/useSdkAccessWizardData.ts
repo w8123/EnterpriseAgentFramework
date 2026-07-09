@@ -1,27 +1,28 @@
 import { computed, ref, type Ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { listApiAssets } from '@/api/apiAsset'
 import { listRegistryProjectInstances } from '@/api/registry'
 import {
   getAiOnboardingManifest,
   getLatestAiAccessSession,
   getScanProjectDetail,
+  getScanProjectTools,
   getScanProjects,
   runAiAccessSessionChecks,
   startAiAccessSession,
 } from '@/api/scanProject'
-import type { ApiAssetItem } from '@/types/apiAsset'
 import type { ProjectInstance } from '@/types/registry'
 import type {
   AiAccessSession,
   AiOnboardingManifest,
+  ProjectToolInfo,
   ScanProject,
   SdkAccessCheckResponse,
 } from '@/types/scanProject'
+import { isProjectApiToolSelectable } from '@/utils/projectApiTools'
 
 export interface UseSdkAccessWizardDataDeps {
-  selectedApiAssetId: Ref<number | null>
+  selectedScanToolId: Ref<number | null>
   argsText: Ref<string>
   gatewayBaseUrl: Ref<string>
   embedTokenPath: Ref<string>
@@ -34,7 +35,7 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
   const projectCode = deps.projectCode ?? computed(() => String(route.params.projectCode || ''))
   const project = ref<ScanProject | null>(null)
   const instances = ref<ProjectInstance[]>([])
-  const apiAssets = ref<ApiAssetItem[]>([])
+  const projectApiTools = ref<ProjectToolInfo[]>([])
   const loading = ref(false)
   const checking = ref(false)
   const aiPromptLoading = ref(false)
@@ -58,8 +59,8 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     instances.value.filter((item) => item.status === 'ONLINE').length,
   )
 
-  const callableApiAssets = computed(() =>
-    apiAssets.value.filter((item) => item.enabled && item.agentVisible),
+  const callableProjectApiTools = computed(() =>
+    projectApiTools.value.filter(isProjectApiToolSelectable),
   )
 
   async function loadAccessSession(projectId: number) {
@@ -69,6 +70,13 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     } catch {
       accessSession.value = null
     }
+  }
+
+  async function loadAiOnboardingManifest(projectId: number) {
+    const { data } = await getAiOnboardingManifest(projectId)
+    aiOnboardingManifest.value = data
+    aiCodingAccessEnabled.value = data.aiCodingAccess?.enabled ?? false
+    aiCodingAccessKey.value = data.aiCodingAccess?.accessKey || ''
   }
 
   async function ensureAccessSession(projectId: number) {
@@ -87,17 +95,22 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
         project.value = null
         return
       }
-      const [{ data: detail }, { data: instanceRows }, { data: assetPage }] = await Promise.all([
+      const [{ data: detail }, { data: instanceRows }, { data: toolRows }] = await Promise.all([
         getScanProjectDetail(matched.id),
         listRegistryProjectInstances(matched.projectCode || projectCode.value),
-        listApiAssets({ projectId: matched.id, page: 1, pageSize: 100, enabled: true }),
+        getScanProjectTools(matched.id, 'full'),
       ])
       project.value = detail
       instances.value = instanceRows
-      apiAssets.value = assetPage.items || []
+      projectApiTools.value = toolRows || []
       await loadAccessSession(detail.id)
-      if (!deps.selectedApiAssetId.value) {
-        deps.selectedApiAssetId.value = callableApiAssets.value[0]?.apiId || apiAssets.value[0]?.apiId || null
+      await loadAiOnboardingManifest(detail.id).catch(() => {
+        aiOnboardingManifest.value = null
+        aiCodingAccessEnabled.value = false
+        aiCodingAccessKey.value = ''
+      })
+      if (!deps.selectedScanToolId.value) {
+        deps.selectedScanToolId.value = callableProjectApiTools.value[0]?.scanToolId || projectApiTools.value[0]?.scanToolId || null
       }
     } catch (error) {
       ElMessage.error((error as Error).message || '加载 SDK 接入向导失败')
@@ -115,10 +128,7 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     aiPromptLoading.value = true
     try {
       await ensureAccessSession(p.id)
-      const { data } = await getAiOnboardingManifest(p.id)
-      aiOnboardingManifest.value = data
-      aiCodingAccessEnabled.value = data.aiCodingAccess?.enabled ?? false
-      aiCodingAccessKey.value = data.aiCodingAccess?.accessKey || ''
+      await loadAiOnboardingManifest(p.id)
       aiPromptDialogVisible.value = true
     } catch (error) {
       ElMessage.error((error as Error).message || '加载 AI 快速接入提示词失败')
@@ -142,7 +152,7 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     checking.value = true
     try {
       const payload = {
-        apiAssetId: deps.selectedApiAssetId.value,
+        scanToolId: deps.selectedScanToolId.value,
         args,
         gatewayBaseUrl: deps.gatewayBaseUrl.value,
         embedTokenPath: deps.embedTokenPath.value,
@@ -163,7 +173,7 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     projectCode,
     project,
     instances,
-    apiAssets,
+    projectApiTools,
     loading,
     checking,
     aiPromptLoading,
@@ -176,7 +186,7 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     checkResult,
     isSdkBackedProject,
     onlineInstanceCount,
-    callableApiAssets,
+    callableProjectApiTools,
     loadAll,
     openAiOnboardingPrompt,
     runCheck,

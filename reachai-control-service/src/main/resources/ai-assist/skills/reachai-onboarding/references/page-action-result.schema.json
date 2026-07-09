@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reachai.local/schemas/embed-page-action-result.v1.json",
+  "title": "ReachAI Embed Page Action Result",
+  "type": "object",
+  "required": ["type", "requestId", "actionKey", "status"],
+  "properties": {
+    "protocolVersion": {
+      "type": "string",
+      "default": "1.0"
+    },
+    "type": {
+      "const": "page.action.result"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actionKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["SUCCESS", "FAILED", "CANCELLED", "ACTION_NOT_FOUND", "FORBIDDEN", "TIMEOUT"],
+      "default": "SUCCESS"
+    },
+    "data": true,
+    "error": {
+      "type": "string",
+      "description": "Embed API DTO accepts a string error. Map structured bridge errors to a string at this boundary."
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

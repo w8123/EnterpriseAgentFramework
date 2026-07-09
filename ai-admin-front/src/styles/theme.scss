@@ -1,4 +1,4 @@
-﻿// ============================================
+// ============================================
 // AI 能力中台 - 主题系统
 // ============================================
 
@@ -29,6 +29,12 @@
   --radius-md: 10px;
   --radius-lg: 16px;
   --radius-xl: 20px;
+  --reachai-workbench-breadcrumb-height: 44px;
+  --reachai-workbench-title-gap: 10px;
+  --reachai-workbench-page-padding: var(--reachai-workbench-title-gap) 28px 16px;
+  --reachai-workbench-title-height: 120px;
+  --reachai-workbench-title-padding: 26px 28px;
+  --reachai-workbench-title-radius: 16px;
   --transition-fast: 0.15s ease;
   --transition-normal: 0.25s ease;
   --transition-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1001,20 +1007,7 @@
     background-color: #ffffff !important;
   }
 
-  // 顶栏
-  .topbar {
-    background: #ffffff !important;
-    border-bottom: 1px solid #c0c4cc !important;
-    backdrop-filter: none !important;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-  }
-
-  .breadcrumb-area .el-breadcrumb__inner {
-    color: #303133;
-  }
-  .breadcrumb-area .el-breadcrumb__separator {
-    color: #909399;
-  }
+  // 顶栏浅色样式由 MainLayout 统一负责（Glass Workbench 基线），此处不再覆盖
 
   // 主内容区顶部渐变：降低透明度，避免覆盖顶栏
   .main-content::before {
@@ -1563,7 +1556,6 @@
     radial-gradient(circle at 20% 18%, rgba(199, 210, 254, 0.38), transparent 34%),
     radial-gradient(circle at 72% 72%, rgba(216, 180, 254, 0.22), transparent 32%),
     linear-gradient(135deg, #dcdff8 0%, #f3efff 48%, #dfe5fb 100%);
-  --brand-topbar-bg: linear-gradient(90deg, rgba(38, 42, 95, 0.9) 0%, rgba(91, 72, 170, 0.68) 52%, rgba(199, 210, 254, 0.76) 100%);
   --brand-glass-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.6), rgba(237, 233, 254, 0.38));
   --brand-glass-card-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.7), rgba(237, 233, 254, 0.34));
   --brand-soft-bg: rgba(238, 242, 255, 0.68);
@@ -1585,13 +1577,12 @@
   --brand-active-rgb: 9 98 71;
   --brand-selected-rgb: 227 247 242;
   --brand-page-bg:
-    linear-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.13) 1px, transparent 1px),
-    radial-gradient(circle at 78% 0%, rgba(227, 247, 242, 0.96), transparent 28%),
-    radial-gradient(circle at 20% 18%, rgba(113, 198, 172, 0.32), transparent 34%),
-    radial-gradient(circle at 72% 72%, rgba(45, 147, 117, 0.16), transparent 32%),
-    linear-gradient(135deg, #d9eee8 0%, #f3fbf8 48%, #d8ece6 100%);
-  --brand-topbar-bg: linear-gradient(90deg, rgba(9, 98, 71, 0.9) 0%, rgba(45, 147, 117, 0.68) 52%, rgba(227, 247, 242, 0.76) 100%);
+    radial-gradient(620px 520px at 52% -16%, rgba(110, 231, 191, 0.18), transparent 70%),
+    radial-gradient(620px 560px at 78% 23%, rgba(167, 243, 208, 0.16), transparent 72%),
+    radial-gradient(700px 380px at 58% 58%, rgba(255, 255, 255, 0.36), transparent 72%),
+    #eef7f3;
+  --brand-page-bg-size: auto;
+  --brand-page-frame-border: rgba(215, 230, 247, 0.95);
   --brand-glass-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.6), rgba(227, 247, 242, 0.42));
   --brand-glass-card-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(227, 247, 242, 0.38));
   --brand-soft-bg: rgba(227, 247, 242, 0.72);
@@ -1619,7 +1610,6 @@
     radial-gradient(circle at 18% 16%, rgba(125, 211, 252, 0.3), transparent 34%),
     radial-gradient(circle at 78% 76%, rgba(34, 211, 238, 0.18), transparent 33%),
     linear-gradient(135deg, #d8f4f8 0%, #f4fdff 48%, #dceff7 100%);
-  --brand-topbar-bg: linear-gradient(90deg, rgba(14, 116, 144, 0.9) 0%, rgba(8, 145, 178, 0.66) 52%, rgba(207, 250, 254, 0.76) 100%);
   --brand-glass-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.62), rgba(236, 254, 255, 0.44));
   --brand-glass-card-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.74), rgba(236, 254, 255, 0.4));
   --brand-soft-bg: rgba(236, 254, 255, 0.72);
@@ -1647,7 +1637,6 @@
     radial-gradient(circle at 18% 18%, rgba(196, 181, 253, 0.36), transparent 34%),
     radial-gradient(circle at 72% 74%, rgba(244, 114, 182, 0.2), transparent 32%),
     linear-gradient(135deg, #e6defb 0%, #fff1fb 50%, #e2e8ff 100%);
-  --brand-topbar-bg: linear-gradient(90deg, rgba(76, 29, 149, 0.9) 0%, rgba(124, 58, 237, 0.66) 48%, rgba(244, 114, 182, 0.48) 100%);
   --brand-glass-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.62), rgba(243, 232, 255, 0.42));
   --brand-glass-card-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.74), rgba(243, 232, 255, 0.38));
   --brand-soft-bg: rgba(243, 232, 255, 0.72);
@@ -1675,7 +1664,6 @@
     radial-gradient(circle at 18% 18%, rgba(251, 113, 133, 0.28), transparent 34%),
     radial-gradient(circle at 72% 76%, rgba(244, 63, 94, 0.18), transparent 32%),
     linear-gradient(135deg, #f8dce4 0%, #fff5f7 48%, #f5e6ef 100%);
-  --brand-topbar-bg: linear-gradient(90deg, rgba(136, 19, 55, 0.9) 0%, rgba(225, 29, 72, 0.66) 52%, rgba(255, 228, 230, 0.76) 100%);
   --brand-glass-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.62), rgba(255, 228, 230, 0.44));
   --brand-glass-card-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.74), rgba(255, 228, 230, 0.4));
   --brand-soft-bg: rgba(255, 228, 230, 0.72);
@@ -1703,7 +1691,6 @@
     radial-gradient(circle at 18% 18%, rgba(252, 211, 77, 0.32), transparent 34%),
     radial-gradient(circle at 72% 76%, rgba(245, 158, 11, 0.16), transparent 32%),
     linear-gradient(135deg, #f4ead5 0%, #fffaf0 48%, #efe4d7 100%);
-  --brand-topbar-bg: linear-gradient(90deg, rgba(120, 53, 15, 0.9) 0%, rgba(180, 83, 9, 0.68) 52%, rgba(254, 243, 199, 0.74) 100%);
   --brand-glass-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.62), rgba(254, 243, 199, 0.44));
   --brand-glass-card-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.74), rgba(254, 243, 199, 0.38));
   --brand-soft-bg: rgba(254, 243, 199, 0.72);
@@ -1731,7 +1718,6 @@
     radial-gradient(circle at 18% 18%, rgba(147, 197, 253, 0.32), transparent 34%),
     radial-gradient(circle at 72% 76%, rgba(34, 211, 238, 0.16), transparent 32%),
     linear-gradient(135deg, #dbe8fb 0%, #f3fbff 48%, #dce9f7 100%);
-  --brand-topbar-bg: linear-gradient(90deg, rgba(30, 64, 175, 0.9) 0%, rgba(29, 78, 216, 0.66) 52%, rgba(125, 211, 252, 0.62) 100%);
   --brand-glass-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.62), rgba(219, 234, 254, 0.44));
   --brand-glass-card-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.74), rgba(219, 234, 254, 0.4));
   --brand-soft-bg: rgba(219, 234, 254, 0.72);

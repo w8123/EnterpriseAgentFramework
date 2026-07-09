@@ -15,6 +15,7 @@ export interface EafChatOptions {
   pageRegistry?: EafPageRegistryOptions
   page?: EafPageDescriptor
   apiBase?: string
+  embedPathPrefix?: string
   stream?: boolean
   theme?: EafChatTheme
   locale?: 'zh-CN' | 'en-US' | string
@@ -122,7 +123,8 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   if (!mount) throw new Error('mount element not found')
 
   const bridge = options.bridge || createEafPageBridge({ route: location.pathname })
-  const apiBase = trimTrailingSlash(options.apiBase || '')
+  const apiBase = resolveEafChatEmbedApiRoot(options.apiBase, options.embedPathPrefix)
+  const platformBase = resolveEafChatPlatformBase(options.apiBase)
   let token = await options.tokenProvider()
   let session = await createSession(apiBase, token, bridge, options.page)
   let context: Record<string, unknown> = { ...(options.context || {}) }
@@ -185,7 +187,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
 
   async function registerPageCatalog() {
     if (destroyed) return
-    await registerPageCatalogIfConfigured(apiBase, options, bridge)
+    await registerPageCatalogIfConfigured(platformBase, options, bridge)
   }
 
   function syncOpenState() {
@@ -226,7 +228,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     if (options.stream !== false) {
       try {
         return await postSseJson(
-          `${apiBase}/api/embed/chat/sessions/${encodeURIComponent(active.sessionId)}/messages/stream`,
+          `${apiBase}/chat/sessions/${encodeURIComponent(active.sessionId)}/messages/stream`,
           { message: text, context },
           token,
           messagesEl,
@@ -243,7 +245,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
           await refreshTokenForCurrentSession()
           try {
             return await postSseJson(
-              `${apiBase}/api/embed/chat/sessions/${encodeURIComponent(active.sessionId)}/messages/stream`,
+              `${apiBase}/chat/sessions/${encodeURIComponent(active.sessionId)}/messages/stream`,
               { message: text, context },
               token,
               messagesEl,
@@ -259,7 +261,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
             if (!isUnauthorized(retryError)) throw retryError
             const refreshed = await refreshSession()
             return postSseJson(
-              `${apiBase}/api/embed/chat/sessions/${encodeURIComponent(refreshed.sessionId)}/messages/stream`,
+              `${apiBase}/chat/sessions/${encodeURIComponent(refreshed.sessionId)}/messages/stream`,
               { message: text, context },
               token,
               messagesEl,
@@ -296,7 +298,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
 
   async function sendJsonMessage(sessionId: string, text: string): Promise<EafChatMessageResponse> {
     const response = await postJson<EafChatMessageResponse>(
-      `${apiBase}/api/embed/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
+      `${apiBase}/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
       { message: text, context },
       token,
     )
@@ -316,7 +318,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     pendingPollInFlight = true
     try {
       const active = await ensureSession()
-      const pendingUrl = `${apiBase}/api/embed/chat/sessions/${encodeURIComponent(active.sessionId)}/page-actions/pending?limit=10`
+      const pendingUrl = `${apiBase}/chat/sessions/${encodeURIComponent(active.sessionId)}/page-actions/pending?limit=10`
       let requests: PageActionDispatchRequest[]
       try {
         requests = await getJson<PageActionDispatchRequest[]>(pendingUrl, token)
@@ -408,7 +410,7 @@ export function buildEafChatSessionPayload(bridge: EafPageBridge, page?: EafPage
 
 async function createSession(apiBase: string, token: string, bridge: EafPageBridge, page?: EafPageDescriptor): Promise<EmbedSessionResponse> {
   return postJson<EmbedSessionResponse>(
-    `${apiBase}/api/embed/chat/sessions`,
+    `${apiBase}/chat/sessions`,
     buildEafChatSessionPayload(bridge, page),
     token,
   )
@@ -947,7 +949,7 @@ function textBlock(text: string): HTMLElement {
 
 async function postPageActionResult(apiBase: string, sessionId: string, token: string, result: PageActionResult) {
   await postJson(
-    `${apiBase}/api/embed/chat/sessions/${encodeURIComponent(sessionId)}/page-actions/${encodeURIComponent(result.requestId)}/result`,
+    `${apiBase}/chat/sessions/${encodeURIComponent(sessionId)}/page-actions/${encodeURIComponent(result.requestId)}/result`,
     result,
     token,
   )
@@ -976,6 +978,53 @@ function isUnauthorized(error: unknown): boolean {
 
 function escapeText(value: string) {
   return value.replace(/[<>&"']/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[ch] || ch))
+}
+
+export function resolveEafChatEmbedApiRoot(apiBase?: string, embedPathPrefix?: string): string {
+  const base = trimTrailingSlash((apiBase || '').trim())
+  if (embedPathPrefix !== undefined) {
+    const prefix = normalizePathPrefix(embedPathPrefix || '/api/embed')
+    return joinBaseAndPrefix(stripPathSuffix(base, prefix), prefix)
+  }
+  if (isKnownEmbedApiRoot(base)) {
+    return base
+  }
+  return joinBaseAndPrefix(base, '/api/embed')
+}
+
+export function resolveEafChatPlatformBase(apiBase?: string): string {
+  const base = trimTrailingSlash((apiBase || '').trim())
+  if (!base) return ''
+  if (isKnownEmbedApiRoot(base)) {
+    return base.replace(/\/api\/(?:reachai\/)?embed$/i, '')
+  }
+  return base
+}
+
+function joinBaseAndPrefix(base: string, prefix: string): string {
+  const normalizedBase = trimTrailingSlash(base)
+  const normalizedPrefix = normalizePathPrefix(prefix)
+  if (!normalizedBase) return normalizedPrefix || ''
+  if (!normalizedPrefix) return normalizedBase
+  return `${normalizedBase}${normalizedPrefix}`
+}
+
+function stripPathSuffix(value: string, suffix: string): string {
+  const normalizedSuffix = normalizePathPrefix(suffix)
+  if (!value || !normalizedSuffix) return value
+  return value.toLowerCase().endsWith(normalizedSuffix.toLowerCase())
+    ? trimTrailingSlash(value.slice(0, -normalizedSuffix.length))
+    : value
+}
+
+function normalizePathPrefix(value: string): string {
+  const trimmed = trimTrailingSlash((value || '').trim())
+  if (!trimmed) return ''
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+}
+
+function isKnownEmbedApiRoot(value: string): boolean {
+  return /\/api\/(?:reachai\/)?embed$/i.test(value)
 }
 
 function trimTrailingSlash(value: string) {

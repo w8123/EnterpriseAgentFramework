@@ -26,6 +26,7 @@ import type {
   ScanProjectRegistryCredentialSaveRequest,
   SdkAccessCheckRequest,
   SdkAccessCheckResponse,
+  SdkCapabilityScanResult,
   ScanProjectScanResult,
   ScanProjectUpsertRequest,
   ScanSettings,
@@ -48,8 +49,21 @@ export interface ScanDiffSummary {
   }>
 }
 
-export function getScanProjects() {
-  return controlRequest.get<ScanProject[]>('/api/scan-projects')
+export interface ScanProjectListQuery {
+  keyword?: string
+  projectKind?: ScanProject['projectKind'] | ''
+  status?: ScanProject['status'] | ''
+}
+
+export function getScanProjects(query: ScanProjectListQuery = {}) {
+  const keyword = query.keyword?.trim()
+  return controlRequest.get<ScanProject[]>('/api/scan-projects', {
+    params: {
+      keyword: keyword || undefined,
+      projectKind: query.projectKind || undefined,
+      status: query.status || undefined,
+    },
+  })
 }
 
 export function getScanProjectDetail(id: number) {
@@ -230,6 +244,10 @@ export function triggerScan(id: number) {
 
 export function triggerRescan(id: number) {
   return controlRequest.post<ScanProjectScanResult>(`/api/scan-projects/${id}/rescan`)
+}
+
+export function triggerSdkCapabilityScan(projectId: number) {
+  return controlRequest.post<SdkCapabilityScanResult>(`/api/scan-projects/${projectId}/sdk-sync/scan`)
 }
 
 /** 单条接口：从源码 / OpenAPI 重新解析并更新该扫描项。 */

@@ -60,7 +60,30 @@ public class CapabilityScanProjectCatalogService {
     private final ObjectMapper objectMapper;
 
     public List<ScanProjectEntity> list() {
+        return list(null, null, null);
+    }
+
+    public List<ScanProjectEntity> list(String keyword, String projectKind, String status) {
+        String keywordText = trimToNull(keyword);
+        String normalizedProjectKind = StringUtils.hasText(projectKind)
+                ? projectKind.trim().toUpperCase(Locale.ROOT)
+                : null;
+        String normalizedStatus = StringUtils.hasText(status)
+                ? status.trim().toLowerCase(Locale.ROOT)
+                : null;
         return scanProjectMapper.selectList(new LambdaQueryWrapper<ScanProjectEntity>()
+                .and(StringUtils.hasText(keywordText), wrapper -> wrapper
+                        .like(ScanProjectEntity::getName, keywordText)
+                        .or()
+                        .like(ScanProjectEntity::getProjectCode, keywordText)
+                        .or()
+                        .like(ScanProjectEntity::getOwner, keywordText)
+                        .or()
+                        .like(ScanProjectEntity::getEnvironment, keywordText)
+                        .or()
+                        .like(ScanProjectEntity::getBaseUrl, keywordText))
+                .eq(StringUtils.hasText(normalizedProjectKind), ScanProjectEntity::getProjectKind, normalizedProjectKind)
+                .eq(StringUtils.hasText(normalizedStatus), ScanProjectEntity::getStatus, normalizedStatus)
                 .orderByDesc(ScanProjectEntity::getUpdateTime)
                 .orderByDesc(ScanProjectEntity::getId));
     }
@@ -200,8 +223,8 @@ public class CapabilityScanProjectCatalogService {
                 overall,
                 List.of(
                         new SdkAccessReadiness("CODE_READY", "代码接入", overall, "SDK onboarding route is available"),
-                        new SdkAccessReadiness("RUNTIME_READY", "Runtime 就绪", overall, "Runtime readiness requires business service heartbeat"),
-                        new SdkAccessReadiness("E2E_READY", "端到端", overall, "Run a business API call to complete final verification")),
+                        new SdkAccessReadiness("RUNTIME_READY", "Runtime 就绪", overall, "Runtime readiness requires SDK instance heartbeat"),
+                        new SdkAccessReadiness("E2E_READY", "端到端", overall, "Verify embed/token broker flow; API calls are optional after API Management manual SDK sync")),
                 checks);
     }
 

@@ -1,6 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import type { RouteRecordRaw } from 'vue-router'
+import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from 'vue-router'
 import { getPlatformToken } from '@/utils/platformAuth'
+
+/** 项目详情动态面包屑目标：从当前路由取 projectCode。 */
+const toProjectDetail = (route: RouteLocationNormalizedLoaded) => ({
+  path: `/registry/projects/${route.params.projectCode}`,
+})
+
+const toProjectPageActions = (route: RouteLocationNormalizedLoaded) => ({
+  path: `/registry/projects/${route.params.projectCode}/page-actions`,
+})
 
 const routes: RouteRecordRaw[] = [
   {
@@ -168,6 +177,26 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '能力' },
       },
       {
+        path: 'capability/review',
+        name: 'CapabilityReview',
+        component: () => import('@/views/registry/CapabilitySyncDebug.vue'),
+        meta: {
+          title: '能力变更评审',
+          activeMenu: '/capability/review',
+          breadcrumb: [{ title: '能力内核' }, { title: '能力变更评审' }],
+        },
+      },
+      {
+        path: 'capability/sync-snapshot',
+        name: 'CapabilitySyncSnapshot',
+        component: () => import('@/views/registry/CapabilitySyncDebug.vue'),
+        meta: {
+          title: '同步能力快照',
+          activeMenu: '/capability/sync-snapshot',
+          breadcrumb: [{ title: '能力内核' }, { title: '同步能力快照' }],
+        },
+      },
+      {
         path: 'capability/tools',
         name: 'CapabilityKernelTools',
         component: () => import('@/views/capability/CapabilityKernel.vue'),
@@ -225,31 +254,48 @@ const routes: RouteRecordRaw[] = [
         path: 'registry/projects',
         name: 'RegistryProjectList',
         component: () => import('@/views/registry/RegistryProjectList.vue'),
-        meta: { title: '注册中心 · 项目管理' },
+        meta: {
+          title: '项目中心 · 项目管理',
+          activeMenu: '/registry/projects',
+          breadcrumb: [{ title: '项目中心' }, { title: '项目管理' }],
+        },
       },
       {
         path: 'registry/projects/:projectCode',
         name: 'RegistryProjectDetail',
         component: () => import('@/views/registry/RegistryProjectDetail.vue'),
-        meta: { title: '注册中心 · 项目详情' },
-      },
-      {
-        path: 'registry/api-assets',
-        name: 'ApiAssetCatalog',
-        component: () => import('@/views/registry/ApiAssetCatalog.vue'),
-        meta: { title: '注册中心 · API 资产目录' },
+        meta: {
+          title: '项目中心 · 项目详情',
+          activeMenu: '/registry/projects',
+          breadcrumb: [
+            { title: '项目中心' },
+            { title: '项目管理', to: { path: '/registry/projects' } },
+            { title: '项目详情' },
+          ],
+        },
       },
       {
         path: 'registry/capability-sync',
         name: 'CapabilitySyncDebug',
         component: () => import('@/views/registry/CapabilitySyncDebug.vue'),
-        meta: { title: '能力变更评审' },
+        meta: {
+          title: '能力变更评审',
+          activeMenu: '/capability/review',
+          breadcrumb: [
+            { title: '能力内核' },
+            { title: '能力变更评审' },
+          ],
+        },
       },
       {
         path: 'registry/runtimes',
         name: 'RuntimeRegistry',
         component: () => import('@/views/registry/RuntimeRegistry.vue'),
-        meta: { title: 'Runtime 纳管' },
+        meta: {
+          title: 'Runtime 纳管',
+          activeMenu: '/registry/runtimes',
+          breadcrumb: [{ title: '治理运维' }, { title: 'Runtime 纳管' }],
+        },
       },
       {
         path: 'registry/projects/:projectCode/page-actions',
@@ -257,8 +303,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/settings/EmbedOpsMonitor.vue'),
         meta: {
           title: '前端页面管理',
+          activeMenu: '/registry/projects',
           breadcrumb: [
-            { title: '注册中心 · 项目详情' },
+            { title: '项目中心' },
+            { title: '项目管理', to: { path: '/registry/projects' } },
+            { title: '项目详情', to: toProjectDetail },
             { title: '前端页面管理' },
           ],
         },
@@ -267,31 +316,67 @@ const routes: RouteRecordRaw[] = [
         path: 'registry/projects/:projectCode/page-assistant',
         name: 'PageAssistantWizard',
         component: () => import('@/views/registry/PageAssistantWizard.vue'),
-        meta: { title: '创建页面助手' },
+        meta: {
+          title: '创建页面助手',
+          activeMenu: '/registry/projects',
+          breadcrumb: [
+            { title: '项目中心' },
+            { title: '项目管理', to: { path: '/registry/projects' } },
+            { title: '项目详情', to: toProjectDetail },
+            { title: '创建页面助手' },
+          ],
+        },
       },
       {
         path: 'registry/projects/:projectCode/sdk-access',
         name: 'SdkAccessWizard',
         component: () => import('@/views/registry/SdkAccessWizard.vue'),
-        meta: { title: 'SDK 接入向导' },
+        meta: {
+          title: 'SDK 接入向导',
+          activeMenu: '/registry/projects',
+          breadcrumb: [
+            { title: '项目中心' },
+            { title: '项目管理', to: { path: '/registry/projects' } },
+            { title: '项目详情', to: toProjectDetail },
+            { title: 'SDK 接入向导' },
+          ],
+        },
       },
       {
         path: 'registry/projects/:projectCode/page-actions/sessions',
         name: 'EmbedSessionAudit',
         component: () => import('@/views/settings/EmbedSessionAudit.vue'),
-        meta: { title: '嵌入式会话审计' },
+        meta: {
+          title: '嵌入式会话审计',
+          activeMenu: '/registry/projects',
+          breadcrumb: [
+            { title: '项目中心' },
+            { title: '项目管理', to: { path: '/registry/projects' } },
+            { title: '项目详情', to: toProjectDetail },
+            { title: '前端页面管理', to: toProjectPageActions },
+            { title: '嵌入式会话审计' },
+          ],
+        },
       },
       {
         path: 'scan-project',
         name: 'ScanProjectList',
-        redirect: '/registry/api-assets',
+        redirect: '/registry/projects',
         meta: { title: '项目与 API 接入' },
       },
       {
         path: 'scan-project/:id',
         name: 'ScanProjectDetail',
         component: () => import('@/views/scan/ScanProjectDetail.vue'),
-        meta: { title: 'API 目录' },
+        meta: {
+          title: 'API 管理',
+          activeMenu: '/registry/projects',
+          breadcrumb: [
+            { title: '项目中心' },
+            { title: '项目管理', to: { path: '/registry/projects' } },
+            { title: 'API 管理' },
+          ],
+        },
       },
 
       // ── 对外开放 / MCP ──

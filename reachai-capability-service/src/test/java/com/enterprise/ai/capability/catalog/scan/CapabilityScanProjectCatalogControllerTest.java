@@ -32,7 +32,8 @@ class CapabilityScanProjectCatalogControllerTest {
         RequestMapping controllerMapping = CapabilityScanProjectCatalogController.class.getAnnotation(RequestMapping.class);
         Method create = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
                 "create", CapabilityScanProjectCatalogController.ScanProjectUpsertRequest.class);
-        Method list = CapabilityScanProjectCatalogController.class.getDeclaredMethod("list");
+        Method list = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
+                "list", String.class, String.class, String.class);
         Method get = CapabilityScanProjectCatalogController.class.getDeclaredMethod("get", Long.class);
         Method update = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
                 "update", Long.class, CapabilityScanProjectCatalogController.ScanProjectUpsertRequest.class);
@@ -47,6 +48,8 @@ class CapabilityScanProjectCatalogControllerTest {
         Method delete = CapabilityScanProjectCatalogController.class.getDeclaredMethod("delete", Long.class);
         Method scan = CapabilityScanProjectCatalogController.class.getDeclaredMethod("scan", Long.class);
         Method rescan = CapabilityScanProjectCatalogController.class.getDeclaredMethod("rescan", Long.class);
+        Method triggerSdkScan = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
+                "triggerSdkScan", Long.class);
         Method startSensitiveDataScan = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
                 "startSensitiveDataScan", Long.class, String.class);
         Method sensitiveDataScanStatus = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
@@ -82,6 +85,8 @@ class CapabilityScanProjectCatalogControllerTest {
         assertArrayEquals(new String[] {"/{id}"}, delete.getAnnotation(DeleteMapping.class).value());
         assertArrayEquals(new String[] {"/{id}/scan"}, scan.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/{id}/rescan"}, rescan.getAnnotation(PostMapping.class).value());
+        assertArrayEquals(new String[] {"/{id}/sdk-sync/scan"},
+                triggerSdkScan.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/{id}/sensitive-data/scan"},
                 startSensitiveDataScan.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/{id}/sensitive-data/status"},
@@ -108,9 +113,10 @@ class CapabilityScanProjectCatalogControllerTest {
         CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
         CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
         ScanProjectEntity project = project();
-        when(service.list()).thenReturn(List.of(project));
+        when(service.list(null, null, null)).thenReturn(List.of(project));
 
-        ResponseEntity<List<CapabilityScanProjectCatalogController.ScanProjectDTO>> response = controller.list();
+        ResponseEntity<List<CapabilityScanProjectCatalogController.ScanProjectDTO>> response =
+                controller.list(null, null, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         CapabilityScanProjectCatalogController.ScanProjectDTO dto = response.getBody().get(0);
@@ -120,6 +126,21 @@ class CapabilityScanProjectCatalogControllerTest {
         assertEquals(4, dto.toolCount());
         assertEquals(4, dto.apiCount());
         assertEquals("none", dto.authType());
+    }
+
+    @Test
+    void forwardsListQueryParamsToService() {
+        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
+        CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
+        ScanProjectEntity project = project();
+        when(service.list("班组", "REGISTERED", "scanned")).thenReturn(List.of(project));
+
+        ResponseEntity<List<CapabilityScanProjectCatalogController.ScanProjectDTO>> response =
+                controller.list("班组", "REGISTERED", "scanned");
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(1, response.getBody().size());
+        verify(service).list("班组", "REGISTERED", "scanned");
     }
 
     @Test
@@ -135,6 +156,30 @@ class CapabilityScanProjectCatalogControllerTest {
         assertEquals(7L, response.getBody().id());
         assertEquals("orders", response.getBody().projectCode());
         verify(service).get(7L);
+    }
+
+    @Test
+    void triggerSdkScanDelegatesToSdkSyncTriggerService() {
+        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
+        CapabilitySdkSyncTriggerService sdkSyncTriggerService = mock(CapabilitySdkSyncTriggerService.class);
+        CapabilityScanProjectCatalogController controller =
+                new CapabilityScanProjectCatalogController(service, null, sdkSyncTriggerService);
+        CapabilitySdkSyncTriggerService.SdkSyncTriggerResponse delegated =
+                new CapabilitySdkSyncTriggerService.SdkSyncTriggerResponse(
+                7L,
+                "orders",
+                "dev-1",
+                "https://orders.example.com/reachai/registry/capabilities/sync",
+                3,
+                Map.of("capabilityCount", 3)
+        );
+        when(sdkSyncTriggerService.triggerScan(7L)).thenReturn(delegated);
+
+        ResponseEntity<?> response = controller.triggerSdkScan(7L);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(delegated, response.getBody());
+        verify(sdkSyncTriggerService).triggerScan(7L);
     }
 
     @Test

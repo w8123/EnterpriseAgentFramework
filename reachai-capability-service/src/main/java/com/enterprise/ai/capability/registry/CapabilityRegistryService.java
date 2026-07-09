@@ -181,7 +181,7 @@ public class CapabilityRegistryService {
     public ProjectInstanceEntity updateInstanceStatus(String projectCode, String instanceId, String status) {
         ScanProjectEntity project = getProject(projectCode);
         if (!StringUtils.hasText(instanceId)) {
-            throw new IllegalArgumentException("instanceId 涓嶈兘涓虹┖");
+            throw new IllegalArgumentException("instanceId 不能为空");
         }
         String normalizedStatus = normalizeInstanceStatus(status);
         ProjectInstanceEntity entity = getInstance(project, instanceId);
@@ -196,7 +196,7 @@ public class CapabilityRegistryService {
                                                                RuntimeGovernancePolicyUpdateRequest request) {
         ScanProjectEntity project = getProject(projectCode);
         if (request == null || !StringUtils.hasText(request.instanceId())) {
-            throw new IllegalArgumentException("instanceId 涓嶈兘涓虹┖");
+            throw new IllegalArgumentException("instanceId 不能为空");
         }
         ProjectInstanceEntity entity = getInstance(project, request.instanceId());
         RuntimeGovernancePolicy current = governancePolicy(entity);
@@ -492,7 +492,7 @@ public class CapabilityRegistryService {
                 .eq(ProjectInstanceEntity::getInstanceId, instanceId)
                 .last("limit 1"));
         if (entity == null) {
-            throw new IllegalArgumentException("瀹炰緥涓嶅瓨鍦? " + instanceId);
+            throw new IllegalArgumentException("实例不存在: " + instanceId);
         }
         return entity;
     }
@@ -748,7 +748,7 @@ public class CapabilityRegistryService {
 
     private CapabilityRegistration findRegistration(CapabilitySnapshotEntity snapshot, String qualifiedName) {
         try {
-            CapabilitySyncRequest request = objectMapper.readValue(snapshot.getPayloadJson(), CapabilitySyncRequest.class);
+            CapabilitySyncRequest request = readSnapshotSyncRequest(snapshot);
             if (request.capabilities() == null) {
                 return null;
             }
@@ -759,6 +759,21 @@ public class CapabilityRegistryService {
                     .orElse(null);
         } catch (Exception ex) {
             return null;
+        }
+    }
+
+    private CapabilitySyncRequest readSnapshotSyncRequest(CapabilitySnapshotEntity snapshot) {
+        if (snapshot == null || !StringUtils.hasText(snapshot.getPayloadJson())) {
+            throw new IllegalArgumentException("SDK 同步快照无法解析");
+        }
+        try {
+            CapabilitySyncRequest request = objectMapper.readValue(snapshot.getPayloadJson(), CapabilitySyncRequest.class);
+            if (request == null) {
+                throw new IllegalArgumentException("SDK 同步快照无法解析");
+            }
+            return request;
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("SDK 同步快照无法解析", ex);
         }
     }
 
@@ -943,12 +958,12 @@ public class CapabilityRegistryService {
 
     private String normalizeInstanceStatus(String status) {
         if (!StringUtils.hasText(status)) {
-            throw new IllegalArgumentException("status 涓嶈兘涓虹┖");
+            throw new IllegalArgumentException("status 不能为空");
         }
         String normalized = status.trim().toUpperCase(Locale.ROOT);
         return switch (normalized) {
             case "ONLINE", "OFFLINE", "DISABLED", "STALE" -> normalized;
-            default -> throw new IllegalArgumentException("涓嶆敮鎸佺殑瀹炰緥鐘舵€? " + status);
+            default -> throw new IllegalArgumentException("不支持的实例状态: " + status);
         };
     }
 }

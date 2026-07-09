@@ -1,7 +1,6 @@
 import type { Component } from 'vue'
 import { Connection, Operation, Search } from '@element-plus/icons-vue'
 import type { PageActionRegistryView, PageRegistryView } from '@/api/embedOps'
-import type { ApiAssetItem } from '@/types/apiAsset'
 import type { PageAssistantSessionSummary } from '@/types/scanProject'
 import type { ModelInstance } from '@/types/model'
 import type { WorkflowDraftGenerationResult } from '@/types/workflow'
@@ -62,7 +61,7 @@ export interface WizardStatsInput {
   pageCount: number
   actionCount: number
   activeActionCount: number
-  apiAssetCount: number
+  projectApiCount: number
 }
 
 export function buildWizardStats(input: WizardStatsInput) {
@@ -70,7 +69,7 @@ export function buildWizardStats(input: WizardStatsInput) {
     { key: 'page', icon: '页', label: '页面', value: String(input.pageCount) },
     { key: 'action', icon: '动', label: '动作', value: String(input.actionCount) },
     { key: 'active', icon: 'A', label: 'ACTIVE', value: String(input.activeActionCount) },
-    { key: 'api', icon: 'API', label: 'API 资产', value: String(input.apiAssetCount) },
+    { key: 'api', icon: 'API', label: '项目接口', value: String(input.projectApiCount) },
   ]
 }
 

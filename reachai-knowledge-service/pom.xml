@@ -12,10 +12,10 @@
 
     <artifactId>reachai-knowledge-service</artifactId>
     <name>ReachAI Knowledge Retrieval Service</name>
-    <description>ReachAI Knowledge / Retrieval deployment unit 鈥?鐭ヨ瘑搴撱€佹枃妗?Pipeline銆丷AG銆佸悜閲忔绱€佷笟鍔＄储寮曞拰鍘嗗彶 OpenAPI/Controller 鎵弿瀹炵幇</description>
+    <description>ReachAI Knowledge / Retrieval deployment unit - 知识库、文档 Pipeline、RAG、向量检索、业务索引和历史 OpenAPI/Controller 扫描实现</description>
 
     <dependencies>
-        <!-- 鍐呴儴鍏叡搴?-->
+        <!-- 内部公共库 -->
         <dependency>
             <groupId>com.enterprise.ai</groupId>
             <artifactId>ai-common</artifactId>

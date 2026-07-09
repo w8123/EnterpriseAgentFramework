@@ -370,6 +370,64 @@ class CapabilityRegistryServiceTest {
             insertedTool.set(entity);
             return 1;
         });
+        AtomicReference<CapabilitySnapshotEntity> insertedSnapshot = new AtomicReference<>();
+        when(snapshotMapper.insert(any())).thenAnswer(invocation -> {
+            CapabilitySnapshotEntity entity = invocation.getArgument(0);
+            entity.setId(21L);
+            insertedSnapshot.set(entity);
+            return 1;
+        });
+        when(diffItemMapper.insert(any())).thenAnswer(invocation -> {
+            CapabilityDiffItemEntity entity = invocation.getArgument(0);
+            entity.setId(31L);
+            return 1;
+        });
+        when(diffItemMapper.updateById(any())).thenAnswer(invocation -> {
+            updatedDiffItem.set(invocation.getArgument(0));
+            return 1;
+        });
+
+        CapabilitySyncResponse response = service.sync("orders", new CapabilitySyncRequest(
+                "sync-2",
+                "SDK",
+                null,
+                List.of(newCapabilityRegistration())
+        ));
+
+        assertEquals(1, response.added());
+        assertEquals(1, response.applied());
+        assertEquals("APPLIED", insertedSnapshot.get().getStatus());
+        ScanProjectToolEntity tool = insertedTool.get();
+        assertNotNull(tool);
+        assertEquals(7L, tool.getProjectId());
+        assertEquals("orders_createOrder", tool.getName());
+        assertEquals("sdk:orders:createOrder", tool.getSourceLocation());
+        assertEquals("POST", tool.getHttpMethod());
+        assertEquals("http://orders.local", tool.getBaseUrl());
+        assertEquals(Boolean.FALSE, tool.getRemovedFromSource());
+        assertEquals("APPLIED", updatedDiffItem.get().getReviewStatus());
+    }
+
+    @Test
+    void explicitApplyImportsSdkCapabilitiesIntoApiCatalogRows() {
+        ScanProjectEntity project = new ScanProjectEntity();
+        project.setId(7L);
+        project.setProjectCode("orders");
+        project.setBaseUrl("http://orders.default");
+        project.setContextPath("/orders");
+        project.setVisibility("PROJECT");
+        when(scanProjectMapper.selectOne(any())).thenReturn(project);
+        when(scanProjectToolMapper.selectOne(any())).thenReturn(null);
+        when(scanProjectToolMapper.selectList(any())).thenReturn(List.of());
+        when(toolDefinitionMapper.selectOne(any())).thenReturn(null);
+        AtomicReference<ScanProjectToolEntity> insertedTool = new AtomicReference<>();
+        AtomicReference<CapabilityDiffItemEntity> updatedDiffItem = new AtomicReference<>();
+        when(scanProjectToolMapper.insert(any())).thenAnswer(invocation -> {
+            ScanProjectToolEntity entity = invocation.getArgument(0);
+            entity.setId(51L);
+            insertedTool.set(entity);
+            return 1;
+        });
         when(snapshotMapper.insert(any())).thenAnswer(invocation -> {
             CapabilitySnapshotEntity entity = invocation.getArgument(0);
             entity.setId(21L);
@@ -385,7 +443,7 @@ class CapabilityRegistryServiceTest {
             return 1;
         });
 
-        CapabilitySyncResponse response = service.sync("orders", new CapabilitySyncRequest(
+        CapabilitySyncResponse response = service.apply("orders", new CapabilitySyncRequest(
                 "sync-2",
                 "SDK",
                 null,

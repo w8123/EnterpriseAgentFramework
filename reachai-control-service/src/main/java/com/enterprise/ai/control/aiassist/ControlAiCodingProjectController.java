@@ -33,6 +33,22 @@ public class ControlAiCodingProjectController {
 
     private static final String AI_CODING_HEADER = "X-ReachAI-AiCoding-Key";
     private static final String PAGE_COPILOT_KIND = "PAGE_COPILOT";
+    private static final String DEFAULT_WORKFLOW_GRAPH_SPEC_JSON = "{"
+            + "\"version\":\"1.0\","
+            + "\"entry\":\"user_input\","
+            + "\"nodes\":["
+            + "{\"id\":\"user_input\",\"type\":\"USER_INPUT\",\"name\":\"User Input\"},"
+            + "{\"id\":\"answer\",\"type\":\"ANSWER\",\"name\":\"Answer\",\"config\":{\"template\":\"{{ input }}\"}}"
+            + "],"
+            + "\"edges\":[{\"id\":\"user_input__answer\",\"from\":\"user_input\",\"to\":\"answer\"}]"
+            + "}";
+    private static final String DEFAULT_WORKFLOW_CANVAS_JSON = "{"
+            + "\"nodes\":["
+            + "{\"id\":\"user_input\",\"type\":\"USER_INPUT\",\"position\":{\"x\":120,\"y\":160},\"data\":{\"label\":\"User Input\"}},"
+            + "{\"id\":\"answer\",\"type\":\"ANSWER\",\"position\":{\"x\":420,\"y\":160},\"data\":{\"label\":\"Answer\"}}"
+            + "],"
+            + "\"edges\":[{\"id\":\"user_input__answer\",\"source\":\"user_input\",\"target\":\"answer\"}]"
+            + "}";
 
     private final CapabilityProjectOnboardingClient capabilityClient;
     private final RuntimeProxyClient runtimeClient;
@@ -59,6 +75,8 @@ public class ControlAiCodingProjectController {
                                     "Send the project AI Coding key in X-ReachAI-AiCoding-Key.",
                                     "Do not put aiCodingKey in query strings or generated browser runtime code.",
                                     "This manifest does not echo the raw project key.")),
+                    ControlAiAssistProjectController.sdkArtifacts(),
+                    ControlAiAssistProjectController.responseShapes(),
                     gatewayEndpoints(baseUrl, root, projectId),
                     contextCandidateSubmission(root),
                     capabilities(root, baseUrl, projectId)));
@@ -117,6 +135,8 @@ public class ControlAiCodingProjectController {
                                     projectManifest.baseUrl(),
                                     projectManifest.contextPath(),
                                     projectManifest.environment())),
+                    ControlAiAssistProjectController.sdkArtifacts(),
+                    ControlAiAssistProjectController.responseShapes(),
                     new ControlAiAssistProjectController.PlatformEndpoints(
                             baseUrl + "/api/ai-assist/skills/reachai-onboarding/latest.zip",
                             root + "/onboarding-manifest",
@@ -547,8 +567,8 @@ public class ControlAiCodingProjectController {
         body.put("runtimeType", "LANGGRAPH4J");
         body.put("status", "DRAFT");
         body.put("managedBy", "SDK_ONBOARDING");
-        body.put("graphSpecJson", "{\"version\":\"1.0\",\"nodes\":[],\"edges\":[]}");
-        body.put("canvasJson", "{\"nodes\":[],\"edges\":[]}");
+        body.put("graphSpecJson", DEFAULT_WORKFLOW_GRAPH_SPEC_JSON);
+        body.put("canvasJson", DEFAULT_WORKFLOW_CANVAS_JSON);
         return new RuntimeObject(true, responseMap(runtimeClient.createWorkflow(body)));
     }
 
@@ -692,8 +712,8 @@ public class ControlAiCodingProjectController {
                 overall,
                 List.of(
                         new ControlAiAssistProjectController.SdkAccessReadiness("CODE_READY", "Code", overall, "SDK onboarding route is available"),
-                        new ControlAiAssistProjectController.SdkAccessReadiness("RUNTIME_READY", "Runtime", overall, "Runtime readiness requires business service heartbeat"),
-                        new ControlAiAssistProjectController.SdkAccessReadiness("E2E_READY", "E2E", overall, "Run a business API call to complete final verification")),
+                        new ControlAiAssistProjectController.SdkAccessReadiness("RUNTIME_READY", "Runtime", overall, "Runtime readiness requires SDK instance heartbeat"),
+                        new ControlAiAssistProjectController.SdkAccessReadiness("E2E_READY", "E2E", overall, "Verify embed/token broker flow; API calls are optional after API Management manual SDK sync")),
                 List.of(
                         new ControlAiAssistProjectController.SdkAccessCheckItem("PROJECT", "Project", "PASS", "Project loaded", null),
                         new ControlAiAssistProjectController.SdkAccessCheckItem("REGISTRY_CREDENTIAL", "Registry credential",
@@ -1038,6 +1058,8 @@ public class ControlAiCodingProjectController {
     public record AiCodingGatewayManifest(String schema,
                                           AiCodingProject project,
                                           AiCodingAuth auth,
+                                          List<ControlAiAssistProjectController.SdkArtifact> sdkArtifacts,
+                                          Map<String, ControlAiAssistProjectController.ResponseShape> responseShapes,
                                           AiCodingGatewayEndpoints endpoints,
                                           ContextCandidateSubmission contextCandidateSubmission,
                                           List<AiCodingCapability> capabilities) {

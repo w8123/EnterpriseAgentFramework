@@ -1,17 +1,44 @@
 <template>
   <div class="sdk-access-page" :class="theme === 'dark' ? 'is-dark-skin' : 'is-light-skin'">
-    <header class="page-header">
-      <div>
-        <el-button link :icon="ArrowLeft" @click="goBack">返回项目详情</el-button>
-        <h1>SDK 接入向导</h1>
-        <p>{{ project?.name || projectCode }} · {{ project?.projectCode || projectCode }}</p>
+    <AppPageBackground local />
+    <span class="page-ambient-center" aria-hidden="true" />
+    <header class="page-header title-card">
+      <div class="title-card-layers" aria-hidden="true">
+        <span class="title-card-hero-image" />
+        <span class="title-card-hero-wash" />
+        <span class="title-card-hero-overlay" />
+        <span class="title-card-glass-highlight" />
       </div>
-      <div class="header-actions">
-        <el-tag v-if="project" effect="plain">{{ formatProjectKindLabel(project.projectKind || '-') }}</el-tag>
-        <el-button :icon="Connection" :loading="aiPromptLoading" @click="openAiOnboardingPrompt">
-          使用 AI 快速接入
-        </el-button>
-        <el-button :icon="Refresh" :loading="loading" @click="loadAll">刷新状态</el-button>
+      <div class="title-card-body">
+        <div class="hero-copy">
+          <span class="hero-accent" aria-hidden="true" />
+          <div class="hero-text">
+            <h1>项目接入工作台</h1>
+            <p class="project-meta">{{ project?.name || projectCode }} · {{ project?.projectCode || projectCode }} · SDK 接入</p>
+          </div>
+        </div>
+        <div class="access-mode-switch title-mode-switch" role="tablist" aria-label="SDK 接入方式">
+          <button
+            type="button"
+            :class="{ active: accessMode === 'manual' }"
+            role="tab"
+            :aria-selected="accessMode === 'manual'"
+            @click="accessMode = 'manual'"
+          >
+            手动接入
+          </button>
+          <button
+            type="button"
+            class="tab-ai-coding"
+            :class="{ active: accessMode === 'ai-coding' }"
+            role="tab"
+            :aria-selected="accessMode === 'ai-coding'"
+            @click="accessMode = 'ai-coding'"
+          >
+            <el-icon v-if="accessMode === 'ai-coding'"><MagicStick /></el-icon>
+            AI Coding 接入
+          </button>
+        </div>
       </div>
     </header>
 
@@ -25,95 +52,48 @@
       description="SDK 接入向导仅适用于 SDK 接入或混合接入项目；扫描方式项目请继续使用 API 目录和扫描项目工作台。"
     />
 
-    <main class="wizard-shell">
-      <section class="step-progress" aria-label="SDK 接入步骤">
-        <div class="access-progress">
-          <span>
-            接入进度
-            <strong>{{ completedStepCount }}/{{ steps.length }}</strong>
-            已完成
-          </span>
-          <div class="access-progress-track" aria-hidden="true">
-            <i :style="{ width: `${completedPercent}%` }" />
-          </div>
-        </div>
-        <button
-          v-for="step in steps"
-          :key="step.key"
-          class="progress-step"
-          :class="{ active: activeStep === step.key, done: step.done }"
-          type="button"
-          @click="activeStep = step.key"
-        >
-          <span class="step-index">
-            <el-icon v-if="step.done"><Check /></el-icon>
-            <span v-else class="step-dot" />
-          </span>
-          <span class="step-copy">
-            <span class="step-title-line">
-              <span class="step-number">{{ step.index }}</span>
-              <strong>{{ step.title }}</strong>
+    <main class="access-workbench">
+      <section v-show="accessMode === 'manual'" class="manual-access-pane wizard-shell">
+        <section class="step-progress access-progress--refined" aria-label="SDK 接入步骤">
+          <div class="access-progress">
+            <span>
+              接入进度
+              <strong>{{ completedStepCount }}/{{ steps.length }}</strong>
+              已完成
             </span>
-            <small>{{ step.status }}</small>
-          </span>
-          <el-icon v-if="activeStep === step.key" class="step-caret"><ArrowRight /></el-icon>
-        </button>
-        <div v-if="accessSession" class="ai-session-card">
-          <div class="ai-session-head">
-            <span>AI 接入会话</span>
-            <el-tag size="small" effect="plain" :type="accessSessionTagType">
-              {{ accessStatusLabel(accessSession.status) }}
-            </el-tag>
-          </div>
-          <div class="ai-session-progress">
-            <strong>{{ accessSession.completedSteps }}/{{ accessSession.totalSteps }}</strong>
-            <span>{{ accessSession.sessionId }}</span>
-          </div>
-          <div class="ai-session-steps">
-            <div
-              v-for="item in accessSession.steps"
-              :key="item.stepKey"
-              class="ai-session-step"
-              :class="item.status.toLowerCase()"
-            >
-              <i />
-              <span>{{ item.title }}</span>
-              <em>{{ accessStatusLabel(item.status) }}</em>
+            <div class="access-progress-track" aria-hidden="true">
+              <i :style="{ width: `${completedPercent}%` }" />
             </div>
           </div>
-        </div>
-      </section>
+          <button
+            v-for="step in steps"
+            :key="step.key"
+            class="progress-step"
+            :class="{ active: activeStep === step.key, done: step.done }"
+            type="button"
+            @click="activeStep = step.key"
+          >
+            <span class="step-index">
+              <el-icon v-if="step.done"><Check /></el-icon>
+              <span v-else class="step-dot" />
+            </span>
+            <span class="step-copy">
+              <span class="step-title-line">
+                <span class="step-number">{{ step.index }}</span>
+                <strong>{{ step.title }}</strong>
+              </span>
+              <small>{{ step.status }}</small>
+            </span>
+            <el-icon v-if="activeStep === step.key" class="step-caret"><ArrowRight /></el-icon>
+          </button>
+        </section>
 
-      <section class="stage-shell">
-        <section class="focus-panel">
-          <div v-if="activeStep === 'overview'" class="step-screen">
+        <section class="stage-shell">
+          <section class="focus-panel">
+            <div v-if="activeStep === 'starter'" class="step-screen">
             <div class="panel-head">
               <div>
-                <span class="step-kicker">步骤 1</span>
-                <h2>项目识别</h2>
-              </div>
-              <el-tag :type="isSdkBackedProject ? 'success' : 'warning'" effect="plain">
-                {{ isSdkBackedProject ? 'SDK 项目' : '不适用' }}
-              </el-tag>
-            </div>
-
-            <div class="health-grid">
-              <div v-for="item in overviewCards" :key="item.label" class="health-card" :class="[item.tone, item.accent]">
-                <span class="health-icon">
-                  <span v-if="item.iconText" class="health-icon-text">{{ item.iconText }}</span>
-                  <el-icon v-else><component :is="item.icon" /></el-icon>
-                </span>
-                <span class="health-label">{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-                <small>{{ item.desc }}</small>
-              </div>
-            </div>
-          </div>
-
-          <div v-else-if="activeStep === 'starter'" class="step-screen">
-            <div class="panel-head">
-              <div>
-                <span class="step-kicker">步骤 2 / 6</span>
+                <span class="step-kicker">步骤 1 / 5</span>
                 <h2>后端 Starter</h2>
                 <p>将 SDK Starter 引入到你的业务服务中，并完成基础配置。</p>
               </div>
@@ -123,29 +103,23 @@
             <section class="config-section">
               <h3>1. 引入依赖（Maven）</h3>
               <p>将以下依赖添加到业务服务的 pom.xml 中；依赖必须来自已有 Maven 仓库或本机 install，平台地址不是 Maven 仓库。</p>
-              <div class="code-shell">
-                <div class="code-toolbar">
-                  <span>pom.xml</span>
-                  <el-button size="small" text :icon="DocumentCopy" @click="copyText(starterDependencySnippet)">
-                    复制
-                  </el-button>
-                </div>
-                <pre class="code-panel"><code v-html="highlightedStarterDependencySnippet" /></pre>
-              </div>
+              <CodeSnippetBlock
+                title="pom.xml"
+                :code="starterDependencySnippet"
+                :highlighted-code="highlightedStarterDependencySnippet"
+                @copy="copyText"
+              />
             </section>
 
             <section class="config-section">
               <h3>2. 配置文件（application.yml）</h3>
               <p>在 application.yml 中添加以下配置；项目密钥只通过环境变量注入。</p>
-              <div class="code-shell">
-                <div class="code-toolbar">
-                  <span>application.yml</span>
-                  <el-button size="small" text :icon="DocumentCopy" @click="copyText(starterApplicationSnippet)">
-                    复制
-                  </el-button>
-                </div>
-                <pre class="code-panel"><code v-html="highlightedStarterApplicationSnippet" /></pre>
-              </div>
+              <CodeSnippetBlock
+                title="application.yml"
+                :code="starterApplicationSnippet"
+                :highlighted-code="highlightedStarterApplicationSnippet"
+                @copy="copyText"
+              />
             </section>
 
             <section class="config-section config-check">
@@ -157,24 +131,28 @@
           <div v-else-if="activeStep === 'gateway'" class="step-screen">
             <div class="panel-head">
               <div>
-                <span class="step-kicker">步骤 3</span>
+                <span class="step-kicker">步骤 2</span>
                 <h2>网关路由</h2>
               </div>
-              <el-button :icon="DocumentCopy" @click="copyText(gatewaySnippet)">复制路由模板</el-button>
             </div>
             <el-form label-width="120px" class="inline-form">
               <el-form-item label="网关入口">
                 <el-input v-model="gatewayBaseUrl" placeholder="例如 http://localhost:8080" />
               </el-form-item>
             </el-form>
-            <pre class="code-panel"><code>{{ gatewaySnippet }}</code></pre>
+            <CodeSnippetBlock
+              title="application.yml"
+              :code="gatewaySnippet"
+              :highlighted-code="highlightedGatewaySnippet"
+              @copy="copyText"
+            />
             <el-checkbox v-model="manualChecks.gateway">我已配置网关路由并确认调用头会透传</el-checkbox>
           </div>
 
           <div v-else-if="activeStep === 'backend-check'" class="step-screen">
             <div class="panel-head">
               <div>
-                <span class="step-kicker">步骤 4</span>
+                <span class="step-kicker">步骤 3</span>
                 <h2>业务服务校验</h2>
               </div>
               <el-tag effect="plain">{{ onlineInstanceCount }} 在线实例</el-tag>
@@ -193,38 +171,43 @@
           <div v-else-if="activeStep === 'frontend'" class="step-screen">
             <div class="panel-head">
               <div>
-                <span class="step-kicker">步骤 5</span>
+                <span class="step-kicker">步骤 4</span>
                 <h2>前端 Embed Token</h2>
               </div>
-              <el-button :icon="DocumentCopy" @click="copyText(frontendSnippet)">复制前端示例</el-button>
             </div>
             <el-form label-width="120px" class="inline-form">
               <el-form-item label="Token Broker">
                 <el-input v-model="embedTokenPath" placeholder="/api/reachai/embed-token" />
               </el-form-item>
             </el-form>
-            <pre class="code-panel"><code v-html="highlightedFrontendSnippet" /></pre>
+            <CodeSnippetBlock
+              title="frontend embed token"
+              :code="frontendSnippet"
+              :highlighted-code="highlightedFrontendSnippet"
+              @copy="copyText"
+            />
             <el-checkbox v-model="manualChecks.frontend">我已在业务前端接入短期 embed token，不在浏览器保存项目 secret</el-checkbox>
           </div>
 
           <div v-else class="step-screen">
             <div class="panel-head">
               <div>
-                <span class="step-kicker">步骤 6</span>
+                <span class="step-kicker">步骤 5</span>
                 <h2>最终自检</h2>
               </div>
               <el-button type="primary" :loading="checking" @click="runCheck">发起自检</el-button>
             </div>
             <el-form label-width="120px" class="inline-form">
-              <el-form-item label="API 资产">
-                <el-select v-model="selectedApiAssetId" filterable placeholder="选择一个接口做真实调用">
+              <el-form-item label="可选 API 调用">
+                <el-select v-model="selectedScanToolId" filterable placeholder="完成 API 管理手动同步后，可选择项目接口做真实调用">
                   <el-option
-                    v-for="asset in apiAssets"
-                    :key="asset.apiId"
-                    :label="assetLabel(asset)"
-                    :value="asset.apiId"
+                    v-for="tool in projectApiTools"
+                    :key="tool.scanToolId"
+                    :label="projectApiLabel(tool)"
+                    :value="tool.scanToolId"
                   />
                 </el-select>
+                <div class="form-hint">接口扫描与同步请在 API 管理的“添加接口 / SDK 同步”中手动触发；这里不作为 SDK 接入完成条件。</div>
               </el-form-item>
               <el-form-item label="参数 JSON">
                 <el-input v-model="argsText" type="textarea" :rows="7" placeholder='例如 { "teamName": "一班" }' />
@@ -267,7 +250,165 @@
             <el-button :disabled="activeStepIndex === 0" @click="goPrev">上一步</el-button>
             <el-button type="primary" :disabled="activeStepIndex === steps.length - 1" @click="goNext">下一步</el-button>
           </span>
-        </footer>
+          </footer>
+        </section>
+      </section>
+
+      <section v-show="accessMode === 'ai-coding'" class="ai-coding-access-pane">
+        <aside class="ai-coding-side step-progress ai-progress-panel access-progress--refined" aria-label="AI Coding 接入进度">
+          <div class="access-progress">
+            <span>
+              AI 接入进度
+              <strong class="ai-coding-progress-value">{{ aiAccessCompletedSteps }}/{{ aiAccessTotalSteps }}</strong>
+              已回传
+            </span>
+            <div class="access-progress-track" aria-hidden="true">
+              <i :style="{ width: `${aiAccessProgressPercent}%` }" />
+            </div>
+          </div>
+          <div class="ai-progress-meta">
+            <span>
+              <strong>AI 接入会话</strong>
+              <small>{{ accessSession?.sessionId || '等待创建会话' }}</small>
+            </span>
+            <el-tag size="small" effect="plain" :type="accessSessionTagType">
+              {{ accessStatusLabel(accessSession?.status || 'OPEN') }}
+            </el-tag>
+          </div>
+          <button
+            v-for="(item, index) in aiDisplaySteps"
+            :key="item.stepKey"
+            class="progress-step ai-progress-step"
+            :class="{
+              active: item.status === 'RUNNING' || (index === 0 && item.status === 'TODO'),
+              done: item.status === 'PASS',
+              warn: item.status === 'WARN',
+              fail: item.status === 'FAIL',
+              skipped: item.status === 'SKIPPED',
+            }"
+            type="button"
+            tabindex="-1"
+          >
+            <span class="step-index">
+              <el-icon v-if="item.status === 'PASS'"><Check /></el-icon>
+              <span v-else class="step-dot" />
+            </span>
+            <span class="step-copy">
+              <span class="step-title-line">
+                <span class="step-number">{{ index + 1 }}</span>
+                <strong>{{ item.title }}</strong>
+              </span>
+              <small>{{ accessStatusLabel(item.status) }}</small>
+            </span>
+          </button>
+        </aside>
+
+        <section class="ai-coding-main">
+          <span class="panel-glass-highlight" aria-hidden="true" />
+          <div class="panel-head">
+            <div>
+              <h2>将接入任务交给AI 编程工具</h2>
+              <p>复制提示词到 Cursor、Claude Code 或 Codex，让它在业务系统仓库完成 Starter、网关、前端 Embed、Workflow 发布和平台自检。</p>
+            </div>
+          </div>
+
+          <section class="ai-coding-grid">
+            <div class="ai-coding-card">
+              <span class="card-glass-highlight" aria-hidden="true" />
+              <div class="ai-coding-card-inner">
+                <div class="ai-coding-card-head">
+                  <div>
+                    <h3>1. 复制给 AI 工具</h3>
+                  </div>
+                  <button type="button" class="btn-copy-prompt" @click="copyText(aiOnboardingPrompt)">
+                    复制提示词
+                  </button>
+                </div>
+                <div class="ai-tool-tabs" role="tablist" aria-label="AI 工具类型" :data-active="aiPromptTool">
+                  <button
+                    type="button"
+                    role="tab"
+                    :class="{ active: aiPromptTool === 'cursor' }"
+                    :aria-selected="aiPromptTool === 'cursor'"
+                    @click="aiPromptTool = 'cursor'"
+                  >
+                    Cursor
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    :class="{ active: aiPromptTool === 'claude' }"
+                    :aria-selected="aiPromptTool === 'claude'"
+                    @click="aiPromptTool = 'claude'"
+                  >
+                    Claude Code
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    :class="{ active: aiPromptTool === 'codex' }"
+                    :aria-selected="aiPromptTool === 'codex'"
+                    @click="aiPromptTool = 'codex'"
+                  >
+                    Codex
+                  </button>
+                  <span class="ai-tool-tabs-track" aria-hidden="true" />
+                  <span class="ai-tool-tabs-indicator" aria-hidden="true" />
+                </div>
+                <el-input
+                  class="ai-prompt-input ai-prompt-preview"
+                  :model-value="aiOnboardingPrompt"
+                  type="textarea"
+                  :rows="14"
+                  readonly
+                />
+              </div>
+            </div>
+
+            <div class="ai-coding-card">
+              <span class="card-glass-highlight" aria-hidden="true" />
+              <div class="ai-coding-card-inner">
+                <div class="ai-coding-card-head">
+                  <div>
+                    <h3>2. 平台会话与最终自检</h3>
+                    <p>AI 回传步骤会沉淀到左侧会话；自检仍复用原来的接入检查结果。</p>
+                  </div>
+                  <button type="button" class="btn-self-check" :disabled="checking" @click="runCheck">
+                    {{ checking ? '自检中…' : '发起自检' }}
+                  </button>
+                </div>
+                <div v-if="checkResult?.readiness?.length" class="readiness-list ai-readiness-list">
+                  <div
+                    v-for="item in checkResult.readiness"
+                    :key="item.key"
+                    class="readiness-row"
+                    :class="item.status.toLowerCase()"
+                  >
+                    <strong>{{ item.label }}</strong>
+                    <span>{{ statusLabel(item.status) }}</span>
+                    <small>{{ item.message }}</small>
+                  </div>
+                </div>
+                <div v-else class="ai-self-check-empty">
+                  <span class="ai-self-check-glow" aria-hidden="true" />
+                  <img class="ai-self-check-shield" src="/sdk-access-self-check-shield.png" alt="" />
+                  <strong>等待平台自检</strong>
+                  <p>完成 AI 接入或手动配置后，可在这里或“最终自检”步骤发起同一套检查。</p>
+                </div>
+                <div v-if="checkResult?.checks?.length" class="result-list ai-result-list">
+                  <div v-for="item in checkResult.checks" :key="item.key" class="result-row" :class="item.status.toLowerCase()">
+                    <span class="result-status">{{ statusLabel(item.status) }}</span>
+                    <span>
+                      <strong>{{ item.label }}</strong>
+                      <small>{{ item.message }}</small>
+                      <em v-if="item.evidence">{{ item.evidence }}</em>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </section>
       </section>
     </main>
 
@@ -327,16 +468,16 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import {
-  ArrowLeft,
   ArrowRight,
   Check,
-  Connection,
   DocumentCopy,
-  Refresh,
+  MagicStick,
 } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
+import AppPageBackground from '@/components/common/AppPageBackground.vue'
+import CodeSnippetBlock from '@/components/common/CodeSnippetBlock.vue'
 import { formatProjectKindLabel } from '@/utils/projectLabels'
 import { useSdkAccessWizardActions } from '@/views/registry/composables/useSdkAccessWizardActions'
 import { useSdkAccessWizardData } from '@/views/registry/composables/useSdkAccessWizardData'
@@ -345,8 +486,9 @@ import { useSdkAccessWizardProgress } from '@/views/registry/composables/useSdkA
 import { useSdkAccessWizardSnippets } from '@/views/registry/composables/useSdkAccessWizardSnippets'
 import { useSdkAccessWizardUiState } from '@/views/registry/composables/useSdkAccessWizardUiState'
 import {
+  AI_ACCESS_DISPLAY_STEP_TITLES,
   aiAccessStepStatusLabel,
-  apiAssetLabel,
+  projectApiToolLabel,
   sdkAccessCheckStatusLabel,
 } from '@/views/registry/sdkAccessWizardViewModel'
 
@@ -354,8 +496,9 @@ const { theme } = useTheme()
 
 const {
   aiPromptTool,
+  accessMode,
   activeStep,
-  selectedApiAssetId,
+  selectedScanToolId,
   argsText,
   gatewayBaseUrl,
   embedTokenPath,
@@ -366,10 +509,9 @@ const {
   projectCode,
   project,
   instances,
-  apiAssets,
+  projectApiTools,
   loading,
   checking,
-  aiPromptLoading,
   aiPromptDialogVisible,
   aiOnboardingManifest,
   accessSession,
@@ -379,12 +521,11 @@ const {
   checkResult,
   isSdkBackedProject,
   onlineInstanceCount,
-  callableApiAssets,
+  callableProjectApiTools,
   loadAll,
-  openAiOnboardingPrompt,
   runCheck,
 } = useSdkAccessWizardData({
-  selectedApiAssetId,
+  selectedScanToolId,
   argsText,
   gatewayBaseUrl,
   embedTokenPath,
@@ -403,12 +544,12 @@ const {
   activeStep,
   project,
   instances,
-  apiAssets,
+  projectApiTools,
   accessSession,
   checkResult,
   isSdkBackedProject,
   onlineInstanceCount,
-  callableApiAssets,
+  callableProjectApiTools,
   gatewayBaseUrl,
   embedTokenPath,
   manualChecks,
@@ -420,6 +561,7 @@ const {
   highlightedStarterDependencySnippet,
   highlightedStarterApplicationSnippet,
   gatewaySnippet,
+  highlightedGatewaySnippet,
   frontendSnippet,
   highlightedFrontendSnippet,
   aiOnboardingPrompt,
@@ -436,7 +578,6 @@ const {
 })
 
 const {
-  goBack,
   goProjectDetail,
   goPrev,
   goNext,
@@ -451,11 +592,35 @@ const { copyText } = useSdkAccessWizardActions()
 
 const statusLabel = sdkAccessCheckStatusLabel
 const accessStatusLabel = aiAccessStepStatusLabel
-const assetLabel = apiAssetLabel
+const projectApiLabel = projectApiToolLabel
+
+const aiAccessTotalSteps = computed(() =>
+  accessSession.value?.totalSteps || AI_ACCESS_DISPLAY_STEP_TITLES.length,
+)
+
+const aiAccessCompletedSteps = computed(() => accessSession.value?.completedSteps || 0)
+
+const aiAccessProgressPercent = computed(() =>
+  aiAccessTotalSteps.value
+    ? Math.round((aiAccessCompletedSteps.value / aiAccessTotalSteps.value) * 100)
+    : 0,
+)
+
+const aiDisplaySteps = computed(() => {
+  if (accessSession.value?.steps?.length) {
+    return accessSession.value.steps
+  }
+  return AI_ACCESS_DISPLAY_STEP_TITLES.map((title, index) => ({
+    stepKey: `placeholder-${index}`,
+    title,
+    status: 'TODO' as const,
+  }))
+})
 
 onMounted(loadAll)
 </script>
 
 <style scoped lang="scss">
 @use './styles/SdkAccessWizard.scss';
+@use './styles/SdkAccessWizard.ai-coding.figma.scss' as aiCodingFigma;
 </style>

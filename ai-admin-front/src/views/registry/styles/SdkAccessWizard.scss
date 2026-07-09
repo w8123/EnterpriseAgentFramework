@@ -217,6 +217,13 @@
   max-width: 760px;
 }
 
+.form-hint {
+  margin-top: 6px;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .config-section {
   margin-top: 26px;
 
@@ -238,95 +245,6 @@
 
 .config-check {
   margin-top: 24px;
-}
-
-.code-shell {
-  overflow: hidden;
-  border: 1px solid #111827;
-  border-radius: 8px;
-  background: #07111f;
-}
-
-.code-toolbar {
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 14px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
-  background: #0b1524;
-  color: #d9e2ef;
-  font-size: 13px;
-  font-weight: 700;
-
-  :deep(.el-button) {
-    color: #d9e2ef;
-  }
-}
-
-.code-panel {
-  max-height: 260px;
-  overflow: auto;
-  margin: 0;
-  padding: 18px 20px;
-  border-radius: 0;
-  background: #07111f;
-  color: #e5e7eb;
-  font-family: Consolas, "JetBrains Mono", monospace;
-  font-size: 13px;
-  line-height: 1.6;
-
-  code {
-    display: block;
-    color: #dbeafe;
-  }
-
-  :deep(.code-tag),
-  :deep(.code-key) {
-    color: #7dd3fc;
-    font-weight: 650;
-  }
-
-  :deep(.code-string) {
-    color: #fcd34d;
-  }
-
-  :deep(.code-keyword) {
-    color: #c4b5fd;
-    font-weight: 650;
-  }
-
-  :deep(.code-function) {
-    color: #67e8f9;
-    font-weight: 650;
-  }
-
-  :deep(.code-property) {
-    color: #93c5fd;
-  }
-
-  :deep(.code-comment) {
-    color: #64748b;
-    font-style: italic;
-  }
-
-  :deep(.code-env) {
-    color: #f0abfc;
-  }
-
-  :deep(.code-boolean) {
-    color: #86efac;
-    font-weight: 650;
-  }
-
-  :deep(.code-url) {
-    color: #93c5fd;
-  }
-
-  :deep(.code-punctuation) {
-    color: #94a3b8;
-  }
 }
 
 .check-list,
@@ -517,25 +435,7 @@
   opacity: 0;
 }
 
-:global(.main-layout.registry-shell:has(.sdk-access-page) .topbar) {
-  border-bottom-color: rgba(148, 163, 184, 0.16);
-  background: rgba(4, 10, 24, 0.72);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
-  backdrop-filter: blur(18px);
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page) .breadcrumb-area) {
-  border-bottom-color: rgba(148, 163, 184, 0.16);
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page) .breadcrumb-area .el-breadcrumb__inner),
-:global(.main-layout.registry-shell:has(.sdk-access-page) .breadcrumb-area .el-breadcrumb__separator) {
-  color: rgba(226, 232, 240, 0.72);
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page) .breadcrumb-area .el-breadcrumb__item:last-child .el-breadcrumb__inner) {
-  color: #f8fafc;
-}
+/* 顶栏皮肤特例已删除：统一使用 MainLayout 的浅色玻璃顶栏（Phase 2.6）。 */
 
 .sdk-access-page {
   position: relative;
@@ -815,25 +715,6 @@
   }
 }
 
-.code-shell,
-.code-panel {
-  border-color: rgba(96, 165, 250, 0.2);
-  background: rgba(2, 6, 23, 0.72);
-  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.05), 0 20px 52px rgba(0, 0, 0, 0.28);
-}
-
-.code-toolbar {
-  border-bottom-color: rgba(148, 163, 184, 0.16);
-  background: rgba(15, 23, 42, 0.76);
-  color: #dbeafe;
-}
-
-.code-panel {
-  background:
-    linear-gradient(90deg, rgba(59, 130, 246, 0.05), transparent 16%),
-    rgba(2, 6, 23, 0.78);
-}
-
 .check-row,
 .result-row {
   :deep(.el-icon) {
@@ -927,36 +808,7 @@
   opacity: 0;
 }
 
-:global(.main-layout.registry-shell:not(.is-dark):not(:has(.sdk-access-page.is-light-skin)):has(.sdk-access-page) .topbar) {
-  border-bottom-color: rgba(148, 163, 184, 0.24);
-  background: rgba(248, 251, 255, 0.82);
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(18px);
-}
-
-:global(.main-layout.registry-shell:not(.is-dark):not(:has(.sdk-access-page.is-light-skin)):has(.sdk-access-page) .breadcrumb-area) {
-  border-bottom-color: rgba(148, 163, 184, 0.18);
-}
-
-:global(.main-layout.registry-shell:not(.is-dark):not(:has(.sdk-access-page.is-light-skin)):has(.sdk-access-page) .breadcrumb-area .el-breadcrumb__inner),
-:global(.main-layout.registry-shell:not(.is-dark):not(:has(.sdk-access-page.is-light-skin)):has(.sdk-access-page) .breadcrumb-area .el-breadcrumb__separator) {
-  color: rgba(71, 85, 105, 0.78);
-}
-
-:global(.main-layout.registry-shell:not(.is-dark):not(:has(.sdk-access-page.is-light-skin)):has(.sdk-access-page) .breadcrumb-area .el-breadcrumb__item:last-child .el-breadcrumb__inner) {
-  color: #0f172a;
-}
-
-:global(.main-layout.registry-shell:not(.is-dark):not(:has(.sdk-access-page.is-light-skin)):has(.sdk-access-page) .topbar-btn) {
-  border-color: rgba(148, 163, 184, 0.34);
-  background: rgba(255, 255, 255, 0.72);
-  color: #475569;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
-}
-
-:global(.main-layout.registry-shell:not(.is-dark):not(:has(.sdk-access-page.is-light-skin)):has(.sdk-access-page) .user-avatar) {
-  box-shadow: 0 10px 24px rgb(var(--brand-primary-rgb) / 0.22);
-}
+/* 顶栏皮肤特例已删除：统一使用 MainLayout 的浅色玻璃顶栏（Phase 2.6）。 */
 
 :global(.main-layout.registry-shell:not(.is-dark):not(:has(.sdk-access-page.is-light-skin)):has(.sdk-access-page)) {
   .sdk-access-page {
@@ -1280,30 +1132,6 @@
   opacity: 0 !important;
 }
 
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-light-skin) .topbar) {
-  border-bottom-color: rgba(148, 163, 184, 0.24) !important;
-  background: rgba(255, 255, 255, 0.94) !important;
-  color: #0f172a !important;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04) !important;
-  backdrop-filter: none !important;
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-light-skin) .breadcrumb-area .el-breadcrumb__inner),
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-light-skin) .breadcrumb-area .el-breadcrumb__separator) {
-  color: rgba(71, 85, 105, 0.78) !important;
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-light-skin) .breadcrumb-area .el-breadcrumb__item:last-child .el-breadcrumb__inner) {
-  color: #0f172a !important;
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-light-skin) .topbar-btn) {
-  border-color: rgba(148, 163, 184, 0.34) !important;
-  background: rgba(255, 255, 255, 0.72) !important;
-  color: #475569 !important;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08) !important;
-}
-
 .sdk-access-page.is-light-skin {
   background: transparent;
   color: #0f172a;
@@ -1614,31 +1442,6 @@
 
 :global(.main-layout.registry-shell:has(.sdk-access-page) .main-content::before) {
   opacity: 0 !important;
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page) .topbar) {
-  border-bottom-color: rgba(255, 255, 255, 0.45) !important;
-  background:
-    linear-gradient(90deg, rgba(53, 76, 118, 0.76), rgba(147, 197, 253, 0.42)) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42), 0 14px 38px rgba(30, 64, 175, 0.16) !important;
-  backdrop-filter: blur(22px) saturate(1.1) !important;
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page) .breadcrumb-area .el-breadcrumb__inner),
-:global(.main-layout.registry-shell:has(.sdk-access-page) .breadcrumb-area .el-breadcrumb__separator) {
-  color: rgba(255, 255, 255, 0.82) !important;
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page) .breadcrumb-area .el-breadcrumb__item:last-child .el-breadcrumb__inner) {
-  color: #ffffff !important;
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page) .topbar-btn) {
-  border-color: rgba(255, 255, 255, 0.62) !important;
-  background: rgba(255, 255, 255, 0.42) !important;
-  color: #1e3a8a !important;
-  box-shadow: 0 10px 24px rgba(30, 64, 175, 0.12) !important;
-  backdrop-filter: blur(14px) !important;
 }
 
 .sdk-access-page,
@@ -2100,45 +1903,8 @@
   }
 }
 
-/* Parity refinements for the approved design reference. */
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-light-skin) .topbar),
-:global(.main-layout.registry-shell:not(.is-dark):has(.sdk-access-page.is-light-skin) .topbar),
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-dark-skin) .topbar) {
-  border: 1px solid rgba(255, 255, 255, 0.48) !important;
-  border-left: 0 !important;
-  border-right: 0 !important;
-  background:
-    linear-gradient(90deg, rgba(31, 56, 92, 0.86) 0%, rgba(86, 125, 181, 0.62) 48%, rgba(191, 228, 255, 0.78) 100%) !important;
-  color: #f8fbff !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.52), 0 16px 34px rgba(30, 64, 175, 0.18) !important;
-  backdrop-filter: blur(24px) saturate(1.18) !important;
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-light-skin) .breadcrumb-area .el-breadcrumb__inner),
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-light-skin) .breadcrumb-area .el-breadcrumb__separator),
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-dark-skin) .breadcrumb-area .el-breadcrumb__inner),
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-dark-skin) .breadcrumb-area .el-breadcrumb__separator) {
-  color: rgba(255, 255, 255, 0.84) !important;
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-light-skin) .breadcrumb-area .el-breadcrumb__item:last-child .el-breadcrumb__inner),
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-dark-skin) .breadcrumb-area .el-breadcrumb__item:last-child .el-breadcrumb__inner) {
-  color: #ffffff !important;
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-light-skin) .topbar-btn),
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-dark-skin) .topbar-btn) {
-  border-color: rgba(255, 255, 255, 0.7) !important;
-  background: rgba(255, 255, 255, 0.48) !important;
-  color: #21416f !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 8px 20px rgba(37, 99, 235, 0.12) !important;
-  backdrop-filter: blur(16px) !important;
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-light-skin) .user-avatar),
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-dark-skin) .user-avatar) {
-  box-shadow: 0 10px 24px rgb(var(--brand-active-rgb) / 0.24) !important;
-}
+/* Parity refinements for the approved design reference.
+   顶栏皮肤特例已删除：统一使用 MainLayout 的浅色玻璃顶栏（Phase 2.6）。 */
 
 .sdk-access-page,
 .sdk-access-page.is-light-skin,
@@ -2673,19 +2439,6 @@
 }
 
 /* Purple tone alignment: keep the glass layout, shift blue surfaces toward the global tech-violet palette. */
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-light-skin) .topbar),
-:global(.main-layout.registry-shell:not(.is-dark):has(.sdk-access-page.is-light-skin) .topbar),
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-dark-skin) .topbar) {
-  background:
-    var(--brand-topbar-bg) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 16px 34px rgb(var(--brand-primary-rgb) / 0.18) !important;
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-light-skin) .topbar-btn),
-:global(.main-layout.registry-shell:has(.sdk-access-page.is-dark-skin) .topbar-btn) {
-  color: #4338ca !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 8px 20px rgb(var(--brand-primary-rgb) / 0.14) !important;
-}
 
 .sdk-access-page,
 .sdk-access-page.is-light-skin,
@@ -2950,4 +2703,343 @@
   .ai-coding-key-form {
     grid-template-columns: 1fr;
   }
-}
+}
+
+.access-workbench {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 12px;
+}
+
+.access-mode-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 22px;
+  border: 1px solid rgb(var(--brand-selected-rgb) / 0.62);
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.62), rgb(var(--brand-selected-rgb) / 0.34));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 16px 34px rgb(var(--brand-primary-rgb) / 0.12);
+  backdrop-filter: blur(18px);
+
+  h2 {
+    margin: 4px 0 6px;
+    color: #11183a;
+    font-size: 24px;
+    line-height: 1.18;
+  }
+
+  p {
+    max-width: 780px;
+    margin: 0;
+    color: #4f5f81;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+}
+
+.access-mode-switch {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgb(var(--brand-hover-rgb) / 0.22);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.54);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.access-mode-switch button {
+  min-width: 120px;
+  height: 36px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #475569;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.access-mode-switch button:hover {
+  color: var(--brand-active);
+}
+
+.access-mode-switch button.active {
+  background: linear-gradient(135deg, var(--brand-primary), var(--brand-hover));
+  color: #fff;
+  box-shadow: 0 10px 22px rgb(var(--brand-primary-rgb) / 0.22);
+}
+
+.manual-access-pane[style*='display: none'] {
+  display: none !important;
+}
+
+.ai-coding-access-pane {
+  display: grid;
+  grid-template-columns: minmax(300px, 315px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.ai-coding-access-pane[style*='display: none'] {
+  display: none !important;
+}
+
+.ai-coding-side,
+.ai-coding-main,
+.ai-coding-card {
+  border: 1px solid rgb(var(--brand-selected-rgb) / 0.62);
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.64), rgb(var(--brand-selected-rgb) / 0.32));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 18px 40px rgb(var(--brand-primary-rgb) / 0.12);
+  backdrop-filter: blur(18px);
+}
+
+.ai-coding-side {
+  min-height: 520px;
+  padding: 18px 10px 18px;
+
+  :deep(.el-empty) {
+    --el-empty-padding: 28px 0;
+  }
+}
+
+.ai-coding-side .ai-session-card {
+  margin-top: 14px;
+}
+
+.ai-coding-main {
+  min-width: 0;
+  min-height: 520px;
+  padding: 24px;
+}
+
+.ai-coding-main .panel-head {
+  margin-bottom: 16px;
+}
+
+.ai-coding-main .panel-head h2 {
+  font-size: 28px;
+}
+
+.ai-coding-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.16fr) minmax(330px, 0.84fr);
+  gap: 14px;
+}
+
+.ai-coding-card {
+  min-width: 0;
+  padding: 16px;
+}
+
+.ai-coding-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+
+  h3 {
+    margin: 0;
+    color: #11183a;
+    font-size: 16px;
+    line-height: 1.35;
+  }
+
+  p {
+    margin: 5px 0 0;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+}
+
+.ai-prompt-preview :deep(.el-textarea__inner) {
+  min-height: 330px !important;
+}
+
+.ai-readiness-list {
+  grid-template-columns: 1fr;
+  margin-bottom: 12px;
+}
+
+.ai-result-list {
+  max-height: 265px;
+  overflow: auto;
+}
+
+.ai-check-placeholder {
+  display: grid;
+  gap: 8px;
+  min-height: 132px;
+  align-content: center;
+  padding: 16px;
+  border: 1px dashed rgb(var(--brand-hover-rgb) / 0.34);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.42);
+
+  strong {
+    color: #11183a;
+    font-size: 15px;
+  }
+
+  span {
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+}
+
+@media (max-width: 1280px) {
+  .access-mode-header,
+  .ai-coding-card-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .access-mode-switch {
+    width: 100%;
+  }
+
+  .access-mode-switch button {
+    flex: 1;
+  }
+
+  .ai-coding-access-pane,
+  .ai-coding-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-coding-side {
+    min-height: auto;
+  }
+}
+
+/* Keep the SDK access workbench scrollable while hiding the visual scrollbar. */
+:global(.main-layout.registry-shell:has(.sdk-access-page) .main-content) {
+  overflow-y: auto !important;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+:global(.main-layout.registry-shell:has(.sdk-access-page) .main-content::-webkit-scrollbar) {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.sdk-access-page,
+.sdk-access-page.is-light-skin,
+.sdk-access-page.is-dark-skin {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+  padding-bottom: 14px;
+}
+
+.page-header {
+  align-items: center;
+  gap: 24px;
+}
+
+.title-mode-switch {
+  margin-left: auto;
+}
+
+.access-workbench {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.manual-access-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.ai-coding-access-pane {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.manual-access-pane.wizard-shell {
+  align-items: start;
+}
+
+.step-progress,
+.stage-shell,
+.ai-coding-side,
+.ai-coding-main,
+.ai-coding-card {
+  min-height: 0;
+}
+
+.step-progress {
+  height: 440px;
+  max-height: calc(100vh - 188px);
+}
+
+.progress-step {
+  min-height: 70px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.stage-shell {
+  display: flex;
+  flex-direction: column;
+}
+
+.focus-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.ai-coding-main {
+  align-self: start;
+}
+
+@media (max-width: 980px) {
+  .title-mode-switch {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .title-mode-switch button {
+    flex: 1;
+  }
+
+  .step-progress {
+    height: auto;
+    max-height: none;
+  }
+
+}
+
+/* Shared project-management page background. Keep page surfaces transparent so
+   AppPageBackground matches RegistryProjectDetail across sibling workbenches. */
+:global(.main-layout.registry-shell:has(.sdk-access-page) .main-content) {
+  background: transparent !important;
+}
+
+.sdk-access-page,
+.sdk-access-page.is-light-skin,
+.sdk-access-page.is-dark-skin {
+  background: transparent !important;
+}
+
+.sdk-access-page :deep(.app-page-background) {
+  z-index: 0;
+}

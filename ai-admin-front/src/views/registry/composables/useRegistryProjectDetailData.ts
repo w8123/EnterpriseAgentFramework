@@ -71,6 +71,7 @@ export function useRegistryProjectDetailData(deps: UseRegistryProjectDetailDataD
     const found =
       data.find((item) => item.projectCode === projectCode.value || String(item.id) === projectCode.value) || null
     projectStore.projects = data
+    projectStore.setCurrentProject(found?.id ?? null)
     if (found?.id) {
       try {
         const { data: detail } = await getScanProjectDetail(found.id)

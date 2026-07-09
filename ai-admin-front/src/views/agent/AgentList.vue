@@ -116,7 +116,9 @@
           </div>
         </article>
 
-        <el-empty v-if="!loading && filteredAgents.length === 0" description="暂无符合条件的智能体" />
+        <div v-if="!loading && filteredAgents.length === 0" class="agent-empty-state">
+          <el-empty description="暂无符合条件的智能体" />
+        </div>
       </div>
 
       <el-table v-else :data="filteredAgents" v-loading="loading" class="agent-table" stripe>
@@ -526,6 +528,19 @@ p {
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
   padding: 20px;
+}
+
+.agent-empty-state {
+  display: grid;
+  grid-column: 1 / -1;
+  place-items: center;
+  width: 100%;
+  min-height: 320px;
+
+  :deep(.el-empty) {
+    width: 100%;
+    padding: 0;
+  }
 }
 
 .agent-card {

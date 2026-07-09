@@ -247,7 +247,6 @@ const migratedCapabilityRoutes = [
   { method: 'DELETE', path: '/api/domains/assignments/{id}' },
   { method: 'POST', path: '/api/domains/classify' },
   { method: 'GET', path: '/api/domains/coverage' },
-  { method: 'GET', path: '/api/api-assets' },
   { method: 'POST', path: '/api/registry/projects/register' },
   { method: 'GET', path: '/api/registry/projects/{projectCode}/capability-description-settings' },
   { method: 'GET', path: '/api/registry/projects/{projectCode}/instances' },
@@ -585,8 +584,6 @@ function isCapabilityOwnedPublicRoute(route) {
       path.startsWith('/api/tools/') ||
       path === '/api/compositions' ||
       path.startsWith('/api/compositions/') ||
-      path === '/api/api-assets' ||
-      path.startsWith('/api/api-assets/') ||
       path === '/api/api-graph' ||
       path.startsWith('/api/api-graph/') ||
       path === '/api/tool-retrieval' ||

@@ -52,10 +52,10 @@ export function useScanProjectToolOperations(deps: UseScanProjectToolOperationsD
         `关联断开 ${data.globalMissing}`,
         `SDK 待评审行 ${data.sdkReviewPendingRows}`,
       ].join('，')
-      ElMessage.success(`对账完成：${message}`)
+      ElMessage.success(`检查完成：${message}`)
       await deps.refreshAll()
     } catch {
-      ElMessage.error('对账失败')
+      ElMessage.error('检查 Tool 关联失败')
     } finally {
       reconcileLoading.value = false
     }

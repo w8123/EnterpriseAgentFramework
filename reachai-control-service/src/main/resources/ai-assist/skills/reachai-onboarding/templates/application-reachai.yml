@@ -13,8 +13,9 @@ reachai:
     environment: ${REACHAI_PROJECT_ENV:dev}
   capability:
     scan-beans: true
-    # Only scan business-owned packages. Replace these examples after inspecting
-    # the application class, controller/service packages, and module names.
+    # SDK onboarding only registers the project and SDK instance.
+    # SDK interface scan/sync is manually triggered later from ReachAI API Management.
+    # Replace these examples only when preparing that manual SDK sync boundary.
     scan-packages:
       - com.example.business
     # Exclude framework, platform, third-party, starter, and shared infrastructure packages.
@@ -24,4 +25,3 @@ reachai:
       - org.springdoc
       - com.enterprise.ai.reach
       - com.example.framework
-    sync-on-startup: true

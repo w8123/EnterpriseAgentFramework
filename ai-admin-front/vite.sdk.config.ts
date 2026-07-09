@@ -3,6 +3,8 @@ import { resolve } from 'path'
 
 export default defineConfig({
   build: {
+    outDir: 'dist-sdk/embed-chat',
+    emptyOutDir: true,
     lib: {
       entry: resolve(__dirname, 'src/sdk/index.ts'),
       name: 'ReachAI',

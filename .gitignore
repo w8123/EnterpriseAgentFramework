@@ -52,6 +52,7 @@ replay_pid*
 # ---- Frontend (ai-admin-front) ----
 ai-admin-front/node_modules/
 ai-admin-front/dist/
+ai-admin-front/dist-sdk/
 ai-admin-front/.vite/
 
 # ---- OS ----

@@ -49,7 +49,7 @@ export const STUDIO_NODE_REGISTRY: Record<CanvasNodeKind, StudioNodeRegistryItem
     defaultLabel: '用户输入',
     meta: '表单入口',
     hint: '定义工作流入口字段，运行时写入 params，后续节点可通过 params.xxx 引用。',
-    group: '娴佺▼鎺у埗涓庡彉閲?',
+    group: '流程控制与变量',
     category: 'flow',
     color: { bg: '#ecfdf5', border: '#10b981' },
   },

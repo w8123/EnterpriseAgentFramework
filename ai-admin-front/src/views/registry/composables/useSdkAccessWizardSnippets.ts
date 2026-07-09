@@ -44,7 +44,7 @@ export function useSdkAccessWizardSnippets(deps: UseSdkAccessWizardSnippetsDeps)
     environment: ${deps.project.value?.environment || 'dev'}
   capability:
     scan-beans: true
-    sync-on-startup: true`)
+    # SDK 接入阶段只注册项目与实例；接口扫描由 ReachAI API 管理手动触发。`)
 
   const highlightedStarterDependencySnippet = computed(() => highlightXmlCode(starterDependencySnippet.value))
   const highlightedStarterApplicationSnippet = computed(() => highlightYamlCode(starterApplicationSnippet.value))
@@ -58,12 +58,13 @@ export function useSdkAccessWizardSnippets(deps: UseSdkAccessWizardSnippetsDeps)
           predicates:
             - Path=/reachai/capabilities/**
           filters:
-            - PreserveHostHeader
+          - PreserveHostHeader
 
 # 必须透传：
 # X-ReachAI-Invocation-Token
 # X-ReachAI-Trace-Id / X-ReachAI-Run-Id
 # 业务用户身份头或当前登录态`)
+  const highlightedGatewaySnippet = computed(() => highlightYamlCode(gatewaySnippet.value))
 
   const frontendSnippet = computed(() => {
     const manifest = deps.aiOnboardingManifest.value
@@ -75,7 +76,7 @@ export function useSdkAccessWizardSnippets(deps: UseSdkAccessWizardSnippetsDeps)
       || manifest?.embed?.defaultAgentKeySlug
       || `${code}-page-copilot`
 
-    return `import { createEafChat } from '@reachai/frontend-sdk'
+    return `import { createEafChat } from '@reachai/embed-chat'
 
 const pageInstanceId = sessionStorage.getItem('reachaiPageInstanceId') || crypto.randomUUID()
 sessionStorage.setItem('reachaiPageInstanceId', pageInstanceId)
@@ -89,6 +90,9 @@ const provisionedAgentKeySlug = '${expectedKeySlug}'
 createEafChat({
   mount: '#reachai-chat',
   apiBase: '${platformUrl}',
+  // If the browser must use a business gateway path instead of direct ReachAI:
+  // apiBase: window.location.origin,
+  // embedPathPrefix: '/api/reachai/embed',
   agentId: provisionedAgentKeySlug,
   page: {
     pageKey,
@@ -114,8 +118,8 @@ createEafChat({
   }
 })
 
-// apiBase 必须是 ReachAI 平台 origin（SDK 会请求 \${apiBase}/api/embed/**）。
-// 不要把 apiBase 写成 '/api/reachai/embed'。
+// apiBase can be the ReachAI platform origin. For a gateway prefix, set embedPathPrefix.
+// The SDK normalizes apiBase so '/api/reachai/embed' is treated as the embed API root.
 // SDK 接入项目不在浏览器保存 appSecret，也不使用 pageRegistry 自动上报密钥。`
   })
 
@@ -199,11 +203,10 @@ createEafChat({
       '- Embed SSE 以 message.completed 结束，没有 done 事件',
     ].join('\n')
     const apiBaseContractBlock = [
-      'Chat SDK apiBase 契约（eafChat 请求 ${apiBase}/api/embed/chat/sessions）：',
-      `- 直连 ReachAI：apiBase = ReachAI 平台 origin，例如 ${platformUrl}`,
-      '- 经业务网关：浏览器必须能访问 /api/embed/** 并转发到 ReachAI /api/embed/**',
-      '- 错误：apiBase: "/api/reachai/embed" 会变成 /api/reachai/embed/api/embed/...',
-      '- token broker 路径（如 /api/reachai/embed-token）与 Chat apiBase 是两套地址，不要混用',
+      'Chat SDK apiBase contract (@reachai/embed-chat normalizes to an embed API root):',
+      `- Direct ReachAI: apiBase = ReachAI platform origin, for example ${platformUrl}; SDK calls <origin>/api/embed/**`,
+      '- Gateway prefix: set apiBase to the gateway origin and embedPathPrefix to /api/reachai/embed, or set apiBase to /api/reachai/embed for a relative proxy.',
+      '- token broker path (for example /api/reachai/embed-token) and Chat embed API root are separate addresses.',
     ].join('\n')
     const pageActionResultBlock = [
       'Page Action 回传边界：',
@@ -217,7 +220,7 @@ createEafChat({
       '- 禁止把 ReachAI 平台 baseUrl 配成 Maven repository，禁止请求 /repository/**、/maven/**、/repository/maven/**、/api/embed/sdk 或 /npm/** 这类猜测路径。',
       '- Java 依赖必须来自业务仓库已有的公司 Maven 仓库、已发布的 ReachAI Maven 仓库，或先在 ReachAI 仓库执行 mvn -pl reachai-spring-boot2-starter -am install -DskipTests 后使用本地 Maven 仓库。',
       '- 如果 reachai-capability-sdk 或 reachai-spring-boot2-starter 无法解析，请停止并报告需要安装/发布 Maven 产物，不要虚构下载 URL。',
-      '- 前端 SDK 同理：若业务仓库没有可用 npm 包或本地构建产物，不要从 ReachAI 平台猜测 /api/embed/sdk 或 /npm/**；应按 manifest 的 embed HTTP 合同实现最小调用，或报告需要提供正式前端 SDK 包。',
+      '- 前端 SDK 包优先使用 @reachai/embed-chat；也可在 ReachAI 前端包执行 npm run build:sdk 取得本地构建产物。不要从 ReachAI 平台猜测 /api/embed/sdk 或 /npm/**。',
     ].join('\n')
     const annotationBoundaryBlock = [
       'ReachAI 注解边界：',
@@ -229,9 +232,9 @@ createEafChat({
     const readinessBlock = [
       '平台自检分层解释：',
       '- CODE_READY：manifest、依赖/配置、registry 凭证、gatewayBaseUrl、embedTokenPath 等代码和配置前置条件。',
-      '- RUNTIME_READY：业务服务已带 REACHAI_REGISTRY_APP_SECRET 启动，SDK 实例在线，API 资产已同步。',
-      '- E2E_READY：选定 API 资产完成一次真实调用，或嵌入式 Chat/token broker 链路真实打通。',
-      '- CODE_READY 通过但 RUNTIME_READY/E2E_READY 为 WARN，通常表示服务未启动、心跳未上报、API 未同步或未选择真实调用参数，不等于代码接入失败。',
+      '- RUNTIME_READY：业务服务已带 REACHAI_REGISTRY_APP_SECRET 启动，SDK 实例在线并持续心跳。',
+      '- E2E_READY：嵌入式 Chat/token broker 链路真实打通；若已在 API 管理手动同步 SDK 接口，也可选择项目接口完成一次真实调用。',
+      '- CODE_READY 通过但 RUNTIME_READY/E2E_READY 为 WARN，通常表示服务未启动、心跳未上报、未完成可选真实调用或尚未在 API 管理手动同步接口，不等于代码接入失败。',
     ].join('\n')
     const gatewayChecklistBlock = [
       '网关接入必查 5 项：',
@@ -246,6 +249,13 @@ createEafChat({
       `- 前端 :9200 -> 网关 :8080（${deps.embedTokenPath.value || '/api/reachai/embed-token'} + /api/reachai/embed/**）-> ReachAI :18603（/api/embed/**）。`,
       `- Chat apiBase 默认是 ReachAI 平台 origin（例如 ${platformUrl}）；gatewayBaseUrl 默认是业务网关入口（例如 ${deps.gatewayBaseUrl.value || 'http://localhost:8080'}），两者可能不同，不能互相替代。`,
       '- dev proxy / Nginx / Spring Cloud Gateway 三选一即可，但必须明确浏览器最终访问的 token broker 与 chat/embed 地址。',
+    ].join('\n')
+    const apiManagementScanBlock = [
+      'API 管理手动同步边界：',
+      '- SDK 接入阶段只完成依赖、registry/project 配置、实例心跳、网关、token broker、前端 Embed 和 Workflow 首次发布；不要把扫描接口同步作为 SDK 接入完成条件。',
+      '- SDK 接口扫描与同步统一移动到 ReachAI 控制台的 API 管理：进入项目的 API 管理 / 添加接口，选择 SDK 同步，由平台调用在线业务系统 starter 手动触发现场扫描。',
+      '- reachai.capability.scan-packages / exclude-packages 只是在为后续 API 管理手动同步准备扫描边界；不要添加启动同步开关，也不能在 AI Coding 接入阶段主动调用同步接口。',
+      '- 如果本次没有明确要求准备接口元数据，不要为了 SDK 接入去补 @ReachCapability 清单；如确需准备，也只选择低风险查询方法并说明等待 API 管理手动同步。',
     ].join('\n')
     const aiCodingKeyLine =
       deps.aiCodingAccessEnabled.value && aiCodingKey
@@ -330,6 +340,8 @@ ${gatewayChecklistBlock}
 
 ${localTopologyBlock}
 
+${apiManagementScanBlock}
+
 安装/读取要求：
 ${installHint}
 
@@ -343,12 +355,12 @@ ${installHint}
 1. 先检查当前项目的 Java 版本、Spring Boot 版本、Maven 模块结构、启动模块和配置文件位置。
 2. 读取项目接入清单 manifest，确认 SDK 版本、Maven 依赖、registry url、project code、app key、base url。
 3. 在正确的 Maven 模块中引入 reachai-capability-sdk 和 reachai-spring-boot2-starter。
-4. 识别业务代码主包名，只扫描业务包下的 Controller / Service，不要把业务系统依赖的框架包、平台包、第三方包接口同步到 ReachAI。若启动类根包过宽，请优先选择实际业务包。
-5. 在业务系统配置中增加 reachai.registry、reachai.project、reachai.capability 配置，并用 ${secretEnv} 引用密钥；同时配置 reachai.capability.scan-packages 与 reachai.capability.exclude-packages。
-6. 根据现有 Controller / Service 代码，优先选择 1-2 个低风险查询能力，补充 @ReachCapability / @ReachParam；@ReachOutput 只用于返回 DTO 字段，不要写在方法上。
+4. 识别业务代码主包名，作为后续 API 管理手动 SDK 同步的扫描边界；不要把业务系统依赖的框架包、平台包、第三方包接口纳入 ReachAI。若启动类根包过宽，请优先选择实际业务包。
+5. 在业务系统配置中增加 reachai.registry、reachai.project、reachai.capability 配置，并用 ${secretEnv} 引用密钥；不要添加能力启动同步配置。若准备后续 API 管理手动同步，再配置 reachai.capability.scan-packages 与 reachai.capability.exclude-packages。
+6. 本次 SDK 接入不要主动同步接口或要求项目接口目录已有数据。只有当用户明确要求准备接口元数据时，才根据现有 Controller / Service 选择 1-2 个低风险查询能力补充 @ReachCapability / @ReachParam；@ReachOutput 只用于返回 DTO 字段，不要写在方法上。
 7. 检查业务系统是否有统一网关模块、Spring Cloud Gateway 配置、Nginx 配置或前端 dev proxy。若有网关，必须补上 ReachAI 相关路由；若没有网关，必须在计划里说明缺口，不要把 secret 下沉到浏览器。
 8. 在业务网关或服务端 token broker 中实现前端获取 embed token 的接口，默认路径可用 ${deps.embedTokenPath.value || '/api/reachai/embed-token'}。该接口必须从业务登录态解析当前用户，映射 principal.externalUserId，使用项目 appKey/appSecret 服务端签名调用 ReachAI 的 POST /api/embed/token/exchange，并按短期 token 策略缓存；appSecret 仍只能来自 ${secretEnv} 或密钥管理器。ReachAI token exchange 返回统一 ApiResult：{code:200,message:"success",data:{token,expiresIn,sessionHint}}，broker 必须读取 data.token / data.expiresIn，可兼容历史顶层 token / expiresIn，但不能只读取顶层 token，也不能把 helper 的一条路径误写成 token.data.token。
-9. 在业务前端接入 ReachAI Chat Embed：增加配置、组件或页面入口；你必须在接入阶段从本机或服务端 POST Agent provisioning API（${provisionAgentUrl}），并将返回的裸 JSON 字段 agent.keySlug 写入业务前端配置作为 agentId（不是 data.agent.keySlug，也不是让用户手工填写 Agent）。运行时浏览器不得调用 provisioning API，不得保存 aiCodingKey。createEafChat 的 apiBase 使用 ReachAI 平台 origin（例如 ${platformUrl}），SDK 会请求 ${platformUrl}/api/embed/**；不要把 apiBase 写成 /api/reachai/embed。让前端通过业务网关 token broker 获取 embed token，再用 token 调用 ReachAI /api/embed/chat/sessions 与消息接口。前端不得保存 appSecret，不得使用 pageRegistry.appSecret 自动上报密钥。
+9. 在业务前端接入 ReachAI Chat Embed：增加配置、组件或页面入口；你必须在接入阶段从本机或服务端 POST Agent provisioning API（${provisionAgentUrl}），并将返回的裸 JSON 字段 agent.keySlug 写入业务前端配置作为 agentId（不是 data.agent.keySlug，也不是让用户手工填写 Agent）。运行时浏览器不得调用 provisioning API，不得保存 aiCodingKey。使用 @reachai/embed-chat；createEafChat 的 apiBase 可以是 ReachAI 平台 origin（例如 ${platformUrl}），经业务网关时可配置 embedPathPrefix=/api/reachai/embed，或把 apiBase 直接设为相对代理根 /api/reachai/embed。让前端通过业务网关 token broker 获取 embed token，再用 token 调用 ReachAI /api/embed/chat/sessions 与消息接口。前端不得保存 appSecret，不得使用 pageRegistry.appSecret 自动上报密钥。
 10. 明确区分两类 Authorization：请求 ${deps.embedTokenPath.value || '/api/reachai/embed-token'} 时使用业务系统登录 token；请求 /api/reachai/embed/**、/api/embed/chat/sessions 或消息接口时只能使用 ReachAI 返回的短期 embed token。不要把业务登录 token 当作 embed token 传给 ReachAI Chat API。
 11. 修改业务网关白名单 / 安全链：${deps.embedTokenPath.value || '/api/reachai/embed-token'} 继续使用业务登录 token；但 /api/reachai/embed/** 是 ReachAI embed token 代理流量，必须绕过业务 OAuth/JWT 认证并原样透传 Authorization: Bearer <embedToken> 给 ReachAI。
 12. 如果业务网关使用 Spring Security WebFlux / OAuth2 Resource Server，不能只写 .pathMatchers("/api/reachai/embed/**").permitAll()；Resource Server 仍可能先解析 Authorization: Bearer <embedToken> 并按业务 JWT 失败返回 401。必须为 /api/reachai/embed/** 添加更高优先级的独立 SecurityWebFilterChain / securityMatcher，并且该链不要启用业务 oauth2ResourceServer()。
@@ -362,7 +374,7 @@ ${installHint}
 20. 最后给出修改文件清单、验证结果、首次发布的 workflowId/version/versionId、仍需人工配置的密钥或环境变量。
 
 进度回传要求：
-- 每完成或卡住一个关键步骤，请 POST 到“步骤进度回传 URL”，把 {stepKey} 替换为下列 key 之一：project-manifest、backend-sdk、reachai-config、capability-scan、gateway-route、embed-token-broker、gateway-whitelist、frontend-embed、connectivity-check、handoff-summary。
+- 每完成或卡住一个关键步骤，请 POST 到“步骤进度回传 URL”，把 {stepKey} 替换为下列 key 之一：project-manifest、backend-sdk、reachai-config、api-management-handoff、gateway-route、embed-token-broker、gateway-whitelist、frontend-embed、connectivity-check、handoff-summary。
 - 请求必须发送 X-ReachAI-AiCoding-Key header；不要把 aiCodingKey 拼进 URL。
 - 请求体格式：{"status":"PASS|WARN|FAIL|RUNNING","message":"一句话说明","files":["相对路径"],"evidence":{"command":"执行过的命令","exitCode":0},"reportedBy":"${toolName}"}。
 - 如果你不能访问平台接口，请在最终总结里说明无法回传；如果可以访问，不要只在聊天里报告进度。
@@ -387,11 +399,12 @@ ${installHint}
 - 前端缓存 embed token 必须按 expiresIn 提前失效；遇到 embed token is expired 时清缓存、重新获取并重试一次。
 - pageKey、pageInstanceId、route、origin 要由前端运行时生成，并在 token broker、session create、Page Action 三处保持一致，便于 ReachAI 做会话隔离、Workflow 路由和页面动作回传。
 
-扫描边界要求：
-- 必须先从启动类、业务 Controller / Service 包、Maven 模块名中推断业务代码主包，例如 com.company.order 或 com.xxx.biz。
+API 管理手动同步准备要求：
+- 如果本次需要为后续 API 管理手动同步准备扫描边界，必须先从启动类、业务 Controller / Service 包、Maven 模块名中推断业务代码主包，例如 com.company.order 或 com.xxx.biz。
 - reachai.capability.scan-packages 只填写业务代码包；不要填写 org.springframework、springfox、org.springdoc、com.baomidou、框架基座包、通用平台包或 SDK 包。
 - reachai.capability.exclude-packages 至少排除 org.springframework、springfox、org.springdoc、com.enterprise.ai.reach；如果项目有 hussar、framework、common-web、platform 等框架包，也要排除。
 - 如果无法可靠判断业务包，先在计划里列出候选包并等待我确认，不要默认扫描整个根包。
+- 配置完成后不要在接入阶段调用同步接口；由用户在 ReachAI API 管理中手动触发 SDK 同步。
 
 请先输出你识别到的项目结构和接入计划，等我确认后再改代码。`
   })
@@ -402,6 +415,7 @@ ${installHint}
     highlightedStarterDependencySnippet,
     highlightedStarterApplicationSnippet,
     gatewaySnippet,
+    highlightedGatewaySnippet,
     frontendSnippet,
     highlightedFrontendSnippet,
     aiOnboardingPrompt,

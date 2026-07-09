@@ -100,6 +100,7 @@ public class ReachCapabilityBeanScanner {
                 || bean instanceof ReachAiRegistryAutoConfiguration
                 || bean instanceof ReachAiRegistryHeartbeatScheduler
                 || bean instanceof ReachCapabilityEndpoint
+                || bean instanceof ReachCapabilitySyncEndpoint
                 || bean instanceof ReachAiInvocationExceptionHandler;
     }
 }

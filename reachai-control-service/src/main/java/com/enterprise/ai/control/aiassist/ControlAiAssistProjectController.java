@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -33,6 +34,89 @@ public class ControlAiAssistProjectController {
     private static final String ONBOARDING_SKILL_NAME = "reachai-onboarding";
 
     private final CapabilityProjectOnboardingClient capabilityClient;
+
+    static List<SdkArtifact> sdkArtifacts() {
+        return List.of(
+                new SdkArtifact(
+                        "maven",
+                        "java",
+                        "com.enterprise.ai:reachai-capability-sdk:1.0.0-SNAPSHOT",
+                        "com.enterprise.ai",
+                        "reachai-capability-sdk",
+                        null,
+                        "1.0.0-SNAPSHOT",
+                        "corporate-maven-or-local-install",
+                        List.of(),
+                        "mvn -pl reachai-spring-boot2-starter -am install -DskipTests",
+                        "Resolve from the corporate Maven repository, a published ReachAI Maven repository, or local Maven install. The ReachAI platform baseUrl is not a Maven repository."),
+                new SdkArtifact(
+                        "maven",
+                        "java",
+                        "com.enterprise.ai:reachai-spring-boot2-starter:1.0.0-SNAPSHOT",
+                        "com.enterprise.ai",
+                        "reachai-spring-boot2-starter",
+                        null,
+                        "1.0.0-SNAPSHOT",
+                        "corporate-maven-or-local-install",
+                        List.of(),
+                        "mvn -pl reachai-spring-boot2-starter -am install -DskipTests",
+                        "Install the starter into the local Maven repository when no published repository is configured."),
+                new SdkArtifact(
+                        "npm",
+                        "browser",
+                        "@reachai/embed-chat@1.0.0-SNAPSHOT",
+                        null,
+                        null,
+                        "@reachai/embed-chat",
+                        "1.0.0-SNAPSHOT",
+                        "npm-or-local-sdk-build",
+                        List.of(),
+                        "cd ai-admin-front && npm run build:sdk",
+                        "Use the published npm package when available, or the local SDK build artifact produced by the ReachAI frontend package."));
+    }
+
+    static Map<String, ResponseShape> responseShapes() {
+        Map<String, ResponseShape> shapes = new LinkedHashMap<>();
+        shapes.put("embed", new ResponseShape(
+                "ApiResult",
+                Map.of(
+                        "token", "data.token",
+                        "expiresIn", "data.expiresIn",
+                        "sessionId", "data.sessionId",
+                        "answer", "data.answer",
+                        "pageActionQueue", "data.metadata.pageActionQueue"),
+                "Embed token/session/message/page-action APIs return ApiResult; top-level message is transport status only."));
+        shapes.put("agentProvisioning", new ResponseShape(
+                "bare-json",
+                Map.of(
+                        "agentKeySlug", "agent.keySlug",
+                        "defaultWorkflowId", "defaultWorkflow.id",
+                        "createdDefaultWorkflow", "createdDefaultWorkflow"),
+                "POST /api/ai-coding/projects/{projectId}/agents/provision is not ApiResult-wrapped."));
+        shapes.put("aiAccessSessions", new ResponseShape(
+                "bare-json",
+                Map.of(
+                        "sessionId", "sessionId",
+                        "status", "status",
+                        "steps", "steps"),
+                "AI access session endpoints return the session object at the top level."));
+        shapes.put("sdkAccessCheck", new ResponseShape(
+                "bare-json",
+                Map.of(
+                        "overallStatus", "overallStatus",
+                        "checks", "checks",
+                        "readiness", "readiness"),
+                "SDK access check is a platform-console response and is not ApiResult-wrapped."));
+        shapes.put("onboardingManifest", new ResponseShape(
+                "bare-json",
+                Map.of(
+                        "project", "project",
+                        "sdkArtifacts", "sdkArtifacts",
+                        "responseShapes", "responseShapes",
+                        "agentProvisioning", "agentProvisioning"),
+                "Manifest responses are top-level JSON contracts for AI coding tools."));
+        return shapes;
+    }
 
     @GetMapping("/onboarding-manifest")
     public ResponseEntity<OnboardingManifestResponse> onboardingManifest(@PathVariable Long projectId,
@@ -306,6 +390,8 @@ public class ControlAiAssistProjectController {
                                 projectManifest.baseUrl(),
                                 projectManifest.contextPath(),
                                 projectManifest.environment())),
+                sdkArtifacts(),
+                responseShapes(),
                 new PlatformEndpoints(
                         baseUrl + "/api/ai-assist/skills/" + ONBOARDING_SKILL_NAME + "/latest.zip",
                         projectApiRoot + "/onboarding-manifest",
@@ -581,8 +667,8 @@ public class ControlAiAssistProjectController {
                 overall,
                 List.of(
                         new SdkAccessReadiness("CODE_READY", "代码接入", overall, "SDK onboarding route is available"),
-                        new SdkAccessReadiness("RUNTIME_READY", "Runtime 就绪", overall, "Runtime readiness requires business service heartbeat"),
-                        new SdkAccessReadiness("E2E_READY", "端到端", overall, "Run a business API call to complete final verification")),
+                        new SdkAccessReadiness("RUNTIME_READY", "Runtime 就绪", overall, "Runtime readiness requires SDK instance heartbeat"),
+                        new SdkAccessReadiness("E2E_READY", "端到端", overall, "Verify embed/token broker flow; API calls are optional after API Management manual SDK sync")),
                 checks);
     }
 
@@ -688,6 +774,8 @@ public class ControlAiAssistProjectController {
             ProjectManifest project,
             AiCodingAccessManifest aiCodingAccess,
             SdkManifest sdk,
+            List<SdkArtifact> sdkArtifacts,
+            Map<String, ResponseShape> responseShapes,
             PlatformEndpoints endpoints,
             EmbedManifest embed,
             AgentProvisioningManifest agentProvisioning,
@@ -952,6 +1040,22 @@ public class ControlAiAssistProjectController {
     }
 
     public record MavenDependency(String groupId, String artifactId, String version) {
+    }
+
+    public record SdkArtifact(String type,
+                              String language,
+                              String coordinates,
+                              String groupId,
+                              String artifactId,
+                              String packageName,
+                              String version,
+                              String sourcePolicy,
+                              List<String> repositoryUrls,
+                              String localInstallCommand,
+                              String notes) {
+    }
+
+    public record ResponseShape(String wrapper, Map<String, String> fields, String notes) {
     }
 
     public record ReachAiConfigManifest(

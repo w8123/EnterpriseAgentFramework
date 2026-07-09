@@ -4,9 +4,9 @@ import type {
   AiAccessSession,
   PageAssistantOnboardingManifest,
   PageAssistantSessionSummary,
+  ProjectToolInfo,
 } from '@/types/scanProject'
 import type { PageActionRegistryView } from '@/api/embedOps'
-import type { ApiAssetItem } from '@/types/apiAsset'
 import type {
   AssistantGoal,
   DraftSource,
@@ -17,7 +17,7 @@ export function usePageAssistantWizardUiState() {
   const selectedPageKey = ref('')
   const selectedPageIdentity = ref('')
   const selectedActions = ref<PageActionRegistryView[]>([])
-  const selectedApiAssets = ref<ApiAssetItem[]>([])
+  const selectedProjectApiTools = ref<ProjectToolInfo[]>([])
   const modelInstanceId = ref('')
   const focusedStep = ref<WizardStepKey | ''>('connect')
   const statusStripRef = ref<HTMLElement | null>(null)
@@ -61,7 +61,7 @@ export function usePageAssistantWizardUiState() {
     selectedPageKey,
     selectedPageIdentity,
     selectedActions,
-    selectedApiAssets,
+    selectedProjectApiTools,
     modelInstanceId,
     focusedStep,
     statusStripRef,

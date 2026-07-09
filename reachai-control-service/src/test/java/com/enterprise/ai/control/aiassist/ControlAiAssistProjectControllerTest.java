@@ -50,6 +50,17 @@ class ControlAiAssistProjectControllerTest {
         assertEquals(true, response.getBody().aiCodingAccess().enabled());
         assertEquals("aic_test", response.getBody().aiCodingAccess().accessKey());
         assertEquals("http://localhost:18603", response.getBody().sdk().config().registryUrl());
+        assertEquals("com.enterprise.ai:reachai-capability-sdk:1.0.0-SNAPSHOT",
+                response.getBody().sdkArtifacts().get(0).coordinates());
+        assertEquals("corporate-maven-or-local-install",
+                response.getBody().sdkArtifacts().get(0).sourcePolicy());
+        assertEquals("@reachai/embed-chat@1.0.0-SNAPSHOT",
+                response.getBody().sdkArtifacts().get(2).coordinates());
+        assertEquals("ApiResult", response.getBody().responseShapes().get("embed").wrapper());
+        assertEquals("data.token", response.getBody().responseShapes().get("embed").fields().get("token"));
+        assertEquals("bare-json", response.getBody().responseShapes().get("agentProvisioning").wrapper());
+        assertEquals("agent.keySlug",
+                response.getBody().responseShapes().get("agentProvisioning").fields().get("agentKeySlug"));
         assertEquals("http://localhost:18603/api/ai-assist/projects/7/onboarding-manifest",
                 response.getBody().endpoints().manifestUrl());
         verify(client).getOnboardingProjectById(7L);

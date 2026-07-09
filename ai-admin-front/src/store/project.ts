@@ -44,7 +44,7 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   function projectLabel(project?: ScanProject | null) {
-    if (!project) return '全部项目'
+    if (!project) return '未选择项目'
     const code = project.projectCode ? ` / ${project.projectCode}` : ''
     const env = project.environment ? ` · ${project.environment}` : ''
     return `${project.name}${code}${env}`

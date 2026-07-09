@@ -1,6 +1,9 @@
 <template>
   <div class="page-assistant">
-    <PageAssistantHeader @back="goBack" />
+    <PageAssistantHeader
+      :project-name="project?.name || projectCode"
+      :project-code="project?.projectCode || projectCode"
+    />
 
     <main class="wizard-shell">
       <section ref="statusStripRef">
@@ -76,8 +79,8 @@
             :selected-page="selectedPage"
             :selected-page-key="selectedPageKey"
             :selected-actions="selectedActions"
-            :selected-api-assets="selectedApiAssets"
-            :api-assets="apiAssets"
+            :selected-project-api-tools="selectedProjectApiTools"
+            :project-api-tools="projectApiTools"
             :model-options="modelOptions"
             :assistant-goal-options="assistantGoalOptions"
             :is-ai-coding-workflow-selected="isAiCodingWorkflowSelected"
@@ -97,7 +100,7 @@
             @reset-ai-coding-draft="resetAiCodingWorkflowDraft"
             @use-ai-coding-draft="useAiCodingWorkflowDraft"
             @use-default-requirement="requirement = defaultRequirement()"
-            @api-selection-change="selectedApiAssets = $event"
+            @project-api-selection-change="selectedProjectApiTools = $event"
             @switch-to-platform-generation="confirmSwitchToPlatformGeneration"
             @generate-draft="generateDraft"
           />
@@ -263,7 +266,7 @@ const {
   selectedPageKey,
   selectedPageIdentity,
   selectedActions,
-  selectedApiAssets,
+  selectedProjectApiTools,
   modelInstanceId,
   focusedStep,
   statusStripRef,
@@ -296,7 +299,7 @@ const {
   project,
   pageRegistry,
   pageActions,
-  apiAssets,
+  projectApiTools,
   modelOptions,
   loadAll,
 } = usePageAssistantWizardData({
@@ -372,7 +375,7 @@ const {
 
 sessionLoader.load = loadPageAssistantSessions
 
-const { goBack, enterWorkflowStudio, openAiCodingWorkflowStudio: navigateToAiCodingStudio } = usePageAssistantWizardNavigation({
+const { enterWorkflowStudio, openAiCodingWorkflowStudio: navigateToAiCodingStudio } = usePageAssistantWizardNavigation({
   projectCode,
   bindingResult,
   createdWorkflowId,
@@ -393,7 +396,7 @@ const {
 } = usePageAssistantWizardSteps({
   pageRegistry,
   pageActions,
-  apiAssets,
+  projectApiTools,
   selectedPageKey,
   selectedPage,
   selectedActions,
@@ -487,7 +490,7 @@ const {
   selectedPage,
   selectedPageKey,
   selectedActions,
-  selectedApiAssets,
+  selectedProjectApiTools,
   agentName,
   requirement,
   modelInstanceId,

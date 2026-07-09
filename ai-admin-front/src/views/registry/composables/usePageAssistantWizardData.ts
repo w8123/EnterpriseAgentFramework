@@ -1,7 +1,6 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { listApiAssets } from '@/api/apiAsset'
 import {
   listPageActionCatalog,
   listPageRegistry,
@@ -9,10 +8,10 @@ import {
   type PageRegistryView,
 } from '@/api/embedOps'
 import { getModelInstances } from '@/api/model'
-import { getScanProjects } from '@/api/scanProject'
+import { getScanProjectTools, getScanProjects } from '@/api/scanProject'
 import type { ModelInstance } from '@/types/model'
-import type { ApiAssetItem } from '@/types/apiAsset'
-import type { ScanProject } from '@/types/scanProject'
+import type { ProjectToolInfo, ScanProject } from '@/types/scanProject'
+import { isProjectApiToolSelectable } from '@/utils/projectApiTools'
 import {
   isActiveModelInstance,
   normalizeModelInstanceList,
@@ -39,7 +38,7 @@ export function usePageAssistantWizardData(deps: UsePageAssistantWizardDataDeps)
   const project = ref<ScanProject | null>(null)
   const pageRegistry = ref<PageRegistryView[]>([])
   const pageActions = ref<PageActionRegistryView[]>([])
-  const apiAssets = ref<ApiAssetItem[]>([])
+  const projectApiTools = ref<ProjectToolInfo[]>([])
   const modelOptions = ref<ModelInstance[]>([])
   const loading = ref(false)
 
@@ -47,17 +46,19 @@ export function usePageAssistantWizardData(deps: UsePageAssistantWizardDataDeps)
     if (!projectCode.value) return
     loading.value = true
     try {
-      const [projects, pages, actions, assets, models] = await Promise.all([
+      const [projects, pages, actions, models] = await Promise.all([
         getScanProjects(),
         listPageRegistry({ projectCode: projectCode.value, limit: 200 }),
         listPageActionCatalog({ projectCode: projectCode.value, limit: 500 }),
-        listApiAssets({ projectCode: projectCode.value, page: 1, pageSize: 100, enabled: true }),
         getModelInstances({ modelType: 'LLM' }),
       ])
       project.value = projects.data.find((item) => item.projectCode === projectCode.value) || null
+      const projectTools = project.value?.id
+        ? await getScanProjectTools(project.value.id, 'full')
+        : null
       pageRegistry.value = pages.data || []
       pageActions.value = actions.data || []
-      apiAssets.value = (assets.data.items || []).filter((item) => Boolean(item.globalToolName))
+      projectApiTools.value = (projectTools?.data || []).filter(isProjectApiToolSelectable)
       modelOptions.value = normalizeModelInstanceList(models.data).filter(isActiveModelInstance)
       deps.modelInstanceId.value = deps.modelInstanceId.value || modelOptions.value[0]?.id || ''
       if (
@@ -86,7 +87,7 @@ export function usePageAssistantWizardData(deps: UsePageAssistantWizardDataDeps)
     project,
     pageRegistry,
     pageActions,
-    apiAssets,
+    projectApiTools,
     modelOptions,
     loading,
     loadAll,

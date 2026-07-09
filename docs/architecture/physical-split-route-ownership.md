@@ -22,7 +22,6 @@ Public route lifecycle classes and frontend-banned aliases are summarized in `do
 | `/api/registry/**` | `reachai-control-service` | `reachai-capability-service` | SDK register, heartbeat/offline, instance governance, capability sync, diff, review/apply; excludes Agent Graph sync and registry page catalog |
 | `/api/capabilities/**` | `reachai-control-service` | `reachai-capability-service` | Capability asset catalog |
 | `/api/tools/**` | `reachai-control-service` | `reachai-capability-service` | Tool catalog and definitions |
-| `/api/api-assets/**` | `reachai-control-service` | `reachai-capability-service` | API asset catalog |
 | `/api/api-graph/**` | `reachai-control-service` | `reachai-capability-service` | SDK/API graph |
 | `/api/tool-retrieval/**` | `reachai-control-service` | `reachai-capability-service` | Tool retrieval settings |
 | `/api/scan-projects/**` | `reachai-control-service` | `reachai-capability-service` | Scan project catalog |
@@ -59,7 +58,7 @@ Implemented public compatibility routes in the extracted service shells:
 legacy proxy gateway usage. Routes that have already moved to real Runtime implementations,
 such as lightweight chat and embedded dispatch, cannot silently reintroduce `ai-agent-service`
 forwarding. The same route contract check now requires migrated Capability routes, such as
-Capability asset kernel APIs, domain catalog APIs, API asset list projection, Capability-owned
+Capability asset kernel APIs, domain catalog APIs, scan project API management, Capability-owned
 registry operations, Tool catalog management, Composition catalog management, semantic document
 reads/generation/edit, scan module management, API graph snapshot, regenerate, infer, param-hints, and edge/layout
 operations plus Capability Mining routes, to have a real Capability implementation instead of
@@ -85,7 +84,6 @@ Runtime-owned implementations or are guarded against reintroducing the legacy pr
 | `/api/workflows/studio/edit-draft` | Delegates to Runtime | Runtime-owned AI draft edit applies model-generated canvas patch locally and returns updated canvas plus GraphSpec; calls Model Gateway through Runtime service client | Real implementation |
 | `/api/capabilities` and `/api/capabilities/{code}/**` | Delegates to Capability | Manages Capability-owned module, tool asset, composition, and interaction definition rows locally | Real implementation |
 | `/api/domains` and `/api/domains/**` | Delegates to Capability | Manages Capability-owned domain definitions, domain assignments, keyword classification, and coverage views locally | Real implementation |
-| `GET /api/api-assets` | Delegates to Capability | Builds a read-only API asset list from Capability-owned scan project, scan module, scan project tool, and global tool definition rows | Real implementation |
 | `GET /api/tools`, `POST /api/tools`, `GET /api/tools/{name}`, `PUT /api/tools/{name}`, `DELETE /api/tools/{name}`, `PUT /api/tools/{name}/toggle`, and `POST /api/tools/{name}/test` | Delegates to Capability | Manages Capability-owned `tool_definition` catalog rows locally while preserving public Tool DTO shape; Tool test now invokes Capability's local HTTP Tool executor and returns the frontend `ToolTestResult` shape instead of the retired-route disabled response | Real implementation |
 | `POST /api/tool-retrieval/search`, `POST /api/tool-retrieval/rebuild`, `GET /api/tool-retrieval/rebuild/status`, and `GET /api/tool-retrieval/health` | Delegates to Capability | Capability now serves the Tool retrieval management routes locally from Capability-owned `tool_definition` and `tool_retrieval_setting`. The first physical split implementation keeps the public route/DTO contract and provides keyword-based local recall plus rebuild task status without depending on the retired `ai-agent-service`; vector/Milvus-backed recall can be reattached later behind the same Capability owner boundary. | Real implementation |
 | `/api/skill-mining/**` and `/api/capability-mining/**` | Delegates to Capability | Capability now serves the historical Capability Mining public routes locally. It reads Runtime trace data for precheck, n-gram chain mining, trace/canvas extraction, and demo trace helpers through Runtime internal tool-call-log APIs, stores review drafts in `skill_draft`, and publishes approved drafts through the Capability Composition catalog into `tool_definition(kind=SKILL)` without returning the retired-route disabled response. | Real implementation |

@@ -3,7 +3,7 @@ import { scanSensitiveTypeLabel } from '@/utils/scanProjectToolExport'
 import type { ProjectToolInfo } from '@/types/scanProject'
 import type { SemanticDoc } from '@/types/semanticDoc'
 import type { ToolParameter } from '@/types/tool'
-import type { ToolModuleGroup } from '@/views/scan/composables/useScanProjectSummary'
+import type { ApiGovernanceAdvice, ToolModuleGroup } from '@/views/scan/composables/useScanProjectSummary'
 
 interface ParameterRow extends ToolParameter {
   _key: string
@@ -16,6 +16,7 @@ type ToolFlagField = 'agentVisible' | 'lightweightEnabled'
 defineProps<{
   loading: boolean
   tools: ProjectToolInfo[]
+  stageAdvice: ApiGovernanceAdvice
   visibleToolModuleGroups: ToolModuleGroup[]
   hiddenModuleGroupCount: number
   toolDocMap: Record<number, SemanticDoc>
@@ -58,6 +59,8 @@ const emit = defineEmits<{
   regenerateTool: [row: ProjectToolInfo]
   openEditDoc: [doc: SemanticDoc]
   showMoreGroups: []
+  emptyPrimaryAction: []
+  emptySecondaryAction: []
 }>()
 
 function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[]) {
@@ -67,36 +70,52 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
 </script>
 
 <template>
-  <el-collapse-item class="scan-detail-top-item merged-tools-card" name="tools">
-    <template #title>
-      <div class="tools-header">
-        <span>API 接口目录与 AI 语义</span>
-        <div class="tools-actions" @click.stop>
-          <el-button
-            size="small"
-            type="warning"
-            plain
-            :loading="sensitiveScanStarting || sensitiveTaskPolling"
-            @click="emit('startSensitiveDataScan')"
-          >
-            扫描敏感数据
-          </el-button>
-          <el-button
-            size="small"
-            :disabled="!tools.length"
-            :loading="exportScanToolsExcelLoading"
-            @click="emit('exportExcel')"
-          >
-            导出 EXCEL
-          </el-button>
-          <el-button size="small" @click="emit('batchToggle', false)">全部禁用</el-button>
-          <el-button size="small" type="primary" @click="emit('batchToggle', true)">全部启用</el-button>
-        </div>
+  <section class="scan-detail-top-item merged-tools-card">
+    <div class="scan-detail-card-header tools-header">
+      <span>API 接口目录与 AI 语义</span>
+      <div v-if="tools.length > 0" class="tools-actions">
+        <el-button
+          size="small"
+          type="warning"
+          plain
+          :loading="sensitiveScanStarting || sensitiveTaskPolling"
+          @click="emit('startSensitiveDataScan')"
+        >
+          扫描敏感数据
+        </el-button>
+        <el-button
+          size="small"
+          :disabled="!tools.length"
+          :loading="exportScanToolsExcelLoading"
+          @click="emit('exportExcel')"
+        >
+          导出 EXCEL
+        </el-button>
+        <el-button size="small" @click="emit('batchToggle', false)">全部禁用</el-button>
+        <el-button size="small" type="primary" @click="emit('batchToggle', true)">全部启用</el-button>
       </div>
-    </template>
+    </div>
 
     <div v-loading="loading" class="tools-table-wrap">
-      <el-empty v-if="!loading && tools.length === 0" description="暂无接口记录：离线项目请先扫描；SDK 接入项目在业务系统同步能力后将出现在此" />
+      <div v-if="!loading && tools.length === 0" class="empty-api-onboarding">
+        <div class="empty-api-onboarding__mark" aria-hidden="true">API</div>
+        <div class="empty-api-onboarding__copy">
+          <span>还没有发现 API</span>
+          <h3>{{ stageAdvice.title }}</h3>
+          <p v-if="stageAdvice.description">{{ stageAdvice.description }}</p>
+        </div>
+        <div class="empty-api-onboarding__actions">
+          <el-button type="primary" @click="emit('emptyPrimaryAction')">
+            {{ stageAdvice.primaryLabel }}
+          </el-button>
+          <el-button
+            v-if="stageAdvice.secondaryLabel && stageAdvice.secondaryAction"
+            @click="emit('emptySecondaryAction')"
+          >
+            {{ stageAdvice.secondaryLabel }}
+          </el-button>
+        </div>
+      </div>
       <el-collapse
         v-else-if="tools.length > 0"
         v-model="interfaceCollapseActive"
@@ -352,5 +371,5 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
         <el-button size="small" @click="emit('showMoreGroups')">加载更多模块</el-button>
       </div>
     </div>
-  </el-collapse-item>
+  </section>
 </template>

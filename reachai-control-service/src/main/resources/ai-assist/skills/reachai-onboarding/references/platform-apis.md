@@ -24,14 +24,13 @@ Top-level `message: "success"` is transport status only. Never render it as the 
 
 ## Chat SDK apiBase
 
-The browser SDK (`eafChat.ts`) calls `${apiBase}/api/embed/chat/sessions` and `${apiBase}/api/embed/chat/sessions/{sessionId}/messages...`.
+The browser SDK (`@reachai/embed-chat`, implemented in `eafChat.ts`) normalizes `apiBase + embedPathPrefix` into an Embed API root, then calls `{embedApiRoot}/chat/sessions` and `{embedApiRoot}/chat/sessions/{sessionId}/messages...`. The default `embedPathPrefix` is `/api/embed`.
 
-- **Direct to ReachAI**: `apiBase = <ReachAI platform origin>`, e.g. `http://localhost:18603` → requests hit `<origin>/api/embed/**`.
-- **Via business gateway**: the gateway must proxy **`/api/embed/**`** to ReachAI `/api/embed/**`. Set `apiBase` to the origin that exposes that path (often the gateway host with `/api/embed` reachable, or still the ReachAI origin if the browser talks to ReachAI directly).
+- **Direct to ReachAI**: `apiBase = <ReachAI platform origin>`, e.g. `http://localhost:18603` -> requests hit `<origin>/api/embed/**`.
+- **Via business gateway `/api/embed/**`**: set `apiBase` to the gateway origin, or to the accessible `/api/embed` root.
+- **Via business gateway `/api/reachai/embed/**`**: set `apiBase` to the gateway origin and `embedPathPrefix` to `/api/reachai/embed`, or set `apiBase` directly to `/api/reachai/embed` for a relative proxy.
 
-**Wrong**: `apiBase: '/api/reachai/embed'` produces `/api/reachai/embed/api/embed/chat/sessions`.
-
-If the gateway only exposes `/api/reachai/embed/**` with rewrite to ReachAI, do not use that path as `apiBase` with the current SDK. Add a separate `/api/embed/**` route or change SDK path strategy later.
+The SDK recognizes `/api/embed` and `/api/reachai/embed` as Embed API roots to avoid producing `/api/reachai/embed/api/embed/...`.
 
 The token broker path (e.g. `/api/reachai/embed-token`) is separate from Chat `apiBase`.
 
@@ -60,6 +59,8 @@ Important fields:
 - `aiCodingAccess.enabled`: whether external AI coding access is enabled.
 - `aiCodingAccess.accessKey`: the project-level key used only to fetch this manifest; it is not the registry app secret. It is `null` for header-auth manifests.
 - `sdk.dependencies`: Maven coordinates to add.
+- `sdkArtifacts`: machine-readable Java and browser SDK coordinates, source policies, repository hints, and local install/build commands.
+- `responseShapes`: machine-readable map that tells tools whether each API family is `ApiResult` wrapped or bare JSON.
 - `sdk.config.appSecretEnv`: environment variable name for the app secret.
 - `endpoints.skillPackageUrl`: zip URL for this skill.
 - `endpoints.sdkAccessCheckUrl`: platform self-check endpoint.
@@ -79,7 +80,7 @@ Important fields:
 
 The manifest does not include `appSecret`.
 
-The manifest also does not declare a Maven repository, npm registry, or browser SDK download endpoint. Do not derive artifact URLs from the platform base URL. In particular, do not request `/repository/**`, `/maven/**`, `/repository/maven/**`, `/api/embed/sdk`, or `/npm/**` from the ReachAI platform. If SDK artifacts are not available from the business repo's existing artifact sources, report the missing artifact source instead of guessing a platform URL.
+Read `sdkArtifacts` from the manifest for Java and browser package coordinates, source policy, and local build/install hints. Do not derive artifact URLs from the platform base URL. In particular, do not request `/repository/**`, `/maven/**`, `/repository/maven/**`, `/api/embed/sdk`, or `/npm/**` from the ReachAI platform. If SDK artifacts are not available from the declared artifact sources, report the missing artifact source instead of guessing a platform URL.
 
 Before front-end embed work, call `agentProvisioning.provisionAgentUrl` when present. Use the response `agent.keySlug` as the business front-end `agentId`. The call is idempotent, so it is safe for Cursor or another AI coding tool to retry. Do not ask the business user to choose an Agent id. If provisioning is unavailable, fall back to `agentProvisioning.defaultKeySlug`, `agentWorkflow.globalAgentKeySlug`, `embed.defaultAgentKeySlug`, or `embed.defaultAgentId`.
 
@@ -233,7 +234,9 @@ filters:
   - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
 ```
 
-For browser Chat SDK traffic, prefer exposing **`/api/embed/**`** on the gateway (or use direct ReachAI `apiBase`). Do not set `apiBase: '/api/reachai/embed'` with the current SDK because it appends `/api/embed/...` again.
+ReachAI Control's application-level `/api/embed/**` CORS is controlled by `reachai.embed.cors.enabled` and defaults to `false`. Keep it disabled behind a business gateway that owns CORS headers; enable and restrict `reachai.embed.cors.allowed-origin-patterns` only when browsers call ReachAI directly. If both layers must write CORS, dedupe at the proxy boundary.
+
+For browser Chat SDK traffic, prefer declaring the actual gateway prefix through `embedPathPrefix`. Current `@reachai/embed-chat` also treats `/api/embed` and `/api/reachai/embed` as full Embed API roots, so it will not append `/api/embed` twice.
 
 Embed SSE ends with `message.completed`; there is no `done` event.
 
@@ -249,6 +252,10 @@ POST /api/embed/chat/sessions/{sessionId}/page-actions/{requestId}/result
 
 Use `data.uiRequest.extension.pageActionRequest` only as a compatibility fallback when `pageActionQueue` is absent. Do not mark an embedded page query as complete just because `data.answer` says the system is querying; the page action result POSTs and the visible page state are part of the contract.
 
+The skill package includes:
+- `references/page-action-result.schema.json`: JSON Schema for the Embed Page Action result DTO. `error` is a string at the Embed API boundary.
+- `references/page-action-mock.html`: runnable browser mock that consumes `data.metadata.pageActionQueue`, invokes `window.__REACHAI_PAGE_BRIDGE__`, and posts each result back.
+
 ## Self-Check
 
 `POST /api/scan-projects/{projectId}/sdk-access-check`
@@ -257,7 +264,6 @@ Example body:
 
 ```json
 {
-  "apiAssetId": 123,
   "args": {},
   "gatewayBaseUrl": "http://localhost:8080",
   "embedTokenPath": "/api/reachai/embed-token"
@@ -267,6 +273,8 @@ Example body:
 Run this only after the business service compiles and has a reachable local or test instance.
 
 Set `gatewayBaseUrl` to the real business gateway entry when available. Set `embedTokenPath` to the business gateway token broker path that the front end will call.
+
+`scanToolId` is optional. Use it only after SDK interfaces have been manually synced from ReachAI API Management and the user wants a real project interface invocation as extra evidence. SDK onboarding readiness must not depend on project API rows already existing.
 
 ## AI Access Session Progress
 
@@ -310,7 +318,7 @@ Standard `stepKey` values:
 - `project-manifest`
 - `backend-sdk`
 - `reachai-config`
-- `capability-scan`
+- `api-management-handoff`
 - `gateway-route`
 - `embed-token-broker`
 - `gateway-whitelist`
@@ -331,7 +339,7 @@ Use the same body as `sdkAccessCheckUrl`. This endpoint requires normal platform
 
 `POST /api/scan-projects/{projectId}/tools/reconcile`
 
-Use after SDK startup/sync when the platform has received capability snapshots and the user wants API catalog rows reconciled.
+Use after API Management manual SDK sync when the platform has received capability snapshots and the user wants API catalog rows reconciled.
 
 ## Future Extension Points
 

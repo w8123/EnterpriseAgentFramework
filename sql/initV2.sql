@@ -2416,6 +2416,9 @@ CALL add_idx_if_absent('knowledge_business_index', 'idx_biz_embedding_instance',
 -- ============================================================================
 
 -- AI Coding onboarding access key for external coding tools.
+-- CapabilityScanProjectCatalogService generates and enables this key for newly
+-- created projects. Keep the SQL default disabled so direct inserts without a
+-- key do not accidentally expose a keyless AI Coding surface.
 CALL add_col_if_absent('capability_scan_project', 'ai_coding_access_key', 'VARCHAR(160) DEFAULT NULL COMMENT ''AI Coding access key''');
 CALL add_col_if_absent('capability_scan_project', 'ai_coding_access_enabled', 'TINYINT NOT NULL DEFAULT 0 COMMENT ''1=AI Coding manifest access enabled''');
 

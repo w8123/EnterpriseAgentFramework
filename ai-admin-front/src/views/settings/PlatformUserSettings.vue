@@ -224,9 +224,8 @@ onMounted(reload)
 <style scoped lang="scss">
 .platform-user-page {
   min-height: calc(100vh - 56px);
-  padding: 28px 32px 40px;
-  background: var(--brand-page-bg);
-  background-size: 28px 28px, 28px 28px, auto, auto, auto, auto;
+  padding: var(--reachai-workbench-page-padding, var(--reachai-workbench-title-gap, 10px) 28px 16px);
+  background: transparent;
   color: var(--text-primary);
 }
 
@@ -235,10 +234,11 @@ onMounted(reload)
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 18px;
-  padding: 20px 22px;
+  min-height: var(--reachai-workbench-title-height, 120px);
+  margin-bottom: 16px;
+  padding: var(--reachai-workbench-title-padding, 26px 28px);
   border: 1px solid rgb(var(--brand-selected-rgb) / 0.58);
-  border-radius: 8px;
+  border-radius: var(--reachai-workbench-title-radius, 16px);
   background: var(--brand-glass-bg);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),

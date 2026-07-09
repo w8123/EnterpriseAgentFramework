@@ -1,29 +1,51 @@
 <template>
-  <div class="page-container api-catalog-workbench">
+  <div class="registry-workbench-page api-catalog-workbench">
     <ScanProjectHeader
       :project="project"
-      :asset-summary-items="assetSummaryItems"
-      :batch-starting="batchStarting"
+      :stage-advice="stageAdvice"
+      :primary-action-loading="primaryActionLoading"
       :reconcile-loading="reconcileLoading"
       :loading="loading"
-      @go-back="goBack"
-      @start-batch-generate="startBatchGenerate"
+      @primary-action="handleGovernanceAction"
       @open-model-generate-panel="openModelGeneratePanel"
-      @open-scan-rules-panel="openScanRulesPanel"
       @open-ops-panel="openOpsPanel"
       @reconcile="handleReconcile"
-      @refresh="refreshAll"
+      @open-import-dialog="openImportDialog"
     />
 
-    <ScanProjectOverviewCards :cards="workbenchSummaryCards" />
+    <ScanProjectAddInterfaceDialog
+      v-model:visible="addInterfaceDialogVisible"
+      v-model:active-tab="addInterfaceDialogTab"
+      v-model:settings-visible="addInterfaceSettingsVisible"
+      :project="project"
+      :sync-loading="sdkScanLoading"
+      :sync-result="sdkScanResult"
+      :rescan-loading="rescanLoading"
+      :scan-settings-form="scanSettingsForm"
+      :is-open-api-mode="isOpenApiMode"
+      :description-source-labels="descriptionSourceLabels"
+      :param-source-labels="paramSourceLabels"
+      :all-http-methods="allHttpMethods"
+      :scan-settings-saving="scanSettingsSaving"
+      @scan-sdk="scanSdkCapabilities"
+      @sdk-guide="openSdkAccessGuide"
+      @rescan="handleRescan"
+      @set-description-source-enabled="setDescriptionSourceEnabled"
+      @set-param-description-source-enabled="setParamDescriptionSourceEnabled"
+      @move-description-order="moveDescriptionOrder"
+      @move-param-order="moveParamOrder"
+      @save-scan-settings="handleSaveScanSettings"
+    />
+
+    <ScanProjectOverviewCards :stages="governanceStages" />
 
     <el-tabs v-model="activeWorkbenchTab" class="workbench-tabs">
-      <el-tab-pane label="接口目录" name="tools" />
       <el-tab-pane label="模块管理" name="modules" />
+      <el-tab-pane label="接口目录" name="tools" />
       <el-tab-pane label="接口图谱" name="apiGraph" />
     </el-tabs>
 
-    <el-collapse v-model="detailPanelActive" class="scan-detail-sections">
+    <div class="scan-detail-sections">
       <ScanProjectModulesPanel
         v-if="project && activeWorkbenchTab === 'modules'"
         :modules="modules"
@@ -41,6 +63,7 @@
         v-model:interface-collapse-active="interfaceCollapseActive"
         :loading="loading"
         :tools="tools"
+        :stage-advice="stageAdvice"
         :visible-tool-module-groups="visibleToolModuleGroups"
         :hidden-module-group-count="hiddenModuleGroupCount"
         :tool-doc-map="toolDocMap"
@@ -78,6 +101,8 @@
         @regenerate-tool="regenerateTool"
         @open-edit-doc="openEditDoc"
         @show-more-groups="showMoreToolModuleGroups"
+        @empty-primary-action="handleGovernanceAction(stageAdvice.primaryAction)"
+        @empty-secondary-action="stageAdvice.secondaryAction && handleGovernanceAction(stageAdvice.secondaryAction)"
       />
 
       <ScanProjectApiGraphPanel
@@ -86,7 +111,7 @@
         :api-graph-mounted="apiGraphMounted"
         :panel-expanded="activeWorkbenchTab === 'apiGraph'"
       />
-    </el-collapse>
+    </div>
 
     <ScanProjectModelGenerateDrawer
       v-model:visible="modelGenerateDrawerVisible"
@@ -102,32 +127,10 @@
       @save-ai-generation-settings="saveAiGenerationSettings"
     />
 
-    <ScanProjectScanRulesDrawer
-      v-model:visible="scanRulesDrawerVisible"
-      :project="project"
-      :scan-settings-form="scanSettingsForm"
-      :is-open-api-mode="isOpenApiMode"
-      :description-source-labels="descriptionSourceLabels"
-      :param-source-labels="paramSourceLabels"
-      :all-http-methods="allHttpMethods"
-      :scan-settings-saving="scanSettingsSaving"
-      @set-description-source-enabled="setDescriptionSourceEnabled"
-      @set-param-description-source-enabled="setParamDescriptionSourceEnabled"
-      @move-description-order="moveDescriptionOrder"
-      @move-param-order="moveParamOrder"
-      @save-scan-settings="handleSaveScanSettings"
-    />
-
     <ScanProjectOpsDrawer
       v-model:visible="opsDrawerVisible"
-      :project="project"
-      :rescan-loading="rescanLoading"
       :rebuild-embedding-loading="rebuildEmbeddingLoading"
-      :scan-settings-saving="scanSettingsSaving"
-      @rescan="handleRescan"
       @rebuild-embeddings="handleRebuildEmbeddings"
-      @save-scan-settings="handleSaveScanSettings"
-      @save-ai-generation-settings="saveAiGenerationSettings"
     />
 
     <ScanProjectSemanticDialogs
@@ -173,15 +176,18 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
-import type { ProjectToolInfo } from '@/types/scanProject'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { triggerSdkCapabilityScan } from '@/api/scanProject'
+import type { ProjectToolInfo, SdkCapabilityScanResult } from '@/types/scanProject'
+import ScanProjectAddInterfaceDialog from '@/views/scan/components/scan-project/ScanProjectAddInterfaceDialog.vue'
 import ScanProjectApiGraphPanel from '@/views/scan/components/scan-project/ScanProjectApiGraphPanel.vue'
 import ScanProjectHeader from '@/views/scan/components/scan-project/ScanProjectHeader.vue'
 import ScanProjectModelGenerateDrawer from '@/views/scan/components/scan-project/ScanProjectModelGenerateDrawer.vue'
 import ScanProjectModulesPanel from '@/views/scan/components/scan-project/ScanProjectModulesPanel.vue'
 import ScanProjectOpsDrawer from '@/views/scan/components/scan-project/ScanProjectOpsDrawer.vue'
 import ScanProjectOverviewCards from '@/views/scan/components/scan-project/ScanProjectOverviewCards.vue'
-import ScanProjectScanRulesDrawer from '@/views/scan/components/scan-project/ScanProjectScanRulesDrawer.vue'
 import ScanProjectSemanticDialogs from '@/views/scan/components/scan-project/ScanProjectSemanticDialogs.vue'
 import ScanProjectToolDiffDialog from '@/views/scan/components/scan-project/ScanProjectToolDiffDialog.vue'
 import ScanProjectToolEditDialog from '@/views/scan/components/scan-project/ScanProjectToolEditDialog.vue'
@@ -194,7 +200,7 @@ import { useScanProjectDetailNavigation } from '@/views/scan/composables/useScan
 import { useScanProjectUiState } from '@/views/scan/composables/useScanProjectUiState'
 import { useScanProjectSettings } from '@/views/scan/composables/useScanProjectSettings'
 import { useScanProjectSemanticDocs } from '@/views/scan/composables/useScanProjectSemanticDocs'
-import { useScanProjectSummary } from '@/views/scan/composables/useScanProjectSummary'
+import { useScanProjectSummary, type ApiGovernanceAction } from '@/views/scan/composables/useScanProjectSummary'
 import { useScanProjectToolDetails } from '@/views/scan/composables/useScanProjectToolDetails'
 import { useScanProjectToolEditor, parameterRows } from '@/views/scan/composables/useScanProjectToolEditor'
 import { useScanProjectToolOperations } from '@/views/scan/composables/useScanProjectToolOperations'
@@ -205,10 +211,15 @@ const refreshSideEffects: ScanProjectRefreshSideEffects = {
   onToolsLoaded: () => {},
   onRefreshFailed: () => {},
 }
+const router = useRouter()
+const addInterfaceDialogVisible = ref(false)
+const addInterfaceDialogTab = ref<'sdk' | 'aiCoding'>('sdk')
+const addInterfaceSettingsVisible = ref(false)
+const sdkScanLoading = ref(false)
+const sdkScanResult = ref<SdkCapabilityScanResult | null>(null)
 
 const {
   activeWorkbenchTab,
-  detailPanelActive,
   apiGraphMounted,
   interfaceCollapseActive,
 } = useScanProjectUiState()
@@ -248,7 +259,7 @@ const {
   authDrawerVisible: _authDrawerVisible,
   aiSettingsDrawerVisible: _aiSettingsDrawerVisible,
   modelGenerateDrawerVisible,
-  scanRulesDrawerVisible,
+  scanRulesDrawerVisible: _scanRulesDrawerVisible,
   opsDrawerVisible,
   authSaving: _authSaving,
   authForm: _authForm,
@@ -277,6 +288,7 @@ const {
 void _scanSettingsDrawerVisible
 void _authDrawerVisible
 void _aiSettingsDrawerVisible
+void _scanRulesDrawerVisible
 void _authSaving
 void _authForm
 void _lastScannedDisplay
@@ -414,8 +426,8 @@ const {
 const {
   semanticCompletionPercent: _semanticCompletionPercent,
   linkedToolCount: _linkedToolCount,
-  workbenchSummaryCards,
-  assetSummaryItems,
+  governanceStages,
+  stageAdvice,
   toolModuleGroups: _toolModuleGroups,
   visibleToolModuleGroups,
   hiddenModuleGroupCount,
@@ -436,6 +448,16 @@ void _semanticCompletionPercent
 void _linkedToolCount
 void _toolModuleGroups
 
+const primaryActionLoading = computed(() => {
+  const action = stageAdvice.value.primaryAction
+  if (action === 'scan') return rescanLoading.value
+  if (action === 'generateAi') return batchStarting.value
+  if (action === 'reconcile') return reconcileLoading.value
+  if (action === 'scanSensitive') return sensitiveScanStarting.value || sensitiveTaskPolling.value
+  if (action === 'refresh') return loading.value
+  return false
+})
+
 refreshSideEffects.loadSemanticAssets = loadSemanticAssetsForRefresh
 refreshSideEffects.applyProjectLoaded = () => {
   syncAuthFormFromProject()
@@ -448,16 +470,79 @@ refreshSideEffects.onToolsLoaded = () => {
 refreshSideEffects.onRefreshFailed = clearSemanticAssets
 
 const {
-  goBack,
   openModelGeneratePanel,
-  openScanRulesPanel,
   openOpsPanel,
 } = useScanProjectDetailNavigation({
   aiSettingsDrawerVisible: _aiSettingsDrawerVisible,
   modelGenerateDrawerVisible,
-  scanRulesDrawerVisible,
+  scanRulesDrawerVisible: _scanRulesDrawerVisible,
   opsDrawerVisible,
 })
+
+function openSdkAccessGuide() {
+  const projectCode = project.value?.projectCode?.trim()
+  if (!projectCode) {
+    void router.push('/registry/projects')
+    return
+  }
+  void router.push({ name: 'SdkAccessWizard', params: { projectCode } })
+}
+
+function openToolsCatalog() {
+  activeWorkbenchTab.value = 'tools'
+}
+
+function openImportDialog(tab: 'sdk' | 'aiCoding' = 'sdk') {
+  addInterfaceDialogTab.value = tab
+  addInterfaceSettingsVisible.value = false
+  addInterfaceDialogVisible.value = true
+}
+
+function openScanRulesPanel() {
+  addInterfaceDialogTab.value = 'sdk'
+  addInterfaceSettingsVisible.value = true
+  addInterfaceDialogVisible.value = true
+}
+
+async function scanSdkCapabilities() {
+  sdkScanLoading.value = true
+  try {
+    const { data } = await triggerSdkCapabilityScan(projectId.value)
+    sdkScanResult.value = data
+    await refreshAll()
+    ElMessage.success(`已扫描并同步 ${data.capabilityCount} 个 SDK 接口`)
+  } catch (error) {
+    const responseMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+    const message = responseMessage || (error instanceof Error ? error.message : 'SDK 扫描同步失败')
+    ElMessage.error(message)
+  } finally {
+    sdkScanLoading.value = false
+  }
+}
+
+function handleGovernanceAction(action: ApiGovernanceAction) {
+  if (action === 'importApi') {
+    openImportDialog()
+  } else if (action === 'scan') {
+    void handleRescan()
+  } else if (action === 'generateAi') {
+    void startBatchGenerate(false)
+  } else if (action === 'reconcile') {
+    void handleReconcile()
+  } else if (action === 'scanSensitive') {
+    void startSensitiveDataScanFlow()
+  } else if (action === 'refresh') {
+    void refreshAll()
+  } else if (action === 'scanRules') {
+    openScanRulesPanel()
+  } else if (action === 'modelSettings') {
+    openModelGeneratePanel()
+  } else if (action === 'ops') {
+    openOpsPanel()
+  } else {
+    openToolsCatalog()
+  }
+}
 
 onMounted(() => {
   restoreAiGenerationSettings()

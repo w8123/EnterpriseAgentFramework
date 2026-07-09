@@ -2,6 +2,7 @@ package com.enterprise.ai.reach.spring;
 
 import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
 import com.enterprise.ai.reach.sdk.annotation.ReachParam;
+import com.enterprise.ai.reach.sdk.capability.ReachCapabilityDescriptor;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -11,17 +12,19 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class ReachAiRegistryClientTest {
 
     @Test
-    void registerAndSyncPostsProjectThenCapabilitiesWithReachAiHeaders() {
+    void registerAndSyncPostsProjectThenHeartbeatWithReachAiHeaders() {
         ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
         properties.getRegistry().setUrl("https://reachai.example.com/");
         properties.getRegistry().setAppKey("demo-key");
@@ -41,7 +44,7 @@ class ReachAiRegistryClientTest {
 
         client.registerAndSync();
 
-        assertEquals(3, transport.requests.size());
+        assertEquals(2, transport.requests.size());
         RecordingTransport.Request register = transport.requests.get(0);
         assertEquals("POST", register.method);
         assertEquals("https://reachai.example.com/api/registry/projects/register", register.url);
@@ -63,26 +66,7 @@ class ReachAiRegistryClientTest {
         Map<?, ?> metadata = (Map<?, ?>) heartbeat.body.get("metadata");
         assertEquals("CAPABILITY_HOST", metadata.get("runtimePlacement"));
         assertEquals(Boolean.TRUE, metadata.get("supportsTools"));
-        assertEquals(1, metadata.get("capabilityCount"));
-
-        RecordingTransport.Request sync = transport.requests.get(2);
-        assertEquals("POST", sync.method);
-        assertEquals("https://reachai.example.com/api/registry/projects/demo/capabilities/sync", sync.url);
-        assertEquals("SDK", sync.body.get("source"));
-        assertEquals(Boolean.TRUE, sync.body.get("apply"));
-        List<?> capabilities = (List<?>) sync.body.get("capabilities");
-        assertEquals(1, capabilities.size());
-        Map<?, ?> capability = (Map<?, ?>) capabilities.get(0);
-        assertEquals("contract.query", capability.get("name"));
-        assertEquals("POST", capability.get("httpMethod"));
-        assertEquals("https://biz.example.com", capability.get("baseUrl"));
-        assertEquals("", capability.get("contextPath"));
-        assertEquals("/reachai/capabilities/contract.query/invoke", capability.get("endpointPath"));
-        assertEquals("java.util.Map", capability.get("requestBodyType"));
-        assertEquals("java.lang.String", capability.get("responseType"));
-        assertEquals("WRITE", capability.get("sideEffect"));
-        assertEquals(Boolean.TRUE, capability.get("enabled"));
-        assertEquals(Boolean.TRUE, capability.get("agentVisible"));
+        assertNull(metadata.get("capabilityCount"));
     }
 
     @Test
@@ -104,6 +88,54 @@ class ReachAiRegistryClientTest {
     }
 
     @Test
+    void registerAndSyncDoesNotScanOrSyncCapabilitiesByDefault() {
+        ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
+        properties.getRegistry().setUrl("https://reachai.example.com");
+        properties.getRegistry().setAppKey("demo-key");
+        properties.getRegistry().setAppSecret("demo-secret");
+        properties.getProject().setCode("demo");
+        properties.getProject().setBaseUrl("https://biz.example.com");
+
+        CountingScanner scanner = new CountingScanner();
+        RecordingTransport transport = new RecordingTransport();
+        ReachAiRegistryClient client = new ReachAiRegistryClient(properties, scanner, transport);
+
+        client.registerAndSync();
+
+        assertEquals(2, transport.requests.size());
+        assertEquals(0, scanner.scanCalls);
+        RecordingTransport.Request heartbeat = transport.requests.get(1);
+        Map<?, ?> metadata = (Map<?, ?>) heartbeat.body.get("metadata");
+        assertNull(metadata.get("capabilityCount"));
+    }
+
+    @Test
+    void scanAndSyncCapabilitiesScansBeansAndPostsToRegistry() {
+        ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
+        properties.getRegistry().setUrl("https://reachai.example.com");
+        properties.getRegistry().setAppKey("demo-key");
+        properties.getRegistry().setAppSecret("demo-secret");
+        properties.getProject().setCode("demo");
+        properties.getProject().setBaseUrl("https://biz.example.com");
+
+        CountingScanner scanner = new CountingScanner();
+        RecordingTransport transport = new RecordingTransport();
+        ReachAiRegistryClient client = new ReachAiRegistryClient(properties, scanner, transport);
+
+        ReachAiRegistryClient.ManualCapabilitySyncResponse response = client.scanAndSyncCapabilities();
+
+        assertEquals(1, scanner.scanCalls);
+        assertEquals(1, response.getCapabilityCount());
+        assertEquals(1, transport.requests.size());
+        RecordingTransport.Request sync = transport.requests.get(0);
+        assertEquals("POST", sync.method);
+        assertEquals("https://reachai.example.com/api/registry/projects/demo/capabilities/sync", sync.url);
+        assertEquals("SDK", sync.body.get("source"));
+        assertEquals(Boolean.TRUE, sync.body.get("apply"));
+        assertEquals(1, ((List<?>) sync.body.get("capabilities")).size());
+    }
+
+    @Test
     void registerAndSyncDoesNotBreakApplicationStartupWhenRegistryIsUnavailable() {
         ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
         properties.getRegistry().setUrl("https://reachai.example.com");
@@ -120,7 +152,7 @@ class ReachAiRegistryClientTest {
     }
 
     @Test
-    void registerAndSyncIncludesPlainSpringMvcControllerEndpoints() {
+    void scanAndSyncCapabilitiesIncludesPlainSpringMvcControllerEndpoints() {
         ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
         properties.getRegistry().setUrl("https://reachai.example.com");
         properties.getRegistry().setAppKey("demo-key");
@@ -134,9 +166,9 @@ class ReachAiRegistryClientTest {
                 new ReachCapabilityBeanScanner(new Object[]{new PlainController()}),
                 transport);
 
-        client.registerAndSync();
+        client.scanAndSyncCapabilities();
 
-        RecordingTransport.Request sync = transport.requests.get(2);
+        RecordingTransport.Request sync = transport.requests.get(0);
         List<?> capabilities = (List<?>) sync.body.get("capabilities");
         assertEquals(2, capabilities.size());
 
@@ -172,6 +204,28 @@ class ReachAiRegistryClientTest {
             }
         }
         throw new AssertionError("capability not found: " + name);
+    }
+
+    static class CountingScanner extends ReachCapabilityBeanScanner {
+        private int scanCalls;
+
+        CountingScanner() {
+            super(new Object[0]);
+        }
+
+        @Override
+        public List<ReachCapabilityDescriptor> scan() {
+            scanCalls++;
+            ReachCapabilityDescriptor descriptor = new ReachCapabilityDescriptor();
+            descriptor.setName("contract.query");
+            descriptor.setTitle("Query contract");
+            descriptor.setHttpMethod("POST");
+            descriptor.setEndpointPath("/reachai/capabilities/contract.query/invoke");
+            descriptor.setRequestBodyType("java.util.Map");
+            descriptor.setReturnType("java.lang.String");
+            descriptor.setAgentVisible(true);
+            return Collections.singletonList(descriptor);
+        }
     }
 
     @RestController

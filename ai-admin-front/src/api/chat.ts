@@ -10,7 +10,7 @@ export function clearSession(sessionId: string) {
 }
 
 /**
- * SSE 娴佸紡瀵硅瘽 鈥?杩斿洖鍘熷 Response 渚?ReadableStream 娑堣垂
+ * SSE 流式对话 - 返回原始 Response 供 ReadableStream 消费
  */
 export function chatStream(data: ChatRequest): Promise<Response> {
   return fetch('/api/chat/stream', {

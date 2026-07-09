@@ -70,11 +70,25 @@ public class ReachAiRegistryAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public ReachAiRegistryRequestVerifier reachAiRegistryRequestVerifier(ReachAiRegistryProperties properties) {
+        return new ReachAiRegistryRequestVerifier(properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     @ConditionalOnClass(name = "org.springframework.web.bind.annotation.RestController")
     public ReachCapabilityEndpoint reachCapabilityEndpoint(ReachCapabilityInvoker invoker,
                                                            ReachCapabilityInvocationVerifier invocationVerifier,
                                                            List<ReachAiSecurityContextBridge> securityContextBridges) {
         return new ReachCapabilityEndpoint(invoker, invocationVerifier, securityContextBridges);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnClass(name = "org.springframework.web.bind.annotation.RestController")
+    public ReachCapabilitySyncEndpoint reachCapabilitySyncEndpoint(ReachAiRegistryClient registryClient,
+                                                                   ReachAiRegistryRequestVerifier requestVerifier) {
+        return new ReachCapabilitySyncEndpoint(registryClient, requestVerifier);
     }
 
     @Bean

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ReachAI Page Action Mock</title>
+</head>
+<body>
+  <button id="run">Run sample pageActionQueue</button>
+  <pre id="log"></pre>
+  <script>
+    const embedApiRoot = '/api/embed'
+    const embedToken = 'replace-with-embed-token'
+    const sessionId = 'replace-with-session-id'
+    const pageKey = 'demo.page'
+    const log = document.getElementById('log')
+
+    function append(message) {
+      log.textContent += message + '\n'
+    }
+
+    window.__REACHAI_PAGE_BRIDGE__ = {
+      async execute(targetPageKey, actionKey, args) {
+        if (targetPageKey !== pageKey) {
+          return { status: 'FAILED', error: `Unexpected pageKey ${targetPageKey}` }
+        }
+        if (actionKey === 'getPageState') {
+          return { status: 'SUCCESS', data: { filters: args || {}, rows: [] } }
+        }
+        return { status: 'ACTION_NOT_FOUND', error: `Unknown action ${actionKey}` }
+      },
+      list() {
+        return [{ pageKey, actionKey: 'getPageState' }]
+      }
+    }
+
+    async function postPageActionResult(result) {
+      const response = await fetch(
+        `${embedApiRoot}/chat/sessions/${encodeURIComponent(sessionId)}/page-actions/${encodeURIComponent(result.requestId)}/result`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${embedToken}`
+          },
+          body: JSON.stringify(result)
+        }
+      )
+      append(`POST ${result.requestId}: ${response.status}`)
+    }
+
+    async function consumePageActionQueue(chatResponse) {
+      const data = chatResponse.data || chatResponse
+      const queue = Array.isArray(data.metadata && data.metadata.pageActionQueue)
+        ? data.metadata.pageActionQueue
+        : []
+      for (const request of queue) {
+        const targetPageKey = (request.metadata && request.metadata.pageKey) || pageKey
+        const bridgeResult = await window.__REACHAI_PAGE_BRIDGE__.execute(
+          targetPageKey,
+          request.actionKey,
+          request.args || {}
+        )
+        const errorText = typeof bridgeResult.error === 'string'
+          ? bridgeResult.error
+          : bridgeResult.error && bridgeResult.error.message
+            ? String(bridgeResult.error.message)
+            : undefined
+        await postPageActionResult({
+          protocolVersion: request.protocolVersion || '1.0',
+          type: 'page.action.result',
+          requestId: request.requestId,
+          actionKey: request.actionKey,
+          status: bridgeResult.status === 'SUCCESS' ? 'SUCCESS' : (bridgeResult.status || 'FAILED'),
+          data: bridgeResult.data,
+          error: errorText
+        })
+      }
+    }
+
+    document.getElementById('run').addEventListener('click', () => {
+      void consumePageActionQueue({
+        code: 200,
+        data: {
+          answer: 'Reading the current page.',
+          metadata: {
+            pageActionQueue: [{
+              type: 'page.action.requested',
+              protocolVersion: '1.0',
+              requestId: 'mock-request-1',
+              actionKey: 'getPageState',
+              args: { keyword: 'demo' },
+              metadata: { pageKey }
+            }]
+          }
+        }
+      }).catch((error) => append(error instanceof Error ? error.message : String(error)))
+    })
+  </script>
+</body>
+</html>

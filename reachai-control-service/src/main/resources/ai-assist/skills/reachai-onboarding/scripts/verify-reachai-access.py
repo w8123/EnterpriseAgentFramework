@@ -29,7 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description="Verify ReachAI onboarding manifest and optional SDK access check.")
     parser.add_argument("--manifest-url", required=True)
     parser.add_argument("--run-check", action="store_true")
-    parser.add_argument("--api-asset-id", type=int)
+    parser.add_argument("--scan-tool-id", type=int)
     parser.add_argument("--args-json", default="{}")
     parser.add_argument("--gateway-base-url")
     parser.add_argument("--embed-token-path")
@@ -51,7 +51,7 @@ def main():
 
         if args.run_check:
             payload = {
-                "apiAssetId": args.api_asset_id,
+                "scanToolId": args.scan_tool_id,
                 "args": json.loads(args.args_json),
                 "gatewayBaseUrl": args.gateway_base_url,
                 "embedTokenPath": args.embed_token_path,

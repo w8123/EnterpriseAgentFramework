@@ -159,7 +159,6 @@ public class ReachAiRegistryProperties {
 
     public static class Capability {
         private boolean scanBeans = true;
-        private boolean syncOnStartup = true;
         private boolean requireInvocationToken = true;
         private List<String> scanPackages = new ArrayList<String>();
         private List<String> excludePackages = new ArrayList<String>();
@@ -170,14 +169,6 @@ public class ReachAiRegistryProperties {
 
         public void setScanBeans(boolean scanBeans) {
             this.scanBeans = scanBeans;
-        }
-
-        public boolean isSyncOnStartup() {
-            return syncOnStartup;
-        }
-
-        public void setSyncOnStartup(boolean syncOnStartup) {
-            this.syncOnStartup = syncOnStartup;
         }
 
         public boolean isRequireInvocationToken() {

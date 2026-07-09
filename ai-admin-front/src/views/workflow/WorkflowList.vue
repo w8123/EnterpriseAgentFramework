@@ -1,9 +1,17 @@
 <template>
   <div class="workflow-list-page" :class="{ 'is-dark': theme === 'dark' }">
     <div class="page-hero">
-      <div>
-        <h1>{{ pageTitle }}</h1>
-        <p>{{ pageDescription }}</p>
+      <div class="hero-copy">
+        <span class="hero-accent" aria-hidden="true" />
+        <div class="hero-text">
+          <h1>{{ pageTitle }}</h1>
+          <p>{{ pageDescription }}</p>
+          <div class="hero-tags" aria-label="Workflow 编排状态">
+            <span class="tag-brand">{{ projectScoped ? '项目视图' : '全量视图' }}</span>
+            <span class="tag-success">当前 {{ workflows.length }} 个 Workflow</span>
+            <span class="tag-info">GraphSpec 可编排</span>
+          </div>
+        </div>
       </div>
       <div class="hero-actions">
         <el-button v-if="projectScoped" @click="backToProject">返回项目</el-button>
@@ -14,25 +22,29 @@
       </div>
     </div>
 
-    <div class="metric-grid">
-      <div v-for="metric in metrics" :key="metric.label" class="metric-card">
-        <div class="metric-icon" :class="metric.tone" aria-hidden="true">
-          <el-icon>
-            <component :is="metric.icon" />
-          </el-icon>
+    <div class="metric-strip">
+      <template v-for="(metric, index) in metrics" :key="metric.label">
+        <div v-if="index > 0" class="metric-divider" aria-hidden="true" />
+        <div class="metric-segment">
+          <MetricIconBg class="metric-segment-icon" :icon-key="metric.iconKey" :tone="metric.tone" />
+          <div class="metric-content">
+            <div class="metric-line">
+              <span class="metric-label">{{ metric.label }}</span>
+              <em v-if="metric.delta" class="metric-delta" :class="metric.deltaTone">{{ metric.delta }}</em>
+            </div>
+            <strong>{{ metric.value }}</strong>
+            <small>{{ metric.caption }}</small>
+          </div>
         </div>
-        <div>
-          <span>{{ metric.label }}</span>
-          <strong>{{ metric.value }}</strong>
-          <small>
-            {{ metric.caption }}
-            <em v-if="metric.delta">{{ metric.delta }}</em>
-          </small>
-        </div>
-      </div>
+      </template>
     </div>
 
-    <el-card class="workflow-card" shadow="never">
+    <el-card class="workflow-card" :class="{ 'has-context-filter': projectScoped }" shadow="never">
+      <div v-if="projectScoped" class="context-filter">
+        当前仅展示项目 {{ filters.projectCode }} 下的 Workflow。
+        <el-button link type="primary" @click="openGlobalWorkflows">查看全部 Workflow</el-button>
+      </div>
+
       <div class="toolbar">
         <el-input
           v-model="keyword"
@@ -66,104 +78,103 @@
             :value="item.value"
           />
         </el-select>
-        <el-button @click="resetFilters">重置</el-button>
-        <el-button :icon="Refresh" :loading="loading" @click="loadWorkflows" />
+        <el-button class="toolbar-reset" @click="resetFilters">重置</el-button>
+        <el-button class="toolbar-refresh" :icon="Refresh" :loading="loading" @click="loadWorkflows" />
       </div>
 
-      <div v-if="projectScoped" class="context-filter">
-        当前仅展示项目 {{ filters.projectCode }} 下的 Workflow。
-        <el-button link type="primary" @click="openGlobalWorkflows">查看全部 Workflow</el-button>
-      </div>
+      <div class="workflow-table-shell">
+        <el-table
+          v-loading="loading"
+          :data="pagedWorkflows"
+          row-key="id"
+          class="workflow-table"
+          :max-height="workflowTableMaxHeight"
+        >
+          <el-table-column label="Workflow 名称" min-width="260">
+            <template #default="{ row }">
+              <button type="button" class="workflow-name-cell workflow-name-cell-btn" @click="openStudio(row.id)">
+                <div class="workflow-avatar" :class="workflowAvatarClass(row.workflowType)">
+                  {{ workflowInitial(row.name) }}
+                </div>
+                <div>
+                  <strong>{{ row.name }}</strong>
+                  <span>{{ row.keySlug }}</span>
+                </div>
+              </button>
+            </template>
+          </el-table-column>
+          <el-table-column label="描述" min-width="220" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span class="muted">{{ row.description || '可执行图资产' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="项目" min-width="120">
+            <template #default="{ row }">
+              <span class="muted">{{ row.projectCode || '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="类型" width="130">
+            <template #default="{ row }">
+              <el-tag :type="workflowTypeTagType(row.workflowType)" effect="light">
+                {{ formatWorkflowTypeLabel(row.workflowType) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="运行时" width="130">
+            <template #default="{ row }">
+              <span class="muted">{{ formatRuntimeTypeLabel(row.runtimeType) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="112">
+            <template #default="{ row }">
+              <span class="status-pill" :class="workflowStatusClass(row.status)">
+                <i />
+                {{ formatWorkflowStatusLabel(row.status) }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="管理来源" width="130">
+            <template #default="{ row }">
+              <span class="muted">{{ formatWorkflowManagedByLabel(row.managedBy) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="204" fixed="right">
+            <template #default="{ row }">
+              <el-button size="small" type="primary" @click="openStudio(row.id)">编排</el-button>
+              <el-button size="small" @click="openVersions(row.id)">版本</el-button>
+              <el-button
+                v-if="canDeleteWorkflow(row)"
+                size="small"
+                type="danger"
+                plain
+                :loading="deletingId === row.id"
+                @click="confirmDeleteWorkflow(row)"
+              >
+                删除
+              </el-button>
+            </template>
+          </el-table-column>
 
-      <el-table
-        v-loading="loading"
-        :data="pagedWorkflows"
-        row-key="id"
-        class="workflow-table"
-        :max-height="workflowTableMaxHeight"
-      >
-        <el-table-column label="Workflow 名称" min-width="280">
-          <template #default="{ row }">
-            <button type="button" class="workflow-name-cell workflow-name-cell-btn" @click="openStudio(row.id)">
-              <div class="workflow-avatar" :class="workflowAvatarClass(row.workflowType)">
-                {{ workflowInitial(row.name) }}
+          <template #empty>
+            <div v-if="!loading" class="workflow-table-empty-state">
+              <div class="empty-main">
+                <div class="empty-illustration" aria-hidden="true">
+                  <img class="empty-illustration-img" src="/智能化.svg" alt="" />
+                </div>
+                <div class="empty-body">
+                  <div class="empty-copy">
+                    <h3>还没有匹配的 Workflow</h3>
+                    <p>可以调整项目、类型或状态筛选，也可以新建一个可执行图资产。</p>
+                  </div>
+                  <div class="empty-actions">
+                    <el-button type="primary" :icon="Plus" @click="openCreateDialog">新建 Workflow</el-button>
+                    <el-button @click="resetFilters">重置筛选</el-button>
+                  </div>
+                </div>
               </div>
-              <div>
-                <strong>{{ row.name }}</strong>
-                <span>{{ row.keySlug }}</span>
-              </div>
-            </button>
-          </template>
-        </el-table-column>
-        <el-table-column label="描述" min-width="240" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span class="muted">{{ row.description || '可执行图资产' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="项目" min-width="120">
-          <template #default="{ row }">
-            <span class="muted">{{ row.projectCode || '-' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="类型" width="130">
-          <template #default="{ row }">
-            <el-tag :type="workflowTypeTagType(row.workflowType)" effect="light">
-              {{ formatWorkflowTypeLabel(row.workflowType) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="运行时" width="150">
-          <template #default="{ row }">
-            <span class="muted">{{ formatRuntimeTypeLabel(row.runtimeType) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="120">
-          <template #default="{ row }">
-            <span class="status-pill" :class="workflowStatusClass(row.status)">
-              <i />
-              {{ formatWorkflowStatusLabel(row.status) }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column label="管理来源" width="140">
-          <template #default="{ row }">
-            <span class="muted">{{ formatWorkflowManagedByLabel(row.managedBy) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="primary" @click="openStudio(row.id)">编排</el-button>
-            <el-button size="small" @click="openVersions(row.id)">版本</el-button>
-            <el-button
-              v-if="canDeleteWorkflow(row)"
-              size="small"
-              type="danger"
-              plain
-              :loading="deletingId === row.id"
-              @click="confirmDeleteWorkflow(row)"
-            >
-              删除
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div v-if="!loading && filteredWorkflows.length === 0" class="empty-state">
-        <div class="empty-main">
-          <div class="empty-illustration" aria-hidden="true">
-            <img class="empty-illustration-img" src="/智能化.svg" alt="" />
-          </div>
-          <div class="empty-body">
-            <div class="empty-copy">
-              <h3>还没有匹配的 Workflow</h3>
-              <p>可以调整项目、类型或状态筛选，也可以新建一个可执行图资产。</p>
             </div>
-            <div class="empty-actions">
-              <el-button type="primary" :icon="Plus" @click="openCreateDialog">新建 Workflow</el-button>
-              <el-button @click="resetFilters">重置筛选</el-button>
-            </div>
-          </div>
-        </div>
+          </template>
+        </el-table>
       </div>
 
       <div v-if="filteredWorkflows.length > 0" class="table-footer">
@@ -253,14 +264,11 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  CircleCheck,
-  Connection,
-  Document,
-  Operation,
   Plus,
   Refresh,
   Search,
 } from '@element-plus/icons-vue'
+import MetricIconBg from '@/components/common/MetricIconBg.vue'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '@/api/workflow'
 import type { WorkflowDefinition } from '@/types/workflow'
 import { useTheme } from '@/composables/useTheme'
@@ -349,15 +357,17 @@ const metrics = computed(() => {
       value: total,
       caption: '可执行图资产',
       delta: projectCount ? `${projectCount} 个项目` : '',
-      icon: Operation,
-      tone: 'purple',
+      deltaTone: 'brand',
+      iconKey: 'workflow-total',
+      tone: 'brand',
     },
     {
       label: '已发布数量',
       value: activeCount,
       caption: '可进入运行时',
       delta: draftCount ? `${draftCount} 个草稿` : '',
-      icon: CircleCheck,
+      deltaTone: 'success',
+      iconKey: 'workflow-published',
       tone: 'green',
     },
     {
@@ -365,15 +375,17 @@ const metrics = computed(() => {
       value: `${pageActionCount} / ${sdkGraphCount}`,
       caption: '业务页面与能力图',
       delta: pageActionCount || sdkGraphCount ? 'GraphSpec 管理' : '',
-      icon: Connection,
-      tone: 'blue',
+      deltaTone: 'brand',
+      iconKey: 'workflow-sources',
+      tone: 'info',
     },
     {
       label: '手动编排',
       value: manualCount,
       caption: '人工创建与维护',
       delta: total ? `${Math.max(total - manualCount, 0)} 个托管` : '',
-      icon: Document,
+      deltaTone: 'warning',
+      iconKey: 'workflow-manual',
       tone: 'orange',
     },
   ]
@@ -633,15 +645,14 @@ function workflowStatusClass(status?: string | null) {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
   min-height: 0;
-  height: calc(100vh - 56px);
-  padding: 24px 28px 24px;
+  height: 100%;
+  padding: 24px 28px 14px;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  background: var(--brand-page-bg);
-  background-size: 28px 28px, 28px 28px, auto, auto, auto, auto;
+  background: transparent;
 }
 
 .page-hero {
@@ -653,6 +664,27 @@ function workflowStatusClass(status?: string | null) {
   min-width: 0;
   margin: 0;
   flex-shrink: 0;
+  min-height: 120px;
+  padding: 26px 28px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.18);
+  border-radius: 16px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.72) 52%, rgb(var(--brand-selected-rgb) / 0.16) 100%),
+    var(--brand-soft-bg, rgba(255, 255, 255, 0.58));
+  box-shadow: 0 18px 42px rgb(var(--brand-primary-rgb) / 0.052);
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(90deg, rgb(var(--brand-primary-rgb) / 0.18) 0 3px, transparent 3px),
+      radial-gradient(circle at 78% 18%, rgb(var(--brand-primary-rgb) / 0.12), transparent 28%);
+    opacity: 0.72;
+  }
 
   h1 {
     margin: 0 0 8px;
@@ -669,8 +701,66 @@ function workflowStatusClass(status?: string | null) {
   }
 }
 
+.hero-copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  min-width: 0;
+}
+
+.hero-accent {
+  flex: 0 0 4px;
+  width: 4px;
+  height: 28px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--brand-primary);
+  box-shadow: 0 0 16px rgb(var(--brand-primary-rgb) / 0.25);
+}
+
+.hero-text {
+  min-width: 0;
+}
+
+.hero-tags {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+}
+
+.tag-brand {
+  color: var(--brand-active);
+  background: var(--brand-selected-bg);
+}
+
+.tag-success {
+  color: #16a34a;
+  background: #dcfce7;
+}
+
+.tag-info {
+  color: var(--brand-primary);
+  background: rgb(var(--brand-primary-rgb) / 0.1);
+}
+
 .hero-actions,
 .empty-actions {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -687,97 +777,123 @@ function workflowStatusClass(status?: string | null) {
   box-shadow: 0 10px 20px rgb(var(--brand-primary-rgb) / 0.22);
 }
 
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+.metric-strip {
+  display: flex;
+  align-items: stretch;
   width: 100%;
   min-width: 0;
   margin: 0;
   flex-shrink: 0;
+  min-height: 104px;
+  max-height: 104px;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 18px 42px rgb(var(--brand-primary-rgb) / 0.052);
+  backdrop-filter: blur(9px);
 }
 
-.metric-card {
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  min-height: 92px;
-  padding: 18px 20px;
-  border: 1px solid #eaecf5;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 12px 28px rgba(17, 24, 39, 0.035);
+.metric-divider {
+  flex: 0 0 1px;
+  align-self: center;
+  width: 1px;
+  height: 68px;
+  background: rgb(var(--brand-primary-rgb) / 0.18);
+  border-radius: 1px;
+}
 
-  span,
+.metric-segment {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  gap: 18px;
+  align-items: center;
+  min-width: 0;
+  min-height: 104px;
+  padding: 18px 22px;
+
+  .metric-label,
   small {
     display: block;
-    color: #667085;
+    color: #64748b;
   }
 
-  span {
-    font-size: 12px;
+  .metric-label {
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 17px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   strong {
     display: block;
-    margin: 5px 0 4px;
-    color: #101828;
+    margin: 4px 0 2px;
+    color: #0f172a;
     font-size: 25px;
-    font-weight: 800;
-    line-height: 1;
+    font-weight: 700;
+    line-height: 30px;
   }
 
   small {
     font-size: 12px;
-
-    em {
-      margin-left: 6px;
-      color: #039855;
-      font-style: normal;
-      font-weight: 700;
-    }
+    line-height: 16px;
   }
 }
 
-.metric-icon {
-  display: grid;
-  place-items: center;
-  width: 48px;
-  height: 48px;
-  border: 1px solid transparent;
-  border-radius: 14px;
-  font-size: 22px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 10px 22px rgba(16, 24, 40, 0.06);
+.metric-segment-icon {
+  flex-shrink: 0;
+  --metric-icon-bg-size: 54px;
+  --metric-icon-bg-radius: 16px;
+  --metric-icon-glyph-size: 30px;
+  --metric-icon-stroke-width: 1.75;
+}
 
-  .el-icon {
-    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.7));
-  }
+.metric-content {
+  flex: 1;
+  min-width: 0;
+}
 
-  &.purple {
-    color: var(--brand-active);
-    border-color: rgb(var(--brand-hover-rgb) / 0.22);
-    background: linear-gradient(135deg, rgb(var(--brand-selected-rgb) / 0.7), rgba(255, 255, 255, 0.86));
-  }
+.metric-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
 
-  &.blue {
-    color: var(--brand-primary);
-    border-color: rgb(var(--brand-primary-rgb) / 0.2);
-    background: linear-gradient(135deg, rgb(var(--brand-selected-rgb) / 0.72), rgba(255, 255, 255, 0.88));
-  }
+.metric-delta {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  height: 24px;
+  padding: 0 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 18px;
+}
 
-  &.green {
-    color: #16a34a;
-    border-color: #cdefd8;
-    background: linear-gradient(135deg, #ecfdf3, #dcfce7);
-  }
+.metric-delta.brand {
+  color: var(--brand-active);
+  background: var(--brand-selected-bg);
+}
 
-  &.orange {
-    color: #ea580c;
-    border-color: #fedfc2;
-    background: linear-gradient(135deg, #fff7ed, #ffedd5);
-  }
+.metric-delta.success {
+  color: #16a34a;
+  background: #dcfce7;
+}
+
+.metric-delta.warning {
+  color: #f97316;
+  background: #fff7ed;
 }
 
 .workflow-card {
@@ -801,14 +917,22 @@ function workflowStatusClass(status?: string | null) {
   }
 }
 
+.workflow-card.has-context-filter {
+  .toolbar {
+    margin-top: 12px;
+  }
+}
+
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 2fr) minmax(150px, 1fr) repeat(2, minmax(150px, 1fr)) auto auto;
+  grid-template-columns: minmax(340px, 2.4fr) minmax(170px, 0.95fr) repeat(2, minmax(170px, 1fr)) 74px 48px;
   align-items: center;
-  gap: 10px;
-  padding: 14px 22px 16px;
-  border-bottom: 1px solid #eef1f7;
-  background: #fff;
+  gap: 12px;
+  margin: 28px 28px 0;
+  padding: 9px 14px;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.11);
+  border-radius: 12px;
+  background: var(--brand-soft-bg, rgba(238, 242, 255, 0.76));
   flex-shrink: 0;
 
   .search-input {
@@ -824,55 +948,123 @@ function workflowStatusClass(status?: string | null) {
 
   :deep(.el-input__wrapper),
   :deep(.el-select__wrapper) {
-    min-height: 34px;
-    border-radius: 7px;
-    box-shadow: 0 0 0 1px #d9deea inset;
+    min-height: 38px;
+    padding: 0 14px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.86);
+    box-shadow: 0 0 0 1px rgb(var(--brand-primary-rgb) / 0.18) inset;
   }
 
-  :deep(.el-button) {
-    min-height: 34px;
-    border-radius: 7px;
+  :deep(.el-input__inner),
+  :deep(.el-select__placeholder),
+  :deep(.el-select__selected-item) {
+    color: #8290a9;
+    font-size: 13px;
+    line-height: 17px;
   }
+
+  :deep(.el-input__prefix),
+  :deep(.el-input__suffix),
+  :deep(.el-select__suffix),
+  :deep(.el-select__caret) {
+    color: rgb(var(--brand-primary-rgb) / 0.42);
+  }
+}
+
+.toolbar-reset,
+.toolbar-refresh {
+  height: 40px;
+  min-height: 40px;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.18);
+  border-radius: 10px;
+  font-weight: 700;
+  box-shadow: 0 6px 16px -8px rgba(100, 116, 139, 0.08);
+}
+
+.toolbar-reset {
+  color: #334155;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.toolbar-refresh {
+  color: var(--brand-active);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.toolbar-reset:hover,
+.toolbar-refresh:hover {
+  color: var(--brand-active);
+  border-color: rgb(var(--brand-primary-rgb) / 0.24);
+  background: #f8fbff;
 }
 
 .context-filter {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 22px;
+  margin: 28px 28px 0;
+  padding: 9px 14px;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
+  border-radius: 10px;
   color: var(--brand-primary);
-  background: rgb(var(--brand-selected-rgb) / 0.52);
-  border-bottom: 1px solid rgb(var(--brand-selected-rgb) / 0.72);
+  background: rgb(var(--brand-selected-rgb) / 0.46);
   font-size: 13px;
   flex-shrink: 0;
 }
 
+.workflow-table-shell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin: 22px 28px 0;
+  overflow: hidden;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
 .workflow-table {
+  --el-table-header-bg-color: color-mix(in srgb, var(--brand-selected-bg) 42%, #f1f5fb);
+  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.72);
+  --el-table-border-color: rgb(var(--brand-primary-rgb) / 0.1);
   width: 100%;
   flex: 1;
   min-height: 0;
+  background: transparent;
+
+  :deep(.el-table__inner-wrapper::before) {
+    height: 0;
+  }
+
+  :deep(.cell) {
+    padding: 0 8px;
+  }
 
   :deep(th.el-table__cell) {
     height: 44px;
     color: var(--brand-active);
-    background: rgb(var(--brand-selected-rgb) / 0.34);
+    background: color-mix(in srgb, var(--brand-selected-bg) 42%, #f1f5fb) !important;
     font-size: 12px;
     font-weight: 700;
+    line-height: 16px;
   }
 
   :deep(td.el-table__cell) {
     height: 58px;
-    color: #344054;
-    border-bottom-color: #f0f2f7;
+    color: #334155;
+    background: rgba(255, 255, 255, 0.72) !important;
+    border-bottom-color: rgb(var(--brand-primary-rgb) / 0.1);
   }
 
-  :deep(.el-table__row:hover > td.el-table__cell) {
-    background: rgb(var(--brand-selected-rgb) / 0.22);
+  :deep(.el-table__row:hover > td.el-table__cell),
+  :deep(.el-table__body tr.hover-row > td.el-table__cell) {
+    background: rgba(255, 255, 255, 0.72) !important;
   }
 
   :deep(.el-table-fixed-column--right),
   :deep(.el-table-fixed-column--left) {
-    background-color: #fff !important;
+    background-color: rgba(255, 255, 255, 0.88) !important;
   }
 
   :deep(th.el-table-fixed-column--right),
@@ -882,7 +1074,7 @@ function workflowStatusClass(status?: string | null) {
 
   :deep(td.el-table-fixed-column--right),
   :deep(td.el-table-fixed-column--left) {
-    background-color: #fff !important;
+    background-color: rgba(255, 255, 255, 0.88) !important;
   }
 
   :deep(.el-table__row:hover > td.el-table-fixed-column--right),
@@ -891,11 +1083,23 @@ function workflowStatusClass(status?: string | null) {
   :deep(.el-table__body tr.hover-row > td.el-table-fixed-column--left),
   :deep(.el-table__body tr.current-row > td.el-table-fixed-column--right),
   :deep(.el-table__body tr.current-row > td.el-table-fixed-column--left) {
-    background-color: rgb(var(--brand-selected-rgb) / 0.22) !important;
+    background-color: rgba(255, 255, 255, 0.88) !important;
   }
 
   :deep(.el-table__fixed-right-patch) {
-    background-color: #fff !important;
+    background-color: rgba(255, 255, 255, 0.88) !important;
+  }
+
+  :deep(.el-table__empty-block) {
+    width: 100% !important;
+    min-height: 320px;
+    background: rgba(255, 255, 255, 0.46);
+  }
+
+  :deep(.el-table__empty-text) {
+    width: 100%;
+    color: inherit;
+    line-height: inherit;
   }
 }
 
@@ -1009,18 +1213,14 @@ function workflowStatusClass(status?: string | null) {
   }
 }
 
-.empty-state {
+.workflow-table-empty-state {
   display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
-  margin: 20px;
-  padding: 28px 32px;
-  border: 1px dashed rgb(var(--brand-primary-rgb) / 0.28);
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.06), rgb(var(--brand-hover-rgb) / 0.03));
-  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 320px;
+  padding: 34px 24px 42px;
+  box-sizing: border-box;
 
   h3 {
     margin: 0 0 8px;
@@ -1038,9 +1238,13 @@ function workflowStatusClass(status?: string | null) {
 
 .empty-main {
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  justify-content: center;
   gap: 28px;
+  width: min(760px, 100%);
   min-width: 0;
+  margin: 0 auto;
+  text-align: left;
 }
 
 .empty-body {
@@ -1061,13 +1265,12 @@ function workflowStatusClass(status?: string | null) {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 240px;
-  width: 240px;
-  min-height: 140px;
-  align-self: stretch;
+  flex: 0 0 220px;
+  width: 220px;
+  height: 160px;
   border-radius: 22px;
   overflow: hidden;
-  background: linear-gradient(135deg, var(--brand-selected-bg), rgba(255, 255, 255, 0.88));
+  background: linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.08), rgba(255, 255, 255, 0.9));
 }
 
 .empty-illustration-img {
@@ -1108,9 +1311,7 @@ function workflowStatusClass(status?: string | null) {
 }
 
 .workflow-list-page.is-dark {
-  background:
-    radial-gradient(circle at 14% 8%, rgb(var(--brand-primary-rgb) / 0.18), transparent 28%),
-    linear-gradient(180deg, #0a0a0f 0%, #10101a 48%, #0a0a0f 100%);
+  background: transparent;
 
   .page-hero {
     h1 {
@@ -1126,7 +1327,7 @@ function workflowStatusClass(status?: string | null) {
     box-shadow: 0 10px 22px rgb(var(--brand-primary-rgb) / 0.28);
   }
 
-  .metric-card,
+  .metric-strip,
   .workflow-card {
     border-color: rgba(255, 255, 255, 0.07);
     background: rgba(255, 255, 255, 0.035);
@@ -1134,8 +1335,12 @@ function workflowStatusClass(status?: string | null) {
     backdrop-filter: blur(12px);
   }
 
-  .metric-card {
-    span,
+  .metric-divider {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .metric-segment {
+    .metric-label,
     small {
       color: #94a3b8;
     }
@@ -1144,42 +1349,9 @@ function workflowStatusClass(status?: string | null) {
       color: #e2e8f0;
     }
 
-    small em {
-      color: #22d3ee;
-    }
-  }
-
-  .metric-icon {
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 12px 26px rgba(0, 0, 0, 0.18);
-
-    .el-icon {
-      filter: drop-shadow(0 0 10px currentColor);
-    }
-
-    &.purple {
-      color: var(--brand-selected-bg);
-      border-color: rgb(var(--brand-hover-rgb) / 0.22);
-      background: rgb(var(--brand-hover-rgb) / 0.18);
-    }
-
-    &.blue {
-      color: #93c5fd;
-      border-color: rgba(147, 197, 253, 0.18);
-      background: rgba(37, 99, 235, 0.18);
-    }
-
-    &.green {
-      color: #86efac;
-      border-color: rgba(134, 239, 172, 0.16);
-      background: rgba(22, 163, 74, 0.16);
-    }
-
-    &.orange {
-      color: #fdba74;
-      border-color: rgba(253, 186, 116, 0.18);
-      background: rgba(234, 88, 12, 0.16);
+    .metric-delta {
+      color: #bae6fd;
+      background: rgba(14, 165, 233, 0.14);
     }
   }
 
@@ -1193,7 +1365,7 @@ function workflowStatusClass(status?: string | null) {
 
   .toolbar {
     background: rgba(255, 255, 255, 0.02);
-    border-bottom-color: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.06);
 
     :deep(.el-input__wrapper),
     :deep(.el-select__wrapper) {
@@ -1234,7 +1406,12 @@ function workflowStatusClass(status?: string | null) {
   .context-filter {
     color: var(--brand-selected-bg);
     background: rgb(var(--brand-primary-rgb) / 0.12);
-    border-bottom-color: rgb(var(--brand-primary-rgb) / 0.22);
+    border-color: rgb(var(--brand-primary-rgb) / 0.22);
+  }
+
+  .workflow-table-shell {
+    border-color: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.025);
   }
 
   .workflow-table {
@@ -1331,10 +1508,7 @@ function workflowStatusClass(status?: string | null) {
     background: linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.22), rgb(var(--brand-hover-rgb) / 0.08));
   }
 
-  .empty-state {
-    border-color: rgb(var(--brand-primary-rgb) / 0.22);
-    background: linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.1), rgb(var(--brand-hover-rgb) / 0.04));
-
+  .workflow-table-empty-state {
     h3 {
       color: #e2e8f0;
     }
@@ -1383,8 +1557,20 @@ function workflowStatusClass(status?: string | null) {
 }
 
 @media (max-width: 1200px) {
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .metric-strip {
+    flex-direction: column;
+    max-height: none;
+  }
+
+  .metric-divider {
+    width: auto;
+    height: 1px;
+    align-self: stretch;
+    margin: 0 22px;
+  }
+
+  .metric-segment {
+    min-height: 92px;
   }
 
   .page-hero {
@@ -1425,7 +1611,10 @@ function workflowStatusClass(status?: string | null) {
     padding: 18px 14px 24px;
   }
 
-  .metric-grid,
+  .metric-segment {
+    min-height: 84px;
+  }
+
   .toolbar,
   .create-form-grid {
     grid-template-columns: 1fr;

@@ -37,6 +37,8 @@ public class ControlAiAssistSkillController {
             "agents/openai.yaml",
             "references/java-sdk-access.md",
             "references/platform-apis.md",
+            "references/page-action-result.schema.json",
+            "references/page-action-mock.html",
             "references/security.md",
             "templates/application-reachai.yml",
             "templates/pom-dependencies.xml",
@@ -47,6 +49,8 @@ public class ControlAiAssistSkillController {
     private static final List<String> PAGE_ASSISTANT_SKILL_FILES = List.of(
             "SKILL.md",
             "references/page-action-contract.md",
+            "references/page-action-result.schema.json",
+            "references/page-action-mock.html",
             "references/angular-page-action.md",
             "templates/angular/reachai-page-action.types.ts",
             "templates/angular/reachai-page-action.service.ts",

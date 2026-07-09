@@ -1,349 +1,27 @@
 ﻿<template>
   <el-container
     class="main-layout"
-    :class="{ 'registry-shell': isRegistryShell, 'studio-shell': isStudioPage, 'is-dark': theme === 'dark', 'sidebar-collapsed': isSidebarCollapsed }"
+    :class="{ 'registry-shell': isRegistryShell, 'studio-shell': isStudioPage, 'is-dark': theme === 'dark' }"
   >
-    <el-aside v-if="!isStudioPage" :width="isSidebarCollapsed ? '72px' : '240px'" class="sidebar">
-      <div class="logo">
-        <div class="logo-icon-wrap">
-          <img src="/reachai-icon.svg" alt="睿池 ReachAI" />
-        </div>
-        <span class="logo-text">AI 能力中台</span>
-      </div>
-      <el-scrollbar class="sidebar-scroll">
-        <el-menu
-          :default-active="activeMenu"
-          router
-          class="sidebar-menu"
-          :default-openeds="defaultOpenMenuGroups"
-          :collapse="isSidebarCollapsed"
-          :collapse-transition="false"
-        >
-          <!-- 1 概览 -->
-          <el-menu-item index="/dashboard">
-            <el-icon><DataAnalysis /></el-icon>
-            <span class="menu-label">
-              <span class="menu-cn">概览</span>
-            </span>
-          </el-menu-item>
+    <AppPageBackground v-if="!isStudioPage" />
 
-          <!-- 2 AI 注册中心 -->
-          <el-sub-menu index="/registry-group">
-            <template #title>
-              <el-icon><Connection /></el-icon>
-              <span class="menu-label">
-                <span class="menu-cn">注册中心</span>
-              </span>
-            </template>
-            <el-menu-item index="/registry/projects">
-              <span class="menu-label leaf">
-                <span class="menu-cn">项目管理</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/registry/api-assets">
-              <span class="menu-label leaf">
-                <span class="menu-cn">API 资产目录</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/registry/runtimes">
-              <span class="menu-label leaf">
-                <span class="menu-cn">Runtime 纳管</span>
-              </span>
-            </el-menu-item>
-          </el-sub-menu>
-
-          <!-- 3 Agent / Workflow -->
-          <el-sub-menu index="/agent-workflow-group">
-            <template #title>
-              <el-icon><Cpu /></el-icon>
-              <span class="menu-label">
-                <span class="menu-cn">智能体与编排</span>
-              </span>
-            </template>
-            <el-menu-item index="/agent">
-              <span class="menu-label leaf">
-                <span class="menu-cn">智能体入口</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/workflows">
-              <span class="menu-label leaf">
-                <span class="menu-cn">Workflow 编排</span>
-              </span>
-            </el-menu-item>
-          </el-sub-menu>
-
-          <!-- 4 能力内核 -->
-          <el-sub-menu index="/capability-group">
-            <template #title>
-              <el-icon><Aim /></el-icon>
-              <span class="menu-label">
-                <span class="menu-cn">能力内核</span>
-              </span>
-            </template>
-            <el-menu-item index="/capability">
-              <span class="menu-label leaf">
-                <span class="menu-cn">能力模块</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/capability/compositions">
-              <span class="menu-label leaf">
-                <span class="menu-cn">组合</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/capability/tools">
-              <span class="menu-label leaf">
-                <span class="menu-cn">工具</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/capability/interactions">
-              <span class="menu-label leaf">
-                <span class="menu-cn">交互</span>
-              </span>
-            </el-menu-item>
-          </el-sub-menu>
-
-          <!-- 5 Tool -->
-          <el-sub-menu index="/tool-group">
-            <template #title>
-              <el-icon><SetUp /></el-icon>
-              <span class="menu-label">
-                <span class="menu-cn">工具</span>
-              </span>
-            </template>
-            <el-menu-item index="/tool">
-              <span class="menu-label leaf">
-                <span class="menu-cn">工具列表</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/tool/retrieval">
-              <span class="menu-label leaf">
-                <span class="menu-cn">工具检索测试</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/settings/tool-acl">
-              <span class="menu-label leaf">
-                <span class="menu-cn">工具权限</span>
-              </span>
-            </el-menu-item>
-          </el-sub-menu>
-
-          <div class="menu-divider" />
-
-          <!-- 6 知识与检索 -->
-          <el-sub-menu index="/knowledge-group">
-            <template #title>
-              <el-icon><Collection /></el-icon>
-              <span class="menu-label">
-                <span class="menu-cn">知识检索</span>
-              </span>
-            </template>
-            <el-menu-item index="/knowledge">
-              <span class="menu-label leaf">
-                <span class="menu-cn">知识库管理</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/knowledge/import">
-              <span class="menu-label leaf">
-                <span class="menu-cn">文件入库</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/retrieval">
-              <span class="menu-label leaf">
-                <span class="menu-cn">检索测试</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/biz-index">
-              <span class="menu-label leaf">
-                <span class="menu-cn">业务索引</span>
-              </span>
-            </el-menu-item>
-          </el-sub-menu>
-
-          <!-- 7 模型管理 -->
-          <el-sub-menu index="/model-group">
-            <template #title>
-              <el-icon><Coin /></el-icon>
-              <span class="menu-label">
-                <span class="menu-cn">模型管理</span>
-              </span>
-            </template>
-            <el-menu-item index="/model/instances">
-              <span class="menu-label leaf">
-                <span class="menu-cn">模型实例</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/model/playground">
-              <span class="menu-label leaf">
-                <span class="menu-cn">模型调试台</span>
-              </span>
-            </el-menu-item>
-          </el-sub-menu>
-
-          <div class="menu-divider" />
-
-          <!-- 8 对外开放 -->
-          <el-sub-menu index="/open-group">
-            <template #title>
-              <el-icon><Share /></el-icon>
-              <span class="menu-label">
-                <span class="menu-cn">对外开放</span>
-              </span>
-            </template>
-            <el-menu-item index="/mcp/visibility">
-              <span class="menu-label leaf">
-                <span class="menu-cn">暴露白名单</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/mcp/clients">
-              <span class="menu-label leaf">
-                <span class="menu-cn">客户端凭证</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/mcp/monitor">
-              <span class="menu-label leaf">
-                <span class="menu-cn">调用流水</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/mcp/onboarding">
-              <span class="menu-label leaf">
-                <span class="menu-cn">接入向导</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/a2a/endpoints">
-              <span class="menu-label leaf">
-                <span class="menu-cn">智能体暴露</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/a2a/monitor">
-              <span class="menu-label leaf">
-                <span class="menu-cn">会话监控</span>
-              </span>
-            </el-menu-item>
-          </el-sub-menu>
-
-          <!-- 9 用户管理 -->
-          <el-sub-menu index="/user-mgmt-group">
-            <template #title>
-              <el-icon><User /></el-icon>
-              <span class="menu-label">
-                <span class="menu-cn">用户管理</span>
-              </span>
-            </template>
-            <el-menu-item index="/settings/platform-users">
-              <span class="menu-label leaf">
-                <span class="menu-cn">平台用户</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/settings/business-users">
-              <span class="menu-label leaf">
-                <span class="menu-cn">业务用户</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/settings/auth-providers">
-              <span class="menu-label leaf">
-                <span class="menu-cn">认证源</span>
-              </span>
-            </el-menu-item>
-          </el-sub-menu>
-
-          <!-- 10 治理与运维 -->
-          <el-sub-menu index="/domain-group">
-            <template #title>
-              <el-icon><Compass /></el-icon>
-              <span class="menu-label">
-                <span class="menu-cn">治理运维</span>
-              </span>
-            </template>
-            <el-menu-item index="/domain">
-              <span class="menu-label leaf">
-                <span class="menu-cn">领域定义</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/runops">
-              <span class="menu-label leaf">
-                <span class="menu-cn">运行中心</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/context/governance">
-              <span class="menu-label leaf">
-                <span class="menu-cn">上下文治理</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/domain/board">
-              <span class="menu-label leaf">
-                <span class="menu-cn">归属画布</span>
-              </span>
-            </el-menu-item>
-            <el-menu-item index="/domain/classifier-test">
-              <span class="menu-label leaf">
-                <span class="menu-cn">分类器测试</span>
-              </span>
-            </el-menu-item>
-          </el-sub-menu>
-        </el-menu>
-      </el-scrollbar>
+    <el-aside v-if="!isStudioPage" :width="isSidebarCollapsed ? '84px' : '256px'" class="sidebar-aside">
+      <AppSidebar
+        :collapsed="isSidebarCollapsed"
+        :hide-project-panel="hideSidebarProjectPanel"
+        @toggle-collapse="toggleSidebar"
+      />
     </el-aside>
 
-    <el-container>
-      <el-header v-if="!isStudioPage" class="topbar">
-        <div class="breadcrumb-area">
-          <el-breadcrumb separator="/">
-            <el-breadcrumb-item :to="{ path: '/' }">首页</el-breadcrumb-item>
-            <el-breadcrumb-item
-              v-for="item in currentBreadcrumbs"
-              :key="item.title"
-              :to="item.to"
-            >
-              {{ item.title }}
-            </el-breadcrumb-item>
-          </el-breadcrumb>
-        </div>
-        <div class="topbar-actions">
-          <el-tooltip :content="theme === 'dark' ? '切换日间模式' : '切换夜间模式'" placement="bottom">
-            <el-button
-              :icon="theme === 'dark' ? Sunny : Moon"
-              circle
-              size="small"
-              class="topbar-btn"
-              @click="toggleTheme"
-            />
-          </el-tooltip>
-          <el-tooltip :content="`主题色：${currentBrandLabel}`" placement="bottom">
-            <el-dropdown trigger="click" @command="handleBrandCommand">
-              <el-button circle size="small" class="topbar-btn brand-btn" :aria-label="`主题色：${currentBrandLabel}`">
-                <span class="brand-swatch" />
-              </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item
-                    v-for="option in brandOptions"
-                    :key="option.value"
-                    :command="option.value"
-                    :class="{ selected: option.value === brand }"
-                  >
-                    <span class="brand-menu-swatch" :data-brand-option="option.value" />
-                    <span>{{ option.label }}</span>
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </el-tooltip>
-          <el-tooltip content="通知" placement="bottom">
-            <el-badge :value="3" :max="99" class="notify-badge">
-              <el-button :icon="Bell" circle size="small" class="topbar-btn" />
-            </el-badge>
-          </el-tooltip>
-          <ProjectSelector v-if="!isProjectManagementPage" :compact="isRegistryShell" />
-          <el-avatar :size="32" class="user-avatar">
-            <el-icon :size="16"><User /></el-icon>
-          </el-avatar>
-        </div>
-      </el-header>
+    <el-container class="layout-workspace">
+      <div v-if="!isStudioPage" class="breadcrumb-rail">
+        <AppBreadcrumb />
+      </div>
 
       <el-main class="main-content">
         <router-view v-slot="{ Component }">
           <transition name="page" mode="out-in">
-            <component :is="Component" />
+            <component :is="Component" class="main-content-page" />
           </transition>
         </router-view>
       </el-main>
@@ -352,701 +30,102 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { useTheme, type BrandTheme } from '@/composables/useTheme'
-import { useProjectStore } from '@/store/project'
-import ProjectSelector from '@/components/ProjectSelector.vue'
-import {
-  Aim,
-  Bell,
-  Collection,
-  Compass,
-  Connection,
-  DataAnalysis,
-  Cpu,
-  Coin,
-  SetUp,
-  Share,
-  User,
-  Sunny,
-  Moon,
-} from '@element-plus/icons-vue'
+import { useTheme } from '@/composables/useTheme'
+import { useAppStore } from '@/store/app'
+import AppBreadcrumb from '@/components/common/AppBreadcrumb.vue'
+import AppPageBackground from '@/components/common/AppPageBackground.vue'
+import AppSidebar from '@/components/common/AppSidebar.vue'
 
-const { theme, brand, brandOptions, toggleTheme, setBrand } = useTheme()
-const currentBrandLabel = computed(() => brandOptions.find((option) => option.value === brand.value)?.label || '科技紫')
-const brandValues = computed(() => brandOptions.map((option) => option.value))
-
-function handleBrandCommand(value: string | number | object) {
-  if (typeof value === 'string' && brandValues.value.includes(value as BrandTheme)) {
-    setBrand(value as BrandTheme)
-  }
-}
+const { theme } = useTheme()
+const appStore = useAppStore()
 
 const route = useRoute()
-const projectStore = useProjectStore()
-
-/** 进入子路由时自动展开对应侧边栏分组 */
-const defaultOpenMenuGroups = computed(() => {
-  const path = route.path
-  const open: string[] = []
-  if (
-    path.startsWith('/registry') ||
-    path.startsWith('/scan-project')
-  ) {
-    open.push('/registry-group')
-  }
-  if (
-    path.startsWith('/agent') ||
-    path.startsWith('/agents') ||
-    path.startsWith('/workflows')
-  ) {
-    open.push('/agent-workflow-group')
-  }
-  if (
-    path.startsWith('/settings/platform-users')
-    || path.startsWith('/settings/business-users')
-    || path.startsWith('/settings/auth-providers')
-  ) {
-    open.push('/user-mgmt-group')
-  }
-  if (
-    path.startsWith('/domain')
-    || path.startsWith('/runops')
-    || path.startsWith('/context')
-  ) {
-    open.push('/domain-group')
-  }
-  return open
-})
-
-const activeMenu = computed(() => {
-  const path = route.path
-  if (path.startsWith('/knowledge')) return '/knowledge'
-  if (path.startsWith('/biz-index')) return '/biz-index'
-  if (path.startsWith('/workflows')) return '/workflows'
-  if (path.startsWith('/agents')) return '/agent'
-  if (path.startsWith('/agent')) return '/agent'
-  if (path.startsWith('/model/playground')) return '/model/playground'
-  if (path.startsWith('/model/instances')) return '/model/instances'
-  if (path.startsWith('/model')) return '/model'
-  if (path.startsWith('/tool/retrieval')) return '/tool/retrieval'
-  if (path.startsWith('/settings/platform-users')) return '/settings/platform-users'
-  if (path.startsWith('/settings/business-users')) return '/settings/business-users'
-  if (path.startsWith('/settings/auth-providers')) return '/settings/auth-providers'
-  if (path.startsWith('/settings/tool-acl')) return '/settings/tool-acl'
-  if (path.startsWith('/capability/tools')) return '/capability/tools'
-  if (path.startsWith('/capability/compositions')) return '/capability/compositions'
-  if (path.startsWith('/capability/interactions')) return '/capability/interactions'
-  if (path.startsWith('/capability/mining')) return '/capability/mining'
-  if (path.startsWith('/capability/slot/extractors')) return '/capability/slot/extractors'
-  if (path.startsWith('/capability/slot/dict-dept')) return '/capability/slot/dict-dept'
-  if (path.startsWith('/capability/slot/dict-user')) return '/capability/slot/dict-user'
-  if (path.startsWith('/capability/slot/logs')) return '/capability/slot/logs'
-  if (path.startsWith('/capability')) return '/capability'
-  // 旧书签 /skill/* 重定向后通常已进入 /capability；此处兜底避免闪烁
-  if (path.startsWith('/skill/mining')) return '/capability/mining'
-  if (path.startsWith('/skill/slot/extractors')) return '/capability/slot/extractors'
-  if (path.startsWith('/skill/slot/dict-dept')) return '/capability/slot/dict-dept'
-  if (path.startsWith('/skill/slot/dict-user')) return '/capability/slot/dict-user'
-  if (path.startsWith('/skill/slot/logs')) return '/capability/slot/logs'
-  if (path.startsWith('/skill')) return '/capability'
-  if (path.startsWith('/tool')) return '/tool'
-  if (path.startsWith('/registry/api-assets')) return '/registry/api-assets'
-  if (path.startsWith('/registry/capability-sync')) return '/registry/projects'
-  if (path.startsWith('/registry/runtimes')) return '/registry/runtimes'
-  if (path.startsWith('/registry/projects')) return '/registry/projects'
-  if (path.startsWith('/scan-project')) return '/registry/api-assets'
-  if (path.startsWith('/runops')) return '/runops'
-  if (path.startsWith('/context/governance')) return '/context/governance'
-  if (path.startsWith('/domain/board')) return '/domain/board'
-  if (path.startsWith('/domain/classifier-test')) return '/domain/classifier-test'
-  if (path.startsWith('/domain')) return '/domain'
-  if (path.startsWith('/mcp/visibility')) return '/mcp/visibility'
-  if (path.startsWith('/mcp/clients')) return '/mcp/clients'
-  if (path.startsWith('/mcp/monitor')) return '/mcp/monitor'
-  if (path.startsWith('/mcp/onboarding')) return '/mcp/onboarding'
-  if (path.startsWith('/a2a/endpoints')) return '/a2a/endpoints'
-  if (path.startsWith('/a2a/monitor')) return '/a2a/monitor'
-  return path
-})
 
 const isStudioPage = computed(() => route.name === 'AgentStudio' || route.name === 'WorkflowStudio')
-const isSidebarCollapsed = computed(() => isStudioPage.value)
+const isSidebarCollapsed = computed(() => !isStudioPage.value && appStore.sidebarCollapsed)
+const hideSidebarProjectPanel = computed(() => route.name === 'RegistryProjectList')
 
-const currentTitle = computed(() => (route.meta.title as string) || '')
-const currentBreadcrumbs = computed(() => {
-  const configured = route.meta.breadcrumb as Array<{ title: string; to?: Record<string, unknown> }> | undefined
-  if (configured?.length) return configured
-  return currentTitle.value ? [{ title: currentTitle.value }] : []
-})
+function toggleSidebar() {
+  appStore.toggleSidebar()
+}
 
 const isProjectManagementPage = computed(() =>
   route.path.startsWith('/registry/projects') ||
-  route.path.startsWith('/registry/api-assets') ||
-  route.path.startsWith('/registry/runtimes') ||
   route.path.startsWith('/scan-project'),
 )
 
 const isRegistryShell = computed(() => isProjectManagementPage.value)
-
-watch(
-  isProjectManagementPage,
-  (onProjectManagementPage) => {
-    if (onProjectManagementPage && projectStore.currentProjectId !== null) {
-      projectStore.setCurrentProject(null)
-    }
-  },
-  { immediate: true },
-)
 
 </script>
 
 <style scoped lang="scss">
 .main-layout {
   height: 100vh;
-}
-
-.sidebar {
-  background:
-    radial-gradient(circle at 24px 24px, rgb(var(--brand-primary-rgb) / 0.28), transparent 26%),
-    radial-gradient(circle at 210px 160px, rgba(14, 165, 233, 0.12), transparent 30%),
-    linear-gradient(180deg, #07111f 0%, #08101c 42%, #050b14 100%);
-  border-right: 1px solid rgba(148, 163, 184, 0.12);
-  box-shadow: 18px 0 46px rgba(2, 6, 23, 0.22);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
   position: relative;
-  z-index: 10;
-  transition: width 0.18s ease;
-
-  &::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background:
-      linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
-    background-size: 32px 32px;
-    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.75), transparent 62%);
-    opacity: 0.45;
-    pointer-events: none;
-  }
-
-  &::after {
-    content: '';
-    position: absolute;
-    top: 64px;
-    right: 0;
-    bottom: 0;
-    width: 1px;
-    background: linear-gradient(180deg, rgb(var(--brand-primary-rgb) / 0.65), transparent 40%, rgba(14, 165, 233, 0.22));
-    pointer-events: none;
-  }
+  overflow: hidden;
+  background: color-mix(in srgb, var(--brand-selected-bg) 48%, #f8fbff);
 }
 
-.sidebar-collapsed {
-  .sidebar {
-    width: 72px;
-  }
-
-  .logo {
-    justify-content: center;
-    padding: 0;
-
-    &::after {
-      display: none;
-    }
-  }
-
-  .logo-text,
-  .menu-label,
-  .menu-divider {
-    display: none;
-  }
-
-  .logo-icon-wrap {
-    width: 38px;
-    height: 38px;
-    border-radius: 11px;
-  }
-
-  .sidebar-menu {
-    width: 72px;
-    padding: 14px 8px 18px;
-
-    :deep(.el-menu-item),
-    :deep(.el-sub-menu__title) {
-      justify-content: center;
-      padding: 0 !important;
-    }
-
-    :deep(.el-icon) {
-      margin-right: 0;
-    }
-  }
-}
-
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 72px;
-  padding: 0 22px;
-  flex-shrink: 0;
+.layout-workspace {
   position: relative;
   z-index: 1;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.10);
-
-}
-
-.logo-icon-wrap {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow:
-    0 12px 28px rgb(var(--brand-primary-rgb) / 0.32),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.24);
-  overflow: hidden;
-
-  img {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
-}
-
-.logo-text {
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: 0;
-  padding-bottom: 10px;
-  background: linear-gradient(135deg, #ffffff 0%, var(--brand-selected-bg) 48%, var(--brand-disabled) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.sidebar-scroll {
-  flex: 1;
-  overflow: hidden;
-}
-
-.menu-divider {
-  height: 1px;
-  margin: 12px 20px;
-  background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.18), transparent);
-}
-
-.sidebar-menu {
-  border-right: none;
-  padding: 14px 10px 18px;
-  background: transparent;
-
-  :deep(.el-menu) {
-    background: transparent;
-    border: none;
-  }
-
-  :deep(.el-menu-item),
-  :deep(.el-sub-menu__title) {
-    isolation: isolate;
-
-    > span:not(.menu-label),
-    .menu-label span {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-  }
-
-  :deep(.el-menu-item) {
-    height: 48px;
-    line-height: 1.15;
-    margin: 4px 0;
-    padding-right: 12px;
-    border-radius: 8px;
-    font-size: 13.5px;
-    font-weight: 600;
-    color: #a8b3c7;
-    transition: color 0.18s ease, background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
-    position: relative;
-
-    .el-icon {
-      width: 28px;
-      height: 28px;
-      margin-right: 10px;
-      border-radius: 8px;
-      font-size: 16px;
-      color: #8da2c0;
-      background: rgba(148, 163, 184, 0.08);
-      box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.07);
-      transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
-    }
-
-    &:hover {
-      background: rgb(var(--brand-primary-rgb) / 0.12);
-      color: #f8fafc;
-      transform: translateX(2px);
-
-      .el-icon {
-        color: var(--brand-selected-bg);
-        background: rgb(var(--brand-primary-rgb) / 0.18);
-        box-shadow: inset 0 0 0 1px rgb(var(--brand-hover-rgb) / 0.18);
-      }
-    }
-
-    &.is-active {
-      background:
-        linear-gradient(135deg, rgb(var(--brand-active-rgb) / 0.92), rgb(var(--brand-hover-rgb) / 0.76)),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.16), transparent);
-      color: #ffffff;
-      box-shadow:
-        0 12px 26px rgb(var(--brand-primary-rgb) / 0.24),
-        inset 0 0 0 1px rgba(255, 255, 255, 0.13);
-
-      &::before {
-        content: '';
-        position: absolute;
-        left: -10px;
-        top: 8px;
-        bottom: 8px;
-        width: 4px;
-        border-radius: 0 999px 999px 0;
-        background: linear-gradient(180deg, var(--brand-selected-bg), var(--brand-hover));
-        box-shadow: 0 0 14px rgb(var(--brand-hover-rgb) / 0.55);
-      }
-
-      &::after {
-        content: '';
-        position: absolute;
-        inset: 1px;
-        border-radius: 7px;
-        background: linear-gradient(90deg, rgba(255, 255, 255, 0.16), transparent 42%);
-        pointer-events: none;
-        z-index: -1;
-      }
-
-      .el-icon {
-        color: #ffffff;
-        background: rgba(255, 255, 255, 0.16);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
-      }
-    }
-  }
-
-  :deep(.el-sub-menu__title) {
-    height: 48px;
-    line-height: 1.15;
-    margin: 4px 0;
-    padding-right: 12px;
-    border-radius: 8px;
-    font-size: 13.5px;
-    font-weight: 700;
-    color: #a8b3c7;
-    transition: color 0.18s ease, background 0.18s ease, transform 0.18s ease;
-
-    .el-icon {
-      width: 28px;
-      height: 28px;
-      margin-right: 10px;
-      border-radius: 8px;
-      font-size: 16px;
-      color: #8da2c0;
-      background: rgba(148, 163, 184, 0.08);
-      box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.07);
-      transition: color 0.18s ease, background 0.18s ease;
-    }
-
-    .el-sub-menu__icon-arrow {
-      width: auto;
-      height: auto;
-      margin-right: 0;
-      background: transparent;
-      box-shadow: none;
-      color: #64748b;
-    }
-
-    &:hover {
-      background: rgb(var(--brand-primary-rgb) / 0.10);
-      color: #f8fafc;
-      transform: translateX(2px);
-
-      .el-icon {
-        color: var(--brand-selected-bg);
-        background: rgb(var(--brand-primary-rgb) / 0.16);
-      }
-
-      .el-sub-menu__icon-arrow {
-        color: #94a3b8;
-        background: transparent;
-        box-shadow: none;
-      }
-    }
-  }
-
-  :deep(.el-sub-menu.is-opened > .el-sub-menu__title) {
-    color: #f8fafc;
-    background: rgba(148, 163, 184, 0.08);
-
-    .el-icon {
-      color: var(--brand-selected-bg);
-      background: rgb(var(--brand-primary-rgb) / 0.16);
-    }
-  }
-
-  :deep(.el-sub-menu .el-menu) {
-    background: transparent;
-    padding: 2px 0 6px 18px;
-    position: relative;
-
-    &::before {
-      content: '';
-      position: absolute;
-      left: 22px;
-      top: 2px;
-      bottom: 8px;
-      width: 1px;
-      background: linear-gradient(180deg, rgb(var(--brand-primary-rgb) / 0.35), rgba(148, 163, 184, 0.08));
-    }
-  }
-
-  :deep(.el-sub-menu .el-menu-item) {
-    padding-left: 34px !important;
-    height: 42px;
-    line-height: 1.15;
-    margin: 3px 0 3px 8px;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: #8fa0ba;
-    background: transparent;
-    box-shadow: none;
-
-    &::before {
-      left: -18px;
-      top: 18px;
-      bottom: auto;
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: rgba(148, 163, 184, 0.24);
-      box-shadow: none;
-    }
-
-    .el-icon {
-      display: none;
-    }
-
-    &:hover {
-      color: #e2e8f0;
-      background: rgb(var(--brand-primary-rgb) / 0.10);
-    }
-
-    &.is-active {
-      color: #ffffff;
-      background: linear-gradient(135deg, rgb(var(--brand-active-rgb) / 0.72), rgb(var(--brand-hover-rgb) / 0.50));
-      box-shadow: 0 10px 22px rgb(var(--brand-primary-rgb) / 0.18);
-
-      &::before {
-        background: var(--brand-hover);
-        box-shadow: 0 0 10px rgb(var(--brand-hover-rgb) / 0.55);
-      }
-    }
-  }
-}
-
-.menu-label {
-  display: flex;
-  flex: 1 1 auto;
+  flex-direction: column;
   min-width: 0;
-  align-items: center;
 }
 
-.menu-cn {
-  color: inherit;
-  font-size: 13.5px;
-  font-weight: 700;
-}
-
-.menu-label.leaf .menu-cn {
-  font-size: 12.5px;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: rgba(15, 15, 25, 0.6);
-  backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  height: 56px;
-  padding: 0 24px;
-}
-
-.breadcrumb-area {
-  display: flex;
-  align-items: center;
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.topbar-btn {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.06);
-  color: #94a3b8;
-
-  &:hover {
-    background: rgb(var(--brand-primary-rgb) / 0.1);
-    border-color: rgb(var(--brand-primary-rgb) / 0.2);
-    color: #e2e8f0;
-  }
-}
-
-.brand-btn {
+/* 侧栏容器：浮动玻璃卡的呼吸边距（Glass Workbench v2）。 */
+.sidebar-aside {
+  overflow: hidden;
   position: relative;
+  z-index: 10;
+  box-sizing: border-box;
+  padding: 14px 10px 14px 14px;
+  transition: width 0.18s ease;
 }
 
-.brand-swatch {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--brand-primary-gradient);
-  box-shadow:
-    0 0 0 2px rgb(var(--brand-primary-rgb) / 0.14),
-    0 0 14px rgb(var(--brand-primary-rgb) / 0.24);
+.breadcrumb-rail {
+  flex: 0 0 var(--reachai-workbench-breadcrumb-height, 44px);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  height: var(--reachai-workbench-breadcrumb-height, 44px);
+  padding: 0 24px;
+  background: transparent;
 }
 
-:global(.brand-menu-swatch) {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  margin-right: 8px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
-}
-
-:global(.brand-menu-swatch[data-brand-option='metro-green']) {
-  background: linear-gradient(135deg, #0b7a59, #2d9375);
-}
-
-:global(.brand-menu-swatch[data-brand-option='aurora-cyan']) {
-  background: linear-gradient(135deg, #0891b2, #22d3ee);
-}
-
-:global(.brand-menu-swatch[data-brand-option='nebula-violet']) {
-  background: linear-gradient(135deg, #7c3aed, #ec4899);
-}
-
-:global(.brand-menu-swatch[data-brand-option='coral-rose']) {
-  background: linear-gradient(135deg, #e11d48, #fb7185);
-}
-
-:global(.brand-menu-swatch[data-brand-option='solar-gold']) {
-  background: linear-gradient(135deg, #b45309, #f59e0b);
-}
-
-:global(.brand-menu-swatch[data-brand-option='deep-ocean']) {
-  background: linear-gradient(135deg, #1d4ed8, #06b6d4);
-}
-
-:global(.el-dropdown-menu__item.selected) {
-  color: var(--brand-primary);
-  background: rgb(var(--brand-primary-rgb) / 0.08);
-}
-
-.notify-badge {
-  :deep(.el-badge__content) {
-    background: linear-gradient(135deg, #f43f5e, #e11d48);
-    border: none;
-  }
-}
-
-.user-avatar {
-  background: linear-gradient(135deg, var(--brand-primary), var(--brand-hover));
-  cursor: pointer;
-  color: #fff;
-  transition: box-shadow 0.2s ease;
-
-  &:hover {
-    box-shadow: 0 0 0 3px rgb(var(--brand-primary-rgb) / 0.3);
-  }
+.main-layout.is-dark {
+  background: #0c1424;
 }
 
 .main-content {
-  background: var(--bg-primary);
+  background: transparent;
   overflow-y: auto;
   position: relative;
-
-  &::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 240px;
-    right: 0;
-    height: 300px;
-    background: radial-gradient(ellipse at 50% 0%, rgb(var(--brand-primary-rgb) / 0.04) 0%, transparent 70%);
-    pointer-events: none;
-    z-index: 0;
-  }
+  isolation: isolate;
 }
 
-.registry-shell {
-  .topbar {
-    height: 56px;
-    background: rgba(255, 255, 255, 0.92);
-    border-bottom: 1px solid #edf0f7;
-    box-shadow: 0 8px 24px rgba(17, 24, 39, 0.03);
-    backdrop-filter: blur(16px);
-  }
+.main-content-page {
+  position: relative;
+  z-index: 1;
+}
 
-  .breadcrumb-area {
-    :deep(.el-breadcrumb__inner),
-    :deep(.el-breadcrumb__separator) {
-      color: #667085;
-      font-weight: 600;
-    }
-
-    :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
-      color: #101828;
-    }
-  }
-
-  .topbar-btn {
-    background: #fff;
-    border-color: #e4e7ee;
-    color: #667085;
-
-    &:hover {
-      background: rgb(var(--brand-primary-rgb) / 0.08);
-      border-color: var(--brand-selected-bg);
-      color: var(--brand-primary);
-    }
-  }
-
+/*
+ * registry-shell / studio-shell 仅保留结构差异（main 区零内边距，页面自带容器）。
+ * 旧的 registry-shell 顶栏视觉特例已由统一浅色顶栏取代并删除。
+ */
+.registry-shell,
+.studio-shell {
   .main-content {
     padding: 0;
-    background: var(--bg-primary);
-
-    &::before {
-      display: none;
-    }
   }
 }
 
 .studio-shell {
+  background: var(--bg-primary);
+
   .main-content {
-    padding: 0;
     background: var(--bg-primary);
 
     &::before {
@@ -1054,180 +133,4 @@ watch(
     }
   }
 }
-
-.main-layout.registry-shell.is-dark {
-  .topbar {
-    background: rgba(15, 15, 25, 0.72);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: none;
-    backdrop-filter: blur(16px);
-  }
-
-  .breadcrumb-area {
-    :deep(.el-breadcrumb__inner),
-    :deep(.el-breadcrumb__separator) {
-      color: #94a3b8;
-    }
-
-    :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
-      color: #e2e8f0;
-    }
-  }
-
-  .topbar-btn {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.08);
-    color: #94a3b8;
-
-    &:hover {
-      background: rgb(var(--brand-primary-rgb) / 0.12);
-      border-color: rgb(var(--brand-primary-rgb) / 0.35);
-      color: #e2e8f0;
-    }
-  }
-}
-
-/* SDK wizard aligned sidebar skin: dark glass, violet highlights, and subtle grid glow. */
-.main-layout:not(.studio-shell) {
-  .sidebar {
-    background:
-      linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.032) 1px, transparent 1px),
-      radial-gradient(circle at 14% 4%, rgb(var(--brand-primary-rgb) / 0.26), transparent 24%),
-      radial-gradient(circle at 86% 76%, rgb(var(--brand-hover-rgb) / 0.18), transparent 32%),
-      linear-gradient(180deg, #121735 0%, #07111f 52%, #050b14 100%) !important;
-    background-size: 32px 32px, 32px 32px, auto, auto, auto;
-    border-right-color: rgb(var(--brand-selected-rgb) / 0.18) !important;
-    box-shadow:
-      inset -1px 0 0 rgba(255, 255, 255, 0.05),
-      18px 0 46px rgba(49, 46, 129, 0.22) !important;
-
-    &::before {
-      background:
-        linear-gradient(115deg, transparent 0%, rgb(var(--brand-hover-rgb) / 0.07) 35%, transparent 56%),
-        linear-gradient(72deg, transparent 18%, rgb(var(--brand-primary-rgb) / 0.08) 44%, transparent 70%) !important;
-      opacity: 0.9 !important;
-      mask-image: linear-gradient(180deg, #000 0%, transparent 82%);
-    }
-
-    &::after {
-      background: linear-gradient(180deg, rgb(var(--brand-selected-rgb) / 0.42), transparent 42%, rgb(var(--brand-hover-rgb) / 0.24)) !important;
-    }
-  }
-
-  .logo {
-    border-bottom-color: rgb(var(--brand-selected-rgb) / 0.13) !important;
-  }
-
-  .logo-icon-wrap {
-    box-shadow:
-      0 12px 28px rgb(var(--brand-primary-rgb) / 0.28),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.24) !important;
-  }
-
-  .logo-text {
-    background: linear-gradient(135deg, #ffffff 0%, var(--brand-selected-bg) 50%, var(--brand-disabled) 100%) !important;
-    -webkit-background-clip: text !important;
-    -webkit-text-fill-color: transparent !important;
-    background-clip: text !important;
-  }
-
-  .menu-divider {
-    background: linear-gradient(90deg, transparent, rgb(var(--brand-selected-rgb) / 0.18), transparent) !important;
-  }
-
-  .sidebar-menu {
-    :deep(.el-menu-item),
-    :deep(.el-sub-menu__title) {
-      color: rgba(226, 232, 240, 0.74) !important;
-
-      .el-icon {
-        color: rgb(var(--brand-selected-rgb) / 0.72) !important;
-        background: rgba(255, 255, 255, 0.065) !important;
-        box-shadow:
-          inset 0 0 0 1px rgb(var(--brand-selected-rgb) / 0.1),
-          0 8px 20px rgba(15, 23, 42, 0.08) !important;
-      }
-
-      &:hover {
-        background: rgb(var(--brand-hover-rgb) / 0.14) !important;
-        color: #f8fafc !important;
-
-        .el-icon {
-          color: #ffffff !important;
-          background: rgb(var(--brand-primary-rgb) / 0.22) !important;
-          box-shadow:
-            inset 0 0 0 1px rgb(var(--brand-selected-rgb) / 0.2),
-            0 0 18px rgb(var(--brand-hover-rgb) / 0.2) !important;
-        }
-      }
-    }
-
-    :deep(.el-menu-item.is-active) {
-      background:
-        linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.92), rgb(var(--brand-hover-rgb) / 0.82)),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.18), transparent 46%) !important;
-      color: #ffffff !important;
-      box-shadow:
-        0 12px 28px rgb(var(--brand-primary-rgb) / 0.26),
-        inset 0 0 0 1px rgba(255, 255, 255, 0.16) !important;
-
-      &::before {
-        background: linear-gradient(180deg, var(--brand-hover), #67e8f9) !important;
-        box-shadow: 0 0 14px rgb(var(--brand-hover-rgb) / 0.62) !important;
-      }
-
-      .el-icon {
-        color: #ffffff !important;
-        background: rgba(255, 255, 255, 0.18) !important;
-      }
-    }
-
-    :deep(.el-sub-menu__title .el-sub-menu__icon-arrow) {
-      color: rgb(var(--brand-selected-rgb) / 0.58) !important;
-      background: transparent !important;
-      box-shadow: none !important;
-    }
-
-    :deep(.el-sub-menu.is-opened > .el-sub-menu__title) {
-      background: rgba(255, 255, 255, 0.07) !important;
-      color: #f8fafc !important;
-
-      .el-icon {
-        color: var(--brand-selected-bg) !important;
-        background: rgb(var(--brand-primary-rgb) / 0.2) !important;
-      }
-    }
-
-    :deep(.el-sub-menu .el-menu::before) {
-      background: linear-gradient(180deg, rgb(var(--brand-hover-rgb) / 0.38), rgb(var(--brand-selected-rgb) / 0.08)) !important;
-    }
-
-    :deep(.el-sub-menu .el-menu-item) {
-      color: rgba(203, 213, 225, 0.72) !important;
-      background: transparent !important;
-
-      &::before {
-        background: rgb(var(--brand-selected-rgb) / 0.26) !important;
-      }
-
-      &:hover {
-        background: rgb(var(--brand-hover-rgb) / 0.12) !important;
-        color: #f1f5f9 !important;
-      }
-
-      &.is-active {
-        background: linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.72), rgb(var(--brand-hover-rgb) / 0.56)) !important;
-        color: #ffffff !important;
-        box-shadow: 0 10px 22px rgb(var(--brand-primary-rgb) / 0.2) !important;
-
-        &::before {
-          background: var(--brand-hover) !important;
-          box-shadow: 0 0 10px rgb(var(--brand-hover-rgb) / 0.58) !important;
-        }
-      }
-    }
-  }
-}
-
 </style>

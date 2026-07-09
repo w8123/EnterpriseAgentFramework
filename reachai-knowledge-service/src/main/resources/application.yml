@@ -42,7 +42,7 @@ rag:
   default-top-k: 5
   score-threshold: 0.5
 
-# ---- Pipeline 鍏ュ簱娴佹按绾块厤缃?----
+# ---- Pipeline 入库流水线配置 ----
 pipeline:
   definitions:
     default:

@@ -1,49 +1,103 @@
 <script setup lang="ts">
-import { Refresh } from '@element-plus/icons-vue'
+import { ArrowDown, Connection, MagicStick, MoreFilled, Plus, Refresh, Tools } from '@element-plus/icons-vue'
 import type { ScanProject } from '@/types/scanProject'
+import type { ApiGovernanceAction, ApiGovernanceAdvice } from '@/views/scan/composables/useScanProjectSummary'
 
 defineProps<{
   project: ScanProject | null
-  assetSummaryItems: string[]
-  batchStarting: boolean
+  stageAdvice: ApiGovernanceAdvice
+  primaryActionLoading: boolean
   reconcileLoading: boolean
   loading: boolean
 }>()
 
 const emit = defineEmits<{
-  goBack: []
-  startBatchGenerate: [force: boolean]
+  primaryAction: [action: ApiGovernanceAction]
   openModelGeneratePanel: []
-  openScanRulesPanel: []
   openOpsPanel: []
   reconcile: []
-  refresh: []
+  openImportDialog: []
 }>()
+
+type MoreCommand = 'modelSettings' | 'reconcile' | 'ops'
+
+function onMoreCommand(command: MoreCommand) {
+  if (command === 'modelSettings') {
+    emit('openModelGeneratePanel')
+  } else if (command === 'reconcile') {
+    emit('reconcile')
+  } else {
+    emit('openOpsPanel')
+  }
+}
 </script>
 
 <template>
-  <section class="asset-directory-bar">
-    <div class="asset-identity">
-      <el-button link class="back-link" @click="emit('goBack')">返回</el-button>
-      <strong>{{ project?.name || 'API 接口目录' }}</strong>
-      <span v-for="item in assetSummaryItems" :key="item">{{ item }}</span>
+  <section class="project-hero api-catalog-hero">
+    <div class="hero-copy">
+      <span class="hero-accent" aria-hidden="true" />
+      <div class="project-title-block">
+        <div class="title-row">
+          <h1>API 管理</h1>
+          <el-tag v-if="project?.name" class="project-context-tag" effect="plain">
+            项目：{{ project.name }}
+          </el-tag>
+        </div>
+        <p class="hero-description">
+          将业务系统 API 接入 ReachAI，补全 AI 语义并上架为可被 Agent 使用的 Tool。
+        </p>
+      </div>
     </div>
-    <div class="asset-actions">
-      <el-button type="primary" :loading="batchStarting" @click="emit('startBatchGenerate', false)">
-        一键生成 AI 理解
+    <div class="hero-actions asset-actions">
+      <el-button plain :icon="Plus" @click="emit('openImportDialog')">
+        添加接口
       </el-button>
-      <el-button :loading="batchStarting" @click="emit('startBatchGenerate', true)">
-        强制重生成
+      <el-button
+        v-if="stageAdvice.primaryAction !== 'importApi'"
+        class="primary-action"
+        type="primary"
+        :icon="MagicStick"
+        :loading="primaryActionLoading"
+        @click="emit('primaryAction', stageAdvice.primaryAction)"
+      >
+        {{ stageAdvice.primaryLabel }}
       </el-button>
-      <el-button plain @click="emit('openModelGeneratePanel')">模型设置</el-button>
-      <el-button plain @click="emit('openScanRulesPanel')">扫描解析规则</el-button>
-      <el-button plain @click="emit('openOpsPanel')">运维动作</el-button>
-      <el-button type="primary" :loading="reconcileLoading" @click="emit('reconcile')">
-        对账同步 API 与 Tool
+      <el-tooltip
+        v-if="stageAdvice.secondaryAction === 'refresh'"
+        :content="stageAdvice.secondaryLabel || '刷新同步状态'"
+        placement="bottom"
+      >
+        <el-button
+          plain
+          :icon="Refresh"
+          aria-label="刷新同步状态"
+          circle
+          :loading="loading"
+          @click="emit('primaryAction', 'refresh')"
+        />
+      </el-tooltip>
+      <el-button
+        v-else-if="stageAdvice.secondaryLabel && stageAdvice.secondaryAction"
+        plain
+        @click="emit('primaryAction', stageAdvice.secondaryAction)"
+      >
+        {{ stageAdvice.secondaryLabel }}
       </el-button>
-      <el-button :loading="loading" @click="emit('refresh')">
-        <el-icon><Refresh /></el-icon>刷新
-      </el-button>
+      <el-dropdown trigger="click" @command="onMoreCommand">
+        <el-button plain :icon="MoreFilled">
+          更多操作
+          <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+        </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item command="modelSettings" :icon="MagicStick">AI 语义生成</el-dropdown-item>
+            <el-dropdown-item command="reconcile" :icon="Connection" :disabled="reconcileLoading">
+              检查 Tool 关联
+            </el-dropdown-item>
+            <el-dropdown-item command="ops" :icon="Tools">维护动作</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
     </div>
   </section>
 </template>

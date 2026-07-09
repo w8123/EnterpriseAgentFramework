@@ -1,13 +1,21 @@
 import { ElMessage } from 'element-plus'
 import { reactive, ref, type Ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { listApiAssets } from '@/api/apiAsset'
-import type { ApiAssetItem } from '@/types/apiAsset'
+import { getScanProjectTools } from '@/api/scanProject'
+import type { ProjectToolInfo } from '@/types/scanProject'
 import type { ToolParameter } from '@/types/tool'
 import type { CanvasEdge, CanvasNode, CanvasNodeKind, StudioFieldSchema } from '@/types/studio'
 import type { WorkflowStudioState } from '@/types/workflow'
 import { createWorkflowCanvasNode } from '@/utils/workflowStudio'
 import { interactionOutputPorts } from '@/utils/studio'
+import {
+  filterProjectApiTools,
+  isProjectApiToolSelectable,
+  pageProjectApiTools,
+  projectApiToolQualifiedName,
+  projectApiToolRef,
+  projectApiToolStatusLabel,
+} from '@/utils/projectApiTools'
 
 export interface UseWorkflowStudioApiQueryTemplateDeps {
   studio: Ref<WorkflowStudioState | null>
@@ -116,8 +124,8 @@ function apiParameterToFields(parameter: ToolParameter, prefix = ''): StudioFiel
   }]
 }
 
-function apiAssetToInteractionFields(asset: ApiAssetItem): StudioFieldSchema[] {
-  const fields = (asset.parameters || []).flatMap((parameter) => apiParameterToFields(parameter))
+function projectApiToInteractionFields(tool: ProjectToolInfo): StudioFieldSchema[] {
+  const fields = (tool.parameters || []).flatMap((parameter) => apiParameterToFields(parameter))
   if (fields.length) return fields
   return [{
     name: 'query',
@@ -144,9 +152,9 @@ function collectPageActionMapping(parameter: ToolParameter, mapping: Record<stri
   mapping[targetPath] = `${queryAlias}.targetArgs.${targetPath}`
 }
 
-function apiAssetPageActionMapping(asset: ApiAssetItem, queryAlias: string) {
+function projectApiPageActionMapping(tool: ProjectToolInfo, queryAlias: string) {
   const mapping: Record<string, string> = {}
-  for (const parameter of asset.parameters || []) {
+  for (const parameter of tool.parameters || []) {
     collectPageActionMapping(parameter, mapping, queryAlias)
   }
   if (!Object.keys(mapping).length) {
@@ -167,9 +175,9 @@ function collectApiInputMapping(parameter: ToolParameter, mapping: Record<string
   mapping[targetPath] = `${queryAlias}.targetArgs.${targetPath}`
 }
 
-function apiAssetInputMapping(asset: ApiAssetItem, queryAlias: string) {
+function projectApiInputMapping(tool: ProjectToolInfo, queryAlias: string) {
   const mapping: Record<string, string> = {}
-  for (const parameter of asset.parameters || []) {
+  for (const parameter of tool.parameters || []) {
     collectApiInputMapping(parameter, mapping, queryAlias)
   }
   if (!Object.keys(mapping).length) {
@@ -178,15 +186,15 @@ function apiAssetInputMapping(asset: ApiAssetItem, queryAlias: string) {
   return mapping
 }
 
-function apiAssetTemplateMetadata(asset: ApiAssetItem) {
+function projectApiTemplateMetadata(tool: ProjectToolInfo, projectCode?: string | null) {
   return {
-    apiId: asset.apiId,
-    name: asset.name,
-    globalToolName: asset.globalToolName || null,
-    qualifiedName: asset.globalToolQualifiedName || null,
-    projectCode: asset.projectCode || null,
-    httpMethod: asset.httpMethod || null,
-    endpointPath: asset.endpointPath || null,
+    scanToolId: tool.scanToolId,
+    name: tool.name,
+    toolRef: projectApiToolRef(tool),
+    qualifiedName: projectApiToolQualifiedName(tool, projectCode),
+    projectCode: tool.projectCode || projectCode || null,
+    httpMethod: tool.httpMethod || null,
+    endpointPath: tool.endpointPath || null,
   }
 }
 
@@ -205,10 +213,10 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
 
   const apiQueryTemplateOpen = ref(false)
   const apiQueryTemplateLoading = ref(false)
-  const apiQueryTemplateAssets = ref<ApiAssetItem[]>([])
+  const apiQueryTemplateTools = ref<ProjectToolInfo[]>([])
   const apiQueryTemplateTotal = ref(0)
   const apiQueryTemplateActionKey = ref('page.search.applyFilters')
-  const apiQueryTemplateRouteAssetId = ref<number | null>(null)
+  const apiQueryTemplateRouteToolId = ref<number | null>(null)
   const apiQueryTemplateFilters = reactive({
     keyword: '',
     toolLinkStatus: '',
@@ -216,11 +224,11 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     pageSize: 10,
   })
 
-  function routeApiAssetContext() {
+  function routeProjectApiContext() {
     if (queryString(route.query.intent) !== 'api-query-template') return null
-    const id = Number(queryString(route.query.apiAssetId))
-    const tool = queryString(route.query.apiAssetTool)
-    const name = queryString(route.query.apiAssetName)
+    const id = Number(queryString(route.query.scanToolId))
+    const tool = queryString(route.query.projectApiTool)
+    const name = queryString(route.query.projectApiName)
     if (!Number.isFinite(id) && !tool && !name) return null
     return {
       id: Number.isFinite(id) && id > 0 ? id : null,
@@ -228,9 +236,9 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     }
   }
 
-  function prioritizeRouteApiAsset(items: ApiAssetItem[]) {
-    if (!apiQueryTemplateRouteAssetId.value) return items
-    const index = items.findIndex((item) => item.apiId === apiQueryTemplateRouteAssetId.value)
+  function prioritizeRouteProjectApiTool(items: ProjectToolInfo[]) {
+    if (!apiQueryTemplateRouteToolId.value) return items
+    const index = items.findIndex((item) => item.scanToolId === apiQueryTemplateRouteToolId.value)
     if (index <= 0) return items
     const next = [...items]
     const [matched] = next.splice(index, 1)
@@ -238,22 +246,26 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     return next
   }
 
-  async function loadApiQueryTemplateAssets() {
+  async function loadApiQueryTemplateTools() {
+    const projectId = deps.studio.value?.projectId
+    if (!projectId) {
+      apiQueryTemplateTools.value = []
+      apiQueryTemplateTotal.value = 0
+      ElMessage.warning('请先选择项目后再从项目接口生成查询流程')
+      return
+    }
     apiQueryTemplateLoading.value = true
     try {
-      const { data } = await listApiAssets({
-        projectId: deps.studio.value?.projectId || undefined,
-        keyword: apiQueryTemplateFilters.keyword || undefined,
-        toolLinkStatus: apiQueryTemplateFilters.toolLinkStatus || undefined,
-        page: apiQueryTemplateFilters.page,
-        pageSize: apiQueryTemplateFilters.pageSize,
-      })
-      apiQueryTemplateAssets.value = prioritizeRouteApiAsset(data.items || [])
-      apiQueryTemplateTotal.value = data.total || 0
+      const { data } = await getScanProjectTools(projectId, 'full')
+      const filtered = filterProjectApiTools(data || [], apiQueryTemplateFilters)
+      apiQueryTemplateTools.value = prioritizeRouteProjectApiTool(
+        pageProjectApiTools(filtered, apiQueryTemplateFilters.page, apiQueryTemplateFilters.pageSize),
+      )
+      apiQueryTemplateTotal.value = filtered.length
     } catch {
-      apiQueryTemplateAssets.value = []
+      apiQueryTemplateTools.value = []
       apiQueryTemplateTotal.value = 0
-      ElMessage.error('加载 API 资产失败')
+      ElMessage.error('加载项目接口失败')
     } finally {
       apiQueryTemplateLoading.value = false
     }
@@ -263,37 +275,33 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     apiQueryTemplateOpen.value = true
     apiQueryTemplateActionKey.value = apiQueryTemplateActionKey.value || 'page.search.applyFilters'
     apiQueryTemplateFilters.page = 1
-    void loadApiQueryTemplateAssets()
+    void loadApiQueryTemplateTools()
   }
 
-  function reloadApiQueryTemplateAssets() {
+  function reloadApiQueryTemplateTools() {
     apiQueryTemplateFilters.page = 1
-    void loadApiQueryTemplateAssets()
+    void loadApiQueryTemplateTools()
   }
 
-  function applyApiAssetRouteContext() {
-    const context = routeApiAssetContext()
+  function applyProjectApiRouteContext() {
+    const context = routeProjectApiContext()
     if (!context) return
-    apiQueryTemplateRouteAssetId.value = context.id
+    apiQueryTemplateRouteToolId.value = context.id
     apiQueryTemplateFilters.keyword = context.keyword
     apiQueryTemplateFilters.toolLinkStatus = 'LINKED'
     openApiQueryTemplateDialog()
   }
 
-  function apiQueryTemplateRowClassName({ row }: { row: ApiAssetItem }) {
-    return row.apiId === apiQueryTemplateRouteAssetId.value ? 'is-route-api-asset' : ''
+  function apiQueryTemplateRowClassName({ row }: { row: ProjectToolInfo }) {
+    return row.scanToolId === apiQueryTemplateRouteToolId.value ? 'is-route-project-api' : ''
   }
 
-  function apiQueryTemplateSelectable(asset: ApiAssetItem) {
-    return asset.toolLinkStatus === 'LINKED' && !!asset.globalToolName && asset.enabled && asset.agentVisible && !asset.removedFromSource
+  function apiQueryTemplateSelectable(tool: ProjectToolInfo) {
+    return isProjectApiToolSelectable(tool)
   }
 
-  function apiQueryTemplateStatusLabel(asset: ApiAssetItem) {
-    if (asset.removedFromSource) return '源接口已移除'
-    if (asset.toolLinkStatus !== 'LINKED') return '需先关联 Tool'
-    if (!asset.enabled) return '未启用'
-    if (!asset.agentVisible) return 'Workflow 不可见'
-    return '可生成'
+  function apiQueryTemplateStatusLabel(tool: ProjectToolInfo) {
+    return projectApiToolStatusLabel(tool)
   }
 
   function addWorkflowStudioNode(kind: CanvasNodeKind, position: { x: number; y: number }, select = true) {
@@ -318,13 +326,16 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     }))
   }
 
-  function generateApiQueryTemplate(asset: ApiAssetItem) {
+  function generateApiQueryTemplate(tool: ProjectToolInfo) {
     if (!deps.studio.value) return
-    if (!apiQueryTemplateSelectable(asset)) {
+    if (!apiQueryTemplateSelectable(tool)) {
       ElMessage.warning('该接口还不能生成查询流程，请先完成 Tool 关联并开启 Workflow 可见。')
       return
     }
-    const baseName = normalizeTemplateName(asset.name || asset.globalToolName || 'api')
+    const toolRef = projectApiToolRef(tool)
+    const qualifiedName = projectApiToolQualifiedName(tool, deps.studio.value.projectCode)
+    const projectCode = tool.projectCode || deps.studio.value.projectCode || null
+    const baseName = normalizeTemplateName(tool.name || toolRef || 'api')
     const queryAlias = `${baseName}_query`
     const actionAlias = `${baseName}_page_action`
     const resultAlias = `${baseName}_result`
@@ -334,35 +345,35 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     const pageActionNode = addWorkflowStudioNode('pageAction', { x: 600, y }, false)
     const toolNode = addWorkflowStudioNode('tool', { x: 940, y }, false)
     const displayNode = addWorkflowStudioNode('interaction', { x: 1280, y }, false)
-    const fields = apiAssetToInteractionFields(asset)
-    const inputMapping = apiAssetInputMapping(asset, queryAlias)
+    const fields = projectApiToInteractionFields(tool)
+    const inputMapping = projectApiInputMapping(tool, queryAlias)
 
-    interactionNode.data.label = `${asset.name} 查询条件`
-    interactionNode.data.description = asset.aiDescription || asset.description || '从 API 资产生成的查询条件收集节点'
+    interactionNode.data.label = `${tool.name} 查询条件`
+    interactionNode.data.description = tool.aiDescription || tool.description || '从项目接口生成的查询条件收集节点'
     interactionNode.data.outputAlias = queryAlias
     interactionNode.data.interactionConfig = {
       interactionType: 'COLLECT_INPUT',
       binding: {
         sourceKind: 'API',
-        ref: asset.globalToolName || asset.name,
-        qualifiedName: asset.globalToolQualifiedName || asset.globalToolName || asset.name,
-        projectCode: asset.projectCode || null,
-        projectId: asset.projectId,
-        apiNodeId: asset.apiId,
-        apiMethod: asset.httpMethod || null,
-        apiPath: asset.endpointPath || null,
-        generatedFrom: `API:${asset.apiId}`,
+        ref: toolRef,
+        qualifiedName,
+        projectCode,
+        projectId: tool.projectId || deps.studio.value.projectId || null,
+        apiNodeId: tool.scanToolId,
+        apiMethod: tool.httpMethod || null,
+        apiPath: tool.endpointPath || null,
+        generatedFrom: `API:${tool.scanToolId}`,
         autoCreateCallNode: true,
         autoCreateDisplayNode: true,
         callNodeId: toolNode.id,
         displayNodeId: displayNode.id,
       },
-      title: `${asset.name} 查询条件`,
+      title: `${tool.name} 查询条件`,
       component: 'FORM',
       fields,
       dataExpression: 'lastOutput',
       outputAlias: queryAlias,
-      dataSources: { apiAsset: apiAssetTemplateMetadata(asset) },
+      dataSources: { projectApi: projectApiTemplateMetadata(tool, deps.studio.value.projectCode) },
       behavior: { askMissing: true, maxTurns: 6 },
       renderSchema: {},
     }
@@ -372,57 +383,57 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     pageActionNode.data.description = '请求嵌入的业务页面填入查询条件并触发搜索'
     pageActionNode.data.outputAlias = actionAlias
     pageActionNode.data.pageActionConfig = {
-      projectCode: asset.projectCode || '',
+      projectCode: projectCode || '',
       actionKey: apiQueryTemplateActionKey.value.trim() || 'page.search.applyFilters',
-      title: `页面查询：${asset.name}`,
+      title: `页面查询：${tool.name}`,
       confirm: false,
-      args: apiAssetPageActionMapping(asset, queryAlias),
+      args: projectApiPageActionMapping(tool, queryAlias),
       outputAlias: actionAlias,
       metadata: {
-        projectCode: asset.projectCode || null,
-        apiId: asset.apiId,
-        apiName: asset.name,
-        endpointPath: asset.endpointPath || null,
+        projectCode,
+        scanToolId: tool.scanToolId,
+        apiName: tool.name,
+        endpointPath: tool.endpointPath || null,
       },
     }
     pageActionNode.data.inputs = [{ id: queryAlias, name: queryAlias, type: 'object', required: false, source: queryAlias }]
     pageActionNode.data.outputs = [{ id: actionAlias, name: actionAlias, type: 'object' }]
 
-    toolNode.data.label = `调用 ${asset.globalToolName || asset.name}`
-    toolNode.data.description = asset.aiDescription || asset.description || '调用已关联的 API Tool'
+    toolNode.data.label = `调用 ${toolRef}`
+    toolNode.data.description = tool.aiDescription || tool.description || '调用已关联的项目接口 Tool'
     toolNode.data.outputAlias = resultAlias
     toolNode.data.inputs = callNodeInputsFromMapping(inputMapping)
     toolNode.data.outputs = [{ id: resultAlias, name: resultAlias, type: 'any' }]
     toolNode.data.toolConfig = {
-      ref: asset.globalToolName || asset.name,
-      qualifiedName: asset.globalToolQualifiedName || asset.globalToolName || asset.name,
-      projectCode: asset.projectCode || null,
+      ref: toolRef,
+      qualifiedName,
+      projectCode,
       visibility: 'PROJECT',
       credentialRef: '',
       maxRequestTimeMs: 180000,
       inputMapping,
-      mappingNote: `由 API 查询流程向导生成：${asset.httpMethod || ''} ${asset.endpointPath || asset.name}`.trim(),
+      mappingNote: `由项目 API 查询流程向导生成：${tool.httpMethod || ''} ${tool.endpointPath || tool.name}`.trim(),
     }
 
-    displayNode.data.label = `${asset.name} 查询结果`
+    displayNode.data.label = `${tool.name} 查询结果`
     displayNode.data.description = '展示查询接口返回结果'
     displayNode.data.outputAlias = displayAlias
     displayNode.data.interactionConfig = {
       interactionType: 'PRESENT_OUTPUT',
       binding: { sourceKind: 'NONE' },
-      title: `${asset.name} 查询结果`,
+      title: `${tool.name} 查询结果`,
       component: 'TABLE',
       fields: [],
       dataExpression: resultAlias,
       outputAlias: displayAlias,
       dataSources: {
-        source: { nodeId: toolNode.id, outputAlias: resultAlias, apiId: asset.apiId },
+        source: { nodeId: toolNode.id, outputAlias: resultAlias, scanToolId: tool.scanToolId },
       },
       behavior: { acknowledge: false },
       renderSchema: {
-        apiName: asset.name,
-        endpointPath: asset.endpointPath || null,
-        responseType: asset.responseType || null,
+        apiName: tool.name,
+        endpointPath: tool.endpointPath || null,
+        responseType: tool.responseType || null,
       },
     }
     displayNode.data.outputs = interactionOutputPorts(displayNode.data.interactionConfig, displayAlias)
@@ -442,14 +453,14 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
   return {
     apiQueryTemplateOpen,
     apiQueryTemplateLoading,
-    apiQueryTemplateAssets,
+    apiQueryTemplateTools,
     apiQueryTemplateTotal,
     apiQueryTemplateActionKey,
     apiQueryTemplateFilters,
     openApiQueryTemplateDialog,
-    reloadApiQueryTemplateAssets,
-    loadApiQueryTemplateAssets,
-    applyApiAssetRouteContext,
+    reloadApiQueryTemplateTools,
+    loadApiQueryTemplateTools,
+    applyProjectApiRouteContext,
     apiQueryTemplateRowClassName,
     apiQueryTemplateSelectable,
     apiQueryTemplateStatusLabel,

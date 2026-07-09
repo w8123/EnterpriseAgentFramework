@@ -20,17 +20,14 @@ const brandOptions: Array<{ value: BrandTheme; label: string }> = [
   { value: 'deep-ocean', label: '深海蓝' },
 ]
 
-function isTheme(value: string | null): value is Theme {
-  return value === 'dark' || value === 'light'
-}
-
 function isBrandTheme(value: string | null): value is BrandTheme {
   return brandOptions.some((option) => option.value === value)
 }
 
-const storedTheme = localStorage.getItem('theme')
 const storedBrand = localStorage.getItem('brandTheme')
-const theme = ref<Theme>(isTheme(storedTheme) ? storedTheme : 'dark')
+// 月隐模式尚未完成，光影模式暂时锁定在浅色。
+const lockedTheme: Theme = 'light'
+const theme = ref<Theme>(lockedTheme)
 const brand = ref<BrandTheme>(isBrandTheme(storedBrand) ? storedBrand : 'tech-purple')
 
 function applyTheme(t: Theme) {
@@ -59,7 +56,7 @@ watch(brand, (value) => applyBrand(value))
 
 export function useTheme() {
   function toggleTheme() {
-    theme.value = theme.value === 'dark' ? 'light' : 'dark'
+    theme.value = lockedTheme
   }
 
   function setBrand(value: BrandTheme) {

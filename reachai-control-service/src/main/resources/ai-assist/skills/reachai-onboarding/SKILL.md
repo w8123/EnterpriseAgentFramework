@@ -1,6 +1,6 @@
 ---
 name: reachai-onboarding
-description: Integrate Java business systems with ReachAI SDK registration and capability sync. Use when asked to connect a Spring Boot service to ReachAI, add reachai-capability-sdk or reachai-spring-boot2-starter, configure reachai.registry/reachai.project/reachai.capability, expose @ReachCapability methods, or verify SDK onboarding from a ReachAI manifest.
+description: Integrate Java business systems with ReachAI SDK registration, SDK instance heartbeat, gateway/embed access, and optional API Management handoff. Use when asked to connect a Spring Boot service to ReachAI, add reachai-capability-sdk or reachai-spring-boot2-starter, configure reachai.registry/reachai.project/reachai.capability, prepare @ReachCapability metadata for later manual SDK sync, or verify SDK onboarding from a ReachAI manifest.
 ---
 
 # ReachAI Onboarding
@@ -21,7 +21,7 @@ Prefer minimal, reviewable changes:
 - Do not use the ReachAI platform base URL as a Maven repository, npm registry, or SDK file server. The platform onboarding URLs are only for the manifest, skill package, access-session reporting, and self-check APIs.
 - Do not invent dependency download paths such as `/repository/**`, `/maven/**`, `/repository/maven/**`, `/api/embed/sdk`, or `/npm/**`. If Java or front-end artifacts cannot be resolved from the business repo's existing repositories, a corporate artifact repository, or the user's local Maven/npm cache, stop and report the missing artifact source.
 - Avoid changing unrelated business logic, package structure, formatting, or dependency versions.
-- For automatic Spring MVC scanning, restrict ReachAI to business-owned packages. Do not sync framework, platform, third-party, starter, or shared infrastructure controllers as business APIs.
+- SDK onboarding must not scan or sync business APIs automatically. SDK interface scan/sync is manually triggered from ReachAI API Management（API 管理）after onboarding；中文产品口径是“API 管理手动触发 SDK 同步”。 If you prepare scan boundaries for that later manual sync, restrict ReachAI to business-owned packages and never include framework, platform, third-party, starter, or shared infrastructure controllers as business APIs.
 
 ## Workflow
 
@@ -32,12 +32,12 @@ Prefer minimal, reviewable changes:
    - Java source level.
    - Spring Boot version.
    - Runnable application module.
-   - Business-owned Java base packages from application classes, controllers, services, and module names.
-   - Framework/platform packages that should be excluded from ReachAI scanning.
+   - Business-owned Java base packages from application classes, controllers, services, and module names, only as the future API Management manual SDK sync boundary.
+   - Framework/platform packages that should be excluded if API Management manual SDK sync is later used.
    - Existing `application.yml`, `bootstrap.yml`, profile-specific config, or config-center conventions.
 4. Add dependencies using `references/java-sdk-access.md` and `templates/pom-dependencies.xml`.
-5. Add configuration using `templates/application-reachai.yml`, replacing the package placeholders with narrow business package allow-lists and framework/package deny-lists.
-6. Select one or two low-risk query-style business methods and annotate them with `@ReachCapability` / `@ReachParam`. Use `templates/reach-capability-example.java` only as a style example.
+5. Add configuration using `templates/application-reachai.yml`. Do not add any capability startup-sync setting. Replace package placeholders only when preparing the later API Management manual SDK sync boundary.
+6. Do not scan or sync APIs during SDK onboarding. Only when the user explicitly asks to prepare API metadata, select one or two low-risk query-style business methods and annotate them with `@ReachCapability` / `@ReachParam`. Use `templates/reach-capability-example.java` only as a style example.
 7. Inspect the business gateway boundary before declaring onboarding complete:
    - Spring Cloud Gateway, Nginx, backend-for-frontend, or front-end dev proxy configuration.
    - Existing authentication headers and current-user extraction.
@@ -48,7 +48,7 @@ Prefer minimal, reviewable changes:
    - Implement the token endpoint server-side so it maps the current business user to `principal.externalUserId`, signs the platform call with the project `appKey/appSecret`, and calls ReachAI `POST /api/embed/token/exchange`.
    - Keep `/api/reachai/embed-token` on the normal business login token path. It reads the current business user and exchanges that identity for a ReachAI embed token.
    - Add the gateway authentication whitelist or dedicated security chain for `/api/reachai/embed/**`. This path carries ReachAI embed tokens, so business OAuth/JWT filters must not validate it as a business login token; forward `Authorization: Bearer <embedToken>` unchanged to ReachAI.
-   - In Spring Security WebFlux / OAuth2 Resource Server, `permitAll()` on `/api/reachai/embed/**` is not enough by itself: the resource server can still try to authenticate the `Bearer <embedToken>` before routing and return 401. Add a higher-priority `SecurityWebFilterChain` with `securityMatcher("/api/reachai/embed/**")` that permits all and does not enable `oauth2ResourceServer()` for that matcher.
+   - In Spring Security WebFlux / OAuth2 Resource Server, `permitAll()` on `/api/reachai/embed/**` is not enough by itself: the resource server can still try to authenticate the `Bearer <embedToken>` before routing and return 401. Add a higher-priority `SecurityWebFilterChain` with `securityMatcher(ServerWebExchangeMatchers.pathMatchers("/api/reachai/embed/**"))` that permits all and does not enable `oauth2ResourceServer()` for that matcher.
    - Inspect whitelist/anonymous filters that remove or rewrite JWT headers, such as `IgnoreUrlsRemoveJwtFilter`, `RemoveJwtFilter`, `RemoveRequestHeader=Authorization`, or security filters that call `mutate().header("Authorization", "")`. Do not apply that header-clearing behavior to `/api/reachai/embed/**`; skipping business authentication must still preserve the embed token `Authorization` header.
    - If Spring Cloud Gateway proxies `/api/reachai/embed/**`, dedupe duplicate CORS response headers when both the gateway and ReachAI write them. A typical route filter is `DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST`.
    - Before front-end embed work, call `manifest.agentProvisioning.provisionAgentUrl` from the AI coding tool, local shell, or server-side integration step when present. Send `X-ReachAI-AiCoding-Key` with the same project key used to fetch the manifest. It is idempotent and creates or reuses the project `PAGE_COPILOT` Agent plus its default Workflow binding.
@@ -61,7 +61,7 @@ Prefer minimal, reviewable changes:
 9. Add or update the business front-end integration:
    - Add the ReachAI chat/embed entry in a real business page or shared shell, not only in documentation.
    - Do not call `manifest.agentProvisioning.provisionAgentUrl` from browser runtime code. Use the already provisioned bare JSON `agent.keySlug` as `agentId` (not `data.agent.keySlug`).
-   - Configure `apiBase` as the ReachAI platform origin (SDK calls `${apiBase}/api/embed/**`). Do not set `apiBase: '/api/reachai/embed'`.
+   - Use `@reachai/embed-chat` for browser embedding when available. Configure `apiBase` as the ReachAI platform origin by default; if the browser uses a gateway prefix, set `embedPathPrefix` such as `/api/reachai/embed`, or set `apiBase` directly to a recognized embed root such as `/api/reachai/embed`.
    - Configure `projectCode`, `agentId`, and a `tokenProvider` that calls the business gateway token broker. Use the already provisioned page copilot Agent `keySlug` for `agentId`.
    - Pass the same stable `pageKey`, `pageInstanceId`, `route`, and `origin` through token broker, `createEafChat({ page })`, and page actions.
    - Do not reuse the business login token for ReachAI chat session or message calls. Use the broker-returned short-lived embed token for `/api/reachai/embed/**`, `/api/embed/chat/sessions`, and message APIs.
@@ -74,9 +74,9 @@ Prefer minimal, reviewable changes:
    - Cache embed tokens only until before their `expiresIn` boundary. If a session or message request returns `embed token is expired`, clear the cached embed token, call the broker again, and retry once.
 10. Run the smallest meaningful verification commands for the touched backend, gateway, and front-end modules.
 11. Call the manifest's `sdkAccessCheckUrl` only after local compile/config succeeds, including `gatewayBaseUrl` and `embedTokenPath`, or explain why a live check cannot run.
-   - Interpret `CODE_READY`, `RUNTIME_READY`, and `E2E_READY` separately when they are returned. `CODE_READY` can pass while `RUNTIME_READY` or `E2E_READY` remains WARN because the business service is not running with `REACHAI_REGISTRY_APP_SECRET`, SDK heartbeat has not arrived, API assets have not synced, or no real API invocation was selected.
-12. If the prompt or manifest provides an access session URL under `/api/ai-coding/projects/{projectId}/access-sessions/...`, report progress after each major step. Use step keys such as `project-manifest`, `backend-sdk`, `reachai-config`, `capability-scan`, `gateway-route`, `embed-token-broker`, `gateway-whitelist`, `frontend-embed`, `connectivity-check`, and `handoff-summary`.
-13. Report changed files, commands run, results, scan package choices, gateway route/token broker status, front-end integration status, and manual secrets still required.
+   - Interpret `CODE_READY`, `RUNTIME_READY`, and `E2E_READY` separately when they are returned. `CODE_READY` can pass while `RUNTIME_READY` or `E2E_READY` remains WARN because the business service is not running with `REACHAI_REGISTRY_APP_SECRET`, SDK heartbeat has not arrived, optional API Management manual sync has not run, or no real embed/API invocation was selected.
+12. If the prompt or manifest provides an access session URL under `/api/ai-coding/projects/{projectId}/access-sessions/...`, report progress after each major step. Use step keys such as `project-manifest`, `backend-sdk`, `reachai-config`, `api-management-handoff`, `gateway-route`, `embed-token-broker`, `gateway-whitelist`, `frontend-embed`, `connectivity-check`, and `handoff-summary`.
+13. Report changed files, commands run, results, API Management handoff status, optional scan package choices, gateway route/token broker status, front-end integration status, and manual secrets still required.
 
 ## References
 
@@ -93,7 +93,7 @@ End with:
 - Dependency/configuration summary.
 - Gateway route and embed token broker summary.
 - Front-end embed/chat integration summary.
-- Capability annotations added.
+- API Management handoff status and any optional capability annotations prepared.
 - Verification commands and results.
 - Whether `REACHAI_REGISTRY_APP_SECRET` still needs to be configured outside the repository.
 - Whether access session progress was reported to `/api/ai-coding/.../access-sessions/...`.

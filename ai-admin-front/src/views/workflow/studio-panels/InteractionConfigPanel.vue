@@ -46,7 +46,7 @@
                 :value="item.name"
               />
             </el-select>
-            <el-button plain @click="openApiAssetPicker">从资产目录选</el-button>
+            <el-button plain @click="openProjectApiPicker">从项目接口选</el-button>
           </div>
         </el-form-item>
       </div>
@@ -76,33 +76,33 @@
       </div>
     </section>
 
-    <el-dialog v-model="apiAssetDialogOpen" title="选择项目 API 资产" width="880px" append-to-body>
-      <div class="api-asset-picker-toolbar">
+    <el-dialog v-model="projectApiDialogOpen" title="选择项目接口" width="880px" append-to-body>
+      <div class="project-api-picker-toolbar">
         <el-input
-          v-model="apiAssetFilters.keyword"
+          v-model="projectApiFilters.keyword"
           clearable
           placeholder="搜索接口名称、路径、描述"
-          @keyup.enter="reloadApiAssets"
+          @keyup.enter="reloadProjectApis"
         />
-        <el-select v-model="apiAssetFilters.toolLinkStatus" clearable placeholder="Tool 关联状态">
+        <el-select v-model="projectApiFilters.toolLinkStatus" clearable placeholder="Tool 关联状态">
           <el-option label="已关联 Tool" value="LINKED" />
           <el-option label="未关联 Tool" value="NOT_LINKED" />
           <el-option label="全局 Tool 缺失" value="GLOBAL_MISSING" />
         </el-select>
-        <el-button type="primary" @click="reloadApiAssets">查询</el-button>
-        <el-button @click="resetApiAssetFilters">重置</el-button>
+        <el-button type="primary" @click="reloadProjectApis">查询</el-button>
+        <el-button @click="resetProjectApiFilters">重置</el-button>
       </div>
       <el-table
-        v-loading="apiAssetLoading"
-        :data="apiAssetRows"
-        row-key="apiId"
+        v-loading="projectApiLoading"
+        :data="projectApiRows"
+        row-key="scanToolId"
         height="420"
         stripe
-        empty-text="暂无 API 资产"
+        empty-text="暂无项目接口"
       >
         <el-table-column label="接口" min-width="280" show-overflow-tooltip>
           <template #default="{ row }">
-            <div class="api-asset-cell">
+            <div class="project-api-cell">
               <strong>{{ row.name }}</strong>
               <span>{{ row.httpMethod || '-' }} {{ row.endpointPath || row.sourceLocation || '-' }}</span>
             </div>
@@ -110,19 +110,19 @@
         </el-table-column>
         <el-table-column label="项目 / 模块" min-width="190" show-overflow-tooltip>
           <template #default="{ row }">
-            <div class="api-asset-cell">
-              <strong>{{ row.projectName || row.projectCode || '-' }}</strong>
-              <span>{{ row.moduleName || '-' }}</span>
+            <div class="project-api-cell">
+              <strong>{{ row.projectCode || projectCode || '-' }}</strong>
+              <span>{{ row.moduleDisplayName || '-' }}</span>
             </div>
           </template>
         </el-table-column>
         <el-table-column label="参数" width="80" align="center">
-          <template #default="{ row }">{{ row.parameterCount || row.parameters?.length || 0 }}</template>
+          <template #default="{ row }">{{ projectApiToolParameterCount(row) }}</template>
         </el-table-column>
         <el-table-column label="状态" width="150">
           <template #default="{ row }">
-            <el-tag size="small" :type="apiAssetSelectable(row) ? 'success' : 'info'" effect="plain">
-              {{ apiAssetStatusLabel(row) }}
+            <el-tag size="small" :type="isProjectApiToolSelectable(row) ? 'success' : 'info'" effect="plain">
+              {{ projectApiToolStatusLabel(row) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -132,22 +132,22 @@
               size="small"
               type="primary"
               text
-              :disabled="!apiAssetSelectable(row)"
-              @click="selectApiAsset(row)"
+              :disabled="!isProjectApiToolSelectable(row)"
+              @click="selectProjectApi(row)"
             >
               选择
             </el-button>
           </template>
         </el-table-column>
       </el-table>
-      <div class="api-asset-picker-footer">
+      <div class="project-api-picker-footer">
         <span>选择后会生成交互字段，并可继续自动创建调用节点。</span>
         <el-pagination
-          v-model:current-page="apiAssetFilters.page"
-          v-model:page-size="apiAssetFilters.pageSize"
+          v-model:current-page="projectApiFilters.page"
+          v-model:page-size="projectApiFilters.pageSize"
           layout="total, prev, pager, next"
-          :total="apiAssetTotal"
-          @current-change="loadApiAssets"
+          :total="projectApiTotal"
+          @current-change="loadProjectApis"
         />
       </div>
     </el-dialog>
@@ -385,8 +385,17 @@ import type { ToolInfo, ToolParameter } from '@/types/tool'
 import type { CompositionInfo } from '@/types/composition'
 import { isToolInputParameter } from '@/types/composition'
 import { interactionOutputPorts } from '@/utils/studio'
-import { listApiAssets } from '@/api/apiAsset'
-import type { ApiAssetItem } from '@/types/apiAsset'
+import { getScanProjectTools } from '@/api/scanProject'
+import type { ProjectToolInfo } from '@/types/scanProject'
+import {
+  filterProjectApiTools,
+  isProjectApiToolSelectable,
+  pageProjectApiTools,
+  projectApiToolParameterCount,
+  projectApiToolQualifiedName,
+  projectApiToolRef,
+  projectApiToolStatusLabel,
+} from '@/utils/projectApiTools'
 
 const props = defineProps<{
   data: CanvasNodeData
@@ -419,12 +428,12 @@ const interactionTypeOptions: Array<{ label: string; value: InteractionNodeType 
 const toolOptions = computed(() => props.toolOptions || [])
 const compositionOptions = computed(() => props.compositionOptions || [])
 const apiToolOptions = computed(() => toolOptions.value.filter((item) => !!item.httpMethod || !!item.endpointPath || !!item.catalogScanToolId))
-const selectedApiAssetTool = ref<ToolInfo | null>(null)
-const apiAssetDialogOpen = ref(false)
-const apiAssetLoading = ref(false)
-const apiAssetRows = ref<ApiAssetItem[]>([])
-const apiAssetTotal = ref(0)
-const apiAssetFilters = reactive({
+const selectedProjectApiTool = ref<ToolInfo | null>(null)
+const projectApiDialogOpen = ref(false)
+const projectApiLoading = ref(false)
+const projectApiRows = ref<ProjectToolInfo[]>([])
+const projectApiTotal = ref(0)
+const projectApiFilters = reactive({
   keyword: '',
   toolLinkStatus: 'LINKED',
   page: 1,
@@ -462,8 +471,8 @@ const selectedBindingAsset = computed<ToolInfo | CompositionInfo | undefined>(()
     return compositionOptions.value.find((item) => item.name === binding.value.ref)
   }
   if (binding.value.sourceKind === 'API') {
-    if (selectedApiAssetTool.value?.name === binding.value.ref) {
-      return selectedApiAssetTool.value || undefined
+    if (selectedProjectApiTool.value?.name === binding.value.ref) {
+      return selectedProjectApiTool.value || undefined
     }
     return apiToolOptions.value.find((item) => item.name === binding.value.ref)
   }
@@ -500,7 +509,7 @@ const bindingSummary = computed(() => {
     return '未绑定来源'
   }
   if (!selectedBindingAsset.value) {
-    return '等待选择资产'
+    return '等待选择来源'
   }
   return assetLabel(selectedBindingAsset.value)
 })
@@ -565,60 +574,60 @@ function handleBindingKindChange() {
   }
 }
 
-function openApiAssetPicker() {
+function openProjectApiPicker() {
+  if (!props.projectId) {
+    ElMessage.warning('请先在项目上下文中打开 Workflow Studio')
+    return
+  }
   binding.value.sourceKind = 'API'
-  apiAssetDialogOpen.value = true
-  apiAssetFilters.page = 1
-  loadApiAssets()
+  projectApiDialogOpen.value = true
+  projectApiFilters.page = 1
+  loadProjectApis()
 }
 
-function reloadApiAssets() {
-  apiAssetFilters.page = 1
-  loadApiAssets()
+function reloadProjectApis() {
+  projectApiFilters.page = 1
+  loadProjectApis()
 }
 
-function resetApiAssetFilters() {
-  apiAssetFilters.keyword = ''
-  apiAssetFilters.toolLinkStatus = 'LINKED'
-  reloadApiAssets()
+function resetProjectApiFilters() {
+  projectApiFilters.keyword = ''
+  projectApiFilters.toolLinkStatus = 'LINKED'
+  reloadProjectApis()
 }
 
-async function loadApiAssets() {
-  apiAssetLoading.value = true
+async function loadProjectApis() {
+  if (!props.projectId) return
+  projectApiLoading.value = true
   try {
-    const { data } = await listApiAssets({
-      projectId: props.projectId ?? undefined,
-      keyword: apiAssetFilters.keyword || undefined,
-      toolLinkStatus: apiAssetFilters.toolLinkStatus || undefined,
-      page: apiAssetFilters.page,
-      pageSize: apiAssetFilters.pageSize,
-    })
-    apiAssetRows.value = data.items || []
-    apiAssetTotal.value = data.total || 0
+    const { data } = await getScanProjectTools(props.projectId, 'full')
+    const filtered = filterProjectApiTools(data || [], projectApiFilters)
+    projectApiRows.value = pageProjectApiTools(filtered, projectApiFilters.page, projectApiFilters.pageSize)
+    projectApiTotal.value = filtered.length
   } catch {
-    apiAssetRows.value = []
-    apiAssetTotal.value = 0
-    ElMessage.error('加载 API 资产失败')
+    projectApiRows.value = []
+    projectApiTotal.value = 0
+    ElMessage.error('加载项目接口失败')
   } finally {
-    apiAssetLoading.value = false
+    projectApiLoading.value = false
   }
 }
 
-async function selectApiAsset(row: ApiAssetItem) {
-  if (!apiAssetSelectable(row)) {
+async function selectProjectApi(row: ProjectToolInfo) {
+  if (!isProjectApiToolSelectable(row)) {
     ElMessage.warning('该接口还不能直接用于交互节点，请先完成 Tool 关联并开启 Agent 可见。')
     return
   }
-  selectedApiAssetTool.value = apiAssetToTool(row)
+  selectedProjectApiTool.value = projectApiToTool(row)
   binding.value.sourceKind = 'API'
-  binding.value.ref = selectedApiAssetTool.value.name
-  apiAssetDialogOpen.value = false
+  binding.value.ref = selectedProjectApiTool.value.name
+  projectApiDialogOpen.value = false
   await handleBindingRefChange()
 }
 
-function apiAssetToTool(row: ApiAssetItem): ToolInfo {
+function projectApiToTool(row: ProjectToolInfo): ToolInfo {
   return {
-    name: row.globalToolName || row.name,
+    name: projectApiToolRef(row),
     description: row.aiDescription || row.description || '',
     parameters: row.parameters || [],
     source: 'scanner',
@@ -629,32 +638,20 @@ function apiAssetToTool(row: ApiAssetItem): ToolInfo {
     endpointPath: row.endpointPath || null,
     requestBodyType: row.requestBodyType || null,
     responseType: row.responseType || null,
-    projectId: row.projectId,
-    projectCode: row.projectCode || null,
+    projectId: row.projectId || props.projectId || null,
+    projectCode: row.projectCode || props.projectCode || null,
     visibility: 'PROJECT',
-    qualifiedName: row.globalToolQualifiedName || row.globalToolName || row.name,
-    sourceProjectName: row.projectName || null,
+    qualifiedName: projectApiToolQualifiedName(row, props.projectCode),
+    sourceProjectName: null,
     aiDescription: row.aiDescription || null,
     capabilityMetadataJson: null,
     enabled: row.enabled,
     agentVisible: row.agentVisible,
     lightweightEnabled: row.lightweightEnabled,
-    catalogScanToolId: row.apiId,
+    catalogScanToolId: row.scanToolId,
     catalogLinkStatus: row.toolLinkStatus || null,
     catalogLinkMessage: null,
   }
-}
-
-function apiAssetSelectable(row: ApiAssetItem) {
-  return row.toolLinkStatus === 'LINKED' && !!row.globalToolName && row.enabled && row.agentVisible && !row.removedFromSource
-}
-
-function apiAssetStatusLabel(row: ApiAssetItem) {
-  if (row.removedFromSource) return '源接口已移除'
-  if (row.toolLinkStatus !== 'LINKED') return '需先关联 Tool'
-  if (!row.enabled) return '未启用'
-  if (!row.agentVisible) return 'Agent 不可见'
-  return '可选择'
 }
 
 async function handleBindingRefChange() {
@@ -1115,21 +1112,21 @@ function isTool(item: ToolInfo | CompositionInfo | undefined): item is ToolInfo 
   flex: 0 0 auto;
 }
 
-.api-asset-picker-toolbar {
+.project-api-picker-toolbar {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) 160px auto auto;
   gap: 8px;
   margin-bottom: 12px;
 }
 
-.api-asset-cell {
+.project-api-cell {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
 
-.api-asset-cell span {
+.project-api-cell span {
   overflow: hidden;
   color: #64748b;
   font-size: 12px;
@@ -1137,7 +1134,7 @@ function isTool(item: ToolInfo | CompositionInfo | undefined): item is ToolInfo 
   white-space: nowrap;
 }
 
-.api-asset-picker-footer {
+.project-api-picker-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;

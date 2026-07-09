@@ -71,7 +71,7 @@ class RuntimeCompatibilityControllerTest {
         Method editWorkflowStudioDraft = RuntimeCompatibilityController.class
                 .getDeclaredMethod("editWorkflowStudioDraft", Map.class);
         Method createWorkflowAiCodingWorkflow = RuntimeCompatibilityController.class
-                .getDeclaredMethod("createWorkflowAiCodingWorkflow", Map.class);
+                .getDeclaredMethod("createWorkflowAiCodingWorkflow", Map.class, String.class);
         Method workflowAiCodingContext = RuntimeCompatibilityController.class
                 .getDeclaredMethod("workflowAiCodingContext", String.class);
         Method validateWorkflowAiCoding = RuntimeCompatibilityController.class
@@ -666,8 +666,10 @@ class RuntimeCompatibilityControllerTest {
     @Test
     void delegatesWorkflowAiCodingToRuntimeService() {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
-        RuntimeCompatibilityController controller = new RuntimeCompatibilityController(runtimeProxyClient);
-        Map<String, Object> request = Map.of("instruction", "add guard");
+        com.enterprise.ai.control.aiassist.ControlAiCodingAccessGuard aiCodingAccessGuard =
+                mock(com.enterprise.ai.control.aiassist.ControlAiCodingAccessGuard.class);
+        RuntimeCompatibilityController controller = new RuntimeCompatibilityController(runtimeProxyClient, aiCodingAccessGuard);
+        Map<String, Object> request = Map.of("projectId", 7L, "instruction", "add guard");
         ResponseEntity<Object> pending = ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
                 .body(Map.of("code", "RUNTIME_WORKFLOW_AI_CODING_PENDING"));
         when(runtimeProxyClient.createWorkflowAiCodingWorkflow(request)).thenReturn(pending);
@@ -683,7 +685,7 @@ class RuntimeCompatibilityControllerTest {
         when(runtimeProxyClient.validateWorkflowAiCodingPageAssistant("wf-1", request)).thenReturn(pending);
         when(runtimeProxyClient.smokeTestWorkflowAiCodingPageAssistant("wf-1", request)).thenReturn(pending);
 
-        assertEquals(pending, controller.createWorkflowAiCodingWorkflow(request));
+        assertEquals(pending, controller.createWorkflowAiCodingWorkflow(request, "rac_secret"));
         assertEquals(pending, controller.workflowAiCodingContext("wf-1"));
         assertEquals(pending, controller.validateWorkflowAiCoding("wf-1", request));
         assertEquals(pending, controller.patchWorkflowAiCoding("wf-1", request));
@@ -696,6 +698,7 @@ class RuntimeCompatibilityControllerTest {
         assertEquals(pending, controller.validateWorkflowAiCodingPageAssistant("wf-1", request));
         assertEquals(pending, controller.smokeTestWorkflowAiCodingPageAssistant("wf-1", request));
         verify(runtimeProxyClient).createWorkflowAiCodingWorkflow(request);
+        verify(aiCodingAccessGuard).requireWorkflowCreateAccess(request, "rac_secret");
         verify(runtimeProxyClient).workflowAiCodingContext("wf-1");
         verify(runtimeProxyClient).validateWorkflowAiCoding("wf-1", request);
         verify(runtimeProxyClient).patchWorkflowAiCoding("wf-1", request);

@@ -1200,41 +1200,14 @@ onMounted(load)
   opacity: 0 !important;
 }
 
-:global(.main-layout.registry-shell:has(.embed-ops-page) .topbar) {
-  border-bottom-color: rgba(255, 255, 255, 0.5) !important;
-  background:
-    var(--brand-topbar-bg) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 16px 34px rgb(var(--brand-primary-rgb) / 0.18) !important;
-  backdrop-filter: blur(22px) saturate(1.1) !important;
-}
-
-:global(.main-layout.registry-shell:has(.embed-ops-page) .breadcrumb-area .el-breadcrumb__inner),
-:global(.main-layout.registry-shell:has(.embed-ops-page) .breadcrumb-area .el-breadcrumb__separator) {
-  color: rgba(255, 255, 255, 0.84) !important;
-}
-
-:global(.main-layout.registry-shell:has(.embed-ops-page) .breadcrumb-area .el-breadcrumb__item:last-child .el-breadcrumb__inner) {
-  color: #ffffff !important;
-}
-
-:global(.main-layout.registry-shell:has(.embed-ops-page) .topbar-btn) {
-  border-color: rgba(255, 255, 255, 0.7) !important;
-  background: rgba(255, 255, 255, 0.48) !important;
-  color: #4338ca !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 8px 20px rgb(var(--brand-primary-rgb) / 0.14) !important;
-  backdrop-filter: blur(16px) !important;
-}
-
-:global(.main-layout.registry-shell:has(.embed-ops-page) .user-avatar) {
-  box-shadow: 0 10px 24px rgb(var(--brand-active-rgb) / 0.24) !important;
-}
+/* 顶栏皮肤特例已删除：统一使用 MainLayout 的浅色玻璃顶栏（Phase 2.6）。 */
 
 .embed-ops-page {
   position: relative;
   gap: 12px;
   min-height: calc(100vh - 72px);
   margin: 0;
-  padding: 8px 22px 18px;
+  padding: var(--reachai-workbench-page-padding, var(--reachai-workbench-title-gap, 10px) 28px 16px);
   overflow: hidden;
   background:
     linear-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px),
@@ -1284,11 +1257,11 @@ onMounted(load)
 }
 
 .page-hero {
-  min-height: 112px;
-  padding: 18px 26px;
+  min-height: var(--reachai-workbench-title-height, 120px);
+  padding: var(--reachai-workbench-title-padding, 26px 28px);
   overflow: hidden;
   border: 1px solid rgb(var(--brand-selected-rgb) / 0.66) !important;
-  border-radius: 8px;
+  border-radius: var(--reachai-workbench-title-radius, 16px);
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.6), rgb(var(--brand-selected-rgb) / 0.38)) !important;
   box-shadow:

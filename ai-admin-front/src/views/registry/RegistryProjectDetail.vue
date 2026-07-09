@@ -1,5 +1,7 @@
 <template>
   <div class="registry-detail-page" :class="{ 'is-dark-detail': theme === 'dark' }">
+    <AppPageBackground local />
+
     <section class="project-hero">
       <div class="hero-corner-actions">
         <el-tooltip content="设为当前项目" placement="top">
@@ -29,20 +31,20 @@
             @click="openEditDialog"
           />
         </el-tooltip>
-        <el-tooltip content="删除项目" placement="top">
-          <el-button
-            class="danger-icon-action"
-            circle
-            :icon="Delete"
-            :disabled="!project?.id"
-            :loading="deleteLoading"
-            aria-label="删除项目"
-            @click="handleDeleteProject"
-          />
-        </el-tooltip>
+        <el-dropdown trigger="click" :disabled="!project?.id" @command="handleHeroMoreCommand">
+          <el-button class="more-action" :disabled="!project?.id" :loading="deleteLoading">
+            更多
+            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="delete" :disabled="deleteLoading">
+                删除项目
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
-
-      <el-button class="back-btn" link :icon="ArrowLeft" @click="goBack">返回</el-button>
 
       <div class="hero-main">
         <div class="project-mark">
@@ -57,46 +59,51 @@
           </div>
           <div class="project-meta">
             <span>
-              <el-icon><Setting /></el-icon>
               状态：
               <i class="online-dot" />
               <b>{{ formatProjectKindLabel(project?.projectKind || 'REGISTERED') }}</b>
             </span>
+            <span class="meta-sdk">
+              SDK：<b>{{ project?.sdkVersion || '-' }}</b>
+            </span>
             <span>
-              <el-icon><Lock /></el-icon>
               可见性：<b>{{ formatVisibilityLabel(project?.visibility || 'PRIVATE') }}</b>
             </span>
             <span>
-              <el-icon><User /></el-icon>
               负责人：<b>{{ project?.owner || '-' }}</b>
+            </span>
+            <span class="heartbeat-meta">
+              最近心跳：<b>{{ latestHeartbeatLabel }}</b>
+            </span>
+            <span>
+              实例：<b>{{ onlineInstanceCount }} 在线</b>
             </span>
           </div>
         </div>
       </div>
     </section>
 
-    <el-card class="detail-card health-card" shadow="never">
-      <div class="health-summary">
-        <button
-          v-for="item in healthMetrics"
-          :key="item.label"
-          class="health-item"
-          :class="[item.tone, { 'is-clickable': item.clickable }]"
-          type="button"
-          :disabled="!item.clickable"
-          @click="item.action?.()"
+    <div class="metric-strip">
+      <template v-for="(item, index) in healthMetrics" :key="item.label">
+        <div v-if="index > 0" class="metric-divider" aria-hidden="true" />
+        <component
+          :is="item.clickable ? 'button' : 'div'"
+          class="metric-segment"
+          :class="[`tone-${item.tone}`, { 'is-clickable': item.clickable }]"
+          :type="item.clickable ? 'button' : undefined"
+          @click="item.clickable ? item.action?.() : undefined"
         >
-          <div class="health-icon">
+          <MetricIconBg class="metric-segment-icon">
             <el-icon><component :is="item.icon" /></el-icon>
-          </div>
-          <div>
-            <div class="health-label">{{ item.label }}</div>
+          </MetricIconBg>
+          <div class="metric-content">
+            <span class="metric-label">{{ item.label }}</span>
             <strong>{{ item.value }}</strong>
             <small>{{ item.desc }}</small>
           </div>
-        </button>
-      </div>
-    </el-card>
+        </component>
+      </template>
+    </div>
 
     <section class="workbench-grid">
       <el-card v-for="group in workbenchGroups" :key="group.title" class="detail-card workbench-card" shadow="never">
@@ -139,26 +146,30 @@
             <span>实例心跳（{{ instances.length }}）</span>
           </div>
           <div class="header-actions">
-            <el-button
-              :icon="Delete"
-              :disabled="offlineInstanceCount === 0"
-              :loading="purgingOffline"
-              @click="purgeOfflineInstances"
-            >
-              清理离线（{{ offlineInstanceCount }}）
-            </el-button>
-            <el-button :icon="Refresh" @click="loadInstances">刷新实例</el-button>
+            <el-tooltip :content="`清理离线（${offlineInstanceCount}）`" placement="top">
+              <el-button
+                circle
+                :icon="Delete"
+                :disabled="offlineInstanceCount === 0"
+                :loading="purgingOffline"
+                aria-label="清理离线实例"
+                @click="purgeOfflineInstances"
+              />
+            </el-tooltip>
+            <el-tooltip content="刷新实例" placement="top">
+              <el-button circle :icon="Refresh" aria-label="刷新实例" @click="loadInstances" />
+            </el-tooltip>
           </div>
         </div>
       </template>
 
       <el-table v-loading="loadingInstances" :data="instances" row-key="id" class="instance-table">
-        <el-table-column prop="instanceId" label="实例 ID" min-width="240" show-overflow-tooltip>
+        <el-table-column prop="instanceId" label="实例 ID" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
             <span class="instance-id">{{ row.instanceId }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="150">
+        <el-table-column prop="status" label="状态" width="120">
           <template #default="{ row }">
             <span class="status-pill" :class="{ offline: row.status !== 'ONLINE', disabled: row.status === 'DISABLED' }">
               <i />
@@ -166,41 +177,22 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="运行时能力" min-width="280">
-          <template #default="{ row }">
-            <div class="runtime-tags">
-              <el-tag size="small" effect="plain">{{ formatRuntimePlacementLabel(runtimePlacement(row)) }}</el-tag>
-              <el-tag v-for="rt in runtimeTypes(row)" :key="rt" size="small" type="success" effect="plain">
-                {{ formatRuntimeTypeLabel(rt) }}
-              </el-tag>
-              <el-tag
-                v-for="feat in formatRuntimeFeatureLabels(runtimeMeta(row))"
-                :key="feat"
-                size="small"
-                type="info"
-                effect="plain"
-              >
-                {{ feat }}
-              </el-tag>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="host" label="主机" min-width="160">
+        <el-table-column prop="host" label="主机" min-width="180">
           <template #default="{ row }">{{ row.host || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="port" label="端口" width="120">
+        <el-table-column prop="port" label="端口" width="100">
           <template #default="{ row }">{{ row.port || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="appVersion" label="应用版本" width="150">
+        <el-table-column prop="appVersion" label="应用版本" width="130">
           <template #default="{ row }">{{ row.appVersion || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="sdkVersion" label="SDK 版本" width="150">
+        <el-table-column prop="sdkVersion" label="SDK 版本" width="130">
           <template #default="{ row }">{{ row.sdkVersion || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="lastHeartbeatAt" label="最近心跳" min-width="190">
+        <el-table-column prop="lastHeartbeatAt" label="最近心跳" min-width="180">
           <template #default="{ row }">{{ formatHeartbeatDisplay(row.lastHeartbeatAt) }}</template>
         </el-table-column>
-        <el-table-column label="治理" width="150" fixed="right">
+        <el-table-column label="治理" width="130">
           <template #default="{ row }">
             <el-button
               v-if="row.status === 'DISABLED'"
@@ -224,10 +216,14 @@
 
       <div class="table-footer">
         <span>共 {{ instances.length }} 条</span>
-        <el-select model-value="10" size="small" class="page-size-select">
-          <el-option label="10 条/页" value="10" />
-        </el-select>
-        <el-pagination background layout="prev, pager, next" :total="instances.length || 1" :page-size="10" />
+        <el-pagination
+          class="registry-pagination"
+          background
+          layout="prev, pager, next, sizes"
+          :total="instances.length || 1"
+          :page-size="10"
+          :page-sizes="[5, 10, 20, 50]"
+        />
       </div>
     </el-card>
 
@@ -285,88 +281,122 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="editDialogVisible" title="编辑项目" width="720px" destroy-on-close>
-      <el-form label-width="120px">
-        <el-form-item label="项目名称" required>
-          <el-input v-model="editForm.name" placeholder="项目名称" />
-        </el-form-item>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="项目编码" :required="isEditingSdkProject">
-              <el-input v-model="editForm.projectCode" :placeholder="isEditingSdkProject ? '如：customer-service' : '如 order-service'" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="接入方式">
-              <el-select v-model="editForm.projectKind" style="width: 100%" :disabled="editAccessLockedToSdk">
-                <el-option v-for="opt in projectKindOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="环境">
-              <el-input v-model="editForm.environment" placeholder="dev / test / prod" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="负责人">
-              <el-input v-model="editForm.owner" placeholder="负责人" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item :label="isEditingSdkProject ? 'Base URL' : '项目域名'" required>
-              <el-input v-model="editForm.baseUrl" placeholder="http://localhost:8080" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="可见性">
-              <el-select v-model="editForm.visibility" style="width: 100%">
-                <el-option v-for="opt in visibilityOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <template v-if="isEditingSdkProject">
-          <el-row :gutter="16">
+    <el-dialog v-model="editDialogVisible" class="edit-project-dialog" width="760px" destroy-on-close>
+      <template #header>
+        <div class="edit-project-dialog__header">
+          <div class="edit-project-dialog__mark">
+            <el-icon><EditPen /></el-icon>
+          </div>
+          <div class="edit-project-dialog__title">
+            <span>项目配置</span>
+            <strong>编辑项目</strong>
+          </div>
+          <div class="edit-project-dialog__badge">
+            {{ formatProjectKindLabel(editForm.projectKind || 'REGISTERED') }}
+          </div>
+        </div>
+      </template>
+
+      <el-form class="edit-project-form" label-position="top">
+        <section class="edit-project-section">
+          <div class="edit-project-section__head">
+            <span>基础信息</span>
+          </div>
+          <el-form-item label="项目名称" required>
+            <el-input v-model="editForm.name" placeholder="项目名称" />
+          </el-form-item>
+          <el-row class="edit-project-row" :gutter="14">
             <el-col :span="12">
-              <el-form-item label="App Key">
-                <el-input v-model="editCredentialForm.appKey" placeholder="留空则不更新凭据" />
+              <el-form-item label="项目编码" :required="isEditingSdkProject">
+                <el-input v-model="editForm.projectCode" :placeholder="isEditingSdkProject ? '如：customer-service' : '如 order-service'" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="App Secret">
-                <el-input v-model="editCredentialForm.appSecret" show-password placeholder="留空则不更新凭据" />
+              <el-form-item label="接入方式">
+                <el-select v-model="editForm.projectKind" style="width: 100%" :disabled="editAccessLockedToSdk">
+                  <el-option v-for="opt in projectKindOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+                </el-select>
               </el-form-item>
             </el-col>
           </el-row>
-        </template>
-        <template v-else>
-          <el-form-item label="Context Path">
-            <el-input v-model="editForm.contextPath" placeholder="/api" />
-          </el-form-item>
-          <el-form-item label="扫描路径" :required="editForm.projectKind !== 'REGISTERED'">
-            <el-input v-model="editForm.scanPath" placeholder="服务器上的绝对路径或 OpenAPI 所在目录" />
-            <div v-if="editForm.projectKind === 'REGISTERED'" class="form-hint">SDK 接入项目可不配置扫描路径。</div>
-          </el-form-item>
-          <el-form-item label="扫描方式" required>
-            <el-select v-model="editForm.scanType" style="width: 100%">
-              <el-option label="OpenAPI" value="openapi" />
-              <el-option label="Controller" value="controller" />
-              <el-option label="自动（SDK）" value="auto" />
-            </el-select>
-          </el-form-item>
-          <el-form-item v-if="editForm.scanType === 'openapi'" label="规范文件">
-            <el-input v-model="editForm.specFile" placeholder="可选，相对 scanPath；留空自动发现" />
-          </el-form-item>
-        </template>
+          <el-row class="edit-project-row" :gutter="14">
+            <el-col :span="12">
+              <el-form-item label="环境">
+                <el-input v-model="editForm.environment" placeholder="dev / test / prod" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="负责人">
+                <el-input v-model="editForm.owner" placeholder="负责人" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </section>
+
+        <section class="edit-project-section">
+          <div class="edit-project-section__head">
+            <span>接入配置</span>
+          </div>
+          <el-row class="edit-project-row" :gutter="14">
+            <el-col :span="12">
+              <el-form-item :label="isEditingSdkProject ? 'Base URL' : '项目域名'" required>
+                <el-input v-model="editForm.baseUrl" placeholder="http://localhost:8080" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="可见性">
+                <el-select v-model="editForm.visibility" style="width: 100%">
+                  <el-option v-for="opt in visibilityOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <template v-if="isEditingSdkProject">
+            <el-row class="edit-project-row" :gutter="14">
+              <el-col :span="12">
+                <el-form-item label="App Key" required>
+                  <el-input v-model="editCredentialForm.appKey" placeholder="请输入 App Key" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="App Secret" required>
+                  <el-input v-model="editCredentialForm.appSecret" show-password placeholder="请输入 App Secret" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </template>
+          <template v-else>
+            <el-form-item label="Context Path">
+              <el-input v-model="editForm.contextPath" placeholder="/api" />
+            </el-form-item>
+            <el-form-item label="扫描路径" :required="editForm.projectKind !== 'REGISTERED'">
+              <el-input v-model="editForm.scanPath" placeholder="服务器上的绝对路径或 OpenAPI 所在目录" />
+              <div v-if="editForm.projectKind === 'REGISTERED'" class="form-hint">SDK 接入项目可不配置扫描路径。</div>
+            </el-form-item>
+            <el-row class="edit-project-row" :gutter="14">
+              <el-col :span="12">
+                <el-form-item label="扫描方式" required>
+                  <el-select v-model="editForm.scanType" style="width: 100%">
+                    <el-option label="OpenAPI" value="openapi" />
+                    <el-option label="Controller" value="controller" />
+                    <el-option label="自动（SDK）" value="auto" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col v-if="editForm.scanType === 'openapi'" :span="12">
+                <el-form-item label="规范文件">
+                  <el-input v-model="editForm.specFile" placeholder="可选，相对 scanPath；留空自动发现" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </template>
+        </section>
       </el-form>
       <template #footer>
-        <el-button @click="editDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="editSaving" @click="saveEditProject">保存</el-button>
+        <div class="edit-project-dialog__footer">
+          <el-button @click="editDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="editSaving" @click="saveEditProject">保存</el-button>
+        </div>
       </template>
     </el-dialog>
 
@@ -374,27 +404,20 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import {
-  ArrowLeft,
+  ArrowDown,
   ArrowRight,
   Box,
-  Collection,
   Delete,
   DocumentCopy,
   EditPen,
-  Lock,
   Refresh,
-  Setting,
   Star,
-  User,
 } from '@element-plus/icons-vue'
-import {
-  formatInstanceStatusLabel,
-  formatRuntimeFeatureLabels,
-  formatRuntimePlacementLabel,
-  formatRuntimeTypeLabel,
-} from '@/utils/registryLabels'
+import MetricIconBg from '@/components/common/MetricIconBg.vue'
+import { formatInstanceStatusLabel } from '@/utils/registryLabels'
+import AppPageBackground from '@/components/common/AppPageBackground.vue'
 import {
   formatProjectKindLabel,
   formatVisibilityLabel,
@@ -410,17 +433,12 @@ import { useRegistryProjectDetailUiState } from '@/views/registry/composables/us
 import { useRegistryProjectWorkbench } from '@/views/registry/composables/useRegistryProjectWorkbench'
 import {
   formatHeartbeatDisplay,
-  projectInstanceRuntimeMeta,
-  runtimePlacement,
-  runtimeTypes,
 } from '@/views/registry/registryProjectDetailViewModel'
 
 const { theme } = useTheme()
 
 const projectKindOptions = PROJECT_KIND_SELECT_OPTIONS
 const visibilityOptions = VISIBILITY_SELECT_OPTIONS
-
-const runtimeMeta = projectInstanceRuntimeMeta
 
 let loadAiCodingAccessFn: (projectId: number) => Promise<void> = async () => {}
 
@@ -470,7 +488,6 @@ const {
 loadAiCodingAccessFn = loadAiCodingAccess
 
 const {
-  goBack,
   goCapability,
   goScanProjectDetail,
   goCapabilitySync,
@@ -529,6 +546,20 @@ const { healthMetrics, workbenchGroups } = useRegistryProjectWorkbench({
   goPageAssistantWizard,
   goSdkAccessWizard,
 })
+
+const latestHeartbeatLabel = computed(() =>
+  formatHeartbeatDisplay(instances.value[0]?.lastHeartbeatAt || project.value?.lastScannedAt || null),
+)
+
+const onlineInstanceCount = computed(() =>
+  instances.value.filter((item) => item.status === 'ONLINE').length,
+)
+
+function handleHeroMoreCommand(command: string | number | object) {
+  if (command === 'delete') {
+    handleDeleteProject()
+  }
+}
 
 onMounted(refresh)
 </script>

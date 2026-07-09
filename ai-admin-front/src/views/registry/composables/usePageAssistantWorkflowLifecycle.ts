@@ -11,8 +11,7 @@ import type {
   PageActionRegistryView,
   PageRegistryView,
 } from '@/api/embedOps'
-import type { ApiAssetItem } from '@/types/apiAsset'
-import type { ScanProject } from '@/types/scanProject'
+import type { ProjectToolInfo, ScanProject } from '@/types/scanProject'
 import type {
   AgentEntry,
   PageAssistantWorkflowBindingResult,
@@ -20,6 +19,10 @@ import type {
   WorkflowDraftGenerationResult,
   WorkflowDraftResource,
 } from '@/types/workflow'
+import {
+  projectApiToolQualifiedName,
+  projectApiToolRef,
+} from '@/utils/projectApiTools'
 import { safeJson } from '../pageAssistantWizardUtils'
 
 type DraftSource = 'NONE' | 'PLATFORM_GENERATED' | 'AI_CODING_RETURNED'
@@ -32,7 +35,7 @@ interface UsePageAssistantWorkflowLifecycleDeps {
   selectedPage: ComputedRef<PageRegistryView | null>
   selectedPageKey: Ref<string>
   selectedActions: Ref<PageActionRegistryView[]>
-  selectedApiAssets: Ref<ApiAssetItem[]>
+  selectedProjectApiTools: Ref<ProjectToolInfo[]>
   agentName: Ref<string>
   requirement: Ref<string>
   modelInstanceId: Ref<string>
@@ -74,18 +77,19 @@ export function usePageAssistantWorkflowLifecycle(deps: UsePageAssistantWorkflow
     }
   }
 
-  function apiAssetToResource(asset: ApiAssetItem): WorkflowDraftResource {
+  function projectApiToolToResource(tool: ProjectToolInfo): WorkflowDraftResource {
     return {
       kind: 'TOOL',
-      name: asset.globalToolName || asset.name,
-      qualifiedName: asset.globalToolQualifiedName || asset.globalToolName || asset.name,
-      definitionId: asset.globalToolDefinitionId || null,
-      projectCode: asset.projectCode,
-      description: asset.aiDescription || asset.description || asset.name,
+      name: projectApiToolRef(tool),
+      qualifiedName: projectApiToolQualifiedName(tool, deps.projectCode.value),
+      definitionId: tool.globalToolDefinitionId || null,
+      projectCode: tool.projectCode || deps.projectCode.value,
+      description: tool.aiDescription || tool.description || tool.name,
       metadata: {
-        endpointPath: asset.endpointPath,
-        httpMethod: asset.httpMethod,
-        parameters: asset.parameters,
+        scanToolId: tool.scanToolId,
+        endpointPath: tool.endpointPath,
+        httpMethod: tool.httpMethod,
+        parameters: tool.parameters,
       },
     }
   }
@@ -127,7 +131,7 @@ export function usePageAssistantWorkflowLifecycle(deps: UsePageAssistantWorkflow
         draftScenario: 'PAGE_ASSISTANT',
         requirement: deps.requirement.value || deps.defaultRequirement(),
         pageActions: deps.selectedActions.value.map(pageActionToResource),
-        tools: deps.selectedApiAssets.value.map(apiAssetToResource),
+        tools: deps.selectedProjectApiTools.value.map(projectApiToolToResource),
         currentCanvas: { version: 2, nodes: [], edges: [] },
       })
       deps.draftPreview.value = data

@@ -145,7 +145,7 @@ export interface ScanProjectRegistryCredentialSaveRequest {
 export type SdkAccessCheckStatus = 'PASS' | 'WARN' | 'FAIL'
 
 export interface SdkAccessCheckRequest {
-  apiAssetId?: number | null
+  scanToolId?: number | null
   args?: Record<string, unknown>
   gatewayBaseUrl?: string | null
   embedTokenPath?: string | null
@@ -459,6 +459,26 @@ export interface PageAssistantOnboardingManifest {
   }
 }
 
+export interface SdkArtifact {
+  type: 'maven' | 'npm' | string
+  language: 'java' | 'browser' | string
+  coordinates: string
+  groupId?: string | null
+  artifactId?: string | null
+  packageName?: string | null
+  version: string
+  sourcePolicy: string
+  repositoryUrls: string[]
+  localInstallCommand?: string | null
+  notes?: string | null
+}
+
+export interface ResponseShape {
+  wrapper: 'ApiResult' | 'bare-json' | string
+  fields: Record<string, string>
+  notes?: string | null
+}
+
 export interface AiOnboardingManifest {
   schema: string
   project: {
@@ -494,6 +514,8 @@ export interface AiOnboardingManifest {
       environment?: string | null
     }
   }
+  sdkArtifacts?: SdkArtifact[]
+  responseShapes?: Record<string, ResponseShape>
   endpoints: {
     skillPackageUrl: string
     manifestUrl: string
@@ -569,6 +591,8 @@ export interface AiCodingGatewayManifest {
     auditActor: string
     guidance: string[]
   }
+  sdkArtifacts?: SdkArtifact[]
+  responseShapes?: Record<string, ResponseShape>
   endpoints: {
     manifestUrl: string
     contextCandidatesUrl: string
@@ -710,7 +734,16 @@ export interface ToolReconcileSummary {
   sdkReviewPendingRows: number
 }
 
-/** POST .../promote-to-tool 响应 */
+export interface SdkCapabilityScanResult {
+  projectId: number
+  projectCode: string
+  instanceId: string
+  targetUrl: string
+  capabilityCount: number
+  businessResponse: Record<string, unknown>
+}
+
+/** POST .../promote-to-tool response */
 export interface PromotedGlobalTool {
   globalToolId: number
   globalToolName: string

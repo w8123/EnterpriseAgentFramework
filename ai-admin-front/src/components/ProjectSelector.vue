@@ -6,21 +6,21 @@
   >
     <div class="scope-badge">
       <span class="scope-dot" />
-      <span class="scope-label">{{ hasCurrentProject ? '当前项目' : '项目范围' }}</span>
+      <span class="scope-label">{{ hasCurrentProject ? '当前项目' : '未选择项目' }}</span>
     </div>
     <el-select
       class="project-select"
-      :model-value="projectStore.currentProjectId"
+      :model-value="resolvedCurrentProjectId"
       :loading="projectStore.loading"
       clearable
       filterable
-      placeholder="全部项目"
+      placeholder="未选择项目"
       size="small"
       :style="{ width: compact ? '240px' : '320px' }"
       @update:model-value="handleChange"
       @visible-change="handleVisibleChange"
     >
-      <el-option :value="null" label="全部项目" />
+      <el-option :value="null" label="未选择项目" />
       <el-option
         v-for="project in projectStore.projects"
         :key="project.id"
@@ -50,9 +50,10 @@ defineProps<{
   compact?: boolean
 }>()
 
-const hasCurrentProject = computed(() => projectStore.currentProjectId !== null)
+const resolvedCurrentProjectId = computed(() => projectStore.currentProject?.id ?? null)
+const hasCurrentProject = computed(() => Boolean(projectStore.currentProject))
 const scopeTitle = computed(() => {
-  if (!projectStore.currentProject) return '当前查看全部项目'
+  if (!projectStore.currentProject) return '当前未选择项目'
   return `当前仅查看项目：${projectStore.projectLabel(projectStore.currentProject)}`
 })
 

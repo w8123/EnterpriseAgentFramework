@@ -35,7 +35,7 @@ This document is the short source of truth for public route lifecycle decisions.
 | Runtime registry, debug sessions, runtime Tool execution | `/api/runtime/**` and `/api/runtimes/**` | Control | Runtime |
 | Traces and RunOps | `/api/traces/**`, `/api/runops/**` | Control | Runtime |
 | SDK registry and capability sync | `/api/registry/**` | Control | Capability, except Control-owned page registration and Runtime-owned agent graph sync |
-| Capability, Tool, Composition, API asset, API graph | `/api/capabilities/**`, `/api/tools/**`, `/api/compositions/**`, `/api/api-assets/**`, `/api/api-graph/**` | Control | Capability |
+| Capability, Tool, Composition, API graph | `/api/capabilities/**`, `/api/tools/**`, `/api/compositions/**`, `/api/api-graph/**` | Control | Capability |
 | Capability mining | `/api/capability-mining/**` | Control | Capability |
 | Scan projects and semantic documents | `/api/scan-projects/**`, `/api/scan-modules/**`, `/api/semantic-docs/**` | Control | Capability |
 | Embed and page actions | `/api/embed/**` and `/embed/**` | Control | Control with Runtime/Capability checks when needed |
@@ -65,6 +65,7 @@ These routes must not appear in frontend source or product-facing guidance:
 - `/api/agent/interactions/**`
 - `/api/agent/workflow-credentials/**`
 - `/api/skill-mining/**`
+- `/api/api-assets/**`
 - `/api/platform/embed/pages/catalog`
 - `/internal/runtime/**`
 - `/internal/capability/**`
