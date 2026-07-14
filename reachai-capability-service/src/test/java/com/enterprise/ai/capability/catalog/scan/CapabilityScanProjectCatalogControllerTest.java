@@ -183,6 +183,30 @@ class CapabilityScanProjectCatalogControllerTest {
     }
 
     @Test
+    void triggerSdkScanReturnsActionableDownstreamDiagnostic() {
+        CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
+        CapabilitySdkSyncTriggerService sdkSyncTriggerService = mock(CapabilitySdkSyncTriggerService.class);
+        CapabilityScanProjectCatalogController controller =
+                new CapabilityScanProjectCatalogController(service, null, sdkSyncTriggerService);
+        String targetUrl = "https://orders.example.com/reachai/registry/capabilities/sync";
+        when(sdkSyncTriggerService.triggerScan(7L)).thenThrow(
+                new CapabilitySdkSyncTriggerService.SdkSyncRequestException(
+                        "SDK_SYNC_AUTH_REJECTED",
+                        targetUrl,
+                        "业务系统返回 HTTP 403",
+                        null));
+
+        ResponseEntity<?> response = controller.triggerSdkScan(7L);
+
+        assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
+        CapabilityScanProjectCatalogController.SdkSyncErrorResponse body =
+                (CapabilityScanProjectCatalogController.SdkSyncErrorResponse) response.getBody();
+        assertEquals("SDK_SYNC_AUTH_REJECTED", body.code());
+        assertEquals(targetUrl, body.targetUrl());
+        assertEquals("业务系统返回 HTTP 403", body.message());
+    }
+
+    @Test
     void getReturnsNotFoundWhenProjectMissing() {
         CapabilityScanProjectCatalogService service = mock(CapabilityScanProjectCatalogService.class);
         CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);

@@ -1,257 +1,277 @@
 <template>
-  <div class="page-container runops-page">
-    <div class="page-header">
-      <div>
-        <h2>RunOps 运行中心</h2>
-        <p class="page-subtitle">按 traceId 聚合 Workflow / Agent 运行、Graph 节点、Tool 调用与治理决策。</p>
-      </div>
-      <div class="header-actions">
-        <el-input
-          v-model="traceInput"
-          class="trace-input"
-          clearable
-          placeholder="输入 traceId 直接定位"
-          @keyup.enter="openTrace"
-        />
-        <el-button type="primary" @click="openTrace">查看运行</el-button>
-        <el-button @click="refreshAll" :loading="loading || diagnosticsLoading">刷新</el-button>
-      </div>
-    </div>
+  <WorkbenchPage class="runops-page">
+    <PageHeader
+      variant="standard"
+      compact
+      :artwork="false"
+      domain="governance"
+      eyebrow="RunOps Center"
+      title="RunOps 运行中心"
+      description="查看 Supervisor 决策、Workflow 调用事件。"
+    >
+      <template #actions>
+        <el-tooltip content="刷新运行数据" placement="top">
+          <el-button
+            circle
+            :icon="Refresh"
+            :loading="loading || diagnosticsLoading"
+            aria-label="刷新运行数据"
+            @click="refreshAll"
+          />
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
-    <section class="runops-kpis">
-      <div v-for="item in kpis" :key="item.label" class="kpi-card">
-        <span>{{ item.label }}</span>
+    <section class="runops-kpis" aria-label="运行概览">
+      <div v-for="(item, index) in kpis" :key="item.label" class="kpi-card" :class="`kpi-card--${index + 1}`">
+        <div class="kpi-card__label"><span class="kpi-card__dot" />{{ item.label }}</div>
         <strong>{{ item.value }}</strong>
         <small>{{ item.hint }}</small>
       </div>
     </section>
 
     <el-card shadow="never" class="filter-card">
-      <div class="filter-grid">
-        <el-input v-model="filters.keyword" clearable placeholder="搜索 Workflow / Agent / Trace / Runtime" />
-        <el-select v-model="filters.status" clearable placeholder="状态">
-          <el-option label="成功" value="SUCCESS" />
-          <el-option label="失败" value="ERROR" />
-        </el-select>
-        <el-select v-model="filters.runKind" clearable placeholder="类型">
-          <el-option label="Workflow" value="Workflow" />
-          <el-option label="Agent" value="Agent" />
-          <el-option label="Tool" value="Tool" />
-        </el-select>
-        <el-select v-model="filters.identity" clearable filterable placeholder="对象">
-          <el-option v-for="item in identityOptions" :key="item" :label="item" :value="item" />
-        </el-select>
-        <el-select v-model="filters.version" clearable filterable placeholder="版本">
-          <el-option v-for="version in versionOptions" :key="version" :label="version" :value="version" />
-        </el-select>
-        <el-select v-model="filters.runtimePlacement" clearable placeholder="部署">
-          <el-option v-for="placement in placementOptions" :key="placement" :label="placement" :value="placement" />
-        </el-select>
-        <el-select v-model="filters.runtimeType" clearable filterable placeholder="Runtime">
-          <el-option v-for="runtime in runtimeOptions" :key="runtime" :label="runtime" :value="runtime" />
-        </el-select>
-        <el-select v-model="filters.fallback" clearable placeholder="Fallback">
-          <el-option label="发生 Fallback" value="true" />
-          <el-option label="未发生 Fallback" value="false" />
-        </el-select>
-        <el-select v-model="days" placeholder="时间窗口" @change="refreshAll">
+      <div class="section-heading">
+        <div>
+          <span class="section-kicker">RUN FILTERS</span>
+          <h2>筛选运行记录</h2>
+        </div>
+        <el-tag effect="plain" round>当前匹配 {{ filteredRuns.length }} 条</el-tag>
+      </div>
+      <div class="filter-primary-row">
+        <el-input
+          v-model="draftFilters.keyword"
+          class="keyword-filter"
+          clearable
+          :prefix-icon="Search"
+          placeholder="搜索运行名称、Trace ID 或错误信息"
+          @keyup.enter="applyFilters"
+        />
+        <el-select v-model="draftFilters.days" class="time-window-filter" aria-label="时间范围">
           <el-option label="最近 1 天" :value="1" />
           <el-option label="最近 7 天" :value="7" />
           <el-option label="最近 14 天" :value="14" />
           <el-option label="最近 30 天" :value="30" />
         </el-select>
+        <div class="filter-buttons">
+          <el-button type="primary" :icon="Search" :loading="loading || diagnosticsLoading" @click="applyFilters">查询</el-button>
+          <el-button @click="resetFilters">重置</el-button>
+        </div>
       </div>
-      <div class="filter-actions">
-        <el-button @click="resetFilters">重置筛选</el-button>
-        <el-tag effect="plain">当前匹配 {{ filteredRuns.length }} 条</el-tag>
+      <div class="filter-grid">
+        <label class="filter-field">
+          <span>项目编码</span>
+          <el-input v-model="draftFilters.projectCode" clearable placeholder="全部项目" />
+        </label>
+        <label class="filter-field">
+          <span>运行状态</span>
+          <el-select v-model="draftFilters.status" clearable placeholder="全部状态">
+          <el-option label="运行中" value="RUNNING" />
+          <el-option label="成功" value="SUCCESS" />
+          <el-option label="失败" value="FAILED" />
+          <el-option label="等待审批" value="WAITING_APPROVAL" />
+          <el-option label="已取消" value="CANCELLED" />
+          <el-option label="超时" value="TIMEOUT" />
+        </el-select>
+        </label>
+        <label class="filter-field">
+          <span>运行类型</span>
+          <el-select v-model="draftFilters.runType" clearable placeholder="全部类型">
+          <el-option label="Agent" value="AGENT" />
+          <el-option label="Workflow" value="WORKFLOW" />
+        </el-select>
+        </label>
+        <label class="filter-field">
+          <span>运行入口</span>
+          <el-select v-model="draftFilters.entryType" clearable placeholder="全部入口">
+          <el-option v-for="entry in entryTypes" :key="entry" :label="entryTypeLabel(entry)" :value="entry" />
+        </el-select>
+        </label>
+        <label class="filter-field">
+          <span>Agent ID</span>
+          <el-input v-model="draftFilters.agentId" clearable placeholder="全部 Agent" />
+        </label>
+        <label class="filter-field">
+          <span>用户 ID</span>
+          <el-input v-model="draftFilters.userId" clearable placeholder="全部用户" />
+        </label>
       </div>
     </el-card>
 
-    <el-card shadow="never" class="trend-card">
+    <section class="runops-diagnostics-grid">
+      <el-row :gutter="16" class="diagnostics-row">
+        <el-col :xs="24" :lg="12">
+          <el-card shadow="never" class="diagnostics-card">
+            <template #header>
+              <div class="card-header">
+                <span>失败聚类</span>
+                <el-tag size="small" type="danger" effect="plain">{{ diagnostics.failureClusters.length }} 类</el-tag>
+              </div>
+            </template>
+            <el-table class="runops-table" :data="diagnostics.failureClusters" v-loading="diagnosticsLoading" stripe height="320">
+              <el-table-column prop="count" label="次数" width="72" />
+              <el-table-column label="运行对象" min-width="190" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <div class="issue-title">{{ diagnosticObjectLabel(row) }}</div>
+                  <div class="issue-meta">{{ diagnosticVersionLabel(row) }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="错误" min-width="210" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <div class="issue-title">{{ row.errorCode || row.errorType || 'RUN_FAILED' }}</div>
+                  <div class="issue-meta">{{ row.errorMessage || row.nodeId || row.toolName || '-' }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column prop="avgLatencyMs" label="均耗时" width="96">
+                <template #default="{ row }">{{ row.avgLatencyMs ?? 0 }} ms</template>
+              </el-table-column>
+              <el-table-column label="操作" width="72" fixed="right">
+                <template #default="{ row }">
+                  <el-button
+                    v-if="row.sampleTraceId"
+                    link
+                    type="primary"
+                    size="small"
+                    @click="router.push(`/runops/${row.sampleTraceId}`)"
+                  >
+                    样例
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-empty
+              v-if="!diagnosticsLoading && !diagnostics.failureClusters.length"
+              description="当前筛选下暂无失败聚类"
+            />
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :lg="12">
+          <el-card shadow="never" class="diagnostics-card">
+            <template #header>
+              <div class="card-header">
+                <span>发布版本表现</span>
+                <el-tag size="small" effect="plain">{{ diagnostics.versionComparisons.length }} 个版本</el-tag>
+              </div>
+            </template>
+            <el-table class="runops-table" :data="diagnostics.versionComparisons" v-loading="diagnosticsLoading" stripe height="320">
+              <el-table-column label="运行对象 / 版本" min-width="210" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <div class="issue-title">{{ diagnosticObjectLabel(row) }}</div>
+                  <div class="issue-meta">{{ diagnosticVersionLabel(row) }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="成功率" width="116">
+                <template #default="{ row }">
+                  <el-progress
+                    :percentage="toPercent(row.successRate)"
+                    :stroke-width="8"
+                    :show-text="false"
+                    :status="toPercent(row.successRate) >= 90 ? 'success' : undefined"
+                  />
+                  <span class="rate-text">{{ toPercent(row.successRate) }}%</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="runCount" label="运行" width="68" />
+              <el-table-column prop="failureCount" label="失败" width="68" />
+              <el-table-column prop="replanCount" label="重规划" width="76" />
+              <el-table-column prop="p95LatencyMs" label="P95" width="88">
+                <template #default="{ row }">{{ row.p95LatencyMs ?? 0 }} ms</template>
+              </el-table-column>
+              <el-table-column label="操作" width="72" fixed="right">
+                <template #default="{ row }">
+                  <el-button
+                    v-if="row.latestTraceId"
+                    link
+                    type="primary"
+                    size="small"
+                    @click="router.push(`/runops/${row.latestTraceId}`)"
+                  >
+                    最新
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-empty
+              v-if="!diagnosticsLoading && !diagnostics.versionComparisons.length"
+              description="当前筛选下暂无版本表现数据"
+            />
+          </el-card>
+        </el-col>
+      </el-row>
+    </section>
+
+    <el-card shadow="never" class="runs-card">
       <template #header>
         <div class="card-header">
-          <span>运行趋势</span>
-          <el-tag size="small" effect="plain">按当前筛选</el-tag>
-        </div>
-      </template>
-      <div class="trend-grid">
-        <div v-for="point in trendPoints" :key="point.day" class="trend-point">
-          <div class="bar-stack">
-            <span
-              class="bar-success"
-              :style="{ height: `${barHeight(point.success + point.failed)}px` }"
-            />
-            <span
-              class="bar-failed"
-              :style="{ height: `${barHeight(point.failed)}px` }"
-            />
-          </div>
-          <strong>{{ point.success + point.failed }}</strong>
-          <span>{{ point.day.slice(5) }}</span>
-        </div>
-      </div>
-    </el-card>
-
-    <el-row :gutter="16" class="diagnostics-row">
-      <el-col :xs="24" :lg="12">
-        <el-card shadow="never" class="diagnostics-card">
-          <template #header>
-            <div class="card-header">
-              <span>失败聚类</span>
-              <el-tag size="small" type="danger" effect="plain">{{ diagnostics.failureClusters.length }} 类</el-tag>
-            </div>
-          </template>
-          <el-table :data="diagnostics.failureClusters" v-loading="diagnosticsLoading" stripe height="320">
-            <el-table-column prop="count" label="次数" width="72" />
-            <el-table-column label="问题" min-width="220" show-overflow-tooltip>
-              <template #default="{ row }">
-                <div class="issue-title">{{ row.errorType || 'RUN_ERROR' }}</div>
-                <div class="issue-meta">
-                  {{ row.nodeId || row.toolName || '-' }} · {{ clusterPrimaryLabel(row) }}
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="版本" width="120">
-              <template #default="{ row }">{{ clusterVersionLabel(row) }}</template>
-            </el-table-column>
-            <el-table-column prop="avgLatencyMs" label="均耗时" width="96">
-              <template #default="{ row }">{{ row.avgLatencyMs ?? 0 }} ms</template>
-            </el-table-column>
-            <el-table-column label="操作" width="90" fixed="right">
-              <template #default="{ row }">
-                <el-button
-                  v-if="row.sampleTraceId"
-                  link
-                  type="primary"
-                  size="small"
-                  @click="router.push(`/runops/${row.sampleTraceId}`)"
-                >
-                  样例
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-empty
-            v-if="!diagnosticsLoading && !diagnostics.failureClusters.length"
-            description="暂无失败聚类"
-          />
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :lg="12">
-        <el-card shadow="never" class="diagnostics-card">
-          <template #header>
-            <div class="card-header">
-              <span>版本对比</span>
-              <el-tag size="small" effect="plain">{{ diagnostics.versionComparisons.length }} 个版本</el-tag>
-            </div>
-          </template>
-          <el-table :data="diagnostics.versionComparisons" v-loading="diagnosticsLoading" stripe height="320">
-            <el-table-column label="版本" min-width="180" show-overflow-tooltip>
-              <template #default="{ row }">
-                <div class="issue-title">{{ comparisonPrimaryLabel(row) }}</div>
-                <div class="issue-meta">{{ comparisonVersionLabel(row) }} · {{ row.runtimePlacement || '-' }}</div>
-              </template>
-            </el-table-column>
-            <el-table-column label="成功率" width="120">
-              <template #default="{ row }">
-                <el-progress
-                  :percentage="toPercent(row.successRate)"
-                  :stroke-width="8"
-                  :show-text="false"
-                  :status="toPercent(row.successRate) >= 90 ? 'success' : undefined"
-                />
-                <span class="rate-text">{{ toPercent(row.successRate) }}%</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="runCount" label="运行" width="72" />
-            <el-table-column prop="failureCount" label="失败" width="72" />
-            <el-table-column prop="p95LatencyMs" label="P95" width="90">
-              <template #default="{ row }">{{ row.p95LatencyMs ?? 0 }} ms</template>
-            </el-table-column>
-            <el-table-column label="操作" width="90" fixed="right">
-              <template #default="{ row }">
-                <el-button
-                  v-if="row.latestTraceId"
-                  link
-                  type="primary"
-                  size="small"
-                  @click="router.push(`/runops/${row.latestTraceId}`)"
-                >
-                  最新
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-empty
-            v-if="!diagnosticsLoading && !diagnostics.versionComparisons.length"
-            description="暂无版本对比数据"
-          />
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-card shadow="never">
-      <template #header>
-        <div class="card-header">
-          <span>最近运行</span>
+          <span>根运行记录</span>
           <el-tag size="small" effect="plain">{{ filteredRuns.length }} 条</el-tag>
         </div>
       </template>
-      <el-table :data="pagedRuns" v-loading="loading" stripe>
-        <el-table-column prop="status" label="状态" width="100">
+      <el-table class="runops-table runs-table" :data="pagedRuns" v-loading="loading" stripe>
+        <el-table-column prop="status" label="状态" width="118">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'SUCCESS' ? 'success' : 'danger'" size="small">{{ row.status }}</el-tag>
+            <el-tag :type="statusTagType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="类型" width="96">
+        <el-table-column label="类型" width="92">
           <template #default="{ row }">
-            <el-tag size="small" effect="plain" :type="runKindTagType(row)">{{ runKindLabel(row) }}</el-tag>
+            <el-tag size="small" effect="plain" :type="row.runType === 'AGENT' ? 'success' : 'primary'">
+              {{ row.runType }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="名称" min-width="180" show-overflow-tooltip>
+        <el-table-column label="Agent / Workflow" min-width="210" show-overflow-tooltip>
           <template #default="{ row }">
-            <div class="issue-title">{{ runPrimaryIdentityLabel(row) }}</div>
-            <div v-if="runEntryLabel(row)" class="issue-meta">入口 {{ runEntryLabel(row) }}</div>
+            <div class="issue-title">{{ runObjectLabel(row) }}</div>
+            <div class="issue-meta">{{ runObjectId(row) }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="ID" min-width="180" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span>{{ runPrimaryIdentityId(row) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="runtimePlacement" label="部署" width="110">
-          <template #default="{ row }">
-            <el-tag size="small" effect="plain">{{ row.runtimePlacement || '-' }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="runtimeType" label="Runtime" width="140" show-overflow-tooltip />
-        <el-table-column label="版本" width="120" show-overflow-tooltip>
+        <el-table-column label="发布版本" width="130" show-overflow-tooltip>
           <template #default="{ row }">{{ runVersionLabel(row) }}</template>
         </el-table-column>
-        <el-table-column prop="latencyMs" label="耗时" width="100">
-          <template #default="{ row }">{{ row.latencyMs ?? 0 }} ms</template>
+        <el-table-column prop="projectCode" label="项目" width="130" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.projectCode || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="tokenCost" label="Token" width="100">
-          <template #default="{ row }">{{ row.tokenCost ?? 0 }}</template>
+        <el-table-column label="入口" width="100">
+          <template #default="{ row }">{{ entryTypeLabel(row.entryType) }}</template>
         </el-table-column>
-        <el-table-column prop="errorCount" label="问题" width="90">
+        <el-table-column label="决策 / 调用" min-width="210">
           <template #default="{ row }">
-            <el-tag :type="row.errorCount ? 'danger' : 'success'" size="small">{{ row.errorCount ?? 0 }}</el-tag>
+            <div class="count-tags">
+              <el-tag size="small" effect="plain">规划 {{ row.planCount ?? 0 }}</el-tag>
+              <el-tag size="small" effect="plain" type="warning">重规划 {{ row.replanCount ?? 0 }}</el-tag>
+              <el-tag size="small" effect="plain" type="success">Workflow {{ row.workflowCallCount ?? 0 }}</el-tag>
+              <el-tag v-if="row.approvalCount" size="small" effect="plain" type="warning">审批 {{ row.approvalCount }}</el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="耗时 / Token" width="130">
+          <template #default="{ row }">
+            <div>{{ row.latencyMs ?? 0 }} ms</div>
+            <div class="issue-meta">{{ row.tokenCost ?? 0 }} token</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="错误" min-width="190" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.errorCode || row.errorMessage" class="error-text">
+              {{ row.errorCode || 'RUN_FAILED' }} · {{ row.errorMessage || '-' }}
+            </span>
+            <span v-else>-</span>
           </template>
         </el-table-column>
         <el-table-column prop="startedAt" label="开始时间" width="180" />
-        <el-table-column prop="traceId" label="Trace" min-width="240" show-overflow-tooltip />
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column prop="traceId" label="Trace" min-width="220" show-overflow-tooltip />
+        <el-table-column label="操作" width="142" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="router.push(`/runops/${row.traceId}`)">详情</el-button>
             <el-button
-              v-if="runIsWorkflow(row) && runWorkflowId(row)"
+              v-if="row.runType === 'WORKFLOW' && row.workflowId"
               link
               type="primary"
               size="small"
-              @click="openWorkflowStudio(row)"
+              @click="router.push(`/workflows/${row.workflowId}/studio`)"
             >
-              Workflow
+              Studio
             </el-button>
           </template>
         </el-table-column>
@@ -265,123 +285,112 @@
           :total="filteredRuns.length"
         />
       </div>
-      <el-empty v-if="!loading && !filteredRuns.length" description="暂无运行记录" />
+      <el-empty v-if="!loading && !filteredRuns.length" description="当前筛选下暂无根运行记录" />
     </el-card>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Refresh, Search } from '@element-plus/icons-vue'
 import { getRecentRunOps, getRunOpsDiagnostics } from '@/api/runops'
-import type { RunDiagnostics, RunSummary } from '@/types/runops'
-import {
-  clusterPrimaryLabel,
-  clusterVersionLabel,
-  comparisonPrimaryLabel,
-  comparisonVersionLabel,
-  runEntryLabel,
-  runIsWorkflow,
-  runKindLabel,
-  runPrimaryIdentityId,
-  runPrimaryIdentityLabel,
-  runSearchHaystack,
-  runVersionLabel,
-  runWorkflowId,
-} from '@/utils/workflowRunOps'
+import type {
+  FailureCluster,
+  RunDiagnostics,
+  RunEntryType,
+  RunOpsQueryParams,
+  RunStatus,
+  RunSummary,
+  VersionComparison,
+} from '@/types/runops'
+import PageHeader from '@/components/common/PageHeader.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import { useProjectStore } from '@/store/project'
 
 const router = useRouter()
+const route = useRoute()
+const projectStore = useProjectStore()
 const loading = ref(false)
 const diagnosticsLoading = ref(false)
 const runs = ref<RunSummary[]>([])
-const days = ref(7)
 const currentPage = ref(1)
 const pageSize = ref(10)
-const diagnostics = ref<RunDiagnostics>({
-  failureClusters: [],
-  versionComparisons: [],
-})
-const traceInput = ref('')
-const filters = reactive({
-  keyword: '',
+const entryTypes: RunEntryType[] = ['DEBUG', 'EMBED', 'GATEWAY', 'EVAL', 'REPLAY', 'API']
+const diagnostics = ref<RunDiagnostics>({ failureClusters: [], versionComparisons: [] })
+
+type FilterState = {
+  projectCode: string
+  status: '' | RunStatus
+  runType: '' | 'AGENT' | 'WORKFLOW'
+  entryType: '' | RunEntryType
+  agentId: string
+  userId: string
+  keyword: string
+  days: number
+}
+
+function initialProjectCode() {
+  const routeCode = typeof route.query.projectCode === 'string' ? route.query.projectCode.trim() : ''
+  return routeCode || projectStore.currentProjectCode || ''
+}
+
+const draftFilters = reactive<FilterState>({
+  projectCode: initialProjectCode(),
   status: '',
-  runKind: '',
-  identity: '',
-  version: '',
-  runtimePlacement: '',
-  runtimeType: '',
-  fallback: '',
+  runType: '',
+  entryType: '',
+  agentId: typeof route.query.agentId === 'string' ? route.query.agentId.trim() : '',
+  userId: '',
+  keyword: '',
+  days: 7,
 })
 
-const identityOptions = computed(() =>
-  unique(runs.value.map((run) => runPrimaryIdentityLabel(run)).filter((value) => value !== '-')),
-)
-const versionOptions = computed(() => unique(runs.value.map((run) => runVersionLabel(run)).filter((value) => value !== '-')))
-const placementOptions = computed(() => unique(runs.value.map((run) => run.runtimePlacement)))
-const runtimeOptions = computed(() => unique(runs.value.map((run) => run.runtimeType)))
+const appliedFilters = reactive<FilterState>({ ...draftFilters })
 
-const filteredRuns = computed(() => {
-  const keyword = filters.keyword.trim().toLowerCase()
-  return runs.value.filter((run) => {
-    if (keyword && !runSearchHaystack(run).includes(keyword)) return false
-    if (filters.status && run.status !== filters.status) return false
-    if (filters.runKind && runKindLabel(run) !== filters.runKind) return false
-    if (filters.identity && runPrimaryIdentityLabel(run) !== filters.identity) return false
-    if (filters.version && runVersionLabel(run) !== filters.version) return false
-    if (filters.runtimePlacement && run.runtimePlacement !== filters.runtimePlacement) return false
-    if (filters.runtimeType && run.runtimeType !== filters.runtimeType) return false
-    if (filters.fallback && String(Boolean(run.fallback)) !== filters.fallback) return false
-    return true
-  })
-})
+const requestParams = computed<RunOpsQueryParams>(() => ({
+  projectCode: appliedFilters.projectCode.trim() || undefined,
+  status: appliedFilters.status || undefined,
+  runType: appliedFilters.runType || undefined,
+  entryType: appliedFilters.entryType || undefined,
+  agentId: appliedFilters.agentId.trim() || undefined,
+  userId: appliedFilters.userId.trim() || undefined,
+  keyword: appliedFilters.keyword.trim() || undefined,
+  days: appliedFilters.days,
+  limit: 200,
+}))
+
+const filteredRuns = computed(() => runs.value)
 
 const pagedRuns = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   return filteredRuns.value.slice(start, start + pageSize.value)
 })
 
-const trendPoints = computed(() => {
-  const grouped = new Map<string, { day: string; success: number; failed: number }>()
-  for (let i = days.value - 1; i >= 0; i--) {
-    const day = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    grouped.set(day, { day, success: 0, failed: 0 })
-  }
-  filteredRuns.value.forEach((run) => {
-    if (!run.startedAt) return
-    const day = run.startedAt.slice(0, 10)
-    const point = grouped.get(day)
-    if (!point) return
-    if (run.status === 'SUCCESS') point.success += 1
-    else point.failed += 1
-  })
-  return Array.from(grouped.values())
-})
-
-const trendMax = computed(() => Math.max(1, ...trendPoints.value.map((point) => point.success + point.failed)))
-
 const kpis = computed(() => {
   const total = filteredRuns.value.length
-  const failed = filteredRuns.value.filter((run) => run.status !== 'SUCCESS').length
-  const fallback = filteredRuns.value.filter((run) => run.fallback).length
+  const failed = filteredRuns.value.filter((run) => ['FAILED', 'TIMEOUT'].includes(run.status)).length
+  const waiting = filteredRuns.value.filter((run) => run.status === 'WAITING_APPROVAL').length
   const avgLatency = total
     ? Math.round(filteredRuns.value.reduce((sum, run) => sum + (run.latencyMs ?? 0), 0) / total)
     : 0
   return [
-    { label: '运行数', value: total, hint: `最近 ${days.value} 天` },
-    { label: '失败数', value: failed, hint: '含节点、工具、治理拒绝' },
-    { label: 'Fallback', value: fallback, hint: 'HYBRID 回落次数' },
-    { label: '平均耗时', value: `${avgLatency} ms`, hint: '按 trace 聚合' },
+    { label: '运行数', value: total, hint: `最近 ${appliedFilters.days} 天` },
+    { label: '失败数', value: failed, hint: '失败与超时的根运行' },
+    { label: '等待审批', value: waiting, hint: '当前阻塞于人工审批' },
+    { label: '平均耗时', value: `${avgLatency} ms`, hint: '按根运行聚合' },
   ]
 })
 
 async function loadRuns() {
   loading.value = true
   try {
-    const { data } = await getRecentRunOps({ days: days.value, limit: 100 })
+    const { data } = await getRecentRunOps(requestParams.value)
     runs.value = data ?? []
   } catch {
-    ElMessage.error('加载 RunOps 运行列表失败')
+    runs.value = []
+    ElMessage.error('加载 RunOps 根运行列表失败')
   } finally {
     loading.value = false
   }
@@ -390,166 +399,328 @@ async function loadRuns() {
 async function loadDiagnostics() {
   diagnosticsLoading.value = true
   try {
-    const { data } = await getRunOpsDiagnostics({ days: days.value, limit: 100 })
+    const { data } = await getRunOpsDiagnostics(requestParams.value)
     diagnostics.value = data ?? { failureClusters: [], versionComparisons: [] }
   } catch {
+    diagnostics.value = { failureClusters: [], versionComparisons: [] }
     ElMessage.error('加载 RunOps 诊断数据失败')
   } finally {
     diagnosticsLoading.value = false
   }
 }
 
-function refreshAll() {
-  loadRuns()
-  loadDiagnostics()
+async function refreshAll() {
+  await Promise.all([loadRuns(), loadDiagnostics()])
+}
+
+function applyFilters() {
+  Object.assign(appliedFilters, {
+    ...draftFilters,
+    projectCode: draftFilters.projectCode.trim(),
+    agentId: draftFilters.agentId.trim(),
+    userId: draftFilters.userId.trim(),
+    keyword: draftFilters.keyword.trim(),
+  })
+  currentPage.value = 1
+  void refreshAll()
+}
+
+function resetFilters() {
+  const projectCode = initialProjectCode()
+  Object.assign(draftFilters, {
+    projectCode,
+    status: '',
+    runType: '',
+    entryType: '',
+    agentId: '',
+    userId: '',
+    days: 7,
+  })
+  draftFilters.keyword = ''
+  applyFilters()
+}
+
+function runObjectLabel(run: RunSummary) {
+  return run.runType === 'AGENT'
+    ? run.agentName || run.agentKeySlug || run.agentId || '-'
+    : run.workflowName || run.workflowKeySlug || run.workflowId || '-'
+}
+
+function runObjectId(run: RunSummary) {
+  return run.runType === 'AGENT'
+    ? run.agentKeySlug || run.agentId || '-'
+    : run.workflowKeySlug || run.workflowId || '-'
+}
+
+function runVersionLabel(run: RunSummary) {
+  const version = run.runType === 'AGENT' ? run.agentConfigVersion : run.workflowVersion
+  const versionId = run.runType === 'AGENT' ? run.agentConfigVersionId : run.workflowVersionId
+  if (!version && versionId == null) return '-'
+  return `${version || '-'}${versionId == null ? '' : ` · #${versionId}`}`
+}
+
+function diagnosticObjectLabel(row: FailureCluster | VersionComparison) {
+  return row.versionType === 'WORKFLOW'
+    ? row.workflowName || row.workflowId || '-'
+    : row.agentName || row.agentId || '-'
+}
+
+function diagnosticVersionLabel(row: FailureCluster | VersionComparison) {
+  const version = row.versionType === 'WORKFLOW' ? row.workflowVersion : row.agentConfigVersion
+  const versionId = row.versionType === 'WORKFLOW' ? row.workflowVersionId : row.agentConfigVersionId
+  if (!version && versionId == null) return '未记录发布版本'
+  return `${version || '-'}${versionId == null ? '' : ` · #${versionId}`}`
+}
+
+function entryTypeLabel(entryType?: RunEntryType) {
+  const labels: Record<RunEntryType, string> = {
+    DEBUG: '调试',
+    EMBED: '嵌入',
+    GATEWAY: '网关',
+    EVAL: '评测',
+    REPLAY: '重放',
+    API: 'API',
+  }
+  return entryType ? labels[entryType] : '-'
+}
+
+function statusLabel(status: RunStatus) {
+  const labels: Record<RunStatus, string> = {
+    RUNNING: '运行中',
+    SUCCESS: '成功',
+    FAILED: '失败',
+    WAITING_APPROVAL: '等待审批',
+    CANCELLED: '已取消',
+    TIMEOUT: '超时',
+  }
+  return labels[status]
+}
+
+function statusTagType(status?: string) {
+  if (status === 'SUCCESS') return 'success'
+  if (status === 'RUNNING') return 'primary'
+  if (status === 'WAITING_APPROVAL') return 'warning'
+  if (status === 'CANCELLED') return 'info'
+  return 'danger'
 }
 
 function toPercent(value?: number) {
   return Math.round((value ?? 0) * 100)
 }
 
-function barHeight(value: number) {
-  return Math.max(4, Math.round((value / trendMax.value) * 72))
-}
-
-function unique(values: Array<string | undefined>) {
-  return Array.from(new Set(values.filter((value): value is string => Boolean(value)))).sort()
-}
-
-function runKindTagType(run: RunSummary) {
-  const kind = runKindLabel(run)
-  if (kind === 'Workflow') return 'primary'
-  if (kind === 'Agent') return 'success'
-  if (kind === 'Tool') return 'warning'
-  return 'info'
-}
-
-function openWorkflowStudio(run: RunSummary) {
-  const workflowId = runWorkflowId(run)
-  if (!workflowId) return
-  router.push(`/workflows/${workflowId}/studio`)
-}
-
-function resetFilters() {
-  filters.keyword = ''
-  filters.status = ''
-  filters.runKind = ''
-  filters.identity = ''
-  filters.version = ''
-  filters.runtimePlacement = ''
-  filters.runtimeType = ''
-  filters.fallback = ''
-}
-
-function openTrace() {
-  const traceId = traceInput.value.trim()
-  if (!traceId) {
-    ElMessage.warning('请输入 traceId')
-    return
+onMounted(async () => {
+  if (!projectStore.projects.length) {
+    await projectStore.fetchProjects()
+    if (!draftFilters.projectCode && projectStore.currentProjectCode) {
+      draftFilters.projectCode = projectStore.currentProjectCode
+      appliedFilters.projectCode = projectStore.currentProjectCode
+    }
   }
-  router.push(`/runops/${traceId}`)
-}
+  await refreshAll()
+})
 
-onMounted(refreshAll)
 watch(filteredRuns, () => {
   currentPage.value = 1
 })
 </script>
 
 <style scoped lang="scss">
-.page-subtitle {
-  margin: 6px 0 0;
-  color: var(--text-secondary);
-}
-
-.header-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.trace-input {
-  width: 280px;
+.runops-page {
+  --runops-accent: #635bdb;
+  --runops-ink: #17233d;
+  --runops-muted: #71809a;
+  gap: 16px;
 }
 
 .runops-kpis {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 16px;
+  gap: 12px;
 }
 
-.filter-card,
-.trend-card {
-  margin-bottom: 16px;
+.kpi-card {
+  position: relative;
+  min-height: 126px;
+  overflow: hidden;
+  padding: 18px 20px;
+  border: 1px solid var(--border-divider);
+  border-radius: 14px;
+  background: var(--surface-solid-panel);
+  box-shadow: 0 12px 28px -28px rgb(15 23 42 / 55%);
+}
+
+.kpi-card::after {
+  position: absolute;
+  right: -24px;
+  bottom: -34px;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--kpi-tone) 12%, transparent);
+  content: '';
+}
+
+.kpi-card--1 { --kpi-tone: #635bdb; }
+.kpi-card--2 { --kpi-tone: #e05858; }
+.kpi-card--3 { --kpi-tone: #d28a28; }
+.kpi-card--4 { --kpi-tone: #2f9b7a; }
+
+.kpi-card__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--runops-muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.kpi-card__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--kpi-tone);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--kpi-tone) 12%, transparent);
+}
+
+.kpi-card strong {
+  display: block;
+  margin: 14px 0 5px;
+  color: var(--runops-ink);
+  font-size: 28px;
+  font-weight: 760;
+  letter-spacing: -0.04em;
+}
+
+.kpi-card small {
+  color: var(--runops-muted);
+  font-size: 12px;
 }
 
 .filter-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 15px;
+  border-top: 1px solid var(--border-divider);
 }
 
-.filter-actions {
+.filter-primary-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-top: 12px;
-}
-
-.trend-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
   gap: 10px;
-  align-items: end;
 }
 
-.trend-point {
+.keyword-filter {
+  flex: 1 1 420px;
+  min-width: 220px;
+}
+
+.time-window-filter {
+  width: 136px;
+}
+
+.filter-field {
   display: grid;
-  justify-items: center;
   gap: 6px;
-  color: var(--text-secondary);
+  min-width: 0;
+  color: var(--runops-muted);
   font-size: 12px;
-
-  strong {
-    color: var(--text-primary);
-  }
+  font-weight: 650;
 }
 
-.bar-stack {
-  position: relative;
-  display: flex;
-  align-items: end;
-  justify-content: center;
-  width: 22px;
-  height: 78px;
-  border-radius: 999px;
-  background: var(--fill-color-light);
-  overflow: hidden;
-}
-
-.bar-success,
-.bar-failed {
-  position: absolute;
-  bottom: 0;
+.filter-field :deep(.el-select) {
   width: 100%;
-  min-height: 4px;
 }
 
-.bar-success {
-  background: var(--el-color-success-light-5);
+.filter-card,
+.diagnostics-card,
+.runs-card {
+  border: 1px solid var(--border-divider);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-solid-panel) 94%, transparent);
+  box-shadow: 0 14px 30px -30px rgb(15 23 42 / 60%);
 }
 
-.bar-failed {
-  background: var(--el-color-danger);
-}
-
-.diagnostics-row {
+.section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
   margin-bottom: 16px;
+}
+
+.section-heading h2 {
+  margin: 3px 0 0;
+  color: var(--runops-ink);
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.section-kicker {
+  color: var(--runops-accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.filter-buttons,
+.card-header,
+.count-tags {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.card-header {
+  justify-content: space-between;
 }
 
 .diagnostics-card {
   height: 100%;
+}
+
+.diagnostics-card :deep(.el-card__header),
+.runs-card :deep(.el-card__header) {
+  padding: 16px 20px;
+  border-bottom-color: var(--border-divider);
+}
+
+.diagnostics-card :deep(.el-card__body),
+.runs-card :deep(.el-card__body) {
+  padding: 0 20px 18px;
+}
+
+.runops-table {
+  --el-table-border-color: var(--border-divider);
+  --el-table-header-bg-color: color-mix(in srgb, var(--runops-accent) 5%, var(--surface-solid-control));
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--runops-accent) 6%, var(--surface-solid-panel));
+  color: var(--text-primary);
+}
+
+.runops-table :deep(th.el-table__cell) {
+  height: 42px;
+  color: var(--runops-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.runops-table :deep(td.el-table__cell) {
+  height: 62px;
+  padding: 8px 0;
+}
+
+.runops-table :deep(.cell) {
+  line-height: 1.35;
+}
+
+.runs-table :deep(td.el-table__cell) {
+  height: 70px;
+}
+
+.runops-table :deep(.el-table-fixed-column--right) {
+  background: var(--surface-solid-panel) !important;
+  box-shadow: -8px 0 16px -16px rgb(15 23 42 / 45%);
 }
 
 .issue-title {
@@ -570,47 +741,25 @@ watch(filteredRuns, () => {
   font-size: 12px;
 }
 
-.kpi-card {
-  padding: 16px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--card-bg);
-
-  span,
-  small {
-    display: block;
-    color: var(--text-secondary);
-  }
-
-  strong {
-    display: block;
-    margin: 8px 0 4px;
-    font-size: 24px;
-    color: var(--text-primary);
-  }
+.error-text {
+  color: var(--el-color-danger);
 }
 
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.count-tags {
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .table-footer {
   display: flex;
   justify-content: flex-end;
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
 @media (max-width: 980px) {
   .runops-kpis,
   .filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .header-actions {
-    flex-wrap: wrap;
-    justify-content: flex-start;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -618,6 +767,29 @@ watch(filteredRuns, () => {
   .runops-kpis,
   .filter-grid {
     grid-template-columns: 1fr;
+  }
+
+  .filter-primary-row {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .keyword-filter {
+    flex-basis: 100%;
+  }
+
+  .time-window-filter {
+    flex: 1;
+  }
+
+  .filter-buttons {
+    flex: 1;
+    justify-content: flex-end;
+  }
+
+  .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

@@ -11,7 +11,7 @@ Use these endpoints only when `workflow.workflowType=PAGE_ASSISTANT`.
 - `pageAssistantContext.actionKeys`
 - lightweight page action catalog
 
-Prefer workflow `extraJson` and bindings as resolved by the platform; do not guess page keys.
+Prefer workflow `extraJson` as resolved by the platform; do not guess page keys.
 
 ## Graph Shape
 

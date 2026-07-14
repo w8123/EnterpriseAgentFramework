@@ -6,6 +6,7 @@ import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatRequest;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatRequest.ChatMessage;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatResult;
+import com.enterprise.ai.runtime.workflow.layout.RuntimeWorkflowCanvasLayoutService;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -36,6 +37,9 @@ public class RuntimeWorkflowDraftGenerationService {
 
     private final ObjectMapper objectMapper;
     private final RuntimeModelServiceClient modelServiceClient;
+    private final RuntimeWorkflowCanvasLayoutService canvasLayoutService;
+    private final RuntimeWorkflowDraftCandidateValidationService candidateValidationService;
+    private final RuntimeWorkflowDraftRepairService repairService;
 
     public String provider() {
         return PROVIDER;
@@ -95,13 +99,58 @@ public class RuntimeWorkflowDraftGenerationService {
                                                  List<RuntimeWorkflowDraftPlaceholderView> placeholders,
                                                  List<String> validationErrors) {
         GraphSpec graphSpec = graphSpec(request, nodes, edges);
+        var releaseValidation = candidateValidationService.validate(
+                request == null ? null : request.workflowId(),
+                request == null ? null : request.getProjectCode(),
+                request == null ? null : request.getDraftScenario(),
+                request == null ? null : request.getModelInstanceId(),
+                graphSpec);
+        RuntimeWorkflowDraftRepairService.RepairResult repair = repairService.repair(
+                new RuntimeWorkflowDraftRepairService.RepairRequest(
+                        request == null ? null : request.workflowId(),
+                        request == null ? null : request.getProjectCode(),
+                        request == null ? null : request.getDraftScenario(),
+                        request == null ? null : request.getModelInstanceId(),
+                        request == null ? null : request.getRequirement(),
+                        List.of(),
+                        List.of(),
+                        draftResources(request),
+                        RuntimeWorkflowDraftRepairService.DEFAULT_MAX_REPAIR_ROUNDS),
+                graphSpec,
+                releaseValidation);
+        graphSpec = repair.graphSpec();
+        releaseValidation = repair.validation();
+        warnings.addAll(repair.warnings());
+        releaseValidation.errors().stream()
+                .map(item -> item.code() + ": " + item.message())
+                .filter(item -> !validationErrors.contains(item))
+                .forEach(validationErrors::add);
+        releaseValidation.warnings().stream()
+                .map(item -> item.code() + ": " + item.message())
+                .filter(item -> !warnings.contains(item))
+                .forEach(warnings::add);
+        Map<String, Object> canvas = canvasLayoutService.layoutCanvas(
+                canvasSnapshot(graphSpec, nodes, edges),
+                RuntimeWorkflowCanvasLayoutService.Options.defaults());
         return new RuntimeWorkflowDraftGenerationView(
                 PROVIDER,
-                canvasSnapshot(graphSpec, nodes, edges),
+                canvas,
                 graphSpec,
                 warnings,
                 placeholders,
                 validationErrors);
+    }
+
+    private Map<String, Object> draftResources(RuntimeWorkflowDraftGenerationRequest request) {
+        if (request == null) {
+            return Map.of();
+        }
+        Map<String, Object> resources = new LinkedHashMap<>();
+        resources.put("tools", request.getTools() == null ? List.of() : request.getTools());
+        resources.put("capabilities", request.getCapabilities() == null ? List.of() : request.getCapabilities());
+        resources.put("knowledgeBases", request.getKnowledgeBases() == null ? List.of() : request.getKnowledgeBases());
+        resources.put("pageActions", request.getPageActions() == null ? List.of() : request.getPageActions());
+        return resources;
     }
 
     private List<DraftNode> normalizeNodes(List<DraftNode> rawNodes,
@@ -331,7 +380,7 @@ public class RuntimeWorkflowDraftGenerationService {
                     canvasEndpoint(edge.to()),
                     firstText(edge.condition(), "always"),
                     canvasRenderableSourceHandle(edge, nodes),
-                    null));
+                    blankToNull(edge.targetHandle())));
         }
         return Map.of("version", 2, "nodes", canvasNodes, "edges", canvasEdges, "graphCode", graph.getCode());
     }

@@ -61,7 +61,7 @@ Runtime Host 的公共契约与内部实现要继续分层：
 - Controller 不应直接依赖复杂内部执行器，优先依赖 Runtime facade。
 - 新链路失败时应暴露明确错误，不再静默降级到历史轻量 chat/RAG 流程。
 
-`GraphSpec` 是 Workflow 的运行语义，`canvas_json` 只是画布布局。Workflow Studio、发布校验、Agent binding 和 Runtime 执行必须围绕 `ai_workflow.graph_spec_json` 保持一致。
+`GraphSpec` 是 Workflow 的运行语义，`canvas_json` 只是画布布局。Workflow Studio、发布校验、Agent Workflow-as-Tool 和 Runtime 执行必须围绕 `runtime_workflow.graph_spec_json` 保持一致。
 
 ## Capability 边界
 

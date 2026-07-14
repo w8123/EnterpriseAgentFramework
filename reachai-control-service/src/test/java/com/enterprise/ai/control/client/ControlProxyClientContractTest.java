@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.client;
 
 import com.enterprise.ai.control.client.capability.CapabilityProxyClient;
+import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -23,15 +24,19 @@ class ControlProxyClientContractTest {
         assertEquals("${services.runtime-service.url:http://localhost:18604}", feignClient.url());
 
         Method executeAgent = RuntimeProxyClient.class.getMethod("executeAgent", Map.class);
-        assertMapping(executeAgent, RequestMethod.POST, "/api/agent/execute");
+        assertMapping(executeAgent, RequestMethod.POST, "/api/runtime/agents/execute");
         assertEquals(ResponseEntity.class, executeAgent.getReturnType());
 
         Method executeAgentDetailed = RuntimeProxyClient.class.getMethod("executeAgentDetailed", Map.class);
-        assertMapping(executeAgentDetailed, RequestMethod.POST, "/api/agent/execute/detailed");
+        assertMapping(executeAgentDetailed, RequestMethod.POST, "/api/runtime/agents/execute/detailed");
         assertEquals(ResponseEntity.class, executeAgentDetailed.getReturnType());
 
+        Method clearAgentSession = RuntimeProxyClient.class.getMethod("clearAgentSession", String.class);
+        assertMapping(clearAgentSession, RequestMethod.DELETE, "/api/runtime/agents/sessions/{sessionId}");
+        assertEquals(ResponseEntity.class, clearAgentSession.getReturnType());
+
         Method routeEvaluation = RuntimeProxyClient.class.getMethod("routeEvaluation", int.class);
-        assertMapping(routeEvaluation, RequestMethod.GET, "/api/agent/route-evaluation");
+        assertMapping(routeEvaluation, RequestMethod.GET, "/api/runtime/agents/route-evaluation");
         assertEquals(ResponseEntity.class, routeEvaluation.getReturnType());
 
         Method getTrace = RuntimeProxyClient.class.getMethod("getTrace", String.class);
@@ -46,11 +51,18 @@ class ControlProxyClientContractTest {
         assertMapping(runOpsDetail, RequestMethod.GET, "/api/runops/traces/{traceId}");
         assertEquals(ResponseEntity.class, runOpsDetail.getReturnType());
 
-        Method runOpsRecent = RuntimeProxyClient.class.getMethod("runOpsRecent", String.class, int.class, int.class);
+        Method runOpsRecent = RuntimeProxyClient.class.getMethod(
+                "runOpsRecent", String.class, String.class, String.class, String.class,
+                String.class, String.class, String.class, int.class, int.class);
         assertMapping(runOpsRecent, RequestMethod.GET, "/api/runops/traces/recent");
         assertEquals(ResponseEntity.class, runOpsRecent.getReturnType());
+        assertEquals(
+                "org.springframework.http.ResponseEntity<java.util.List<java.util.Map<java.lang.String, java.lang.Object>>>",
+                runOpsRecent.getGenericReturnType().getTypeName());
 
-        Method runOpsDiagnostics = RuntimeProxyClient.class.getMethod("runOpsDiagnostics", String.class, int.class, int.class);
+        Method runOpsDiagnostics = RuntimeProxyClient.class.getMethod(
+                "runOpsDiagnostics", String.class, String.class, String.class, String.class,
+                String.class, String.class, String.class, int.class, int.class);
         assertMapping(runOpsDiagnostics, RequestMethod.GET, "/api/runops/diagnostics");
         assertEquals(ResponseEntity.class, runOpsDiagnostics.getReturnType());
 
@@ -61,18 +73,6 @@ class ControlProxyClientContractTest {
         Method runOpsReplay = RuntimeProxyClient.class.getMethod("runOpsReplay", String.class, Map.class);
         assertMapping(runOpsReplay, RequestMethod.POST, "/api/runops/traces/{traceId}/replay");
         assertEquals(ResponseEntity.class, runOpsReplay.getReturnType());
-
-        Method chat = RuntimeProxyClient.class.getMethod("chat", Map.class);
-        assertMapping(chat, RequestMethod.POST, "/api/chat");
-        assertEquals(ResponseEntity.class, chat.getReturnType());
-
-        Method chatStream = RuntimeProxyClient.class.getMethod("chatStream", Map.class);
-        assertMapping(chatStream, RequestMethod.POST, "/api/chat/stream");
-        assertEquals(ResponseEntity.class, chatStream.getReturnType());
-
-        Method clearChatSession = RuntimeProxyClient.class.getMethod("clearChatSession", String.class);
-        assertMapping(clearChatSession, RequestMethod.DELETE, "/api/chat/session/{sessionId}");
-        assertEquals(ResponseEntity.class, clearChatSession.getReturnType());
 
         Method listWorkflows = RuntimeProxyClient.class
                 .getMethod("listWorkflows", Long.class, String.class, String.class, String.class);
@@ -217,10 +217,11 @@ class ControlProxyClientContractTest {
                 "/api/workflows/{workflowId}/versions/{versionId}/rollback");
         assertEquals(ResponseEntity.class, rollbackWorkflowVersion.getReturnType());
 
-        Method bindPageAssistantWorkflow = RuntimeProxyClient.class
-                .getMethod("bindPageAssistantWorkflow", String.class, Map.class);
-        assertMapping(bindPageAssistantWorkflow, RequestMethod.POST, "/api/workflows/{id}/page-assistant/bind");
-        assertEquals(ResponseEntity.class, bindPageAssistantWorkflow.getReturnType());
+        Method attachPageAssistantWorkflowTool = RuntimeProxyClient.class
+                .getMethod("attachPageAssistantWorkflowTool", String.class, Map.class);
+        assertMapping(attachPageAssistantWorkflowTool, RequestMethod.POST,
+                "/api/workflows/{id}/page-assistant/attach-tool");
+        assertEquals(ResponseEntity.class, attachPageAssistantWorkflowTool.getReturnType());
 
         Method listWorkflowCredentials = RuntimeProxyClient.class
                 .getMethod("listWorkflowCredentials", Long.class, String.class);
@@ -241,34 +242,34 @@ class ControlProxyClientContractTest {
         assertEquals(ResponseEntity.class, deleteWorkflowCredential.getReturnType());
 
         Method listEvalDatasets = RuntimeProxyClient.class.getMethod("listEvalDatasets", String.class);
-        assertMapping(listEvalDatasets, RequestMethod.GET, "/api/agent/evals/datasets");
+        assertMapping(listEvalDatasets, RequestMethod.GET, "/api/runtime/evals/datasets");
         assertEquals(ResponseEntity.class, listEvalDatasets.getReturnType());
 
         Method createEvalDataset = RuntimeProxyClient.class.getMethod("createEvalDataset", Map.class);
-        assertMapping(createEvalDataset, RequestMethod.POST, "/api/agent/evals/datasets");
+        assertMapping(createEvalDataset, RequestMethod.POST, "/api/runtime/evals/datasets");
         assertEquals(ResponseEntity.class, createEvalDataset.getReturnType());
 
         Method importEvalCases = RuntimeProxyClient.class.getMethod("importEvalCases", Long.class, Map.class);
-        assertMapping(importEvalCases, RequestMethod.POST, "/api/agent/evals/datasets/{datasetId}/cases/import");
+        assertMapping(importEvalCases, RequestMethod.POST, "/api/runtime/evals/datasets/{datasetId}/cases/import");
         assertEquals(ResponseEntity.class, importEvalCases.getReturnType());
 
         Method listEvalCases = RuntimeProxyClient.class.getMethod("listEvalCases", Long.class);
-        assertMapping(listEvalCases, RequestMethod.GET, "/api/agent/evals/datasets/{datasetId}/cases");
+        assertMapping(listEvalCases, RequestMethod.GET, "/api/runtime/evals/datasets/{datasetId}/cases");
         assertEquals(ResponseEntity.class, listEvalCases.getReturnType());
 
         Method startEvalRun = RuntimeProxyClient.class.getMethod("startEvalRun", Map.class);
-        assertMapping(startEvalRun, RequestMethod.POST, "/api/agent/evals/runs");
+        assertMapping(startEvalRun, RequestMethod.POST, "/api/runtime/evals/runs");
         assertEquals(ResponseEntity.class, startEvalRun.getReturnType());
 
         Method getEvalRun = RuntimeProxyClient.class.getMethod("getEvalRun", Long.class);
-        assertMapping(getEvalRun, RequestMethod.GET, "/api/agent/evals/runs/{runId}");
+        assertMapping(getEvalRun, RequestMethod.GET, "/api/runtime/evals/runs/{runId}");
         assertEquals(ResponseEntity.class, getEvalRun.getReturnType());
 
         Method listEvalRunResults = RuntimeProxyClient.class.getMethod("listEvalRunResults", Long.class);
-        assertMapping(listEvalRunResults, RequestMethod.GET, "/api/agent/evals/runs/{runId}/results");
+        assertMapping(listEvalRunResults, RequestMethod.GET, "/api/runtime/evals/runs/{runId}/results");
         assertEquals(ResponseEntity.class, listEvalRunResults.getReturnType());
 
-        Method listAgents = RuntimeProxyClient.class.getMethod("listAgents", Long.class, String.class, String.class);
+        Method listAgents = RuntimeProxyClient.class.getMethod("listAgents", Long.class, String.class);
         assertMapping(listAgents, RequestMethod.GET, "/api/agents");
         assertEquals(ResponseEntity.class, listAgents.getReturnType());
 
@@ -287,42 +288,6 @@ class ControlProxyClientContractTest {
         Method deleteAgent = RuntimeProxyClient.class.getMethod("deleteAgent", String.class);
         assertMapping(deleteAgent, RequestMethod.DELETE, "/api/agents/{id}");
         assertEquals(ResponseEntity.class, deleteAgent.getReturnType());
-
-        Method listAgentWorkflowBindings = RuntimeProxyClient.class
-                .getMethod("listAgentWorkflowBindings", String.class);
-        assertMapping(listAgentWorkflowBindings, RequestMethod.GET, "/api/agents/{agentId}/workflow-bindings");
-        assertEquals(ResponseEntity.class, listAgentWorkflowBindings.getReturnType());
-
-        Method createAgentWorkflowBinding = RuntimeProxyClient.class
-                .getMethod("createAgentWorkflowBinding", String.class, Map.class);
-        assertMapping(createAgentWorkflowBinding, RequestMethod.POST, "/api/agents/{agentId}/workflow-bindings");
-        assertEquals(ResponseEntity.class, createAgentWorkflowBinding.getReturnType());
-
-        Method updateAgentWorkflowBinding = RuntimeProxyClient.class
-                .getMethod("updateAgentWorkflowBinding", String.class, Long.class, Map.class);
-        assertMapping(updateAgentWorkflowBinding, RequestMethod.PUT,
-                "/api/agents/{agentId}/workflow-bindings/{bindingId}");
-        assertEquals(ResponseEntity.class, updateAgentWorkflowBinding.getReturnType());
-
-        Method deleteAgentWorkflowBinding = RuntimeProxyClient.class
-                .getMethod("deleteAgentWorkflowBinding", String.class, Long.class);
-        assertMapping(deleteAgentWorkflowBinding, RequestMethod.DELETE,
-                "/api/agents/{agentId}/workflow-bindings/{bindingId}");
-        assertEquals(ResponseEntity.class, deleteAgentWorkflowBinding.getReturnType());
-
-        Method resolveAgentWorkflowBindingPreview = RuntimeProxyClient.class
-                .getMethod("resolveAgentWorkflowBindingPreview", String.class, Map.class);
-        assertMapping(resolveAgentWorkflowBindingPreview, RequestMethod.POST,
-                "/api/agents/{agentId}/workflow-bindings/resolve-preview");
-        assertEquals(ResponseEntity.class, resolveAgentWorkflowBindingPreview.getReturnType());
-
-        Method listRuntimes = RuntimeProxyClient.class.getMethod("listRuntimes");
-        assertMapping(listRuntimes, RequestMethod.GET, "/api/runtimes");
-        assertEquals(ResponseEntity.class, listRuntimes.getReturnType());
-
-        Method dispatchEmbeddedRuntime = RuntimeProxyClient.class.getMethod("dispatchEmbeddedRuntime", Map.class);
-        assertMapping(dispatchEmbeddedRuntime, RequestMethod.POST, "/api/runtimes/embedded/dispatch");
-        assertEquals(ResponseEntity.class, dispatchEmbeddedRuntime.getReturnType());
 
         Method executeRuntimeTool = RuntimeProxyClient.class.getMethod("executeRuntimeTool", String.class, Map.class);
         assertMapping(executeRuntimeTool, RequestMethod.POST, "/api/runtime/tools/{qualifiedName}/execute");
@@ -361,20 +326,20 @@ class ControlProxyClientContractTest {
         assertEquals(ResponseEntity.class, cancelRuntimeDebugSession.getReturnType());
 
         Method listHumanApprovals = RuntimeProxyClient.class
-                .getMethod("listHumanApprovals", Long.class, String.class, int.class);
-        assertMapping(listHumanApprovals, RequestMethod.GET, "/api/agent/interactions/human-approvals");
+                .getMethod("listHumanApprovals", String.class, String.class, int.class);
+        assertMapping(listHumanApprovals, RequestMethod.GET, "/api/runtime/interactions/human-approvals");
         assertEquals(ResponseEntity.class, listHumanApprovals.getReturnType());
 
         Method submitHumanApproval = RuntimeProxyClient.class
                 .getMethod("submitHumanApproval", String.class, Map.class);
         assertMapping(submitHumanApproval, RequestMethod.POST,
-                "/api/agent/interactions/human-approvals/{interactionId}/submit");
+                "/api/runtime/interactions/human-approvals/{interactionId}/submit");
         assertEquals(ResponseEntity.class, submitHumanApproval.getReturnType());
 
         Method cancelHumanApproval = RuntimeProxyClient.class
                 .getMethod("cancelHumanApproval", String.class, String.class);
         assertMapping(cancelHumanApproval, RequestMethod.DELETE,
-                "/api/agent/interactions/human-approvals/{interactionId}");
+                "/api/runtime/interactions/human-approvals/{interactionId}");
         assertEquals(ResponseEntity.class, cancelHumanApproval.getReturnType());
 
         Method syncAgentGraphs = RuntimeProxyClient.class.getMethod("syncAgentGraphs", String.class, Map.class);
@@ -442,6 +407,20 @@ class ControlProxyClientContractTest {
                 .getMethod("verifyEmbedTokenExchange", String.class, String.class, String.class, String.class, Map.class);
         assertMapping(verifyEmbedTokenExchange, RequestMethod.POST, "/internal/capability/embed/token/exchange/verify");
         assertEquals(ResponseEntity.class, verifyEmbedTokenExchange.getReturnType());
+    }
+
+    @Test
+    void capabilityProjectOnboardingClientUsesFeignCompatiblePutForAiCodingAccess() throws Exception {
+        FeignClient feignClient = CapabilityProjectOnboardingClient.class.getAnnotation(FeignClient.class);
+        assertEquals("reachai-capability-project-onboarding", feignClient.name());
+        assertEquals("${services.capability-service.url:http://localhost:18605}", feignClient.url());
+
+        Method updateAiCodingAccess = CapabilityProjectOnboardingClient.class.getMethod(
+                "updateAiCodingAccess",
+                Long.class,
+                com.enterprise.ai.control.aiassist.ControlAiAssistProjectController.AiCodingAccessUpdateRequest.class);
+        assertMapping(updateAiCodingAccess, RequestMethod.PUT,
+                "/internal/capability/projects/by-id/{projectId}/ai-coding-access");
     }
 
     private void assertMapping(Method method, RequestMethod expectedMethod, String expectedPath) {

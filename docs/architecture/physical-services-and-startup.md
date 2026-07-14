@@ -9,7 +9,7 @@
 | `reachai-model-service` | `18601` | Model Gateway；模型实例、Chat、Embedding、Rerank 和 OpenAI 兼容代理 |
 | `reachai-knowledge-service` | `18602`；context-path `/ai` | Knowledge / Retrieval；知识库、文件、chunk、RAG、业务索引和向量检索 |
 | `reachai-capability-service` | `18605` | SDK 注册、项目实例、能力快照、diff/review/apply、扫描目录和能力资产 |
-| `reachai-runtime-service` | `18604` | Agent 入口、Workflow、GraphSpec 运行语义、调试、回放、人工交互和 Runtime Registry |
+| `reachai-runtime-service` | `18604` | Agent 入口、Workflow、GraphSpec 运行语义、调试、回放和人工交互 |
 | `reachai-control-service` | `18603` | Public API/BFF、身份、ACL、Guard、Gateway、MCP、A2A、Embed、RunOps/Trace 管理面 |
 
 第一阶段保持同一个 MySQL 库，不拆库；公开 `/api/**`、`/embed/**` 和 SDK 注册入口由 `reachai-control-service` 收口。旧 `ai-agent-service` module 已删除，不再作为平台主后端、默认后端模块、本地启动项、IDEA 后端项目或部署单元存在。

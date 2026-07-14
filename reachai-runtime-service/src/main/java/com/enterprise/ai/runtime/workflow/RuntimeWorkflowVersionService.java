@@ -33,12 +33,23 @@ public class RuntimeWorkflowVersionService {
 
     @Transactional
     public RuntimeWorkflowVersionEntity publish(String workflowId,
-                                                String version,
-                                                int rolloutPercent,
-                                                String note,
-                                                String publishedBy) {
+                                                 String version,
+                                                 int rolloutPercent,
+                                                 String note,
+                                                 String publishedBy) {
+        return publish(workflowId, version, rolloutPercent, note, publishedBy, null);
+    }
+
+    @Transactional
+    public RuntimeWorkflowVersionEntity publish(String workflowId,
+                                                 String version,
+                                                 int rolloutPercent,
+                                                 String note,
+                                                 String publishedBy,
+                                                 String baseRevision) {
         RuntimeWorkflowDefinitionEntity workflow = workflowService.findById(workflowId)
                 .orElseThrow(() -> new IllegalArgumentException("workflow not found: " + workflowId));
+        workflowService.assertRevision(workflow, baseRevision);
         if (!StringUtils.hasText(version)) {
             throw new IllegalArgumentException("version is required");
         }
@@ -77,7 +88,11 @@ public class RuntimeWorkflowVersionService {
 
         RuntimeWorkflowDefinitionEntity update = new RuntimeWorkflowDefinitionEntity();
         update.setStatus("ACTIVE");
-        workflowService.update(workflowId, update);
+        if (StringUtils.hasText(baseRevision)) {
+            workflowService.update(workflowId, update, baseRevision);
+        } else {
+            workflowService.update(workflowId, update);
+        }
         return entity;
     }
 
@@ -117,14 +132,22 @@ public class RuntimeWorkflowVersionService {
     private String writeSnapshot(RuntimeWorkflowDefinitionEntity workflow) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("id", workflow.getId());
+        snapshot.put("projectId", workflow.getProjectId());
+        snapshot.put("projectCode", workflow.getProjectCode());
         snapshot.put("keySlug", workflow.getKeySlug());
         snapshot.put("name", workflow.getName());
+        snapshot.put("description", workflow.getDescription());
         snapshot.put("workflowType", workflow.getWorkflowType());
         snapshot.put("runtimeType", workflow.getRuntimeType());
         snapshot.put("graphSpec", workflow.getGraphSpecJson());
         snapshot.put("canvas", workflow.getCanvasJson());
+        snapshot.put("inputSchemaJson", workflow.getInputSchemaJson());
+        snapshot.put("outputSchemaJson", workflow.getOutputSchemaJson());
+        snapshot.put("defaultModelInstanceId", workflow.getDefaultModelInstanceId());
+        snapshot.put("defaultResourceConfigJson", workflow.getDefaultResourceConfigJson());
         snapshot.put("status", workflow.getStatus());
         snapshot.put("managedBy", workflow.getManagedBy());
+        snapshot.put("extraJson", workflow.getExtraJson());
         try {
             return objectMapper.writeValueAsString(snapshot);
         } catch (Exception ex) {

@@ -36,31 +36,11 @@ export interface ProjectInstance {
   sdkVersion?: string
   status: 'ONLINE' | 'OFFLINE' | 'DISABLED' | 'STALE'
   metadataJson?: string
-  governancePolicyJson?: string
   lastHeartbeatAt?: string
-}
-
-export interface RuntimeGovernancePolicy {
-  disabled: boolean
-  status: string
-  minSdkVersion?: string | null
-  allowEmbeddedExecution?: boolean | null
-  allowHybridExecution?: boolean | null
-  message?: string | null
-}
-
-export interface RuntimeGovernancePolicyUpdateRequest {
-  instanceId: string
-  disabled?: boolean
-  minSdkVersion?: string | null
-  allowEmbeddedExecution?: boolean | null
-  allowHybridExecution?: boolean | null
-  message?: string | null
 }
 
 export interface InstanceHeartbeatResponse {
   instance: ProjectInstance
-  policy: RuntimeGovernancePolicy
 }
 
 export interface CapabilityRegistration {

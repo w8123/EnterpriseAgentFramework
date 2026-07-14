@@ -1,14 +1,31 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>Tool ACL（角色 × 能力 黑白名单）</h2>
-      <div class="header-actions">
+  <WorkbenchPage class="tool-acl-list-page" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="governance"
+      eyebrow="Runtime Governance"
+      title="Tool ACL（角色 × 能力 黑白名单）"
+      description="以角色为入口管理 Tool 与能力的允许、拒绝规则，并在发布前完成权限诊断。"
+    >
+      <template #actions>
+        <el-tooltip content="批量授权" placement="top">
+          <el-button circle :icon="Magnet" aria-label="批量授权" @click="openBatchDialog" />
+        </el-tooltip>
+        <el-tooltip content="诊断" placement="top">
+          <el-button circle :icon="MagicStick" aria-label="ACL 决策诊断" @click="openExplainDialog" />
+        </el-tooltip>
+        <el-tooltip content="刷新" placement="top">
+          <el-button
+            circle
+            :icon="Refresh"
+            :loading="loading"
+            aria-label="刷新 ACL 规则"
+            @click="reload"
+          />
+        </el-tooltip>
         <el-button type="primary" :icon="Plus" @click="openCreateDialog">新建规则</el-button>
-        <el-button :icon="Magnet" @click="openBatchDialog">批量授权</el-button>
-        <el-button :icon="MagicStick" @click="openExplainDialog">诊断</el-button>
-        <el-button :icon="Refresh" @click="reload" :loading="loading">刷新</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <el-alert
       type="info"
@@ -16,10 +33,9 @@
       :closable="false"
       title="决策规则：DENY 优先；无命中默认拒绝"
       description="上下文 roles 为空时后端走兼容旧行为（不拦截，仅 warn），接入生产前请确保所有入口都把用户角色注入 ChatRequest.roles 或由网关从 JWT 解出。target_name='*' 代表通配；target_kind='ALL' = TOOL ∪ SKILL。"
-      style="margin-bottom: 12px"
     />
 
-    <div class="acl-body">
+    <div class="acl-body workbench-list-surface">
       <!-- 左栏：角色 -->
       <aside class="role-panel">
         <div class="role-title">
@@ -117,7 +133,7 @@
     </div>
 
     <!-- 新建 / 编辑弹窗 -->
-    <el-dialog v-model="editDialogOpen" :title="editing?.id ? `编辑规则 #${editing.id}` : '新建规则'" width="520px">
+    <AppDialog v-model="editDialogOpen" :title="editing?.id ? `编辑规则 #${editing.id}` : '新建规则'" width="520px">
       <el-form :model="editing" label-width="90px" v-if="editing">
         <el-form-item label="角色" required>
           <el-input v-model="editing.roleCode" placeholder="admin / ops / customer-service" />
@@ -149,10 +165,10 @@
         <el-button @click="editDialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
     <!-- 批量授权 -->
-    <el-dialog v-model="batchDialogOpen" title="批量授权" width="600px">
+    <AppDialog v-model="batchDialogOpen" title="批量授权" width="600px">
       <el-form :model="batchForm" label-width="90px">
         <el-form-item label="角色" required>
           <el-input v-model="batchForm.roleCode" placeholder="一次授权给一个角色" />
@@ -187,10 +203,10 @@
         <el-button @click="batchDialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="handleBatchGrant">提交</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
     <!-- 诊断：给 roles + targets 查看决策 -->
-    <el-dialog v-model="explainDialogOpen" title="ACL 决策诊断" width="640px">
+    <AppDialog v-model="explainDialogOpen" title="ACL 决策诊断" width="640px">
       <el-form :model="explainForm" label-width="90px">
         <el-form-item label="roles" required>
           <el-select v-model="explainForm.roles" multiple filterable allow-create placeholder="选择或输入角色">
@@ -219,14 +235,17 @@
           </template>
         </el-table-column>
       </el-table>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh, Search, Magnet, MagicStick } from '@element-plus/icons-vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 import {
   createToolAcl,
@@ -502,27 +521,6 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.page-container {
-  padding: 16px 20px;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-
-  h2 {
-    margin: 0;
-    font-size: 18px;
-  }
-
-  .header-actions {
-    display: flex;
-    gap: 8px;
-  }
-}
-
 .acl-body {
   display: grid;
   grid-template-columns: 220px 1fr;

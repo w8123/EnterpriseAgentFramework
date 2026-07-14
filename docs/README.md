@@ -22,7 +22,7 @@
 | --- | --- |
 | [01-平台定位与架构总览.md](./01-平台定位与架构总览.md) | 系统定位、核心能力、管理端页面、统一 SQL 基线 |
 | [02-项目注册与能力资产.md](./02-项目注册与能力资产.md) | 业务系统接入、SDK 注册、扫描接入、Tool/Capability 资产 |
-| [03-Workflow-Studio与Runtime.md](./03-Workflow-Studio与Runtime.md) | Agent/Workflow 解耦、Workflow Studio、GraphSpec、binding、调试和发布 |
+| [03-Workflow-Studio与Runtime.md](./03-Workflow-Studio与Runtime.md) | Agent Supervisor、Workflow Studio、Workflow-as-Tool、GraphSpec、Page Bridge、调试和发布 |
 | [04-运行治理与开放协议.md](./04-运行治理与开放协议.md) | Trace、RunOps、ACL、Guard、MCP、A2A、Gateway |
 | [05-知识模型与企业资产.md](./05-知识模型与企业资产.md) | 模型实例、知识库、业务索引、领域和市场资产 |
 
@@ -43,6 +43,7 @@
 | [architecture/physical-split-route-ownership.md](./architecture/physical-split-route-ownership.md) | public route owning service 归属 |
 | [architecture/internal-api-contracts.md](./architecture/internal-api-contracts.md) | 服务间 internal API 契约、owner/consumer 和前端禁用边界 |
 | [architecture/service-table-ownership.md](./architecture/service-table-ownership.md) | 同库阶段的服务表所有权 |
+| [architecture/agent-supervisor-runtime.md](./architecture/agent-supervisor-runtime.md) | AgentScope Supervisor、Agent 配置版本、Workflow-as-Tool 和 Page Bridge 跨路由协议 |
 | [architecture/backend-boundaries-and-naming.md](./architecture/backend-boundaries-and-naming.md) | 五服务边界、同库策略、命名规则和公共入口 |
 | [architecture/physical-services-and-startup.md](./architecture/physical-services-and-startup.md) | 五服务启动、IDEA 配置、环境变量和验证入口 |
 | [architecture/legacy-retirement.md](./architecture/legacy-retirement.md) | 旧 agent 主入口退场、兼容面生命周期和启动清单 |

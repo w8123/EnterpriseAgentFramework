@@ -1,21 +1,23 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <div class="header-left">
-        <el-button text @click="router.push('/knowledge')">
-          <el-icon><ArrowLeft /></el-icon>
-          返回
-        </el-button>
-        <div>
-          <h2>{{ kbInfo?.name || '知识库详情' }}</h2>
-          <div class="subline">
-            <el-tag effect="plain" size="small">{{ kbCode }}</el-tag>
-            <el-tag size="small" :type="scopeTagType(kbInfo?.scope)">{{ kbInfo?.scope || 'WORKSPACE' }}</el-tag>
-            <span v-if="kbInfo?.projectCode">项目 {{ kbInfo.projectCode }}</span>
-          </div>
-        </div>
-      </div>
-      <div class="header-actions">
+  <WorkbenchPage density="comfortable">
+    <PageHeader
+      variant="entity"
+      domain="knowledge"
+      :title="kbInfo?.name || '知识库详情'"
+      show-back
+      @back="router.push('/knowledge')"
+    >
+      <template #tags>
+        <el-tag effect="plain" size="small">{{ kbCode }}</el-tag>
+        <StatusTag
+          :label="kbInfo?.scope || 'WORKSPACE'"
+          :tone="scopeTagType(kbInfo?.scope)"
+        />
+      </template>
+      <template #meta>
+        <span v-if="kbInfo?.projectCode">项目 {{ kbInfo.projectCode }}</span>
+      </template>
+      <template #actions>
         <el-button @click="router.push({ path: '/retrieval', query: { kb: kbCode } })">
           <el-icon><Search /></el-icon>
           召回测试
@@ -24,62 +26,72 @@
           <el-icon><Upload /></el-icon>
           文件入库
         </el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <div class="stats-grid">
-      <div class="stat-tile"><span>文件</span><strong>{{ stats.fileCount }}</strong></div>
-      <div class="stat-tile"><span>段落</span><strong>{{ stats.chunkCount }}</strong></div>
-      <div class="stat-tile"><span>启用段落</span><strong>{{ stats.activeChunkCount }}</strong></div>
-      <div class="stat-tile"><span>问题</span><strong>{{ stats.questionCount }}</strong></div>
-      <div class="stat-tile"><span>命中</span><strong>{{ stats.hitCount }}</strong></div>
-    </div>
+    <MetricStrip :items="knowledgeMetrics" aria-label="知识库运营指标" />
 
     <el-tabs v-model="activeTab" class="ops-tabs">
       <el-tab-pane label="运营概览" name="overview">
         <div class="overview-grid">
-          <el-card shadow="never">
-            <template #header>命中热度</template>
-            <el-table :data="dashboard?.hotChunks || []" size="small" height="320">
-              <el-table-column prop="chunkIndex" label="#" width="64" />
-              <el-table-column label="段落" min-width="220" show-overflow-tooltip>
-                <template #default="{ row }">{{ row.title || truncate(row.content, 80) }}</template>
-              </el-table-column>
-              <el-table-column prop="hitCount" label="命中" width="80" align="center" />
-            </el-table>
-          </el-card>
-          <el-card shadow="never">
-            <template #header>最近命中</template>
-            <el-table :data="dashboard?.recentHits || []" size="small" height="320">
-              <el-table-column prop="queryText" label="问题" min-width="220" show-overflow-tooltip />
-              <el-table-column label="分数" width="88">
-                <template #default="{ row }">{{ formatScore(row.score) }}</template>
-              </el-table-column>
-              <el-table-column prop="fileName" label="文档" min-width="160" show-overflow-tooltip />
-            </el-table>
-          </el-card>
+          <WorkbenchPanel title="命中热度" density="compact">
+            <DataTableShell
+              density="compact"
+              :empty="(dashboard?.hotChunks || []).length === 0"
+            >
+              <el-table :data="dashboard?.hotChunks || []" size="small" height="320" empty-text=" ">
+                <el-table-column prop="chunkIndex" label="#" width="64" />
+                <el-table-column label="段落" min-width="220" show-overflow-tooltip>
+                  <template #default="{ row }">{{ row.title || truncate(row.content, 80) }}</template>
+                </el-table-column>
+                <el-table-column prop="hitCount" label="命中" width="80" align="center" />
+              </el-table>
+            </DataTableShell>
+          </WorkbenchPanel>
+          <WorkbenchPanel title="最近命中" density="compact">
+            <DataTableShell
+              density="compact"
+              :empty="(dashboard?.recentHits || []).length === 0"
+            >
+              <el-table :data="dashboard?.recentHits || []" size="small" height="320" empty-text=" ">
+                <el-table-column prop="queryText" label="问题" min-width="220" show-overflow-tooltip />
+                <el-table-column label="分数" width="88">
+                  <template #default="{ row }">{{ formatScore(row.score) }}</template>
+                </el-table-column>
+                <el-table-column prop="fileName" label="文档" min-width="160" show-overflow-tooltip />
+              </el-table>
+            </DataTableShell>
+          </WorkbenchPanel>
         </div>
 
         <div class="overview-grid bottom-grid">
-          <el-card shadow="never">
-            <template #header>低置信命中</template>
-            <el-table :data="dashboard?.lowConfidenceHits || []" size="small" height="260">
-              <el-table-column prop="queryText" label="问题" min-width="220" show-overflow-tooltip />
-              <el-table-column label="分数" width="88">
-                <template #default="{ row }">{{ formatScore(row.score) }}</template>
-              </el-table-column>
-              <el-table-column prop="fileName" label="文档" min-width="160" show-overflow-tooltip />
-            </el-table>
-          </el-card>
-          <el-card shadow="never">
-            <template #header>零命中段落</template>
-            <el-table :data="dashboard?.zeroHitChunks || []" size="small" height="260">
-              <el-table-column prop="chunkIndex" label="#" width="64" />
-              <el-table-column label="内容" min-width="260" show-overflow-tooltip>
-                <template #default="{ row }">{{ row.title || truncate(row.content, 100) }}</template>
-              </el-table-column>
-            </el-table>
-          </el-card>
+          <WorkbenchPanel title="低置信命中" density="compact">
+            <DataTableShell
+              density="compact"
+              :empty="(dashboard?.lowConfidenceHits || []).length === 0"
+            >
+              <el-table :data="dashboard?.lowConfidenceHits || []" size="small" height="260" empty-text=" ">
+                <el-table-column prop="queryText" label="问题" min-width="220" show-overflow-tooltip />
+                <el-table-column label="分数" width="88">
+                  <template #default="{ row }">{{ formatScore(row.score) }}</template>
+                </el-table-column>
+                <el-table-column prop="fileName" label="文档" min-width="160" show-overflow-tooltip />
+              </el-table>
+            </DataTableShell>
+          </WorkbenchPanel>
+          <WorkbenchPanel title="零命中段落" density="compact">
+            <DataTableShell
+              density="compact"
+              :empty="(dashboard?.zeroHitChunks || []).length === 0"
+            >
+              <el-table :data="dashboard?.zeroHitChunks || []" size="small" height="260" empty-text=" ">
+                <el-table-column prop="chunkIndex" label="#" width="64" />
+                <el-table-column label="内容" min-width="260" show-overflow-tooltip>
+                  <template #default="{ row }">{{ row.title || truncate(row.content, 100) }}</template>
+                </el-table-column>
+              </el-table>
+            </DataTableShell>
+          </WorkbenchPanel>
         </div>
       </el-tab-pane>
 
@@ -91,30 +103,36 @@
             批量打标签
           </el-button>
         </div>
-        <el-table v-loading="filesLoading" :data="fileList" stripe @selection-change="handleFileSelectionChange">
-          <el-table-column type="selection" width="48" />
-          <el-table-column prop="fileName" label="文件名" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="chunkCount" label="段落" width="100" align="center" />
-          <el-table-column label="状态" width="100" align="center">
-            <template #default="{ row }">
-              <el-tag :type="statusTagType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="createTime" label="创建时间" width="180" />
-          <el-table-column label="操作" width="230" fixed="right">
-            <template #default="{ row }">
-              <el-button type="primary" link size="small" @click="router.push(`/knowledge/${kbCode}/file/${row.fileId}`)">
-                段落运营
-              </el-button>
-              <el-button type="warning" link size="small" :loading="reparsingId === row.fileId" @click="handleReparse(row)">
-                重解析
-              </el-button>
-              <el-popconfirm title="确定删除该文件及关联段落和向量？" @confirm="handleDelete(row)">
-                <template #reference><el-button type="danger" link size="small">删除</el-button></template>
-              </el-popconfirm>
-            </template>
-          </el-table-column>
-        </el-table>
+        <DataTableShell
+          density="compact"
+          :empty="fileList.length === 0"
+          :loading="filesLoading"
+        >
+          <el-table :data="fileList" stripe empty-text=" " @selection-change="handleFileSelectionChange">
+            <el-table-column type="selection" width="48" />
+            <el-table-column prop="fileName" label="文件名" min-width="220" show-overflow-tooltip />
+            <el-table-column prop="chunkCount" label="段落" width="100" align="center" />
+            <el-table-column label="状态" width="100" align="center">
+              <template #default="{ row }">
+                <StatusTag :label="statusText(row.status)" :tone="statusTagType(row.status)" />
+              </template>
+            </el-table-column>
+            <el-table-column prop="createTime" label="创建时间" width="180" />
+            <el-table-column label="操作" width="230" fixed="right">
+              <template #default="{ row }">
+                <el-button type="primary" link size="small" @click="router.push(`/knowledge/${kbCode}/file/${row.fileId}`)">
+                  段落运营
+                </el-button>
+                <el-button type="warning" link size="small" :loading="reparsingId === row.fileId" @click="handleReparse(row)">
+                  重解析
+                </el-button>
+                <el-popconfirm title="确定删除该文件及关联段落和向量？" @confirm="handleDelete(row)">
+                  <template #reference><el-button type="danger" link size="small">删除</el-button></template>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+          </el-table>
+        </DataTableShell>
       </el-tab-pane>
 
       <el-tab-pane label="段落运营" name="chunks">
@@ -143,23 +161,32 @@
             批量打标签
           </el-button>
         </div>
-        <el-table v-loading="chunksLoading" :data="chunks" stripe @selection-change="handleChunkSelectionChange">
-          <el-table-column type="selection" width="48" />
-          <el-table-column prop="chunkIndex" label="#" width="70" align="center" />
-          <el-table-column label="内容" min-width="420">
-            <template #default="{ row }">
-              <div class="chunk-title">{{ row.title || `段落 ${row.chunkIndex}` }}</div>
-              <div class="chunk-content">{{ truncate(row.content, 180) }}</div>
-            </template>
-          </el-table-column>
-          <el-table-column prop="hitCount" label="命中" width="90" align="center" />
-          <el-table-column label="状态" width="90" align="center">
-            <template #default="{ row }">
-              <el-tag :type="row.enabled === 0 ? 'info' : 'success'" size="small">{{ row.enabled === 0 ? '停用' : '启用' }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="fileId" label="文件 ID" width="180" show-overflow-tooltip />
-        </el-table>
+        <DataTableShell
+          density="compact"
+          :empty="chunks.length === 0"
+          :loading="chunksLoading"
+        >
+          <el-table :data="chunks" stripe empty-text=" " @selection-change="handleChunkSelectionChange">
+            <el-table-column type="selection" width="48" />
+            <el-table-column prop="chunkIndex" label="#" width="70" align="center" />
+            <el-table-column label="内容" min-width="420">
+              <template #default="{ row }">
+                <div class="chunk-title">{{ row.title || `段落 ${row.chunkIndex}` }}</div>
+                <div class="chunk-content">{{ truncate(row.content, 180) }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="hitCount" label="命中" width="90" align="center" />
+            <el-table-column label="状态" width="90" align="center">
+              <template #default="{ row }">
+                <StatusTag
+                  :label="row.enabled === 0 ? '停用' : '启用'"
+                  :tone="row.enabled === 0 ? 'info' : 'success'"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column prop="fileId" label="文件 ID" width="180" show-overflow-tooltip />
+          </el-table>
+        </DataTableShell>
       </el-tab-pane>
 
       <el-tab-pane label="命中分析" name="hits">
@@ -170,20 +197,29 @@
             刷新
           </el-button>
         </div>
-        <el-table v-loading="hitsLoading" :data="hitLogs" stripe>
-          <el-table-column prop="queryText" label="用户问题" min-width="260" show-overflow-tooltip />
-          <el-table-column prop="searchMode" label="模式" width="90" />
-          <el-table-column label="分数" width="90">
-            <template #default="{ row }">{{ formatScore(row.score) }}</template>
-          </el-table-column>
-          <el-table-column label="直接返回" width="100" align="center">
-            <template #default="{ row }">
-              <el-tag :type="row.directReturn ? 'success' : 'info'" size="small">{{ row.directReturn ? '是' : '否' }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="fileName" label="命中文档" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="createTime" label="时间" width="180" />
-        </el-table>
+        <DataTableShell
+          density="compact"
+          :empty="hitLogs.length === 0"
+          :loading="hitsLoading"
+        >
+          <el-table :data="hitLogs" stripe empty-text=" ">
+            <el-table-column prop="queryText" label="用户问题" min-width="260" show-overflow-tooltip />
+            <el-table-column prop="searchMode" label="模式" width="90" />
+            <el-table-column label="分数" width="90">
+              <template #default="{ row }">{{ formatScore(row.score) }}</template>
+            </el-table-column>
+            <el-table-column label="直接返回" width="100" align="center">
+              <template #default="{ row }">
+                <StatusTag
+                  :label="row.directReturn ? '是' : '否'"
+                  :tone="row.directReturn ? 'success' : 'info'"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column prop="fileName" label="命中文档" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="createTime" label="时间" width="180" />
+          </el-table>
+        </DataTableShell>
       </el-tab-pane>
 
       <el-tab-pane label="检索策略" name="policy">
@@ -213,44 +249,55 @@
 
       <el-tab-pane label="标签" name="tags">
         <div class="toolbar"><span></span><el-button type="primary" size="small" @click="openTagDialog"><el-icon><Plus /></el-icon>新增标签</el-button></div>
-        <el-card shadow="never" class="tag-library-card">
-          <template #header>标签库</template>
-          <el-table :data="tagStats" stripe>
-            <el-table-column label="标签" min-width="220">
-              <template #default="{ row }">
-                <el-tag effect="light" :color="row.color || '#409EFF'" class="colored-tag">{{ row.tagValue }}</el-tag>
-                <span class="tag-key">{{ row.tagKey }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="tagGroup" label="分组" width="130" />
-            <el-table-column prop="totalCount" label="绑定" width="80" align="center" />
-            <el-table-column prop="fileCount" label="文件" width="80" align="center" />
-            <el-table-column prop="chunkCount" label="段落" width="80" align="center" />
-            <el-table-column prop="description" label="说明" min-width="180" show-overflow-tooltip />
-          </el-table>
-        </el-card>
-        <el-table :data="tags" stripe>
-          <el-table-column prop="tagKey" label="Key" width="180" />
-          <el-table-column prop="tagValue" label="Value" min-width="220" />
-          <el-table-column prop="targetType" label="对象" width="140" />
-          <el-table-column prop="targetId" label="对象 ID" min-width="180" show-overflow-tooltip />
-          <el-table-column label="操作" width="100"><template #default="{ row }"><el-popconfirm title="确定删除该标签？" @confirm="handleDeleteTag(row.id)"><template #reference><el-button type="danger" link size="small">删除</el-button></template></el-popconfirm></template></el-table-column>
-        </el-table>
+        <div class="tag-panel-stack">
+          <WorkbenchPanel title="标签库" density="compact">
+            <DataTableShell density="compact" :empty="tagStats.length === 0">
+              <el-table :data="tagStats" stripe empty-text=" ">
+                <el-table-column label="标签" min-width="220">
+                  <template #default="{ row }">
+                    <el-tag effect="light" :color="row.color || '#409EFF'" class="colored-tag">{{ row.tagValue }}</el-tag>
+                    <span class="tag-key">{{ row.tagKey }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="tagGroup" label="分组" width="130" />
+                <el-table-column prop="totalCount" label="绑定" width="80" align="center" />
+                <el-table-column prop="fileCount" label="文件" width="80" align="center" />
+                <el-table-column prop="chunkCount" label="段落" width="80" align="center" />
+                <el-table-column prop="description" label="说明" min-width="180" show-overflow-tooltip />
+              </el-table>
+            </DataTableShell>
+          </WorkbenchPanel>
+          <DataTableShell density="compact" :empty="tags.length === 0">
+            <el-table :data="tags" stripe empty-text=" ">
+              <el-table-column prop="tagKey" label="Key" width="180" />
+              <el-table-column prop="tagValue" label="Value" min-width="220" />
+              <el-table-column prop="targetType" label="对象" width="140" />
+              <el-table-column prop="targetId" label="对象 ID" min-width="180" show-overflow-tooltip />
+              <el-table-column label="操作" width="100"><template #default="{ row }"><el-popconfirm title="确定删除该标签？" @confirm="handleDeleteTag(row.id)"><template #reference><el-button type="danger" link size="small">删除</el-button></template></el-popconfirm></template></el-table-column>
+            </el-table>
+          </DataTableShell>
+        </div>
       </el-tab-pane>
 
       <el-tab-pane label="问题映射" name="questions">
         <div class="toolbar"><span></span><el-button type="primary" size="small" @click="questionDialogVisible = true"><el-icon><Plus /></el-icon>新增问题</el-button></div>
-        <el-table :data="questions" stripe>
-          <el-table-column prop="question" label="问题" min-width="320" show-overflow-tooltip />
-          <el-table-column prop="chunkId" label="段落 ID" width="120" />
-          <el-table-column prop="source" label="来源" width="120" />
-          <el-table-column prop="hitCount" label="命中" width="90" align="center" />
-          <el-table-column label="操作" width="100"><template #default="{ row }"><el-popconfirm title="确定删除该问题映射？" @confirm="handleDeleteQuestion(row.id)"><template #reference><el-button type="danger" link size="small">删除</el-button></template></el-popconfirm></template></el-table-column>
-        </el-table>
+        <DataTableShell density="compact" :empty="questions.length === 0">
+          <el-table :data="questions" stripe empty-text=" ">
+            <el-table-column prop="question" label="问题" min-width="320" show-overflow-tooltip />
+            <el-table-column prop="chunkId" label="段落 ID" width="120" />
+            <el-table-column prop="source" label="来源" width="120" />
+            <el-table-column prop="hitCount" label="命中" width="90" align="center" />
+            <el-table-column label="操作" width="100"><template #default="{ row }"><el-popconfirm title="确定删除该问题映射？" @confirm="handleDeleteQuestion(row.id)"><template #reference><el-button type="danger" link size="small">删除</el-button></template></el-popconfirm></template></el-table-column>
+          </el-table>
+        </DataTableShell>
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="tagDialogVisible" title="新增标签" width="460px">
+    <AppDialog
+      v-model="tagDialogVisible"
+      title="新增标签"
+      width="460px"
+    >
       <el-form :model="tagForm" label-width="90px">
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="分组"><el-input v-model="tagForm.tagGroup" placeholder="如 部门 / 业务线" /></el-form-item></el-col>
@@ -267,9 +314,13 @@
         <el-form-item label="对象 ID"><el-input v-model="tagForm.targetId" placeholder="知识库标签可留空" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="tagDialogVisible = false">取消</el-button><el-button type="primary" :loading="tagSaving" @click="handleCreateTag">保存</el-button></template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-dialog v-model="batchTagDialogVisible" title="Batch Tags" width="520px">
+    <AppDialog
+      v-model="batchTagDialogVisible"
+      title="Batch Tags"
+      width="520px"
+    >
       <el-alert
         type="info"
         :closable="false"
@@ -301,24 +352,36 @@
         <el-button @click="batchTagDialogVisible = false">Cancel</el-button>
         <el-button type="primary" :loading="batchTagSaving" @click="handleBatchCreateTags">Apply</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-dialog v-model="questionDialogVisible" title="新增问题映射" width="560px">
+    <AppDialog
+      v-model="questionDialogVisible"
+      title="新增问题映射"
+      width="560px"
+    >
       <el-form :model="questionForm" label-width="90px">
         <el-form-item label="问题"><el-input v-model="questionForm.question" type="textarea" :rows="3" /></el-form-item>
         <el-form-item label="段落 ID"><el-input-number v-model="questionForm.chunkId" :min="1" style="width:100%" /></el-form-item>
         <el-form-item label="来源"><el-select v-model="questionForm.source" style="width:100%"><el-option label="人工" value="MANUAL" /><el-option label="反馈" value="FEEDBACK" /><el-option label="导入" value="IMPORT" /></el-select></el-form-item>
       </el-form>
       <template #footer><el-button @click="questionDialogVisible = false">取消</el-button><el-button type="primary" :loading="questionSaving" @click="handleCreateQuestion">保存</el-button></template>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Plus, Refresh, Search, Upload } from '@element-plus/icons-vue'
+import { Plus, Refresh, Search, Upload } from '@element-plus/icons-vue'
+import AppDialog from '@/components/common/AppDialog.vue'
+import DataTableShell from '@/components/common/DataTableShell.vue'
+import MetricStrip from '@/components/common/MetricStrip.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import StatusTag from '@/components/common/StatusTag.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import type { MetricStripItem, StatusTone } from '@/components/common/glassWorkbench'
 import {
   batchCreateKnowledgeTags,
   createKnowledgeQuestion,
@@ -376,6 +439,13 @@ const lowConfidenceOnly = ref(false)
 
 const emptyStats: KnowledgeStats = { knowledgeBaseCode: kbCode, fileCount: 0, chunkCount: 0, activeChunkCount: 0, questionCount: 0, tagCount: 0, hitCount: 0 }
 const stats = computed(() => dashboard.value?.stats || emptyStats)
+const knowledgeMetrics = computed<MetricStripItem[]>(() => [
+  { key: 'files', label: '文件', value: stats.value.fileCount, iconKey: 'workflow-sources', tone: 'brand' },
+  { key: 'chunks', label: '段落', value: stats.value.chunkCount, iconKey: 'api-discovery', tone: 'info' },
+  { key: 'active', label: '启用段落', value: stats.value.activeChunkCount, iconKey: 'agent-ready', tone: 'success' },
+  { key: 'questions', label: '问题', value: stats.value.questionCount, iconKey: 'ai-semantic', tone: 'warning' },
+  { key: 'hits', label: '命中', value: stats.value.hitCount, iconKey: 'scan', tone: 'brand' },
+])
 const selectedBatchCount = computed(() => batchTagTargetType.value === 'FILE' ? selectedFiles.value.length : selectedChunks.value.length)
 
 const configForm = reactive<KbConfig>({ splitType: 'FIXED', chunkSize: 500, chunkOverlap: 50, searchMode: 'hybrid', topK: 5, similarityThreshold: 0.5, directReturnEnabled: true, directReturnThreshold: 0.9, rerankEnabled: true, vectorWeight: 0.7, keywordWeight: 0.3 })
@@ -416,11 +486,11 @@ function statusText(status: number) {
   return ({ 0: '处理中', 1: '完成', 2: '失败' } as Record<number, string>)[status] || '未知'
 }
 
-function statusTagType(status: number) {
-  return ({ 0: 'warning', 1: 'success', 2: 'danger' } as Record<number, string>)[status] || 'info'
+function statusTagType(status: number): StatusTone {
+  return ({ 0: 'warning', 1: 'success', 2: 'danger' } as Record<number, StatusTone>)[status] || 'info'
 }
 
-function scopeTagType(scope?: string) {
+function scopeTagType(scope?: string): StatusTone {
   if (scope === 'SHARED') return 'success'
   if (scope === 'PROJECT') return 'warning'
   return 'info'
@@ -680,51 +750,10 @@ onMounted(refreshAll)
 </script>
 
 <style scoped lang="scss">
-.header-left,
-.header-actions,
-.subline,
 .toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.header-left h2 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.subline {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.stat-tile {
-  min-height: 72px;
-  padding: 14px 16px;
-  border-radius: 8px;
-  background: var(--bg-secondary);
-}
-
-.stat-tile span {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.stat-tile strong {
-  font-size: 24px;
-  color: var(--text-primary);
 }
 
 .overview-grid {
@@ -750,8 +779,9 @@ onMounted(refreshAll)
   width: 240px;
 }
 
-.tag-library-card {
-  margin-bottom: 14px;
+.tag-panel-stack {
+  display: grid;
+  gap: var(--section-gap);
 }
 
 .selection-hint {
@@ -777,7 +807,7 @@ onMounted(refreshAll)
 
 .colored-tag {
   border: 0;
-  color: #fff;
+  color: var(--text-inverse);
 }
 
 .tag-key {
@@ -802,7 +832,6 @@ onMounted(refreshAll)
 }
 
 @media (max-width: 960px) {
-  .stats-grid,
   .overview-grid {
     grid-template-columns: 1fr;
   }

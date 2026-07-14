@@ -1,45 +1,48 @@
 <template>
-  <div class="workflow-list-page" :class="{ 'is-dark': theme === 'dark' }">
-    <div class="page-hero">
-      <div class="hero-copy">
-        <span class="hero-accent" aria-hidden="true" />
-        <div class="hero-text">
-          <h1>{{ pageTitle }}</h1>
-          <p>{{ pageDescription }}</p>
-          <div class="hero-tags" aria-label="Workflow 编排状态">
-            <span class="tag-brand">{{ projectScoped ? '项目视图' : '全量视图' }}</span>
-            <span class="tag-success">当前 {{ workflows.length }} 个 Workflow</span>
-            <span class="tag-info">GraphSpec 可编排</span>
-          </div>
-        </div>
-      </div>
-      <div class="hero-actions">
-        <el-button v-if="projectScoped" @click="backToProject">返回项目</el-button>
-        <el-button v-if="projectScoped" @click="openGlobalWorkflows">全部 Workflow</el-button>
-        <el-button type="primary" size="large" class="primary-action" :icon="Plus" @click="openCreateDialog">
-          新建 Workflow
-        </el-button>
-      </div>
-    </div>
+  <div class="workflow-list-page project-workbench-page workbench-page--list" :class="{ 'is-dark': theme === 'dark' }">
+    <CollapsibleHeaderRegion :collapsed="isWorkflowHeaderCollapsed">
+      <PageHeader
+        variant="overview"
+        domain="workflow"
+        :title="pageTitle"
+        :description="pageDescription"
+        :collapsed="isWorkflowHeaderCollapsed"
+      >
+        <template #tags>
+          <el-tag effect="light">{{ projectScoped ? '项目视图' : '全量视图' }}</el-tag>
+          <el-tag type="success" effect="light">当前 {{ workflows.length }} 个 Workflow</el-tag>
+          <el-tag type="info" effect="light">GraphSpec 可编排</el-tag>
+        </template>
+        <template #actions>
+          <el-button v-if="projectScoped" @click="backToProject">返回项目</el-button>
+          <el-button v-if="projectScoped" @click="openGlobalWorkflows">全部 Workflow</el-button>
+          <el-button type="primary" :icon="Plus" @click="openCreateDialog">
+            新建 Workflow
+          </el-button>
+        </template>
+      </PageHeader>
 
-    <div class="metric-strip">
-      <template v-for="(metric, index) in metrics" :key="metric.label">
-        <div v-if="index > 0" class="metric-divider" aria-hidden="true" />
-        <div class="metric-segment">
-          <MetricIconBg class="metric-segment-icon" :icon-key="metric.iconKey" :tone="metric.tone" />
-          <div class="metric-content">
-            <div class="metric-line">
-              <span class="metric-label">{{ metric.label }}</span>
-              <em v-if="metric.delta" class="metric-delta" :class="metric.deltaTone">{{ metric.delta }}</em>
+      <template #summary>
+        <div class="metric-strip">
+          <template v-for="(metric, index) in metrics" :key="metric.label">
+            <div v-if="index > 0" class="metric-divider" aria-hidden="true" />
+            <div class="metric-segment">
+              <MetricIconBg class="metric-segment-icon" :icon-key="metric.iconKey" :tone="metric.tone" />
+              <div class="metric-content">
+                <div class="metric-line">
+                  <span class="metric-label">{{ metric.label }}</span>
+                  <em v-if="metric.delta" class="metric-delta" :class="metric.deltaTone">{{ metric.delta }}</em>
+                </div>
+                <strong>{{ metric.value }}</strong>
+                <small>{{ metric.caption }}</small>
+              </div>
             </div>
-            <strong>{{ metric.value }}</strong>
-            <small>{{ metric.caption }}</small>
-          </div>
+          </template>
         </div>
       </template>
-    </div>
+    </CollapsibleHeaderRegion>
 
-    <el-card class="workflow-card" :class="{ 'has-context-filter': projectScoped }" shadow="never">
+    <el-card class="workflow-card workbench-list-surface" :class="{ 'has-context-filter': projectScoped }" shadow="never">
       <div v-if="projectScoped" class="context-filter">
         当前仅展示项目 {{ filters.projectCode }} 下的 Workflow。
         <el-button link type="primary" @click="openGlobalWorkflows">查看全部 Workflow</el-button>
@@ -50,7 +53,6 @@
           v-model="keyword"
           class="search-input"
           clearable
-          :prefix-icon="Search"
           placeholder="搜索 Workflow 名称、Key、描述、项目"
         />
         <el-input
@@ -58,11 +60,8 @@
           clearable
           :disabled="projectScoped"
           placeholder="项目编码"
-          @change="searchWorkflows"
-          @clear="searchWorkflows"
-          @keyup.enter="searchWorkflows"
         />
-        <el-select v-model="filters.workflowType" clearable placeholder="Workflow 类型" @change="searchWorkflows">
+        <el-select v-model="filters.workflowType" clearable placeholder="Workflow 类型">
           <el-option
             v-for="item in WORKFLOW_TYPE_SELECT_OPTIONS"
             :key="item.value"
@@ -70,7 +69,7 @@
             :value="item.value"
           />
         </el-select>
-        <el-select v-model="filters.status" clearable placeholder="发布状态" @change="searchWorkflows">
+        <el-select v-model="filters.status" clearable placeholder="发布状态">
           <el-option
             v-for="item in WORKFLOW_STATUS_SELECT_OPTIONS"
             :key="item.value"
@@ -78,8 +77,15 @@
             :value="item.value"
           />
         </el-select>
-        <el-button class="toolbar-reset" @click="resetFilters">重置</el-button>
-        <el-button class="toolbar-refresh" :icon="Refresh" :loading="loading" @click="loadWorkflows" />
+        <el-button
+          class="toolbar-search"
+          type="primary"
+          :icon="Search"
+          :loading="loading"
+          @click="searchWorkflows"
+        >
+          搜索
+        </el-button>
       </div>
 
       <div class="workflow-table-shell">
@@ -168,7 +174,7 @@
                   </div>
                   <div class="empty-actions">
                     <el-button type="primary" :icon="Plus" @click="openCreateDialog">新建 Workflow</el-button>
-                    <el-button @click="resetFilters">重置筛选</el-button>
+                    <el-button @click="showAllWorkflows">查看全部</el-button>
                   </div>
                 </div>
               </div>
@@ -190,7 +196,7 @@
       </div>
     </el-card>
 
-    <el-dialog
+    <AppDialog
       v-model="createDialogVisible"
       title="新建 Workflow"
       width="560px"
@@ -255,23 +261,26 @@
           创建并进入编排
         </el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus,
-  Refresh,
   Search,
 } from '@element-plus/icons-vue'
+import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
 import MetricIconBg from '@/components/common/MetricIconBg.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '@/api/workflow'
 import type { WorkflowDefinition } from '@/types/workflow'
 import { useTheme } from '@/composables/useTheme'
+import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
 import { formatRuntimeTypeLabel } from '@/utils/registryLabels'
 import {
   WORKFLOW_STATUS_SELECT_OPTIONS,
@@ -291,10 +300,16 @@ const deletingId = ref('')
 const createDialogVisible = ref(false)
 const workflows = ref<WorkflowDefinition[]>([])
 const keyword = ref('')
+const appliedKeyword = ref('')
 const currentPage = ref(1)
 const pageSize = ref(10)
 const workflowTableMaxHeight = ref(480)
 const filters = reactive({
+  projectCode: String(route.query.projectCode || ''),
+  workflowType: '',
+  status: '',
+})
+const appliedFilters = reactive({
   projectCode: String(route.query.projectCode || ''),
   workflowType: '',
   status: '',
@@ -308,8 +323,20 @@ const createForm = reactive({
   description: '',
 })
 
-let mainContentScrollEl: HTMLElement | null = null
 let tableHeightRaf = 0
+
+const {
+  collapsed: isWorkflowHeaderCollapsed,
+  refreshScrollTargets: refreshWorkflowHeaderScrollTargets,
+} = useCollapsiblePageHeader({
+  rootSelector: '.workflow-list-page',
+  scrollSelectors: [
+    '.workflow-table .el-scrollbar__wrap',
+    '.workflow-table .el-table__body-wrapper',
+  ],
+  onScroll: scheduleUpdateWorkflowTableMaxHeight,
+  onLayoutChange: scheduleUpdateWorkflowTableMaxHeight,
+})
 
 const routeProjectCode = computed(() => String(route.query.projectCode || '').trim())
 const projectScoped = computed(() => !!routeProjectCode.value)
@@ -321,7 +348,7 @@ const pageDescription = computed(() =>
 )
 
 const filteredWorkflows = computed(() => {
-  const text = keyword.value.trim().toLowerCase()
+  const text = appliedKeyword.value.trim().toLowerCase()
   if (!text) return workflows.value
   return workflows.value.filter((workflow) => {
     return [
@@ -393,28 +420,31 @@ const metrics = computed(() => {
 
 onMounted(() => {
   loadWorkflows().finally(() => {
-    nextTick(scheduleUpdateWorkflowTableMaxHeight)
+    nextTick(() => {
+      refreshWorkflowHeaderScrollTargets()
+      scheduleUpdateWorkflowTableMaxHeight()
+    })
   })
-  mainContentScrollEl = document.querySelector('.main-layout .main-content') as HTMLElement | null
-  mainContentScrollEl?.addEventListener('scroll', scheduleUpdateWorkflowTableMaxHeight, { passive: true })
   window.addEventListener('resize', scheduleUpdateWorkflowTableMaxHeight)
 })
 
 onUnmounted(() => {
-  mainContentScrollEl?.removeEventListener('scroll', scheduleUpdateWorkflowTableMaxHeight)
   window.removeEventListener('resize', scheduleUpdateWorkflowTableMaxHeight)
+  if (tableHeightRaf) cancelAnimationFrame(tableHeightRaf)
 })
 
 watch(
   () => route.query.projectCode,
   (value) => {
     filters.projectCode = String(value || '')
+    appliedFilters.projectCode = String(value || '')
+    appliedKeyword.value = keyword.value
     currentPage.value = 1
     void loadWorkflows()
   },
 )
 
-watch([keyword, pageSize], () => {
+watch(pageSize, () => {
   currentPage.value = 1
 })
 
@@ -469,9 +499,9 @@ async function loadWorkflows() {
   loading.value = true
   try {
     const { data } = await listWorkflows({
-      projectCode: filters.projectCode || undefined,
-      workflowType: filters.workflowType || undefined,
-      status: filters.status || undefined,
+      projectCode: appliedFilters.projectCode || undefined,
+      workflowType: appliedFilters.workflowType || undefined,
+      status: appliedFilters.status || undefined,
     })
     workflows.value = Array.isArray(data) ? data : []
   } finally {
@@ -481,15 +511,23 @@ async function loadWorkflows() {
 }
 
 function searchWorkflows() {
+  appliedKeyword.value = keyword.value
+  appliedFilters.projectCode = filters.projectCode.trim()
+  appliedFilters.workflowType = filters.workflowType
+  appliedFilters.status = filters.status
   currentPage.value = 1
   void loadWorkflows()
 }
 
-function resetFilters() {
+function showAllWorkflows() {
   keyword.value = ''
+  appliedKeyword.value = ''
   filters.projectCode = routeProjectCode.value || ''
   filters.workflowType = ''
   filters.status = ''
+  appliedFilters.projectCode = filters.projectCode
+  appliedFilters.workflowType = ''
+  appliedFilters.status = ''
   currentPage.value = 1
   void loadWorkflows()
 }
@@ -645,119 +683,14 @@ function workflowStatusClass(status?: string | null) {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 10px;
   min-height: 0;
-  height: 100%;
-  padding: 24px 28px 14px;
+  min-height: 100%;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
   background: transparent;
 }
 
-.page-hero {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  align-items: center;
-  width: 100%;
-  min-width: 0;
-  margin: 0;
-  flex-shrink: 0;
-  min-height: 120px;
-  padding: 26px 28px;
-  position: relative;
-  overflow: hidden;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.18);
-  border-radius: 16px;
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.72) 52%, rgb(var(--brand-selected-rgb) / 0.16) 100%),
-    var(--brand-soft-bg, rgba(255, 255, 255, 0.58));
-  box-shadow: 0 18px 42px rgb(var(--brand-primary-rgb) / 0.052);
-
-  &::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background:
-      linear-gradient(90deg, rgb(var(--brand-primary-rgb) / 0.18) 0 3px, transparent 3px),
-      radial-gradient(circle at 78% 18%, rgb(var(--brand-primary-rgb) / 0.12), transparent 28%);
-    opacity: 0.72;
-  }
-
-  h1 {
-    margin: 0 0 8px;
-    color: #111827;
-    font-size: 26px;
-    font-weight: 800;
-    line-height: 1.2;
-  }
-
-  p {
-    margin: 0;
-    color: #667085;
-    font-size: 14px;
-  }
-}
-
-.hero-copy {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: flex-start;
-  gap: 18px;
-  min-width: 0;
-}
-
-.hero-accent {
-  flex: 0 0 4px;
-  width: 4px;
-  height: 28px;
-  margin-top: 4px;
-  border-radius: 999px;
-  background: var(--brand-primary);
-  box-shadow: 0 0 16px rgb(var(--brand-primary-rgb) / 0.25);
-}
-
-.hero-text {
-  min-width: 0;
-}
-
-.hero-tags {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-
-  span {
-    display: inline-flex;
-    align-items: center;
-    height: 24px;
-    padding: 0 12px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 700;
-  }
-}
-
-.tag-brand {
-  color: var(--brand-active);
-  background: var(--brand-selected-bg);
-}
-
-.tag-success {
-  color: #16a34a;
-  background: #dcfce7;
-}
-
-.tag-info {
-  color: var(--brand-primary);
-  background: rgb(var(--brand-primary-rgb) / 0.1);
-}
-
-.hero-actions,
 .empty-actions {
   position: relative;
   z-index: 1;
@@ -765,16 +698,6 @@ function workflowStatusClass(status?: string | null) {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.primary-action {
-  --el-button-bg-color: var(--brand-primary);
-  --el-button-border-color: var(--brand-primary);
-  --el-button-hover-bg-color: var(--brand-hover);
-  --el-button-hover-border-color: var(--brand-hover);
-  min-width: 142px;
-  border-radius: 8px;
-  box-shadow: 0 10px 20px rgb(var(--brand-primary-rgb) / 0.22);
 }
 
 .metric-strip {
@@ -925,7 +848,7 @@ function workflowStatusClass(status?: string | null) {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(340px, 2.4fr) minmax(170px, 0.95fr) repeat(2, minmax(170px, 1fr)) 74px 48px;
+  grid-template-columns: minmax(340px, 2.4fr) minmax(170px, 0.95fr) repeat(2, minmax(170px, 1fr)) minmax(96px, auto);
   align-items: center;
   gap: 12px;
   margin: 28px 28px 0;
@@ -971,31 +894,21 @@ function workflowStatusClass(status?: string | null) {
   }
 }
 
-.toolbar-reset,
-.toolbar-refresh {
+.toolbar-search {
   height: 40px;
   min-height: 40px;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.18);
   border-radius: 10px;
+  color: #fff;
+  border-color: transparent;
+  background: var(--brand-primary-gradient);
   font-weight: 700;
-  box-shadow: 0 6px 16px -8px rgba(100, 116, 139, 0.08);
+  box-shadow: 0 10px 18px -10px rgb(var(--brand-primary-rgb) / 0.24);
 }
 
-.toolbar-reset {
-  color: #334155;
-  background: rgba(255, 255, 255, 0.86);
-}
-
-.toolbar-refresh {
-  color: var(--brand-active);
-  background: rgba(255, 255, 255, 0.86);
-}
-
-.toolbar-reset:hover,
-.toolbar-refresh:hover {
-  color: var(--brand-active);
+.toolbar-search:hover {
+  color: #fff;
   border-color: rgb(var(--brand-primary-rgb) / 0.24);
-  background: #f8fbff;
+  background: linear-gradient(135deg, var(--brand-hover), var(--brand-primary));
 }
 
 .context-filter {
@@ -1313,20 +1226,6 @@ function workflowStatusClass(status?: string | null) {
 .workflow-list-page.is-dark {
   background: transparent;
 
-  .page-hero {
-    h1 {
-      color: #e2e8f0;
-    }
-
-    p {
-      color: #94a3b8;
-    }
-  }
-
-  .primary-action {
-    box-shadow: 0 10px 22px rgb(var(--brand-primary-rgb) / 0.28);
-  }
-
   .metric-strip,
   .workflow-card {
     border-color: rgba(255, 255, 255, 0.07);
@@ -1550,12 +1449,6 @@ function workflowStatusClass(status?: string | null) {
   }
 }
 
-:global(.main-layout.registry-shell .main-content:has(.workflow-list-page)) {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 @media (max-width: 1200px) {
   .metric-strip {
     flex-direction: column;
@@ -1571,11 +1464,6 @@ function workflowStatusClass(status?: string | null) {
 
   .metric-segment {
     min-height: 92px;
-  }
-
-  .page-hero {
-    align-items: flex-start;
-    flex-direction: column;
   }
 
   .toolbar {
@@ -1607,10 +1495,6 @@ function workflowStatusClass(status?: string | null) {
 }
 
 @media (max-width: 760px) {
-  .workflow-list-page {
-    padding: 18px 14px 24px;
-  }
-
   .metric-segment {
     min-height: 84px;
   }

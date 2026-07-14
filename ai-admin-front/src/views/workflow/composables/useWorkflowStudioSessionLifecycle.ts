@@ -1,7 +1,7 @@
 import type { Ref } from 'vue'
 import type { ChatResponse } from '@/types/chat'
 import type { WorkflowStudioState } from '@/types/workflow'
-import type { WorkflowDebugSessionView, WorkflowDebugRunResult, WorkflowDraftGenerationResult, WorkflowDraftEditResult, WorkflowNodeDebugResult } from '@/types/workflow'
+import type { WorkflowDebugSessionView, WorkflowDebugRunResult, WorkflowDraftEditResult, WorkflowNodeDebugResult } from '@/types/workflow'
 import type { CanvasNode, CanvasEdge } from '@/types/studio'
 
 export interface UseWorkflowStudioSessionLifecycleDeps {
@@ -15,7 +15,6 @@ export interface UseWorkflowStudioSessionLifecycleDeps {
   debugRunResult: Ref<WorkflowDebugRunResult | WorkflowDebugSessionView | null>
   debugSession: Ref<WorkflowDebugSessionView | null>
   debugResult: Ref<ChatResponse | null>
-  aiDraftPreview: Ref<WorkflowDraftGenerationResult | null>
   aiEditPreview: Ref<WorkflowDraftEditResult | null>
   validation: Ref<unknown>
   visualDirty: Ref<boolean>
@@ -44,7 +43,6 @@ export function useWorkflowStudioSessionLifecycle({
   debugRunResult,
   debugSession,
   debugResult,
-  aiDraftPreview,
   aiEditPreview,
   validation,
   visualDirty,
@@ -73,7 +71,6 @@ export function useWorkflowStudioSessionLifecycle({
     debugSession.value = null
     debugResult.value = null
     forgetDebugSession()
-    aiDraftPreview.value = null
     aiEditPreview.value = null
     validation.value = null
     visualDirty.value = false

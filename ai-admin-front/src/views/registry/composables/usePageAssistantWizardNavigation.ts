@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 
 export interface UsePageAssistantWizardNavigationDeps {
   projectCode?: ComputedRef<string>
-  bindingResult: Ref<{ workflowId?: string } | null>
+  attachmentResult: Ref<{ workflowId?: string; agentId?: string } | null>
   createdWorkflowId: Ref<string>
 }
 
@@ -18,7 +18,7 @@ export function usePageAssistantWizardNavigation(deps: UsePageAssistantWizardNav
   }
 
   function enterWorkflowStudio() {
-    const workflowId = deps.bindingResult.value?.workflowId || deps.createdWorkflowId.value
+    const workflowId = deps.attachmentResult.value?.workflowId || deps.createdWorkflowId.value
     if (!workflowId) {
       ElMessage.warning('缺少 Workflow ID，无法进入 Studio')
       return false
@@ -37,9 +37,27 @@ export function usePageAssistantWizardNavigation(deps: UsePageAssistantWizardNav
     return true
   }
 
+  function enterAgentWorkbench() {
+    const agentId = deps.attachmentResult.value?.agentId
+    if (!agentId) {
+      ElMessage.warning('缺少 Agent ID，无法打开工作台')
+      return false
+    }
+    router.push(`/agent/${agentId}/edit`)
+    return true
+  }
+
+  function openRunOps() {
+    const agentId = deps.attachmentResult.value?.agentId
+    router.push({ path: '/runops', query: agentId ? { agentId } : {} })
+    return true
+  }
+
   return {
     goBack,
     enterWorkflowStudio,
+    enterAgentWorkbench,
+    openRunOps,
     openAiCodingWorkflowStudio,
   }
 }

@@ -1,14 +1,18 @@
 <template>
-  <div class="page-container context-governance">
-    <div class="page-header">
-      <div>
-        <h2>上下文治理</h2>
-        <p class="page-subtitle">维护 PROJECT_DEV 项目上下文；RUNTIME_USER 仅开放映射内候选代审，不展示已采纳私有记忆条目</p>
-      </div>
-      <div class="header-actions">
-        <el-button :icon="Refresh" :loading="loading" @click="reloadAll">刷新</el-button>
-      </div>
-    </div>
+  <WorkbenchPage class="context-governance">
+    <PageHeader
+      variant="workbench"
+      domain="governance"
+      eyebrow="Context Governance"
+      title="上下文治理"
+      description="维护 PROJECT_DEV 项目上下文；RUNTIME_USER 仅开放映射内候选代审，不展示已采纳私有记忆条目"
+    >
+      <template #actions>
+        <el-tooltip content="刷新上下文治理数据" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新上下文治理数据" @click="reloadAll" />
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
     <el-alert
       type="info"
@@ -16,7 +20,6 @@
       :closable="false"
       title="PROJECT_DEV 治理与 RUNTIME_USER 代审授权分离"
       description="上下文条目和组包预览仍固定 PROJECT_DEV；Runtime 映射 tab 只允许在 ACTIVE 授权映射内审核 RUNTIME_USER 候选缓冲区，不开放已采纳私有记忆条目管理。"
-      style="margin-bottom: 12px"
     />
 
     <el-card shadow="never" class="ops-card" v-loading="opsLoading">
@@ -586,7 +589,7 @@
     </el-tabs>
 
     <!-- Candidate edit dialog -->
-    <el-dialog v-model="candidateEditDialogOpen" title="编辑候选" width="720px" destroy-on-close>
+    <AppDialog v-model="candidateEditDialogOpen" title="编辑候选" width="720px" destroy-on-close>
       <el-form v-if="candidateEditForm" :model="candidateEditForm" label-width="120px">
         <el-form-item label="候选类型" required>
           <el-select v-model="candidateEditForm.candidateType" style="width: 100%">
@@ -635,10 +638,10 @@
         <el-button @click="candidateEditDialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveCandidateEdit">保存</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
     <!-- Runtime user mapping dialog -->
-    <el-dialog v-model="runtimeMappingDialogOpen" title="新增 Runtime 代审映射" width="560px" destroy-on-close>
+    <AppDialog v-model="runtimeMappingDialogOpen" title="新增 Runtime 代审映射" width="560px" destroy-on-close>
       <el-form v-if="runtimeMappingForm" :model="runtimeMappingForm" label-width="130px">
         <el-form-item label="平台用户 ID" required>
           <el-input-number v-model="runtimeMappingForm.platformUserId" :min="1" controls-position="right" style="width: 100%" />
@@ -670,10 +673,10 @@
         <el-button @click="runtimeMappingDialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveRuntimeMapping">创建映射</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
     <!-- Item create/edit dialog -->
-    <el-dialog v-model="itemDialogOpen" :title="itemDialogTitle" width="680px" destroy-on-close>
+    <AppDialog v-model="itemDialogOpen" :title="itemDialogTitle" width="680px" destroy-on-close>
       <el-form v-if="itemForm" :model="itemForm" label-width="120px">
         <el-form-item label="Namespace" required>
           <el-select v-model="itemForm.namespaceId" style="width: 100%">
@@ -723,10 +726,10 @@
         <el-button @click="itemDialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveItem">保存</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
     <!-- Namespace create dialog -->
-    <el-dialog v-model="namespaceDialogOpen" title="创建 Namespace" width="560px" destroy-on-close>
+    <AppDialog v-model="namespaceDialogOpen" title="创建 Namespace" width="560px" destroy-on-close>
       <el-form v-if="namespaceForm" :model="namespaceForm" label-width="120px">
         <el-form-item label="类型" required>
           <el-select v-model="namespaceForm.namespaceType" style="width: 100%">
@@ -750,10 +753,10 @@
         <el-button @click="namespaceDialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveNamespace">创建</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
     <!-- Item detail drawer -->
-    <el-drawer v-model="detailOpen" :title="detailItem?.title || '上下文详情'" size="640px" destroy-on-close>
+    <AppDrawer v-model="detailOpen" :title="detailItem?.title || '上下文详情'" size="640px" destroy-on-close>
       <template v-if="detailItem">
         <el-descriptions :column="1" border size="small" class="detail-desc">
           <el-descriptions-item label="ID">{{ detailItem.id }}</el-descriptions-item>
@@ -795,10 +798,10 @@
           </el-tab-pane>
         </el-tabs>
       </template>
-    </el-drawer>
+    </AppDrawer>
 
     <!-- Evidence add dialog -->
-    <el-dialog v-model="evidenceDialogOpen" title="添加 Evidence" width="520px" destroy-on-close>
+    <AppDialog v-model="evidenceDialogOpen" title="添加 Evidence" width="520px" destroy-on-close>
       <el-form v-if="evidenceForm" :model="evidenceForm" label-width="120px">
         <el-form-item label="类型" required>
           <el-input v-model="evidenceForm.evidenceType" placeholder="MANUAL_NOTE / TRACE / DOC" />
@@ -817,10 +820,10 @@
         <el-button @click="evidenceDialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveEvidence">添加</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
     <!-- Namespace detail dialog -->
-    <el-dialog v-model="namespaceDetailOpen" title="Namespace 详情" width="560px">
+    <AppDialog v-model="namespaceDetailOpen" title="Namespace 详情" width="560px">
       <el-descriptions v-if="namespaceDetail" :column="1" border>
         <el-descriptions-item label="Key">{{ namespaceDetail.namespaceKey }}</el-descriptions-item>
         <el-descriptions-item label="类型">{{ namespaceDetail.namespaceType }}</el-descriptions-item>
@@ -828,15 +831,19 @@
         <el-descriptions-item label="Owner">{{ namespaceDetail.ownerType }} / {{ namespaceDetail.ownerId }}</el-descriptions-item>
         <el-descriptions-item label="描述">{{ namespaceDetail.description }}</el-descriptions-item>
       </el-descriptions>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
+import AppDrawer from '@/components/common/AppDrawer.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Plus, Refresh } from '@element-plus/icons-vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 
 import {
   addContextEvidence,
@@ -1928,9 +1935,6 @@ onMounted(async () => {
   color: var(--el-text-color-secondary);
   font-size: 13px;
 }
-.ops-card {
-  margin-bottom: 12px;
-}
 .ops-header {
   display: flex;
   align-items: center;
@@ -1969,9 +1973,6 @@ onMounted(async () => {
 .audit-filter-form {
   margin-bottom: 8px;
 }
-.filter-card {
-  margin-bottom: 12px;
-}
 .filter-form {
   margin-bottom: -8px;
 }
@@ -2009,9 +2010,6 @@ onMounted(async () => {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-}
-.main-tabs {
-  margin-top: 4px;
 }
 .package-form {
   margin-bottom: 12px;

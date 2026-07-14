@@ -1,5 +1,5 @@
 <template>
-  <el-drawer
+  <AppDrawer
     :model-value="modelValue"
     title="页面记忆工作台"
     size="92%"
@@ -153,7 +153,7 @@
     </div>
     <el-empty v-else description="请选择页面" :image-size="88" />
 
-    <el-dialog v-model="manualDialogVisible" title="页面记忆" width="720px" destroy-on-close>
+    <AppDialog v-model="manualDialogVisible" title="页面记忆" width="720px" destroy-on-close>
       <el-form :model="manualForm" label-width="96px">
         <el-form-item label="标题">
           <el-input v-model="manualForm.title" maxlength="120" show-word-limit />
@@ -180,9 +180,9 @@
         <el-button @click="manualDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveManualPageMemory">保存</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-dialog v-model="attachmentDialogVisible" title="附件提取候选" width="760px" destroy-on-close>
+    <AppDialog v-model="attachmentDialogVisible" title="附件提取候选" width="760px" destroy-on-close>
       <el-form :model="attachmentForm" label-width="110px">
         <el-form-item label="候选标题">
           <el-input v-model="attachmentForm.title" maxlength="120" show-word-limit />
@@ -204,11 +204,13 @@
         <el-button @click="attachmentDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveAttachmentCandidate">保存候选</el-button>
       </template>
-    </el-dialog>
-  </el-drawer>
+    </AppDialog>
+  </AppDrawer>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
+import AppDrawer from '@/components/common/AppDrawer.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { CircleCheck, Edit, Plus, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'

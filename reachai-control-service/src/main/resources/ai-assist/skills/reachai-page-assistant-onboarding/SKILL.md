@@ -9,8 +9,8 @@ Use this skill when a business frontend repository needs to connect one concrete
 - Do not implement gateway, SDK, or embed token broker work unless the user explicitly switches to project AI quick access.
 - Do not use the ReachAI platform base URL as a Maven repository, npm registry, or generic SDK file server. Page assistant onboarding may only use the manifest, `endpoints.scriptDownloadUrl`, `endpoints.skillPackageUrl`, and page-assistant endpoints.
 - Do not invent dependency paths such as `/repository/**`, `/maven/**`, `/repository/maven/**`, `/api/embed/sdk`, or `/npm/**`. If SDK or browser packages are missing, report them as project AI quick access prerequisites.
-- Do not create or manage Agents manually. Page assistant traffic enters through the project `PAGE_COPILOT` Agent, which SDK quick access provisioning creates or reuses.
-- Registering a page through `endpoints.registerPageUrl` creates or reuses a `PAGE_ASSISTANT` Workflow and mounts it to the `PAGE_COPILOT` Agent through `ai_agent_workflow_binding`.
+- Do not create or manage Agents manually. Page assistant traffic enters through the project page copilot Agent, which SDK quick access provisioning creates or reuses.
+- Registering a page through `endpoints.registerPageUrl` only registers the page and Page Actions. The ReachAI "Create Page Assistant" flow then creates and publishes a `PAGE_ASSISTANT` Workflow, adds that published Workflow to the page copilot Agent's Supervisor Workflow-as-Tool allow-list, and publishes a new Agent config version.
 - Workflow graph editing, debugging, publishing, versions, traces, and replay belong to Workflow Studio; do not reintroduce a separate agent canvas.
 - Never read, print, or commit app secrets. Only use the configured environment variable name.
 - `aiCodingKey` is for AI tools, local shell, or server-side onboarding calls only. Browser runtime code must not call `/api/ai-coding/projects/{projectId}/page-assistant/**` endpoints and must not store `aiCodingKey`, `provisionAgentUrl`, or `appSecret` in front-end configuration or bundles.
@@ -27,7 +27,7 @@ Use this skill when a business frontend repository needs to connect one concrete
 5. Register query-first actions: `getPageState`, `setFilters`, `search`, `reset`, `readTable`.
 6. Mark high-risk row actions with `confirmRequired=true` and metadata `riskLevel=HIGH`.
 7. Run the business frontend build or type check.
-8. Register the page through `endpoints.registerPageUrl` so ReachAI can create or reuse the `PAGE_ASSISTANT` Workflow and Agent binding.
+8. Register the page through `endpoints.registerPageUrl`; then use the ReachAI "Create Page Assistant" flow to create or reuse the `PAGE_ASSISTANT` Workflow and attach it to the Agent tool catalog.
 9. If the business frontend already has a custom embedded chat service and this task touches it, make sure it executes `data.metadata.pageActionQueue` (preferred) or `data.uiRequest.extension.pageActionRequest` through `window.__REACHAI_PAGE_BRIDGE__.execute(...)` and posts each result to `/api/embed/chat/sessions/{sessionId}/page-actions/{requestId}/result`. Do not only render `data.answer`.
 10. For component query libraries such as `@zhongruigroup/ngx-query` + `zr-table`, inspect the live query state that the table search actually reads. Do not report PASS if `setFilters` only writes a default template while the real Network request remains unfiltered.
 11. Report files, action keys, build/static/browser verification, and remaining blockers.

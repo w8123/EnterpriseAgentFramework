@@ -12,12 +12,12 @@ Treat the ReachAI platform repository and live API responses as the source of tr
 Core mental model:
 
 - `GraphSpec` is runtime semantics; `canvas_json` is layout only.
-- Patch/create default `layout.autoLayout=true`: platform saves rank-based `canvas_json.nodes[].position` (Studio-aligned). Before reporting back, confirm positions are spread across levels/lanes; do not patch GraphSpec only and skip canvas layout.
+- Create projects and lays out canvas from GraphSpec; patch defaults `layout.autoLayout=true`. The `layered-v2` policy uses LR flow, 88px inter-layer boundary gaps, 56px same-layer gaps, and cycle-safe component packing. Before reporting back, confirm `canvas_json.nodes[].position` is non-overlapping and aligned; do not patch GraphSpec only and skip canvas synchronization.
 - `START` and `END` are virtual GraphSpec edge endpoints, not node types. Do not add them to `nodes`.
 - Every workflow must include a real entry node, set `graphSpec.entry` to that node id, add `START -> <entryNode>` with `condition=always`, and connect every terminal branch to `END`.
 - Workflow AI Coding updates **draft definition** until an explicit publish request is made.
 - Workflow AI Coding may publish a validated draft through `POST /api/workflows/{workflowId}/ai-coding/publish`; publish still runs release validation and creates an ACTIVE `ai_workflow_version`.
-- Always read `GET .../context` before patching. Use `workflow.updatedAt` as `baseRevision` when saving.
+- Always read `GET .../context` before patching or publishing. Use the latest `workflow.updatedAt` as `baseRevision` when saving and publishing.
 - Default patch behavior is `dryRun=true`. Only set `dryRun=false` after validation passes.
 
 Authentication: Workflow AI Coding endpoints use **aiCodingKey only** (no platform Bearer). Obtain the project-level key from ReachAI **项目详情 → AI Coding 接入秘钥**. Send it on every request as header `X-ReachAI-AiCoding-Key`; do not put the key in generated URLs, scripts, logs, or browser runtime code. Missing key returns `401`; invalid or disabled key returns `403`. API base URL depends on deployment; use relative paths from the platform manifest.
@@ -69,7 +69,7 @@ When calling Workflow AI Coding APIs from Windows, prevent Chinese text from bei
    - `GET .../runs?limit=&days=`
    - `GET .../runs/{traceId}`
 8. Check release readiness: `GET .../versions`
-9. Publish when release validation is valid: `POST .../publish`
+9. Re-read context, then publish when release validation is valid: `POST .../publish` with the latest `workflow.updatedAt` as `baseRevision`
 10. Report: changed nodes/edges, validation result, traceId, release readiness, published version, and any remaining issues
 
 ## Endpoint Map
@@ -111,9 +111,9 @@ Example:
 
 `GET /api/workflows/{workflowId}/ai-coding/context`
 
-Returns workflow metadata, `graphSpec`, `canvas`, release validation, node type catalog, runtime hints, bindings, page-assistant context, **`availableModels`**, **`availableTools`**, warnings.
+Returns workflow metadata, `graphSpec`, `canvas`, release validation, node type catalog, runtime hints, page-assistant context, **`availableModels`**, **`availableTools`**, warnings.
 
-Use `workflow.updatedAt` as patch `baseRevision`.
+Use `workflow.updatedAt` as patch and publish `baseRevision`.
 
 When building LLM nodes, pick `modelInstanceId` from `availableModels[].id`. When building TOOL/CAPABILITY nodes, pick tool names from `availableTools[].name` or `qualifiedName`. If `availableModels` is empty, ask the human operator to configure model instances first; do not invent ids. `availableModels` lists ACTIVE registry instances; it is not a live credential probe, so provider auth errors during `/run` mean the operator should fix credentials or choose another listed model.
 
@@ -137,7 +137,10 @@ Important fields:
 - `operations`: list of patch ops
 - `dryRun`: default `true`; set `false` only to persist
 - `baseRevision`: use latest `workflow.updatedAt` when saving
-- `layout.autoLayout`: default `true`
+- `layout.autoLayout`: default `true`; `false` preserves existing positions while still synchronizing canvas nodes/edges and placing new nodes
+- `layout.direction`: `LR`
+- `layout.columnGap`: default `88` (card-boundary gap)
+- `layout.rowGap`: default `56` (same-layer card-boundary gap)
 - `reason`: audit note on save
 
 Supported ops:
@@ -146,8 +149,10 @@ Supported ops:
 - `UPDATE_NODE`
 - `DELETE_NODE`
 - `ADD_EDGE`
+- `UPDATE_EDGE`
 - `DELETE_EDGE`
 - `SET_ENTRY`
+- `SET_FINISH`
 
 Example preview:
 
@@ -172,7 +177,7 @@ Example preview:
     },
     {
       "op": "SET_ENTRY",
-      "entry": "start"
+      "entry": "answer"
     }
   ]
 }
@@ -243,7 +248,7 @@ Returns:
 - `draftDirty` flag
 - warnings, including publish readiness and the AI Coding publish endpoint
 
-When `releaseValidation.valid=true`, call `POST /api/workflows/{workflowId}/ai-coding/publish` with a semantic version such as `v1.0.0`. If that version already exists, read `/versions` and choose the next version. Do not call legacy admin publish endpoints.
+When `releaseValidation.valid=true`, re-read context and call `POST /api/workflows/{workflowId}/ai-coding/publish` with a semantic version such as `v1.0.0` plus the latest `workflow.updatedAt` as `baseRevision`. A `409` means the draft changed and no version was created; re-read context, validate again, and retry. If that version already exists, read `/versions` and choose the next version. Do not call legacy admin publish endpoints.
 
 ### Runs / trace
 

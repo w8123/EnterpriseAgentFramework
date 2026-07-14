@@ -3,7 +3,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { resetPageAssistantWorkflowAiCodingResult } from '@/api/scanProject'
 import type { PageActionRegistryView, PageRegistryView } from '@/api/embedOps'
 import type { ScanProject, PageAssistantSessionSummary } from '@/types/scanProject'
-import type { AgentEntry, PageAssistantWorkflowBindingResult, WorkflowDraftGenerationResult } from '@/types/workflow'
+import type { Agent, PageAssistantWorkflowAttachmentResult, WorkflowDraftGenerationResult } from '@/types/workflow'
 import {
   pageAccessTitle,
   pageIdentity,
@@ -24,8 +24,8 @@ export interface UsePageAssistantWizardAiActionsDeps {
   draftPreview: Ref<WorkflowDraftGenerationResult | null>
   draftSource: Ref<DraftSource>
   createdWorkflowId: Ref<string>
-  bindingResult: Ref<PageAssistantWorkflowBindingResult | null>
-  pageCopilotAgent: Ref<AgentEntry | null>
+  attachmentResult: Ref<PageAssistantWorkflowAttachmentResult | null>
+  pageCopilotAgent: Ref<Agent | null>
   aiPromptDialogVisible: Ref<boolean>
   workflowAiCodingPromptDialogVisible: Ref<boolean>
   workflowAiCodingResetting: Ref<boolean>
@@ -94,7 +94,7 @@ export function usePageAssistantWizardAiActions(deps: UsePageAssistantWizardAiAc
     try {
       await ElMessageBox.confirm(
         workflowId
-          ? `将删除 Workflow 草稿 ${workflowId} 并清空本次 AI Coding 回传结果；如果该 Workflow 已发布或已绑定，后端会拒绝删除。`
+          ? `将删除 Workflow 草稿 ${workflowId} 并清空本次 AI Coding 回传结果；如果该 Workflow 已发布或已加入 Agent 工具目录，后端会拒绝删除。`
           : '将清空本次 AI Coding 回传结果，然后可以复制提示词重新生成。',
         '删除并重新生成',
         {
@@ -117,7 +117,7 @@ export function usePageAssistantWizardAiActions(deps: UsePageAssistantWizardAiAc
       deps.pageAssistantSession.value = data
       if (deps.createdWorkflowId.value === workflowId || deps.draftSource.value === 'AI_CODING_RETURNED') {
         deps.createdWorkflowId.value = ''
-        deps.bindingResult.value = null
+        deps.attachmentResult.value = null
         deps.pageCopilotAgent.value = null
         deps.draftSource.value = 'NONE'
       }
@@ -139,7 +139,7 @@ export function usePageAssistantWizardAiActions(deps: UsePageAssistantWizardAiAc
         { type: 'warning', confirmButtonText: '确认改用', cancelButtonText: '取消' },
       )
       deps.createdWorkflowId.value = ''
-      deps.bindingResult.value = null
+      deps.attachmentResult.value = null
       deps.pageCopilotAgent.value = null
       deps.draftPreview.value = null
       deps.draftSource.value = 'NONE'
@@ -158,11 +158,11 @@ export function usePageAssistantWizardAiActions(deps: UsePageAssistantWizardAiAc
     deps.draftPreview.value = null
     deps.createdWorkflowId.value = workflowId
     deps.draftSource.value = 'AI_CODING_RETURNED'
-    deps.bindingResult.value = null
+    deps.attachmentResult.value = null
     deps.workflowAiCodingPromptDialogVisible.value = false
     await deps.loadPageCopilotAgent()
-    ElMessage.success('已选用 AI Coding 生成的 Workflow，请继续挂载智能体')
-    deps.selectStep('bind')
+    ElMessage.success('已选用 AI Coding 生成的 Workflow，请继续发布 Supervisor 工具目录')
+    deps.selectStep('attach')
   }
 
   function usePageAssistantAccess(session: PageAssistantSessionSummary) {

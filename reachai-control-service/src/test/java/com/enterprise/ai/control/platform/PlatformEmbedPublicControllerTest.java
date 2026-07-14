@@ -107,7 +107,7 @@ class PlatformEmbedPublicControllerTest {
                 "projectCode", "bzjs12",
                 "appKey", "app-bzjs12",
                 "tokenTtlSeconds", 900)));
-        when(runtimeProxyClient.listAgents(null, "bzjs12", null)).thenReturn(ResponseEntity.ok((Object) List.of(Map.of(
+        when(runtimeProxyClient.listAgents(null, "bzjs12")).thenReturn(ResponseEntity.ok((Object) List.of(Map.of(
                 "id", "agent-1",
                 "keySlug", "orders-bot",
                 "projectCode", "bzjs12",
@@ -270,7 +270,7 @@ class PlatformEmbedPublicControllerTest {
         assertEquals("订单已找到", response.getBody().getData().answer());
         assertEquals("embed-1", response.getBody().getData().sessionId());
         verify(runtimeProxyClient).executeAgent(argThat(body ->
-                "orders-bot".equals(body.get("agentDefinitionId"))
+                "orders-bot".equals(body.get("agentId"))
                         && "embed-1".equals(body.get("sessionId"))
                         && "查订单".equals(body.get("message"))
                         && "EMBED_CHAT".equals(body.get("intentHint"))));
@@ -284,6 +284,69 @@ class PlatformEmbedPublicControllerTest {
                         && "assistant".equals(event.getRole())
                         && "订单已找到".equals(event.getContent())
                         && "trace-1".equals(event.getTraceId())));
+    }
+
+    @Test
+    void submitsSupervisorConfirmationThroughTheAuthenticatedEmbedSession() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        PlatformEmbedTokenProperties tokenProperties = new PlatformEmbedTokenProperties();
+        tokenProperties.setSecret("test-embed-token-secret");
+        PlatformEmbedTokenService tokenService = new PlatformEmbedTokenService(objectMapper, tokenProperties);
+        PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
+        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
+        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+                tokenService,
+                sessionService,
+                mock(PlatformEmbedChatEventService.class),
+                mock(CapabilityProxyClient.class),
+                runtimeProxyClient,
+                mock(PlatformPageActionEventMapper.class));
+        String token = tokenService.issue(PlatformEmbedTokenIssueCommand.builder()
+                .tenantId("default")
+                .appId("bzjs12")
+                .projectCode("bzjs12")
+                .agentId("orders-bot")
+                .pageInstanceId("page-1")
+                .origin("http://localhost:5173")
+                .principal(new PlatformEmbedTokenIssueCommand.BusinessPrincipal(
+                        "user-1", "global-1", "Alice", List.of("operator"), Map.of()))
+                .build()).token();
+        PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1");
+        session.setTenantId("default");
+        session.setAppId("bzjs12");
+        session.setProjectCode("bzjs12");
+        session.setAgentId("orders-bot");
+        session.setExternalUserId("user-1");
+        session.setGlobalUserId("global-1");
+        session.setPageKey("orders.list");
+        session.setPageInstanceId("page-1");
+        session.setRoute("/orders");
+        session.setOrigin("http://localhost:5173");
+        session.setStatus("ACTIVE");
+        when(sessionService.requireActiveSession(eq("embed-1"), any())).thenReturn(session);
+        when(runtimeProxyClient.executeAgent(any())).thenReturn(ResponseEntity.ok(Map.of(
+                "success", true,
+                "sessionId", "embed-1",
+                "answer", "订单已更新",
+                "metadata", Map.of("traceId", "trace-2", "code", "SUPERVISOR_COMPLETED"))));
+
+        ResponseEntity<ApiResult<PlatformEmbedPublicController.EmbedChatMessageResponse>> response =
+                controller.submitInteraction(
+                        "embed-1",
+                        "spv_1",
+                        "Bearer " + token,
+                        new PlatformEmbedPublicController.EmbedInteractionSubmitRequest(
+                                "confirm", Map.of("confirm", true)));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("订单已更新", response.getBody().getData().answer());
+        verify(runtimeProxyClient).executeAgent(argThat(body ->
+                "orders-bot".equals(body.get("agentId"))
+                        && "embed-1".equals(body.get("sessionId"))
+                        && "spv_1".equals(body.get("interactionId"))
+                        && "EMBED_INTERACTION_RESUME".equals(body.get("intentHint"))
+                        && "confirm".equals(((Map<?, ?>) body.get("uiSubmit")).get("action"))));
     }
 
     @Test
@@ -348,7 +411,7 @@ class PlatformEmbedPublicControllerTest {
         assertEquals(MediaType.TEXT_EVENT_STREAM, response.getHeaders().getContentType());
         assertNotNull(response.getBody());
         verify(runtimeProxyClient).executeAgent(argThat(body ->
-                "orders-bot".equals(body.get("agentDefinitionId"))
+                "orders-bot".equals(body.get("agentId"))
                         && "embed-1".equals(body.get("sessionId"))
                         && "查订单".equals(body.get("message"))
                         && "EMBED_CHAT".equals(body.get("intentHint"))));

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import type { PageAssistantSessionSummary } from '@/types/scanProject'
 import { formatEvidence } from '@/views/registry/pageAssistantWizardViewModel'
 import { pageAccessStateLabel, pageAccessStateTagType, stepStatusTagType } from '@/views/registry/pageAssistantWizardUtils'
@@ -22,7 +23,7 @@ function close() {
 </script>
 
 <template>
-  <el-dialog
+  <AppDialog
     :model-value="visible"
     title="页面接入详情"
     width="780px"
@@ -68,5 +69,5 @@ function close() {
         基于此页面创建助手
       </el-button>
     </template>
-  </el-dialog>
+  </AppDialog>
 </template>

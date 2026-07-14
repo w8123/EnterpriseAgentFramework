@@ -4,6 +4,12 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Public RunOps read models.
+ *
+ * <p>{@code runtime_run} is the root execution fact. Spans, tool calls and
+ * guard decisions are child evidence and never manufacture a root run.</p>
+ */
 public final class RuntimeRunOpsViews {
 
     private RuntimeRunOpsViews() {
@@ -15,7 +21,7 @@ public final class RuntimeRunOpsViews {
             List<RuntimeRunOpsToolCallView> toolCalls,
             List<RuntimeRunOpsGuardDecisionView> guardDecisions,
             RuntimeRunOpsSnapshotView snapshot,
-            List<RuntimeRunOpsWorkflowPathItemView> workflowPath,
+            List<RuntimeRunOpsExecutionPathItemView> executionPath,
             List<String> repairHints) {
     }
 
@@ -34,39 +40,41 @@ public final class RuntimeRunOpsViews {
     }
 
     public record RuntimeRunOpsFailureClusterView(
+            String versionType,
             String agentId,
             String agentName,
-            String version,
-            Long versionId,
+            Long agentConfigVersionId,
+            Integer agentConfigVersion,
+            String workflowId,
+            String workflowName,
+            Long workflowVersionId,
+            String workflowVersion,
             String runtimeType,
-            String runtimePlacement,
-            String errorType,
+            String errorCode,
+            String errorMessage,
+            String spanType,
             String nodeId,
             String toolName,
             Integer count,
-            Integer fallbackCount,
             Integer avgLatencyMs,
             LocalDateTime firstSeenAt,
             LocalDateTime lastSeenAt,
             String sampleTraceId,
             List<String> traceIds,
-            String sampleError,
-            List<String> repairHints,
-            String workflowId,
-            String workflowKeySlug,
-            String workflowVersion,
-            Long workflowVersionId,
-            String sourceType,
-            String sourceId) {
+            List<String> repairHints) {
     }
 
     public record RuntimeRunOpsVersionComparisonView(
+            String versionType,
             String agentId,
             String agentName,
-            String version,
-            Long versionId,
+            Long agentConfigVersionId,
+            Integer agentConfigVersion,
+            String workflowId,
+            String workflowName,
+            Long workflowVersionId,
+            String workflowVersion,
             String runtimeType,
-            String runtimePlacement,
             Integer runCount,
             Integer successCount,
             Integer failureCount,
@@ -74,17 +82,12 @@ public final class RuntimeRunOpsViews {
             Integer avgLatencyMs,
             Integer p95LatencyMs,
             Integer avgTokenCost,
-            Integer fallbackCount,
+            Integer workflowCallCount,
             Integer toolErrorCount,
             Integer guardDenyCount,
+            Integer replanCount,
             String latestTraceId,
-            LocalDateTime latestStartedAt,
-            String workflowId,
-            String workflowKeySlug,
-            String workflowVersion,
-            Long workflowVersionId,
-            String sourceType,
-            String sourceId) {
+            LocalDateTime latestStartedAt) {
     }
 
     public record RuntimeRunOpsDiffItemView(
@@ -120,35 +123,39 @@ public final class RuntimeRunOpsViews {
 
     public record RuntimeRunOpsSummaryView(
             String traceId,
+            String runType,
+            String entryType,
             String status,
-            String agentId,
-            String agentName,
-            String version,
-            Long versionId,
-            String runtimeType,
-            String runtimePlacement,
-            String graphCode,
+            String projectCode,
+            String tenantId,
             String sessionId,
             String userId,
-            String intentType,
+            String agentId,
+            String agentKeySlug,
+            String agentName,
+            Long agentConfigVersionId,
+            Integer agentConfigVersion,
+            String workflowId,
+            String workflowKeySlug,
+            String workflowName,
+            Long workflowVersionId,
+            String workflowVersion,
+            String runtimeType,
+            String inputSummary,
+            String outputSummary,
+            String errorCode,
+            String errorMessage,
             LocalDateTime startedAt,
             LocalDateTime endedAt,
             Integer latencyMs,
             Integer tokenCost,
-            Integer nodeCount,
+            Integer planCount,
+            Integer replanCount,
+            Integer workflowCallCount,
             Integer toolCallCount,
-            Integer errorCount,
-            boolean fallback,
-            String dispatchUrl,
-            String fallbackReason,
-            String workflowId,
-            String workflowKeySlug,
-            String workflowVersion,
-            Long workflowVersionId,
-            String entryAgentId,
-            String entryAgentKeySlug,
-            String sourceType,
-            String sourceId,
+            Integer guardDenyCount,
+            Integer approvalCount,
+            String replayOfTraceId,
             Map<String, Object> metadata) {
     }
 
@@ -201,25 +208,38 @@ public final class RuntimeRunOpsViews {
     }
 
     public record RuntimeRunOpsSnapshotView(
+            String runType,
             String agentId,
+            String agentKeySlug,
             String agentName,
-            String keySlug,
+            Long agentConfigVersionId,
+            Integer agentConfigVersion,
+            String workflowId,
+            String workflowKeySlug,
+            String workflowName,
+            Long workflowVersionId,
+            String workflowVersion,
             String runtimeType,
-            String runtimePlacement,
-            Map<String, Object> runtimeConfig,
-            Object graphSpec,
+            Map<String, Object> snapshot,
             String snapshotJson) {
     }
 
-    public record RuntimeRunOpsWorkflowPathItemView(
+    public record RuntimeRunOpsExecutionPathItemView(
+            String spanId,
+            String parentSpanId,
+            Integer depth,
+            String spanType,
+            String label,
+            String status,
+            String nodeId,
+            String toolName,
+            String runtimeType,
             String fromNodeId,
             String toNodeId,
             String condition,
             String route,
-            String status,
             String workflowStatus,
             String interactionId,
-            String spanId,
             LocalDateTime startedAt,
             LocalDateTime endedAt) {
     }

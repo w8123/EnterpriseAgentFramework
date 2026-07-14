@@ -1,5 +1,5 @@
 <template>
-  <div class="embed-session-audit-page">
+  <div class="embed-session-audit-page project-workbench-page">
     <div class="page-head">
       <div>
         <h1>嵌入式会话审计</h1>
@@ -30,7 +30,7 @@
       </el-table>
     </el-card>
 
-    <el-drawer
+    <AppDrawer
       v-model="drawerVisible"
       title="会话详情"
       size="72%"
@@ -96,11 +96,12 @@
           </el-tab-pane>
         </el-tabs>
       </div>
-    </el-drawer>
+    </AppDrawer>
   </div>
 </template>
 
 <script setup lang="ts">
+import AppDrawer from '@/components/common/AppDrawer.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -175,7 +176,6 @@ onMounted(load)
 .embed-session-audit-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
 }
 
 .page-head {

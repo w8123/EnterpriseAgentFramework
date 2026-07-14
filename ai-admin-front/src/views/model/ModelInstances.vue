@@ -1,20 +1,28 @@
 <template>
-  <div class="page-container model-center">
-    <div class="page-header model-hero">
-      <div class="hero-copy">
-        <div class="eyebrow">Model Center</div>
-        <h2>模型中心</h2>
-        <p class="page-subtitle">
-          统一管理可被知识库、业务索引、智能体和能力编排引用的模型实例。
-        </p>
-      </div>
-      <div class="header-actions">
-        <el-button :icon="Refresh" :loading="loading" @click="fetchInstances">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click.stop.prevent="openCreate">添加模型</el-button>
-      </div>
-    </div>
+  <WorkbenchPage class="model-center" layout="list">
+    <CollapsibleHeaderRegion :collapsed="isModelHeaderCollapsed">
+      <PageHeader
+        variant="overview"
+        domain="platform"
+        eyebrow="Model Center"
+        title="模型中心"
+        description="统一管理可被知识库、业务索引、智能体和能力编排引用的模型实例。"
+        :collapsed="isModelHeaderCollapsed"
+      >
+        <template #actions>
+          <el-tooltip content="刷新模型实例" placement="top">
+            <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新模型实例" @click="fetchInstances" />
+          </el-tooltip>
+          <el-button type="primary" :icon="Plus" @click.stop.prevent="openCreate">添加模型</el-button>
+        </template>
+      </PageHeader>
 
-    <div class="model-shell">
+      <template #summary>
+        <MetricStrip class="model-metric-strip" :items="metricItems" aria-label="模型中心指标概览" />
+      </template>
+    </CollapsibleHeaderRegion>
+
+    <div class="model-shell workbench-list-surface">
       <aside class="provider-panel">
         <div class="panel-title">
           <span>供应商</span>
@@ -38,40 +46,43 @@
       </aside>
 
       <main class="model-main">
-        <section class="stats-grid">
-          <div v-for="stat in summaryStats" :key="stat.label" class="stat-card">
-            <div class="stat-label">{{ stat.label }}</div>
-            <div class="stat-value">{{ stat.value }}</div>
-            <div class="stat-note">{{ stat.note }}</div>
-          </div>
-        </section>
-
         <section class="toolbar-card">
-          <div class="filter-row">
+          <FilterBar
+            class="model-filter-bar"
+            :loading="loading"
+            query-label="搜索"
+            @query="applyFilters"
+            @reset="resetFilters"
+          >
             <el-input
-              v-model="filters.keyword"
+              v-model="filterDraft.keyword"
               clearable
               placeholder="搜索名称、模型名或供应商"
               class="search-input"
               :prefix-icon="Search"
             />
-            <el-select v-model="filters.modelType" clearable placeholder="模型类型" class="type-select" @change="fetchInstances">
+            <el-select v-model="filterDraft.modelType" clearable placeholder="模型类型" class="type-select">
               <el-option v-for="item in modelTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
-            <el-select v-model="filters.status" clearable placeholder="状态" class="status-select">
+            <el-select v-model="filterDraft.status" clearable placeholder="状态" class="status-select">
               <el-option label="可用" value="ACTIVE" />
               <el-option label="停用" value="DISABLED" />
               <el-option label="异常" value="ERROR" />
             </el-select>
-            <el-radio-group v-model="viewMode" class="view-toggle">
-              <el-radio-button label="card">
-                <el-icon><Grid /></el-icon>
-              </el-radio-button>
-              <el-radio-button label="table">
-                <el-icon><List /></el-icon>
-              </el-radio-button>
-            </el-radio-group>
-          </div>
+
+            <template #actions>
+              <el-radio-group v-model="viewMode" class="view-toggle" aria-label="模型列表视图">
+                <el-radio-button label="card" aria-label="卡片视图">
+                  <el-icon><Grid /></el-icon>
+                </el-radio-button>
+                <el-radio-button label="table" aria-label="表格视图">
+                  <el-icon><List /></el-icon>
+                </el-radio-button>
+              </el-radio-group>
+              <el-button native-type="button" @click="resetFilters">重置</el-button>
+              <el-button type="primary" native-type="submit" :icon="Search" :loading="loading">搜索</el-button>
+            </template>
+          </FilterBar>
 
           <div class="type-tabs">
             <button
@@ -186,7 +197,7 @@
       </main>
     </div>
 
-    <el-dialog
+    <AppDialog
       v-model="dialogVisible"
       :title="editingId ? '编辑模型实例' : '添加模型实例'"
       width="720px"
@@ -300,12 +311,13 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import AppDialog from '@/components/common/AppDialog.vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   ChatDotRound,
@@ -322,6 +334,13 @@ import {
   VideoCamera,
 } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
+import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
+import FilterBar from '@/components/common/FilterBar.vue'
+import MetricStrip from '@/components/common/MetricStrip.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import type { MetricStripItem } from '@/components/common/glassWorkbench'
+import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
 import type { ModelInstance, ModelInstanceRequest, ModelInstanceStatus, ModelType } from '@/types/model'
 import {
   createModelInstance,
@@ -411,6 +430,19 @@ const filters = reactive({
   modelType: '' as ModelType | '',
   provider: '',
   status: '' as ModelInstanceStatus | '',
+})
+
+const filterDraft = reactive({
+  keyword: '',
+  modelType: '' as ModelType | '',
+  status: '' as ModelInstanceStatus | '',
+})
+
+const {
+  collapsed: isModelHeaderCollapsed,
+  refreshScrollTargets: refreshModelHeaderScrollTargets,
+} = useCollapsiblePageHeader({
+  rootSelector: '.model-center',
 })
 
 const form = reactive<ModelInstanceRequest>({
@@ -555,15 +587,43 @@ const filteredInstances = computed(() => {
 
 const currentProviderConfig = computed<ProviderCredentialConfig>(() => providerCredentialConfig(form.provider))
 
-const summaryStats = computed(() => {
+const metricItems = computed<MetricStripItem[]>(() => {
   const activeCount = instances.value.filter((item) => item.status === 'ACTIVE').length
   const providerCount = new Set(instances.value.map((item) => item.provider)).size
   const typeCount = new Set(instances.value.map((item) => item.modelType)).size
   return [
-    { label: '模型实例', value: instances.value.length, note: '已纳入统一引用' },
-    { label: '可用实例', value: activeCount, note: '可被业务调用' },
-    { label: '供应商', value: providerCount, note: '接入来源' },
-    { label: '能力类型', value: typeCount, note: 'LLM / 向量 / 重排等' },
+    {
+      key: 'model-total',
+      label: '模型实例',
+      value: instances.value.length,
+      hint: '已纳入统一引用',
+      iconKey: 'model-total',
+      tone: 'brand',
+    },
+    {
+      key: 'model-ready',
+      label: '可用实例',
+      value: activeCount,
+      hint: '可被业务调用',
+      iconKey: 'model-ready',
+      tone: activeCount ? 'success' : 'neutral',
+    },
+    {
+      key: 'model-providers',
+      label: '供应商',
+      value: providerCount,
+      hint: '模型接入来源',
+      iconKey: 'model-providers',
+      tone: 'info',
+    },
+    {
+      key: 'model-types',
+      label: '能力类型',
+      value: typeCount,
+      hint: 'LLM / 向量 / 重排等',
+      iconKey: 'model-types',
+      tone: 'warning',
+    },
   ]
 })
 
@@ -715,12 +775,31 @@ function formatDate(value?: string) {
 
 function selectProvider(provider: string) {
   filters.provider = provider
-  fetchInstances()
+  void fetchInstances()
 }
 
 function selectModelType(type: ModelType | '') {
+  filterDraft.modelType = type
   filters.modelType = type
-  fetchInstances()
+  void fetchInstances()
+}
+
+function applyFilters() {
+  filters.keyword = filterDraft.keyword
+  filters.modelType = filterDraft.modelType
+  filters.status = filterDraft.status
+  void fetchInstances()
+}
+
+function resetFilters() {
+  filterDraft.keyword = ''
+  filterDraft.modelType = ''
+  filterDraft.status = ''
+  filters.keyword = ''
+  filters.modelType = ''
+  filters.provider = ''
+  filters.status = ''
+  void fetchInstances()
 }
 
 function resetForm() {
@@ -856,49 +935,76 @@ watch(
   },
 )
 
-onMounted(fetchInstances)
+onMounted(async () => {
+  await fetchInstances()
+  await nextTick()
+  refreshModelHeaderScrollTargets()
+})
 </script>
 
 <style scoped lang="scss">
 .model-center {
+  min-height: 100%;
   color: var(--text-primary);
 }
 
-.model-hero {
-  align-items: center;
+.model-metric-strip {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-height: 104px;
+  padding: 0;
+  gap: 0;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 18px 42px rgb(var(--brand-primary-rgb) / 0.052);
+  backdrop-filter: blur(9px);
+  overflow: hidden;
 }
 
-.hero-copy {
-  min-width: 0;
+.model-metric-strip :deep(.metric-strip__item) {
+  min-height: 104px;
+  padding: 18px 22px;
+  gap: 18px;
 }
 
-.eyebrow {
-  margin-bottom: 6px;
-  color: var(--accent-color);
+.model-metric-strip :deep(.metric-strip__item + .metric-strip__item) {
+  padding-inline-start: 22px;
+  border-inline-start-color: rgb(var(--brand-primary-rgb) / 0.18);
+}
+
+.model-metric-strip :deep(.metric-icon-bg) {
+  --metric-icon-bg-size: 48px;
+  --metric-icon-glyph-size: 24px;
+}
+
+.model-metric-strip :deep(.metric-strip__label) {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.model-metric-strip :deep(.metric-strip__value) {
+  color: #0f172a;
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 30px;
+}
+
+.model-metric-strip :deep(.metric-strip__hint) {
+  color: #64748b;
   font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.page-subtitle {
-  max-width: 680px;
-  margin: 8px 0 0;
-  color: var(--text-secondary);
-  line-height: 1.6;
 }
 
 .model-shell {
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
   gap: 18px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .provider-panel,
 .toolbar-card,
-.result-card,
-.stat-card {
+.result-card {
   border: 1px solid var(--border-glass);
   border-radius: 8px;
   background: color-mix(in srgb, var(--bg-card) 92%, transparent);
@@ -988,31 +1094,9 @@ onMounted(fetchInstances)
 }
 
 .model-main {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.stat-card {
-  padding: 16px;
-}
-
-.stat-label,
-.stat-note {
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.stat-value {
-  margin: 8px 0 4px;
-  color: var(--text-primary);
-  font-size: 26px;
-  font-weight: 800;
 }
 
 .toolbar-card {
@@ -1020,11 +1104,34 @@ onMounted(fetchInstances)
   margin-bottom: 14px;
 }
 
-.filter-row {
-  display: flex;
-  gap: 10px;
+.model-filter-bar {
+  padding: 12px;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.14);
+  border-radius: 8px;
+  background: rgb(var(--brand-selected-rgb) / 0.28);
+  box-shadow: none;
+}
+
+.model-filter-bar :deep(.filter-bar__fields) {
+  flex-wrap: nowrap;
   align-items: center;
-  flex-wrap: wrap;
+}
+
+.model-filter-bar :deep(.filter-bar__actions) {
+  align-items: center;
+}
+
+.model-filter-bar :deep(.el-input__wrapper),
+.model-filter-bar :deep(.el-select__wrapper) {
+  min-height: 40px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 0 0 1px rgb(var(--brand-primary-rgb) / 0.14) inset;
+}
+
+.model-filter-bar :deep(.el-button) {
+  min-height: 40px;
+  border-radius: 8px;
 }
 
 .search-input {
@@ -1034,11 +1141,12 @@ onMounted(fetchInstances)
 
 .type-select,
 .status-select {
+  flex: 0 0 150px;
   width: 150px;
 }
 
 .view-toggle {
-  margin-left: auto;
+  flex: 0 0 auto;
 }
 
 .view-toggle :deep(.el-radio-button__inner) {
@@ -1086,6 +1194,7 @@ onMounted(fetchInstances)
 }
 
 .result-card {
+  flex: 1 0 auto;
   min-height: 360px;
   padding: 16px;
 }
@@ -1292,7 +1401,7 @@ onMounted(fetchInstances)
   font-size: 13px;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1280px) {
   .model-shell {
     grid-template-columns: 1fr;
   }
@@ -1308,15 +1417,26 @@ onMounted(fetchInstances)
     grid-column: 1 / -1;
   }
 
-  .stats-grid {
+  .model-metric-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 760px) {
-  .stats-grid,
+  .model-metric-strip,
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .model-metric-strip :deep(.metric-strip__item + .metric-strip__item) {
+    padding-block-start: 18px;
+    padding-inline-start: 22px;
+    border-block-start: 1px solid rgb(var(--brand-primary-rgb) / 0.18);
+    border-inline-start: 0;
+  }
+
+  .model-filter-bar :deep(.filter-bar__fields) {
+    flex-wrap: wrap;
   }
 
   .view-toggle {
@@ -1329,6 +1449,7 @@ onMounted(fetchInstances)
 
   .type-select,
   .status-select {
+    flex-basis: 100%;
     width: 100%;
   }
 }

@@ -1,10 +1,12 @@
 import { ref, type ComputedRef, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  bindPageAssistantWorkflow,
+  attachPageAssistantWorkflowTool,
   createWorkflow,
   generateWorkflowDraft,
-  listAgentEntries,
+  listAgents,
+  listWorkflowVersions,
+  publishWorkflowVersion,
   saveWorkflowStudio,
 } from '@/api/workflow'
 import type {
@@ -13,8 +15,8 @@ import type {
 } from '@/api/embedOps'
 import type { ProjectToolInfo, ScanProject } from '@/types/scanProject'
 import type {
-  AgentEntry,
-  PageAssistantWorkflowBindingResult,
+  Agent,
+  PageAssistantWorkflowAttachmentResult,
   WorkflowDefinitionDraft,
   WorkflowDraftGenerationResult,
   WorkflowDraftResource,
@@ -26,7 +28,15 @@ import {
 import { safeJson } from '../pageAssistantWizardUtils'
 
 type DraftSource = 'NONE' | 'PLATFORM_GENERATED' | 'AI_CODING_RETURNED'
-type WizardStepKey = 'connect' | 'page' | 'action' | 'draft' | 'confirm' | 'bind' | 'studio'
+type WizardStepKey = 'connect' | 'page' | 'action' | 'draft' | 'confirm' | 'attach' | 'studio'
+
+function pageCopilotAgentKey(projectCode: string, projectId?: number | null) {
+  const source = projectCode.trim() || `project-${projectId}`
+  return source.toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') + '-page-copilot'
+}
 
 interface UsePageAssistantWorkflowLifecycleDeps {
   project: Ref<ScanProject | null>
@@ -42,8 +52,8 @@ interface UsePageAssistantWorkflowLifecycleDeps {
   draftPreview: Ref<WorkflowDraftGenerationResult | null>
   draftSource: Ref<DraftSource>
   createdWorkflowId: Ref<string>
-  bindingResult: Ref<PageAssistantWorkflowBindingResult | null>
-  pageCopilotAgent: Ref<AgentEntry | null>
+  attachmentResult: Ref<PageAssistantWorkflowAttachmentResult | null>
+  pageCopilotAgent: Ref<Agent | null>
   draftIssueCount: ComputedRef<number>
   defaultRequirement: () => string
   pageAssistantWorkflowName: () => string
@@ -55,7 +65,19 @@ interface UsePageAssistantWorkflowLifecycleDeps {
 export function usePageAssistantWorkflowLifecycle(deps: UsePageAssistantWorkflowLifecycleDeps) {
   const generating = ref(false)
   const creatingWorkflow = ref(false)
-  const bindingAgent = ref(false)
+  const attachingAgent = ref(false)
+
+  async function nextWorkflowVersion(workflowId: string) {
+    const { data } = await listWorkflowVersions(workflowId)
+    const versions = data
+      .map((item) => /^v?(\d+)\.(\d+)\.(\d+)$/.exec(item.version || ''))
+      .filter((item): item is RegExpExecArray => Boolean(item))
+      .map((item) => [Number(item[1]), Number(item[2]), Number(item[3])] as const)
+      .sort((left, right) => right[0] - left[0] || right[1] - left[1] || right[2] - left[2])
+    if (!versions.length) return 'v1.0.0'
+    const [major, minor, patch] = versions[0]
+    return `v${major}.${minor}.${patch + 1}`
+  }
 
   function pageActionToResource(action: PageActionRegistryView): WorkflowDraftResource {
     const page = deps.pageRegistry.value.find((item) => item.pageKey === action.pageKey)
@@ -97,12 +119,12 @@ export function usePageAssistantWorkflowLifecycle(deps: UsePageAssistantWorkflow
   async function loadPageCopilotAgent() {
     if (!deps.project.value?.id && !deps.projectCode.value) return
     try {
-      const { data } = await listAgentEntries({
+      const { data } = await listAgents({
         projectId: deps.project.value?.id ?? undefined,
         projectCode: deps.projectCode.value,
-        agentKind: 'PAGE_COPILOT',
       })
-      deps.pageCopilotAgent.value = data[0] || null
+      const expectedKey = pageCopilotAgentKey(deps.projectCode.value, deps.project.value?.id)
+      deps.pageCopilotAgent.value = data.find((agent) => agent.keySlug === expectedKey) || null
     } catch {
       deps.pageCopilotAgent.value = null
     }
@@ -137,7 +159,7 @@ export function usePageAssistantWorkflowLifecycle(deps: UsePageAssistantWorkflow
       deps.draftPreview.value = data
       deps.draftSource.value = 'PLATFORM_GENERATED'
       deps.createdWorkflowId.value = ''
-      deps.bindingResult.value = null
+      deps.attachmentResult.value = null
       deps.pageCopilotAgent.value = null
       deps.selectStep('confirm')
       if (data.validationErrors?.length) {
@@ -190,12 +212,18 @@ export function usePageAssistantWorkflowLifecycle(deps: UsePageAssistantWorkflow
       }
       const { data: workflow } = await createWorkflow(workflowDraft)
       await saveWorkflowStudio(workflow.id, { graphSpecJson, canvasJson, extraJson })
+      await publishWorkflowVersion(workflow.id, {
+        version: await nextWorkflowVersion(workflow.id),
+        rolloutPercent: 100,
+        note: 'PAGE_ASSISTANT wizard initial publish',
+        publishedBy: 'page-assistant-wizard',
+      })
       deps.draftSource.value = 'PLATFORM_GENERATED'
       deps.createdWorkflowId.value = workflow.id
-      deps.bindingResult.value = null
+      deps.attachmentResult.value = null
       await loadPageCopilotAgent()
-      ElMessage.success('页面助手 Workflow 草稿已创建')
-      deps.selectStep('bind')
+      ElMessage.success('页面助手 Workflow 已创建并发布')
+      deps.selectStep('attach')
     } catch (error) {
       ElMessage.error((error as Error).message || '创建页面助手 Workflow 失败')
     } finally {
@@ -203,43 +231,41 @@ export function usePageAssistantWorkflowLifecycle(deps: UsePageAssistantWorkflow
     }
   }
 
-  async function bindToPageCopilot() {
+  async function attachToPageCopilot() {
     if (!deps.createdWorkflowId.value) return
-    bindingAgent.value = true
+    attachingAgent.value = true
     try {
-      const { data } = await bindPageAssistantWorkflow(deps.createdWorkflowId.value, {
+      const { data } = await attachPageAssistantWorkflowTool(deps.createdWorkflowId.value, {
         projectId: deps.project.value?.id ?? null,
         projectCode: deps.projectCode.value,
         agentId: deps.pageCopilotAgent.value?.id ?? null,
-        pageKey: deps.selectedPageKey.value,
-        routePattern: deps.selectedPage.value?.routePattern || '',
-        actionKeys: deps.selectedActions.value.map((item) => item.actionKey).filter(Boolean),
+        modelInstanceId: deps.modelInstanceId.value,
+        publishedBy: 'page-assistant-wizard',
       })
-      deps.bindingResult.value = data
+      deps.attachmentResult.value = data
       if (!deps.pageCopilotAgent.value) {
         deps.pageCopilotAgent.value = {
           id: data.agentId,
           keySlug: data.agentKeySlug,
           name: `${deps.project.value?.name || deps.projectCode.value} Page Copilot`,
-          agentKind: 'PAGE_COPILOT',
         }
       }
-      ElMessage.success('页面助手 Workflow 已挂载到页面副驾驶 Agent')
+      ElMessage.success('Workflow 已加入 Supervisor 工具目录，Agent 配置已发布')
       deps.selectStep('studio')
     } catch (error) {
-      ElMessage.error((error as Error).message || '挂载页面副驾驶 Agent 失败')
+      ElMessage.error((error as Error).message || '发布页面副驾驶 Supervisor 配置失败')
     } finally {
-      bindingAgent.value = false
+      attachingAgent.value = false
     }
   }
 
   return {
     generating,
     creatingWorkflow,
-    bindingAgent,
+    attachingAgent,
     loadPageCopilotAgent,
     generateDraft,
     confirmCreateWorkflow,
-    bindToPageCopilot,
+    attachToPageCopilot,
   }
 }

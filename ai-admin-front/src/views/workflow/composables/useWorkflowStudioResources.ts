@@ -124,14 +124,19 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
     }
   }
 
-  async function loadCredentialOptions(state: WorkflowStudioState | null = deps.studio.value) {
+  async function loadCredentialOptions(
+    state: WorkflowStudioState | null = deps.studio.value,
+    shouldApply: () => boolean = () => true,
+  ) {
     try {
       const { data } = await listWorkflowCredentials({
         projectId: state?.projectId || null,
         projectCode: state?.projectCode || null,
       })
+      if (!shouldApply()) return
       credentialOptions.value = Array.isArray(data) ? data : []
     } catch {
+      if (!shouldApply()) return
       credentialOptions.value = []
     }
   }
@@ -158,12 +163,9 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
   }
 
   return {
-    nodeTypesLoading,
     nodeTypes,
     modelOptions,
     knowledgeOptions,
-    toolOptions,
-    compositionOptions,
     credentialOptions,
     paramSourceHints,
     graphNodeTypeCapabilitiesLoaded,

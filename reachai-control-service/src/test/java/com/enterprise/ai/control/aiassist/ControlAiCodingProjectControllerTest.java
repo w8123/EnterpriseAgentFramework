@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.aiassist;
 
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
+import com.enterprise.ai.control.client.model.ControlModelCatalogClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -16,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -25,7 +27,8 @@ class ControlAiCodingProjectControllerTest {
     void exposesAiCodingGatewayManifestWithoutEchoingRawProjectKey() {
         CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
         RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
-        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient);
+        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient,
+                mock(ControlModelCatalogClient.class));
         when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
                 "id", 7L,
                 "name", "Orders",
@@ -69,7 +72,8 @@ class ControlAiCodingProjectControllerTest {
     void exposesExternalPageAssistantManifestUnderAiCodingGatewayPath() {
         CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
         RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
-        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient);
+        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient,
+                mock(ControlModelCatalogClient.class));
         when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
                 "id", 7L,
                 "name", "Orders",
@@ -100,11 +104,14 @@ class ControlAiCodingProjectControllerTest {
     void exposesExternalSdkAccessSessionRoutesWithoutFallingThroughToRetiredProxy() {
         CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
         RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
-        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient);
+        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient,
+                mock(ControlModelCatalogClient.class));
         when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
                 "id", 7L,
                 "name", "Orders",
                 "projectCode", "orders",
+                "baseUrl", "https://orders.example.com",
+                "contextPath", "/orders-api",
                 "registryCredentialConfigured", true,
                 "aiCodingAccess", Map.of("enabled", true, "accessKey", "aic_secret")
         ));
@@ -127,20 +134,29 @@ class ControlAiCodingProjectControllerTest {
         assertEquals("PASS", report.getBody().status());
         assertEquals(1, report.getBody().completedSteps());
         assertEquals("PASS", checks.getBody().checkResult().overallStatus());
+        assertEquals(
+                "https://orders.example.com/orders-api/reachai/registry/capabilities/sync",
+                checks.getBody().checkResult().checks().stream()
+                        .filter(check -> "SDK_SYNC_CALLBACK".equals(check.key()))
+                        .findFirst()
+                        .orElseThrow()
+                        .evidence());
     }
 
     @Test
     void provisionsPageCopilotAgentThroughRuntimeService() {
         CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
         RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
-        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient);
+        ControlModelCatalogClient modelClient = mock(ControlModelCatalogClient.class);
+        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient,
+                modelClient);
         when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
                 "id", 7L,
                 "name", "Orders",
                 "projectCode", "orders",
                 "projectKind", "REGISTERED"
         ));
-        when(runtimeClient.listAgents(7L, "orders", "PAGE_COPILOT"))
+        when(runtimeClient.listAgents(7L, "orders"))
                 .thenReturn(ResponseEntity.ok(List.of()));
         when(runtimeClient.createAgent(org.mockito.ArgumentMatchers.anyMap()))
                 .thenReturn(ResponseEntity.ok(Map.of(
@@ -148,59 +164,67 @@ class ControlAiCodingProjectControllerTest {
                         "keySlug", "orders-page-copilot",
                         "name", "Orders Page Copilot",
                         "projectCode", "orders",
-                        "agentKind", "PAGE_COPILOT",
                         "enabled", true
                 )));
-        when(runtimeClient.listWorkflows(7L, "orders", "PAGE_COPILOT_DEFAULT", null))
+        when(modelClient.list(null, "LLM", null)).thenReturn(ResponseEntity.ok(Map.of(
+                "code", 200,
+                "data", List.of(Map.of(
+                        "id", "model-1",
+                        "modelType", "LLM",
+                        "status", "ACTIVE")))));
+        when(runtimeClient.listAgentConfigVersions("agent-1"))
                 .thenReturn(ResponseEntity.ok(List.of()));
-        when(runtimeClient.createWorkflow(org.mockito.ArgumentMatchers.anyMap()))
-                .thenReturn(ResponseEntity.ok(Map.of(
-                        "id", "wf-1",
-                        "keySlug", "orders-page-copilot-default",
-                        "name", "Orders Page Copilot Default Workflow",
-                        "workflowType", "PAGE_COPILOT_DEFAULT",
-                        "status", "DRAFT",
-                        "managedBy", "SDK_ONBOARDING"
-                )));
-        when(runtimeClient.listAgentWorkflowBindings("agent-1"))
-                .thenReturn(ResponseEntity.ok(List.of()));
-        when(runtimeClient.createAgentWorkflowBinding(org.mockito.ArgumentMatchers.eq("agent-1"),
+        when(runtimeClient.saveAgentConfigDraft(org.mockito.ArgumentMatchers.eq("agent-1"),
                 org.mockito.ArgumentMatchers.anyMap()))
                 .thenReturn(ResponseEntity.ok(Map.of(
-                        "id", 12L,
+                        "id", 21L,
                         "agentId", "agent-1",
-                        "workflowId", "wf-1",
-                        "bindingType", "DEFAULT",
-                        "enabled", true
+                        "versionNo", 1,
+                        "runtimeType", "AGENTSCOPE",
+                        "modelInstanceId", "model-1",
+                        "status", "DRAFT",
+                        "tools", List.of()
+                )));
+        when(runtimeClient.publishAgentConfigVersion(org.mockito.ArgumentMatchers.eq("agent-1"),
+                org.mockito.ArgumentMatchers.eq(21L),
+                org.mockito.ArgumentMatchers.anyMap()))
+                .thenReturn(ResponseEntity.ok(Map.of(
+                        "id", 21L,
+                        "agentId", "agent-1",
+                        "versionNo", 1,
+                        "runtimeType", "AGENTSCOPE",
+                        "modelInstanceId", "model-1",
+                        "status", "ACTIVE",
+                        "tools", List.of()
                 )));
 
         ResponseEntity<Map<String, Object>> response =
                 controller.provisionProjectAgent(7L, Map.of("requestedBy", "Codex"));
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals("agent-provisioning.v1", response.getBody().get("schema"));
+        assertEquals("agent-provisioning.v2", response.getBody().get("schema"));
         assertEquals(true, response.getBody().get("createdAgent"));
-        assertEquals(true, response.getBody().get("createdDefaultWorkflow"));
-        assertEquals(true, response.getBody().get("createdDefaultBinding"));
+        assertEquals(true, response.getBody().get("createdSupervisorConfig"));
+        assertEquals("ACTIVE", ((Map<?, ?>) response.getBody().get("supervisorConfig")).get("status"));
+        assertEquals(21L, ((Map<?, ?>) response.getBody().get("agent")).get("activeConfigVersionId"));
         verify(runtimeClient).createAgent(org.mockito.ArgumentMatchers.anyMap());
-        ArgumentCaptor<Map<String, Object>> workflowBodyCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(runtimeClient).createWorkflow(workflowBodyCaptor.capture());
-        String graphSpecJson = String.valueOf(workflowBodyCaptor.getValue().get("graphSpecJson"));
-        assertFalse(graphSpecJson.contains("\"nodes\":[]"));
-        assertTrue(graphSpecJson.contains("\"entry\":\"user_input\""));
-        assertTrue(graphSpecJson.contains("\"type\":\"USER_INPUT\""));
-        assertTrue(graphSpecJson.contains("\"type\":\"ANSWER\""));
-        assertTrue(graphSpecJson.contains("\"from\":\"user_input\""));
-        assertTrue(graphSpecJson.contains("\"to\":\"answer\""));
-        verify(runtimeClient).createAgentWorkflowBinding(org.mockito.ArgumentMatchers.eq("agent-1"),
-                org.mockito.ArgumentMatchers.anyMap());
+        ArgumentCaptor<Map<String, Object>> agentBodyCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(runtimeClient).createAgent(agentBodyCaptor.capture());
+        assertFalse(agentBodyCaptor.getValue().containsKey("systemPrompt"));
+        assertFalse(agentBodyCaptor.getValue().containsKey("modelInstanceId"));
+        assertFalse(agentBodyCaptor.getValue().containsKey("entryConfigJson"));
+        ArgumentCaptor<Map<String, Object>> configBodyCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(runtimeClient).saveAgentConfigDraft(org.mockito.ArgumentMatchers.eq("agent-1"), configBodyCaptor.capture());
+        assertEquals("model-1", configBodyCaptor.getValue().get("modelInstanceId"));
+        verify(runtimeClient, never()).createWorkflow(org.mockito.ArgumentMatchers.anyMap());
     }
 
     @Test
     void exposesExternalPageAssistantSessionRoutesWithoutFallingThroughToRetiredProxy() {
         CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
         RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
-        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient);
+        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient,
+                mock(ControlModelCatalogClient.class));
         when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
                 "id", 7L,
                 "name", "Orders",
@@ -237,7 +261,8 @@ class ControlAiCodingProjectControllerTest {
     void acceptsExternalContextCandidateSubmissionsWithoutFallingThroughToRetiredProxy() {
         CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
         RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
-        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient);
+        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient,
+                mock(ControlModelCatalogClient.class));
         when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
                 "id", 7L,
                 "name", "Orders",

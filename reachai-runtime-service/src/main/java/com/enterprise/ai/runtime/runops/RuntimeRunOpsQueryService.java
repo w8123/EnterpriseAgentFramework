@@ -5,36 +5,38 @@ import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsComparis
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsDetailView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsDiagnosticsView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsDiffItemView;
+import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsExecutionPathItemView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsFailureClusterView;
-import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsGuardDiffView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsGuardDecisionView;
+import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsGuardDiffView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsSnapshotView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsSpanDiffView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsSpanView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsSummaryView;
-import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsToolDiffView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsToolCallView;
+import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsToolDiffView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsVersionComparisonView;
-import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsWorkflowPathItemView;
-import com.enterprise.ai.runtime.trace.RuntimeAgentTraceSpanEntity;
-import com.enterprise.ai.runtime.trace.RuntimeAgentTraceSpanMapper;
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogEntity;
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
+import com.enterprise.ai.runtime.trace.RuntimeTraceSpanEntity;
+import com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -43,67 +45,86 @@ public class RuntimeRunOpsQueryService {
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
+    private final RuntimeRunMapper runMapper;
+    private final RuntimeTraceSpanMapper spanMapper;
     private final RuntimeToolCallLogMapper toolLogMapper;
-    private final RuntimeAgentTraceSpanMapper spanMapper;
     private final RuntimeGuardDecisionLogMapper guardDecisionMapper;
     private final ObjectMapper objectMapper;
 
     public RuntimeRunOpsDetailView detail(String traceId) {
-        if (!StringUtils.hasText(traceId)) {
-            throw new IllegalArgumentException("traceId 不能为空");
-        }
-        String normalizedTraceId = traceId.trim();
-        List<RuntimeToolCallLogEntity> toolLogs = findToolLogs(normalizedTraceId);
-        List<RuntimeAgentTraceSpanEntity> spans = findSpans(normalizedTraceId);
-        List<RuntimeGuardDecisionLogEntity> guardDecisions = findGuardDecisions(normalizedTraceId);
-        if (toolLogs.isEmpty() && spans.isEmpty() && guardDecisions.isEmpty()) {
+        String normalizedTraceId = requiredText(traceId, "traceId 不能为空");
+        RuntimeRunEntity run = runMapper.selectOne(new LambdaQueryWrapper<RuntimeRunEntity>()
+                .eq(RuntimeRunEntity::getTraceId, normalizedTraceId)
+                .last("limit 1"));
+        if (run == null) {
             throw new IllegalArgumentException("RunOps 运行记录不存在: " + normalizedTraceId);
         }
-        Map<String, Object> metadata = mergedMetadata(spans);
-        RuntimeRunOpsSummaryView summary = buildSummary(normalizedTraceId, toolLogs, spans, guardDecisions, metadata);
-        List<RuntimeRunOpsSpanView> spanViews = spans.stream()
-                .sorted(Comparator
-                        .comparing(RuntimeAgentTraceSpanEntity::getStartedAt, Comparator.nullsLast(LocalDateTime::compareTo))
-                        .thenComparing(RuntimeAgentTraceSpanEntity::getId, Comparator.nullsLast(Long::compareTo)))
-                .map(this::toSpanView)
+
+        List<RuntimeTraceSpanEntity> spans = findSpans(normalizedTraceId);
+        List<RuntimeToolCallLogEntity> toolCalls = findToolCalls(normalizedTraceId);
+        List<RuntimeGuardDecisionLogEntity> guardDecisions = findGuardDecisions(normalizedTraceId);
+        RuntimeRunOpsSummaryView summary = toSummary(run);
+        List<RuntimeRunOpsSpanView> spanViews = spans.stream().map(this::toSpanView).toList();
+        List<RuntimeRunOpsToolCallView> toolViews = toolCalls.stream().map(this::toToolCallView).toList();
+        List<RuntimeRunOpsGuardDecisionView> guardViews = guardDecisions.stream()
+                .map(this::toGuardDecisionView)
                 .toList();
         return new RuntimeRunOpsDetailView(
                 summary,
                 spanViews,
-                toolLogs.stream().map(this::toToolCallView).toList(),
-                guardDecisions.stream().map(this::toGuardDecisionView).toList(),
-                null,
-                workflowPath(spanViews),
-                repairHints(summary, spanViews));
+                toolViews,
+                guardViews,
+                snapshot(run),
+                executionPath(spanViews),
+                repairHints(summary, spanViews, toolViews, guardViews));
     }
 
-    public List<RuntimeRunOpsSummaryView> recent(String userId, int limit, int days) {
-        int safeLimit = Math.max(1, Math.min(limit, 100));
-        int safeDays = Math.max(1, Math.min(days, 30));
-        int rawRowCap = Math.max(safeLimit * 50, 500);
-        LambdaQueryWrapper<RuntimeToolCallLogEntity> wrapper = new LambdaQueryWrapper<RuntimeToolCallLogEntity>()
-                .isNotNull(RuntimeToolCallLogEntity::getTraceId)
-                .ge(RuntimeToolCallLogEntity::getCreateTime, LocalDateTime.now().minusDays(safeDays))
-                .orderByDesc(RuntimeToolCallLogEntity::getId)
-                .last("limit " + rawRowCap);
-        if (StringUtils.hasText(userId)) {
-            wrapper.eq(RuntimeToolCallLogEntity::getUserId, userId.trim());
-        }
-        List<RuntimeToolCallLogEntity> logs = safeList(toolLogMapper.selectList(wrapper));
-        LinkedHashMap<String, List<RuntimeToolCallLogEntity>> grouped = new LinkedHashMap<>();
-        for (RuntimeToolCallLogEntity log : logs) {
-            String rowTraceId = log.getTraceId();
-            if (!StringUtils.hasText(rowTraceId)) {
-                continue;
-            }
-            if (!grouped.containsKey(rowTraceId) && grouped.size() >= safeLimit) {
-                continue;
-            }
-            grouped.computeIfAbsent(rowTraceId, key -> new ArrayList<>()).add(log);
-        }
-        return grouped.entrySet().stream()
-                .map(entry -> summaryFromToolLogs(entry.getKey(), entry.getValue()))
-                .toList();
+    public List<RuntimeRunOpsSummaryView> recent(String projectCode,
+                                                 String status,
+                                                 String runType,
+                                                 String entryType,
+                                                 String agentId,
+                                                 String userId,
+                                                 int limit,
+                                                 int days) {
+        return recent(projectCode, status, runType, entryType, agentId, userId, null, limit, days);
+    }
+
+    public List<RuntimeRunOpsSummaryView> recent(String projectCode,
+                                                 String status,
+                                                 String runType,
+                                                 String entryType,
+                                                 String agentId,
+                                                 String userId,
+                                                 String keyword,
+                                                 int limit,
+                                                 int days) {
+        int safeLimit = safeLimit(limit);
+        int safeDays = safeDays(days);
+        LambdaQueryWrapper<RuntimeRunEntity> wrapper = new LambdaQueryWrapper<RuntimeRunEntity>()
+                .isNotNull(RuntimeRunEntity::getTraceId)
+                .ge(RuntimeRunEntity::getStartedAt, LocalDateTime.now().minusDays(safeDays))
+                .eq(StringUtils.hasText(projectCode), RuntimeRunEntity::getProjectCode, trim(projectCode))
+                .eq(StringUtils.hasText(status), RuntimeRunEntity::getStatus, upper(status))
+                .eq(StringUtils.hasText(runType), RuntimeRunEntity::getRunType, upper(runType))
+                .eq(StringUtils.hasText(entryType), RuntimeRunEntity::getEntryType, upper(entryType))
+                .eq(StringUtils.hasText(agentId), RuntimeRunEntity::getAgentId, trim(agentId))
+                .eq(StringUtils.hasText(userId), RuntimeRunEntity::getUserId, trim(userId))
+                .and(StringUtils.hasText(keyword), search -> search
+                        .like(RuntimeRunEntity::getTraceId, trim(keyword))
+                        .or().like(RuntimeRunEntity::getAgentId, trim(keyword))
+                        .or().like(RuntimeRunEntity::getAgentKeySlug, trim(keyword))
+                        .or().like(RuntimeRunEntity::getAgentName, trim(keyword))
+                        .or().like(RuntimeRunEntity::getWorkflowId, trim(keyword))
+                        .or().like(RuntimeRunEntity::getWorkflowKeySlug, trim(keyword))
+                        .or().like(RuntimeRunEntity::getWorkflowName, trim(keyword))
+                        .or().like(RuntimeRunEntity::getErrorCode, trim(keyword))
+                        .or().like(RuntimeRunEntity::getErrorMessage, trim(keyword))
+                        .or().like(RuntimeRunEntity::getUserId, trim(keyword)))
+                .orderByDesc(RuntimeRunEntity::getStartedAt)
+                .orderByDesc(RuntimeRunEntity::getId)
+                .last("limit " + safeLimit);
+        return safeList(runMapper.selectList(wrapper)).stream().map(this::toSummary).toList();
     }
 
     public RuntimeRunOpsComparisonView compare(String baselineTraceId, String candidateTraceId) {
@@ -118,26 +139,46 @@ public class RuntimeRunOpsQueryService {
                 guardDiffs(baseline.guardDecisions(), candidate.guardDecisions()));
     }
 
-    public RuntimeRunOpsDiagnosticsView diagnostics(String userId, int limit, int days) {
-        List<RuntimeRunOpsDetailView> details = recent(userId, limit, days).stream()
+    public RuntimeRunOpsDiagnosticsView diagnostics(String projectCode,
+                                                     String status,
+                                                     String runType,
+                                                     String entryType,
+                                                    String agentId,
+                                                    String userId,
+                                                    int limit,
+                                                    int days) {
+        return diagnostics(projectCode, status, runType, entryType, agentId, userId, null, limit, days);
+    }
+
+    public RuntimeRunOpsDiagnosticsView diagnostics(String projectCode,
+                                                     String status,
+                                                     String runType,
+                                                     String entryType,
+                                                     String agentId,
+                                                     String userId,
+                                                     String keyword,
+                                                     int limit,
+                                                     int days) {
+        List<RuntimeRunOpsDetailView> details = recent(
+                projectCode, status, runType, entryType, agentId, userId, keyword, limit, days).stream()
                 .map(RuntimeRunOpsSummaryView::traceId)
-                .filter(StringUtils::hasText)
                 .map(this::detail)
                 .toList();
         return new RuntimeRunOpsDiagnosticsView(failureClusters(details), versionComparisons(details));
     }
 
-    private List<RuntimeToolCallLogEntity> findToolLogs(String traceId) {
-        return safeList(toolLogMapper.selectList(new LambdaQueryWrapper<RuntimeToolCallLogEntity>()
-                .eq(RuntimeToolCallLogEntity::getTraceId, traceId)
-                .orderByAsc(RuntimeToolCallLogEntity::getId)));
+    private List<RuntimeTraceSpanEntity> findSpans(String traceId) {
+        return safeList(spanMapper.selectList(new LambdaQueryWrapper<RuntimeTraceSpanEntity>()
+                .eq(RuntimeTraceSpanEntity::getTraceId, traceId)
+                .orderByAsc(RuntimeTraceSpanEntity::getStartedAt)
+                .orderByAsc(RuntimeTraceSpanEntity::getId)));
     }
 
-    private List<RuntimeAgentTraceSpanEntity> findSpans(String traceId) {
-        return safeList(spanMapper.selectList(new LambdaQueryWrapper<RuntimeAgentTraceSpanEntity>()
-                .eq(RuntimeAgentTraceSpanEntity::getTraceId, traceId)
-                .orderByAsc(RuntimeAgentTraceSpanEntity::getStartedAt)
-                .orderByAsc(RuntimeAgentTraceSpanEntity::getId)));
+    private List<RuntimeToolCallLogEntity> findToolCalls(String traceId) {
+        return safeList(toolLogMapper.selectList(new LambdaQueryWrapper<RuntimeToolCallLogEntity>()
+                .eq(RuntimeToolCallLogEntity::getTraceId, traceId)
+                .orderByAsc(RuntimeToolCallLogEntity::getCreateTime)
+                .orderByAsc(RuntimeToolCallLogEntity::getId)));
     }
 
     private List<RuntimeGuardDecisionLogEntity> findGuardDecisions(String traceId) {
@@ -145,109 +186,49 @@ public class RuntimeRunOpsQueryService {
                 .eq(RuntimeGuardDecisionLogEntity::getTraceId, traceId)
                 .orderByAsc(RuntimeGuardDecisionLogEntity::getCreatedAt)
                 .orderByAsc(RuntimeGuardDecisionLogEntity::getId)
-                .last("limit 200")));
+                .last("limit 500")));
     }
 
-    private RuntimeRunOpsSummaryView buildSummary(String traceId,
-                                                  List<RuntimeToolCallLogEntity> toolLogs,
-                                                  List<RuntimeAgentTraceSpanEntity> spans,
-                                                  List<RuntimeGuardDecisionLogEntity> guardDecisions,
-                                                  Map<String, Object> metadata) {
-        LocalDateTime startedAt = spans.stream().map(RuntimeAgentTraceSpanEntity::getStartedAt).filter(Objects::nonNull)
-                .min(LocalDateTime::compareTo).orElseGet(() -> toolLogs.stream()
-                        .map(RuntimeToolCallLogEntity::getCreateTime).filter(Objects::nonNull)
-                        .min(LocalDateTime::compareTo).orElse(null));
-        LocalDateTime endedAt = spans.stream().map(RuntimeAgentTraceSpanEntity::getEndedAt).filter(Objects::nonNull)
-                .max(LocalDateTime::compareTo).orElseGet(() -> toolLogs.stream()
-                        .map(RuntimeToolCallLogEntity::getCreateTime).filter(Objects::nonNull)
-                        .max(LocalDateTime::compareTo).orElse(startedAt));
-        int errorCount = (int) (spans.stream().filter(span -> "ERROR".equalsIgnoreCase(span.getStatus())).count()
-                + toolLogs.stream().filter(log -> !Boolean.TRUE.equals(log.getSuccess())).count()
-                + guardDecisions.stream().filter(decision -> "DENY".equalsIgnoreCase(decision.getDecision())).count());
-        String fallbackReason = text(metadata.get("embeddedFallbackReason"));
-        Optional<RuntimeAgentTraceSpanEntity> firstSpan = spans.stream().findFirst();
-        Optional<RuntimeToolCallLogEntity> firstTool = toolLogs.stream().findFirst();
-        String sourceType = text(metadata.get("sourceType"));
-        String workflowId = firstText(text(metadata.get("workflowId")), text(metadata.get("resolvedWorkflowId")));
-        String sourceId = firstText(text(metadata.get("sourceId")),
-                StringUtils.hasText(sourceType) && sourceType.toUpperCase().startsWith("WORKFLOW") ? workflowId : null);
+    private RuntimeRunOpsSummaryView toSummary(RuntimeRunEntity run) {
         return new RuntimeRunOpsSummaryView(
-                traceId,
-                errorCount == 0 ? "SUCCESS" : "ERROR",
-                firstSpan.map(RuntimeAgentTraceSpanEntity::getAgentId).orElse(null),
-                firstText(firstSpan.map(RuntimeAgentTraceSpanEntity::getAgentName).orElse(null),
-                        firstTool.map(RuntimeToolCallLogEntity::getAgentName).orElse(null)),
-                text(metadata.get("version")),
-                numberAsLong(metadata.get("versionId")),
-                firstText(text(metadata.get("runtimeType")), firstSpan.map(RuntimeAgentTraceSpanEntity::getRuntimeType).orElse(null)),
-                text(metadata.get("runtimePlacement")),
-                text(metadata.get("graphCode")),
-                firstTool.map(RuntimeToolCallLogEntity::getSessionId).orElse(null),
-                firstTool.map(RuntimeToolCallLogEntity::getUserId).orElse(null),
-                firstText(text(metadata.get("intentType")), firstTool.map(RuntimeToolCallLogEntity::getIntentType).orElse(null)),
-                startedAt,
-                endedAt,
-                spans.stream().map(RuntimeAgentTraceSpanEntity::getLatencyMs).filter(Objects::nonNull).mapToInt(Integer::intValue)
-                        .max().orElse(millisBetween(startedAt, endedAt)),
-                spans.stream().map(RuntimeAgentTraceSpanEntity::getTokenCost).filter(Objects::nonNull).mapToInt(Integer::intValue).sum()
-                        + toolLogs.stream().map(RuntimeToolCallLogEntity::getTokenCost).filter(Objects::nonNull).mapToInt(Integer::intValue).sum(),
-                spans.size(),
-                toolLogs.size(),
-                errorCount,
-                StringUtils.hasText(fallbackReason),
-                text(metadata.get("dispatchUrl")),
-                fallbackReason,
-                workflowId,
-                text(metadata.get("workflowKeySlug")),
-                text(metadata.get("workflowVersion")),
-                numberAsLong(metadata.get("workflowVersionId")),
-                text(metadata.get("entryAgentId")),
-                text(metadata.get("entryAgentKeySlug")),
-                sourceType,
-                sourceId,
-                metadata.isEmpty() ? null : metadata);
+                run.getTraceId(),
+                run.getRunType(),
+                run.getEntryType(),
+                run.getStatus(),
+                run.getProjectCode(),
+                run.getTenantId(),
+                run.getSessionId(),
+                run.getUserId(),
+                run.getAgentId(),
+                run.getAgentKeySlug(),
+                run.getAgentName(),
+                run.getAgentConfigVersionId(),
+                run.getAgentConfigVersion(),
+                run.getWorkflowId(),
+                run.getWorkflowKeySlug(),
+                run.getWorkflowName(),
+                run.getWorkflowVersionId(),
+                run.getWorkflowVersion(),
+                run.getRuntimeType(),
+                run.getInputSummary(),
+                run.getOutputSummary(),
+                run.getErrorCode(),
+                run.getErrorMessage(),
+                run.getStartedAt(),
+                run.getEndedAt(),
+                safeInt(run.getLatencyMs()),
+                safeInt(run.getTokenCost()),
+                safeInt(run.getPlanCount()),
+                safeInt(run.getReplanCount()),
+                safeInt(run.getWorkflowCallCount()),
+                safeInt(run.getToolCallCount()),
+                safeInt(run.getGuardDenyCount()),
+                safeInt(run.getApprovalCount()),
+                run.getReplayOfTraceId(),
+                parseMap(run.getMetadataJson()));
     }
 
-    private RuntimeRunOpsSummaryView summaryFromToolLogs(String traceId, List<RuntimeToolCallLogEntity> traceLogs) {
-        traceLogs.sort(Comparator.comparing(RuntimeToolCallLogEntity::getId));
-        RuntimeToolCallLogEntity first = traceLogs.get(0);
-        RuntimeToolCallLogEntity last = traceLogs.get(traceLogs.size() - 1);
-        int errorCount = (int) traceLogs.stream().filter(log -> !Boolean.TRUE.equals(log.getSuccess())).count();
-        return new RuntimeRunOpsSummaryView(
-                traceId,
-                errorCount == 0 ? "SUCCESS" : "ERROR",
-                null,
-                first.getAgentName(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                first.getSessionId(),
-                first.getUserId(),
-                first.getIntentType(),
-                first.getCreateTime(),
-                last.getCreateTime(),
-                millisBetween(first.getCreateTime(), last.getCreateTime()),
-                traceLogs.stream().map(RuntimeToolCallLogEntity::getTokenCost).filter(Objects::nonNull).mapToInt(Integer::intValue).sum(),
-                0,
-                traceLogs.size(),
-                errorCount,
-                false,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                Map.of());
-    }
-
-    private RuntimeRunOpsSpanView toSpanView(RuntimeAgentTraceSpanEntity span) {
+    private RuntimeRunOpsSpanView toSpanView(RuntimeTraceSpanEntity span) {
         return new RuntimeRunOpsSpanView(
                 span.getId(),
                 span.getSpanId(),
@@ -262,68 +243,174 @@ public class RuntimeRunOpsQueryService {
                 parseMap(span.getMetadataJson()),
                 span.getErrorCode(),
                 span.getErrorMessage(),
-                span.getLatencyMs(),
-                span.getTokenCost(),
+                safeInt(span.getLatencyMs()),
+                safeInt(span.getTokenCost()),
                 span.getStartedAt(),
                 span.getEndedAt());
     }
 
-    private RuntimeRunOpsToolCallView toToolCallView(RuntimeToolCallLogEntity log) {
+    private RuntimeRunOpsToolCallView toToolCallView(RuntimeToolCallLogEntity tool) {
         return new RuntimeRunOpsToolCallView(
-                log.getId(),
-                log.getToolName(),
-                log.getAgentName(),
-                log.getSessionId(),
-                log.getUserId(),
-                log.getIntentType(),
-                log.getProjectCode(),
-                Boolean.TRUE.equals(log.getSuccess()),
-                log.getArgsJson(),
-                log.getResultSummary(),
-                log.getErrorCode(),
-                log.getElapsedMs(),
-                log.getTokenCost(),
-                log.getCreateTime());
+                tool.getId(),
+                tool.getToolName(),
+                tool.getAgentName(),
+                tool.getSessionId(),
+                tool.getUserId(),
+                tool.getIntentType(),
+                tool.getProjectCode(),
+                Boolean.TRUE.equals(tool.getSuccess()),
+                tool.getArgsJson(),
+                tool.getResultSummary(),
+                tool.getErrorCode(),
+                safeInt(tool.getElapsedMs()),
+                safeInt(tool.getTokenCost()),
+                tool.getCreateTime());
     }
 
-    private RuntimeRunOpsGuardDecisionView toGuardDecisionView(RuntimeGuardDecisionLogEntity decision) {
+    private RuntimeRunOpsGuardDecisionView toGuardDecisionView(RuntimeGuardDecisionLogEntity guard) {
         return new RuntimeRunOpsGuardDecisionView(
-                decision.getId(),
-                decision.getDecisionType(),
-                decision.getTargetKind(),
-                decision.getTargetName(),
-                decision.getDecision(),
-                decision.getReason(),
-                parseMap(decision.getMetadataJson()),
-                decision.getCreatedAt());
+                guard.getId(),
+                guard.getDecisionType(),
+                guard.getTargetKind(),
+                guard.getTargetName(),
+                guard.getDecision(),
+                guard.getReason(),
+                parseMap(guard.getMetadataJson()),
+                guard.getCreatedAt());
     }
 
-    private List<RuntimeRunOpsWorkflowPathItemView> workflowPath(List<RuntimeRunOpsSpanView> spans) {
-        List<RuntimeRunOpsWorkflowPathItemView> path = new ArrayList<>();
+    private RuntimeRunOpsSnapshotView snapshot(RuntimeRunEntity run) {
+        if (!StringUtils.hasText(run.getSnapshotJson())) {
+            return null;
+        }
+        return new RuntimeRunOpsSnapshotView(
+                run.getRunType(),
+                run.getAgentId(),
+                run.getAgentKeySlug(),
+                run.getAgentName(),
+                run.getAgentConfigVersionId(),
+                run.getAgentConfigVersion(),
+                run.getWorkflowId(),
+                run.getWorkflowKeySlug(),
+                run.getWorkflowName(),
+                run.getWorkflowVersionId(),
+                run.getWorkflowVersion(),
+                run.getRuntimeType(),
+                parseMap(run.getSnapshotJson()),
+                run.getSnapshotJson());
+    }
+
+    private List<RuntimeRunOpsExecutionPathItemView> executionPath(List<RuntimeRunOpsSpanView> spans) {
+        Map<String, RuntimeRunOpsSpanView> bySpanId = new HashMap<>();
         for (RuntimeRunOpsSpanView span : spans) {
-            path.add(new RuntimeRunOpsWorkflowPathItemView(
-                    span.parentSpanId(),
-                    span.nodeId(),
-                    null,
-                    null,
-                    span.status(),
-                    span.status(),
-                    null,
+            if (StringUtils.hasText(span.spanId())) {
+                bySpanId.put(span.spanId(), span);
+            }
+        }
+        Map<String, Integer> depthCache = new HashMap<>();
+        List<RuntimeRunOpsExecutionPathItemView> path = new ArrayList<>();
+        for (RuntimeRunOpsSpanView span : spans) {
+            Map<String, Object> metadata = span.metadata() == null ? Map.of() : span.metadata();
+            Map<String, Object> step = mapValue(metadata.get("step"));
+            RuntimeRunOpsSpanView parent = StringUtils.hasText(span.parentSpanId())
+                    ? bySpanId.get(span.parentSpanId())
+                    : null;
+            path.add(new RuntimeRunOpsExecutionPathItemView(
                     span.spanId(),
+                    span.parentSpanId(),
+                    spanDepth(span, bySpanId, depthCache, new HashSet<>()),
+                    span.spanType(),
+                    spanLabel(span),
+                    span.status(),
+                    span.nodeId(),
+                    span.toolName(),
+                    span.runtimeType(),
+                    firstText(
+                            text(metadata.get("fromNodeId")), text(metadata.get("source")),
+                            text(step.get("fromNodeId")), text(step.get("source")), text(step.get("from")),
+                            parent == null ? null : parent.nodeId()),
+                    firstText(
+                            text(metadata.get("toNodeId")), text(metadata.get("target")),
+                            text(step.get("toNodeId")), text(step.get("target")), text(step.get("to")),
+                            span.nodeId()),
+                    firstText(text(metadata.get("condition")), text(step.get("condition"))),
+                    firstText(text(metadata.get("route")), text(step.get("route"))),
+                    firstText(text(metadata.get("workflowStatus")), text(step.get("workflowStatus")), span.status()),
+                    firstText(text(metadata.get("interactionId")), text(step.get("interactionId"))),
                     span.startedAt(),
                     span.endedAt()));
         }
         return path;
     }
 
-    private List<String> repairHints(RuntimeRunOpsSummaryView summary, List<RuntimeRunOpsSpanView> spans) {
-        if (summary == null || summary.errorCount() == null || summary.errorCount() == 0) {
+    private int spanDepth(RuntimeRunOpsSpanView span,
+                          Map<String, RuntimeRunOpsSpanView> bySpanId,
+                          Map<String, Integer> cache,
+                          Set<String> visiting) {
+        if (span == null || !StringUtils.hasText(span.spanId())) {
+            return 0;
+        }
+        Integer cached = cache.get(span.spanId());
+        if (cached != null) {
+            return cached;
+        }
+        if (!visiting.add(span.spanId())) {
+            return 0;
+        }
+        RuntimeRunOpsSpanView parent = StringUtils.hasText(span.parentSpanId())
+                ? bySpanId.get(span.parentSpanId())
+                : null;
+        int depth = parent == null ? 0 : 1 + spanDepth(parent, bySpanId, cache, visiting);
+        visiting.remove(span.spanId());
+        cache.put(span.spanId(), depth);
+        return depth;
+    }
+
+    private String spanLabel(RuntimeRunOpsSpanView span) {
+        Map<String, Object> metadata = span.metadata() == null ? Map.of() : span.metadata();
+        String type = upper(span.spanType());
+        if ("SUPERVISOR".equals(type)) {
+            return firstText(text(metadata.get("agentName")), "Supervisor");
+        }
+        if ("PLAN".equals(type)) {
+            return "Plan";
+        }
+        if ("REPLAN".equals(type)) {
+            return "Replan";
+        }
+        if ("WORKFLOW_TOOL".equals(type)) {
+            return firstText(text(metadata.get("workflowName")), text(metadata.get("workflowKeySlug")),
+                    span.toolName(), "Workflow Tool");
+        }
+        if (type != null && type.startsWith("WORKFLOW")) {
+            return firstText(span.nodeId(), span.toolName(), text(metadata.get("workflowName")), span.spanType());
+        }
+        return firstText(span.nodeId(), span.toolName(), span.spanType(), span.spanId());
+    }
+
+    private List<String> repairHints(RuntimeRunOpsSummaryView summary,
+                                     List<RuntimeRunOpsSpanView> spans,
+                                     List<RuntimeRunOpsToolCallView> tools,
+                                     List<RuntimeRunOpsGuardDecisionView> guards) {
+        boolean failed = isFailureStatus(summary.status())
+                || spans.stream().anyMatch(span -> isFailureStatus(span.status()))
+                || tools.stream().anyMatch(tool -> !tool.success())
+                || guards.stream().anyMatch(this::isDenied);
+        if (!failed) {
             return List.of();
         }
         List<String> hints = new ArrayList<>();
-        hints.add("检查失败 span、Tool 调用和 Guard 决策的错误码。");
-        if (spans.stream().anyMatch(span -> StringUtils.hasText(span.errorCode()))) {
-            hints.add("优先处理带 errorCode 的 Runtime span。");
+        if (StringUtils.hasText(summary.errorCode())) {
+            hints.add("先按根运行错误码 " + summary.errorCode() + " 定位失败阶段。");
+        }
+        if (spans.stream().anyMatch(span -> isFailureStatus(span.status()))) {
+            hints.add("检查 executionPath 中失败的 Supervisor、Workflow Tool 或 Workflow Node span。");
+        }
+        if (tools.stream().anyMatch(tool -> !tool.success())) {
+            hints.add("检查失败 Tool 调用的参数、ACL、目标服务和错误码。");
+        }
+        if (guards.stream().anyMatch(this::isDenied)) {
+            hints.add("检查 Guard 拒绝原因以及调用身份和策略配置。");
         }
         return hints;
     }
@@ -331,471 +418,607 @@ public class RuntimeRunOpsQueryService {
     private List<RuntimeRunOpsDiffItemView> summaryDiffs(RuntimeRunOpsSummaryView baseline,
                                                          RuntimeRunOpsSummaryView candidate) {
         List<RuntimeRunOpsDiffItemView> diffs = new ArrayList<>();
+        addDiff(diffs, "runType", baseline.runType(), candidate.runType());
+        addDiff(diffs, "entryType", baseline.entryType(), candidate.entryType());
         addDiff(diffs, "status", baseline.status(), candidate.status());
-        addDiff(diffs, "version", baseline.version(), candidate.version());
-        addDiff(diffs, "runtimePlacement", baseline.runtimePlacement(), candidate.runtimePlacement());
+        addDiff(diffs, "agentId", baseline.agentId(), candidate.agentId());
+        addDiff(diffs, "agentConfigVersionId", baseline.agentConfigVersionId(), candidate.agentConfigVersionId());
+        addDiff(diffs, "workflowId", baseline.workflowId(), candidate.workflowId());
+        addDiff(diffs, "workflowVersionId", baseline.workflowVersionId(), candidate.workflowVersionId());
+        addDiff(diffs, "runtimeType", baseline.runtimeType(), candidate.runtimeType());
         addDiff(diffs, "latencyMs", baseline.latencyMs(), candidate.latencyMs());
         addDiff(diffs, "tokenCost", baseline.tokenCost(), candidate.tokenCost());
-        addDiff(diffs, "errorCount", baseline.errorCount(), candidate.errorCount());
-        addDiff(diffs, "fallback", baseline.fallback(), candidate.fallback());
+        addDiff(diffs, "planCount", baseline.planCount(), candidate.planCount());
+        addDiff(diffs, "replanCount", baseline.replanCount(), candidate.replanCount());
+        addDiff(diffs, "workflowCallCount", baseline.workflowCallCount(), candidate.workflowCallCount());
+        addDiff(diffs, "toolCallCount", baseline.toolCallCount(), candidate.toolCallCount());
+        addDiff(diffs, "guardDenyCount", baseline.guardDenyCount(), candidate.guardDenyCount());
+        addDiff(diffs, "approvalCount", baseline.approvalCount(), candidate.approvalCount());
+        addDiff(diffs, "errorCode", baseline.errorCode(), candidate.errorCode());
         return diffs;
     }
 
     private List<RuntimeRunOpsSpanDiffView> spanDiffs(List<RuntimeRunOpsSpanView> baseline,
                                                       List<RuntimeRunOpsSpanView> candidate) {
-        LinkedHashMap<String, RuntimeRunOpsSpanView> baselineMap = new LinkedHashMap<>();
-        LinkedHashMap<String, RuntimeRunOpsSpanView> candidateMap = new LinkedHashMap<>();
-        baseline.forEach(span -> baselineMap.put(spanKey(span), span));
-        candidate.forEach(span -> candidateMap.put(spanKey(span), span));
-        return unionKeys(baselineMap, candidateMap).stream()
-                .map(key -> {
-                    RuntimeRunOpsSpanView left = baselineMap.get(key);
-                    RuntimeRunOpsSpanView right = candidateMap.get(key);
-                    List<RuntimeRunOpsDiffItemView> diffs = new ArrayList<>();
-                    if (left == null || right == null) {
-                        diffs.add(new RuntimeRunOpsDiffItemView(
-                                "presence", left == null ? null : "present", right == null ? null : "present", true));
-                    } else {
-                        addDiff(diffs, "status", left.status(), right.status());
-                        addDiff(diffs, "latencyMs", left.latencyMs(), right.latencyMs());
-                        addDiff(diffs, "errorCode", left.errorCode(), right.errorCode());
-                        addDiff(diffs, "errorMessage", left.errorMessage(), right.errorMessage());
-                        addDiff(diffs, "outputSummary", left.outputSummary(), right.outputSummary());
-                    }
-                    return new RuntimeRunOpsSpanDiffView(key, left, right, diffs, hasChanged(diffs));
-                })
-                .toList();
+        Map<String, RuntimeRunOpsSpanView> left = indexSpans(baseline);
+        Map<String, RuntimeRunOpsSpanView> right = indexSpans(candidate);
+        LinkedHashSet<String> keys = unionKeys(left, right);
+        List<RuntimeRunOpsSpanDiffView> result = new ArrayList<>();
+        for (String key : keys) {
+            RuntimeRunOpsSpanView baselineSpan = left.get(key);
+            RuntimeRunOpsSpanView candidateSpan = right.get(key);
+            List<RuntimeRunOpsDiffItemView> diffs = new ArrayList<>();
+            if (baselineSpan == null || candidateSpan == null) {
+                diffs.add(new RuntimeRunOpsDiffItemView("presence", baselineSpan != null, candidateSpan != null, true));
+            } else {
+                addDiff(diffs, "status", baselineSpan.status(), candidateSpan.status());
+                addDiff(diffs, "latencyMs", baselineSpan.latencyMs(), candidateSpan.latencyMs());
+                addDiff(diffs, "tokenCost", baselineSpan.tokenCost(), candidateSpan.tokenCost());
+                addDiff(diffs, "errorCode", baselineSpan.errorCode(), candidateSpan.errorCode());
+                addDiff(diffs, "outputSummary", baselineSpan.outputSummary(), candidateSpan.outputSummary());
+            }
+            result.add(new RuntimeRunOpsSpanDiffView(
+                    key, baselineSpan, candidateSpan, diffs, hasChanged(diffs)));
+        }
+        return result;
     }
 
     private List<RuntimeRunOpsToolDiffView> toolDiffs(List<RuntimeRunOpsToolCallView> baseline,
                                                       List<RuntimeRunOpsToolCallView> candidate) {
-        LinkedHashMap<String, RuntimeRunOpsToolCallView> baselineMap = new LinkedHashMap<>();
-        LinkedHashMap<String, RuntimeRunOpsToolCallView> candidateMap = new LinkedHashMap<>();
-        baseline.forEach(tool -> baselineMap.put(toolKey(tool), tool));
-        candidate.forEach(tool -> candidateMap.put(toolKey(tool), tool));
-        return unionKeys(baselineMap, candidateMap).stream()
-                .map(key -> {
-                    RuntimeRunOpsToolCallView left = baselineMap.get(key);
-                    RuntimeRunOpsToolCallView right = candidateMap.get(key);
-                    List<RuntimeRunOpsDiffItemView> diffs = new ArrayList<>();
-                    if (left == null || right == null) {
-                        diffs.add(new RuntimeRunOpsDiffItemView(
-                                "presence", left == null ? null : "present", right == null ? null : "present", true));
-                    } else {
-                        addDiff(diffs, "success", left.success(), right.success());
-                        addDiff(diffs, "elapsedMs", left.elapsedMs(), right.elapsedMs());
-                        addDiff(diffs, "errorCode", left.errorCode(), right.errorCode());
-                        addDiff(diffs, "resultSummary", left.resultSummary(), right.resultSummary());
-                    }
-                    return new RuntimeRunOpsToolDiffView(key, left, right, diffs, hasChanged(diffs));
-                })
-                .toList();
+        Map<String, RuntimeRunOpsToolCallView> left = indexTools(baseline);
+        Map<String, RuntimeRunOpsToolCallView> right = indexTools(candidate);
+        LinkedHashSet<String> keys = unionKeys(left, right);
+        List<RuntimeRunOpsToolDiffView> result = new ArrayList<>();
+        for (String key : keys) {
+            RuntimeRunOpsToolCallView baselineTool = left.get(key);
+            RuntimeRunOpsToolCallView candidateTool = right.get(key);
+            List<RuntimeRunOpsDiffItemView> diffs = new ArrayList<>();
+            if (baselineTool == null || candidateTool == null) {
+                diffs.add(new RuntimeRunOpsDiffItemView("presence", baselineTool != null, candidateTool != null, true));
+            } else {
+                addDiff(diffs, "success", baselineTool.success(), candidateTool.success());
+                addDiff(diffs, "errorCode", baselineTool.errorCode(), candidateTool.errorCode());
+                addDiff(diffs, "elapsedMs", baselineTool.elapsedMs(), candidateTool.elapsedMs());
+                addDiff(diffs, "resultSummary", baselineTool.resultSummary(), candidateTool.resultSummary());
+            }
+            result.add(new RuntimeRunOpsToolDiffView(
+                    key, baselineTool, candidateTool, diffs, hasChanged(diffs)));
+        }
+        return result;
     }
 
     private List<RuntimeRunOpsGuardDiffView> guardDiffs(List<RuntimeRunOpsGuardDecisionView> baseline,
                                                         List<RuntimeRunOpsGuardDecisionView> candidate) {
-        LinkedHashMap<String, RuntimeRunOpsGuardDecisionView> baselineMap = new LinkedHashMap<>();
-        LinkedHashMap<String, RuntimeRunOpsGuardDecisionView> candidateMap = new LinkedHashMap<>();
-        baseline.forEach(guard -> baselineMap.put(guardKey(guard), guard));
-        candidate.forEach(guard -> candidateMap.put(guardKey(guard), guard));
-        return unionKeys(baselineMap, candidateMap).stream()
-                .map(key -> {
-                    RuntimeRunOpsGuardDecisionView left = baselineMap.get(key);
-                    RuntimeRunOpsGuardDecisionView right = candidateMap.get(key);
-                    List<RuntimeRunOpsDiffItemView> diffs = new ArrayList<>();
-                    if (left == null || right == null) {
-                        diffs.add(new RuntimeRunOpsDiffItemView(
-                                "presence", left == null ? null : "present", right == null ? null : "present", true));
-                    } else {
-                        addDiff(diffs, "decision", left.decision(), right.decision());
-                        addDiff(diffs, "reason", left.reason(), right.reason());
-                    }
-                    return new RuntimeRunOpsGuardDiffView(key, left, right, diffs, hasChanged(diffs));
-                })
-                .toList();
+        Map<String, RuntimeRunOpsGuardDecisionView> left = indexGuards(baseline);
+        Map<String, RuntimeRunOpsGuardDecisionView> right = indexGuards(candidate);
+        LinkedHashSet<String> keys = unionKeys(left, right);
+        List<RuntimeRunOpsGuardDiffView> result = new ArrayList<>();
+        for (String key : keys) {
+            RuntimeRunOpsGuardDecisionView baselineGuard = left.get(key);
+            RuntimeRunOpsGuardDecisionView candidateGuard = right.get(key);
+            List<RuntimeRunOpsDiffItemView> diffs = new ArrayList<>();
+            if (baselineGuard == null || candidateGuard == null) {
+                diffs.add(new RuntimeRunOpsDiffItemView("presence", baselineGuard != null, candidateGuard != null, true));
+            } else {
+                addDiff(diffs, "decision", baselineGuard.decision(), candidateGuard.decision());
+                addDiff(diffs, "reason", baselineGuard.reason(), candidateGuard.reason());
+            }
+            result.add(new RuntimeRunOpsGuardDiffView(
+                    key, baselineGuard, candidateGuard, diffs, hasChanged(diffs)));
+        }
+        return result;
     }
 
     private List<RuntimeRunOpsFailureClusterView> failureClusters(List<RuntimeRunOpsDetailView> details) {
-        LinkedHashMap<String, FailureClusterAccumulator> grouped = new LinkedHashMap<>();
+        LinkedHashMap<String, FailureAccumulator> grouped = new LinkedHashMap<>();
         for (RuntimeRunOpsDetailView detail : details) {
-            RuntimeRunOpsSummaryView summary = detail.summary();
-            if (summary == null || "SUCCESS".equalsIgnoreCase(summary.status())) {
+            FailureEvidence evidence = failureEvidence(detail);
+            if (evidence == null) {
                 continue;
             }
-            RuntimeRunOpsSpanView failedSpan = detail.spans().stream()
-                    .filter(span -> !"SUCCESS".equalsIgnoreCase(span.status()))
-                    .findFirst()
-                    .orElse(null);
-            RuntimeRunOpsToolCallView failedTool = detail.toolCalls().stream()
-                    .filter(tool -> !tool.success())
-                    .findFirst()
-                    .orElse(null);
-            RuntimeRunOpsGuardDecisionView deniedGuard = detail.guardDecisions().stream()
-                    .filter(guard -> "DENY".equalsIgnoreCase(guard.decision()))
-                    .findFirst()
-                    .orElse(null);
-            String errorType = firstPresent(
-                    failedSpan == null ? null : failedSpan.errorCode(),
-                    failedTool == null ? null : failedTool.errorCode(),
-                    deniedGuard == null ? null : deniedGuard.decisionType(),
-                    summary.fallback() ? "HYBRID_FALLBACK" : null,
-                    "RUN_ERROR");
-            String nodeId = failedSpan == null ? null : failedSpan.nodeId();
-            String toolName = firstPresent(
-                    failedSpan == null ? null : failedSpan.toolName(),
-                    failedTool == null ? null : failedTool.toolName());
-            String key = String.join("|",
-                    normalizeKey(groupIdentityKey(summary)),
-                    normalizeKey(groupVersionKey(summary)),
-                    normalizeKey(errorType),
-                    normalizeKey(nodeId),
-                    normalizeKey(toolName));
-            FailureClusterAccumulator accumulator = grouped.computeIfAbsent(key,
-                    ignored -> FailureClusterAccumulator.fromSummary(summary, errorType, nodeId, toolName));
-            accumulator.add(detail, firstPresent(
-                    failedSpan == null ? null : failedSpan.errorMessage(),
-                    failedTool == null ? null : failedTool.resultSummary(),
-                    deniedGuard == null ? null : deniedGuard.reason(),
-                    summary.fallbackReason()));
+            VersionIdentity identity = failureIdentity(detail, evidence.span());
+            String key = identity.key() + "|" + nullSafe(evidence.errorCode()) + "|"
+                    + nullSafe(evidence.spanType()) + "|" + nullSafe(evidence.nodeId()) + "|"
+                    + nullSafe(evidence.toolName());
+            grouped.computeIfAbsent(key, ignored -> new FailureAccumulator(identity, evidence))
+                    .add(detail.summary(), evidence);
         }
         return grouped.values().stream()
-                .map(FailureClusterAccumulator::toCluster)
-                .sorted(Comparator
-                        .comparing(RuntimeRunOpsFailureClusterView::count).reversed()
+                .map(FailureAccumulator::toView)
+                .sorted(Comparator.comparing(RuntimeRunOpsFailureClusterView::count).reversed()
                         .thenComparing(RuntimeRunOpsFailureClusterView::lastSeenAt,
                                 Comparator.nullsLast(Comparator.reverseOrder())))
-                .limit(20)
                 .toList();
     }
 
-    private List<RuntimeRunOpsVersionComparisonView> versionComparisons(List<RuntimeRunOpsDetailView> details) {
-        LinkedHashMap<String, List<RuntimeRunOpsDetailView>> grouped = new LinkedHashMap<>();
-        for (RuntimeRunOpsDetailView detail : details) {
-            RuntimeRunOpsSummaryView summary = detail.summary();
-            if (summary == null) {
-                continue;
+    private FailureEvidence failureEvidence(RuntimeRunOpsDetailView detail) {
+        RuntimeRunOpsSummaryView summary = detail.summary();
+        RuntimeRunOpsSpanView failedSpan = detail.spans().stream()
+                .filter(span -> isFailureStatus(span.status()))
+                .findFirst()
+                .orElse(null);
+        RuntimeRunOpsToolCallView failedTool = detail.toolCalls().stream()
+                .filter(tool -> !tool.success())
+                .findFirst()
+                .orElse(null);
+        RuntimeRunOpsGuardDecisionView denied = detail.guardDecisions().stream()
+                .filter(this::isDenied)
+                .findFirst()
+                .orElse(null);
+        if (!isFailureStatus(summary.status()) && failedSpan == null && failedTool == null && denied == null) {
+            return null;
+        }
+        String code = firstText(
+                summary.errorCode(),
+                failedSpan == null ? null : failedSpan.errorCode(),
+                failedTool == null ? null : failedTool.errorCode(),
+                denied == null ? null : "GUARD_DENIED",
+                summary.status());
+        String message = firstText(
+                summary.errorMessage(),
+                failedSpan == null ? null : failedSpan.errorMessage(),
+                failedTool == null ? null : failedTool.resultSummary(),
+                denied == null ? null : denied.reason());
+        return new FailureEvidence(
+                code,
+                message,
+                failedSpan == null ? null : failedSpan.spanType(),
+                failedSpan == null ? null : failedSpan.nodeId(),
+                failedSpan != null ? failedSpan.toolName() : failedTool == null ? null : failedTool.toolName(),
+                failedSpan);
+    }
+
+    private VersionIdentity failureIdentity(RuntimeRunOpsDetailView detail, RuntimeRunOpsSpanView failedSpan) {
+        if (failedSpan != null && failedSpan.metadata() != null
+                && ("WORKFLOW_TOOL".equalsIgnoreCase(failedSpan.spanType())
+                || (failedSpan.spanType() != null && failedSpan.spanType().toUpperCase().startsWith("WORKFLOW")))) {
+            VersionIdentity workflow = workflowIdentity(failedSpan.metadata(), detail.summary());
+            if (workflow != null) {
+                return workflow;
             }
-            String key = String.join("|", normalizeKey(groupIdentityKey(summary)), normalizeKey(groupVersionKey(summary)));
-            grouped.computeIfAbsent(key, ignored -> new ArrayList<>()).add(detail);
+        }
+        return primaryIdentity(detail.summary());
+    }
+
+    private List<RuntimeRunOpsVersionComparisonView> versionComparisons(List<RuntimeRunOpsDetailView> details) {
+        LinkedHashMap<String, VersionAccumulator> grouped = new LinkedHashMap<>();
+        for (RuntimeRunOpsDetailView detail : details) {
+            for (VersionIdentity identity : versionIdentities(detail)) {
+                grouped.computeIfAbsent(identity.key(), ignored -> new VersionAccumulator(identity)).add(detail);
+            }
         }
         return grouped.values().stream()
-                .map(rows -> {
-                    RuntimeRunOpsSummaryView sample = rows.get(0).summary();
-                    int total = rows.size();
-                    int failures = (int) rows.stream()
-                            .filter(detail -> !"SUCCESS".equalsIgnoreCase(detail.summary().status()))
-                            .count();
-                    int fallbackCount = (int) rows.stream().filter(detail -> detail.summary().fallback()).count();
-                    int toolErrorCount = rows.stream()
-                            .mapToInt(detail -> (int) detail.toolCalls().stream().filter(tool -> !tool.success()).count())
-                            .sum();
-                    int guardDenyCount = rows.stream()
-                            .mapToInt(detail -> (int) detail.guardDecisions().stream()
-                                    .filter(guard -> "DENY".equalsIgnoreCase(guard.decision()))
-                                    .count())
-                            .sum();
-                    List<Integer> latencies = rows.stream()
-                            .map(RuntimeRunOpsDetailView::summary)
-                            .map(RuntimeRunOpsSummaryView::latencyMs)
-                            .filter(Objects::nonNull)
-                            .sorted()
-                            .toList();
-                    int avgLatency = total == 0 ? 0 : (int) Math.round(rows.stream()
-                            .map(RuntimeRunOpsDetailView::summary)
-                            .map(RuntimeRunOpsSummaryView::latencyMs)
-                            .filter(Objects::nonNull)
-                            .mapToInt(Integer::intValue)
-                            .average()
-                            .orElse(0D));
-                    int avgToken = total == 0 ? 0 : (int) Math.round(rows.stream()
-                            .map(RuntimeRunOpsDetailView::summary)
-                            .map(RuntimeRunOpsSummaryView::tokenCost)
-                            .filter(Objects::nonNull)
-                            .mapToInt(Integer::intValue)
-                            .average()
-                            .orElse(0D));
-                    RuntimeRunOpsSummaryView latest = rows.stream()
-                            .map(RuntimeRunOpsDetailView::summary)
-                            .max(Comparator.comparing(RuntimeRunOpsSummaryView::startedAt,
-                                    Comparator.nullsLast(LocalDateTime::compareTo)))
-                            .orElse(sample);
-                    return new RuntimeRunOpsVersionComparisonView(
-                            sample.agentId(),
-                            sample.agentName(),
-                            sample.version(),
-                            sample.versionId(),
-                            sample.runtimeType(),
-                            sample.runtimePlacement(),
-                            total,
-                            total - failures,
-                            failures,
-                            total == 0 ? 0D : (double) (total - failures) / total,
-                            avgLatency,
-                            percentile(latencies, 95),
-                            avgToken,
-                            fallbackCount,
-                            toolErrorCount,
-                            guardDenyCount,
-                            latest.traceId(),
-                            latest.startedAt(),
-                            sample.workflowId(),
-                            sample.workflowKeySlug(),
-                            sample.workflowVersion(),
-                            sample.workflowVersionId(),
-                            sample.sourceType(),
-                            sample.sourceId());
-                })
-                .sorted(Comparator
-                        .comparing(RuntimeRunOpsVersionComparisonView::failureCount).reversed()
+                .map(VersionAccumulator::toView)
+                .sorted(Comparator.comparing(RuntimeRunOpsVersionComparisonView::failureCount).reversed()
                         .thenComparing(RuntimeRunOpsVersionComparisonView::runCount, Comparator.reverseOrder()))
                 .toList();
     }
 
-    private Map<String, Object> mergedMetadata(List<RuntimeAgentTraceSpanEntity> spans) {
-        Map<String, Object> merged = new LinkedHashMap<>();
-        for (RuntimeAgentTraceSpanEntity span : spans) {
-            merged.putAll(parseMap(span.getMetadataJson()));
+    private List<VersionIdentity> versionIdentities(RuntimeRunOpsDetailView detail) {
+        RuntimeRunOpsSummaryView summary = detail.summary();
+        LinkedHashMap<String, VersionIdentity> identities = new LinkedHashMap<>();
+        if (StringUtils.hasText(summary.agentId()) || summary.agentConfigVersionId() != null) {
+            VersionIdentity agent = agentIdentity(summary);
+            identities.put(agent.key(), agent);
         }
-        return merged;
-    }
-
-    private Map<String, Object> parseMap(String raw) {
-        if (!StringUtils.hasText(raw)) {
-            return Map.of();
+        if (StringUtils.hasText(summary.workflowId()) || summary.workflowVersionId() != null) {
+            VersionIdentity workflow = rootWorkflowIdentity(summary);
+            identities.put(workflow.key(), workflow);
         }
-        try {
-            Map<String, Object> parsed = objectMapper.readValue(raw, MAP_TYPE);
-            return parsed == null ? Map.of() : parsed;
-        } catch (Exception ignored) {
-            return Map.of("raw", raw);
-        }
-    }
-
-    private int millisBetween(LocalDateTime start, LocalDateTime end) {
-        if (start == null || end == null) {
-            return 0;
-        }
-        long millis = Duration.between(start, end).toMillis();
-        return (int) Math.max(0, Math.min(Integer.MAX_VALUE, millis));
-    }
-
-    private Long numberAsLong(Object value) {
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        if (value instanceof String text && StringUtils.hasText(text)) {
-            try {
-                return Long.parseLong(text.trim());
-            } catch (NumberFormatException ignored) {
-                return null;
+        for (RuntimeRunOpsSpanView span : detail.spans()) {
+            if (!"WORKFLOW_TOOL".equalsIgnoreCase(span.spanType())) {
+                continue;
+            }
+            VersionIdentity workflow = workflowIdentity(span.metadata(), summary);
+            if (workflow != null) {
+                identities.put(workflow.key(), workflow);
             }
         }
-        return null;
+        if (identities.isEmpty()) {
+            VersionIdentity primary = primaryIdentity(summary);
+            identities.put(primary.key(), primary);
+        }
+        return new ArrayList<>(identities.values());
     }
 
-    private String firstText(String first, String second) {
-        return StringUtils.hasText(first) ? first : second;
+    private VersionIdentity primaryIdentity(RuntimeRunOpsSummaryView summary) {
+        if (StringUtils.hasText(summary.workflowId()) && !StringUtils.hasText(summary.agentId())) {
+            return rootWorkflowIdentity(summary);
+        }
+        return agentIdentity(summary);
     }
 
-    private String firstPresent(String... values) {
-        if (values == null) {
+    private VersionIdentity agentIdentity(RuntimeRunOpsSummaryView summary) {
+        return new VersionIdentity(
+                "AGENT",
+                summary.agentId(),
+                summary.agentName(),
+                summary.agentConfigVersionId(),
+                summary.agentConfigVersion(),
+                null,
+                null,
+                null,
+                null,
+                summary.runtimeType());
+    }
+
+    private VersionIdentity rootWorkflowIdentity(RuntimeRunOpsSummaryView summary) {
+        return new VersionIdentity(
+                "WORKFLOW",
+                null,
+                null,
+                null,
+                null,
+                summary.workflowId(),
+                summary.workflowName(),
+                summary.workflowVersionId(),
+                summary.workflowVersion(),
+                summary.runtimeType());
+    }
+
+    private VersionIdentity workflowIdentity(Map<String, Object> metadata, RuntimeRunOpsSummaryView summary) {
+        if (metadata == null) {
             return null;
         }
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value;
-            }
+        String workflowId = text(metadata.get("workflowId"));
+        Long workflowVersionId = numberAsLong(metadata.get("workflowVersionId"));
+        if (!StringUtils.hasText(workflowId) && workflowVersionId == null) {
+            return null;
         }
-        return null;
+        return new VersionIdentity(
+                "WORKFLOW",
+                null,
+                null,
+                null,
+                null,
+                workflowId,
+                firstText(text(metadata.get("workflowName")), text(metadata.get("workflowKeySlug"))),
+                workflowVersionId,
+                text(metadata.get("workflowVersion")),
+                firstText(text(metadata.get("runtimeType")), summary.runtimeType()));
     }
 
-    private String spanKey(RuntimeRunOpsSpanView span) {
-        return normalizeKey(firstPresent(span.nodeId(), span.toolName(), span.spanType(), span.spanId()));
-    }
-
-    private String toolKey(RuntimeRunOpsToolCallView tool) {
-        return normalizeKey(tool.toolName());
-    }
-
-    private String guardKey(RuntimeRunOpsGuardDecisionView guard) {
-        return String.join("|",
-                normalizeKey(guard.decisionType()),
-                normalizeKey(guard.targetKind()),
-                normalizeKey(guard.targetName()));
-    }
-
-    private String groupIdentityKey(RuntimeRunOpsSummaryView summary) {
-        if (isWorkflowSummary(summary)) {
-            return firstPresent(summary.workflowId(), summary.sourceId(), summary.agentId(), summary.agentName());
+    private Map<String, RuntimeRunOpsSpanView> indexSpans(List<RuntimeRunOpsSpanView> spans) {
+        LinkedHashMap<String, RuntimeRunOpsSpanView> indexed = new LinkedHashMap<>();
+        Map<String, Integer> counts = new HashMap<>();
+        for (RuntimeRunOpsSpanView span : safeList(spans)) {
+            String base = String.join("|",
+                    nullSafe(span.spanType()), nullSafe(span.nodeId()), nullSafe(span.toolName()));
+            int ordinal = counts.merge(base, 1, Integer::sum);
+            indexed.put(base + "#" + ordinal, span);
         }
-        return firstPresent(summary.agentId(), summary.agentName());
+        return indexed;
     }
 
-    private String groupVersionKey(RuntimeRunOpsSummaryView summary) {
-        return firstPresent(
-                summary.versionId() == null ? null : String.valueOf(summary.versionId()),
-                summary.version(),
-                summary.runtimeType(),
-                summary.runtimePlacement());
-    }
-
-    private boolean isWorkflowSummary(RuntimeRunOpsSummaryView summary) {
-        if (summary == null) {
-            return false;
+    private Map<String, RuntimeRunOpsToolCallView> indexTools(List<RuntimeRunOpsToolCallView> tools) {
+        LinkedHashMap<String, RuntimeRunOpsToolCallView> indexed = new LinkedHashMap<>();
+        Map<String, Integer> counts = new HashMap<>();
+        for (RuntimeRunOpsToolCallView tool : safeList(tools)) {
+            String base = nullSafe(tool.toolName());
+            int ordinal = counts.merge(base, 1, Integer::sum);
+            indexed.put(base + "#" + ordinal, tool);
         }
-        return isWorkflowSourceType(summary.sourceType()) || StringUtils.hasText(summary.workflowId());
+        return indexed;
     }
 
-    private boolean isWorkflowSourceType(String sourceType) {
-        return StringUtils.hasText(sourceType) && sourceType.toUpperCase().startsWith("WORKFLOW");
+    private Map<String, RuntimeRunOpsGuardDecisionView> indexGuards(List<RuntimeRunOpsGuardDecisionView> guards) {
+        LinkedHashMap<String, RuntimeRunOpsGuardDecisionView> indexed = new LinkedHashMap<>();
+        Map<String, Integer> counts = new HashMap<>();
+        for (RuntimeRunOpsGuardDecisionView guard : safeList(guards)) {
+            String base = String.join("|", nullSafe(guard.decisionType()),
+                    nullSafe(guard.targetKind()), nullSafe(guard.targetName()));
+            int ordinal = counts.merge(base, 1, Integer::sum);
+            indexed.put(base + "#" + ordinal, guard);
+        }
+        return indexed;
     }
 
-    private String normalizeKey(String value) {
-        return StringUtils.hasText(value) ? value.trim() : "-";
+    private <T> LinkedHashSet<String> unionKeys(Map<String, T> baseline, Map<String, T> candidate) {
+        LinkedHashSet<String> keys = new LinkedHashSet<>(baseline.keySet());
+        keys.addAll(candidate.keySet());
+        return keys;
     }
 
-    private <T> List<String> unionKeys(Map<String, T> baseline, Map<String, T> candidate) {
-        LinkedHashMap<String, Boolean> keys = new LinkedHashMap<>();
-        baseline.keySet().forEach(key -> keys.put(key, true));
-        candidate.keySet().forEach(key -> keys.putIfAbsent(key, true));
-        return new ArrayList<>(keys.keySet());
-    }
-
-    private void addDiff(List<RuntimeRunOpsDiffItemView> diffs, String field, Object baseline, Object candidate) {
-        boolean changed = !Objects.equals(baseline, candidate);
-        diffs.add(new RuntimeRunOpsDiffItemView(field, baseline, candidate, changed));
+    private void addDiff(List<RuntimeRunOpsDiffItemView> diffs,
+                         String field,
+                         Object baseline,
+                         Object candidate) {
+        diffs.add(new RuntimeRunOpsDiffItemView(field, baseline, candidate,
+                !Objects.equals(baseline, candidate)));
     }
 
     private boolean hasChanged(List<RuntimeRunOpsDiffItemView> diffs) {
         return diffs.stream().anyMatch(RuntimeRunOpsDiffItemView::changed);
     }
 
-    private int percentile(List<Integer> values, int percentile) {
-        if (values == null || values.isEmpty()) {
-            return 0;
+    private boolean isFailureStatus(String status) {
+        return "FAILED".equalsIgnoreCase(status)
+                || "ERROR".equalsIgnoreCase(status)
+                || "TIMEOUT".equalsIgnoreCase(status)
+                || "CANCELLED".equalsIgnoreCase(status);
+    }
+
+    private boolean isDenied(RuntimeRunOpsGuardDecisionView guard) {
+        return guard != null && "DENY".equalsIgnoreCase(guard.decision());
+    }
+
+    private Map<String, Object> parseMap(String json) {
+        if (!StringUtils.hasText(json)) {
+            return Map.of();
         }
-        int index = (int) Math.ceil((percentile / 100D) * values.size()) - 1;
-        return values.get(Math.max(0, Math.min(index, values.size() - 1)));
+        try {
+            Map<String, Object> parsed = objectMapper.readValue(json, MAP_TYPE);
+            return parsed == null ? Map.of() : parsed;
+        } catch (Exception ignored) {
+            return Map.of();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mapValue(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+    }
+
+    private int safeLimit(int limit) {
+        return Math.max(1, Math.min(limit <= 0 ? 50 : limit, 100));
+    }
+
+    private int safeDays(int days) {
+        return Math.max(1, Math.min(days <= 0 ? 7 : days, 90));
+    }
+
+    private int safeInt(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private String requiredText(String value, String error) {
+        if (!StringUtils.hasText(value)) {
+            throw new IllegalArgumentException(error);
+        }
+        return value.trim();
+    }
+
+    private String trim(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private String upper(String value) {
+        String normalized = trim(value);
+        return normalized == null ? null : normalized.toUpperCase();
     }
 
     private String text(Object value) {
-        return value == null ? null : String.valueOf(value);
+        return value == null ? null : trim(String.valueOf(value));
     }
 
-    private <T> List<T> safeList(List<T> rows) {
-        return rows == null ? List.of() : rows;
+    private String firstText(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value.trim();
+            }
+        }
+        return null;
     }
 
-    private static class FailureClusterAccumulator {
-        private final String agentId;
-        private final String agentName;
-        private final String version;
-        private final Long versionId;
-        private final String runtimeType;
-        private final String runtimePlacement;
-        private final String errorType;
+    private Long numberAsLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (!StringUtils.hasText(text(value))) {
+            return null;
+        }
+        try {
+            return Long.parseLong(text(value));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private String nullSafe(String value) {
+        return value == null ? "" : value;
+    }
+
+    private <T> List<T> safeList(List<T> values) {
+        return values == null ? List.of() : values;
+    }
+
+    private record FailureEvidence(String errorCode,
+                                   String errorMessage,
+                                   String spanType,
+                                   String nodeId,
+                                   String toolName,
+                                   RuntimeRunOpsSpanView span) {
+    }
+
+    private record VersionIdentity(String versionType,
+                                   String agentId,
+                                   String agentName,
+                                   Long agentConfigVersionId,
+                                   Integer agentConfigVersion,
+                                   String workflowId,
+                                   String workflowName,
+                                   Long workflowVersionId,
+                                   String workflowVersion,
+                                   String runtimeType) {
+        private String key() {
+            return String.join("|",
+                    nullSafeValue(versionType),
+                    nullSafeValue(agentId),
+                    String.valueOf(agentConfigVersionId),
+                    nullSafeValue(workflowId),
+                    String.valueOf(workflowVersionId),
+                    nullSafeValue(runtimeType));
+        }
+
+        private static String nullSafeValue(Object value) {
+            return value == null ? "" : String.valueOf(value);
+        }
+    }
+
+    private final class FailureAccumulator {
+        private final VersionIdentity identity;
+        private final String errorCode;
+        private final String errorMessage;
+        private final String spanType;
         private final String nodeId;
         private final String toolName;
-        private final String workflowId;
-        private final String workflowKeySlug;
-        private final String workflowVersion;
-        private final Long workflowVersionId;
-        private final String sourceType;
-        private final String sourceId;
         private final List<String> traceIds = new ArrayList<>();
-        private final List<String> repairHints = new ArrayList<>();
-        private int count;
-        private int fallbackCount;
-        private int totalLatencyMs;
+        private int latencyTotal;
+        private int latencyCount;
         private LocalDateTime firstSeenAt;
         private LocalDateTime lastSeenAt;
-        private String sampleTraceId;
-        private String sampleError;
 
-        private FailureClusterAccumulator(RuntimeRunOpsSummaryView summary,
-                                          String errorType,
-                                          String nodeId,
-                                          String toolName) {
-            this.agentId = summary.agentId();
-            this.agentName = summary.agentName();
-            this.version = summary.version();
-            this.versionId = summary.versionId();
-            this.runtimeType = summary.runtimeType();
-            this.runtimePlacement = summary.runtimePlacement();
-            this.errorType = errorType;
-            this.nodeId = nodeId;
-            this.toolName = toolName;
-            this.workflowId = summary.workflowId();
-            this.workflowKeySlug = summary.workflowKeySlug();
-            this.workflowVersion = summary.workflowVersion();
-            this.workflowVersionId = summary.workflowVersionId();
-            this.sourceType = summary.sourceType();
-            this.sourceId = summary.sourceId();
+        private FailureAccumulator(VersionIdentity identity, FailureEvidence evidence) {
+            this.identity = identity;
+            this.errorCode = evidence.errorCode();
+            this.errorMessage = evidence.errorMessage();
+            this.spanType = evidence.spanType();
+            this.nodeId = evidence.nodeId();
+            this.toolName = evidence.toolName();
         }
 
-        private static FailureClusterAccumulator fromSummary(RuntimeRunOpsSummaryView summary,
-                                                             String errorType,
-                                                             String nodeId,
-                                                             String toolName) {
-            return new FailureClusterAccumulator(summary, errorType, nodeId, toolName);
-        }
-
-        private void add(RuntimeRunOpsDetailView detail, String error) {
-            RuntimeRunOpsSummaryView summary = detail.summary();
-            count++;
-            if (summary.fallback()) {
-                fallbackCount++;
-            }
+        private void add(RuntimeRunOpsSummaryView summary, FailureEvidence evidence) {
+            traceIds.add(summary.traceId());
             if (summary.latencyMs() != null) {
-                totalLatencyMs += summary.latencyMs();
+                latencyTotal += summary.latencyMs();
+                latencyCount++;
             }
-            if (StringUtils.hasText(summary.traceId())) {
-                traceIds.add(summary.traceId());
-                if (sampleTraceId == null) {
-                    sampleTraceId = summary.traceId();
-                }
+            if (summary.startedAt() != null
+                    && (firstSeenAt == null || summary.startedAt().isBefore(firstSeenAt))) {
+                firstSeenAt = summary.startedAt();
             }
-            if (sampleError == null && StringUtils.hasText(error)) {
-                sampleError = error;
-            }
-            repairHints.addAll(detail.repairHints());
-            LocalDateTime startedAt = summary.startedAt();
-            if (startedAt != null) {
-                if (firstSeenAt == null || startedAt.isBefore(firstSeenAt)) {
-                    firstSeenAt = startedAt;
-                }
-                if (lastSeenAt == null || startedAt.isAfter(lastSeenAt)) {
-                    lastSeenAt = startedAt;
-                }
+            if (summary.startedAt() != null
+                    && (lastSeenAt == null || summary.startedAt().isAfter(lastSeenAt))) {
+                lastSeenAt = summary.startedAt();
             }
         }
 
-        private RuntimeRunOpsFailureClusterView toCluster() {
+        private RuntimeRunOpsFailureClusterView toView() {
             return new RuntimeRunOpsFailureClusterView(
-                    agentId,
-                    agentName,
-                    version,
-                    versionId,
-                    runtimeType,
-                    runtimePlacement,
-                    errorType,
+                    identity.versionType(),
+                    identity.agentId(),
+                    identity.agentName(),
+                    identity.agentConfigVersionId(),
+                    identity.agentConfigVersion(),
+                    identity.workflowId(),
+                    identity.workflowName(),
+                    identity.workflowVersionId(),
+                    identity.workflowVersion(),
+                    identity.runtimeType(),
+                    errorCode,
+                    errorMessage,
+                    spanType,
                     nodeId,
                     toolName,
-                    count,
-                    fallbackCount,
-                    count == 0 ? 0 : Math.round((float) totalLatencyMs / count),
+                    traceIds.size(),
+                    latencyCount == 0 ? 0 : latencyTotal / latencyCount,
                     firstSeenAt,
                     lastSeenAt,
-                    sampleTraceId,
-                    traceIds,
-                    sampleError,
-                    repairHints.stream().distinct().toList(),
-                    workflowId,
-                    workflowKeySlug,
-                    workflowVersion,
-                    workflowVersionId,
-                    sourceType,
-                    sourceId);
+                    traceIds.isEmpty() ? null : traceIds.get(0),
+                    List.copyOf(traceIds),
+                    List.of("打开样例运行，沿 executionPath 定位首个失败节点。"));
         }
+    }
+
+    private final class VersionAccumulator {
+        private final VersionIdentity identity;
+        private final List<RuntimeRunOpsDetailView> rows = new ArrayList<>();
+
+        private VersionAccumulator(VersionIdentity identity) {
+            this.identity = identity;
+        }
+
+        private void add(RuntimeRunOpsDetailView detail) {
+            rows.add(detail);
+        }
+
+        private RuntimeRunOpsVersionComparisonView toView() {
+            int runCount = rows.size();
+            int successCount = (int) rows.stream()
+                    .map(RuntimeRunOpsDetailView::summary)
+                    .filter(summary -> "SUCCESS".equalsIgnoreCase(summary.status()))
+                    .count();
+            int failureCount = (int) rows.stream()
+                    .map(RuntimeRunOpsDetailView::summary)
+                    .filter(summary -> isFailureStatus(summary.status()))
+                    .count();
+            List<Integer> latencies = rows.stream()
+                    .map(RuntimeRunOpsDetailView::summary)
+                    .map(RuntimeRunOpsSummaryView::latencyMs)
+                    .filter(Objects::nonNull)
+                    .sorted()
+                    .toList();
+            int avgLatency = average(latencies);
+            int p95Latency = percentile95(latencies);
+            int avgTokenCost = average(rows.stream()
+                    .map(RuntimeRunOpsDetailView::summary)
+                    .map(RuntimeRunOpsSummaryView::tokenCost)
+                    .filter(Objects::nonNull)
+                    .toList());
+            int workflowCallCount = rows.stream()
+                    .map(RuntimeRunOpsDetailView::summary)
+                    .map(RuntimeRunOpsSummaryView::workflowCallCount)
+                    .filter(Objects::nonNull)
+                    .mapToInt(Integer::intValue)
+                    .sum();
+            int toolErrorCount = rows.stream().mapToInt(row -> (int) row.toolCalls().stream()
+                    .filter(tool -> !tool.success()).count()).sum();
+            int guardDenyCount = rows.stream()
+                    .map(RuntimeRunOpsDetailView::summary)
+                    .map(RuntimeRunOpsSummaryView::guardDenyCount)
+                    .filter(Objects::nonNull)
+                    .mapToInt(Integer::intValue)
+                    .sum();
+            int replanCount = rows.stream()
+                    .map(RuntimeRunOpsDetailView::summary)
+                    .map(RuntimeRunOpsSummaryView::replanCount)
+                    .filter(Objects::nonNull)
+                    .mapToInt(Integer::intValue)
+                    .sum();
+            RuntimeRunOpsSummaryView latest = rows.stream()
+                    .map(RuntimeRunOpsDetailView::summary)
+                    .max(Comparator.comparing(RuntimeRunOpsSummaryView::startedAt,
+                            Comparator.nullsFirst(LocalDateTime::compareTo)))
+                    .orElse(null);
+            return new RuntimeRunOpsVersionComparisonView(
+                    identity.versionType(),
+                    identity.agentId(),
+                    identity.agentName(),
+                    identity.agentConfigVersionId(),
+                    identity.agentConfigVersion(),
+                    identity.workflowId(),
+                    identity.workflowName(),
+                    identity.workflowVersionId(),
+                    identity.workflowVersion(),
+                    identity.runtimeType(),
+                    runCount,
+                    successCount,
+                    failureCount,
+                    runCount == 0 ? 0D : successCount * 1D / runCount,
+                    avgLatency,
+                    p95Latency,
+                    avgTokenCost,
+                    workflowCallCount,
+                    toolErrorCount,
+                    guardDenyCount,
+                    replanCount,
+                    latest == null ? null : latest.traceId(),
+                    latest == null ? null : latest.startedAt());
+        }
+    }
+
+    private int average(List<Integer> values) {
+        if (values == null || values.isEmpty()) {
+            return 0;
+        }
+        return (int) Math.round(values.stream().mapToInt(Integer::intValue).average().orElse(0));
+    }
+
+    private int percentile95(List<Integer> sortedValues) {
+        if (sortedValues == null || sortedValues.isEmpty()) {
+            return 0;
+        }
+        int index = Math.max(0, (int) Math.ceil(sortedValues.size() * 0.95D) - 1);
+        return sortedValues.get(index);
     }
 }

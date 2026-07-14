@@ -1,5 +1,6 @@
 package com.enterprise.ai.runtime.workflow;
 
+import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,7 +16,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -119,6 +122,53 @@ class RuntimeWorkflowVersionServiceTest {
                 () -> service.publish("wf-1", "v1.0.0", 100, "bad", "alice"));
 
         assertEquals("workflow release validation failed: GRAPH_ENTRY_MISSING", error.getMessage());
+    }
+
+    @Test
+    void publishRejectsJsonNullGraphSpecWithoutCreatingVersion() {
+        RuntimeWorkflowDefinitionEntity workflow = workflowService.findById("wf-1").orElseThrow();
+        workflow.setGraphSpecJson("null");
+        RuntimeWorkflowReleaseValidationService actualValidation = new RuntimeWorkflowReleaseValidationService(
+                mock(RuntimeControlCatalogClient.class),
+                new ObjectMapper());
+        RuntimeWorkflowVersionService actualService = new RuntimeWorkflowVersionService(
+                versionMapper, workflowService, actualValidation, new ObjectMapper());
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> actualService.publish("wf-1", "v1.0.0", 100, "bad", "alice"));
+
+        assertEquals("workflow release validation failed: GRAPH_SPEC_INVALID", error.getMessage());
+        verify(versionMapper, never()).insert(any(RuntimeWorkflowVersionEntity.class));
+    }
+
+    @Test
+    void publishRejectsStaleBaseRevisionBeforeValidationOrSnapshot() {
+        RuntimeWorkflowDefinitionEntity workflow = workflowService.findById("wf-1").orElseThrow();
+        String baseRevision = "2026-07-14T10:30:00";
+        RuntimeWorkflowRevisionConflictException conflict = new RuntimeWorkflowRevisionConflictException(
+                "wf-1", baseRevision, "2026-07-14T10:31:00");
+        doThrow(conflict).when(workflowService).assertRevision(workflow, baseRevision);
+
+        RuntimeWorkflowRevisionConflictException thrown = assertThrows(
+                RuntimeWorkflowRevisionConflictException.class,
+                () -> service.publish("wf-1", "v1.0.0", 100, "first", "alice", baseRevision));
+
+        assertEquals(conflict, thrown);
+        verify(validationService, never()).validate(any(RuntimeWorkflowDefinitionEntity.class));
+        verify(versionMapper, never()).insert(any(RuntimeWorkflowVersionEntity.class));
+    }
+
+    @Test
+    void publishUsesBaseRevisionAgainForAtomicActivation() {
+        String baseRevision = "2026-07-14T10:30:00";
+
+        service.publish("wf-1", "v1.0.0", 100, "first", "alice", baseRevision);
+
+        verify(workflowService).assertRevision(any(RuntimeWorkflowDefinitionEntity.class), eq(baseRevision));
+        verify(workflowService).update(
+                eq("wf-1"),
+                org.mockito.ArgumentMatchers.argThat(update -> "ACTIVE".equals(update.getStatus())),
+                eq(baseRevision));
     }
 
     @Test

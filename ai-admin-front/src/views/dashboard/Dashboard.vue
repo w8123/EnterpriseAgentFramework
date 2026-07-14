@@ -1,11 +1,24 @@
 <template>
-  <div class="page-container dashboard">
-    <div class="page-header">
-      <h2>概览</h2>
-      <el-button type="primary" @click="refresh" :loading="loading">
-        <el-icon><Refresh /></el-icon>刷新
-      </el-button>
-    </div>
+  <WorkbenchPage class="dashboard">
+    <PageHeader
+      variant="overview"
+      domain="platform"
+      eyebrow="Workspace Overview"
+      title="概览"
+      description="集中查看平台资产、服务健康度、运行动态与待处理事项。"
+    >
+      <template #actions>
+        <el-tooltip content="刷新概览" placement="top">
+          <el-button
+            circle
+            :icon="Refresh"
+            :loading="loading"
+            aria-label="刷新概览"
+            @click="refresh"
+          />
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
     <!-- 统计卡片 -->
     <div class="stat-grid">
@@ -171,7 +184,7 @@
             </div>
             <div class="preview-card-info">
               <div class="preview-card-name">{{ agent.name }}</div>
-              <div class="preview-card-meta">{{ agent.keySlug || agent.agentKind || '-' }}</div>
+              <div class="preview-card-meta">{{ agent.keySlug || agent.id || '-' }}</div>
             </div>
             <el-tag
               :type="agent.enabled ? 'success' : 'info'"
@@ -215,7 +228,7 @@
         </div>
       </div>
     </div>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
@@ -223,12 +236,14 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import {
   Refresh, Cpu, Collection, SetUp, Coin, Connection, Clock,
 } from '@element-plus/icons-vue'
-import type { AgentEntry } from '@/types/agent'
+import type { Agent } from '@/types/agent'
 import type { KnowledgeBase } from '@/types/knowledge'
-import { listAgentEntries } from '@/api/workflow'
+import { listAgents } from '@/api/workflow'
 import { getKnowledgeList } from '@/api/knowledge'
 import { getModelInstances } from '@/api/model'
 import { getTools } from '@/api/tool'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const loading = ref(false)
 
@@ -239,7 +254,7 @@ const stats = reactive({
   modelInstanceCount: 0,
 })
 
-const recentAgents = ref<AgentEntry[]>([])
+const recentAgents = ref<Agent[]>([])
 const recentKnowledge = ref<KnowledgeBase[]>([])
 
 const serviceHealth = reactive<Record<string, string>>({})
@@ -320,7 +335,7 @@ const statCards = computed(() => [
 async function fetchStats() {
   loading.value = true
   const results = await Promise.allSettled([
-    listAgentEntries(),
+    listAgents(),
     getKnowledgeList(),
     getTools({ current: 1, size: 1 }),
     getModelInstances(),
@@ -456,7 +471,6 @@ onMounted(refresh)
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  margin-bottom: 24px;
 }
 
 .stat-card {
@@ -541,7 +555,6 @@ onMounted(refresh)
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
-  margin-bottom: 24px;
 }
 
 .section-title {

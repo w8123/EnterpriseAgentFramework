@@ -12,15 +12,19 @@ import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinition
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionUpsertRequest;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -128,10 +132,105 @@ public class CapabilityToolCatalogService {
             return List.of();
         }
         try {
-            return objectMapper.readValue(parametersJson, PARAMETER_LIST_TYPE);
+            JsonNode root = objectMapper.readTree(parametersJson);
+            if (root.isArray()) {
+                return objectMapper.convertValue(root, PARAMETER_LIST_TYPE);
+            }
+            if (isJsonSchemaObject(root)) {
+                return parseJsonSchemaProperties(root);
+            }
+            throw new IllegalArgumentException("tool parameters json must be an array or JSON Schema object");
         } catch (Exception ex) {
             throw new IllegalArgumentException("invalid tool parameters json", ex);
         }
+    }
+
+    private boolean isJsonSchemaObject(JsonNode node) {
+        if (node == null || !node.isObject()) {
+            return false;
+        }
+        JsonNode type = node.get("type");
+        return node.has("properties") || (type != null && type.isTextual() && "object".equals(type.asText()));
+    }
+
+    private List<ToolDefinitionParameter> parseJsonSchemaProperties(JsonNode schema) {
+        JsonNode properties = schema.get("properties");
+        if (properties == null || !properties.isObject()) {
+            return List.of();
+        }
+        Set<String> requiredNames = jsonSchemaRequiredNames(schema.get("required"));
+        List<ToolDefinitionParameter> parameters = new ArrayList<>();
+        properties.properties().forEach(property -> {
+            JsonNode propertySchema = property.getValue();
+            parameters.add(new ToolDefinitionParameter(
+                    property.getKey(),
+                    jsonSchemaType(propertySchema),
+                    firstJsonText(propertySchema, "description", "title"),
+                    requiredNames.contains(property.getKey()),
+                    firstJsonText(propertySchema, "location", "in"),
+                    jsonSchemaChildren(propertySchema),
+                    null
+            ));
+        });
+        return List.copyOf(parameters);
+    }
+
+    private Set<String> jsonSchemaRequiredNames(JsonNode required) {
+        if (required == null || !required.isArray()) {
+            return Set.of();
+        }
+        Set<String> names = new HashSet<>();
+        required.forEach(item -> {
+            if (item.isTextual()) {
+                names.add(item.asText());
+            }
+        });
+        return names;
+    }
+
+    private List<ToolDefinitionParameter> jsonSchemaChildren(JsonNode schema) {
+        if (schema == null || !schema.isObject()) {
+            return List.of();
+        }
+        JsonNode childSchema = "array".equals(jsonSchemaType(schema)) ? schema.get("items") : schema;
+        return isJsonSchemaObject(childSchema) ? parseJsonSchemaProperties(childSchema) : List.of();
+    }
+
+    private String jsonSchemaType(JsonNode schema) {
+        if (schema == null || !schema.isObject()) {
+            return "object";
+        }
+        JsonNode type = schema.get("type");
+        if (type != null && type.isTextual() && StringUtils.hasText(type.asText())) {
+            return type.asText();
+        }
+        if (type != null && type.isArray()) {
+            for (JsonNode candidate : type) {
+                if (candidate.isTextual() && !"null".equals(candidate.asText())) {
+                    return candidate.asText();
+                }
+            }
+        }
+        if (schema.has("properties")) {
+            return "object";
+        }
+        if (schema.has("items")) {
+            return "array";
+        }
+        return "object";
+    }
+
+    private String firstJsonText(JsonNode node, String... fieldNames) {
+        if (node == null || !node.isObject()) {
+            return null;
+        }
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.get(fieldName);
+            if (value != null && value.isTextual() && StringUtils.hasText(value.asText())) {
+                return value.asText();
+            }
+        }
+        return null;
     }
 
     public String getProjectNameOrNull(Long projectId) {

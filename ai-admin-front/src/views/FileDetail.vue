@@ -1,25 +1,25 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <div class="header-left">
-        <el-button text @click="router.push(`/knowledge/${kbCode}`)">
-          <el-icon><ArrowLeft /></el-icon>
-          返回
-        </el-button>
-        <div>
-          <h2>文档段落运营</h2>
-          <div class="subline">
-            <el-tag effect="plain" size="small">{{ fileId }}</el-tag>
-            <span>{{ chunkList.length }} 个段落</span>
-            <span>{{ enabledCount }} 个启用</span>
-          </div>
-        </div>
-      </div>
-      <el-button size="small" @click="fetchChunks" :loading="loading">
-        <el-icon><Refresh /></el-icon>
-        刷新
-      </el-button>
-    </div>
+  <WorkbenchPage class="file-detail-page">
+    <PageHeader
+      variant="entity"
+      domain="knowledge"
+      title="文档段落运营"
+      show-back
+      back-label="返回知识库详情"
+      @back="router.push(`/knowledge/${kbCode}`)"
+    >
+      <template #tags>
+        <el-tag effect="plain" size="small">{{ fileId }}</el-tag>
+      </template>
+      <template #meta>
+        <HeaderMetaList :items="fileMetaItems" />
+      </template>
+      <template #actions>
+        <el-tooltip content="刷新文档段落" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新文档段落" @click="fetchChunks" />
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
     <div class="toolbar">
       <el-input v-model="keyword" clearable placeholder="搜索段落内容或标题" class="search-input">
@@ -70,7 +70,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="editVisible" title="编辑段落" width="720px">
+    <AppDialog v-model="editVisible" title="编辑段落" width="720px">
       <el-form :model="editForm" label-width="80px">
         <el-form-item label="标题">
           <el-input v-model="editForm.title" placeholder="可选，用于运营识别" />
@@ -86,15 +86,19 @@
         <el-button @click="editVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Refresh, Search } from '@element-plus/icons-vue'
+import { Refresh, Search } from '@element-plus/icons-vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import HeaderMetaList from '@/components/common/HeaderMetaList.vue'
 import { getFileChunks, reembedChunk, toggleChunk, updateChunk } from '@/api/knowledge'
 import type { ChunkDetail } from '@/types/knowledge'
 
@@ -123,6 +127,11 @@ const filterOptions = [
 ]
 
 const enabledCount = computed(() => chunkList.value.filter((item) => item.enabled !== 0).length)
+
+const fileMetaItems = computed(() => [
+  { key: 'chunks', label: '段落', value: chunkList.value.length },
+  { key: 'enabled', label: '启用', value: enabledCount.value, tone: 'success' as const },
+])
 
 const filteredChunks = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
@@ -206,29 +215,14 @@ onMounted(fetchChunks)
 </script>
 
 <style scoped lang="scss">
-.header-left,
-.subline,
 .toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.header-left h2 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.subline {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
 .toolbar {
   justify-content: space-between;
-  margin-bottom: 14px;
 }
 
 .search-input {

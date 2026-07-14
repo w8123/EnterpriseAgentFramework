@@ -20,7 +20,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.ResourceAccessException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -68,9 +70,58 @@ public class CapabilitySdkSyncTriggerService {
                     targetUrl,
                     intValue(body.get("capabilityCount")),
                     body);
+        } catch (RestClientResponseException ex) {
+            throw downstreamHttpFailure(targetUrl, ex);
+        } catch (ResourceAccessException ex) {
+            throw syncRequestFailure(
+                    "SDK_SYNC_TARGET_UNREACHABLE",
+                    targetUrl,
+                    "ReachAI 无法连接业务系统同步接口 " + targetUrl
+                            + "。请检查 reachai.project.base-url 是否为 ReachAI 服务端可达地址；"
+                            + "分机、容器或集群部署不要使用 localhost，并检查网关路由、防火墙和连接超时。",
+                    ex);
         } catch (RestClientException ex) {
-            throw new IllegalStateException("SDK instance scan request failed: " + ex.getMessage(), ex);
+            throw syncRequestFailure(
+                    "SDK_SYNC_REQUEST_FAILED",
+                    targetUrl,
+                    "ReachAI 调用业务系统同步接口失败 " + targetUrl + "：" + ex.getMessage(),
+                    ex);
         }
+    }
+
+    private SdkSyncRequestException downstreamHttpFailure(String targetUrl,
+                                                          RestClientResponseException ex) {
+        int status = ex.getStatusCode().value();
+        if (status == 401 || status == 403) {
+            return syncRequestFailure(
+                    "SDK_SYNC_AUTH_REJECTED",
+                    targetUrl,
+                    "业务系统返回 HTTP " + status + "。请确认业务登录/JWT和 CSRF 已允许 POST "
+                            + targetUrl
+                            + " 到达 ReachAI Starter Controller；同时保留 Starter 签名校验，并确认项目 appKey/appSecret 一致。",
+                    ex);
+        }
+        if (status == 404 || status == 405) {
+            return syncRequestFailure(
+                    "SDK_SYNC_ROUTE_NOT_FOUND",
+                    targetUrl,
+                    "业务系统返回 HTTP " + status + "。请检查 reachai.project.base-url、context-path，"
+                            + "以及网关是否已将 /reachai/registry/** 转发到 Starter 所在业务服务并允许 POST。",
+                    ex);
+        }
+        return syncRequestFailure(
+                "SDK_SYNC_DOWNSTREAM_ERROR",
+                targetUrl,
+                "业务系统同步接口 " + targetUrl + " 返回 HTTP " + status
+                        + "。请查看业务系统和网关日志中的同一请求时间点。",
+                ex);
+    }
+
+    private SdkSyncRequestException syncRequestFailure(String code,
+                                                       String targetUrl,
+                                                       String message,
+                                                       Throwable cause) {
+        return new SdkSyncRequestException(code, targetUrl, message, cause);
     }
 
     private ProjectInstanceEntity latestOnlineInstance(ScanProjectEntity project) {
@@ -159,5 +210,25 @@ public class CapabilitySdkSyncTriggerService {
             int capabilityCount,
             Map<String, Object> businessResponse
     ) {
+    }
+
+    public static class SdkSyncRequestException extends IllegalStateException {
+
+        private final String code;
+        private final String targetUrl;
+
+        public SdkSyncRequestException(String code, String targetUrl, String message, Throwable cause) {
+            super(message, cause);
+            this.code = code;
+            this.targetUrl = targetUrl;
+        }
+
+        public String code() {
+            return code;
+        }
+
+        public String targetUrl() {
+            return targetUrl;
+        }
     }
 }

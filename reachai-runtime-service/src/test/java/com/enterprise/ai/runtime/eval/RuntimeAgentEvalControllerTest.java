@@ -36,22 +36,19 @@ class RuntimeAgentEvalControllerTest {
         Method listRunResults = RuntimeAgentEvalController.class
                 .getDeclaredMethod("listRunResults", Long.class);
 
-        assertArrayEquals(new String[] {"/api/agent/evals/datasets", "/api/runtime/evals/datasets"},
+        assertArrayEquals(new String[] {"/api/runtime/evals/datasets"},
                 listDatasets.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[] {"/api/agent/evals/datasets", "/api/runtime/evals/datasets"},
+        assertArrayEquals(new String[] {"/api/runtime/evals/datasets"},
                 createDataset.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/api/agent/evals/datasets/{datasetId}/cases/import",
-                        "/api/runtime/evals/datasets/{datasetId}/cases/import"},
+        assertArrayEquals(new String[] {"/api/runtime/evals/datasets/{datasetId}/cases/import"},
                 importCases.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/api/agent/evals/datasets/{datasetId}/cases",
-                        "/api/runtime/evals/datasets/{datasetId}/cases"},
+        assertArrayEquals(new String[] {"/api/runtime/evals/datasets/{datasetId}/cases"},
                 listCases.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[] {"/api/agent/evals/runs", "/api/runtime/evals/runs"},
+        assertArrayEquals(new String[] {"/api/runtime/evals/runs"},
                 startRun.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/api/agent/evals/runs/{runId}", "/api/runtime/evals/runs/{runId}"},
+        assertArrayEquals(new String[] {"/api/runtime/evals/runs/{runId}"},
                 getRun.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[] {"/api/agent/evals/runs/{runId}/results",
-                        "/api/runtime/evals/runs/{runId}/results"},
+        assertArrayEquals(new String[] {"/api/runtime/evals/runs/{runId}/results"},
                 listRunResults.getAnnotation(GetMapping.class).value());
         assertEquals(RequestParam.class, listDatasets.getParameters()[0].getAnnotation(RequestParam.class).annotationType());
         assertEquals(RequestBody.class, createDataset.getParameters()[0].getAnnotation(RequestBody.class).annotationType());
@@ -110,7 +107,7 @@ class RuntimeAgentEvalControllerTest {
                 null, null);
         RuntimeAgentEvalCaseResultView result = new RuntimeAgentEvalCaseResultView(31L, id, 1L,
                 11L, "c1", 1, "COMPLETED", false, false, null, 0.0, 0,
-                null, null, "EVAL_RUNTIME_NOT_ATTACHED", "Runtime execution is not attached yet");
+                null, null, "EVAL_ASSERTION_FAILED", "calledTool:query_orders");
         return new RuntimeAgentEvalRunView(run, Map.of("caseCount", 1), Map.of("items", List.of()), List.of(result));
     }
 }

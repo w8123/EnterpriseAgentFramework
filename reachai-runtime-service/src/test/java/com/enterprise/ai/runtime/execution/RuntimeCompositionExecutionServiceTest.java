@@ -21,7 +21,8 @@ class RuntimeCompositionExecutionServiceTest {
                     "ok",
                     new RuntimeModelServiceClient.ModelChatData("model answer", "model-1", "openai", null, null, null,
                             "stop")),
-            capabilityClient);
+            capabilityClient,
+            org.mockito.Mockito.mock(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.class));
     private final RuntimeCompositionExecutionService service =
             new RuntimeCompositionExecutionService(capabilityClient, graphSpecExecutor);
 
@@ -91,9 +92,5 @@ class RuntimeCompositionExecutionServiceTest {
             return Map.of();
         }
 
-        @Override
-        public List<Map<String, Object>> listRuntimeInstances() {
-            return List.of();
-        }
     }
 }

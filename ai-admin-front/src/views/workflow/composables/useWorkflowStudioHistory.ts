@@ -11,6 +11,7 @@ export interface UseWorkflowStudioHistoryDeps {
   selectedNodeId: Ref<string | null>
   selectedEdgeId: Ref<string | null>
   visualDirty: Ref<boolean>
+  editGeneration: Ref<number>
   stripTransientNodeClasses: (node: CanvasNode) => CanvasNode
   decorateWorkflowNode: (node: CanvasNode) => CanvasNode
   decorateWorkflowEdge: (edge: CanvasEdge) => CanvasEdge
@@ -28,6 +29,7 @@ export function useWorkflowStudioHistory({
   selectedNodeId,
   selectedEdgeId,
   visualDirty,
+  editGeneration,
   stripTransientNodeClasses,
   decorateWorkflowNode,
   decorateWorkflowEdge,
@@ -53,6 +55,7 @@ export function useWorkflowStudioHistory({
       selectedNodeId.value = null
       selectedEdgeId.value = null
       syncJsonFromCanvas()
+      editGeneration.value += 1
       visualDirty.value = true
     } finally {
       nextTick(() => {

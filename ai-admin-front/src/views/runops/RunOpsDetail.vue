@@ -1,31 +1,51 @@
 <template>
-  <div class="page-container runops-detail">
-    <div class="page-header">
-      <div class="header-left">
-        <el-button text :icon="ArrowLeft" @click="router.push('/runops')">返回</el-button>
-        <div>
-          <h2>{{ detailTitle }}</h2>
-          <p class="trace-id">{{ traceId }}</p>
-          <div v-if="summary" class="detail-subtitle">
-            <el-tag size="small" effect="plain" :type="runKindTagType(summary)">{{ runKindLabel(summary) }}</el-tag>
-            <span v-if="runSourceType(summary)" class="source-type">{{ runSourceType(summary) }}</span>
-          </div>
-        </div>
-        <el-tag v-if="summary" :type="spanTimelineType(summary.status)">
-          {{ summary.status }}
+  <WorkbenchPage class="runops-detail">
+    <PageHeader
+      variant="entity"
+      domain="governance"
+      :title="detailTitle"
+      show-back
+      @back="router.push('/runops')"
+    >
+      <template #tags>
+        <el-tag v-if="summary" size="small" effect="plain" :type="summary.runType === 'AGENT' ? 'success' : 'primary'">
+          {{ summary.runType }}
         </el-tag>
-      </div>
-      <div class="header-actions">
+        <el-tag v-if="summary" :type="statusTagType(summary.status)">
+          {{ statusLabel(summary.status) }}
+        </el-tag>
+      </template>
+      <template #meta>
+        <HeaderMetaList :items="headerMetaItems" />
+      </template>
+      <template #actions>
+        <el-tooltip content="刷新运行详情" placement="top">
+          <el-button
+            circle
+            :icon="Refresh"
+            :loading="loading"
+            aria-label="刷新运行详情"
+            @click="loadDetail"
+          />
+        </el-tooltip>
+        <el-button :disabled="!summary" @click="copyIssueSummary">复制运行摘要</el-button>
         <el-button
-          v-if="summary && runIsWorkflow(summary) && runWorkflowId(summary)"
-          @click="openWorkflowStudio"
+          v-if="summary?.runType === 'WORKFLOW' && summary.workflowId"
+          @click="router.push(`/workflows/${summary.workflowId}/studio`)"
         >
           打开 Workflow Studio
         </el-button>
-        <el-button @click="loadDetail" :loading="loading">刷新</el-button>
-        <el-button type="primary" @click="openReplayDialog" :loading="replaying" :disabled="!detail">重放运行</el-button>
-      </div>
-    </div>
+        <el-button
+          type="primary"
+          :icon="VideoPlay"
+          :loading="replaying"
+          :disabled="!detail"
+          @click="openReplayDialog"
+        >
+          重放运行
+        </el-button>
+      </template>
+    </PageHeader>
 
     <el-empty v-if="!loading && !detail" description="未找到运行记录" />
 
@@ -39,8 +59,18 @@
       </section>
 
       <el-alert
+        v-if="summary.errorCode || summary.errorMessage"
+        class="run-alert"
+        type="error"
+        :closable="false"
+        show-icon
+        :title="summary.errorCode || '运行失败'"
+        :description="summary.errorMessage || '未记录错误详情'"
+      />
+
+      <el-alert
         v-if="detail.repairHints?.length"
-        class="hint-alert"
+        class="run-alert"
         type="warning"
         :closable="false"
         show-icon
@@ -52,25 +82,10 @@
         </template>
       </el-alert>
 
-      <el-card shadow="never" class="action-card">
-        <template #header>
-          <div class="card-header">
-            <span>处置状态</span>
-            <el-tag :type="actionState.type" size="small">{{ actionState.label }}</el-tag>
-          </div>
-        </template>
-        <div class="action-row">
-          <el-button @click="markTrace('handled')">标记已处理</el-button>
-          <el-button @click="markTrace('ignored')">忽略此类问题</el-button>
-          <el-button @click="copyIssueSummary">复制问题摘要</el-button>
-          <el-button v-if="actionState.value" text @click="markTrace('')">清除状态</el-button>
-        </div>
-      </el-card>
-
       <el-card v-if="comparison" class="compare-card" shadow="never">
         <template #header>
           <div class="card-header">
-            <span>重放差异对比</span>
+            <span>原运行与重放对比</span>
             <el-tag size="small" effect="plain">
               {{ comparison.baseline.traceId }} → {{ comparison.candidate.traceId }}
             </el-tag>
@@ -84,7 +99,7 @@
           <el-empty v-if="!changedSummaryDiffs.length" description="摘要指标一致" />
         </section>
         <el-tabs>
-          <el-tab-pane label="节点差异">
+          <el-tab-pane label="Span 差异">
             <el-table :data="changedSpanDiffs" stripe>
               <el-table-column type="expand">
                 <template #default="{ row }">
@@ -100,15 +115,15 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column prop="key" label="节点" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="key" label="Span" min-width="180" show-overflow-tooltip />
               <el-table-column label="原运行" min-width="240" show-overflow-tooltip>
-                <template #default="{ row }">{{ nodeDigest(row.baseline) }}</template>
+                <template #default="{ row }">{{ spanDigest(row.baseline) }}</template>
               </el-table-column>
               <el-table-column label="重放" min-width="240" show-overflow-tooltip>
-                <template #default="{ row }">{{ nodeDigest(row.candidate) }}</template>
+                <template #default="{ row }">{{ spanDigest(row.candidate) }}</template>
               </el-table-column>
             </el-table>
-            <el-empty v-if="!changedSpanDiffs.length" description="节点链路一致" />
+            <el-empty v-if="!changedSpanDiffs.length" description="Span 链路一致" />
           </el-tab-pane>
           <el-tab-pane label="Tool 差异">
             <el-table :data="changedToolDiffs" stripe>
@@ -166,54 +181,92 @@
       </el-card>
 
       <el-tabs>
-        <el-tab-pane label="执行链路">
-          <section v-if="detail.workflowPath?.length" class="workflow-path">
-            <div v-for="item in detail.workflowPath" :key="item.spanId || item.fromNodeId" class="path-item">
-              <div class="path-node">
-                <strong>{{ item.fromNodeId || '-' }}</strong>
-                <el-tag size="small" :type="pathStatusType(item)">{{ pathStatusLabel(item) }}</el-tag>
-              </div>
-              <div class="path-edge">
-                <span>{{ item.toNodeId ? '-> ' + item.toNodeId : 'END' }}</span>
-                <el-tag v-if="item.condition" size="small" effect="plain">{{ item.condition }}</el-tag>
-                <el-tag v-if="item.route" size="small" type="success" effect="plain">route: {{ item.route }}</el-tag>
-              </div>
-              <div class="path-meta">
-                <span v-if="item.interactionId">interaction {{ item.interactionId }}</span>
-                <span v-if="item.startedAt">{{ item.startedAt }}</span>
-              </div>
+        <el-tab-pane v-if="summary.runType === 'AGENT'" label="Supervisor 决策">
+          <section class="supervisor-metrics">
+            <div v-for="item in supervisorMetrics" :key="item.label" class="supervisor-metric">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+              <small>{{ item.hint }}</small>
             </div>
           </section>
-          <el-empty v-else description="暂无工作流路径" />
+          <el-table :data="supervisorEvents" row-key="id" class="supervisor-event-table">
+            <el-table-column label="阶段" width="136">
+              <template #default="{ row }">
+                <el-tag :type="phaseTagType(row.spanType)">{{ phaseLabel(row.spanType) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="计划 / 选择" min-width="230">
+              <template #default="{ row }">{{ supervisorEventLabel(row) }}</template>
+            </el-table-column>
+            <el-table-column label="结果" min-width="260" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.outputSummary || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="112">
+              <template #default="{ row }"><el-tag :type="statusTagType(row.status)">{{ row.status || '-' }}</el-tag></template>
+            </el-table-column>
+            <el-table-column label="耗时" width="100">
+              <template #default="{ row }">{{ row.latencyMs ?? 0 }} ms</template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="!supervisorEvents.length" description="该运行尚无结构化 Supervisor 决策事件" />
+        </el-tab-pane>
+
+        <el-tab-pane label="执行路径">
+          <div class="execution-model" :class="{ 'workflow-only': summary.runType === 'WORKFLOW' }">
+            <template v-if="summary.runType === 'AGENT'">
+              <div><strong>Supervisor</strong><small>理解与调度</small></div>
+              <span>→</span>
+              <div><strong>Plan / Replan</strong><small>规划与有限重规划</small></div>
+              <span>→</span>
+              <div><strong>Workflow Tool</strong><small>选择并调用 Workflow</small></div>
+              <span>→</span>
+            </template>
+            <div><strong>Workflow Node</strong><small>执行 GraphSpec 节点</small></div>
+          </div>
+
+          <el-table :data="executionPath" row-key="spanId" stripe>
+            <el-table-column label="层级 / 阶段" min-width="260">
+              <template #default="{ row }">
+                <div class="execution-stage" :style="{ paddingLeft: `${Math.min(row.depth || 0, 4) * 24}px` }">
+                  <span v-if="row.depth" class="path-prefix">↳</span>
+                  <el-tag size="small" effect="plain" :type="phaseTagType(row.spanType)">
+                    {{ phaseLabel(row.spanType) }}
+                  </el-tag>
+                  <strong>{{ row.label || row.nodeId || row.toolName || row.spanId || '-' }}</strong>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="runtimeType" label="Runtime" width="150" show-overflow-tooltip />
+            <el-table-column label="状态" width="112">
+              <template #default="{ row }"><el-tag size="small" :type="statusTagType(row.status)">{{ row.status || '-' }}</el-tag></template>
+            </el-table-column>
+            <el-table-column prop="startedAt" label="开始时间" width="180" />
+            <el-table-column prop="endedAt" label="结束时间" width="180" />
+          </el-table>
+          <el-empty v-if="!executionPath.length" description="暂无结构化执行路径" />
+        </el-tab-pane>
+
+        <el-tab-pane label="Span 明细">
           <el-timeline class="span-timeline">
             <el-timeline-item
               v-for="span in detail.spans"
               :key="span.id"
               :timestamp="span.startedAt"
-              :type="spanTimelineType(span.status)"
+              :type="statusTagType(span.status)"
               placement="top"
             >
               <div class="span-item">
                 <div class="span-head">
                   <div>
                     <strong>{{ spanDisplayName(span) }}</strong>
-                    <span>{{ span.spanType }} · {{ span.runtimeType || '-' }}</span>
+                    <span>{{ phaseLabel(span.spanType) }} · {{ span.runtimeType || '-' }}</span>
                   </div>
                   <div class="span-tags">
-                    <el-tag size="small" :type="spanTimelineType(span.status)">{{ span.status }}</el-tag>
-                    <el-tag v-if="span.metadata?.lastRoute" size="small" type="success" effect="plain">
-                      route: {{ span.metadata.lastRoute }}
-                    </el-tag>
-                    <el-tag v-if="span.metadata?.interactionId" size="small" type="warning" effect="plain">
-                      {{ span.metadata.interactionId }}
-                    </el-tag>
+                    <el-tag size="small" :type="statusTagType(span.status)">{{ span.status || '-' }}</el-tag>
                     <el-tag size="small" effect="plain">{{ span.latencyMs ?? 0 }} ms</el-tag>
                   </div>
                 </div>
-                <div v-if="span.metadata?.workflowStatus === 'WAITING'" class="waiting-text">
-                  等待人工处理：{{ span.metadata?.interactionId || '-' }}
-                </div>
-                <div v-if="span.errorMessage" class="error-text">{{ span.errorCode }}：{{ span.errorMessage }}</div>
+                <div v-if="span.errorMessage" class="error-text">{{ span.errorCode || 'SPAN_FAILED' }}：{{ span.errorMessage }}</div>
                 <div class="io-grid">
                   <pre>{{ span.inputSummary || '-' }}</pre>
                   <pre>{{ span.outputSummary || '-' }}</pre>
@@ -221,14 +274,14 @@
               </div>
             </el-timeline-item>
           </el-timeline>
-          <el-empty v-if="!detail.spans.length" description="暂无结构化 span" />
+          <el-empty v-if="!detail.spans.length" description="暂无结构化 Span" />
         </el-tab-pane>
 
         <el-tab-pane label="Tool 调用">
           <el-table :data="detail.toolCalls" stripe>
-            <el-table-column prop="success" label="状态" width="90">
+            <el-table-column prop="success" label="状态" width="100">
               <template #default="{ row }">
-                <el-tag size="small" :type="row.success ? 'success' : 'danger'">{{ row.success ? 'SUCCESS' : 'ERROR' }}</el-tag>
+                <el-tag size="small" :type="row.success ? 'success' : 'danger'">{{ row.success ? 'SUCCESS' : 'FAILED' }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="toolName" label="Tool" min-width="220" show-overflow-tooltip />
@@ -236,9 +289,10 @@
               <template #default="{ row }">{{ row.elapsedMs ?? 0 }} ms</template>
             </el-table-column>
             <el-table-column prop="tokenCost" label="Token" width="100" />
-            <el-table-column prop="errorCode" label="错误" width="160" show-overflow-tooltip />
+            <el-table-column prop="errorCode" label="错误" width="180" show-overflow-tooltip />
             <el-table-column prop="createdAt" label="时间" width="180" />
           </el-table>
+          <el-empty v-if="!detail.toolCalls.length" description="该运行未调用 Tool" />
         </el-tab-pane>
 
         <el-tab-pane label="治理决策">
@@ -257,54 +311,45 @@
           <el-empty v-if="!detail.guardDecisions.length" description="暂无治理决策记录" />
         </el-tab-pane>
 
-        <el-tab-pane label="Trace Metadata">
-          <section class="snapshot-grid metadata-grid">
-            <div class="snapshot-panel">
-              <div class="panel-title">Summary Metadata</div>
-              <pre>{{ pretty(summary?.metadata) }}</pre>
-            </div>
-            <div class="snapshot-panel">
-              <div class="panel-title">Identity Fields</div>
-              <pre>{{ pretty(identityMetadata) }}</pre>
-            </div>
-          </section>
-        </el-tab-pane>
-
-        <el-tab-pane label="生产快照">
+        <el-tab-pane label="发布配置与 Metadata">
           <section class="snapshot-grid">
             <div class="snapshot-panel">
-              <div class="panel-title">RuntimeConfig</div>
+              <div class="panel-title">根运行 Metadata</div>
+              <pre>{{ pretty(summary.metadata) }}</pre>
+            </div>
+            <div class="snapshot-panel">
+              <div class="panel-title">已发布 Runtime 配置</div>
               <pre>{{ pretty(detail.snapshot?.runtimeConfig) }}</pre>
             </div>
             <div class="snapshot-panel">
-              <div class="panel-title">GraphSpec</div>
+              <div class="panel-title">已发布 GraphSpec</div>
               <pre>{{ pretty(detail.snapshot?.graphSpec) }}</pre>
+            </div>
+            <div class="snapshot-panel">
+              <div class="panel-title">配置版本身份</div>
+              <pre>{{ pretty(versionIdentity) }}</pre>
             </div>
           </section>
         </el-tab-pane>
       </el-tabs>
     </template>
 
-    <el-dialog v-model="replayDialogVisible" title="重放配置" width="560px">
+    <AppDialog v-model="replayDialogVisible" title="重放运行" width="560px">
       <el-alert
-        v-if="summary && runIsWorkflow(summary)"
-        class="replay-compat-alert"
-        :type="replayAlertType"
+        class="replay-alert"
+        type="info"
         :closable="false"
         show-icon
-        :title="replayAlertTitle"
-        :description="replayAlertDescription"
+        title="重放使用原运行的已发布配置版本"
+        description="重放不会切换到当前活动配置；新 Trace 将自动与原运行建立对比关系。"
       />
       <el-form label-width="110px">
-        <el-form-item label="使用快照">
-          <el-switch v-model="replayForm.useSnapshot" />
-        </el-form-item>
         <el-form-item label="覆盖输入">
           <el-input
             v-model="replayForm.messageOverride"
             type="textarea"
             :rows="4"
-            placeholder="留空则自动复用原 trace 输入"
+            placeholder="留空则复用原 Trace 输入"
           />
         </el-form-item>
         <el-form-item label="User ID">
@@ -328,34 +373,31 @@
         <el-button @click="replayDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="replaying" @click="replayTrace">开始重放</el-button>
       </template>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { Refresh, VideoPlay } from '@element-plus/icons-vue'
+import HeaderMetaList from '@/components/common/HeaderMetaList.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import { compareRunOpsTrace, getRunOpsDetail, replayRunOpsTrace } from '@/api/runops'
-import type { ReplayRequest, ReplayResult, RunComparison, RunDetail, RunGuardDecision, RunSpan, RunSummary, RunToolCall, WorkflowPathItem } from '@/types/runops'
-import {
-  runDisplayName,
-  runEntryAgentId,
-  runEntryAgentKeySlug,
-  runEntryLabel,
-  runIsWorkflow,
-  runKindLabel,
-  runPrimaryIdentityId,
-  runPrimaryIdentityLabel,
-  runSourceId,
-  runSourceType,
-  runVersionLabel,
-  runWorkflowId,
-  runWorkflowKeySlug,
-  runWorkflowVersion,
-  runWorkflowVersionId,
-} from '@/utils/workflowRunOps'
+import type {
+  ReplayRequest,
+  RunComparison,
+  RunDetail,
+  RunExecutionPathItem,
+  RunGuardDecision,
+  RunSpan,
+  RunStatus,
+  RunSummary,
+  RunToolCall,
+} from '@/types/runops'
 
 const route = useRoute()
 const router = useRouter()
@@ -365,167 +407,102 @@ const replaying = ref(false)
 const replayDialogVisible = ref(false)
 const detail = ref<RunDetail | null>(null)
 const comparison = ref<RunComparison | null>(null)
-const replayForm = ref<ReplayRequest>({ useSnapshot: true })
+const replayForm = ref<ReplayRequest>({})
 const replayRoles = ref<string[]>([])
-const actionStatus = ref('')
 const summary = computed(() => detail.value?.summary)
 const compareSource = computed(() => route.query.compareWith as string | undefined)
+const supervisorEvents = computed(() => (detail.value?.spans || []).filter((span) =>
+  ['PLAN', 'REPLAN', 'WORKFLOW_TOOL'].includes(span.spanType || ''),
+))
+
+const supervisorMetrics = computed(() => {
+  const run = summary.value
+  if (!run) return []
+  return [
+    { label: '配置版本', value: run.agentConfigVersion || '-', hint: run.agentConfigVersionId == null ? '未记录版本 ID' : `versionId ${run.agentConfigVersionId}` },
+    { label: '计划次数', value: run.planCount ?? 0, hint: 'Supervisor 首次规划' },
+    { label: '重规划', value: run.replanCount ?? 0, hint: '有限重规划次数' },
+    { label: 'Workflow 调用', value: run.workflowCallCount ?? 0, hint: 'Workflow-as-Tool' },
+  ]
+})
+
+const executionPath = computed<RunExecutionPathItem[]>(() => {
+  if (detail.value?.executionPath?.length) return detail.value.executionPath
+  return (detail.value?.spans || []).map((span) => ({
+    spanId: span.spanId || String(span.id),
+    parentSpanId: span.parentSpanId,
+    depth: semanticDepth(span),
+    spanType: span.spanType,
+    label: spanDisplayName(span),
+    status: span.status,
+    nodeId: span.nodeId,
+    toolName: span.toolName,
+    runtimeType: span.runtimeType,
+    startedAt: span.startedAt,
+    endedAt: span.endedAt,
+  }))
+})
+
 const changedSummaryDiffs = computed(() => comparison.value?.summaryDiffs.filter((item) => item.changed) ?? [])
 const changedSpanDiffs = computed(() => comparison.value?.spanDiffs.filter((item) => item.changed) ?? [])
 const changedToolDiffs = computed(() => comparison.value?.toolDiffs.filter((item) => item.changed) ?? [])
 const changedGuardDiffs = computed(() => comparison.value?.guardDiffs.filter((item) => item.changed) ?? [])
-const actionState = computed(() => {
-  if (actionStatus.value === 'handled') return { value: 'handled', label: '已处理', type: 'success' as const }
-  if (actionStatus.value === 'ignored') return { value: 'ignored', label: '已忽略', type: 'warning' as const }
-  return { value: '', label: '待处置', type: 'danger' as const }
-})
-
-const replayAlertType = computed(() => 'info' as const)
-
-const replayAlertTitle = computed(() =>
-  'Workflow 重放将按 GraphSpec + RuntimeContext 执行，结果用于观测对比。')
-
-const replayAlertDescription = computed(() => {
-  const s = summary.value
-  if (!s) return undefined
-  const hints: string[] = []
-  if (!runEntryAgentId(s)) {
-    hints.push('当前 trace 缺少 entryAgentId，后端可能无法解析 AgentEntry 入口。')
-  }
-  if (!runWorkflowId(s)) {
-    hints.push('当前 trace 缺少 workflowId，可能无法解析 Workflow 图。')
-  }
-  return hints.length ? hints.join(' ') : undefined
-})
 
 const summaryItems = computed(() => {
-  const s = summary.value
-  if (!s) return []
-  if (runIsWorkflow(s)) {
-    return [
-      { label: 'Workflow', value: runPrimaryIdentityLabel(s), hint: runPrimaryIdentityId(s) },
-      { label: '版本', value: runVersionLabel(s), hint: runWorkflowVersionId(s) ? `versionId ${runWorkflowVersionId(s)}` : '未绑定版本' },
-      { label: '来源', value: runSourceType(s) || '-', hint: runSourceId(s) || '-' },
-      { label: '入口绑定', value: runEntryLabel(s) || '-', hint: runEntryAgentId(s) || '无 Agent 入口' },
-      { label: 'Runtime', value: s.runtimeType || '-', hint: s.runtimePlacement || '-' },
-      { label: 'Graph', value: s.graphCode || '-', hint: `${s.nodeCount ?? 0} spans / ${s.toolCallCount ?? 0} tools` },
-      { label: '耗时', value: `${s.latencyMs ?? 0} ms`, hint: `${s.tokenCost ?? 0} token` },
-      { label: '问题', value: s.errorCount ?? 0, hint: s.fallback ? `已回落：${s.fallbackReason || '-'}` : '无 fallback' },
-    ]
-  }
+  const run = summary.value
+  if (!run) return []
   return [
-    { label: 'Agent', value: s.agentName || '-', hint: s.agentId || '-' },
-    { label: '版本', value: s.version || '-', hint: s.versionId ? `versionId ${s.versionId}` : '未绑定版本' },
-    { label: 'Runtime', value: s.runtimeType || '-', hint: s.runtimePlacement || '-' },
-    { label: 'Graph', value: s.graphCode || '-', hint: `${s.nodeCount ?? 0} spans / ${s.toolCallCount ?? 0} tools` },
-    { label: '耗时', value: `${s.latencyMs ?? 0} ms`, hint: `${s.tokenCost ?? 0} token` },
-    { label: '问题', value: s.errorCount ?? 0, hint: s.fallback ? `已回落：${s.fallbackReason || '-'}` : '无 fallback' },
+    { label: run.runType === 'AGENT' ? 'Agent' : 'Workflow', value: runObjectLabel(run), hint: runObjectId(run) },
+    { label: '发布版本', value: runVersionLabel(run), hint: run.runtimeType || '未记录 Runtime' },
+    { label: '入口', value: entryTypeLabel(run.entryType), hint: `${run.projectCode || '-'} · ${run.userId || '匿名用户'}` },
+    { label: '规划 / 重规划', value: `${run.planCount ?? 0} / ${run.replanCount ?? 0}`, hint: 'Supervisor 决策' },
+    { label: 'Workflow / Tool', value: `${run.workflowCallCount ?? 0} / ${run.toolCallCount ?? 0}`, hint: '运行内调用' },
+    { label: '治理 / 审批', value: `${run.guardDenyCount ?? 0} / ${run.approvalCount ?? 0}`, hint: '拒绝与审批事件' },
+    { label: '耗时', value: `${run.latencyMs ?? 0} ms`, hint: `${run.tokenCost ?? 0} token` },
+    { label: '会话', value: run.sessionId || '-', hint: run.replayOfTraceId ? `重放自 ${run.replayOfTraceId}` : '原始运行' },
   ]
 })
 
 const detailTitle = computed(() => {
-  const s = summary.value
-  if (!s) return '运行详情'
-  return runIsWorkflow(s) ? `Workflow 运行 · ${runDisplayName(s)}` : `Agent 运行 · ${runPrimaryIdentityLabel(s)}`
+  const run = summary.value
+  if (!run) return '运行详情'
+  return `${run.runType === 'AGENT' ? 'Agent' : 'Workflow'} 运行 · ${runObjectLabel(run)}`
 })
 
-const identityMetadata = computed(() => {
-  const s = summary.value
-  if (!s) return {}
+const headerMetaItems = computed(() => [
+  { key: 'trace', label: 'Trace', value: traceId.value },
+  { key: 'project', label: '项目', value: summary.value?.projectCode || '-' },
+  { key: 'entry', label: '入口', value: summary.value ? entryTypeLabel(summary.value.entryType) : '-' },
+])
+
+const versionIdentity = computed(() => {
+  const run = summary.value
+  if (!run) return {}
   return {
-    traceId: s.traceId,
-    sourceType: runSourceType(s),
-    workflowId: runWorkflowId(s),
-    workflowKeySlug: runWorkflowKeySlug(s),
-    workflowVersion: runWorkflowVersion(s),
-    workflowVersionId: runWorkflowVersionId(s),
-    entryAgentId: runEntryAgentId(s),
-    entryAgentKeySlug: runEntryAgentKeySlug(s),
-    sourceId: runSourceId(s),
-    agentId: s.agentId,
-    agentName: s.agentName,
-    version: s.version,
-    versionId: s.versionId,
-    runtimeType: s.runtimeType,
-    runtimePlacement: s.runtimePlacement,
+    runType: run.runType,
+    agentId: run.agentId,
+    agentKeySlug: run.agentKeySlug,
+    agentConfigVersionId: run.agentConfigVersionId,
+    agentConfigVersion: run.agentConfigVersion,
+    workflowId: run.workflowId,
+    workflowKeySlug: run.workflowKeySlug,
+    workflowVersionId: run.workflowVersionId,
+    workflowVersion: run.workflowVersion,
   }
 })
-
-function runKindTagType(run: RunSummary) {
-  const kind = runKindLabel(run)
-  if (kind === 'Workflow') return 'primary'
-  if (kind === 'Agent') return 'success'
-  if (kind === 'Tool') return 'warning'
-  return 'info'
-}
-
-function openWorkflowStudio() {
-  const workflowId = summary.value ? runWorkflowId(summary.value) : ''
-  if (!workflowId) return
-  router.push(`/workflows/${workflowId}/studio`)
-}
-
-function spanDisplayName(span: RunSpan) {
-  const nodeName = span.metadata?.nodeName
-  const nodeType = span.metadata?.nodeType
-  const base = span.nodeId || span.toolName || span.spanType || span.spanId || '-'
-  if (nodeName) return `${base} · ${nodeName}`
-  if (nodeType) return `${base} (${nodeType})`
-  return base
-}
 
 async function loadDetail() {
   loading.value = true
   try {
     const { data } = await getRunOpsDetail(traceId.value)
     detail.value = data
-    loadActionStatus()
     await loadComparison()
   } catch {
     detail.value = null
+    comparison.value = null
     ElMessage.error('加载运行详情失败')
   } finally {
     loading.value = false
-  }
-}
-
-function openReplayDialog() {
-  replayForm.value = {
-    useSnapshot: true,
-    userId: summary.value?.userId,
-  }
-  replayRoles.value = []
-  replayDialogVisible.value = true
-}
-
-async function replayTrace() {
-  if (!detail.value) return
-  replaying.value = true
-  try {
-    const request: ReplayRequest = {
-      ...replayForm.value,
-      roles: replayRoles.value,
-    }
-    const { data } = await replayRunOpsTrace(traceId.value, request)
-    if (data?.replayTraceId) {
-      replayDialogVisible.value = false
-      if (data.executionPath === 'AGENT_DEFINITION_FALLBACK' && data.fallbackReason) {
-        ElMessage.warning(`重放已回退到旧兼容路径：${data.fallbackReason}`)
-      } else if (data.executionPath === 'AGENT_DEFINITION') {
-        ElMessage.warning('重放走旧兼容路径（trace 未携带 Workflow GraphSpec）')
-      } else if (data.executionPath === 'GRAPH_SPEC') {
-        ElMessage.success('已发起 GraphSpec 重放，正在打开新 trace')
-      } else {
-        ElMessage.success('重放已完成，正在打开新 trace')
-      }
-      router.push({ path: `/runops/${data.replayTraceId}`, query: { compareWith: traceId.value } })
-    } else {
-      ElMessage.warning('重放完成，但未返回新 traceId')
-    }
-  } catch {
-    ElMessage.error('重放运行失败')
-  } finally {
-    replaying.value = false
   }
 }
 
@@ -541,20 +518,137 @@ async function loadComparison() {
   }
 }
 
+function openReplayDialog() {
+  replayForm.value = { userId: summary.value?.userId }
+  replayRoles.value = []
+  replayDialogVisible.value = true
+}
+
+async function replayTrace() {
+  if (!detail.value) return
+  replaying.value = true
+  try {
+    const request: ReplayRequest = { ...replayForm.value, roles: replayRoles.value }
+    const { data } = await replayRunOpsTrace(traceId.value, request)
+    if (!data?.replayTraceId) {
+      ElMessage.warning('重放完成，但未返回新 traceId')
+      return
+    }
+    replayDialogVisible.value = false
+    ElMessage.success('已按原发布配置完成重放，正在打开新 Trace')
+    router.push({ path: `/runops/${data.replayTraceId}`, query: { compareWith: traceId.value } })
+  } catch {
+    ElMessage.error('重放运行失败')
+  } finally {
+    replaying.value = false
+  }
+}
+
+function runObjectLabel(run: RunSummary) {
+  return run.runType === 'AGENT'
+    ? run.agentName || run.agentKeySlug || run.agentId || '-'
+    : run.workflowName || run.workflowKeySlug || run.workflowId || '-'
+}
+
+function runObjectId(run: RunSummary) {
+  return run.runType === 'AGENT'
+    ? run.agentKeySlug || run.agentId || '-'
+    : run.workflowKeySlug || run.workflowId || '-'
+}
+
+function runVersionLabel(run: RunSummary) {
+  const version = run.runType === 'AGENT' ? run.agentConfigVersion : run.workflowVersion
+  const versionId = run.runType === 'AGENT' ? run.agentConfigVersionId : run.workflowVersionId
+  if (!version && versionId == null) return '-'
+  return `${version || '-'}${versionId == null ? '' : ` · #${versionId}`}`
+}
+
+function entryTypeLabel(entryType?: string) {
+  const labels: Record<string, string> = {
+    DEBUG: '调试',
+    EMBED: '嵌入',
+    GATEWAY: '网关',
+    EVAL: '评测',
+    REPLAY: '重放',
+    API: 'API',
+  }
+  return entryType ? labels[entryType] || entryType : '-'
+}
+
+function statusLabel(status: RunStatus) {
+  const labels: Record<RunStatus, string> = {
+    RUNNING: '运行中',
+    SUCCESS: '成功',
+    FAILED: '失败',
+    WAITING_APPROVAL: '等待审批',
+    CANCELLED: '已取消',
+    TIMEOUT: '超时',
+  }
+  return labels[status]
+}
+
+function statusTagType(status?: string) {
+  if (status === 'SUCCESS') return 'success'
+  if (status === 'RUNNING') return 'primary'
+  if (status === 'WAITING' || status === 'WAITING_APPROVAL') return 'warning'
+  if (status === 'CANCELLED') return 'info'
+  return 'danger'
+}
+
+function phaseLabel(spanType?: string) {
+  const labels: Record<string, string> = {
+    SUPERVISOR: 'Supervisor',
+    PLAN: 'Plan',
+    REPLAN: 'Replan',
+    WORKFLOW_TOOL: 'Workflow Tool',
+  }
+  return spanType ? labels[spanType] || 'Workflow Node' : 'Workflow Node'
+}
+
+function phaseTagType(spanType?: string) {
+  if (spanType === 'SUPERVISOR') return 'primary'
+  if (spanType === 'PLAN') return 'primary'
+  if (spanType === 'REPLAN') return 'warning'
+  if (spanType === 'WORKFLOW_TOOL') return 'success'
+  return 'info'
+}
+
+function semanticDepth(span: RunSpan) {
+  if (span.spanType === 'SUPERVISOR') return 0
+  if (span.spanType === 'PLAN' || span.spanType === 'REPLAN') return 1
+  if (span.spanType === 'WORKFLOW_TOOL') return 2
+  return summary.value?.runType === 'AGENT' ? 3 : 1
+}
+
+function spanDisplayName(span: RunSpan) {
+  const nodeName = span.metadata?.nodeName
+  const base = span.nodeId || span.toolName || span.spanType || span.spanId || '-'
+  return nodeName ? `${base} · ${nodeName}` : base
+}
+
+function supervisorEventLabel(span: RunSpan) {
+  if (span.spanType === 'WORKFLOW_TOOL') {
+    const version = span.metadata?.workflowVersion
+    return `${span.toolName || span.nodeId || 'Workflow'}${version ? ` · ${version}` : ''}`
+  }
+  const planNo = span.metadata?.planNo
+  return planNo ? `第 ${planNo} 次规划` : span.nodeId || phaseLabel(span.spanType)
+}
+
 function displayValue(value: unknown) {
   if (value == null || value === '') return '-'
   if (typeof value === 'boolean') return value ? 'true' : 'false'
   return String(value)
 }
 
-function nodeDigest(span?: RunSpan) {
+function spanDigest(span?: RunSpan) {
   if (!span) return '缺失'
   return `${span.status || '-'} · ${span.latencyMs ?? 0} ms · ${span.errorCode || span.outputSummary || '-'}`
 }
 
 function toolDigest(tool?: RunToolCall) {
   if (!tool) return '缺失'
-  return `${tool.success ? 'SUCCESS' : 'ERROR'} · ${tool.elapsedMs ?? 0} ms · ${tool.errorCode || tool.resultSummary || '-'}`
+  return `${tool.success ? 'SUCCESS' : 'FAILED'} · ${tool.elapsedMs ?? 0} ms · ${tool.errorCode || tool.resultSummary || '-'}`
 }
 
 function guardDigest(guard?: RunGuardDecision) {
@@ -562,52 +656,24 @@ function guardDigest(guard?: RunGuardDecision) {
   return `${guard.decision || '-'} · ${guard.reason || '-'}`
 }
 
-function spanTimelineType(status?: string) {
-  if (status === 'SUCCESS') return 'success'
-  if (status === 'WAITING') return 'warning'
-  return 'danger'
-}
-
-function pathStatusType(item: WorkflowPathItem) {
-  return spanTimelineType(item.workflowStatus || item.status)
-}
-
-function pathStatusLabel(item: WorkflowPathItem) {
-  if (item.workflowStatus === 'WAITING' || item.status === 'WAITING') return 'WAITING'
-  return item.status || '-'
-}
-
-function actionKey() {
-  return `runops-action:${traceId.value}`
-}
-
-function loadActionStatus() {
-  actionStatus.value = window.localStorage.getItem(actionKey()) || ''
-}
-
-function markTrace(status: string) {
-  actionStatus.value = status
-  if (status) window.localStorage.setItem(actionKey(), status)
-  else window.localStorage.removeItem(actionKey())
-  ElMessage.success(status ? '处置状态已更新' : '处置状态已清除')
-}
-
 async function copyIssueSummary() {
-  const s = summary.value
-  if (!s) return
+  const run = summary.value
+  if (!run) return
   const text = [
-    `Trace: ${s.traceId}`,
-    runIsWorkflow(s) ? `Workflow: ${runPrimaryIdentityLabel(s)} (${runPrimaryIdentityId(s)})` : `Agent: ${s.agentName || '-'}`,
-    runIsWorkflow(s) ? `Version: ${runVersionLabel(s)}` : `Version: ${s.version || '-'}`,
-    `SourceType: ${runSourceType(s) || '-'}`,
-    `Status: ${s.status}`,
-    `Errors: ${s.errorCount ?? 0}`,
-    `Fallback: ${s.fallback ? s.fallbackReason || 'true' : 'false'}`,
+    `Trace: ${run.traceId}`,
+    `RunType: ${run.runType}`,
+    `Object: ${runObjectLabel(run)} (${runObjectId(run)})`,
+    `Version: ${runVersionLabel(run)}`,
+    `Entry: ${run.entryType}`,
+    `Status: ${run.status}`,
+    `Error: ${run.errorCode || '-'} ${run.errorMessage || ''}`.trim(),
+    `Plan/Replan: ${run.planCount ?? 0}/${run.replanCount ?? 0}`,
+    `Workflow/Tool: ${run.workflowCallCount ?? 0}/${run.toolCallCount ?? 0}`,
     `Hints: ${(detail.value?.repairHints || []).join(' | ') || '-'}`,
   ].join('\n')
   try {
     await navigator.clipboard.writeText(text)
-    ElMessage.success('问题摘要已复制')
+    ElMessage.success('运行摘要已复制')
   } catch {
     ElMessage.error('复制失败')
   }
@@ -627,50 +693,15 @@ onMounted(loadDetail)
 </script>
 
 <style scoped lang="scss">
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.trace-id {
-  margin: 4px 0 0;
-  color: var(--text-secondary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.detail-subtitle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.source-type {
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.replay-compat-alert {
+.replay-alert,
+.run-alert {
   margin-bottom: 16px;
-}
-
-.metadata-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
-  margin-bottom: 16px;
 }
 
 .summary-card,
@@ -698,29 +729,49 @@ onMounted(loadDetail)
   }
 }
 
-.hint-alert {
+.supervisor-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.supervisor-metric {
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--card-bg);
+
+  span,
+  small {
+    display: block;
+    color: var(--text-secondary);
+  }
+
+  strong {
+    display: block;
+    margin: 7px 0 3px;
+    color: var(--text-primary);
+    font-size: 20px;
+  }
+}
+
+.supervisor-event-table {
   margin-bottom: 16px;
 }
 
-.action-card {
-  margin-bottom: 16px;
-}
-
-.action-row {
+.card-header,
+.span-head,
+.span-tags,
+.execution-stage {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
 }
 
-.compare-card {
-  margin-bottom: 16px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
+.card-header,
+.span-head {
   justify-content: space-between;
-  gap: 12px;
 }
 
 .compare-summary {
@@ -788,55 +839,48 @@ onMounted(loadDetail)
   gap: 4px;
 }
 
+.execution-model {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin: 6px 0 18px;
+
+  > div {
+    display: grid;
+    flex: 1;
+    gap: 4px;
+    padding: 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--fill-color-light);
+  }
+
+  > span {
+    align-self: center;
+    color: var(--text-secondary);
+    font-size: 20px;
+  }
+
+  small {
+    color: var(--text-secondary);
+  }
+
+  &.workflow-only > div {
+    max-width: 320px;
+  }
+}
+
+.path-prefix {
+  color: var(--text-secondary);
+  font-size: 18px;
+}
+
 .span-timeline {
   padding: 12px 8px;
 }
 
-.workflow-path {
-  display: grid;
-  gap: 10px;
-  padding: 12px 8px 18px;
-}
-
-.path-item {
-  display: grid;
-  grid-template-columns: minmax(180px, 0.9fr) minmax(220px, 1.2fr) minmax(180px, 1fr);
-  gap: 12px;
-  align-items: center;
-  padding: 12px 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--card-bg);
-}
-
-.path-node,
-.path-edge,
-.path-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.path-node strong {
-  color: var(--text-primary);
-}
-
-.path-edge,
-.path-meta {
-  color: var(--text-secondary);
-}
-
 .span-item {
   padding: 14px;
-}
-
-.span-head,
-.span-tags {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
 }
 
 .span-head strong,
@@ -852,11 +896,6 @@ onMounted(loadDetail)
 .error-text {
   margin-top: 10px;
   color: var(--el-color-danger);
-}
-
-.waiting-text {
-  margin-top: 10px;
-  color: var(--el-color-warning-dark-2);
 }
 
 .io-grid {
@@ -883,7 +922,7 @@ onMounted(loadDetail)
 }
 
 .snapshot-panel {
-  min-height: 320px;
+  min-height: 280px;
   overflow: hidden;
 
   .panel-title {
@@ -893,7 +932,7 @@ onMounted(loadDetail)
   }
 
   pre {
-    max-height: 560px;
+    max-height: 480px;
     overflow: auto;
     margin: 0;
     padding: 14px;
@@ -904,10 +943,29 @@ onMounted(loadDetail)
 
 @media (max-width: 1100px) {
   .summary-grid,
+  .supervisor-metrics,
   .compare-summary,
   .diff-detail-grid,
   .snapshot-grid,
-  .path-item,
+  .io-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .execution-model {
+    flex-direction: column;
+
+    > span {
+      transform: rotate(90deg);
+    }
+  }
+}
+
+@media (max-width: 640px) {
+  .summary-grid,
+  .supervisor-metrics,
+  .compare-summary,
+  .diff-detail-grid,
+  .snapshot-grid,
   .io-grid {
     grid-template-columns: 1fr;
   }

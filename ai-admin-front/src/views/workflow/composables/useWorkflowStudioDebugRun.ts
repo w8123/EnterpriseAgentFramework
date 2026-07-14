@@ -21,7 +21,6 @@ import type {
   WorkflowStudioState,
 } from '@/types/workflow'
 import type { StudioFieldSchema } from '@/types/studio'
-import type { UiFieldPayload } from '@/types/interaction'
 import { buildWorkflowDebugDraftPayload } from '@/utils/workflowStudio'
 import { runDisplayName } from '@/utils/workflowRunOps'
 import { normalizeJson } from '@/views/workflow/composables/workflowStudioJson'
@@ -57,7 +56,6 @@ export interface UseWorkflowStudioDebugRunDeps {
   nodeDebugMessage: Ref<string>
   nodeDebugStateJson: Ref<string>
   debugInputParams: Record<string, unknown>
-  debugInteractionParams: Record<string, unknown>
   currentTraceId: Ref<string>
   traceNodes: Ref<TraceNode[]>
   runOpsDetail: Ref<RunDetail | null>
@@ -76,14 +74,12 @@ export interface UseWorkflowStudioDebugRunDeps {
   selectedNode: ComputedRef<{ id: string } | null>
   nodeDebugStateText: Ref<string>
   debugInputFields: ComputedRef<StudioFieldSchema[]>
-  debugWaitingFields: ComputedRef<UiFieldPayload[]>
   resolveAiModelInstanceId: () => string
   syncJsonFromCanvas: () => void
   canvasSnapshot: () => CanvasSnapshot
   refreshWorkflowNodeClasses: () => void
   applyDebugSession: (data: WorkflowDebugSessionView) => void
   forgetDebugSession: () => void
-  clearDebugSessionView: () => void
   loadStoredDebugSession: () => Promise<void>
   getViewport: () => { zoom?: number }
   setCenter: (x: number, y: number, options?: { zoom?: number; duration?: number }) => void
@@ -126,23 +122,6 @@ function parseDebugJsonLike(value: unknown) {
   } catch {
     return text
   }
-}
-
-function debugUiFieldKey(field: UiFieldPayload) {
-  return field.key || field.name || field.targetPath || ''
-}
-
-function coerceDebugUiFieldValue(value: unknown, type?: string) {
-  if (type === 'number' || type === 'integer') {
-    return value === '' || value === undefined || value === null ? undefined : Number(value)
-  }
-  if (type === 'boolean') {
-    return Boolean(value)
-  }
-  if (type === 'object' || type === 'array') {
-    return parseDebugJsonLike(value)
-  }
-  return value === undefined || value === null ? '' : String(value)
 }
 
 function sleep(ms: number) {
@@ -205,21 +184,6 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     }
     const firstValue = Object.values(params).find((value) => value !== undefined && value !== null && String(value).trim())
     return firstValue === undefined ? deps.debugMessage.value : String(firstValue)
-  }
-
-  function buildInteractionDebugParams() {
-    const params: Record<string, unknown> = {}
-    for (const field of deps.debugWaitingFields.value) {
-      const key = debugUiFieldKey(field)
-      if (!key) continue
-      const value = coerceDebugUiFieldValue(deps.debugInteractionParams[key], field.type)
-      params[key] = value
-      if (field.targetPath) {
-        params[field.targetPath] = value
-        params[field.targetPath.replace(/\./g, '_')] = value
-      }
-    }
-    return params
   }
 
   function buildDebugBaseRequest() {
@@ -640,10 +604,6 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     await runNodeDebug()
   }
 
-  function clearWorkflowDebugView() {
-    deps.clearDebugSessionView()
-  }
-
   function isDebugStepRunning(step: WorkflowDebugStepResult) {
     if (debugStepStatus(step.status) === 'running') return true
     const sessionCurrentNodeId = deps.debugSession.value?.currentNodeId || deps.debugRunResult.value?.currentNodeId || ''
@@ -657,32 +617,23 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     stringifyDebugPayload,
     formatElapsed,
     buildDebugBaseRequest,
-    buildDebugInputParams,
-    buildInteractionDebugParams,
-    currentStudioStateForDebug,
-    buildWorkflowDebugDraftDefinition,
     nodeDebugState,
     nodeRunClass,
     nodeRunLabel,
     focusDebugNode,
-    replayDebugSteps,
     selectDebugStep,
     openNodeTrace,
     handleDebug,
     handleRunDraftDebug,
-    executeDraftDebug,
     handleDebugUiSubmit,
     handleCancelDebugSession,
-    loadTraceArtifacts,
     loadRecentStudioRuns,
     handleLoadTraceReplay,
     handleRecentTraceChange,
     clearTraceReplay,
     recentRunLabel,
     handleRunPublishedDebug,
-    runNodeDebug,
     handleRunNodeDebug,
-    clearWorkflowDebugView,
     isDebugStepRunning,
   }
 }

@@ -6,7 +6,7 @@
 
 **Architecture:** Split the current monolithic `theme.scss` token declarations into focused Sass partials with a one-way dependency chain: brand primitives -> semantic roles -> density/glass recipes -> Element Plus aliases -> shared consumers. Keep the existing component-level light/dark selectors in `theme.scss` during this slice so behavior stays stable; later component-migration plans remove them area by area. Validate the source contract with the repository's existing Node check-script pattern, then validate compiled output and real routes.
 
-**Tech Stack:** Vue 3.5, TypeScript 5.6, Sass 1.83, Element Plus 2.9, Vite 6, Node.js contract scripts, Figma Variables/Modes/Styles.
+**Tech Stack:** Vue 3.5, TypeScript 5.6, Sass `^1.83.0`, Element Plus `^2.9.1`, Vite 6, Node.js contract scripts, Figma Variables/Modes/Styles.
 
 ## Global Constraints
 
@@ -20,6 +20,7 @@
 - Do not replace Element Plus or introduce a second UI framework.
 - Do not redesign Workflow Studio or Agent Studio layouts; they only consume shared tokens and controls in later slices.
 - Do not change business logic, routes, API contracts, SQL, or backend code.
+- Create and use branch `codex/reachai-glass-foundation`, but do not create Git commits; keep all implementation changes reviewable in the worktree.
 - Do not commit `UI_AGENT.local.md`; update it locally only when Figma node IDs, shared components, or durable design decisions change.
 
 ---
@@ -64,6 +65,7 @@ Create the checker with this initial content:
 ```js
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import * as sass from 'sass'
 
 const root = process.cwd()
 const failures = []
@@ -79,6 +81,16 @@ function read(relativePath) {
 
 function expectIncludes(source, needle, message) {
   if (!source.includes(needle)) failures.push(message)
+}
+
+function expectSassCompiles(relativePath) {
+  const absolutePath = resolve(root, relativePath)
+  if (!existsSync(absolutePath)) return
+  try {
+    sass.compile(absolutePath, { style: 'compressed' })
+  } catch (error) {
+    failures.push(`${relativePath} does not compile: ${error.message}`)
+  }
 }
 
 const brand = read('src/styles/tokens/_brand.scss')
@@ -109,6 +121,8 @@ for (const token of [
 ]) {
   expectIncludes(brand, token, `brand primitive ${token} is missing`)
 }
+
+expectSassCompiles('src/styles/tokens/_brand.scss')
 
 if (failures.length) {
   console.error(failures.join('\n'))
@@ -221,17 +235,17 @@ Create `_brand.scss` with the exact mode values below. Keep page, glass, status,
 }
 ```
 
-- [ ] **Step 4: Run the brand contract and compile the partial directly**
+- [ ] **Step 4: Run the brand contract and compile the partial through the Node Sass API**
 
-Run: `cd ai-admin-front; npm run check:glass-theme; npx sass --no-source-map src/styles/tokens/_brand.scss | Out-Null`
+Run: `cd ai-admin-front; npm run check:glass-theme`
 
-Expected: both commands exit `0`; the checker prints `ReachAI glass theme contract is aligned.`
+Expected: exit code `0`; the checker compiles the partial and prints `ReachAI glass theme contract is aligned.`
 
-- [ ] **Step 5: Commit the independently passing brand contract**
+- [ ] **Step 5: Record the independently passing brand diff without committing**
 
 ```powershell
-git add ai-admin-front/package.json ai-admin-front/scripts/check-glass-theme-contract.mjs ai-admin-front/src/styles/tokens/_brand.scss
-git commit -m "refactor(ui): extract ReachAI brand primitives"
+git diff --check
+git status --short
 ```
 
 ---
@@ -267,6 +281,7 @@ for (const token of [
   '--surface-glass-overlay:',
   '--surface-glass-selected:',
   '--surface-glass-disabled:',
+  '--surface-solid-disabled:',
   '--surface-fallback-shell:',
   '--surface-fallback-panel:',
   '--surface-fallback-overlay:',
@@ -302,6 +317,9 @@ for (const mode of ['compact', 'comfortable', 'spacious']) {
 for (const token of ['--control-height:', '--row-height:', '--section-gap:', '--panel-padding:']) {
   expectIncludes(density, token, `active density token ${token} is missing`)
 }
+
+expectSassCompiles('src/styles/tokens/_semantic.scss')
+expectSassCompiles('src/styles/tokens/_density.scss')
 ```
 
 - [ ] **Step 2: Run the extended contract and confirm both partials are reported missing**
@@ -328,6 +346,7 @@ Use the following exact role values. Keep gradients only on `--surface-glass-*`;
   --surface-solid-panel: rgb(255 255 255 / 0.82);
   --surface-solid-control: rgb(255 255 255 / 0.76);
   --surface-solid-overlay: rgb(250 253 255 / 0.94);
+  --surface-solid-disabled: #eef2f6;
   --surface-glass-shell: linear-gradient(145deg, rgb(255 255 255 / 0.72), rgb(var(--brand-selected-rgb) / 0.42));
   --surface-glass-panel: linear-gradient(145deg, rgb(255 255 255 / 0.78), rgb(239 248 253 / 0.54));
   --surface-glass-control: linear-gradient(145deg, rgb(255 255 255 / 0.82), rgb(238 247 252 / 0.62));
@@ -389,6 +408,7 @@ Use the following exact role values. Keep gradients only on `--surface-glass-*`;
   --surface-solid-panel: rgb(16 27 42 / 0.9);
   --surface-solid-control: rgb(20 32 49 / 0.88);
   --surface-solid-overlay: rgb(15 25 39 / 0.96);
+  --surface-solid-disabled: #1a2839;
   --surface-glass-shell: linear-gradient(145deg, rgb(24 37 56 / 0.9), rgb(10 22 34 / 0.84));
   --surface-glass-panel: linear-gradient(145deg, rgb(24 37 56 / 0.82), rgb(12 24 38 / 0.74));
   --surface-glass-control: linear-gradient(145deg, rgb(30 44 64 / 0.84), rgb(17 30 47 / 0.78));
@@ -516,17 +536,17 @@ Use the following exact role values. Keep gradients only on `--surface-glass-*`;
 }
 ```
 
-- [ ] **Step 5: Run the contract and compile both new partials directly**
+- [ ] **Step 5: Run the contract and compile both new partials through the Node Sass API**
 
-Run: `cd ai-admin-front; npm run check:glass-theme; npx sass --no-source-map src/styles/tokens/_semantic.scss | Out-Null; npx sass --no-source-map src/styles/tokens/_density.scss | Out-Null`
+Run: `cd ai-admin-front; npm run check:glass-theme`
 
-Expected: the contract and both Sass compilations exit `0`.
+Expected: the contract compiles both Sass partials and exits `0`.
 
-- [ ] **Step 6: Commit the semantic and density contracts**
+- [ ] **Step 6: Record the semantic and density diff without committing**
 
 ```powershell
-git add ai-admin-front/scripts/check-glass-theme-contract.mjs ai-admin-front/src/styles/tokens/_semantic.scss ai-admin-front/src/styles/tokens/_density.scss
-git commit -m "feat(ui): define semantic glass and density tokens"
+git diff --check
+git status --short
 ```
 
 ---
@@ -561,6 +581,8 @@ for (const fallback of [
 ]) {
   expectIncludes(glass, fallback, `glass fallback ${fallback} is missing`)
 }
+
+expectSassCompiles('src/styles/_glass.scss')
 ```
 
 - [ ] **Step 2: Run the contract and confirm `_glass.scss` is missing**
@@ -649,17 +671,17 @@ Expected: exit code `1` and `src/styles/_glass.scss is missing`.
 }
 ```
 
-- [ ] **Step 4: Run the glass contract and compile the recipe directly**
+- [ ] **Step 4: Run the glass contract and compile the recipe through the Node Sass API**
 
-Run: `cd ai-admin-front; npm run check:glass-theme; npx sass --no-source-map src/styles/_glass.scss | Out-Null`
+Run: `cd ai-admin-front; npm run check:glass-theme`
 
 Expected: both commands exit `0`.
 
-- [ ] **Step 5: Commit the glass recipes**
+- [ ] **Step 5: Record the glass recipe diff without committing**
 
 ```powershell
-git add ai-admin-front/scripts/check-glass-theme-contract.mjs ai-admin-front/src/styles/_glass.scss
-git commit -m "feat(ui): add strong glass surface recipes"
+git diff --check
+git status --short
 ```
 
 ---
@@ -673,7 +695,7 @@ git commit -m "feat(ui): add strong glass surface recipes"
 
 **Interfaces:**
 - Consumes: brand, semantic, and density roles from Tasks 1-2.
-- Produces: Element Plus primary/status/surface/text/border/fill/shadow/menu/table/card/dialog/input/tag/loading variables.
+- Produces: global Element Plus primary/status/surface/text/border/fill/shadow/menu roles plus component-scoped table/card/dialog/input/select/tag/popover/drawer aliases that override Element Plus component defaults at the correct cascade level.
 
 - [ ] **Step 1: Add mapping and monolith-boundary assertions**
 
@@ -683,14 +705,55 @@ const theme = read('src/styles/theme.scss')
 
 for (const mapping of [
   '--el-color-primary: var(--brand-primary);',
+  '--el-color-success-light-3:',
+  '--el-color-warning-light-9:',
+  '--el-color-danger-dark-2:',
+  '--el-color-info-light-7:',
+  '--el-color-error: var(--status-danger);',
+  '--el-color-error-light-9:',
+  '--el-color-error-dark-2:',
   '--el-bg-color: var(--surface-solid-panel);',
   '--el-bg-color-overlay: var(--surface-solid-overlay);',
   '--el-text-color-primary: var(--text-primary);',
   '--el-border-color: var(--border-readable);',
+  '--el-disabled-bg-color: var(--surface-solid-disabled);',
   '--el-dialog-bg-color: var(--surface-solid-overlay);',
   '--el-input-bg-color: var(--surface-solid-control);',
 ]) {
   expectIncludes(elementPlus, mapping, `Element Plus mapping ${mapping} is missing`)
+}
+
+for (const selector of [
+  "[data-theme='dark'] {",
+  '.el-table {',
+  '.el-card {',
+  '.el-dialog {',
+  '.el-input,',
+  '.el-select {',
+  '.el-tag {',
+  '.el-popover.el-popper {',
+  '.el-drawer {',
+]) {
+  expectIncludes(elementPlus, selector, `Element Plus component mapping ${selector} is missing`)
+}
+
+const darkElementPlusBlock = elementPlus.match(/\[data-theme='dark'\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? ''
+for (const darkMapping of [
+  '--el-color-primary-light-9:',
+  '--el-color-success-light-9:',
+  '--el-color-success-dark-2:',
+  '--el-color-warning-light-9:',
+  '--el-color-warning-dark-2:',
+  '--el-color-danger-light-9:',
+  '--el-color-danger-dark-2:',
+  '--el-color-info-light-9:',
+  '--el-color-info-dark-2:',
+]) {
+  expectIncludes(darkElementPlusBlock, darkMapping, `dark Element Plus mapping ${darkMapping} is missing`)
+}
+
+if (elementPlus.includes("[data-theme='dark'] .el-tag")) {
+  failures.push('dark tag mapping overrides status-specific tag semantics')
 }
 
 for (const moduleImport of [
@@ -708,6 +771,10 @@ for (const legacyDeclaration of ['--bg-primary:', '--brand-primary:', '--el-bg-c
     failures.push(`theme.scss still owns extracted declaration ${legacyDeclaration}`)
   }
 }
+
+
+expectSassCompiles('src/styles/_element-plus.scss')
+expectSassCompiles('src/styles/theme.scss')
 ```
 
 - [ ] **Step 2: Run the contract and confirm the mapping/import failures**
@@ -728,9 +795,40 @@ Expected: exit code `1`, naming `_element-plus.scss` and the missing `@use` entr
   --el-color-primary-light-9: var(--brand-selected);
   --el-color-primary-dark-2: var(--brand-active);
   --el-color-success: var(--status-success);
+  --el-color-success-light-3: color-mix(in srgb, var(--status-success) 70%, white);
+  --el-color-success-light-5: color-mix(in srgb, var(--status-success) 48%, white);
+  --el-color-success-light-7: color-mix(in srgb, var(--status-success) 28%, white);
+  --el-color-success-light-8: color-mix(in srgb, var(--status-success) 18%, white);
+  --el-color-success-light-9: color-mix(in srgb, var(--status-success) 10%, white);
+  --el-color-success-dark-2: color-mix(in srgb, var(--status-success) 82%, black);
   --el-color-warning: var(--status-warning);
+  --el-color-warning-light-3: color-mix(in srgb, var(--status-warning) 70%, white);
+  --el-color-warning-light-5: color-mix(in srgb, var(--status-warning) 48%, white);
+  --el-color-warning-light-7: color-mix(in srgb, var(--status-warning) 28%, white);
+  --el-color-warning-light-8: color-mix(in srgb, var(--status-warning) 18%, white);
+  --el-color-warning-light-9: color-mix(in srgb, var(--status-warning) 10%, white);
+  --el-color-warning-dark-2: color-mix(in srgb, var(--status-warning) 82%, black);
   --el-color-danger: var(--status-danger);
+  --el-color-danger-light-3: color-mix(in srgb, var(--status-danger) 70%, white);
+  --el-color-danger-light-5: color-mix(in srgb, var(--status-danger) 48%, white);
+  --el-color-danger-light-7: color-mix(in srgb, var(--status-danger) 28%, white);
+  --el-color-danger-light-8: color-mix(in srgb, var(--status-danger) 18%, white);
+  --el-color-danger-light-9: color-mix(in srgb, var(--status-danger) 10%, white);
+  --el-color-danger-dark-2: color-mix(in srgb, var(--status-danger) 82%, black);
+  --el-color-error: var(--status-danger);
+  --el-color-error-light-3: var(--el-color-danger-light-3);
+  --el-color-error-light-5: var(--el-color-danger-light-5);
+  --el-color-error-light-7: var(--el-color-danger-light-7);
+  --el-color-error-light-8: var(--el-color-danger-light-8);
+  --el-color-error-light-9: var(--el-color-danger-light-9);
+  --el-color-error-dark-2: var(--el-color-danger-dark-2);
   --el-color-info: var(--status-info);
+  --el-color-info-light-3: color-mix(in srgb, var(--status-info) 70%, white);
+  --el-color-info-light-5: color-mix(in srgb, var(--status-info) 48%, white);
+  --el-color-info-light-7: color-mix(in srgb, var(--status-info) 28%, white);
+  --el-color-info-light-8: color-mix(in srgb, var(--status-info) 18%, white);
+  --el-color-info-light-9: color-mix(in srgb, var(--status-info) 10%, white);
+  --el-color-info-dark-2: color-mix(in srgb, var(--status-info) 82%, black);
   --el-bg-color: var(--surface-solid-panel);
   --el-bg-color-overlay: var(--surface-solid-overlay);
   --el-bg-color-page: var(--surface-solid-page);
@@ -756,7 +854,7 @@ Expected: exit code `1`, naming `_element-plus.scss` and the missing `@use` entr
   --el-box-shadow-light: var(--shadow-panel);
   --el-box-shadow-lighter: var(--inner-highlight);
   --el-box-shadow-dark: var(--shadow-overlay);
-  --el-disabled-bg-color: var(--surface-glass-disabled);
+  --el-disabled-bg-color: var(--surface-solid-disabled);
   --el-disabled-text-color: var(--text-disabled);
   --el-disabled-border-color: var(--border-subtle);
   --el-overlay-color: rgb(8 18 28 / 0.58);
@@ -767,6 +865,43 @@ Expected: exit code `1`, naming `_element-plus.scss` and the missing `@use` entr
   --el-menu-active-color: var(--text-primary);
   --el-menu-hover-bg-color: rgb(var(--brand-primary-rgb) / 0.08);
   --el-menu-hover-text-color: var(--text-primary);
+  --el-component-size: var(--control-height);
+}
+
+[data-theme='dark'] {
+  --el-color-primary-light-3: color-mix(in srgb, var(--brand-primary) 68%, var(--surface-solid-page));
+  --el-color-primary-light-5: color-mix(in srgb, var(--brand-primary) 50%, var(--surface-solid-page));
+  --el-color-primary-light-7: color-mix(in srgb, var(--brand-primary) 34%, var(--surface-solid-page));
+  --el-color-primary-light-8: color-mix(in srgb, var(--brand-primary) 24%, var(--surface-solid-page));
+  --el-color-primary-light-9: color-mix(in srgb, var(--brand-primary) 16%, var(--surface-solid-page));
+  --el-color-primary-dark-2: color-mix(in srgb, var(--brand-primary) 82%, white);
+  --el-color-success-light-3: color-mix(in srgb, var(--status-success) 64%, var(--surface-solid-page));
+  --el-color-success-light-5: color-mix(in srgb, var(--status-success) 48%, var(--surface-solid-page));
+  --el-color-success-light-7: color-mix(in srgb, var(--status-success) 32%, var(--surface-solid-page));
+  --el-color-success-light-8: color-mix(in srgb, var(--status-success) 24%, var(--surface-solid-page));
+  --el-color-success-light-9: color-mix(in srgb, var(--status-success) 16%, var(--surface-solid-page));
+  --el-color-success-dark-2: color-mix(in srgb, var(--status-success) 82%, white);
+  --el-color-warning-light-3: color-mix(in srgb, var(--status-warning) 64%, var(--surface-solid-page));
+  --el-color-warning-light-5: color-mix(in srgb, var(--status-warning) 48%, var(--surface-solid-page));
+  --el-color-warning-light-7: color-mix(in srgb, var(--status-warning) 32%, var(--surface-solid-page));
+  --el-color-warning-light-8: color-mix(in srgb, var(--status-warning) 24%, var(--surface-solid-page));
+  --el-color-warning-light-9: color-mix(in srgb, var(--status-warning) 16%, var(--surface-solid-page));
+  --el-color-warning-dark-2: color-mix(in srgb, var(--status-warning) 82%, white);
+  --el-color-danger-light-3: color-mix(in srgb, var(--status-danger) 64%, var(--surface-solid-page));
+  --el-color-danger-light-5: color-mix(in srgb, var(--status-danger) 48%, var(--surface-solid-page));
+  --el-color-danger-light-7: color-mix(in srgb, var(--status-danger) 32%, var(--surface-solid-page));
+  --el-color-danger-light-8: color-mix(in srgb, var(--status-danger) 24%, var(--surface-solid-page));
+  --el-color-danger-light-9: color-mix(in srgb, var(--status-danger) 16%, var(--surface-solid-page));
+  --el-color-danger-dark-2: color-mix(in srgb, var(--status-danger) 82%, white);
+  --el-color-info-light-3: color-mix(in srgb, var(--status-info) 64%, var(--surface-solid-page));
+  --el-color-info-light-5: color-mix(in srgb, var(--status-info) 48%, var(--surface-solid-page));
+  --el-color-info-light-7: color-mix(in srgb, var(--status-info) 32%, var(--surface-solid-page));
+  --el-color-info-light-8: color-mix(in srgb, var(--status-info) 24%, var(--surface-solid-page));
+  --el-color-info-light-9: color-mix(in srgb, var(--status-info) 16%, var(--surface-solid-page));
+  --el-color-info-dark-2: color-mix(in srgb, var(--status-info) 82%, white);
+}
+
+.el-table {
   --el-table-bg-color: transparent;
   --el-table-tr-bg-color: transparent;
   --el-table-header-bg-color: var(--surface-solid-control);
@@ -776,31 +911,49 @@ Expected: exit code `1`, naming `_element-plus.scss` and the missing `@use` entr
   --el-table-border-color: var(--border-subtle);
   --el-table-current-row-bg-color: rgb(var(--brand-primary-rgb) / 0.08);
   --el-table-fixed-box-shadow: var(--shadow-panel);
+}
+
+.el-card {
   --el-card-bg-color: var(--surface-solid-panel);
   --el-card-border-color: var(--border-subtle);
+}
+
+.el-dialog {
   --el-dialog-bg-color: var(--surface-solid-overlay);
   --el-dialog-border-radius: var(--radius-lg);
+}
+
+.el-input,
+.el-textarea {
   --el-input-bg-color: var(--surface-solid-control);
   --el-input-hover-border-color: rgb(var(--brand-primary-rgb) / 0.48);
   --el-input-focus-border-color: var(--brand-primary);
   --el-input-text-color: var(--text-primary);
   --el-input-placeholder-color: var(--text-muted);
   --el-input-border-color: var(--border-readable);
+}
+
+.el-select {
   --el-select-border-color-hover: rgb(var(--brand-primary-rgb) / 0.48);
+}
+
+.el-tag {
   --el-tag-bg-color: rgb(var(--brand-primary-rgb) / 0.1);
   --el-tag-border-color: rgb(var(--brand-primary-rgb) / 0.2);
   --el-tag-text-color: var(--brand-active);
-  --el-tooltip-bg-color: var(--surface-fallback-overlay);
-  --el-popover-bg-color: var(--surface-solid-overlay);
-  --el-drawer-bg-color: var(--surface-solid-overlay);
-  --el-loading-spinner-color: var(--brand-primary);
-  --el-loading-bg-color: rgb(237 246 251 / 0.78);
-  --el-component-size: var(--control-height);
 }
 
-[data-theme='dark'] {
-  --el-loading-bg-color: rgb(8 18 28 / 0.78);
-  --el-tag-text-color: var(--brand-disabled);
+.el-popover.el-popper {
+  --el-popover-bg-color: var(--surface-solid-overlay);
+  --el-popover-border-color: var(--border-readable);
+}
+
+.el-drawer {
+  --el-drawer-bg-color: var(--surface-solid-overlay);
+}
+
+.el-loading-mask {
+  background-color: color-mix(in srgb, var(--surface-solid-page) 78%, transparent);
 }
 ```
 
@@ -835,11 +988,11 @@ Run: `cd ai-admin-front; npm run check:glass-theme; npx vue-tsc --noEmit; npm ru
 
 Expected: all three commands exit `0`; Sass emits no missing-variable error.
 
-- [ ] **Step 6: Commit the mapping extraction**
+- [ ] **Step 6: Record the mapping extraction without committing**
 
 ```powershell
-git add ai-admin-front/scripts/check-glass-theme-contract.mjs ai-admin-front/src/styles/_element-plus.scss ai-admin-front/src/styles/theme.scss
-git commit -m "refactor(ui): centralize Element Plus theme mapping"
+git diff --check
+git status --short
 ```
 
 ---
@@ -867,13 +1020,15 @@ if (pageBackground.includes(":global([data-theme='dark'])")) {
   failures.push('AppPageBackground still owns a dark-mode recipe')
 }
 expectIncludes(sidebar, 'glass-surface-shell', 'sidebar root must consume the shell recipe')
-expectIncludes(sidebar, '--sb-surface: var(--surface-glass-shell);', 'sidebar surface must map to the semantic shell')
 expectIncludes(sidebar, '--sb-title: var(--text-primary);', 'sidebar title must map to semantic text')
 if (sidebar.includes("[data-theme='dark'] .app-sidebar {")) {
   failures.push('AppSidebar still owns a root dark-mode shell recipe')
 }
 if (sidebar.includes('backdrop-filter: blur(12px)')) {
   failures.push('AppSidebar still owns a hardcoded shell blur')
+}
+if (sidebar.includes('background: var(--sb-surface);')) {
+  failures.push('AppSidebar overrides the shared shell background and its transparency fallback')
 }
 ```
 
@@ -905,14 +1060,11 @@ Expected: exit code `1`, naming the canvas, shell recipe, and root dark-mode rec
 }
 ```
 
-- [ ] **Step 4: Map the sidebar root to semantic roles**
+- [ ] **Step 4: Map the sidebar root to semantic roles without overriding the shared recipe**
 
-Add `glass-surface-shell` to the root aside's static class list. Replace the `.app-sidebar` local variables with:
+Add `glass-surface-shell` to the root `nav` element's static class list. Replace the `.app-sidebar` local variables with:
 
 ```scss
---sb-surface: var(--surface-glass-shell);
---sb-border: var(--border-subtle);
---sb-shadow: var(--shadow-shell);
 --sb-radius: var(--radius-lg);
 --sb-title: var(--text-primary);
 --sb-subtitle: var(--text-muted);
@@ -930,7 +1082,7 @@ Add `glass-surface-shell` to the root aside's static class list. Replace the `.a
 --sb-rail: var(--brand-primary);
 ```
 
-Keep `background`, `border`, and `box-shadow` mapped through those local aliases for now, delete the hardcoded `backdrop-filter: blur(12px)`, and delete only the root `[data-theme='dark'] .app-sidebar`, `.app-sidebar::before`, and `.app-sidebar::after` recipe block. Keep nested control selectors for a later public-control migration.
+Delete the root `.app-sidebar` declarations for `background`, `border`, `box-shadow`, and `backdrop-filter`; `.glass-surface-shell` must own all four so unsupported-blur and reduced-transparency fallbacks cannot be overridden. Keep `border-radius: var(--sb-radius)`, layout, overflow, and the ambient pseudo-elements. Delete only the root `[data-theme='dark'] .app-sidebar`, `.app-sidebar::before`, and `.app-sidebar::after` recipe block. Keep nested control selectors for a later public-control migration.
 
 - [ ] **Step 5: Verify theme controls remain intentionally frozen**
 
@@ -944,11 +1096,11 @@ Run: `cd ai-admin-front; npm run check:sdk-access-workbench; npm run check:scan-
 
 Expected: both UI contract scripts and the build exit `0`.
 
-- [ ] **Step 7: Commit the first consumers**
+- [ ] **Step 7: Record the first-consumer diff without committing**
 
 ```powershell
-git add ai-admin-front/scripts/check-glass-theme-contract.mjs ai-admin-front/src/components/common/AppPageBackground.vue ai-admin-front/src/components/common/AppSidebar.vue
-git commit -m "refactor(ui): migrate app shell to glass tokens"
+git diff --check
+git status --short
 ```
 
 ---
@@ -1041,15 +1193,14 @@ Run: `git diff --check; git status --short`
 
 Expected: no whitespace errors; `UI_AGENT.local.md` is not staged; no backend, SQL, route, or business-logic file appears.
 
-- [ ] **Step 5: Commit acceptance corrections if needed**
+- [ ] **Step 5: Keep acceptance corrections in the worktree**
 
-If corrections were required, stage only the files changed by this plan and commit:
+Do not stage or commit. Re-run the focused checks for every corrected file, then record the remaining worktree diff:
 
 ```powershell
-git commit -m "fix(ui): align glass foundation acceptance"
+git diff --check
+git status --short
 ```
-
-If no correction was required, do not create an empty commit.
 
 - [ ] **Step 6: Write the next independent plan**
 

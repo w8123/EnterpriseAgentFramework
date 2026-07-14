@@ -1,12 +1,16 @@
 package com.enterprise.ai.runtime.workflow;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -20,7 +24,7 @@ public class RuntimeWorkflowDefinitionService {
 
     private final RuntimeWorkflowDefinitionMapper mapper;
     private final RuntimeWorkflowVersionMapper versionMapper;
-    private final RuntimeAgentWorkflowBindingMapper bindingMapper;
+    private final RuntimeAgentWorkflowToolMapper workflowToolMapper;
 
     public List<RuntimeWorkflowDefinitionEntity> list(Long projectId, String projectCode, String workflowType, String status) {
         var query = Wrappers.<RuntimeWorkflowDefinitionEntity>lambdaQuery()
@@ -42,6 +46,58 @@ public class RuntimeWorkflowDefinitionService {
             item.setDeletable(isDeletable(item));
         }
         return items;
+    }
+
+    public RuntimeWorkflowSearchPage search(Long projectId,
+                                            String projectCode,
+                                            String workflowType,
+                                            String status,
+                                            String keyword,
+                                            int current,
+                                            int size) {
+        int safeCurrent = Math.max(current, 1);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        Long total = mapper.selectCount(searchQuery(projectId, projectCode, workflowType, status, keyword));
+        long totalCount = total == null ? 0L : total;
+        if (totalCount == 0L) {
+            return new RuntimeWorkflowSearchPage(List.of(), 0L, safeCurrent, safeSize);
+        }
+        long offset = (long) (safeCurrent - 1) * safeSize;
+        List<RuntimeWorkflowDefinitionEntity> records = mapper.selectList(
+                searchQuery(projectId, projectCode, workflowType, status, keyword)
+                        .orderByDesc(RuntimeWorkflowDefinitionEntity::getUpdatedAt)
+                        .last("LIMIT " + offset + ", " + safeSize));
+        return new RuntimeWorkflowSearchPage(records, totalCount, safeCurrent, safeSize);
+    }
+
+    private LambdaQueryWrapper<RuntimeWorkflowDefinitionEntity> searchQuery(Long projectId,
+                                                                             String projectCode,
+                                                                             String workflowType,
+                                                                             String status,
+                                                                             String keyword) {
+        var query = Wrappers.<RuntimeWorkflowDefinitionEntity>lambdaQuery();
+        if (projectId != null) {
+            query.eq(RuntimeWorkflowDefinitionEntity::getProjectId, projectId);
+        }
+        if (StringUtils.hasText(projectCode)) {
+            query.eq(RuntimeWorkflowDefinitionEntity::getProjectCode, projectCode.trim());
+        }
+        if (StringUtils.hasText(workflowType)) {
+            query.eq(RuntimeWorkflowDefinitionEntity::getWorkflowType, workflowType.trim());
+        }
+        if (StringUtils.hasText(status)) {
+            query.eq(RuntimeWorkflowDefinitionEntity::getStatus, status.trim());
+        }
+        if (StringUtils.hasText(keyword)) {
+            String searchText = keyword.trim();
+            query.and(nested -> nested
+                    .like(RuntimeWorkflowDefinitionEntity::getName, searchText)
+                    .or().like(RuntimeWorkflowDefinitionEntity::getKeySlug, searchText)
+                    .or().like(RuntimeWorkflowDefinitionEntity::getDescription, searchText)
+                    .or().like(RuntimeWorkflowDefinitionEntity::getProjectCode, searchText)
+                    .or().like(RuntimeWorkflowDefinitionEntity::getWorkflowType, searchText));
+        }
+        return query;
     }
 
     public Optional<RuntimeWorkflowDefinitionEntity> findById(String id) {
@@ -72,12 +128,34 @@ public class RuntimeWorkflowDefinitionService {
 
     @Transactional
     public RuntimeWorkflowDefinitionEntity update(String id, RuntimeWorkflowDefinitionEntity update) {
+        return update(id, update, null);
+    }
+
+    @Transactional
+    public RuntimeWorkflowDefinitionEntity update(String id,
+                                                  RuntimeWorkflowDefinitionEntity update,
+                                                  String baseRevision) {
         RuntimeWorkflowDefinitionEntity current = findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("workflow not found: " + id));
+        LocalDateTime persistedRevision = current.getUpdatedAt();
+        LocalDateTime expectedRevision = parseBaseRevision(baseRevision);
+        assertRevision(current, baseRevision, expectedRevision);
         merge(current, update);
-        current.setUpdatedAt(LocalDateTime.now());
-        mapper.updateById(current);
+        current.setUpdatedAt(nextRevision(persistedRevision));
+        int updated = expectedRevision == null
+                ? mapper.updateById(current)
+                : mapper.update(current, Wrappers.<RuntimeWorkflowDefinitionEntity>lambdaUpdate()
+                        .eq(RuntimeWorkflowDefinitionEntity::getId, current.getId())
+                        .eq(RuntimeWorkflowDefinitionEntity::getUpdatedAt, expectedRevision));
+        if (updated <= 0) {
+            RuntimeWorkflowDefinitionEntity latest = findById(id).orElse(current);
+            throw revisionConflict(id, baseRevision, latest.getUpdatedAt());
+        }
         return current;
+    }
+
+    public void assertRevision(RuntimeWorkflowDefinitionEntity workflow, String baseRevision) {
+        assertRevision(workflow, baseRevision, parseBaseRevision(baseRevision));
     }
 
     @Transactional
@@ -91,8 +169,8 @@ public class RuntimeWorkflowDefinitionService {
         if (!"DRAFT".equalsIgnoreCase(workflow.getStatus())) {
             throw new IllegalArgumentException("仅草稿状态的 Workflow 可删除");
         }
-        if (!listBindings(workflowId).isEmpty()) {
-            throw new IllegalArgumentException("该 Workflow 仍被 Agent 绑定，请先解除绑定后再删除");
+        if (!listWorkflowTools(workflowId).isEmpty()) {
+            throw new IllegalArgumentException("该 Workflow 仍被 Agent 配置为 Workflow-as-Tool，请先从 Agent 配置中移除后再删除");
         }
         versionMapper.delete(Wrappers.<RuntimeWorkflowVersionEntity>lambdaQuery()
                 .eq(RuntimeWorkflowVersionEntity::getWorkflowId, workflowId));
@@ -115,12 +193,12 @@ public class RuntimeWorkflowDefinitionService {
         if (!"DRAFT".equalsIgnoreCase(workflow.getStatus())) {
             return false;
         }
-        return listBindings(workflow.getId()).isEmpty();
+        return listWorkflowTools(workflow.getId()).isEmpty();
     }
 
-    private List<RuntimeAgentWorkflowBindingEntity> listBindings(String workflowId) {
-        return bindingMapper.selectList(Wrappers.<RuntimeAgentWorkflowBindingEntity>lambdaQuery()
-                .eq(RuntimeAgentWorkflowBindingEntity::getWorkflowId, workflowId));
+    private List<RuntimeAgentWorkflowToolEntity> listWorkflowTools(String workflowId) {
+        return workflowToolMapper.selectList(Wrappers.<RuntimeAgentWorkflowToolEntity>lambdaQuery()
+                .eq(RuntimeAgentWorkflowToolEntity::getWorkflowId, workflowId));
     }
 
     private void normalizeForCreate(RuntimeWorkflowDefinitionEntity entity) {
@@ -143,7 +221,7 @@ public class RuntimeWorkflowDefinitionService {
         if (!StringUtils.hasText(entity.getManagedBy())) {
             entity.setManagedBy("MANUAL");
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now().withNano(0);
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
     }
@@ -177,6 +255,47 @@ public class RuntimeWorkflowDefinitionService {
         if (!StringUtils.hasText(keySlug) || !KEY_SLUG.matcher(keySlug.trim()).matches()) {
             throw new IllegalArgumentException("invalid workflow keySlug: " + keySlug);
         }
+    }
+
+    private void assertRevision(RuntimeWorkflowDefinitionEntity workflow,
+                                String baseRevision,
+                                LocalDateTime expectedRevision) {
+        if (expectedRevision == null) {
+            return;
+        }
+        LocalDateTime currentRevision = workflow == null ? null : workflow.getUpdatedAt();
+        if (!expectedRevision.equals(currentRevision)) {
+            throw revisionConflict(workflow == null ? null : workflow.getId(), baseRevision, currentRevision);
+        }
+    }
+
+    private LocalDateTime parseBaseRevision(String baseRevision) {
+        if (!StringUtils.hasText(baseRevision)) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(baseRevision.trim());
+        } catch (DateTimeParseException ex) {
+            throw new RuntimeWorkflowRevisionFormatException(
+                    "baseRevision must be an ISO-8601 workflow updatedAt value", ex);
+        }
+    }
+
+    private LocalDateTime nextRevision(LocalDateTime currentRevision) {
+        LocalDateTime now = LocalDateTime.now().withNano(0);
+        if (currentRevision != null && !now.isAfter(currentRevision)) {
+            return currentRevision.plusSeconds(1).withNano(0);
+        }
+        return now;
+    }
+
+    private RuntimeWorkflowRevisionConflictException revisionConflict(String workflowId,
+                                                                      String baseRevision,
+                                                                      LocalDateTime currentRevision) {
+        return new RuntimeWorkflowRevisionConflictException(
+                workflowId,
+                baseRevision,
+                currentRevision == null ? null : currentRevision.toString());
     }
 
     private String newId() {

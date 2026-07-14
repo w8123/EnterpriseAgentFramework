@@ -1,46 +1,19 @@
 <template>
-  <div class="sdk-access-page" :class="theme === 'dark' ? 'is-dark-skin' : 'is-light-skin'">
+  <div class="sdk-access-page project-workbench-page" :class="theme === 'dark' ? 'is-dark-skin' : 'is-light-skin'">
     <AppPageBackground local />
     <span class="page-ambient-center" aria-hidden="true" />
-    <header class="page-header title-card">
-      <div class="title-card-layers" aria-hidden="true">
-        <span class="title-card-hero-image" />
-        <span class="title-card-hero-wash" />
-        <span class="title-card-hero-overlay" />
-        <span class="title-card-glass-highlight" />
-      </div>
-      <div class="title-card-body">
-        <div class="hero-copy">
-          <span class="hero-accent" aria-hidden="true" />
-          <div class="hero-text">
-            <h1>项目接入工作台</h1>
-            <p class="project-meta">{{ project?.name || projectCode }} · {{ project?.projectCode || projectCode }} · SDK 接入</p>
-          </div>
-        </div>
-        <div class="access-mode-switch title-mode-switch" role="tablist" aria-label="SDK 接入方式">
-          <button
-            type="button"
-            :class="{ active: accessMode === 'manual' }"
-            role="tab"
-            :aria-selected="accessMode === 'manual'"
-            @click="accessMode = 'manual'"
-          >
-            手动接入
-          </button>
-          <button
-            type="button"
-            class="tab-ai-coding"
-            :class="{ active: accessMode === 'ai-coding' }"
-            role="tab"
-            :aria-selected="accessMode === 'ai-coding'"
-            @click="accessMode = 'ai-coding'"
-          >
-            <el-icon v-if="accessMode === 'ai-coding'"><MagicStick /></el-icon>
-            AI Coding 接入
-          </button>
-        </div>
-      </div>
-    </header>
+    <PageHeader variant="workbench" domain="project" title="项目接入工作台">
+      <template #meta>
+        <span>{{ project?.name || projectCode }} · {{ project?.projectCode || projectCode }} · SDK 接入</span>
+      </template>
+      <template #mode>
+        <HeaderModeSwitch
+          v-model="accessMode"
+          :options="accessModeOptions"
+          aria-label="SDK 接入方式"
+        />
+      </template>
+    </PageHeader>
 
     <el-alert
       v-if="project && !isSdkBackedProject"
@@ -324,7 +297,7 @@
                     复制提示词
                   </button>
                 </div>
-                <div class="ai-tool-tabs" role="tablist" aria-label="AI 工具类型" :data-active="aiPromptTool">
+                <div class="ai-tool-tabs" role="tablist" aria-label="AI 工具类型">
                   <button
                     type="button"
                     role="tab"
@@ -353,7 +326,6 @@
                     Codex
                   </button>
                   <span class="ai-tool-tabs-track" aria-hidden="true" />
-                  <span class="ai-tool-tabs-indicator" aria-hidden="true" />
                 </div>
                 <el-input
                   class="ai-prompt-input ai-prompt-preview"
@@ -412,7 +384,7 @@
       </section>
     </main>
 
-    <el-dialog
+    <AppDialog
       v-model="aiPromptDialogVisible"
       title="使用 AI 编程工具快速接入"
       width="880px"
@@ -463,21 +435,25 @@
         <el-button @click="aiPromptDialogVisible = false">关闭</el-button>
         <el-button type="primary" :icon="DocumentCopy" @click="copyText(aiOnboardingPrompt)">复制提示词</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, onMounted } from 'vue'
 import {
   ArrowRight,
   Check,
   DocumentCopy,
   MagicStick,
+  Pointer,
 } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import AppPageBackground from '@/components/common/AppPageBackground.vue'
 import CodeSnippetBlock from '@/components/common/CodeSnippetBlock.vue'
+import HeaderModeSwitch, { type HeaderModeOption } from '@/components/common/HeaderModeSwitch.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { formatProjectKindLabel } from '@/utils/projectLabels'
 import { useSdkAccessWizardActions } from '@/views/registry/composables/useSdkAccessWizardActions'
 import { useSdkAccessWizardData } from '@/views/registry/composables/useSdkAccessWizardData'
@@ -493,6 +469,11 @@ import {
 } from '@/views/registry/sdkAccessWizardViewModel'
 
 const { theme } = useTheme()
+
+const accessModeOptions: HeaderModeOption[] = [
+  { value: 'manual', label: '手动接入', icon: Pointer },
+  { value: 'ai-coding', label: 'AI Coding 接入', icon: MagicStick },
+]
 
 const {
   aiPromptTool,

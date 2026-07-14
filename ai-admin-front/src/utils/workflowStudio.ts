@@ -27,7 +27,7 @@ const EMPTY_GRAPH_SPEC: AgentGraphSpec = {
   edges: [],
 }
 
-/** Workflow Studio 画布互操作所需的最小定义壳（非 AgentEntry 管理语义） */
+/** Workflow Studio 画布互操作所需的最小定义壳（非 Agent 管理语义） */
 type WorkflowStudioCanvasSource = WorkflowCanvasSource & AgentForm & {
   id: string
   keySlug: string

@@ -1,10 +1,14 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>文件入库</h2>
-    </div>
+  <WorkbenchPage class="knowledge-import-page">
+    <PageHeader
+      variant="workbench"
+      domain="knowledge"
+      eyebrow="Knowledge Ingestion"
+      title="文件入库"
+      description="选择知识库、上传文件并配置切分策略，在正式入库前预览 Chunk 结果。"
+    />
 
-    <el-row :gutter="20">
+    <section class="knowledge-import-grid"><el-row :gutter="20">
       <!-- 左侧：操作区域 -->
       <el-col :span="12">
         <!-- 选择知识库 -->
@@ -79,8 +83,8 @@
           />
         </el-card>
       </el-col>
-    </el-row>
-  </div>
+    </el-row></section>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
@@ -102,6 +106,8 @@ import ChunkStrategyForm from '@/components/ChunkStrategyForm.vue'
 import AdvancedSettings from '@/components/AdvancedSettings.vue'
 import ChunkPreview from '@/components/ChunkPreview.vue'
 import ImportActions from '@/components/ImportActions.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const importStore = useImportStore()
 const fileUploaderRef = ref<InstanceType<typeof FileUploader>>()
@@ -224,6 +230,7 @@ function handleReset() {
 </script>
 
 <style scoped lang="scss">
+
 .card-title {
   display: flex;
   align-items: center;

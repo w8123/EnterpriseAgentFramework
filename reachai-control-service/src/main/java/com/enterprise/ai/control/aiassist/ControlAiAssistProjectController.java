@@ -29,7 +29,6 @@ import java.util.Map;
 public class ControlAiAssistProjectController {
 
     private static final String SECRET_ENV_NAME = "REACHAI_REGISTRY_APP_SECRET";
-    private static final String PAGE_COPILOT_KIND = "PAGE_COPILOT";
     private static final String WORKFLOW_AI_CODING_SKILL_NAME = "workflow-ai-coding";
     private static final String ONBOARDING_SKILL_NAME = "reachai-onboarding";
 
@@ -90,8 +89,9 @@ public class ControlAiAssistProjectController {
                 "bare-json",
                 Map.of(
                         "agentKeySlug", "agent.keySlug",
-                        "defaultWorkflowId", "defaultWorkflow.id",
-                        "createdDefaultWorkflow", "createdDefaultWorkflow"),
+                        "supervisorConfigId", "supervisorConfig.id",
+                        "supervisorConfigStatus", "supervisorConfig.status",
+                        "createdSupervisorConfig", "createdSupervisorConfig"),
                 "POST /api/ai-coding/projects/{projectId}/agents/provision is not ApiResult-wrapped."));
         shapes.put("aiAccessSessions", new ResponseShape(
                 "bare-json",
@@ -282,8 +282,7 @@ public class ControlAiAssistProjectController {
                     stringValue(project.get("projectCode")),
                     pageKey,
                     actionCount,
-                    session,
-                    null));
+                    session));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }
@@ -333,8 +332,7 @@ public class ControlAiAssistProjectController {
                             request == null ? null : request.framework(),
                             request == null ? null : request.bridgeGlobal()),
                     registeredActions,
-                    request == null || request.files() == null ? List.of() : request.files(),
-                    null));
+                    request == null || request.files() == null ? List.of() : request.files()));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }
@@ -372,7 +370,7 @@ public class ControlAiAssistProjectController {
         EmbedManifest embed = new EmbedManifest("/api/reachai/embed-token", null, null, List.of());
         AgentProvisioningManifest provisioning = buildAgentProvisioningManifest(projectManifest, projectApiRoot);
         return new OnboardingManifestResponse(
-                "reachai.onboarding.v1",
+                "reachai.onboarding.v2",
                 projectManifest,
                 aiCodingAccess,
                 new SdkManifest(
@@ -399,7 +397,7 @@ public class ControlAiAssistProjectController {
                         baseUrl + "/api/scan-projects/" + projectManifest.id() + "/tools/reconcile"),
                 embed,
                 provisioning,
-                buildAgentWorkflowManifest(projectManifest, provisioning, baseUrl),
+                buildAgentSupervisorManifest(projectManifest, provisioning, baseUrl),
                 new SecurityGuidance(
                         SECRET_ENV_NAME,
                         "Do not paste or write the registry app secret into AI chat context. Store it in a local environment variable or secret manager."));
@@ -480,35 +478,35 @@ public class ControlAiAssistProjectController {
     private AgentProvisioningManifest buildAgentProvisioningManifest(ProjectManifest project, String projectApiRoot) {
         String defaultKeySlug = pageCopilotKeySlug(project.projectCode(), project.id());
         return new AgentProvisioningManifest(
-                "agent-provisioning.v1",
-                PAGE_COPILOT_KIND,
+                "agent-provisioning.v2",
                 defaultKeySlug,
-                projectApiRoot + "/agents/provision",
+                projectApiRoot.replace("/api/ai-assist/", "/api/ai-coding/") + "/agents/provision",
                 true,
                 true,
                 true,
+                "REQUESTED_OR_FIRST_ACTIVE_LLM",
                 List.of(
                         "Call provisionAgentUrl before wiring embedded chat.",
                         "Use response.agent.keySlug as the business frontend agentId.",
+                        "Provisioning publishes an ACTIVE AgentScope Supervisor config without creating a placeholder Workflow.",
                         "Do not ask the user to manually create or choose a project Agent during SDK onboarding."));
     }
 
-    private AgentWorkflowManifest buildAgentWorkflowManifest(ProjectManifest project,
-                                                             AgentProvisioningManifest provisioning,
-                                                             String baseUrl) {
+    private AgentSupervisorManifest buildAgentSupervisorManifest(ProjectManifest project,
+                                                                 AgentProvisioningManifest provisioning,
+                                                                 String baseUrl) {
         String globalAgentKeySlug = provisioning.defaultKeySlug();
-        return new AgentWorkflowManifest(
-                "agent-workflow.decoupled.v1",
+        return new AgentSupervisorManifest(
+                "agent-supervisor.workflow-tools.v1",
                 globalAgentKeySlug,
-                PAGE_COPILOT_KIND,
-                "runtime_workflow",
-                "SDK_GRAPH",
-                "Bind page/action/intent workflows to the project page copilot Agent instead of creating one agent per workflow.",
-                new AgentWorkflowEndpoints(
+                "AGENTSCOPE",
+                "WORKFLOW_AS_TOOL_ALLOW_LIST",
+                new AgentSupervisorEndpoints(
                         baseUrl + "/api/agents",
-                        baseUrl + "/api/workflows",
-                        baseUrl + "/api/agents/" + globalAgentKeySlug + "/workflow-bindings",
-                        baseUrl + "/api/agents/" + globalAgentKeySlug + "/workflow-bindings/resolve-preview"),
+                        baseUrl + "/api/agents/{agentId}/config-versions",
+                        baseUrl + "/api/agents/{agentId}/config-versions/draft",
+                        baseUrl + "/api/workflows/{workflowId}/page-assistant/attach-tool",
+                        baseUrl + "/api/runtime/agents/execute"),
                 new WorkflowAiCodingManifest(
                         baseUrl + "/api/ai-assist/skills/" + WORKFLOW_AI_CODING_SKILL_NAME + "/latest.zip",
                         baseUrl + "/api/workflows/ai-coding/workflows",
@@ -525,10 +523,11 @@ public class ControlAiAssistProjectController {
                                 "Read /context before patch; use workflow.updatedAt as baseRevision when saving.",
                                 "After the first valid workflow draft is saved, call /publish once to create the initial ACTIVE workflow version.")),
                 List.of(
-                        "Provision or reuse one project-level PAGE_COPILOT Agent entry.",
-                        "Store every executable graph as an runtime_workflow draft or version.",
-                        "Create runtime_agent_workflow_binding rows for DEFAULT, PAGE, ACTION, ROUTE, or INTENT routing.",
-                        "Use Workflow AI Coding REST APIs or the workflow-ai-coding skill for draft edits, validation, debug runs, release readiness checks, and first publish."));
+                        "Provision or reuse one project-level page copilot Agent entry.",
+                        "Store every executable graph as a runtime_workflow and publish an ACTIVE version before attachment.",
+                        "Attach published Workflows to the Agent Supervisor Workflow-as-Tool allow-list.",
+                        "Publish a new Agent config version after changing its tool catalog.",
+                        "Use only the published Agent config Workflow-as-Tool catalog for runtime selection."));
     }
 
     private String pageCopilotKeySlug(String projectCode, Long projectId) {
@@ -639,6 +638,7 @@ public class ControlAiAssistProjectController {
     private SdkAccessCheckResponse sdkAccessCheck(Map<String, Object> project) {
         boolean credentialConfigured = booleanValue(project.get("registryCredentialConfigured"));
         AiCodingAccessManifest aiCodingAccess = toAiCodingAccess(mapValue(project.get("aiCodingAccess")));
+        SdkAccessCheckItem sdkSyncCallbackCheck = sdkSyncCallbackCheck(project);
         List<SdkAccessCheckItem> checks = List.of(
                 new SdkAccessCheckItem(
                         "PROJECT",
@@ -657,7 +657,8 @@ public class ControlAiAssistProjectController {
                         "AI Coding 接入",
                         aiCodingAccess.enabled() ? "PASS" : "WARN",
                         aiCodingAccess.enabled() ? "已启用 AI Coding 接入" : "AI Coding 接入未启用",
-                        null));
+                        null),
+                sdkSyncCallbackCheck);
         String overall = checks.stream().anyMatch(check -> "FAIL".equals(check.status()))
                 ? "FAIL"
                 : checks.stream().anyMatch(check -> "WARN".equals(check.status())) ? "WARN" : "PASS";
@@ -670,6 +671,40 @@ public class ControlAiAssistProjectController {
                         new SdkAccessReadiness("RUNTIME_READY", "Runtime 就绪", overall, "Runtime readiness requires SDK instance heartbeat"),
                         new SdkAccessReadiness("E2E_READY", "端到端", overall, "Verify embed/token broker flow; API calls are optional after API Management manual SDK sync")),
                 checks);
+    }
+
+    static SdkAccessCheckItem sdkSyncCallbackCheck(Map<String, Object> project) {
+        String baseUrl = project.get("baseUrl") == null ? null : String.valueOf(project.get("baseUrl"));
+        if (!StringUtils.hasText(baseUrl)) {
+            return new SdkAccessCheckItem(
+                    "SDK_SYNC_CALLBACK",
+                    "SDK 同步回调",
+                    "WARN",
+                    "尚未配置 ReachAI 服务端可访问的 reachai.project.base-url",
+                    null);
+        }
+        String contextPath = project.get("contextPath") == null ? null : String.valueOf(project.get("contextPath"));
+        String normalizedContextPath = StringUtils.hasText(contextPath) && !"/".equals(contextPath.trim())
+                ? "/" + contextPath.trim().replaceAll("^/+|/+$", "")
+                : "";
+        String targetUrl = baseUrl.trim().replaceAll("/+$", "")
+                + normalizedContextPath
+                + "/reachai/registry/capabilities/sync";
+        String lowerTarget = targetUrl.toLowerCase();
+        boolean loopback = lowerTarget.startsWith("http://localhost")
+                || lowerTarget.startsWith("https://localhost")
+                || lowerTarget.startsWith("http://127.0.0.1")
+                || lowerTarget.startsWith("https://127.0.0.1")
+                || lowerTarget.startsWith("http://[::1]")
+                || lowerTarget.startsWith("https://[::1]");
+        return new SdkAccessCheckItem(
+                "SDK_SYNC_CALLBACK",
+                "SDK 同步回调",
+                "PASS",
+                loopback
+                        ? "已计算同步回调目标；当前为回环地址，仅适用于 ReachAI 与业务系统同机或共享网络命名空间"
+                        : "已计算同步回调目标；实际可达性和业务鉴权/CSRF需由 API 管理手动同步验证",
+                targetUrl);
     }
 
     private PageAssistantCheckResponse pageAssistantCheck(Map<String, Object> project,
@@ -779,7 +814,7 @@ public class ControlAiAssistProjectController {
             PlatformEndpoints endpoints,
             EmbedManifest embed,
             AgentProvisioningManifest agentProvisioning,
-            AgentWorkflowManifest agentWorkflow,
+            AgentSupervisorManifest agentSupervisor,
             SecurityGuidance security
     ) {
     }
@@ -989,19 +1024,11 @@ public class ControlAiAssistProjectController {
                                               List<AiAccessStepView> steps) {
     }
 
-    public record PageAssistantWorkflowBinding(String agentId,
-                                               String agentKeySlug,
-                                               String workflowId,
-                                               String workflowKeySlug,
-                                               Long bindingId) {
-    }
-
     public record PageAssistantCatalogSyncResponse(String projectCode,
                                                    String appId,
                                                    String pageKey,
                                                    int actionCount,
-                                                   AiAccessSessionView session,
-                                                   PageAssistantWorkflowBinding workflowBinding) {
+                                                   AiAccessSessionView session) {
     }
 
     public record RegisteredPage(String projectCode,
@@ -1017,8 +1044,7 @@ public class ControlAiAssistProjectController {
                                                     PageAssistantCheckResponse checkResult,
                                                     RegisteredPage registeredPage,
                                                     List<String> registeredActions,
-                                                    List<PageAssistantFileEvidence> fileEvidence,
-                                                    PageAssistantWorkflowBinding workflowBinding) {
+                                                    List<PageAssistantFileEvidence> fileEvidence) {
     }
 
     public record SdkAccessCheckResponse(
@@ -1097,34 +1123,33 @@ public class ControlAiAssistProjectController {
 
     public record AgentProvisioningManifest(
             String model,
-            String defaultAgentKind,
             String defaultKeySlug,
             String provisionAgentUrl,
             boolean idempotent,
-            boolean createsDefaultWorkflow,
-            boolean createsDefaultBinding,
+            boolean createsSupervisorConfig,
+            boolean activatesSupervisorConfig,
+            String modelSelection,
             List<String> requiredSteps
     ) {
     }
 
-    public record AgentWorkflowManifest(
+    public record AgentSupervisorManifest(
             String model,
             String globalAgentKeySlug,
-            String globalAgentKind,
-            String workflowStorage,
-            String sdkGraphWorkflowType,
-            String bindingStrategy,
-            AgentWorkflowEndpoints endpoints,
+            String runtimeType,
+            String workflowToolCatalog,
+            AgentSupervisorEndpoints endpoints,
             WorkflowAiCodingManifest workflowAiCoding,
             List<String> requiredSteps
     ) {
     }
 
-    public record AgentWorkflowEndpoints(
+    public record AgentSupervisorEndpoints(
             String agentsUrl,
-            String workflowsUrl,
-            String globalAgentBindingsUrl,
-            String resolvePreviewUrl
+            String configVersionsUrlTemplate,
+            String configDraftUrlTemplate,
+            String workflowToolAttachUrlTemplate,
+            String executeUrl
     ) {
     }
 

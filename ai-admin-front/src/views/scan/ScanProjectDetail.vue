@@ -1,5 +1,5 @@
 <template>
-  <div class="registry-workbench-page api-catalog-workbench">
+  <div class="registry-workbench-page api-catalog-workbench project-workbench-page">
     <ScanProjectHeader
       :project="project"
       :stage-advice="stageAdvice"
@@ -20,6 +20,7 @@
       :project="project"
       :sync-loading="sdkScanLoading"
       :sync-result="sdkScanResult"
+      :sync-error="sdkScanError"
       :rescan-loading="rescanLoading"
       :scan-settings-form="scanSettingsForm"
       :is-open-api-mode="isOpenApiMode"
@@ -217,6 +218,7 @@ const addInterfaceDialogTab = ref<'sdk' | 'aiCoding'>('sdk')
 const addInterfaceSettingsVisible = ref(false)
 const sdkScanLoading = ref(false)
 const sdkScanResult = ref<SdkCapabilityScanResult | null>(null)
+const sdkScanError = ref<string | null>(null)
 
 const {
   activeWorkbenchTab,
@@ -506,6 +508,7 @@ function openScanRulesPanel() {
 
 async function scanSdkCapabilities() {
   sdkScanLoading.value = true
+  sdkScanError.value = null
   try {
     const { data } = await triggerSdkCapabilityScan(projectId.value)
     sdkScanResult.value = data
@@ -514,6 +517,7 @@ async function scanSdkCapabilities() {
   } catch (error) {
     const responseMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
     const message = responseMessage || (error instanceof Error ? error.message : 'SDK 扫描同步失败')
+    sdkScanError.value = message
     ElMessage.error(message)
   } finally {
     sdkScanLoading.value = false

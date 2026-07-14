@@ -1,8 +1,21 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>A2A 会话监控</h2>
-      <div class="header-actions">
+  <WorkbenchPage class="a2a-session-monitor-page" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="governance"
+      eyebrow="A2A Observability"
+      title="A2A 会话监控"
+      description="追踪远程 Agent 调用、任务状态、执行耗时与关联 Trace，快速定位跨系统协作异常。"
+    >
+      <template #actions>
+        <el-tooltip content="刷新 A2A 会话" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新 A2A 会话" @click="reload" />
+        </el-tooltip>
+      </template>
+    </PageHeader>
+
+    <WorkbenchPanel level="control" density="comfortable">
+      <div class="a2a-filter-row">
         <el-input v-model="filter.agentKey" placeholder="agentKey 过滤" clearable style="width: 200px" @change="reload" />
         <el-select v-model="filter.method" placeholder="方法" clearable style="width: 160px" @change="reload">
           <el-option label="card" value="card" />
@@ -14,11 +27,10 @@
           <el-option label="成功" :value="true" />
           <el-option label="失败" :value="false" />
         </el-select>
-        <el-button :icon="Refresh" @click="reload" :loading="loading">刷新</el-button>
       </div>
-    </div>
+    </WorkbenchPanel>
 
-    <el-card shadow="never">
+    <el-card class="workbench-list-surface" shadow="never">
       <el-table :data="rows" v-loading="loading" stripe size="small" @row-click="openDetail">
         <el-table-column prop="createdAt" label="时间" width="170" />
         <el-table-column prop="agentKey" label="Agent Key" width="180" show-overflow-tooltip />
@@ -56,7 +68,7 @@
       />
     </el-card>
 
-    <el-drawer v-model="drawerVisible" title="调用详情" size="50%">
+    <AppDrawer v-model="drawerVisible" title="调用详情" size="50%">
       <div v-if="active">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="时间">{{ active.createdAt }}</el-descriptions-item>
@@ -79,14 +91,18 @@
         <el-divider>响应体</el-divider>
         <pre class="payload">{{ pretty(active.responseBody) }}</pre>
       </div>
-    </el-drawer>
-  </div>
+    </AppDrawer>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDrawer from '@/components/common/AppDrawer.vue'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 import { pageA2aCallLogs } from '@/api/a2a'
 import type { A2aCallLog } from '@/types/a2a'
@@ -140,12 +156,12 @@ onMounted(reload)
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 16px; }
-.page-header {
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
-  h2 { margin: 0; font-size: 18px; }
+.a2a-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
 }
-.header-actions { display: flex; gap: 8px; align-items: center; }
 .payload {
   background: var(--el-fill-color-lighter); padding: 12px;
   border-radius: 4px; font-size: 12px; white-space: pre-wrap; word-break: break-all;

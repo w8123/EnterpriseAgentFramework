@@ -11,6 +11,10 @@ import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionService;
+import com.enterprise.ai.runtime.workflow.layout.RuntimeWorkflowCanvasLayoutService;
+import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService;
+import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService.MutationOperation;
+import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService.MutationResult;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -19,9 +23,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -39,6 +41,8 @@ public class RuntimeWorkflowAiCodingService {
     private final RuntimeWorkflowVersionService versionService;
     private final RuntimeRunOpsQueryService runOpsQueryService;
     private final ObjectMapper objectMapper;
+    private final RuntimeWorkflowCanvasLayoutService canvasLayoutService;
+    private final RuntimeWorkflowGraphMutationService graphMutationService;
 
     public ContextView createWorkflow(CreateRequest request) {
         if (request == null) {
@@ -55,8 +59,15 @@ public class RuntimeWorkflowAiCodingService {
         entity.setDefaultModelInstanceId(request.defaultModelInstanceId());
         entity.setManagedBy("AI_CODING");
         entity.setStatus("DRAFT");
-        entity.setGraphSpecJson(writeJson(request.graphSpec() == null ? emptyGraph(entity.getKeySlug(), entity.getName()) : request.graphSpec()));
-        entity.setCanvasJson(writeJsonOrNull(request.canvas()));
+        GraphSpec graph = request.graphSpec() == null
+                ? emptyGraph(entity.getKeySlug(), entity.getName())
+                : request.graphSpec();
+        Map<String, Object> canvas = canvasLayoutService.projectAndLayout(
+                graph,
+                request.canvas(),
+                RuntimeWorkflowCanvasLayoutService.Options.defaults());
+        entity.setGraphSpecJson(writeJson(graph));
+        entity.setCanvasJson(writeJson(canvas));
         entity.setExtraJson(writeJsonOrNull(request.extra()));
         RuntimeWorkflowDefinitionEntity created = workflowService.create(entity);
         return contextFromWorkflow(created);
@@ -70,8 +81,10 @@ public class RuntimeWorkflowAiCodingService {
         RuntimeWorkflowDefinitionEntity workflow = requireWorkflow(workflowId);
         String mode = request == null || request.mode() == null ? "CURRENT" : request.mode().name();
         RuntimeWorkflowReleaseValidationResult validation;
-        if ("PROPOSED".equals(mode) && request != null && request.graphSpec() != null) {
-            validation = validationService.validateProposed(workflow, request.graphSpec());
+        if ("PROPOSED".equals(mode)) {
+            validation = validationService.validateProposed(
+                    workflow,
+                    request == null ? null : request.graphSpec());
         } else {
             validation = validationService.validate(workflow);
         }
@@ -81,30 +94,38 @@ public class RuntimeWorkflowAiCodingService {
     public PatchView patchWorkflow(String workflowId, PatchRequest request) {
         RuntimeWorkflowDefinitionEntity workflow = requireWorkflow(workflowId);
         PatchRequest actual = request == null ? PatchRequest.empty() : request;
-        GraphSpec graph = readGraph(workflow.getGraphSpecJson());
+        workflowService.assertRevision(workflow, actual.baseRevision());
+        GraphSpec currentGraph = readGraph(workflow.getGraphSpecJson());
         Map<String, Object> canvas = readMap(workflow.getCanvasJson());
-        PatchAccumulator accumulator = applyPatch(graph, canvas, actual.operations());
+        MutationResult mutation = graphMutationService.mutate(currentGraph, mutationOperations(actual.operations()));
+        GraphSpec graph = mutation.graphSpec();
+        canvas = canvasLayoutService.projectAndLayout(graph, canvas, layoutOptions(actual.layout()));
         RuntimeWorkflowReleaseValidationResult validation = validationService.validateProposed(workflow, graph);
         boolean dryRun = actual.dryRun() == null || actual.dryRun();
+        boolean saveBlocked = !dryRun && !validation.valid();
         RuntimeWorkflowDefinitionEntity savedWorkflow = workflow;
-        if (!dryRun) {
+        if (!dryRun && !saveBlocked) {
             RuntimeWorkflowDefinitionEntity update = new RuntimeWorkflowDefinitionEntity();
             update.setGraphSpecJson(writeJson(graph));
             update.setCanvasJson(writeJsonOrNull(canvas));
-            savedWorkflow = workflowService.update(workflowId, update);
+            savedWorkflow = StringUtils.hasText(actual.baseRevision())
+                    ? workflowService.update(workflowId, update, actual.baseRevision())
+                    : workflowService.update(workflowId, update);
         }
         return new PatchView(
                 dryRun,
-                !dryRun,
-                accumulator.summary(),
-                List.copyOf(accumulator.changedNodes()),
-                List.copyOf(accumulator.changedEdges()),
+                !dryRun && !saveBlocked,
+                mutation.summary(),
+                mutation.changedNodes(),
+                mutation.changedEdges(),
                 graph,
                 canvas,
                 validationView(workflowId, "PROPOSED", validation),
-                dryRun ? snapshot(workflow) : snapshot(savedWorkflow),
+                dryRun || saveBlocked ? snapshot(workflow) : snapshot(savedWorkflow),
                 List.of(),
-                List.of());
+                saveBlocked
+                        ? validation.errors().stream().map(RuntimeWorkflowReleaseValidationResult.Item::message).toList()
+                        : List.of());
     }
 
     public RunView runWorkflow(String workflowId, RunRequest request) {
@@ -173,15 +194,17 @@ public class RuntimeWorkflowAiCodingService {
                 version,
                 rolloutPercent,
                 actual.note(),
-                publishedBy);
+                publishedBy,
+                actual.baseRevision());
         return publishView(published);
     }
 
     public RunListView runs(String workflowId, Integer limit, Integer days) {
         int safeLimit = limit == null ? 20 : Math.max(1, Math.min(limit, 100));
         int safeDays = days == null ? 7 : Math.max(1, Math.min(days, 30));
-        List<RuntimeRunOpsViews.RuntimeRunOpsSummaryView> runs = runOpsQueryService.recent(null, safeLimit, safeDays).stream()
-                .filter(run -> workflowId.equals(run.workflowId()) || workflowId.equals(run.sourceId()))
+        List<RuntimeRunOpsViews.RuntimeRunOpsSummaryView> runs = runOpsQueryService.recent(
+                        null, null, "WORKFLOW", null, null, null, safeLimit, safeDays).stream()
+                .filter(run -> workflowId.equals(run.workflowId()))
                 .toList();
         return new RunListView(workflowId, runs, List.of());
     }
@@ -222,7 +245,6 @@ public class RuntimeWorkflowAiCodingService {
                 validationView(workflow.getId(), "CURRENT", validation),
                 AgentGraphNodeType.catalog(),
                 runtimeHints(workflow),
-                List.of(),
                 Map.of(),
                 List.of(),
                 List.of(),
@@ -260,137 +282,32 @@ public class RuntimeWorkflowAiCodingService {
         }
     }
 
-    private PatchAccumulator applyPatch(GraphSpec graph, Map<String, Object> canvas, List<GraphPatchOperation> operations) {
-        PatchAccumulator accumulator = new PatchAccumulator();
-        List<GraphPatchOperation> actualOperations = operations == null ? List.of() : operations;
-        for (GraphPatchOperation operation : actualOperations) {
-            if (operation == null || operation.op() == null) {
-                continue;
-            }
-            switch (operation.op()) {
-                case ADD_NODE -> addNode(graph, operation.node(), accumulator);
-                case UPDATE_NODE -> updateNode(graph, operation.nodeId(), operation.patch(), accumulator);
-                case DELETE_NODE -> deleteNode(graph, operation.nodeId(), accumulator);
-                case ADD_EDGE -> addEdge(graph, operation.edge(), accumulator);
-                case DELETE_EDGE -> deleteEdge(graph, operation.edgeId(), operation.edge(), accumulator);
-                case SET_ENTRY -> setEntry(graph, operation.entry(), accumulator);
-            }
+    private List<MutationOperation> mutationOperations(List<GraphPatchOperation> operations) {
+        if (operations == null) {
+            return List.of();
         }
-        if (canvas != null && !canvas.containsKey("updatedBy")) {
-            canvas.put("updatedBy", "workflow-ai-coding");
-        }
-        accumulator.operationCount(actualOperations.size());
-        return accumulator;
-    }
-
-    private void addNode(GraphSpec graph, GraphSpec.Node node, PatchAccumulator accumulator) {
-        if (node == null || !StringUtils.hasText(node.getId())) {
-            throw new IllegalArgumentException("ADD_NODE requires node.id");
-        }
-        List<GraphSpec.Node> nodes = mutableNodes(graph);
-        String nodeId = node.getId().trim();
-        if (nodes.stream().anyMatch(item -> item != null && nodeId.equals(item.getId()))) {
-            throw new IllegalArgumentException("duplicate graph node id: " + nodeId);
-        }
-        nodes.add(node);
-        graph.setNodes(nodes);
-        accumulator.changedNode(nodeId);
-    }
-
-    private void updateNode(GraphSpec graph, String nodeId, Map<String, Object> patch, PatchAccumulator accumulator) {
-        String id = requireText(nodeId, "UPDATE_NODE requires nodeId");
-        GraphSpec.Node node = findNode(graph, id);
-        if (node == null) {
-            throw new IllegalArgumentException("graph node not found: " + id);
-        }
-        Map<String, Object> merged = objectMapper.convertValue(node, MAP_TYPE);
-        if (patch != null) {
-            merged.putAll(patch);
-        }
-        GraphSpec.Node updated = objectMapper.convertValue(merged, GraphSpec.Node.class);
-        List<GraphSpec.Node> nodes = mutableNodes(graph);
-        for (int i = 0; i < nodes.size(); i++) {
-            if (id.equals(nodes.get(i).getId())) {
-                nodes.set(i, updated);
-                break;
-            }
-        }
-        graph.setNodes(nodes);
-        accumulator.changedNode(id);
-    }
-
-    private void deleteNode(GraphSpec graph, String nodeId, PatchAccumulator accumulator) {
-        String id = requireText(nodeId, "DELETE_NODE requires nodeId");
-        List<GraphSpec.Node> nodes = mutableNodes(graph);
-        if (nodes.removeIf(node -> node != null && id.equals(node.getId()))) {
-            graph.setNodes(nodes);
-            List<GraphSpec.Edge> edges = mutableEdges(graph);
-            edges.removeIf(edge -> edge != null && (id.equals(edge.getFrom()) || id.equals(edge.getTo())));
-            graph.setEdges(edges);
-            if (id.equals(graph.getEntry())) {
-                graph.setEntry(null);
-            }
-            accumulator.changedNode(id);
-        }
-    }
-
-    private void addEdge(GraphSpec graph, GraphSpec.Edge edge, PatchAccumulator accumulator) {
-        if (edge == null || !StringUtils.hasText(edge.getFrom()) || !StringUtils.hasText(edge.getTo())) {
-            throw new IllegalArgumentException("ADD_EDGE requires edge.from and edge.to");
-        }
-        List<GraphSpec.Edge> edges = mutableEdges(graph);
-        String edgeId = edgeId(edge);
-        if (edges.stream().noneMatch(item -> edgeId.equals(edgeId(item)))) {
-            edges.add(edge);
-            graph.setEdges(edges);
-            accumulator.changedEdge(edgeId);
-        }
-    }
-
-    private void deleteEdge(GraphSpec graph, String edgeId, GraphSpec.Edge edge, PatchAccumulator accumulator) {
-        String id = StringUtils.hasText(edgeId) ? edgeId.trim() : edgeId(edge);
-        if (!StringUtils.hasText(id)) {
-            throw new IllegalArgumentException("DELETE_EDGE requires edgeId or edge");
-        }
-        List<GraphSpec.Edge> edges = mutableEdges(graph);
-        if (edges.removeIf(item -> id.equals(edgeId(item)))) {
-            graph.setEdges(edges);
-            accumulator.changedEdge(id);
-        }
-    }
-
-    private void setEntry(GraphSpec graph, String entry, PatchAccumulator accumulator) {
-        String nodeId = requireText(entry, "SET_ENTRY requires entry");
-        graph.setEntry(nodeId);
-        accumulator.changedNode(nodeId);
-    }
-
-    private List<GraphSpec.Node> mutableNodes(GraphSpec graph) {
-        return new ArrayList<>(graph.getNodes() == null ? List.of() : graph.getNodes());
-    }
-
-    private List<GraphSpec.Edge> mutableEdges(GraphSpec graph) {
-        return new ArrayList<>(graph.getEdges() == null ? List.of() : graph.getEdges());
-    }
-
-    private GraphSpec.Node findNode(GraphSpec graph, String nodeId) {
-        return graph.getNodes() == null ? null : graph.getNodes().stream()
-                .filter(node -> node != null && nodeId.equals(node.getId()))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private String edgeId(GraphSpec.Edge edge) {
-        if (edge == null) {
-            return null;
-        }
-        if (StringUtils.hasText(edge.getId())) {
-            return edge.getId().trim();
-        }
-        if (StringUtils.hasText(edge.getFrom()) && StringUtils.hasText(edge.getTo())) {
-            return edge.getFrom().trim() + "->" + edge.getTo().trim();
-        }
-        return null;
+        return operations.stream()
+                .map(operation -> {
+                    if (operation == null || operation.op() == null) {
+                        return null;
+                    }
+                    Map<String, Object> patch = operation.patch();
+                    if (operation.op() == GraphPatchOperation.Op.UPDATE_NODE
+                            && (patch == null || patch.isEmpty())
+                            && operation.node() != null) {
+                        patch = objectMapper.convertValue(operation.node(), MAP_TYPE);
+                    }
+                    return new MutationOperation(
+                            MutationOperation.Op.valueOf(operation.op().name()),
+                            operation.node(),
+                            operation.nodeId(),
+                            patch,
+                            operation.edge(),
+                            operation.edgeId(),
+                            operation.entry(),
+                            operation.finish());
+                })
+                .toList();
     }
 
     private GraphSpec emptyGraph(String code, String name) {
@@ -495,6 +412,17 @@ public class RuntimeWorkflowAiCodingService {
         return "WAITING_USER".equals(status) ? "WAITING" : status;
     }
 
+    private RuntimeWorkflowCanvasLayoutService.Options layoutOptions(LayoutOptions options) {
+        if (options == null) {
+            return RuntimeWorkflowCanvasLayoutService.Options.defaults();
+        }
+        return new RuntimeWorkflowCanvasLayoutService.Options(
+                options.autoLayout(),
+                options.direction(),
+                options.columnGap(),
+                options.rowGap());
+    }
+
     public record CreateRequest(String name,
                                 String keySlug,
                                 Long projectId,
@@ -515,7 +443,6 @@ public class RuntimeWorkflowAiCodingService {
                               ValidationView validation,
                               List<AgentGraphNodeType.Descriptor> nodeTypes,
                               Map<String, Object> runtimeHints,
-                              List<Object> bindings,
                               Map<String, Object> pageAssistantContext,
                               List<Object> availableModels,
                               List<Object> availableTools,
@@ -567,20 +494,34 @@ public class RuntimeWorkflowAiCodingService {
                                       Map<String, Object> patch,
                                       GraphSpec.Edge edge,
                                       String edgeId,
-                                      String entry) {
+                                      String entry,
+                                      List<String> finish) {
+        public GraphPatchOperation(Op op,
+                                   GraphSpec.Node node,
+                                   String nodeId,
+                                   Map<String, Object> patch,
+                                   GraphSpec.Edge edge,
+                                   String edgeId,
+                                   String entry) {
+            this(op, node, nodeId, patch, edge, edgeId, entry, null);
+        }
+
         public enum Op {
             ADD_NODE,
             UPDATE_NODE,
             DELETE_NODE,
             ADD_EDGE,
+            UPDATE_EDGE,
             DELETE_EDGE,
-            SET_ENTRY
+            SET_ENTRY,
+            SET_FINISH
         }
     }
 
-    public record LayoutOptions(String direction,
-                                Integer columnGap,
-                                Integer rowGap) {
+    public record LayoutOptions(Boolean autoLayout,
+                                 String direction,
+                                 Integer columnGap,
+                                 Integer rowGap) {
     }
 
     public record PatchView(boolean dryRun,
@@ -633,12 +574,20 @@ public class RuntimeWorkflowAiCodingService {
                               String note) {
     }
 
-    public record PublishRequest(String version,
+    public record PublishRequest(String baseRevision,
+                                 String version,
                                  Integer rolloutPercent,
                                  String note,
                                  String publishedBy) {
+        public PublishRequest(String version,
+                              Integer rolloutPercent,
+                              String note,
+                              String publishedBy) {
+            this(null, version, rolloutPercent, note, publishedBy);
+        }
+
         private static PublishRequest empty() {
-            return new PublishRequest(null, 100, null, "workflow-ai-coding");
+            return new PublishRequest(null, null, 100, null, "workflow-ai-coding");
         }
     }
 
@@ -677,37 +626,4 @@ public class RuntimeWorkflowAiCodingService {
                                             List<String> warnings) {
     }
 
-    private static final class PatchAccumulator {
-        private final LinkedHashSet<String> changedNodes = new LinkedHashSet<>();
-        private final LinkedHashSet<String> changedEdges = new LinkedHashSet<>();
-        private int operationCount;
-
-        private void changedNode(String nodeId) {
-            if (StringUtils.hasText(nodeId)) {
-                changedNodes.add(nodeId);
-            }
-        }
-
-        private void changedEdge(String edgeId) {
-            if (StringUtils.hasText(edgeId)) {
-                changedEdges.add(edgeId);
-            }
-        }
-
-        private void operationCount(int operationCount) {
-            this.operationCount = operationCount;
-        }
-
-        private LinkedHashSet<String> changedNodes() {
-            return changedNodes;
-        }
-
-        private LinkedHashSet<String> changedEdges() {
-            return changedEdges;
-        }
-
-        private String summary() {
-            return operationCount + " operations";
-        }
-    }
 }

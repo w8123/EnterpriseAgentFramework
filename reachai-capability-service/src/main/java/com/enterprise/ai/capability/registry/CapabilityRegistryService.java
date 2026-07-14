@@ -29,8 +29,6 @@ import com.enterprise.ai.agent.registry.RegistryContracts.InstanceHeartbeatReque
 import com.enterprise.ai.agent.registry.RegistryContracts.InstanceHeartbeatResponse;
 import com.enterprise.ai.agent.registry.RegistryContracts.ProjectRegisterRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.RegistryProjectResponse;
-import com.enterprise.ai.agent.registry.RegistryContracts.RuntimeGovernancePolicy;
-import com.enterprise.ai.agent.registry.RegistryContracts.RuntimeGovernancePolicyUpdateRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.SdkCapabilityDescriptionSettings;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -134,7 +132,7 @@ public class CapabilityRegistryService {
         } else {
             instanceMapper.updateById(entity);
         }
-        return new InstanceHeartbeatResponse(entity, governancePolicy(entity));
+        return new InstanceHeartbeatResponse(entity);
     }
 
     public List<ProjectInstanceEntity> listInstances(String projectCode) {
@@ -186,35 +184,6 @@ public class CapabilityRegistryService {
         String normalizedStatus = normalizeInstanceStatus(status);
         ProjectInstanceEntity entity = getInstance(project, instanceId);
         entity.setStatus(normalizedStatus);
-        entity.setUpdatedAt(LocalDateTime.now());
-        instanceMapper.updateById(entity);
-        return entity;
-    }
-
-    @Transactional
-    public ProjectInstanceEntity updateInstanceGovernancePolicy(String projectCode,
-                                                               RuntimeGovernancePolicyUpdateRequest request) {
-        ScanProjectEntity project = getProject(projectCode);
-        if (request == null || !StringUtils.hasText(request.instanceId())) {
-            throw new IllegalArgumentException("instanceId 不能为空");
-        }
-        ProjectInstanceEntity entity = getInstance(project, request.instanceId());
-        RuntimeGovernancePolicy current = governancePolicy(entity);
-        boolean disabled = request.disabled() == null ? current.disabled() : request.disabled();
-        RuntimeGovernancePolicy merged = new RuntimeGovernancePolicy(
-                disabled,
-                disabled ? "DISABLED" : defaultString(entity.getStatus(), "ONLINE"),
-                blankToNull(firstText(request.minSdkVersion(), current.minSdkVersion())),
-                request.allowEmbeddedExecution() == null ? current.allowEmbeddedExecution() : request.allowEmbeddedExecution(),
-                request.allowHybridExecution() == null ? current.allowHybridExecution() : request.allowHybridExecution(),
-                blankToNull(firstText(request.message(), current.message()))
-        );
-        entity.setGovernancePolicyJson(writeJson(merged));
-        if (disabled) {
-            entity.setStatus("DISABLED");
-        } else if ("DISABLED".equalsIgnoreCase(entity.getStatus())) {
-            entity.setStatus("ONLINE");
-        }
         entity.setUpdatedAt(LocalDateTime.now());
         instanceMapper.updateById(entity);
         return entity;
@@ -452,23 +421,6 @@ public class CapabilityRegistryService {
         recordReviewDecision(snapshot.getId(), item.getId(), item.getSyncId(), project, item.getQualifiedName(),
                 "IGNORE", "SUCCESS", operator, note);
         return toDiffItemDto(item);
-    }
-
-    RuntimeGovernancePolicy governancePolicy(ProjectInstanceEntity entity) {
-        RuntimeGovernancePolicy stored = parseGovernancePolicy(entity == null ? null : entity.getGovernancePolicyJson());
-        boolean disabled = entity != null && "DISABLED".equalsIgnoreCase(entity.getStatus());
-        String status = entity == null ? "UNKNOWN" : defaultString(entity.getStatus(), "UNKNOWN");
-        return new RuntimeGovernancePolicy(
-                disabled || (stored != null && stored.disabled()),
-                status,
-                stored == null ? null : stored.minSdkVersion(),
-                stored == null || stored.allowEmbeddedExecution() == null ? Boolean.TRUE : stored.allowEmbeddedExecution(),
-                stored == null || stored.allowHybridExecution() == null ? Boolean.TRUE : stored.allowHybridExecution(),
-                firstText(
-                        stored == null ? null : stored.message(),
-                        disabled ? "该业务系统 Runtime 已被中台禁用，SDK 应停止接受新的本地 Agent 执行。" : "ok"
-                )
-        );
     }
 
     private ScanProjectEntity getProject(String projectCode) {
@@ -813,17 +765,6 @@ public class CapabilityRegistryService {
         }
     }
 
-    private RuntimeGovernancePolicy parseGovernancePolicy(String json) {
-        if (!StringUtils.hasText(json)) {
-            return null;
-        }
-        try {
-            return objectMapper.readValue(json, RuntimeGovernancePolicy.class);
-        } catch (Exception ex) {
-            return null;
-        }
-    }
-
     private JsonNode readSettings(String json) {
         if (!StringUtils.hasText(json)) {
             return objectMapper.createObjectNode();
@@ -950,10 +891,6 @@ public class CapabilityRegistryService {
 
     private String defaultString(String value, String fallback) {
         return StringUtils.hasText(value) ? value.trim() : fallback;
-    }
-
-    private String blankToNull(String value) {
-        return StringUtils.hasText(value) ? value.trim() : null;
     }
 
     private String normalizeInstanceStatus(String status) {

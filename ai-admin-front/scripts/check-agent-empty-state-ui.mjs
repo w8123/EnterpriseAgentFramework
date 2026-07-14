@@ -7,24 +7,24 @@ const source = fs.readFileSync(agentListPath, 'utf8')
 
 const failures = []
 
-if (!source.includes('class="agent-empty-state"')) {
-  failures.push('Agent card empty state should use an explicit full-grid wrapper.')
+if (!source.includes('<DataTableShell')) {
+  failures.push('Agent empty state should be owned by the shared DataTableShell.')
 }
 
-if (!source.includes('<el-empty description="暂无符合条件的智能体" />')) {
-  failures.push('Agent empty-state copy should remain unchanged.')
+if (!source.includes('empty-description="暂无符合条件的智能体"')) {
+  failures.push('Agent DataTableShell should expose the canonical empty-state copy.')
 }
 
-if (!source.includes('grid-column: 1 / -1;')) {
-  failures.push('Agent empty-state wrapper should span all card-grid columns.')
+if (!source.includes('<template #empty>')) {
+  failures.push('Agent list should provide an explicit DataTableShell empty slot.')
 }
 
-if (!source.includes('place-items: center;')) {
-  failures.push('Agent empty-state wrapper should center the empty illustration and text.')
+if (!source.includes('<el-empty description="暂无符合条件的智能体">')) {
+  failures.push('Agent empty slot should render the canonical empty illustration and copy.')
 }
 
-if (!source.includes('min-height: 320px;')) {
-  failures.push('Agent empty-state wrapper should reserve enough vertical space for centered content.')
+if (!source.includes('@click="handleCreate">新建智能体</el-button>')) {
+  failures.push('Agent empty state should offer the primary create action.')
 }
 
 if (failures.length) {
@@ -32,4 +32,4 @@ if (failures.length) {
   process.exit(1)
 }
 
-console.log('Agent empty state is centered in card view.')
+console.log('Agent empty state is aligned with the shared DataTableShell.')

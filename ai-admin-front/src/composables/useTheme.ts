@@ -47,12 +47,25 @@ function applyBrand(value: BrandTheme) {
   localStorage.setItem('brandTheme', value)
 }
 
+function syncThemeFromDom() {
+  const domTheme = document.documentElement.getAttribute('data-theme')
+  if (domTheme === 'light' || domTheme === 'dark') {
+    theme.value = domTheme
+  }
+}
+
 // Apply on load
 applyTheme(theme.value)
 applyBrand(brand.value)
 
 watch(theme, (t) => applyTheme(t))
 watch(brand, (value) => applyBrand(value))
+
+const themeAttributeObserver = new MutationObserver(syncThemeFromDom)
+themeAttributeObserver.observe(document.documentElement, {
+  attributes: true,
+  attributeFilter: ['data-theme'],
+})
 
 export function useTheme() {
   function toggleTheme() {

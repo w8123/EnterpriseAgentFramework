@@ -1,5 +1,5 @@
 <template>
-  <nav class="app-sidebar" :class="{ 'is-collapsed': collapsed }">
+  <nav class="app-sidebar glass-surface-shell" :class="{ 'is-collapsed': collapsed }">
     <div class="brand">
       <span class="brand-glow" aria-hidden="true" />
       <img class="brand-logo" src="/reachai-logo-tile.png" alt="ReachAI" />
@@ -251,35 +251,22 @@ function toggleFooterPanel(panel: 'profile' | 'settings') {
 <style scoped lang="scss">
 /*
  * Glass Workbench v2 玻璃侧栏（对齐 Figma：浮动玻璃卡 + 分组标题 + 精致激活态）。
- * 中性色（标题/文字/图标/分隔）为与品牌无关的固定值；交互与激活态跟随
- * 全局 data-brand 的 --brand-* 变量以支持换肤；明暗差异通过 [data-theme] 重定义。
+ * 标题/文字/图标/分隔消费全局语义角色；交互与激活态跟随 data-brand，
+ * 根表面由 glass-surface-shell 统一提供并负责透明度降级。
  */
 .app-sidebar {
-  /* ── 玻璃卡表面 ── */
-  --sb-surface: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.74) 0%,
-    color-mix(in srgb, var(--brand-selected-bg) 62%, rgba(255, 255, 255, 0.72)) 48%,
-    color-mix(in srgb, var(--brand-selected-bg) 74%, rgba(255, 255, 255, 0.68)) 100%
-  );
-  --sb-border: rgba(255, 255, 255, 0.72);
-  --sb-shadow: 0 20px 48px rgb(var(--brand-primary-rgb) / 0.1), inset 0 1px 3px rgba(255, 255, 255, 0.62);
-  --sb-radius: 16px;
-
-  /* ── 中性色板 ── */
-  --sb-title: #14233d;
-  --sb-subtitle: #6f7f99;
-  --sb-caption: #7d8da6;
-  --sb-text: #33445f;
-  --sb-child: #6d7c94;
-  --sb-icon: #6e819a;
-  --sb-divider: rgba(180, 205, 235, 0.4);
-
-  /* ── 交互 / 激活态（跟随品牌色）── */
-  --sb-hover-bg: rgb(var(--brand-primary-rgb) / 0.06);
-  --sb-parent-active-bg: rgb(var(--brand-primary-rgb) / 0.07);
+  --sb-radius: var(--radius-lg);
+  --sb-title: var(--text-primary);
+  --sb-subtitle: var(--text-muted);
+  --sb-caption: var(--text-muted);
+  --sb-text: var(--text-secondary);
+  --sb-child: var(--text-muted);
+  --sb-icon: var(--text-muted);
+  --sb-divider: var(--border-divider);
+  --sb-hover-bg: rgb(var(--brand-primary-rgb) / 0.08);
+  --sb-parent-active-bg: rgb(var(--brand-primary-rgb) / 0.1);
   --sb-parent-active-text: var(--brand-active);
-  --sb-child-active-bg: rgb(var(--brand-primary-rgb) / 0.09);
+  --sb-child-active-bg: rgb(var(--brand-primary-rgb) / 0.12);
   --sb-child-active-text: var(--brand-active);
   --sb-active-icon: var(--brand-primary);
   --sb-rail: var(--brand-primary);
@@ -288,11 +275,7 @@ function toggleFooterPanel(panel: 'profile' | 'settings') {
   display: flex;
   flex-direction: column;
   position: relative;
-  background: var(--sb-surface);
-  border: 1px solid var(--sb-border);
   border-radius: var(--sb-radius);
-  box-shadow: var(--sb-shadow);
-  backdrop-filter: blur(12px);
   overflow: hidden;
 }
 
@@ -330,33 +313,6 @@ function toggleFooterPanel(panel: 'profile' | 'settings') {
 .sidebar-footer {
   position: relative;
   z-index: 1;
-}
-
-[data-theme='dark'] .app-sidebar {
-  --sb-surface: linear-gradient(180deg, rgba(22, 24, 34, 0.92), rgba(12, 13, 20, 0.94));
-  --sb-border: rgba(255, 255, 255, 0.08);
-  --sb-shadow: 0 20px 48px rgba(0, 0, 0, 0.45), inset 0 1px 3px rgba(255, 255, 255, 0.05);
-  --sb-title: #e8eefb;
-  --sb-subtitle: #8b98b2;
-  --sb-caption: #7c8aa3;
-  --sb-text: #c3cee0;
-  --sb-child: #9aa8c0;
-  --sb-icon: #8da2c0;
-  --sb-divider: rgba(148, 163, 184, 0.18);
-  --sb-hover-bg: rgb(var(--brand-primary-rgb) / 0.14);
-  --sb-parent-active-bg: rgb(var(--brand-primary-rgb) / 0.16);
-  --sb-parent-active-text: var(--brand-disabled);
-  --sb-child-active-bg: rgb(var(--brand-primary-rgb) / 0.2);
-  --sb-child-active-text: var(--brand-disabled);
-  --sb-active-icon: var(--brand-disabled);
-}
-
-[data-theme='dark'] .app-sidebar::before {
-  background: rgb(var(--brand-primary-rgb) / 0.14);
-}
-
-[data-theme='dark'] .app-sidebar::after {
-  background: rgba(45, 147, 117, 0.08);
 }
 
 /* ── 品牌区：logo + 光晕 + 主副标题，底部细分隔 ── */

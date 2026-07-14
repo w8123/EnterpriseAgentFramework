@@ -1,17 +1,29 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>MCP 暴露白名单</h2>
-      <div class="header-actions">
+  <WorkbenchPage class="mcp-visibility-board-page" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="governance"
+      eyebrow="MCP Governance"
+      title="MCP 暴露白名单"
+      description="控制哪些 Tool 与粗粒度能力可以通过 MCP 协议对外发现，并与 Tool ACL、Client 白名单共同形成治理边界。"
+    >
+      <template #actions>
+        <el-tooltip content="刷新暴露白名单" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新暴露白名单" @click="reload" />
+        </el-tooltip>
+      </template>
+    </PageHeader>
+
+    <WorkbenchPanel level="control" density="comfortable">
+      <div class="mcp-filter-row">
         <el-input v-model="filterText" placeholder="过滤名称" clearable style="width: 200px" :prefix-icon="Search" />
         <el-radio-group v-model="filterKind" size="default">
           <el-radio-button label="" />
           <el-radio-button label="TOOL" />
           <el-radio-button label="SKILL" />
         </el-radio-group>
-        <el-button :icon="Refresh" @click="reload" :loading="loading">刷新</el-button>
       </div>
-    </div>
+    </WorkbenchPanel>
 
     <el-alert
       type="warning"
@@ -19,10 +31,9 @@
       :closable="false"
       title="默认所有 Tool / 粗粒度能力不对外暴露；勾选后才允许通过 MCP 协议访问"
       description="对外暴露 = Cursor/Claude Desktop/Dify 等 MCP Client 可在 tools/list 看到该能力。即使勾选，仍需 ToolACL 决策通过、且在 Client 自己的 toolWhitelist 内。"
-      style="margin-bottom: 12px"
     />
 
-    <el-card shadow="never">
+    <el-card class="workbench-list-surface" shadow="never">
       <el-table :data="filteredRows" v-loading="loading" stripe size="default">
         <el-table-column prop="targetKind" label="类型" width="100">
           <template #default="{ row }">
@@ -74,13 +85,16 @@
         </el-form-item>
       </el-form>
     </div>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 import { listMcpVisibility, setMcpVisibility } from '@/api/mcp'
 import type { McpVisibility } from '@/types/mcp'
@@ -146,11 +160,11 @@ onMounted(reload)
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 16px; }
-.page-header {
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
-  h2 { margin: 0; font-size: 18px; }
+.mcp-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
 }
-.header-actions { display: flex; gap: 8px; align-items: center; }
 .hint-add h4 { margin: 8px 0; }
 </style>

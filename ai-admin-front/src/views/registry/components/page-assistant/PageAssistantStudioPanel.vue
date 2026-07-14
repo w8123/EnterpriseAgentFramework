@@ -1,20 +1,22 @@
 <script setup lang="ts">
-import { Connection, Finished } from '@element-plus/icons-vue'
-import type { PageAssistantWorkflowBindingResult } from '@/types/workflow'
+import { Connection, DataAnalysis, Finished, Setting } from '@element-plus/icons-vue'
+import type { PageAssistantWorkflowAttachmentResult } from '@/types/workflow'
 import type { WizardStepKey } from '@/views/registry/pageAssistantWizardViewModel'
 
 defineProps<{
-  bindingResult: PageAssistantWorkflowBindingResult | null
+  attachmentResult: PageAssistantWorkflowAttachmentResult | null
 }>()
 
 const emit = defineEmits<{
   enterWorkflowStudio: []
+  enterAgentWorkbench: []
+  openRunOps: []
   focusStep: [key: WizardStepKey]
 }>()
 </script>
 
 <template>
-  <div class="step-screen">
+  <div class="step-screen page-assistant-flow-panel">
     <div class="panel-head">
       <div>
         <span class="step-kicker">步骤 7</span>
@@ -22,41 +24,45 @@ const emit = defineEmits<{
       </div>
     </div>
 
-    <div v-if="bindingResult" class="studio-ready">
+    <div v-if="attachmentResult" class="studio-ready">
       <div class="studio-ready-hero">
         <div class="studio-ready-icon">
           <el-icon><Finished /></el-icon>
         </div>
         <div class="studio-ready-copy">
-          <span>挂载完成</span>
-          <strong>页面助手 Workflow 已绑定到页面副驾驶 Agent</strong>
-          <p>下一步进入 Workflow Studio，检查画布结构、参数映射和发布校验。</p>
+          <span>Supervisor 已发布</span>
+          <strong>页面助手 Workflow 已加入 Agent 工具目录</strong>
+          <p>Workflow 与 Agent 配置均已发布，可进入 Workflow Studio 查看运行语义和版本。</p>
         </div>
         <div class="studio-ready-state">
-          <em>Bound</em>
+          <em>Active</em>
         </div>
       </div>
 
       <div class="studio-ready-metrics">
         <div>
           <span>agentId</span>
-          <strong>{{ bindingResult.agentId }}</strong>
+          <strong>{{ attachmentResult.agentId }}</strong>
         </div>
         <div>
           <span>agentKeySlug</span>
-          <strong>{{ bindingResult.agentKeySlug }}</strong>
+          <strong>{{ attachmentResult.agentKeySlug }}</strong>
         </div>
         <div>
           <span>workflowId</span>
-          <strong>{{ bindingResult.workflowId }}</strong>
+          <strong>{{ attachmentResult.workflowId }}</strong>
         </div>
         <div>
           <span>workflowKeySlug</span>
-          <strong>{{ bindingResult.workflowKeySlug }}</strong>
+          <strong>{{ attachmentResult.workflowKeySlug }}</strong>
         </div>
         <div>
-          <span>bindingId</span>
-          <strong>{{ bindingResult.bindingId }}</strong>
+          <span>toolName</span>
+          <strong>{{ attachmentResult.toolName }}</strong>
+        </div>
+        <div>
+          <span>Agent 配置版本</span>
+          <strong>v{{ attachmentResult.configVersionNo }} · {{ attachmentResult.configStatus }}</strong>
         </div>
       </div>
 
@@ -65,12 +71,20 @@ const emit = defineEmits<{
           <el-icon><Connection /></el-icon>
           进入 Workflow Studio
         </button>
+        <button type="button" @click="emit('enterAgentWorkbench')">
+          <el-icon><Setting /></el-icon>
+          打开 Agent 工作台
+        </button>
+        <button type="button" @click="emit('openRunOps')">
+          <el-icon><DataAnalysis /></el-icon>
+          查看 RunOps
+        </button>
       </div>
     </div>
     <div v-else class="studio-ready-empty">
-      <strong>还没有完成挂载</strong>
-      <span>请先在“挂载智能体”步骤完成 Agent binding。</span>
-      <button type="button" @click="emit('focusStep', 'bind')">去挂载智能体</button>
+      <strong>还没有发布 Supervisor 工具目录</strong>
+      <span>请先在“启用页面副驾驶”步骤加入 Workflow 工具并发布 Agent 配置。</span>
+      <button type="button" @click="emit('focusStep', 'attach')">去启用页面副驾驶</button>
     </div>
   </div>
 </template>

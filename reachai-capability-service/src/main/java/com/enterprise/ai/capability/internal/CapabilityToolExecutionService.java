@@ -4,21 +4,40 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
-import lombok.RequiredArgsConstructor;
+import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
+import com.enterprise.ai.agent.registry.RegistrySecurityService;
+import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationClaims;
+import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationToken;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
-@RequiredArgsConstructor
 public class CapabilityToolExecutionService {
 
     private final ToolDefinitionMapper toolDefinitionMapper;
     private final CapabilityHttpToolInvoker invoker;
+    private final RegistrySecurityService registrySecurityService;
+
+    @Autowired
+    public CapabilityToolExecutionService(ToolDefinitionMapper toolDefinitionMapper,
+                                          CapabilityHttpToolInvoker invoker,
+                                          RegistrySecurityService registrySecurityService) {
+        this.toolDefinitionMapper = toolDefinitionMapper;
+        this.invoker = invoker;
+        this.registrySecurityService = registrySecurityService;
+    }
+
+    CapabilityToolExecutionService(ToolDefinitionMapper toolDefinitionMapper,
+                                   CapabilityHttpToolInvoker invoker) {
+        this(toolDefinitionMapper, invoker, null);
+    }
 
     public Map<String, Object> execute(String qualifiedName, Map<String, Object> request) {
         ToolDefinitionEntity tool = findTool(qualifiedName);
@@ -39,11 +58,7 @@ public class CapabilityToolExecutionService {
                 method,
                 url,
                 "GET".equals(method) ? Map.of() : input,
-                Map.of(
-                        "qualifiedName", tool.getQualifiedName(),
-                        "toolName", tool.getName(),
-                        "requestBodyType", nullToEmpty(tool.getRequestBodyType()),
-                        "responseType", nullToEmpty(tool.getResponseType())));
+                invocationMetadata(tool, request));
         Map<String, Object> invoked = invoker.invoke(invocation);
 
         Map<String, Object> response = new LinkedHashMap<>();
@@ -119,6 +134,48 @@ public class CapabilityToolExecutionService {
         return url.toString();
     }
 
+    private Map<String, Object> invocationMetadata(ToolDefinitionEntity tool,
+                                                   Map<String, Object> request) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("qualifiedName", tool.getQualifiedName());
+        metadata.put("toolName", tool.getName());
+        metadata.put("requestBodyType", nullToEmpty(tool.getRequestBodyType()));
+        metadata.put("responseType", nullToEmpty(tool.getResponseType()));
+        if (registrySecurityService == null || !StringUtils.hasText(tool.getProjectCode())) {
+            return metadata;
+        }
+        RegistryCredentialEntity credential = registrySecurityService
+                .findPrimaryActiveCredential(tool.getProjectCode())
+                .orElse(null);
+        if (credential == null || !StringUtils.hasText(credential.getAppSecret())) {
+            return metadata;
+        }
+        Map<String, Object> context = mapValue(request == null ? null : request.get("context"));
+        context = context == null ? Map.of() : context;
+        ReachAiInvocationClaims claims = ReachAiInvocationClaims.builder()
+                .projectCode(tool.getProjectCode())
+                .appKey(credential.getAppKey())
+                .capabilityName(tool.getName())
+                .tenantId(text(context.get("tenantId")))
+                .externalUserId(text(context.get("externalUserId")))
+                .globalUserId(text(context.get("globalUserId")))
+                .userName(text(context.get("userName")))
+                .deptId(text(context.get("deptId")))
+                .deptName(text(context.get("deptName")))
+                .roles(stringList(context.get("roles")))
+                .agentId(text(context.get("agentDefinitionId")))
+                .sessionId(text(context.get("sessionId")))
+                .traceId(text(context.get("supervisorTraceId")))
+                .pageInstanceId(text(context.get("pageInstanceId")))
+                .origin(text(context.get("origin")))
+                .route(text(context.get("route")))
+                .build();
+        String token = ReachAiInvocationToken.sign(credential.getAppSecret(), claims,
+                System.currentTimeMillis(), 60);
+        metadata.put("headers", Map.of(ReachAiInvocationToken.HEADER_NAME, token));
+        return metadata;
+    }
+
     private String buildUrl(ScanProjectToolEntity tool) {
         StringBuilder url = new StringBuilder();
         appendUrlPart(url, tool.getBaseUrl());
@@ -183,5 +240,20 @@ public class CapabilityToolExecutionService {
 
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private String text(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private List<String> stringList(Object value) {
+        if (!(value instanceof Iterable<?> iterable)) {
+            return List.of();
+        }
+        java.util.ArrayList<String> result = new java.util.ArrayList<>();
+        for (Object item : iterable) {
+            if (item != null) result.add(String.valueOf(item));
+        }
+        return result;
     }
 }

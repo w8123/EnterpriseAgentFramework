@@ -1,5 +1,6 @@
 package com.enterprise.ai.runtime.compat;
 
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
@@ -11,8 +12,10 @@ import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftGenerationSe
 import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftGenerationView;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowSearchPage;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowStudioService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -27,6 +30,8 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,6 +42,9 @@ class RuntimeWorkflowCompatibilityControllerTest {
     void keepsPublicWorkflowCrudRoutesOnRuntimeService() throws Exception {
         Method list = RuntimeWorkflowCompatibilityController.class
                 .getDeclaredMethod("list", Long.class, String.class, String.class, String.class);
+        Method search = RuntimeWorkflowCompatibilityController.class
+                .getDeclaredMethod("search", Long.class, String.class, String.class, String.class,
+                        String.class, int.class, int.class);
         Method create = RuntimeWorkflowCompatibilityController.class
                 .getDeclaredMethod("create", RuntimeWorkflowDefinitionEntity.class);
         Method get = RuntimeWorkflowCompatibilityController.class.getDeclaredMethod("get", String.class);
@@ -59,6 +67,7 @@ class RuntimeWorkflowCompatibilityControllerTest {
                 .getDeclaredMethod("editWorkflowStudioDraft", RuntimeWorkflowDraftEditRequest.class);
 
         assertArrayEquals(new String[] {"/api/workflows"}, list.getAnnotation(GetMapping.class).value());
+        assertArrayEquals(new String[] {"/api/workflows/search"}, search.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows"}, create.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/{id}"}, get.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/{id}"}, update.getAnnotation(PutMapping.class).value());
@@ -92,6 +101,22 @@ class RuntimeWorkflowCompatibilityControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(expected, response.getBody());
         verify(service).list(7L, "orders", "CHAT", "DRAFT");
+    }
+
+    @Test
+    void delegatesPaginatedSearchToRuntimeWorkflowService() {
+        RuntimeWorkflowDefinitionService service = mock(RuntimeWorkflowDefinitionService.class);
+        RuntimeWorkflowCompatibilityController controller = controller(service);
+        RuntimeWorkflowSearchPage expected = new RuntimeWorkflowSearchPage(
+                List.of(workflow("wf-1")), 12L, 2, 10);
+        when(service.search(7L, "orders", "CHAT", "ACTIVE", "team", 2, 10)).thenReturn(expected);
+
+        ResponseEntity<RuntimeWorkflowSearchPage> response = controller.search(
+                7L, "orders", "CHAT", "ACTIVE", "team", 2, 10);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertSame(expected, response.getBody());
+        verify(service).search(7L, "orders", "CHAT", "ACTIVE", "team", 2, 10);
     }
 
     @Test
@@ -175,6 +200,7 @@ class RuntimeWorkflowCompatibilityControllerTest {
         when(workflowService.findById("wf-1")).thenReturn(Optional.of(workflow));
         RuntimeWorkflowReleaseValidationResult result = RuntimeWorkflowReleaseValidationResult.builder()
                 .error("GRAPH_ENTRY_MISSING", null, "GraphSpec entry is required")
+                .warn("GRAPH_NODE_NAME_EMPTY", "answer", "Node name is recommended")
                 .build();
         when(validationService.validate(workflow)).thenReturn(result);
 
@@ -184,6 +210,81 @@ class RuntimeWorkflowCompatibilityControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(false, response.getBody().valid());
         assertEquals("GRAPH_ENTRY_MISSING", response.getBody().errors().get(0).code());
+        assertEquals("GRAPH_NODE_NAME_EMPTY", response.getBody().warnings().get(0).code());
+    }
+
+    @Test
+    void proposedRuntimeValidationUsesExplicitDraftDefaultModelWithoutMutatingPersistedWorkflow() {
+        RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
+        RuntimeWorkflowReleaseValidationService validationService = mock(RuntimeWorkflowReleaseValidationService.class);
+        RuntimeWorkflowCompatibilityController controller = new RuntimeWorkflowCompatibilityController(
+                workflowService,
+                validationService,
+                mock(RuntimeWorkflowStudioService.class),
+                mock(RuntimeWorkflowDebugService.class),
+                mock(RuntimeWorkflowDraftGenerationService.class),
+                mock(RuntimeWorkflowDraftEditService.class));
+        RuntimeWorkflowDefinitionEntity persisted = workflow("wf-1");
+        persisted.setDefaultModelInstanceId("db-model");
+        GraphSpec proposedGraph = new GraphSpec();
+        String graphSpecJson = "{\"nodes\":[]}";
+        when(workflowService.findById("wf-1")).thenReturn(Optional.of(persisted));
+        when(validationService.readGraph(
+                org.mockito.Mockito.eq(graphSpecJson),
+                org.mockito.Mockito.any(RuntimeWorkflowReleaseValidationResult.Builder.class)))
+                .thenReturn(proposedGraph);
+        when(validationService.validateProposed(
+                org.mockito.Mockito.any(RuntimeWorkflowDefinitionEntity.class),
+                org.mockito.Mockito.same(proposedGraph)))
+                .thenReturn(RuntimeWorkflowReleaseValidationResult.builder().build());
+
+        controller.validateRuntime(new RuntimeWorkflowRuntimeValidationRequest(
+                "wf-1", graphSpecJson, null, ""));
+
+        ArgumentCaptor<RuntimeWorkflowDefinitionEntity> workflowCaptor =
+                ArgumentCaptor.forClass(RuntimeWorkflowDefinitionEntity.class);
+        verify(validationService).validateProposed(workflowCaptor.capture(), org.mockito.Mockito.same(proposedGraph));
+        RuntimeWorkflowDefinitionEntity proposedWorkflow = workflowCaptor.getValue();
+        assertNotSame(persisted, proposedWorkflow);
+        assertEquals("", proposedWorkflow.getDefaultModelInstanceId());
+        assertEquals("db-model", persisted.getDefaultModelInstanceId());
+        verify(workflowService, org.mockito.Mockito.never()).update(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(RuntimeWorkflowDefinitionEntity.class));
+        verify(workflowService, org.mockito.Mockito.never()).update(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(RuntimeWorkflowDefinitionEntity.class),
+                org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void proposedRuntimeValidationKeepsPersistedDefaultModelWhenOverrideIsAbsent() {
+        RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
+        RuntimeWorkflowReleaseValidationService validationService = mock(RuntimeWorkflowReleaseValidationService.class);
+        RuntimeWorkflowCompatibilityController controller = new RuntimeWorkflowCompatibilityController(
+                workflowService,
+                validationService,
+                mock(RuntimeWorkflowStudioService.class),
+                mock(RuntimeWorkflowDebugService.class),
+                mock(RuntimeWorkflowDraftGenerationService.class),
+                mock(RuntimeWorkflowDraftEditService.class));
+        RuntimeWorkflowDefinitionEntity persisted = workflow("wf-1");
+        persisted.setDefaultModelInstanceId("db-model");
+        GraphSpec proposedGraph = new GraphSpec();
+        String graphSpecJson = "{\"nodes\":[]}";
+        when(workflowService.findById("wf-1")).thenReturn(Optional.of(persisted));
+        when(validationService.readGraph(
+                org.mockito.Mockito.eq(graphSpecJson),
+                org.mockito.Mockito.any(RuntimeWorkflowReleaseValidationResult.Builder.class)))
+                .thenReturn(proposedGraph);
+        when(validationService.validateProposed(persisted, proposedGraph))
+                .thenReturn(RuntimeWorkflowReleaseValidationResult.builder().build());
+
+        controller.validateRuntime(new RuntimeWorkflowRuntimeValidationRequest(
+                "wf-1", graphSpecJson, null, null));
+
+        verify(validationService).validateProposed(persisted, proposedGraph);
+        assertSame(persisted, workflowService.findById("wf-1").orElseThrow());
     }
 
     @Test
@@ -200,7 +301,9 @@ class RuntimeWorkflowCompatibilityControllerTest {
         RuntimeWorkflowStudioService.WorkflowStudioState state = new RuntimeWorkflowStudioService.WorkflowStudioState(
                 "wf-1", 7L, "demo", "orders", "Orders", "desc", "{}", "{}",
                 "CHAT", "LANGGRAPH4J", "llm-1", null, "DRAFT", "MANUAL", null);
-        RuntimeWorkflowDefinitionEntity updated = workflow("wf-1");
+        RuntimeWorkflowStudioService.WorkflowStudioState updated = new RuntimeWorkflowStudioService.WorkflowStudioState(
+                "wf-1", 7L, "demo", "orders", "Updated Orders", "desc", "{}", "{}",
+                "CHAT", "LANGGRAPH4J", "llm-1", null, "DRAFT", "MANUAL", null);
         RuntimeWorkflowStudioSaveRequest request = new RuntimeWorkflowStudioSaveRequest("{}", "{}", null);
         when(studioService.getStudioState("wf-1")).thenReturn(state);
         when(studioService.saveStudioDraft(org.mockito.Mockito.eq("wf-1"), org.mockito.Mockito.any()))

@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 public record RuntimeWorkflowDraftGenerationRequest(
+        String workflowId,
         String agentId,
         String agentName,
         String requirement,
@@ -15,6 +16,21 @@ public record RuntimeWorkflowDraftGenerationRequest(
         List<RuntimeWorkflowDraftResourceView> capabilities,
         List<RuntimeWorkflowDraftResourceView> knowledgeBases,
         List<RuntimeWorkflowDraftResourceView> pageActions) {
+
+    public RuntimeWorkflowDraftGenerationRequest(String agentId,
+                                                 String agentName,
+                                                 String requirement,
+                                                 String projectCode,
+                                                 String modelInstanceId,
+                                                 String draftScenario,
+                                                 Map<String, Object> currentCanvas,
+                                                 List<RuntimeWorkflowDraftResourceView> tools,
+                                                 List<RuntimeWorkflowDraftResourceView> capabilities,
+                                                 List<RuntimeWorkflowDraftResourceView> knowledgeBases,
+                                                 List<RuntimeWorkflowDraftResourceView> pageActions) {
+        this(null, agentId, agentName, requirement, projectCode, modelInstanceId, draftScenario, currentCanvas,
+                tools, capabilities, knowledgeBases, pageActions);
+    }
 
     public String getAgentId() {
         return agentId;

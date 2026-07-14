@@ -41,7 +41,7 @@ defineProps<{
 
 const emit = defineEmits<{
   openWorkflowAiCodingPrompt: []
-  focusBindStep: []
+  focusAttachStep: []
   openAiCodingStudio: []
   resetAiCodingDraft: []
   useAiCodingDraft: []
@@ -53,7 +53,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="step-screen">
+  <div class="step-screen page-assistant-flow-panel">
     <div class="panel-head">
       <div>
         <span class="step-kicker">步骤 4</span>
@@ -83,7 +83,7 @@ const emit = defineEmits<{
       <div v-if="isAiCodingWorkflowSelected" class="draft-source-banner ai-coding">
         <strong>已选用 AI Coding Workflow</strong>
         <span>workflowId：{{ createdWorkflowId }}</span>
-        <el-button size="small" type="primary" @click="emit('focusBindStep')">去挂载智能体</el-button>
+        <el-button size="small" type="primary" @click="emit('focusAttachStep')">去启用页面副驾驶</el-button>
       </div>
 
       <div v-else-if="workflowAiCodingDraftStep" class="workflow-ai-coding-result-card">
@@ -197,7 +197,7 @@ const emit = defineEmits<{
         <section class="draft-config-card api-resource-card">
           <div class="draft-section-head">
             <h3>项目接口（可选）</h3>
-            <small>可绑定 API 管理中的接口作为工具资源提供给模型</small>
+            <small>可将 API 管理中的接口作为工具资源提供给模型</small>
           </div>
           <div class="project-apis">
             <el-table

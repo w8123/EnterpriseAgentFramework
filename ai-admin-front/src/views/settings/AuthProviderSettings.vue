@@ -1,17 +1,21 @@
 <template>
-  <div class="auth-provider-page">
-    <div class="page-header">
-      <div>
-        <h2>认证源配置</h2>
-        <p>管理平台登录的本地、网关请求头、OIDC、SAML 等认证源。敏感字段只允许写入，不回显明文。</p>
-      </div>
-      <div class="header-actions">
+  <WorkbenchPage class="auth-provider-page" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="platform"
+      eyebrow="Identity Provider"
+      title="认证源配置"
+      description="管理平台登录的本地、网关请求头、OIDC、SAML 等认证源。"
+    >
+      <template #actions>
+        <el-tooltip content="刷新认证源" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新认证源" @click="reload" />
+        </el-tooltip>
         <el-button type="primary" :icon="Plus" @click="openCreate">新增认证源</el-button>
-        <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <el-table :data="providers" v-loading="loading" stripe>
+    <el-table class="workbench-list-surface" :data="providers" v-loading="loading" stripe>
       <el-table-column prop="providerCode" label="编码" width="130">
         <template #default="{ row }">
           <code>{{ row.providerCode }}</code>
@@ -45,7 +49,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogOpen" title="认证源配置" width="680px">
+    <AppDialog v-model="dialogOpen" title="认证源配置" width="680px">
       <el-alert
         type="warning"
         :closable="false"
@@ -94,14 +98,17 @@
         <el-button @click="dialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import CommonStatusTag from '@/components/CommonStatusTag.vue'
 import {
   AUTH_PROVIDER_TYPE_SELECT_OPTIONS,
@@ -184,34 +191,6 @@ onMounted(reload)
 </script>
 
 <style scoped lang="scss">
-.auth-provider-page {
-  padding: 16px 20px;
-}
-
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-
-  h2 {
-    margin: 0 0 4px;
-    font-size: 20px;
-  }
-
-  p {
-    margin: 0;
-    color: #667085;
-    font-size: 13px;
-  }
-}
-
-.header-actions {
-  display: flex;
-  gap: 8px;
-}
-
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: #344054;

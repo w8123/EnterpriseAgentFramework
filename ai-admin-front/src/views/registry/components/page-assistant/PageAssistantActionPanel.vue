@@ -17,7 +17,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="step-screen">
+  <div class="step-screen page-assistant-flow-panel">
     <div class="panel-head">
       <div>
         <span class="step-kicker">步骤 3</span>

@@ -39,7 +39,6 @@ body,
 
 // ── 页面容器 ──
 .page-container {
-  padding: 24px;
   min-height: calc(100vh - 60px);
   animation: fadeIn 0.3s ease;
 }
@@ -48,7 +47,6 @@ body,
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
 
   h2 {
     font-size: 22px;
@@ -72,7 +70,6 @@ body,
 
 // ── 卡片统一样式 ──
 .section-card {
-  margin-bottom: 20px;
   background: var(--bg-card);
   border: 1px solid var(--border-glass);
   backdrop-filter: blur(12px);
@@ -96,7 +93,6 @@ body,
 .filter-bar {
   display: flex;
   gap: 12px;
-  margin-bottom: 20px;
   flex-wrap: wrap;
   align-items: center;
 }
@@ -554,7 +550,6 @@ pre {
   z-index: 1;
   width: 100%;
   min-height: calc(100vh - 56px);
-  padding: var(--reachai-workbench-page-padding, var(--reachai-workbench-title-gap, 10px) 28px 16px) !important;
   background: transparent;
 }
 
@@ -565,8 +560,6 @@ pre {
 
 .main-content > .page-container > :is(.page-header, .agent-header, .workbench-header, .compat-header, .model-hero) {
   min-height: var(--reachai-workbench-title-height, 120px);
-  padding: var(--reachai-workbench-title-padding, 26px 28px);
-  margin: 0 0 16px;
   border: 1px solid var(--border-glass);
   border-radius: var(--reachai-workbench-title-radius, 16px);
   background:
@@ -626,20 +619,10 @@ pre {
   }
 }
 
-.main-content > :not(.page-container):has(> :is(.page-header, .page-head, .page-hero, .project-hero, .runtime-hero, .asset-directory-bar, .agent-header, .workbench-header, .compat-header, .model-hero)) {
-  padding: var(--reachai-workbench-page-padding, var(--reachai-workbench-title-gap, 10px) 28px 16px) !important;
-}
-
 .main-content > :not(.page-container) > :is(.page-header, .page-head, .page-hero, .runtime-hero, .asset-directory-bar, .agent-header, .workbench-header, .compat-header, .model-hero) {
   box-sizing: border-box;
   min-height: var(--reachai-workbench-title-height, 120px);
-  padding: var(--reachai-workbench-title-padding, 26px 28px);
-  margin: 0 0 16px;
   border-radius: var(--reachai-workbench-title-radius, 16px);
-}
-
-.main-content > * > :is(.page-header, .page-head, .page-hero, .project-hero, .runtime-hero, .asset-directory-bar, .agent-header, .workbench-header, .compat-header, .model-hero) {
-  margin-top: 0;
 }
 
 .main-content > .page-container > .el-card,
@@ -665,13 +648,6 @@ pre {
   .el-card__body {
     padding: 18px 20px;
   }
-}
-
-.main-content > .page-container .el-card + .el-card,
-.main-content > .page-container .section-card + .section-card,
-.main-content > .page-container .card-grid + .el-card,
-.main-content > .page-container .el-card + .card-grid {
-  margin-top: 18px;
 }
 
 .main-content > .page-container .filter-bar,
@@ -816,11 +792,6 @@ pre {
   }
 }
 
-.main-content > .page-container .el-dialog,
-.el-dialog {
-  border-radius: 8px;
-}
-
 .el-overlay.el-modal-dialog {
   position: fixed;
   inset: 0;
@@ -841,10 +812,6 @@ body.el-popup-parent--hidden {
     opacity: 0.72;
     pointer-events: none;
     transition: filter 0.18s ease, opacity 0.18s ease;
-  }
-
-  .sidebar-aside .app-sidebar {
-    backdrop-filter: blur(18px) saturate(0.92);
   }
 }
 
@@ -1095,14 +1062,9 @@ body.el-popup-parent--hidden {
 }
 
 @media (max-width: 900px) {
-  .main-content > .page-container {
-    padding: 18px 16px 24px !important;
-  }
-
   .main-content > .page-container > .page-header {
     align-items: flex-start;
     flex-direction: column;
-    padding: 16px 18px;
 
     .header-actions {
       width: 100%;

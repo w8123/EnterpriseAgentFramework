@@ -1,0 +1,76 @@
+:root {
+  --layout-breadcrumb-height: 44px;
+  --layout-content-inline: 28px;
+  --layout-page-start: 10px;
+  --layout-page-end: 16px;
+  --layout-list-page-end: var(--layout-sidebar-inset-block);
+  --layout-page-gap: 10px;
+  --layout-page-header-padding-block: 26px;
+  --layout-page-header-padding-inline: 28px;
+  --layout-page-header-compact-padding-block: 12px;
+  --layout-page-header-compact-padding-inline: 22px;
+  --layout-page-header-height-compact: 96px;
+  --layout-page-header-height-standard: 120px;
+  --layout-page-header-height-emphasis: 144px;
+  --layout-page-header-leading-size: 52px;
+  --layout-page-header-action-gap: 8px;
+  --layout-page-header-tag-gap: 8px;
+  --layout-page-header-art-opacity: 0.92;
+  --layout-sidebar-expanded-width: 256px;
+  --layout-sidebar-collapsed-width: 84px;
+  --layout-sidebar-inset-block: 14px;
+  --layout-sidebar-inset-start: 14px;
+  --layout-sidebar-inset-end: 10px;
+}
+
+.project-workbench-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: var(--layout-page-start) var(--layout-content-inline) var(--layout-page-end);
+  gap: var(--layout-page-gap);
+}
+
+.workbench-page--list {
+  min-height: 100%;
+  padding-bottom: var(--layout-list-page-end);
+}
+
+.workbench-page--list > .workbench-list-surface {
+  flex: 1 0 auto;
+  min-height: 0;
+}
+
+.workbench-list-surface.el-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.workbench-list-surface.el-card > .el-card__body {
+  flex: 1 0 auto;
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  :root {
+    --layout-content-inline: 16px;
+    --layout-page-start: 10px;
+    --layout-page-end: 16px;
+    --layout-page-gap: 10px;
+    --layout-page-header-padding-block: 18px;
+    --layout-page-header-padding-inline: 18px;
+  }
+}
+
+@media (max-width: 760px) {
+  :root {
+    --layout-content-inline: 12px;
+    --layout-page-start: 8px;
+    --layout-page-end: 12px;
+    --layout-page-gap: 8px;
+    --layout-page-header-padding-block: 16px;
+    --layout-page-header-padding-inline: 16px;
+  }
+}

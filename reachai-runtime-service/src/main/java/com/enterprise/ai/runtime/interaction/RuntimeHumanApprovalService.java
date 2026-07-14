@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.interaction;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.enterprise.ai.runtime.supervisor.SupervisorApprovalInteractionService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -27,10 +28,12 @@ public class RuntimeHumanApprovalService {
     private final RuntimeSkillInteractionMapper mapper;
     private final ObjectMapper objectMapper;
 
-    public List<PendingHumanApprovalView> listPendingHumanApprovals(Long agentId, String userId, int limit) {
+    public List<PendingHumanApprovalView> listPendingHumanApprovals(String agentId, String userId, int limit) {
         QueryWrapper<RuntimeSkillInteractionEntity> query = new QueryWrapper<RuntimeSkillInteractionEntity>()
                 .eq("status", PENDING)
-                .likeRight("skill_name", SKILL_PREFIX)
+                .and(nested -> nested.likeRight("skill_name", SKILL_PREFIX)
+                        .or()
+                        .likeRight("skill_name", SupervisorApprovalInteractionService.SKILL_PREFIX))
                 .orderByDesc("created_at")
                 .last("LIMIT " + effectiveLimit(limit));
         if (agentId != null) {
@@ -175,9 +178,12 @@ public class RuntimeHumanApprovalService {
     }
 
     private static String nodeId(String skillName) {
-        return skillName != null && skillName.startsWith(SKILL_PREFIX)
-                ? skillName.substring(SKILL_PREFIX.length())
-                : "";
+        if (skillName == null) return "";
+        if (skillName.startsWith(SKILL_PREFIX)) return skillName.substring(SKILL_PREFIX.length());
+        if (skillName.startsWith(SupervisorApprovalInteractionService.SKILL_PREFIX)) {
+            return skillName.substring(SupervisorApprovalInteractionService.SKILL_PREFIX.length());
+        }
+        return "";
     }
 
     private static String text(Object value) {
@@ -206,7 +212,7 @@ public class RuntimeHumanApprovalService {
                                            String traceId,
                                            String sessionId,
                                            String userId,
-                                           Long agentId,
+                                           String agentId,
                                            String nodeId,
                                            String status,
                                            LocalDateTime createdAt,

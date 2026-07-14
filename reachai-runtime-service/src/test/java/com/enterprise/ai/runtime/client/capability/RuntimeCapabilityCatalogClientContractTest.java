@@ -48,10 +48,5 @@ class RuntimeCapabilityCatalogClientContractTest {
                 projectByIdMapping.value());
         assertEquals(Map.class, getProjectById.getReturnType());
 
-        Method listRuntimeInstances = RuntimeCapabilityCatalogClient.class.getMethod("listRuntimeInstances");
-        GetMapping runtimeInstancesMapping = listRuntimeInstances.getAnnotation(GetMapping.class);
-        assertArrayEquals(new String[] {"/internal/capability/runtime-instances"},
-                runtimeInstancesMapping.value());
-        assertEquals(List.class, listRuntimeInstances.getReturnType());
     }
 }

@@ -17,7 +17,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台。它不是单纯的 Work
 3. Starter 在启动时同步项目、实例、能力快照和 SDK 图。
 4. 平台形成字段级 diff、评审 apply/ignore，并沉淀正式能力资产。
 5. Workflow Studio 基于能力资产编排 Workflow `GraphSpec`（V2 表：`runtime_workflow`）。
-6. Agent 入口（V2 表：`runtime_agent`）通过 binding 绑定 Workflow；Workflow 发布形成版本快照，Runtime 通过 `AgentEntry` + binding + `AgentRuntimeAdapter` 执行。
+6. Agent（V2 表：`runtime_agent`）发布版本化 Supervisor 配置和 Workflow-as-Tool 白名单；Runtime 通过 AgentScope 理解、规划和选择一个或多个已发布 Workflow，并对失败做有限重规划。
 7. RunOps、Trace、ACL、Guard、Gateway、MCP、A2A 和嵌入式对话负责生产治理与开放。
 
 ## 当前模块地图
@@ -71,10 +71,17 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台。它不是单纯的 Work
 
 Agent 与 Workflow 已解耦：
 
-- Agent（`runtime_agent` / `AgentEntry`）：身份、入口策略、权限与 binding。
+- Agent（`runtime_agent`）：稳定身份、接入形态、项目范围和启用状态；项目中不存在第二套入口实体模型。
+- Agent 配置版本（`runtime_agent_config_version`）：Supervisor runtime、模型、提示词、限制、超时和策略快照。
 - Workflow（`runtime_workflow`）：`GraphSpec`、`canvas_json`、版本与发布。
 - Workflow Studio：可视化画布、交互式节点、会话式调试台、AI 生成/局部修改、SDK 图展示、发布校验、Runtime 执行与 Trace/RunOps 复盘。
-- Binding（`runtime_agent_workflow_binding`）：Runtime 通过 binding 解析 Agent -> Workflow -> 活跃版本。
+- Workflow-as-Tool（`runtime_agent_workflow_tool`）：某个 Agent 配置版本允许 Supervisor 选择的 Workflow 工具白名单和契约覆盖。
+
+当前 Agent 主执行链路是：`Agent` -> ACTIVE Agent 配置版本 -> AgentScope Java `2.0.0` 正式版 Supervisor -> PLAN / Workflow-as-Tool / 有限 REPLAN -> 汇总回答。执行 API 统一使用 `agentId`。事实查询优先 API/数据 Workflow；只有用户明确要求打开、跳转、在页面查询或操作时才允许页面动作。跨路由页面动作必须在同一 embed session 内完成 `NAVIGATE -> TARGET_READY -> PAGE_ACTION`。
+
+Supervisor 策略链已实现分级执行：READ 自动执行，PAGE_ACTION 校验原始用户问题的显式页面意图，WRITE 生成绑定 interaction/permissionKey/toolName/args 的一次性确认，不可逆操作默认拒绝；project、tenant、roles、permissionKey 与 ACTIVE allowlist 在同一 Guard/Trace 决策点校验。Agent Eval 直接执行已发布 Agent 配置并持久化真实结果，管理端路由为 `/agent/:id/evals`。
+
+当前接入入口已对齐该主线：“项目接入工作台” provisioning 只创建/复用项目页面副驾驶 Agent 并发布 ACTIVE Supervisor 配置，不创建占位 Workflow；“创建页面助手”创建并发布实际 PAGE_ASSISTANT Workflow，再通过 `attach-tool` 加入 Supervisor 工具目录并发布新版 Agent 配置。
 
 `GraphSpec` 是平台可执行语义的核心中间表示，归属 Workflow 而非 Agent。新增节点、边、变量映射、条件路由或 Runtime 行为时，优先维护 Workflow `GraphSpec` 语义，不能只扩展画布 JSON。
 

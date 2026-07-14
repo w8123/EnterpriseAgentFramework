@@ -23,6 +23,7 @@ class ReachAiRuntimeServiceApplicationContractTest {
         MapperScan mapperScan = ReachAiRuntimeServiceApplication.class.getAnnotation(MapperScan.class);
 
         assertArrayEquals(new String[] {
+                "com.enterprise.ai.runtime.agent",
                 "com.enterprise.ai.runtime.credential",
                 "com.enterprise.ai.runtime.debug",
                 "com.enterprise.ai.runtime.execution",

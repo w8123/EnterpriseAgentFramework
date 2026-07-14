@@ -1,0 +1,75 @@
+.glass-surface-shell,
+.glass-surface-panel,
+.glass-surface-overlay {
+  border: 1px solid var(--border-subtle);
+  -webkit-backdrop-filter: blur(var(--glass-blur-panel)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-panel)) saturate(var(--glass-saturation));
+}
+
+.glass-surface-shell {
+  background: var(--surface-glass-shell);
+  box-shadow: var(--shadow-shell);
+  -webkit-backdrop-filter: blur(var(--glass-blur-shell)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-shell)) saturate(var(--glass-saturation));
+}
+
+.glass-surface-panel {
+  background: var(--surface-glass-panel);
+  box-shadow: var(--shadow-panel);
+}
+
+.glass-surface-control {
+  border: 1px solid var(--border-readable);
+  background: var(--surface-glass-control);
+  box-shadow: var(--inner-highlight);
+}
+
+.glass-surface-overlay {
+  background: var(--surface-glass-overlay);
+  box-shadow: var(--shadow-overlay);
+  -webkit-backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .glass-surface-shell { background: var(--surface-fallback-shell); }
+  .glass-surface-panel { background: var(--surface-fallback-panel); }
+  .glass-surface-control { background: var(--surface-fallback-control); }
+  .glass-surface-overlay { background: var(--surface-fallback-overlay); }
+}
+
+[data-reduce-transparency='true'] {
+  .glass-surface-shell,
+  .glass-surface-panel,
+  .glass-surface-control,
+  .glass-surface-overlay {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass-surface-shell { background: var(--surface-fallback-shell); }
+  .glass-surface-panel { background: var(--surface-fallback-panel); }
+  .glass-surface-control { background: var(--surface-fallback-control); }
+  .glass-surface-overlay { background: var(--surface-fallback-overlay); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass-surface-shell,
+  .glass-surface-panel,
+  .glass-surface-control,
+  .glass-surface-overlay {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass-surface-shell { background: var(--surface-fallback-shell); }
+  .glass-surface-panel { background: var(--surface-fallback-panel); }
+  .glass-surface-control { background: var(--surface-fallback-control); }
+  .glass-surface-overlay { background: var(--surface-fallback-overlay); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-fast: 0.01ms;
+    --motion-duration-normal: 0.01ms;
+    --motion-duration-slow: 0.01ms;
+  }
+}

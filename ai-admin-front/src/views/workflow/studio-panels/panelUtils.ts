@@ -1,8 +1,13 @@
 import type { CanvasNodeData, StudioFieldSchema } from '@/types/studio'
 
-export function formatMap(mapping?: Record<string, string>) {
+export function formatMap(mapping?: Record<string, unknown>) {
   if (!mapping || Object.keys(mapping).length === 0) return ''
-  return Object.entries(mapping).map(([key, value]) => `${key} = ${value}`).join('\n')
+  return Object.entries(mapping).map(([key, value]) => `${key} = ${formatMapValue(value)}`).join('\n')
+}
+
+function formatMapValue(value: unknown) {
+  if (value && typeof value === 'object') return JSON.stringify(value)
+  return String(value ?? '')
 }
 
 export function parseMap(text: string): Record<string, string> {

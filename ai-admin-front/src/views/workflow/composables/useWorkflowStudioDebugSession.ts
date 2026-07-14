@@ -77,7 +77,6 @@ export function useWorkflowStudioDebugSession({
   }
 
   return {
-    rememberDebugSession,
     forgetDebugSession,
     applyDebugSession,
     clearDebugSessionView,

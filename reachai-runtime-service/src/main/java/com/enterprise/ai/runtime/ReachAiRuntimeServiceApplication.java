@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
 @MapperScan(value = {
+        "com.enterprise.ai.runtime.agent",
         "com.enterprise.ai.runtime.credential",
         "com.enterprise.ai.runtime.debug",
         "com.enterprise.ai.runtime.execution",

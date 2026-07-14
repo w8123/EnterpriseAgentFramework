@@ -62,6 +62,8 @@ Add `reachai.registry`, `reachai.project`, and `reachai.capability` configuratio
 
 The starter registers the project and instance and sends heartbeat data during SDK onboarding. Do not add a capability startup-sync setting. SDK interface scan/sync is triggered later from ReachAI **API Management（API 管理）** by choosing the project, adding interfaces, and manually starting SDK sync. 中文产品口径是：接口扫描由 API 管理手动触发。
 
+`reachai.project.base-url` is the business-system address as seen from the ReachAI server. It is not merely a browser URL or a local developer convenience. Do not keep `localhost`, `127.0.0.1`, or `::1` when ReachAI and the business service run on different machines, containers, or network namespaces.
+
 ## API Management Manual SDK Sync Boundary
 
 ReachAI should sync business APIs, not every controller visible in the Spring application context. This boundary is preparation for the later API Management manual SDK sync, not an SDK onboarding completion task.
@@ -73,6 +75,14 @@ Before writing optional `reachai.capability` scan boundary configuration:
 - Configure `reachai.capability.exclude-packages` for framework, platform, starter, generated, and third-party packages.
 - If the business package cannot be determined confidently, stop and ask the user to choose from the candidate packages.
 - Do not add a capability startup-sync setting or call the capability sync endpoint during SDK onboarding.
+
+Prepare the inbound callback even though the onboarding workflow does not invoke it:
+- ReachAI later sends `POST {baseUrl}{contextPath}/reachai/registry/capabilities/sync` from the platform server to the online business-system instance.
+- If `baseUrl` points to a gateway or ingress, route `/reachai/registry/**` to the service that contains `reachai-spring-boot2-starter`.
+- Preserve `X-ReachAI-App-Key`, `X-ReachAI-Timestamp`, `X-ReachAI-Nonce`, and `X-ReachAI-Signature` through every proxy layer.
+- Exclude this POST path from normal business-login/JWT authentication and CSRF. Apply the repository's actual Spring Security, Sa-Token, Shiro, or custom-interceptor pattern rather than pasting an unrelated framework example.
+- Do not make the callback unauthenticated. `ReachCapabilitySyncEndpoint` verifies the registry signature using the configured project `appKey/appSecret`; missing or invalid signature headers must still return 401.
+- CORS does not apply to this server-to-server callback. Prefer network restrictions that allow only ReachAI or the trusted internal network to reach it.
 
 Recommended examples:
 
@@ -133,11 +143,11 @@ The SDK access check may return both detailed `checks` and summarized `readiness
 SDK onboarding is not complete if the business gateway is untouched and the business front end has no safe token path.
 
 Before changing gateway or front-end code, read the manifest's `embed` section:
-- Call `agentProvisioning.provisionAgentUrl` from the AI coding tool, local shell, or server-side integration step when present. It creates or reuses the project `PAGE_COPILOT` Agent and default Workflow binding.
+- Call `agentProvisioning.provisionAgentUrl` from the AI coding tool, local shell, or server-side integration step when present. It creates or reuses the project page copilot Agent and publishes an ACTIVE AgentScope Supervisor config. It does not create a placeholder Workflow.
 - Use the response `agent.keySlug` as the front-end `agentId`. Store only that key slug in business front-end configuration after provisioning succeeds.
-- If the response includes `defaultWorkflow.id`, use Workflow AI Coding to draw or adjust the default Workflow, save a valid draft, then call `POST /api/workflows/{workflowId}/ai-coding/publish` once with `X-ReachAI-AiCoding-Key` to create the initial ACTIVE version before declaring embed chat ready.
+- Create only business-meaningful Workflows. Use Workflow AI Coding to save a valid draft, call `POST /api/workflows/{workflowId}/ai-coding/publish` with `X-ReachAI-AiCoding-Key`, then add the published Workflow through `agentSupervisor.endpoints.workflowToolAttachUrlTemplate` so a new ACTIVE Agent config contains it.
 - Do not call `agentProvisioning.provisionAgentUrl` from browser runtime code, and never put `aiCodingKey` in browser configuration or bundles.
-- If provisioning is unavailable, prefer `agentProvisioning.defaultKeySlug`, then `agentWorkflow.globalAgentKeySlug`, then `embed.defaultAgentKeySlug`.
+- If provisioning is unavailable, prefer `agentProvisioning.defaultKeySlug`, then `agentSupervisor.globalAgentKeySlug`, then `embed.defaultAgentKeySlug`.
 - Use `embed.defaultAgentId` only when no key slug is available.
 - Treat `embed.allowedAgents` as the platform-approved list. Do not invent a new `agentId` in the business repo.
 - Do not ask the business user to manually create, choose, or configure the page copilot Agent during SDK onboarding.
@@ -150,9 +160,16 @@ Inspect the repository for the real gateway boundary:
 
 Add the smallest route changes required for the current architecture:
 - ReachAI invocation traffic must reach the business service endpoint that exposes SDK capabilities.
+- ReachAI manual SDK sync traffic must reach `POST /reachai/registry/capabilities/sync` on the Starter service. When the registered `base-url` is a gateway, add `/reachai/registry/**` to the route instead of routing only `/reachai/capabilities/**`.
 - Preserve `X-ReachAI-Invocation-Token`, `X-ReachAI-Trace-Id`, `X-ReachAI-Run-Id`, and the business authentication headers required by the service.
+- Preserve the registry callback headers `X-ReachAI-App-Key`, `X-ReachAI-Timestamp`, `X-ReachAI-Nonce`, and `X-ReachAI-Signature`.
 - Do not trust ordinary context headers such as `X-ReachAI-*` as the only authorization signal for business APIs.
 - If no gateway module exists in the current repository, report this as a required external change instead of inventing a browser-side workaround.
+
+For the callback security boundary:
+- Bypass ordinary business login/JWT authentication and CSRF only for `POST /reachai/registry/capabilities/sync` so the request can reach the Starter controller.
+- Keep the Starter's registry-signature verification enabled. A security whitelist here means "delegate authentication to the Starter signature verifier", not "open the endpoint anonymously".
+- If the route is exposed through an edge gateway, also restrict its source network to ReachAI or the trusted service network when possible.
 
 Add the gateway authentication whitelist required by embed chat:
 - Keep the token broker path, for example `/api/reachai/embed-token`, behind the business login token because it maps the current user to `principal.externalUserId`.
@@ -273,7 +290,7 @@ createEafChat({
 
 `apiBase` can be the ReachAI platform origin. If the browser must use a gateway prefix, configure `embedPathPrefix`, for example `/api/reachai/embed`; current `@reachai/embed-chat` also treats `/api/embed` and `/api/reachai/embed` as full Embed API roots to avoid appending `/api/embed` twice. Keep token broker paths such as `/api/reachai/embed-token` separate from the Chat embed API root.
 
-Do not create one chat button per Workflow. Keep one global embedded AI button and let ReachAI resolve the page/action/intent Workflow from `pageKey` and `ai_agent_workflow_binding`.
+Do not create one chat button per Workflow. Keep one global embedded AI button. AgentScope Supervisor uses the user's question and current page context to select zero, one, or multiple published Workflows from its Workflow-as-Tool allow-list.
 
 When caching embed tokens in the front end:
 - Compute the cache expiry from `expiresIn` and expire slightly early.

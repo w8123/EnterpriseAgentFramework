@@ -27,7 +27,8 @@ class RuntimeInteractionResumeServiceTest {
             request -> new RuntimeModelServiceClient.ModelChatResult(0, "ok",
                     new RuntimeModelServiceClient.ModelChatData("model answer", "model-1", "openai", null, null, null,
                             "stop")),
-            capabilityClient);
+            capabilityClient,
+            mock(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.class));
     private final RuntimeInteractionResumeService service = new RuntimeInteractionResumeService(
             sessionMapper,
             eventMapper,
@@ -136,9 +137,5 @@ class RuntimeInteractionResumeServiceTest {
             return Map.of();
         }
 
-        @Override
-        public List<Map<String, Object>> listRuntimeInstances() {
-            return List.of();
-        }
     }
 }

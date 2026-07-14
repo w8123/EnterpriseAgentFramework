@@ -14,6 +14,7 @@ const props = defineProps<{
   project: ScanProject | null
   syncLoading: boolean
   syncResult: SdkCapabilityScanResult | null
+  syncError: string | null
   rescanLoading: boolean
   scanSettingsForm: ScanSettings
   isOpenApiMode: boolean
@@ -49,6 +50,36 @@ const resultMetrics = computed(() => [
   { label: '接口数', value: props.syncResult?.capabilityCount ?? 0 },
   { label: '实例', value: props.syncResult?.instanceId || '-' },
 ])
+
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, '')
+}
+
+function normalizeContextPath(value: string | null | undefined) {
+  const text = value?.trim()
+  if (!text || text === '/') return ''
+  return `/${text.replace(/^\/+|\/+$/g, '')}`
+}
+
+const sdkSyncTarget = computed(() => {
+  if (props.syncResult?.targetUrl) return props.syncResult.targetUrl
+  const baseUrl = props.project?.baseUrl?.trim()
+  if (!baseUrl) return '/reachai/registry/capabilities/sync'
+  return `${trimTrailingSlash(baseUrl)}${normalizeContextPath(props.project?.contextPath)}/reachai/registry/capabilities/sync`
+})
+
+const loopbackTarget = computed(() => {
+  try {
+    const host = new URL(sdkSyncTarget.value).hostname.toLowerCase()
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+  } catch {
+    return false
+  }
+})
+
+const sdkSyncContractDescription = computed(() =>
+  `ReachAI 服务端将 POST ${sdkSyncTarget.value}。请确保该地址从 ReachAI 所在网络可达，并让业务登录/JWT与 CSRF 放行该路径；Starter 仍会校验 X-ReachAI-* 注册签名。`,
+)
 </script>
 
 <template>
@@ -279,6 +310,35 @@ const resultMetrics = computed(() => [
               SDK 接入指引
             </el-button>
           </div>
+
+          <el-alert
+            class="sdk-sync-contract-alert"
+            type="info"
+            :closable="false"
+            show-icon
+            title="ReachAI 将主动调用业务系统"
+            :description="sdkSyncContractDescription"
+          />
+
+          <el-alert
+            v-if="loopbackTarget"
+            class="sdk-sync-loopback-alert"
+            type="warning"
+            :closable="false"
+            show-icon
+            title="当前回调地址使用 localhost"
+            description="只有 ReachAI 与业务系统运行在同一主机或共享网络命名空间时才可达；分机、容器或集群部署请改为 ReachAI 实际可访问的域名或 IP。"
+          />
+
+          <el-alert
+            v-if="syncError"
+            class="sdk-sync-error-alert"
+            type="error"
+            :closable="false"
+            show-icon
+            title="最近一次同步失败"
+            :description="syncError"
+          />
 
           <div v-if="syncResult" class="sdk-import-result">
             <div class="result-title">

@@ -1,7 +1,7 @@
 import { computed, nextTick, ref, type ComputedRef, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { PageActionRegistryView, PageRegistryView } from '@/api/embedOps'
-import type { PageAssistantWorkflowBindingResult, WorkflowDraftGenerationResult } from '@/types/workflow'
+import type { PageAssistantWorkflowAttachmentResult, WorkflowDraftGenerationResult } from '@/types/workflow'
 import {
   WIZARD_STEP_KEYS,
   buildWizardStats,
@@ -27,7 +27,7 @@ export interface UsePageAssistantWizardStepsDeps {
   draftPreview: Ref<WorkflowDraftGenerationResult | null>
   draftSource: Ref<DraftSource>
   createdWorkflowId: Ref<string>
-  bindingResult: Ref<PageAssistantWorkflowBindingResult | null>
+  attachmentResult: Ref<PageAssistantWorkflowAttachmentResult | null>
   pageCopilotAgent: Ref<unknown | null>
   resetWizardProgressFromDraft: () => void
 }
@@ -61,7 +61,7 @@ export function usePageAssistantWizardSteps(deps: UsePageAssistantWizardStepsDep
       isDraftStepComplete: isDraftStepComplete.value,
       isAiCodingWorkflowSelected: isAiCodingWorkflowSelected.value,
       createdWorkflowId: deps.createdWorkflowId.value,
-      bindingResultPresent: Boolean(deps.bindingResult.value),
+      attachmentResultPresent: Boolean(deps.attachmentResult.value),
     }),
   )
 
@@ -89,7 +89,7 @@ export function usePageAssistantWizardSteps(deps: UsePageAssistantWizardStepsDep
       isDraftStepComplete: isDraftStepComplete.value,
       isAiCodingWorkflowSelected: isAiCodingWorkflowSelected.value,
       createdWorkflowId: deps.createdWorkflowId.value,
-      bindingResultPresent: Boolean(deps.bindingResult.value),
+      attachmentResultPresent: Boolean(deps.attachmentResult.value),
       draftPreview: deps.draftPreview.value,
     }),
   )
@@ -101,14 +101,14 @@ export function usePageAssistantWizardSteps(deps: UsePageAssistantWizardStepsDep
       draftSource: deps.draftSource.value,
       createdWorkflowId: deps.createdWorkflowId.value,
       draftPreview: deps.draftPreview.value,
-      bindingResultPresent: Boolean(deps.bindingResult.value),
+      attachmentResultPresent: Boolean(deps.attachmentResult.value),
     })
   }
 
   function firstBlockingStep(targetKey: WizardStepKey) {
     const targetIndex = WIZARD_STEP_KEYS.indexOf(targetKey)
     if (targetIndex <= displayedStepIndex.value) return null
-    const requiredKeys: WizardStepKey[] = ['page', 'action', 'draft', 'confirm', 'bind']
+    const requiredKeys: WizardStepKey[] = ['page', 'action', 'draft', 'confirm', 'attach']
     return requiredKeys.find((key) => WIZARD_STEP_KEYS.indexOf(key) < targetIndex && !requiredStepComplete(key)) || null
   }
 
@@ -158,7 +158,7 @@ export function usePageAssistantWizardSteps(deps: UsePageAssistantWizardStepsDep
       focusStepCard(blocker, { attention: true })
       return false
     }
-    if (['page', 'action', 'draft'].includes(key) && deps.createdWorkflowId.value && !deps.bindingResult.value) {
+    if (['page', 'action', 'draft'].includes(key) && deps.createdWorkflowId.value && !deps.attachmentResult.value) {
       const wasAiCoding = deps.draftSource.value === 'AI_CODING_RETURNED'
       deps.createdWorkflowId.value = ''
       deps.draftSource.value = 'NONE'
@@ -167,7 +167,7 @@ export function usePageAssistantWizardSteps(deps: UsePageAssistantWizardStepsDep
       ElMessage.warning(
         wasAiCoding
           ? '已选择的 AI Coding Workflow 状态已清空，请重新选择或生成'
-          : '已创建但未挂载的 Workflow 状态已清空，请重新确认创建',
+          : '已创建但未加入 Supervisor 工具目录的 Workflow 状态已清空，请重新确认创建',
       )
     }
     focusStepCard(key)

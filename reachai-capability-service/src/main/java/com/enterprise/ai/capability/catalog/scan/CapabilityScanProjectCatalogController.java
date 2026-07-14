@@ -192,6 +192,9 @@ public class CapabilityScanProjectCatalogController {
                 return ResponseEntity.notFound().build();
             }
             return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
+        } catch (CapabilitySdkSyncTriggerService.SdkSyncRequestException ex) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(new SdkSyncErrorResponse(ex.code(), ex.getMessage(), ex.targetUrl()));
         } catch (IllegalStateException ex) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiErrorResponse(ex.getMessage()));
         }
@@ -635,6 +638,9 @@ public class CapabilityScanProjectCatalogController {
     }
 
     record ApiErrorResponse(String message) {
+    }
+
+    record SdkSyncErrorResponse(String code, String message, String targetUrl) {
     }
 
     record SensitiveScanStartResponse(String taskId) {

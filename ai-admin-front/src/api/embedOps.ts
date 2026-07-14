@@ -150,9 +150,6 @@ export interface PageActionReferenceView {
   workflowVersionId?: number
   workflowVersion?: string
   graphSource?: string
-  bindingId?: number
-  bindingType?: string
-  bindingEnabled?: boolean
   nodeId: string
   nodeName?: string
   projectCode: string

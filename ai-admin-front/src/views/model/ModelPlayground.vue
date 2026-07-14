@@ -1,8 +1,11 @@
 <template>
   <div class="page-container playground">
-    <div class="page-header">
-      <h2>模型调试台</h2>
-    </div>
+    <PageHeader
+      variant="standard"
+      domain="platform"
+      title="模型调试台"
+      compact
+    />
 
     <div class="playground-body">
       <!-- 左侧：配置 -->
@@ -115,6 +118,7 @@ import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import type { ModelChatMessage, ModelChatResponse, TokenUsage, ModelInstance } from '@/types/model'
 import { getModelInstances, modelChat } from '@/api/model'
 import { useSSE } from '@/composables/useSSE'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const llmInstances = ref<ModelInstance[]>([])
 /** 调试台仅允许选择状态为「可用」的实例，停用/异常不可选 */
@@ -264,10 +268,24 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
+.playground {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--layout-page-gap);
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: var(--layout-page-start) var(--layout-content-inline) var(--layout-page-end);
+}
+
 .playground-body {
   display: flex;
+  flex: 1;
+  min-height: 0;
   gap: 16px;
-  height: calc(100vh - 56px - 80px);
+  height: auto;
 }
 
 .config-panel {

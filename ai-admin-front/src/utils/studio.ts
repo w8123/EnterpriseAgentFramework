@@ -76,6 +76,7 @@ function canvasToGraphSpec(base: AgentForm, snapshot: CanvasSnapshot): AgentGrap
       condition: edge.condition || edge.label || 'always',
       sourceHandle: edge.sourceHandle,
       targetHandle: edge.targetHandle,
+      priority: edge.priority,
       layout: {
         label: edge.label || edge.condition || 'always',
         style: edge.type || 'smoothstep',
@@ -92,18 +93,22 @@ function canvasToGraphSpec(base: AgentForm, snapshot: CanvasSnapshot): AgentGrap
   }
 
   const entry = graphEdges.find((edge) => edge.from === 'START' && edge.to !== 'END')?.to || firstNode
-  const finish = graphNodes
-    .filter((node) => graphEdges.some((edge) => edge.from === node.id && edge.to === 'END'))
-    .map((node) => node.id)
+  const finish = Array.from(new Set(
+    graphEdges
+      .filter((edge) => edge.to === 'END' && edge.from !== 'START')
+      .map((edge) => edge.from),
+  ))
 
   return {
-    code: base.keySlug || base.name || 'agent_graph',
-    name: base.name || 'Agent Graph',
+    ...base.graphSpec,
+    code: base.keySlug || base.graphSpec?.code || base.name || 'agent_graph',
+    name: base.name || base.graphSpec?.name || 'Agent Graph',
     mode: 'WORKFLOW',
     runtimeHint: base.runtimeType,
     layout: {
+      ...base.graphSpec?.layout,
       engine: 'vue-flow',
-      direction: 'LR',
+      direction: base.graphSpec?.layout?.direction || 'LR',
     },
     nodes: graphNodes,
     edges: graphEdges,
@@ -330,6 +335,7 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): AgentGraphNod
         modelInstanceId: classifier.modelInstanceId || '',
         confidenceThreshold: classifier.confidenceThreshold ?? 0.7,
         llmPrompt: classifier.llmPrompt || '',
+        modelParams: normalizeParams(classifier.modelParams),
         classifierConfig: classifier,
       },
     }
@@ -446,6 +452,10 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): AgentGraphNod
         ...common,
         extractMode: parameter.mode || 'expression',
         modelInstanceId: parameter.modelInstanceId,
+        inputExpression: parameter.inputExpression,
+        systemPrompt: parameter.systemPrompt,
+        userPrompt: parameter.userPrompt,
+        modelParams: normalizeParams(parameter.modelParams),
         fields: parameter.fields || [],
         parameterConfig: parameter,
       },
@@ -600,7 +610,7 @@ function graphSpecToCanvas(graphSpec: AgentGraphSpec, def: WorkflowCanvasSource)
   return {
     version: 2,
     nodes,
-    edges: (graphSpec.edges || []).map((edge, idx) => {
+    edges: graphEdgesWithSemanticBoundaries(graphSpec).map((edge, idx) => {
       const condition = edge.condition || 'always'
       return decorateSerializableEdge({
         id: edge.id || `graph-e-${idx}`,
@@ -610,6 +620,7 @@ function graphSpecToCanvas(graphSpec: AgentGraphSpec, def: WorkflowCanvasSource)
         label: condition,
         sourceHandle: edge.sourceHandle,
         targetHandle: edge.targetHandle,
+        priority: edge.priority,
       })
     }),
   }
@@ -700,15 +711,17 @@ function graphConfigToNodeData(
     }
   }
   if (kind === 'llm') {
+    const systemPrompt = firstNonEmptyText(config.systemPrompt, config.prompt, def.systemPrompt)
+    const userPrompt = firstNonEmptyText(config.userPrompt, '{{ input }}')
     return {
       ...common,
       llmConfig: {
         modelInstanceId: stringValue(config.modelInstanceId) || def.modelInstanceId,
-        systemPrompt: stringValue(config.systemPrompt) || def.systemPrompt || '',
-        userPrompt: stringValue(config.userPrompt) || '{{ input }}',
-        messages: llmMessagesValue(config.messages, stringValue(config.systemPrompt) || def.systemPrompt || '', stringValue(config.userPrompt) || '{{ input }}'),
+        systemPrompt,
+        userPrompt,
+        messages: llmMessagesValue(config.messages, systemPrompt, userPrompt),
         contextVariables: arrayValue(config.contextVariables),
-        modelParams: recordValue(config.modelParams),
+        modelParams: firstRecordValue(config.modelParams, config.options),
         outputFormat: stringValue(config.outputFormat) === 'json' ? 'json' : 'text',
         structuredOutput: config.structuredOutput === true || stringValue(config.outputFormat) === 'json',
         strictJsonSchema: config.strictJsonSchema !== false,
@@ -720,45 +733,81 @@ function graphConfigToNodeData(
     }
   }
   if (kind === 'tool' || kind === 'skill') {
+    const nested = objectRecordValue(config.toolConfig || config.capabilityConfig)
+    const configuredRef = firstNonEmptyText(
+      configuredReferenceValue(config.ref),
+      config.toolName,
+      config.qualifiedName,
+      configuredReferenceValue(nested.ref),
+      nested.toolName,
+      nested.qualifiedName,
+    )
+    const resolvedQualifiedName = firstNonEmptyText(
+      ref?.qualifiedName,
+      ref?.name,
+      config.qualifiedName,
+      configuredReferenceValue(config.ref),
+      config.toolName,
+      nested.qualifiedName,
+      configuredReferenceValue(nested.ref),
+      nested.toolName,
+    )
     return {
       ...common,
       toolConfig: {
-        ref: ref?.name || ref?.qualifiedName || '',
-        qualifiedName: ref?.qualifiedName || null,
+        ref: firstNonEmptyText(ref?.name, ref?.qualifiedName, configuredRef),
+        qualifiedName: resolvedQualifiedName || null,
         projectCode: ref?.projectCode || null,
         credentialRef: stringValue(config.credentialRef),
         maxRequestTimeMs: numberValue(config.maxRequestTimeMs, 180000),
-        inputMapping: stringRecord(config.inputMapping),
+        inputMapping: firstRecordValue(config.inputMapping, config.args),
         mappingNote: stringValue(config.mappingNote),
       } satisfies ToolNodeConfig,
     }
   }
   if (kind === 'condition') {
+    const nested = objectRecordValue(config.conditionConfig)
+    const merged = { ...nested, ...config }
+    delete merged.conditionConfig
+    const rawGroups = merged.conditionGroups ?? merged.groups
     return {
       ...common,
       conditionConfig: {
-        groups: Array.isArray(config.conditionGroups) ? config.conditionGroups as ConditionNodeConfig['groups'] : [],
-        defaultRoute: stringValue(config.defaultRoute) || 'else',
+        groups: Array.isArray(rawGroups) ? rawGroups as ConditionNodeConfig['groups'] : [],
+        defaultRoute: stringValue(merged.defaultRoute) || 'else',
       } satisfies ConditionNodeConfig,
     }
   }
   if (kind === 'parameter') {
+    const nested = objectRecordValue(config.parameterConfig)
+    const mode = firstNonEmptyText(config.extractMode, config.mode, nested.extractMode, nested.mode)
     return {
       ...common,
       parameterConfig: {
-        mode: stringValue(config.extractMode) === 'llm' ? 'llm' : 'expression',
-        modelInstanceId: stringValue(config.modelInstanceId),
-        fields: schemaValue(config.fields),
+        mode: mode.toLowerCase() === 'llm' ? 'llm' : 'expression',
+        modelInstanceId: firstNonEmptyText(config.modelInstanceId, nested.modelInstanceId),
+        inputExpression: firstNonEmptyText(config.inputExpression, nested.inputExpression),
+        systemPrompt: firstNonEmptyText(config.systemPrompt, nested.systemPrompt),
+        userPrompt: firstNonEmptyText(config.userPrompt, nested.userPrompt),
+        modelParams: firstRecordValue(
+          config.modelParams,
+          config.options,
+          nested.modelParams,
+          nested.options,
+        ),
+        fields: schemaValue(config.fields || nested.fields),
       } satisfies ParameterNodeConfig,
     }
   }
   if (kind === 'answer') {
+    const template = firstNonEmptyText(config.template, config.answer, config.content, config.message)
+      || '{{ lastOutput }}'
     return {
       ...common,
       answerConfig: {
-        template: stringValue(config.template) || '{{ lastOutput }}',
+        template,
       },
-      template: stringValue(config.template),
+      template,
       writeToAnswer: true,
     }
   }
@@ -774,14 +823,22 @@ function graphConfigToNodeData(
   }
   if (kind === 'classifier') {
     const nested = objectRecordValue(config.classifierConfig)
+    const merged = { ...nested, ...config }
+    delete merged.classifierConfig
     const classifierConfig = {
-      inputExpression: stringValue(nested.inputExpression || config.inputExpression) || 'input',
-      strategy: classifierStrategyValue(nested.strategy ?? config.strategy),
-      classes: classifierClassesValue(nested.classes || config.classes),
-      defaultRoute: stringValue(nested.defaultRoute || config.defaultRoute) || 'else',
-      modelInstanceId: stringValue(nested.modelInstanceId || config.modelInstanceId),
-      confidenceThreshold: numberValue(nested.confidenceThreshold ?? config.confidenceThreshold, 0.7),
-      llmPrompt: stringValue(nested.llmPrompt || config.llmPrompt),
+      inputExpression: stringValue(merged.inputExpression) || 'input',
+      strategy: classifierStrategyValue(merged.strategy),
+      classes: classifierClassesValue(merged.classes),
+      defaultRoute: stringValue(merged.defaultRoute) || 'else',
+      modelInstanceId: stringValue(merged.modelInstanceId),
+      confidenceThreshold: numberValue(merged.confidenceThreshold, 0.7),
+      llmPrompt: stringValue(merged.llmPrompt),
+      modelParams: firstRecordValue(
+        config.modelParams,
+        config.options,
+        nested.modelParams,
+        nested.options,
+      ),
     } satisfies IntentClassifierNodeConfig
     return {
       ...common,
@@ -1014,6 +1071,10 @@ function defaultHttpConfig(): HttpNodeConfig {
 function defaultParameterConfig(): ParameterNodeConfig {
   return {
     mode: 'expression',
+    inputExpression: 'input',
+    systemPrompt: '',
+    userPrompt: '',
+    modelParams: {},
     fields: [{ name: 'value', type: 'string', required: false, source: 'lastOutput' }],
   }
 }
@@ -1100,6 +1161,7 @@ function defaultClassifierConfig(): IntentClassifierNodeConfig {
     modelInstanceId: '',
     confidenceThreshold: 0.7,
     llmPrompt: '',
+    modelParams: {},
   }
 }
 
@@ -1395,6 +1457,49 @@ function graphNodePosition(node: AgentGraphNode) {
   return { x, y }
 }
 
+function graphEdgesWithSemanticBoundaries(graphSpec: AgentGraphSpec): AgentGraphSpec['edges'] {
+  let edges = [...(graphSpec.edges || [])]
+  const nodeIds = new Set((graphSpec.nodes || []).map((node) => node.id))
+  const entry = graphSpec.entry?.trim()
+  if (entry && nodeIds.has(entry)) {
+    const matching = edges.find((edge) => isGraphStart(edge.from) && edge.to === entry)
+    edges = edges.filter((edge) => !isGraphStart(edge.from))
+    edges.unshift(matching || {
+      id: `graph-entry-${entry}`,
+      from: 'START',
+      to: entry,
+      condition: 'always',
+    })
+  }
+
+  const finish = Array.from(new Set(
+    (graphSpec.finish || [])
+      .map((nodeId) => nodeId?.trim())
+      .filter((nodeId): nodeId is string => !!nodeId && nodeIds.has(nodeId)),
+  ))
+  if (finish.length) {
+    const existing = edges.filter((edge) => isGraphEnd(edge.to))
+    edges = edges.filter((edge) => !isGraphEnd(edge.to))
+    for (const nodeId of finish) {
+      edges.push(existing.find((edge) => edge.from === nodeId) || {
+        id: `graph-finish-${nodeId}`,
+        from: nodeId,
+        to: 'END',
+        condition: 'always',
+      })
+    }
+  }
+  return edges
+}
+
+function isGraphStart(endpoint: string) {
+  return endpoint.toUpperCase() === 'START'
+}
+
+function isGraphEnd(endpoint: string) {
+  return endpoint.toUpperCase() === 'END'
+}
+
 function portValue(value: unknown): StudioPort[] | null {
   if (!Array.isArray(value)) return null
   return value
@@ -1605,14 +1710,37 @@ function arrayValue(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : []
 }
 
-function recordValue(value: unknown): Record<string, string | number | boolean> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  return value as Record<string, string | number | boolean>
-}
-
 function objectRecordValue(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   return value as Record<string, unknown>
+}
+
+function firstRecordValue(...values: unknown[]): Record<string, unknown> {
+  for (const value of values) {
+    if (value !== null && value !== undefined) return objectRecordValue(value)
+  }
+  return {}
+}
+
+function firstNonEmptyText(...values: unknown[]) {
+  for (const value of values) {
+    const text = stringValue(value).trim()
+    if (text) return text
+  }
+  return ''
+}
+
+function configuredReferenceValue(value: unknown): string {
+  const reference = objectRecordValue(value)
+  if (Object.keys(reference).length) {
+    return firstNonEmptyText(
+      reference.qualifiedName,
+      reference.name,
+      configuredReferenceValue(reference.ref),
+      reference.toolName,
+    )
+  }
+  return stringValue(value).trim()
 }
 
 function stringRecord(value: unknown): Record<string, string> {
@@ -1785,7 +1913,7 @@ function knowledgeWriteModeValue(value: unknown): KnowledgeWriteNodeConfig['mode
   return stringValue(value) === 'publish' ? 'publish' : 'draft'
 }
 
-function normalizeParams(value?: Record<string, string | number | boolean>) {
+function normalizeParams(value?: Record<string, unknown>) {
   return value || {}
 }
 

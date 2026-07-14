@@ -256,21 +256,12 @@ export interface PageAssistantCatalogSyncRequest {
   metadata?: Record<string, unknown>
 }
 
-export interface PageAssistantWorkflowBinding {
-  agentId: string
-  agentKeySlug: string
-  workflowId: string
-  workflowKeySlug: string
-  bindingId?: number | null
-}
-
 export interface PageAssistantCatalogSyncResponse {
   projectCode: string
   appId: string
   pageKey: string
   actionCount: number
   session: AiAccessSession
-  workflowBinding?: PageAssistantWorkflowBinding | null
 }
 
 export interface PageAssistantCheckItem {
@@ -334,7 +325,6 @@ export interface PageAssistantPageRegisterResponse {
   }
   registeredActions: string[]
   fileEvidence: PageAssistantFileEvidence[]
-  workflowBinding?: PageAssistantWorkflowBinding | null
 }
 
 export interface PageAssistantSessionSummary {
@@ -536,26 +526,25 @@ export interface AiOnboardingManifest {
   }
   agentProvisioning?: {
     model: string
-    defaultAgentKind?: string | null
     defaultKeySlug?: string | null
     provisionAgentUrl?: string | null
     idempotent?: boolean
-    createsDefaultWorkflow?: boolean
-    createsDefaultBinding?: boolean
+    createsSupervisorConfig?: boolean
+    activatesSupervisorConfig?: boolean
+    modelSelection?: string | null
     requiredSteps?: string[]
   }
-  agentWorkflow?: {
+  agentSupervisor?: {
     model: string
     globalAgentKeySlug?: string | null
-    globalAgentKind?: string | null
-    workflowStorage?: string | null
-    sdkGraphWorkflowType?: string | null
-    bindingStrategy?: string | null
+    runtimeType?: string | null
+    workflowToolCatalog?: string | null
     endpoints?: {
       agentsUrl?: string | null
-      workflowsUrl?: string | null
-      globalAgentBindingsUrl?: string | null
-      resolvePreviewUrl?: string | null
+      configVersionsUrlTemplate?: string | null
+      configDraftUrlTemplate?: string | null
+      workflowToolAttachUrlTemplate?: string | null
+      executeUrl?: string | null
     }
     workflowAiCoding?: {
       skillPackageUrl?: string | null

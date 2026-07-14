@@ -26,7 +26,6 @@ import com.enterprise.ai.agent.registry.RegistryContracts.InstanceHeartbeatReque
 import com.enterprise.ai.agent.registry.RegistryContracts.InstanceHeartbeatResponse;
 import com.enterprise.ai.agent.registry.RegistryContracts.ProjectRegisterRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.RegistryProjectResponse;
-import com.enterprise.ai.agent.registry.RegistryContracts.RuntimeGovernancePolicyUpdateRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.SdkCapabilityDescriptionSettings;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,7 +38,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -145,10 +143,6 @@ class CapabilityRegistryServiceTest {
         assertEquals("dev-1", instance.getInstanceId());
         assertEquals("http://orders.default", instance.getBaseUrl());
         assertEquals("ONLINE", instance.getStatus());
-        assertEquals(Boolean.FALSE, response.policy().disabled());
-        assertEquals("ONLINE", response.policy().status());
-        assertEquals(Boolean.TRUE, response.policy().allowEmbeddedExecution());
-        assertEquals(Boolean.TRUE, response.policy().allowHybridExecution());
     }
 
     @Test
@@ -213,29 +207,6 @@ class CapabilityRegistryServiceTest {
 
         assertEquals(instance, updated);
         assertEquals("DISABLED", instance.getStatus());
-        verify(instanceMapper).updateById(instance);
-    }
-
-    @Test
-    void mergesInstanceGovernancePolicyAndReflectsDisabledStatus() {
-        ScanProjectEntity project = new ScanProjectEntity();
-        project.setId(7L);
-        project.setProjectCode("orders");
-        ProjectInstanceEntity instance = new ProjectInstanceEntity();
-        instance.setId(11L);
-        instance.setProjectCode("orders");
-        instance.setInstanceId("dev-1");
-        instance.setStatus("ONLINE");
-        when(scanProjectMapper.selectOne(any())).thenReturn(project);
-        when(instanceMapper.selectOne(any())).thenReturn(instance);
-
-        ProjectInstanceEntity updated = service.updateInstanceGovernancePolicy("orders",
-                new RuntimeGovernancePolicyUpdateRequest("dev-1", true, "0.4.0", false, true, "paused"));
-
-        assertEquals(instance, updated);
-        assertEquals("DISABLED", instance.getStatus());
-        assertTrue(instance.getGovernancePolicyJson().contains("\"disabled\":true"));
-        assertTrue(instance.getGovernancePolicyJson().contains("\"minSdkVersion\":\"0.4.0\""));
         verify(instanceMapper).updateById(instance);
     }
 

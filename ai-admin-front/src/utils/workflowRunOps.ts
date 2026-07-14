@@ -2,8 +2,7 @@ import type { FailureCluster, RunSummary, VersionComparison } from '@/types/runo
 
 function textValue(value: unknown): string {
   if (value == null) return ''
-  const text = String(value).trim()
-  return text
+  return String(value).trim()
 }
 
 function firstText(...values: unknown[]): string {
@@ -14,149 +13,79 @@ function firstText(...values: unknown[]): string {
   return ''
 }
 
-function runMetadata(run: RunSummary): Record<string, unknown> {
-  return run.metadata ?? {}
-}
-
-export function isWorkflowSourceType(sourceType?: string | null): boolean {
-  const normalized = textValue(sourceType).toUpperCase()
-  return normalized.startsWith('WORKFLOW')
-}
-
 export function runIsWorkflow(run: RunSummary): boolean {
-  if (isWorkflowSourceType(runSourceType(run))) return true
-  return Boolean(textValue(run.workflowId) || textValue(runMetadata(run).workflowId))
+  return run.runType === 'WORKFLOW'
 }
 
-/** 从 RunOps 记录解析 Workflow 归属 ID；agentId 仅作旧数据兜底。 */
 export function runWorkflowId(run: RunSummary): string {
-  const metadata = runMetadata(run)
-  const sourceType = firstText(run.sourceType, metadata.sourceType)
-  return firstText(
-    run.workflowId,
-    metadata.workflowId,
-    metadata.resolvedWorkflowId,
-    isWorkflowSourceType(sourceType) ? run.sourceId : '',
-    isWorkflowSourceType(sourceType) ? metadata.sourceId : '',
-    run.agentId,
-  )
+  return textValue(run.workflowId)
 }
 
 export function runWorkflowKeySlug(run: RunSummary): string {
-  const metadata = runMetadata(run)
-  return firstText(run.workflowKeySlug, metadata.workflowKeySlug)
+  return textValue(run.workflowKeySlug)
 }
 
 export function runWorkflowVersion(run: RunSummary): string {
-  const metadata = runMetadata(run)
-  return firstText(run.workflowVersion, metadata.workflowVersion, run.version, metadata.version)
+  return textValue(run.workflowVersion)
 }
 
 export function runWorkflowVersionId(run: RunSummary): string {
-  const metadata = runMetadata(run)
-  return firstText(
-    run.workflowVersionId,
-    metadata.workflowVersionId,
-    run.versionId,
-    metadata.versionId,
-  )
+  return textValue(run.workflowVersionId)
 }
 
-export function runEntryAgentId(run: RunSummary): string {
-  const metadata = runMetadata(run)
-  return firstText(run.entryAgentId, metadata.entryAgentId)
-}
-
-export function runEntryAgentKeySlug(run: RunSummary): string {
-  const metadata = runMetadata(run)
-  return firstText(run.entryAgentKeySlug, metadata.entryAgentKeySlug)
-}
-
-export function runSourceType(run: RunSummary): string {
-  const metadata = runMetadata(run)
-  return firstText(run.sourceType, metadata.sourceType)
-}
-
-export function runSourceId(run: RunSummary): string {
-  const metadata = runMetadata(run)
-  const sourceType = runSourceType(run)
-  return firstText(
-    run.sourceId,
-    metadata.sourceId,
-    isWorkflowSourceType(sourceType) ? runWorkflowId(run) : '',
-  )
-}
-
-/** 展示名：优先 Workflow 语义，再 fallback 旧 agentName。 */
 export function runDisplayName(run: RunSummary): string {
-  const metadata = runMetadata(run)
-  return firstText(
-    metadata.workflowName,
-    run.workflowKeySlug,
-    metadata.workflowKeySlug,
-    isWorkflowSourceType(runSourceType(run)) ? run.agentName : '',
-    run.agentName,
-    runWorkflowId(run),
-    run.agentId,
-    'Workflow',
-  )
+  return runIsWorkflow(run)
+    ? firstText(run.workflowName, run.workflowKeySlug, run.workflowId, 'Workflow')
+    : firstText(run.agentName, run.agentKeySlug, run.agentId, 'Agent')
 }
 
 export function runPrimaryIdentityLabel(run: RunSummary): string {
-  return runIsWorkflow(run) ? runDisplayName(run) : firstText(run.agentName, run.agentId, '-')
+  return runDisplayName(run)
 }
 
 export function runSecondaryIdentityLabel(run: RunSummary): string {
-  if (runIsWorkflow(run)) {
-    return firstText(runWorkflowKeySlug(run), runWorkflowId(run), runSourceId(run), '-')
-  }
-  return firstText(run.agentId, '-')
+  return runIsWorkflow(run)
+    ? firstText(run.workflowKeySlug, run.workflowId, '-')
+    : firstText(run.agentKeySlug, run.agentId, '-')
 }
 
 export function runPrimaryIdentityId(run: RunSummary): string {
-  return runIsWorkflow(run) ? firstText(runWorkflowId(run), runSourceId(run)) : firstText(run.agentId, '-')
+  return runIsWorkflow(run) ? firstText(run.workflowId, '-') : firstText(run.agentId, '-')
 }
 
 export function runVersionLabel(run: RunSummary): string {
   if (runIsWorkflow(run)) {
-    return firstText(runWorkflowVersion(run), runWorkflowVersionId(run), run.version, '-')
+    return firstText(run.workflowVersion, run.workflowVersionId, '-')
   }
-  return firstText(run.version, run.versionId ? String(run.versionId) : '', '-')
+  return firstText(run.agentConfigVersion, run.agentConfigVersionId, '-')
 }
 
-export function runKindLabel(run: RunSummary): 'Workflow' | 'Agent' | 'Tool' | 'Unknown' {
-  const sourceType = runSourceType(run).toUpperCase()
-  if (isWorkflowSourceType(sourceType) || runIsWorkflow(run)) return 'Workflow'
-  if (sourceType.includes('TOOL') || (run.toolCallCount ?? 0) > 0 && !run.agentName && !run.workflowId) {
-    return 'Tool'
-  }
-  if (run.agentId || run.agentName) return 'Agent'
-  return 'Unknown'
+export function runKindLabel(run: RunSummary): 'Workflow' | 'Agent' {
+  return runIsWorkflow(run) ? 'Workflow' : 'Agent'
 }
 
 export function runEntryLabel(run: RunSummary): string {
-  return firstText(runEntryAgentKeySlug(run), runEntryAgentId(run))
+  return textValue(run.entryType)
 }
 
 export function runSearchHaystack(run: RunSummary): string {
   return [
     run.traceId,
-    runPrimaryIdentityLabel(run),
-    runPrimaryIdentityId(run),
-    runSecondaryIdentityLabel(run),
-    runDisplayName(run),
-    run.agentName,
+    run.runType,
+    run.entryType,
+    run.projectCode,
+    run.userId,
     run.agentId,
-    runWorkflowId(run),
-    runWorkflowKeySlug(run),
-    runSourceType(run),
-    runSourceId(run),
-    runEntryAgentId(run),
-    runEntryAgentKeySlug(run),
-    run.version,
-    runWorkflowVersion(run),
+    run.agentKeySlug,
+    run.agentName,
+    run.agentConfigVersion,
+    run.workflowId,
+    run.workflowKeySlug,
+    run.workflowName,
+    run.workflowVersion,
     run.runtimeType,
-    run.runtimePlacement,
+    run.errorCode,
+    run.errorMessage,
   ]
     .filter(Boolean)
     .join(' ')
@@ -164,31 +93,27 @@ export function runSearchHaystack(run: RunSummary): string {
 }
 
 export function clusterPrimaryLabel(cluster: FailureCluster): string {
-  if (cluster.sourceType && isWorkflowSourceType(cluster.sourceType)) {
-    return firstText(cluster.workflowKeySlug, cluster.workflowId, cluster.agentName, '-')
-  }
-  return firstText(cluster.agentName, cluster.agentId, '-')
+  return cluster.versionType === 'WORKFLOW'
+    ? firstText(cluster.workflowName, cluster.workflowId, '-')
+    : firstText(cluster.agentName, cluster.agentId, '-')
 }
 
 export function clusterVersionLabel(cluster: FailureCluster): string {
-  if (cluster.sourceType && isWorkflowSourceType(cluster.sourceType)) {
-    return firstText(cluster.workflowVersion, cluster.workflowVersionId ? String(cluster.workflowVersionId) : '', cluster.version, '-')
-  }
-  return firstText(cluster.version, cluster.versionId ? String(cluster.versionId) : '', '-')
+  return cluster.versionType === 'WORKFLOW'
+    ? firstText(cluster.workflowVersion, cluster.workflowVersionId, '-')
+    : firstText(cluster.agentConfigVersion, cluster.agentConfigVersionId, '-')
 }
 
 export function comparisonPrimaryLabel(row: VersionComparison): string {
-  if (row.sourceType && isWorkflowSourceType(row.sourceType)) {
-    return firstText(row.workflowKeySlug, row.workflowId, row.agentName, '-')
-  }
-  return firstText(row.agentName, row.agentId, '-')
+  return row.versionType === 'WORKFLOW'
+    ? firstText(row.workflowName, row.workflowId, '-')
+    : firstText(row.agentName, row.agentId, '-')
 }
 
 export function comparisonVersionLabel(row: VersionComparison): string {
-  if (row.sourceType && isWorkflowSourceType(row.sourceType)) {
-    return firstText(row.workflowVersion, row.workflowVersionId ? String(row.workflowVersionId) : '', row.version, '-')
-  }
-  return firstText(row.version, row.versionId ? String(row.versionId) : '', '-')
+  return row.versionType === 'WORKFLOW'
+    ? firstText(row.workflowVersion, row.workflowVersionId, '-')
+    : firstText(row.agentConfigVersion, row.agentConfigVersionId, '-')
 }
 
 export function runMatchesCurrentWorkflow(
@@ -197,22 +122,12 @@ export function runMatchesCurrentWorkflow(
   workflowName?: string,
   workflowKeySlug?: string,
 ): boolean {
+  if (!runIsWorkflow(run)) return false
   const currentId = textValue(workflowId)
   const currentName = textValue(workflowName)
   const currentSlug = textValue(workflowKeySlug)
-  const resolvedWorkflowId = runWorkflowId(run)
-  if (currentId && resolvedWorkflowId && resolvedWorkflowId === currentId) {
-    return true
-  }
-  if (currentSlug) {
-    const runSlug = runWorkflowKeySlug(run)
-    if (runSlug && runSlug === currentSlug) return true
-  }
-  if (currentName && textValue(runDisplayName(run)) === currentName) {
-    return true
-  }
-  if (currentId && textValue(run.agentId) === currentId) {
-    return true
-  }
+  if (currentId && textValue(run.workflowId) === currentId) return true
+  if (currentSlug && textValue(run.workflowKeySlug) === currentSlug) return true
+  if (currentName && textValue(run.workflowName) === currentName) return true
   return !currentId && !currentName && !currentSlug
 }

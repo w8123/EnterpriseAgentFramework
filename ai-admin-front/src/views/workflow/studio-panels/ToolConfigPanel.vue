@@ -274,7 +274,7 @@ function selectProjectApi(row: ProjectToolInfo) {
     name: target,
     type: 'any',
     required: false,
-    source,
+    source: typeof source === 'string' ? source : JSON.stringify(source),
   }))
   props.data.outputs = [{ id: props.data.outputAlias || 'tool_output', name: props.data.outputAlias || 'tool_output', type: 'any' }]
   projectApiDialogOpen.value = false

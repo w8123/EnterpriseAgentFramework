@@ -1,19 +1,24 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
-      <h2>能力管理</h2>
-      <div class="header-actions">
+    <PageHeader
+      variant="standard"
+      domain="governance"
+      eyebrow="CAPABILITY ASSETS"
+      title="能力管理"
+      description="管理可复用的组合能力、交互定义、测试结果与运行指标。"
+    >
+      <template #actions>
         <el-button type="primary" @click="openCreateDialog">
           <el-icon><Plus /></el-icon>新建能力
         </el-button>
-        <el-button @click="onRefresh" :loading="loading">
-          <el-icon><Refresh /></el-icon>刷新
-        </el-button>
+        <el-tooltip content="刷新" placement="bottom">
+          <el-button :icon="Refresh" :loading="loading" aria-label="刷新" @click="onRefresh" />
+        </el-tooltip>
         <el-button type="warning" plain @click="openPendingInteractionsDialog">
           <el-icon><List /></el-icon>测试挂起交互
         </el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <el-alert
       type="info"
@@ -187,7 +192,7 @@
       </div>
     </el-card>
 
-    <el-dialog
+    <AppDialog
       v-model="formDialogVisible"
       :title="formDialogTitle"
       width="1180px"
@@ -442,9 +447,9 @@
           {{ isEditMode && editingIsDraft ? '发布' : '保存' }}
         </el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-dialog v-model="testDialogVisible" :title="`测试能力 — ${testingSkill?.name}`" width="720px" append-to-body>
+    <AppDialog v-model="testDialogVisible" :title="`测试能力 — ${testingSkill?.name}`" width="720px" append-to-body>
       <el-form v-if="testingSkill" label-width="140px">
         <el-form-item
           v-for="param in testingSkill.parameters"
@@ -541,9 +546,9 @@
         <el-button @click="testDialogVisible = false">关闭</el-button>
         <el-button type="primary" @click="handleTest" :loading="testRunning && !testResumeRunning">执行</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-dialog
+    <AppDialog
       v-model="pendingDialogVisible"
       title="能力测试 — 挂起中的未完成交互"
       width="760px"
@@ -598,9 +603,9 @@
       <template #footer>
         <el-button type="primary" @click="pendingDialogVisible = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-dialog v-model="metricsDialogVisible" :title="`能力指标 — ${metricsSkillName}`" width="760px" append-to-body>
+    <AppDialog v-model="metricsDialogVisible" :title="`能力指标 — ${metricsSkillName}`" width="760px" append-to-body>
       <div v-if="!metricsData">暂无指标数据</div>
       <template v-else>
         <el-row :gutter="12" class="metric-cards">
@@ -619,7 +624,7 @@
           <el-table-column prop="p95TokenCost" label="P95 Token" width="120" />
         </el-table>
       </template>
-    </el-dialog>
+    </AppDialog>
   </div>
 </template>
 
@@ -631,6 +636,8 @@ import { List, Plus, Refresh } from '@element-plus/icons-vue'
 import ParameterTable from '@/components/ParameterTable.vue'
 import InteractiveFormSpecEditor from '@/components/capability/InteractiveFormSpecEditor.vue'
 import DynamicInteraction from '@/components/interaction/DynamicInteraction.vue'
+import AppDialog from '@/components/common/AppDialog.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import {
   cancelAdminTestPendingInteraction,
   cancelAllAdminTestPendingInteractions,
@@ -1335,11 +1342,6 @@ watch(
 </script>
 
 <style scoped lang="scss">
-.header-actions {
-  display: flex;
-  gap: 8px;
-}
-
 .tool-filter {
   margin-bottom: 8px;
   flex-wrap: wrap;

@@ -1,5 +1,5 @@
 <template>
-  <div class="page-assistant">
+  <div class="page-assistant project-workbench-page">
     <PageAssistantHeader
       :project-name="project?.name || projectCode"
       :project-code="project?.projectCode || projectCode"
@@ -95,7 +95,7 @@
             :draft-source="draftSource"
             :generating="generating"
             @open-workflow-ai-coding-prompt="openWorkflowAiCodingPromptDialog"
-            @focus-bind-step="focusStepCard('bind')"
+            @focus-attach-step="focusStepCard('attach')"
             @open-ai-coding-studio="openAiCodingWorkflowStudio"
             @reset-ai-coding-draft="resetAiCodingWorkflowDraft"
             @use-ai-coding-draft="useAiCodingWorkflowDraft"
@@ -122,13 +122,13 @@
             :workflow-name="pageAssistantWorkflowName()"
             :creating-workflow="creatingWorkflow"
             @focus-draft-step="focusStepCard('draft')"
-            @go-bind-step="selectStep('bind')"
+            @go-attach-step="selectStep('attach')"
             @confirm-create-workflow="confirmCreateWorkflow"
           />
 
-          <PageAssistantBindPanel
-            v-else-if="displayedStep === 'bind'"
-            :key="'bind'"
+          <PageAssistantAttachPanel
+            v-else-if="displayedStep === 'attach'"
+            :key="'attach'"
             :created-workflow-id="createdWorkflowId"
             :project-code="projectCode"
             :page-copilot-agent="pageCopilotAgent"
@@ -136,16 +136,18 @@
             :selected-page="selectedPage"
             :selected-actions="selectedActions"
             :is-ai-coding-workflow-selected="isAiCodingWorkflowSelected"
-            :binding-agent="bindingAgent"
+            :attaching-agent="attachingAgent"
             @focus-step="focusStepCard"
-            @bind-to-page-copilot="bindToPageCopilot"
+            @attach-to-page-copilot="attachToPageCopilot"
           />
 
           <PageAssistantStudioPanel
             v-else
             :key="'studio'"
-            :binding-result="bindingResult"
+            :attachment-result="attachmentResult"
             @enter-workflow-studio="enterWorkflowStudio"
+            @enter-agent-workbench="enterAgentWorkbench"
+            @open-run-ops="openRunOps"
             @focus-step="selectStep"
           />
         </section>
@@ -221,7 +223,7 @@
 import { computed, onMounted, watch } from 'vue'
 import type { PageRegistryView } from '@/api/embedOps'
 import PageAssistantActionPanel from '@/views/registry/components/page-assistant/PageAssistantActionPanel.vue'
-import PageAssistantBindPanel from '@/views/registry/components/page-assistant/PageAssistantBindPanel.vue'
+import PageAssistantAttachPanel from '@/views/registry/components/page-assistant/PageAssistantAttachPanel.vue'
 import PageAssistantConfirmPanel from '@/views/registry/components/page-assistant/PageAssistantConfirmPanel.vue'
 import PageAssistantConnectPanel from '@/views/registry/components/page-assistant/PageAssistantConnectPanel.vue'
 import PageAssistantDraftPanel from '@/views/registry/components/page-assistant/PageAssistantDraftPanel.vue'
@@ -278,7 +280,7 @@ const {
   draftPreview,
   draftSource,
   createdWorkflowId,
-  bindingResult,
+  attachmentResult,
   pageCopilotAgent,
   aiPromptDialogVisible,
   aiPromptTool,
@@ -375,9 +377,14 @@ const {
 
 sessionLoader.load = loadPageAssistantSessions
 
-const { enterWorkflowStudio, openAiCodingWorkflowStudio: navigateToAiCodingStudio } = usePageAssistantWizardNavigation({
+const {
+  enterWorkflowStudio,
+  enterAgentWorkbench,
+  openRunOps,
+  openAiCodingWorkflowStudio: navigateToAiCodingStudio,
+} = usePageAssistantWizardNavigation({
   projectCode,
-  bindingResult,
+  attachmentResult,
   createdWorkflowId,
 })
 
@@ -408,7 +415,7 @@ const {
   draftPreview,
   draftSource,
   createdWorkflowId,
-  bindingResult,
+  attachmentResult,
   pageCopilotAgent,
   resetWizardProgressFromDraft,
 })
@@ -478,11 +485,11 @@ const {
 const {
   generating,
   creatingWorkflow,
-  bindingAgent,
+  attachingAgent,
   loadPageCopilotAgent,
   generateDraft,
   confirmCreateWorkflow,
-  bindToPageCopilot,
+  attachToPageCopilot,
 } = usePageAssistantWorkflowLifecycle({
   project,
   projectCode,
@@ -497,7 +504,7 @@ const {
   draftPreview,
   draftSource,
   createdWorkflowId,
-  bindingResult,
+  attachmentResult,
   pageCopilotAgent,
   draftIssueCount,
   defaultRequirement,
@@ -570,7 +577,7 @@ const {
   draftPreview,
   draftSource,
   createdWorkflowId,
-  bindingResult,
+  attachmentResult,
   pageCopilotAgent,
   aiPromptDialogVisible,
   workflowAiCodingPromptDialogVisible,
@@ -617,7 +624,7 @@ watch([selectedPageKey, pageAssistantActionKeys, aiPromptTool], () => {
 })
 
 watch(displayedStep, (step) => {
-  if (step === 'bind' && createdWorkflowId.value) {
+  if (step === 'attach' && createdWorkflowId.value) {
     void loadPageCopilotAgent()
   }
 })
@@ -627,4 +634,8 @@ onMounted(loadAll)
 
 <style scoped lang="scss">
 @use './styles/PageAssistantWizard.scss';
+</style>
+
+<style lang="scss">
+@use './styles/PageAssistantFlowPanels.scss';
 </style>

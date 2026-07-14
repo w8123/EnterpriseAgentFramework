@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 
-import java.util.List;
 import java.util.Map;
 
 @FeignClient(name = "reachai-capability-proxy", url = "${services.capability-service.url:http://localhost:18605}")
@@ -18,7 +17,9 @@ public interface CapabilityProxyClient {
     ResponseEntity<Map<String, Object>> registerProject(@RequestBody Map<String, Object> body);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/registry/projects/{projectCode}/instances")
-    ResponseEntity<List<Map<String, Object>>> listInstances(@PathVariable("projectCode") String projectCode);
+    // The capability public route may retain its ApiResult envelope, so Control must not
+    // force Feign to decode it as a bare list before forwarding it to the frontend.
+    ResponseEntity<Object> listInstances(@PathVariable("projectCode") String projectCode);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/registry/projects/{projectCode}/instances/heartbeat")
     ResponseEntity<Object> heartbeat(@PathVariable("projectCode") String projectCode,

@@ -1,5 +1,11 @@
 ﻿import { controlRequest } from '@/api/request'
-import { clearPlatformToken, setPlatformToken, setPlatformUser, type PlatformUserProfile } from '@/utils/platformAuth'
+import {
+  clearPlatformToken,
+  resetExplorationNoticeAcknowledgement,
+  setPlatformToken,
+  setPlatformUser,
+  type PlatformUserProfile,
+} from '@/utils/platformAuth'
 
 export interface PlatformLoginResult {
   accessToken: string
@@ -67,6 +73,7 @@ export function getCurrentPlatformUser() {
 }
 
 export function applyPlatformLogin(result: PlatformLoginResult) {
+  resetExplorationNoticeAcknowledgement()
   setPlatformToken(result.accessToken)
   setPlatformUser(result.principal)
 }

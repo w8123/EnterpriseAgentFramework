@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -26,7 +25,7 @@ public class RegistryCompatibilityController {
     }
 
     @GetMapping("/{projectCode}/instances")
-    public ResponseEntity<List<Map<String, Object>>> listInstances(@PathVariable String projectCode) {
+    public ResponseEntity<Object> listInstances(@PathVariable String projectCode) {
         return capabilityProxyClient.listInstances(projectCode);
     }
 }

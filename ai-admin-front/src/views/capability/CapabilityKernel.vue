@@ -1,17 +1,27 @@
 <template>
-  <div class="capability-kernel page-container">
-    <div class="page-header">
-      <div>
-        <h2>能力内核</h2>
-        <p>能力 / 组合 / 工具 / 交互</p>
-      </div>
-      <div class="header-actions">
-        <el-button :icon="Refresh" :loading="loading" @click="loadModules">刷新</el-button>
+  <WorkbenchPage class="capability-kernel" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="governance"
+      eyebrow="Capability Kernel"
+      title="能力内核"
+      description="统一管理能力模块、组合资产、工具与交互定义。"
+    >
+      <template #actions>
         <el-button type="primary" :icon="Plus" @click="openModuleDialog()">新建模块</el-button>
-      </div>
-    </div>
+        <el-tooltip content="刷新能力模块" placement="top">
+          <el-button
+            circle
+            :icon="Refresh"
+            :loading="loading"
+            aria-label="刷新能力模块"
+            @click="loadModules"
+          />
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
-    <section class="kernel-layout">
+    <section class="kernel-layout workbench-list-surface">
       <aside class="module-pane">
         <el-table
           v-loading="loading"
@@ -154,7 +164,7 @@
       </main>
     </section>
 
-    <el-dialog v-model="moduleDialogVisible" title="能力模块" width="560px">
+    <AppDialog v-model="moduleDialogVisible" title="能力模块" width="560px">
       <el-form label-width="110px">
         <el-form-item label="模块编码" required>
           <el-input v-model="moduleForm.code" :disabled="Boolean(moduleEditingCode)" />
@@ -183,9 +193,9 @@
         <el-button @click="moduleDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="submitModule">保存</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-dialog v-model="toolDialogVisible" title="工具管理" width="720px">
+    <AppDialog v-model="toolDialogVisible" title="工具管理" width="720px">
       <el-form label-width="130px">
         <el-form-item label="工具编码" required>
           <el-input v-model="toolForm.toolCode" :disabled="Boolean(toolEditingCode)" />
@@ -218,9 +228,9 @@
         <el-button @click="toolDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="submitTool">保存</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-dialog v-model="compositionDialogVisible" title="组合资产" width="860px">
+    <AppDialog v-model="compositionDialogVisible" title="组合资产" width="860px">
       <el-form label-width="130px">
         <el-form-item label="组合编码" required>
           <el-input v-model="compositionForm.compositionCode" :disabled="Boolean(compositionEditingCode)" />
@@ -243,9 +253,9 @@
         <el-button @click="compositionDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="submitComposition">保存</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-dialog v-model="interactionDialogVisible" title="交互定义" width="860px">
+    <AppDialog v-model="interactionDialogVisible" title="交互定义" width="860px">
       <el-form label-width="130px">
         <el-form-item label="交互编码" required>
           <el-input v-model="interactionForm.interactionCode" :disabled="Boolean(interactionEditingCode)" />
@@ -278,9 +288,9 @@
         <el-button @click="interactionDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="submitInteraction">保存</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-dialog v-model="runDialogVisible" :title="runTitle" width="760px">
+    <AppDialog v-model="runDialogVisible" :title="runTitle" width="760px">
       <el-form label-width="120px">
         <el-form-item label="限定名">
           <el-input :model-value="runTarget?.qualifiedName" readonly />
@@ -303,15 +313,18 @@
         <el-button @click="runDialogVisible = false">关闭</el-button>
         <el-button type="primary" :icon="VideoPlay" :loading="running" @click="executeRun">执行</el-button>
       </template>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Edit, Plus, Refresh, VideoPlay } from '@element-plus/icons-vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import InteractionRenderer from '@/components/interaction/InteractionRenderer.vue'
 import type { UiRequestPayload } from '@/types/interaction'
 import {
@@ -645,22 +658,6 @@ function emptyInteraction(): InteractionDefinition {
 </script>
 
 <style scoped lang="scss">
-.capability-kernel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.page-header {
-  align-items: flex-end;
-
-  p {
-    margin: 6px 0 0;
-    color: var(--text-secondary);
-    font-size: 13px;
-  }
-}
-
 .kernel-layout {
   display: grid;
   grid-template-columns: minmax(260px, 34%) minmax(0, 1fr);
@@ -705,7 +702,6 @@ function emptyInteraction(): InteractionDefinition {
 
 .module-summary,
 .tab-toolbar,
-.header-actions,
 .summary-actions {
   display: flex;
   align-items: center;

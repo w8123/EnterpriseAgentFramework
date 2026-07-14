@@ -1,9 +1,11 @@
 <template>
-  <el-tag size="small" :type="tagType">{{ label }}</el-tag>
+  <StatusTag :label="label" :tone="tone" />
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import StatusTag from './common/StatusTag.vue'
+import type { StatusTone } from './common/glassWorkbench'
 import { commonStatusTagType, formatCommonStatusLabel } from '@/utils/uiLabels'
 
 const props = defineProps<{
@@ -11,5 +13,5 @@ const props = defineProps<{
 }>()
 
 const label = computed(() => formatCommonStatusLabel(props.status))
-const tagType = computed(() => commonStatusTagType(props.status))
+const tone = computed<StatusTone>(() => commonStatusTagType(props.status))
 </script>

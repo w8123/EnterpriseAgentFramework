@@ -1,20 +1,31 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>{{ indexDetail?.indexName || '索引详情' }}</h2>
-      <div>
-        <el-button @click="router.push('/biz-index')">
-          <el-icon><ArrowLeft /></el-icon>
-          返回列表
-        </el-button>
-        <el-button type="warning" :loading="rebuildLoading" @click="handleRebuild">
-          <el-icon><Refresh /></el-icon>
+  <WorkbenchPage class="biz-index-detail-page">
+    <PageHeader
+      variant="entity"
+      domain="knowledge"
+      :title="indexDetail?.indexName || '索引详情'"
+      show-back
+      back-label="返回业务索引列表"
+      @back="router.push('/biz-index')"
+    >
+      <template #tags>
+        <el-tag effect="plain" size="small">{{ indexDetail?.indexCode || indexCode }}</el-tag>
+        <StatusTag
+          :label="indexDetail?.status === 'ACTIVE' ? '启用' : '停用'"
+          :tone="indexDetail?.status === 'ACTIVE' ? 'success' : 'danger'"
+        />
+      </template>
+      <template #meta>
+        <HeaderMetaList :items="indexMetaItems" />
+      </template>
+      <template #actions>
+        <el-button type="warning" :icon="Refresh" :loading="rebuildLoading" @click="handleRebuild">
           重建索引
         </el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <el-row :gutter="16">
+    <section class="biz-index-summary-grid"><el-row :gutter="16">
       <!-- 基本信息 -->
       <el-col :span="16">
         <el-card shadow="never" class="section-card">
@@ -68,7 +79,7 @@
           </div>
         </el-card>
       </el-col>
-    </el-row>
+    </el-row></section>
 
     <!-- 接入指南 -->
     <el-card shadow="never" class="section-card">
@@ -156,14 +167,18 @@
 
       <el-empty v-else-if="searchExecuted" description="未找到匹配结果" />
     </el-card>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Refresh, Document, Search } from '@element-plus/icons-vue'
+import { Refresh, Document, Search } from '@element-plus/icons-vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import HeaderMetaList from '@/components/common/HeaderMetaList.vue'
+import StatusTag from '@/components/common/StatusTag.vue'
 import { getBizIndexDetail, getBizIndexStats, bizIndexRebuild, bizIndexSearch } from '@/api/bizIndex'
 import type { BizIndex, BizIndexStats, BizSearchItem } from '@/types/bizIndex'
 
@@ -180,6 +195,12 @@ const searchQuery = ref('')
 const searchLoading = ref(false)
 const searchResults = ref<BizSearchItem[]>([])
 const searchExecuted = ref(false)
+
+const indexMetaItems = computed(() => [
+  { key: 'source', label: '来源系统', value: indexDetail.value?.sourceSystem || '-' },
+  { key: 'embedding', label: 'Embedding 实例', value: indexDetail.value?.embeddingModelInstanceId || '-' },
+  { key: 'dimension', label: '向量维度', value: indexDetail.value?.dimension || '-' },
+])
 
 async function loadDetail() {
   const { data } = await getBizIndexDetail(indexCode)
@@ -325,6 +346,10 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
+.biz-index-detail-page > .section-card {
+  margin-bottom: 0;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.compat;
 
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowRevisionConflictException;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionService;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -48,11 +50,13 @@ class RuntimeWorkflowVersionCompatibilityControllerTest {
                 new RuntimeWorkflowVersionCompatibilityController(service);
         RuntimeWorkflowVersionEntity version = version(1L);
         RuntimeWorkflowVersionPublishRequest publishRequest =
-                new RuntimeWorkflowVersionPublishRequest("v1.0.0", 100, "first", "alice");
+                new RuntimeWorkflowVersionPublishRequest(
+                        "v1.0.0", 100, "first", "alice", "2026-07-14T10:30:00");
         RuntimeWorkflowVersionRollbackRequest rollbackRequest = new RuntimeWorkflowVersionRollbackRequest("bob");
         RuntimeWorkflowReleaseValidationResult validation = RuntimeWorkflowReleaseValidationResult.builder().build();
         when(service.listVersions("wf-1")).thenReturn(List.of(version));
-        when(service.publish("wf-1", "v1.0.0", 100, "first", "alice")).thenReturn(version);
+        when(service.publish("wf-1", "v1.0.0", 100, "first", "alice", "2026-07-14T10:30:00"))
+                .thenReturn(version);
         when(service.validateRelease("wf-1")).thenReturn(validation);
         when(service.rollback("wf-1", 1L, "bob")).thenReturn(version);
 
@@ -61,7 +65,7 @@ class RuntimeWorkflowVersionCompatibilityControllerTest {
         assertEquals(validation, controller.validate("wf-1").getBody());
         assertEquals(version, controller.rollback("wf-1", 1L, rollbackRequest).getBody());
         verify(service).listVersions("wf-1");
-        verify(service).publish("wf-1", "v1.0.0", 100, "first", "alice");
+        verify(service).publish("wf-1", "v1.0.0", 100, "first", "alice", "2026-07-14T10:30:00");
         verify(service).validateRelease("wf-1");
         verify(service).rollback("wf-1", 1L, "bob");
     }
@@ -71,13 +75,32 @@ class RuntimeWorkflowVersionCompatibilityControllerTest {
         RuntimeWorkflowVersionService service = mock(RuntimeWorkflowVersionService.class);
         RuntimeWorkflowVersionCompatibilityController controller =
                 new RuntimeWorkflowVersionCompatibilityController(service);
-        when(service.publish("wf-1", "bad", 100, null, null))
+        when(service.publish("wf-1", "bad", 100, null, null, null))
                 .thenThrow(new IllegalArgumentException("workflow release validation failed: GRAPH_ENTRY_MISSING"));
 
         ResponseEntity<?> response = controller.publishExplicit("wf-1",
                 new RuntimeWorkflowVersionPublishRequest("bad", 100, null, null));
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+    }
+
+    @Test
+    void letsRevisionConflictsPropagateAsConflictResponses() {
+        RuntimeWorkflowVersionService service = mock(RuntimeWorkflowVersionService.class);
+        RuntimeWorkflowVersionCompatibilityController controller =
+                new RuntimeWorkflowVersionCompatibilityController(service);
+        String baseRevision = "2026-07-14T10:30:00";
+        RuntimeWorkflowRevisionConflictException conflict = new RuntimeWorkflowRevisionConflictException(
+                "wf-1", baseRevision, "2026-07-14T10:31:00");
+        when(service.publish("wf-1", "v1.0.0", 100, null, null, baseRevision))
+                .thenThrow(conflict);
+
+        RuntimeWorkflowRevisionConflictException thrown = assertThrows(
+                RuntimeWorkflowRevisionConflictException.class,
+                () -> controller.publishExplicit("wf-1",
+                        new RuntimeWorkflowVersionPublishRequest("v1.0.0", 100, null, null, baseRevision)));
+
+        assertEquals(conflict, thrown);
     }
 
     private RuntimeWorkflowVersionEntity version(Long id) {

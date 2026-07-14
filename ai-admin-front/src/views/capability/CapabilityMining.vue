@@ -1,13 +1,18 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>能力挖掘</h2>
-      <div class="header-actions">
+  <WorkbenchPage class="capability-mining-page">
+    <PageHeader
+      variant="standard"
+      domain="governance"
+      eyebrow="Capability Mining"
+      title="能力挖掘"
+      description="从 Trace 与调用日志中识别高频模式，生成可评审的组合能力草稿。"
+    >
+      <template #actions>
         <el-button @click="loadAll" :loading="loading">刷新</el-button>
         <el-button @click="generateDemo" :loading="demoGenerating">生成 Demo Trace</el-button>
         <el-button type="primary" @click="generate" :loading="generating">生成草稿</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <el-card shadow="never" v-if="precheck">
       <el-row :gutter="12">
@@ -23,7 +28,7 @@
       </div>
     </el-card>
 
-    <el-card shadow="never" style="margin-top: 12px">
+    <el-card shadow="never">
       <el-table :data="drafts" v-loading="loading" stripe>
         <el-table-column prop="name" label="草稿名" min-width="220" />
         <el-table-column prop="status" label="状态" width="140" />
@@ -39,20 +44,23 @@
       </el-table>
     </el-card>
 
-    <el-drawer v-model="previewVisible" :title="`草稿预览 - ${currentDraft?.name || ''}`" size="45%">
+    <AppDrawer v-model="previewVisible" :title="`草稿预览 - ${currentDraft?.name || ''}`" size="45%">
       <div v-if="currentDraft">
         <pre class="spec">{{ currentDraft.specJson }}</pre>
         <el-divider />
         <el-button size="small" @click="loadTraceByDraft(currentDraft)">加载来源 Trace</el-button>
         <TraceTimeline :nodes="traceNodes" />
       </div>
-    </el-drawer>
-  </div>
+    </AppDrawer>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDrawer from '@/components/common/AppDrawer.vue'
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import TraceTimeline from '@/components/TraceTimeline.vue'
 import { getTraceDetail } from '@/api/trace'
 import type { TraceNode } from '@/types/trace'

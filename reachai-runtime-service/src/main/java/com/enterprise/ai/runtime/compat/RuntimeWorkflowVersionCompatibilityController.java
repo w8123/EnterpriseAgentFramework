@@ -61,7 +61,8 @@ public class RuntimeWorkflowVersionCompatibilityController {
                     request == null ? null : request.version(),
                     rollout,
                     request == null ? null : request.note(),
-                    request == null ? null : request.publishedBy()));
+                    request == null ? null : request.publishedBy(),
+                    request == null ? null : request.baseRevision()));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
         }

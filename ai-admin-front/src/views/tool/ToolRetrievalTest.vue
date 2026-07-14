@@ -1,19 +1,33 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>Tool 检索测试</h2>
-      <div class="header-actions">
-        <el-button type="warning" @click="openRebuildDialog">重建向量索引</el-button>
-      </div>
-    </div>
+  <WorkbenchPage density="comfortable">
+    <PageHeader
+      variant="standard"
+      domain="tool"
+      eyebrow="Retrieval Lab"
+      title="Tool 检索测试"
+      description="验证 Tool 语义召回、相似度阈值与向量索引状态，辅助定位能力检索质量。"
+      density="comfortable"
+    >
+      <template #actions>
+        <el-tooltip content="重建向量索引" placement="top">
+          <el-button
+            circle
+            type="warning"
+            :icon="RefreshRight"
+            aria-label="重建向量索引"
+            @click="openRebuildDialog"
+          />
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
-    <el-card shadow="never" class="section-card">
+    <WorkbenchPanel title="检索配置" density="comfortable">
       <el-form :inline="true" class="search-form" @submit.prevent="handleSearch">
         <el-form-item label="用户问题">
           <el-input
             v-model="form.query"
+            class="search-form__query"
             placeholder="例如：帮我查询最近一周的工单数量"
-            style="width: 420px"
             clearable
             @keyup.enter="handleSearch"
           />
@@ -36,7 +50,7 @@
             :precision="2"
             placeholder="默认用服务端配置"
             controls-position="right"
-            style="width: 160px"
+            class="search-form__score"
           />
           <span class="form-hint">0=不过滤；留空用服务端 min-score</span>
         </el-form-item>
@@ -44,63 +58,78 @@
           <el-button type="primary" :loading="searching" @click="handleSearch">检索</el-button>
         </el-form-item>
       </el-form>
-    </el-card>
+    </WorkbenchPanel>
 
-    <el-card shadow="never" class="section-card">
-      <template #header>召回结果（{{ candidates.length }}）</template>
-      <el-empty v-if="!searching && candidates.length === 0" description="无召回结果" />
-      <el-table v-else :data="candidates" stripe>
-        <el-table-column label="#" type="index" width="60" />
-        <el-table-column prop="toolName" label="Tool 名" min-width="220" />
-        <el-table-column label="分数" width="100">
-          <template #default="{ row }">
-            <el-tag :type="scoreTag(row.score)">{{ row.score.toFixed(4) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="projectId" label="项目 ID" width="100" />
-        <el-table-column prop="moduleId" label="模块 ID" width="100" />
-        <el-table-column label="入库文本" min-width="320">
-          <template #default="{ row }">
-            <span class="text-ellipsis" :title="row.text">{{ row.text }}</span>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+    <WorkbenchPanel :title="`召回结果（${candidates.length}）`" density="comfortable">
+      <DataTableShell
+        density="compact"
+        :loading="searching"
+        :empty="candidates.length === 0"
+        empty-description="无召回结果"
+      >
+        <el-table :data="candidates" stripe empty-text=" ">
+          <el-table-column label="#" type="index" width="60" />
+          <el-table-column prop="toolName" label="Tool 名" min-width="220" />
+          <el-table-column label="分数" width="100">
+            <template #default="{ row }">
+              <StatusTag
+                :label="row.score.toFixed(4)"
+                :tone="scoreTag(row.score) || 'neutral'"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column prop="projectId" label="项目 ID" width="100" />
+          <el-table-column prop="moduleId" label="模块 ID" width="100" />
+          <el-table-column label="入库文本" min-width="320">
+            <template #default="{ row }">
+              <span class="text-ellipsis" :title="row.text">{{ row.text }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </DataTableShell>
+    </WorkbenchPanel>
 
-    <el-card v-if="task" shadow="never" class="section-card">
-      <template #header>
-        <span>重建任务</span>
-        <el-tag :type="stageTag(task.stage)" style="margin-left: 10px">{{ task.stage }}</el-tag>
+    <WorkbenchPanel title="重建任务" density="comfortable">
+      <template #actions>
+        <StatusTag
+          v-if="task"
+          :label="task.stage"
+          :tone="stageTag(task.stage) || 'neutral'"
+        />
+        <StatusTag v-else label="暂无任务" tone="neutral" />
       </template>
-      <el-descriptions :column="4" border size="small">
-        <el-descriptions-item label="总数">{{ task.totalSteps }}</el-descriptions-item>
-        <el-descriptions-item label="已完成">{{ task.completedSteps }}</el-descriptions-item>
-        <el-descriptions-item label="成功">{{ task.successCount }}</el-descriptions-item>
-        <el-descriptions-item label="跳过">{{ task.skippedCount }}</el-descriptions-item>
-        <el-descriptions-item label="失败">{{ task.failedCount }}</el-descriptions-item>
-        <el-descriptions-item label="向量模型实例">{{ task.embeddingModelInstanceId || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="当前">{{ task.currentStep || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="开始">{{ task.startedAt || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="结束">{{ task.finishedAt || '-' }}</el-descriptions-item>
-      </el-descriptions>
-      <el-progress
-        v-if="task.stage === 'QUEUED' || task.stage === 'RUNNING'"
-        :percentage="taskPercent"
-        :text-inside="true"
-        :stroke-width="18"
-        style="margin-top: 12px"
-      />
-      <el-alert
-        v-if="task.stage === 'FAILED'"
-        style="margin-top: 12px"
-        type="error"
-        :title="`重建失败：${task.errorMessage || '未知错误'}`"
-        :closable="false"
-        show-icon
-      />
-    </el-card>
+      <div v-if="task" class="task-state">
+        <el-descriptions :column="4" border size="small">
+          <el-descriptions-item label="总数">{{ task.totalSteps }}</el-descriptions-item>
+          <el-descriptions-item label="已完成">{{ task.completedSteps }}</el-descriptions-item>
+          <el-descriptions-item label="成功">{{ task.successCount }}</el-descriptions-item>
+          <el-descriptions-item label="跳过">{{ task.skippedCount }}</el-descriptions-item>
+          <el-descriptions-item label="失败">{{ task.failedCount }}</el-descriptions-item>
+          <el-descriptions-item label="向量模型实例">
+            {{ task.embeddingModelInstanceId || '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="当前">{{ task.currentStep || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="开始">{{ task.startedAt || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="结束">{{ task.finishedAt || '-' }}</el-descriptions-item>
+        </el-descriptions>
+        <el-progress
+          v-if="task.stage === 'QUEUED' || task.stage === 'RUNNING'"
+          :percentage="taskPercent"
+          :text-inside="true"
+          :stroke-width="18"
+        />
+        <el-alert
+          v-if="task.stage === 'FAILED'"
+          type="error"
+          :title="`重建失败：${task.errorMessage || '未知错误'}`"
+          :closable="false"
+          show-icon
+        />
+      </div>
+      <p v-else class="task-empty">尚无重建任务</p>
+    </WorkbenchPanel>
 
-    <el-dialog
+    <AppDialog
       v-model="rebuildDialogVisible"
       title="选择向量索引模型"
       width="480px"
@@ -115,9 +144,9 @@
         <el-form-item label="模型厂商" required>
           <el-select
             v-model="rebuildModelProvider"
+            class="rebuild-dialog__control"
             placeholder="请选择厂商"
             filterable
-            style="width: 100%"
             @change="handleRebuildProviderChange"
           >
             <el-option
@@ -131,9 +160,9 @@
         <el-form-item label="Embedding 实例" required>
           <el-select
             v-model="rebuildModelInstanceId"
+            class="rebuild-dialog__control"
             placeholder="请选择向量模型实例"
             filterable
-            style="width: 100%"
             :disabled="!rebuildModelProvider"
           >
             <el-option
@@ -149,13 +178,14 @@
         <el-button @click="rebuildDialogVisible = false">取消</el-button>
         <el-button type="warning" :loading="rebuildStarting" @click="confirmRebuild">开始重建</el-button>
       </template>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { RefreshRight } from '@element-plus/icons-vue'
 import {
   getToolRetrievalRebuildStatus,
   searchToolRetrieval,
@@ -164,6 +194,12 @@ import {
 import { getModelInstances } from '@/api/model'
 import type { ModelInstance } from '@/types/model'
 import type { ToolCandidate, ToolRebuildTask, ToolRetrievalSearchRequest } from '@/types/toolRetrieval'
+import PageHeader from '@/components/common/PageHeader.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import DataTableShell from '@/components/common/DataTableShell.vue'
+import StatusTag from '@/components/common/StatusTag.vue'
+import AppDialog from '@/components/common/AppDialog.vue'
 
 const form = reactive({
   query: '',
@@ -327,20 +363,27 @@ onMounted(loadLatest)
 onUnmounted(stopPolling)
 </script>
 
-<style scoped>
-.section-card {
-  margin-top: 12px;
-}
+<style scoped lang="scss">
 .search-form {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
+  gap: calc(var(--section-gap) / 2) var(--section-gap);
 }
+
+.search-form__query {
+  width: min(420px, 100%);
+}
+
+.search-form__score {
+  width: 160px;
+}
+
 .form-hint {
-  margin-left: 8px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
+  margin-inline-start: calc(var(--section-gap) / 2);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
 }
+
 .text-ellipsis {
   display: inline-block;
   max-width: 100%;
@@ -348,10 +391,39 @@ onUnmounted(stopPolling)
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.rebuild-dialog-hint {
-  margin: 0 0 16px;
-  font-size: 13px;
+
+.task-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--section-gap);
+}
+
+.task-empty {
+  margin: 0;
+  color: var(--text-muted);
   line-height: 1.6;
-  color: var(--el-text-color-secondary);
+}
+
+.rebuild-dialog-hint {
+  margin: 0 0 var(--section-gap);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.rebuild-dialog__control {
+  width: 100%;
+}
+
+@media (max-width: 720px) {
+  .search-form__query,
+  .search-form__score {
+    width: 100%;
+  }
+
+  .form-hint {
+    flex-basis: 100%;
+    margin-inline-start: 0;
+  }
 }
 </style>

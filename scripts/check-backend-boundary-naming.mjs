@@ -468,8 +468,10 @@ assertIncludes('docs/architecture/public-route-contracts.md', '| Frozen compatib
 assertIncludes('docs/architecture/public-route-contracts.md', '| Retired route |')
 assertIncludes('docs/architecture/public-route-contracts.md', '| Internal API |')
 assertIncludes('docs/architecture/public-route-contracts.md', '`/api/runtime/agents/execute/**`')
+assertIncludes('docs/architecture/public-route-contracts.md', '`/api/runtime/evals/**`')
+assertIncludes('docs/architecture/public-route-contracts.md', '`/api/runtime/interactions/**`')
 assertIncludes('docs/architecture/public-route-contracts.md', '`/api/capability-mining/**`')
-assertIncludes('docs/architecture/public-route-contracts.md', '`/api/agent/execute/**`')
+assertNotIncludes('docs/architecture/public-route-contracts.md', '`/api/agent/execute/**`')
 assertIncludes('docs/architecture/public-route-contracts.md', '`/api/skill-mining/**`')
 assertIncludes('docs/architecture/public-route-contracts.md', '`/internal/runtime/**`')
 assertIncludes('docs/README.md', 'architecture/public-route-contracts.md')
@@ -661,10 +663,9 @@ const keyApiPaths = [
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/composition/CapabilityCompositionCatalogController.java', '@RequestMapping({"/api/compositions", "/api/skills"})'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/tool/CapabilityToolCatalogController.java', '@RequestMapping("/api/tools")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/retrieval/CapabilityToolRetrievalController.java', '@RequestMapping("/api/tool-retrieval")'],
-  ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/compat/RuntimePublicCompatibilityController.java', '@PostMapping({"/api/agent/execute", "/api/runtime/agents/execute"})'],
+  ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/api/RuntimePublicController.java', '@PostMapping("/api/runtime/agents/execute")'],
   ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/compat/RuntimeWorkflowCompatibilityController.java', '@GetMapping("/api/workflows")'],
   ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/compat/RuntimeWorkflowCredentialCompatibilityController.java', '@GetMapping({"/api/agent/workflow-credentials", "/api/workflows/credentials"})'],
-  ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/compat/RuntimeRegistryCompatibilityController.java', '@GetMapping("/api/runtimes")'],
   ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/internal/RuntimeToolCallLogInternalController.java', '@RequestMapping("/internal/runtime/tool-call-logs")'],
   ['reachai-control-service/src/main/java/com/enterprise/ai/control/platform/PlatformEmbedPublicController.java', '@RequestMapping("/api/embed")'],
   ['reachai-control-service/src/main/java/com/enterprise/ai/control/aiassist/ControlAiAssistSkillController.java', '@RequestMapping("/api/ai-assist")'],

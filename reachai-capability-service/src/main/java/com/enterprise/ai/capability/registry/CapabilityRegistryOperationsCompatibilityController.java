@@ -3,7 +3,6 @@ package com.enterprise.ai.capability.registry;
 import com.enterprise.ai.agent.registry.RegistryContracts.InstanceHeartbeatRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilityReviewRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilitySyncRequest;
-import com.enterprise.ai.agent.registry.RegistryContracts.RuntimeGovernancePolicyUpdateRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -126,17 +125,6 @@ public class CapabilityRegistryOperationsCompatibilityController {
                     projectCode,
                     request == null ? null : request.instanceId(),
                     request == null ? null : request.status()));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
-        }
-    }
-
-    @PostMapping("/projects/{projectCode}/instances/governance-policy")
-    public ResponseEntity<?> updateInstanceGovernancePolicy(@PathVariable String projectCode,
-                                                            @RequestBody(required = false)
-                                                            RuntimeGovernancePolicyUpdateRequest request) {
-        try {
-            return ResponseEntity.ok(registryService.updateInstanceGovernancePolicy(projectCode, request));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
         }

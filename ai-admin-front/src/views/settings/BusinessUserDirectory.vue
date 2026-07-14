@@ -1,22 +1,35 @@
 <template>
-  <div class="business-user-page">
-    <div class="page-header">
-      <div>
-        <h2>业务用户目录</h2>
-        <p>统一查看平台内业务用户、外部身份映射和角色绑定，支持人工校正跨系统账号关系。</p>
-      </div>
-      <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
-    </div>
+  <WorkbenchPage class="business-user-page" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="platform"
+      eyebrow="Business Identity"
+      title="业务用户目录"
+      description="统一查看平台内业务用户、外部身份映射和角色绑定，支持人工校正跨系统账号关系。"
+    >
+      <template #actions>
+        <el-tooltip content="刷新业务用户" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新业务用户" @click="reload" />
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
-    <div class="toolbar">
+    <FilterBar :loading="loading" :show-reset="false" @query="search">
       <el-input
         v-model="filters.keyword"
+        class="business-user-filter__keyword"
         clearable
         placeholder="搜索统一用户、姓名、邮箱、手机号"
         :prefix-icon="Search"
         @keyup.enter="search"
       />
-      <el-input v-model="filters.tenantId" clearable placeholder="租户，如 default" @keyup.enter="search" />
+      <el-input
+        v-model="filters.tenantId"
+        class="business-user-filter__tenant"
+        clearable
+        placeholder="租户，如 default"
+        @keyup.enter="search"
+      />
       <el-select v-model="filters.status" clearable placeholder="状态" style="width: 140px">
         <el-option
           v-for="item in BUSINESS_USER_STATUS_SELECT_OPTIONS"
@@ -25,10 +38,17 @@
           :value="item.value"
         />
       </el-select>
-      <el-button type="primary" @click="search">查询</el-button>
-    </div>
+    </FilterBar>
 
-    <el-table :data="users" v-loading="loading" stripe>
+    <DataTableShell
+      class="business-user-list workbench-list-surface"
+      :loading="loading"
+      :empty="users.length === 0"
+      :current-page="pagination.current"
+      :page-size="pagination.size"
+      :total="pagination.total"
+    >
+      <el-table :data="users" empty-text="" stripe>
       <el-table-column prop="globalUserId" label="统一用户 ID" min-width="150">
         <template #default="{ row }">
           <code>{{ row.globalUserId }}</code>
@@ -74,19 +94,22 @@
           <el-button link @click="openIdentityDrawer(row)">身份映射</el-button>
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
 
-    <el-pagination
-      v-model:current-page="pagination.current"
-      v-model:page-size="pagination.size"
-      :total="pagination.total"
-      :page-sizes="[20, 50, 100]"
-      layout="total, sizes, prev, pager, next"
-      @current-change="reload"
-      @size-change="reload"
-    />
+      <template #pagination>
+        <el-pagination
+          v-model:current-page="pagination.current"
+          v-model:page-size="pagination.size"
+          :total="pagination.total"
+          :page-sizes="[20, 50, 100]"
+          layout="total, sizes, prev, pager, next"
+          @current-change="reload"
+          @size-change="reload"
+        />
+      </template>
+    </DataTableShell>
 
-    <el-dialog v-model="userDialogOpen" title="校正业务用户资料" width="520px">
+    <AppDialog v-model="userDialogOpen" title="校正业务用户资料" width="520px">
       <el-form v-if="editingUser" :model="editingUser" label-width="110px">
         <el-form-item label="统一用户 ID">
           <el-input v-model="editingUser.globalUserId" />
@@ -115,9 +138,9 @@
         <el-button @click="userDialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveUser">保存</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-drawer v-model="identityDrawerOpen" size="560px" title="外部身份映射">
+    <AppDrawer v-model="identityDrawerOpen" size="560px" title="外部身份映射">
       <template v-if="selectedUser">
         <div class="drawer-user">
           <strong>{{ selectedUser.displayName || selectedUser.globalUserId }}</strong>
@@ -188,14 +211,20 @@
           </el-form>
         </div>
       </template>
-    </el-drawer>
-  </div>
+    </AppDrawer>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
+import AppDrawer from '@/components/common/AppDrawer.vue'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
+import FilterBar from '@/components/common/FilterBar.vue'
+import DataTableShell from '@/components/common/DataTableShell.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import CommonStatusTag from '@/components/CommonStatusTag.vue'
 import { BUSINESS_USER_STATUS_SELECT_OPTIONS, formatPlatformRoleLabel } from '@/utils/uiLabels'
 import {
@@ -358,34 +387,13 @@ onMounted(reload)
 </script>
 
 <style scoped lang="scss">
-.business-user-page {
-  padding: 16px 20px;
+.business-user-filter__keyword {
+  min-width: 260px;
+  flex: 1 1 360px;
 }
 
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-
-  h2 {
-    margin: 0 0 4px;
-    font-size: 20px;
-  }
-
-  p {
-    margin: 0;
-    color: #667085;
-    font-size: 13px;
-  }
-}
-
-.toolbar {
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) 180px 140px auto;
-  gap: 10px;
-  margin-bottom: 12px;
+.business-user-filter__tenant {
+  width: 180px;
 }
 
 .tag-list {
@@ -407,7 +415,6 @@ code {
 
 .el-pagination {
   justify-content: flex-end;
-  margin-top: 12px;
 }
 
 .drawer-user {
@@ -433,9 +440,4 @@ code {
   }
 }
 
-@media (max-width: 920px) {
-  .toolbar {
-    grid-template-columns: 1fr;
-  }
-}
 </style>

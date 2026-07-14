@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { AgentEntry, PageAssistantWorkflowBindingResult, WorkflowDraftGenerationResult } from '@/types/workflow'
+import type { Agent, PageAssistantWorkflowAttachmentResult, WorkflowDraftGenerationResult } from '@/types/workflow'
 import type {
   AiAccessSession,
   PageAssistantOnboardingManifest,
@@ -29,8 +29,8 @@ export function usePageAssistantWizardUiState() {
   const draftPreview = ref<WorkflowDraftGenerationResult | null>(null)
   const draftSource = ref<DraftSource>('NONE')
   const createdWorkflowId = ref('')
-  const bindingResult = ref<PageAssistantWorkflowBindingResult | null>(null)
-  const pageCopilotAgent = ref<AgentEntry | null>(null)
+  const attachmentResult = ref<PageAssistantWorkflowAttachmentResult | null>(null)
+  const pageCopilotAgent = ref<Agent | null>(null)
   const aiPromptDialogVisible = ref(false)
   const aiPromptTool = ref<'Cursor' | 'Codex' | 'Claude Code'>('Cursor')
   const workflowAiCodingPromptDialogVisible = ref(false)
@@ -49,7 +49,7 @@ export function usePageAssistantWizardUiState() {
     }
     createdWorkflowId.value = ''
     draftSource.value = 'NONE'
-    bindingResult.value = null
+    attachmentResult.value = null
     pageCopilotAgent.value = null
   }
 
@@ -73,7 +73,7 @@ export function usePageAssistantWizardUiState() {
     draftPreview,
     draftSource,
     createdWorkflowId,
-    bindingResult,
+    attachmentResult,
     pageCopilotAgent,
     aiPromptDialogVisible,
     aiPromptTool,

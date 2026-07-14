@@ -353,7 +353,7 @@ class ControlGovernanceRoutesTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> runtimeBody = forClass(Map.class);
         verify(runtimeClient).executeAgent(runtimeBody.capture());
-        assertEquals("agent-1", runtimeBody.getValue().get("agentDefinitionId"));
+        assertEquals("agent-1", runtimeBody.getValue().get("agentId"));
         assertEquals("查订单", runtimeBody.getValue().get("message"));
         assertEquals("A2A_MESSAGE_SEND", runtimeBody.getValue().get("intentHint"));
         verify(callLogMapper, times(2)).insert(any());

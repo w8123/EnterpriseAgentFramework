@@ -1,5 +1,5 @@
 import type { AgentForm, AgentGraphSpec } from '@/types/agent'
-import { definitionToCanvas } from './studio'
+import { canvasToDefinition, definitionToCanvas } from './studio'
 
 function assertPresent<T>(value: T, message: string): asserts value is NonNullable<T> {
   if (value === null || value === undefined) {
@@ -169,5 +169,232 @@ assertEqual(hydratedPageAction.position.y, 40)
 assertEqual(hydratedPageAction.data.label, '执行查询')
 assertEqual(hydratedPageAction.data.pageActionConfig?.actionKey, 'search')
 assertEqual(hydratedPageAction.data.pageActionConfig?.projectCode, 'orders')
+
+const roundTripGraphSpec: AgentGraphSpec = {
+  code: 'schema-preservation',
+  name: 'Schema Preservation',
+  mode: 'WORKFLOW',
+  inputSchema: { type: 'object', required: ['question'] },
+  stateSchema: { type: 'object', properties: { order: { type: 'object' } } },
+  layout: { engine: 'custom', direction: 'TB', viewport: { x: 10, y: 20, zoom: 0.8 } },
+  nodes: [{ id: 'answer', type: 'ANSWER', name: 'Answer', config: { answer: 'ok' } }],
+  edges: [
+    { from: 'START', to: 'answer', condition: 'always', priority: 7 },
+    { from: 'answer', to: 'END', condition: 'always', priority: 9 },
+  ],
+}
+const roundTripBase = { ...base, graphSpec: roundTripGraphSpec }
+const roundTripCanvas = definitionToCanvas(roundTripBase)
+const roundTripDefinition = canvasToDefinition(roundTripBase, roundTripCanvas)
+assertDeepEqual(roundTripDefinition.graphSpec?.inputSchema, roundTripGraphSpec.inputSchema)
+assertDeepEqual(roundTripDefinition.graphSpec?.stateSchema, roundTripGraphSpec.stateSchema)
+assertDeepEqual(roundTripDefinition.graphSpec?.layout?.viewport, roundTripGraphSpec.layout?.viewport)
+assertEqual(roundTripDefinition.graphSpec?.layout?.direction, 'TB')
+assertDeepEqual(
+  roundTripDefinition.graphSpec?.edges.map((edge) => edge.priority),
+  [7, 9],
+  'GraphSpec edge priority must survive a source/canvas/save round trip',
+)
+
+const aliasGraphSpec: AgentGraphSpec = {
+  code: 'runtime-alias-preservation',
+  name: 'Runtime Alias Preservation',
+  mode: 'WORKFLOW',
+  entry: 'tool_alias',
+  finish: ['finish_answer'],
+  nodes: [
+    { id: 'first_node', type: 'ANSWER', config: { template: 'not the entry' } },
+    {
+      id: 'tool_alias',
+      type: 'TOOL',
+      config: {
+        toolName: 'ordersLookup',
+        qualifiedName: 'orders.lookup',
+        ref: 'ordersLookupRef',
+        args: {
+          keyword: 'params.keyword',
+          limit: 10,
+          filters: { active: true },
+        },
+      },
+    },
+    {
+      id: 'parameter_alias',
+      type: 'PARAMETER_EXTRACT',
+      config: {
+        mode: 'LLM',
+        modelInstanceId: 'llm-parameter',
+        inputExpression: 'params.question',
+        systemPrompt: 'Extract only declared fields.',
+        userPrompt: 'Question: {{ params.question }}',
+        options: { temperature: 0.1, responseFormat: { type: 'json_object' } },
+        fields: [{ name: 'orderId', type: 'string', required: true }],
+      },
+    },
+    {
+      id: 'llm_alias',
+      type: 'LLM',
+      config: {
+        modelInstanceId: 'llm-main',
+        prompt: 'You are the order assistant.',
+        options: { temperature: 0.2, responseFormat: { type: 'json_object' } },
+      },
+    },
+    {
+      id: 'condition_nested',
+      type: 'IF_ELSE',
+      config: {
+        conditionConfig: {
+          groups: [{
+            id: 'vip',
+            logic: 'AND',
+            conditions: [{ left: 'lastOutput.level', operator: 'equals', right: 'vip' }],
+          }],
+          defaultRoute: 'fallback',
+        },
+      },
+    },
+    {
+      id: 'classifier_override',
+      type: 'INTENT_CLASSIFIER',
+      config: {
+        inputExpression: 'params.current',
+        strategy: 'KEYWORD',
+        classes: [{ id: 'current', label: 'Current', keywords: ['current'] }],
+        defaultRoute: 'current-default',
+        options: { temperature: 0.25, responseFormat: { type: 'json_object' } },
+        classifierConfig: {
+          inputExpression: 'params.stale',
+          strategy: 'LLM',
+          classes: [{ id: 'stale', label: 'Stale', keywords: ['stale'] }],
+          defaultRoute: 'stale-default',
+          modelParams: { temperature: 0.9 },
+        },
+      },
+    },
+    { id: 'finish_answer', type: 'ANSWER', config: { content: 'Completed: {{ lastOutput }}' } },
+  ],
+  edges: [
+    { id: 'stale-start', from: 'START', to: 'first_node', condition: 'always' },
+    { from: 'tool_alias', to: 'parameter_alias', condition: 'always' },
+    { from: 'parameter_alias', to: 'llm_alias', condition: 'always' },
+    { from: 'llm_alias', to: 'finish_answer', condition: 'always' },
+    { id: 'stale-finish', from: 'first_node', to: 'END', condition: 'always' },
+  ],
+}
+const aliasBase = { ...base, graphSpec: aliasGraphSpec }
+const aliasCanvas = definitionToCanvas(aliasBase)
+assertDeepEqual(
+  aliasCanvas.edges.filter((edge) => edge.source === 'start').map((edge) => edge.target),
+  ['tool_alias'],
+  'GraphSpec entry must be the only visual START target even when an old START edge disagrees',
+)
+assertDeepEqual(
+  aliasCanvas.edges.filter((edge) => edge.target === 'end').map((edge) => edge.source),
+  ['finish_answer'],
+  'GraphSpec finish must be the visual END source even when an old END edge disagrees',
+)
+
+const hydratedToolAlias = aliasCanvas.nodes.find((node) => node.id === 'tool_alias')
+assertPresent(hydratedToolAlias, 'tool alias node should hydrate')
+assertEqual(hydratedToolAlias.data.toolConfig?.ref, 'ordersLookupRef')
+assertEqual(hydratedToolAlias.data.toolConfig?.qualifiedName, 'orders.lookup')
+assertDeepEqual(hydratedToolAlias.data.toolConfig?.inputMapping, {
+  keyword: 'params.keyword',
+  limit: 10,
+  filters: { active: true },
+})
+
+const hydratedParameterAlias = aliasCanvas.nodes.find((node) => node.id === 'parameter_alias')
+assertPresent(hydratedParameterAlias, 'parameter alias node should hydrate')
+assertEqual(hydratedParameterAlias.data.parameterConfig?.mode, 'llm')
+assertEqual(hydratedParameterAlias.data.parameterConfig?.inputExpression, 'params.question')
+assertEqual(hydratedParameterAlias.data.parameterConfig?.systemPrompt, 'Extract only declared fields.')
+assertEqual(hydratedParameterAlias.data.parameterConfig?.userPrompt, 'Question: {{ params.question }}')
+assertDeepEqual(hydratedParameterAlias.data.parameterConfig?.modelParams, {
+  temperature: 0.1,
+  responseFormat: { type: 'json_object' },
+})
+
+const hydratedLlmAlias = aliasCanvas.nodes.find((node) => node.id === 'llm_alias')
+assertPresent(hydratedLlmAlias, 'LLM alias node should hydrate')
+assertEqual(hydratedLlmAlias.data.llmConfig?.systemPrompt, 'You are the order assistant.')
+assertDeepEqual(hydratedLlmAlias.data.llmConfig?.modelParams, {
+  temperature: 0.2,
+  responseFormat: { type: 'json_object' },
+})
+
+const hydratedAnswerAlias = aliasCanvas.nodes.find((node) => node.id === 'finish_answer')
+assertPresent(hydratedAnswerAlias, 'answer alias node should hydrate')
+assertEqual(hydratedAnswerAlias.data.answerConfig?.template, 'Completed: {{ lastOutput }}')
+
+const hydratedNestedCondition = aliasCanvas.nodes.find((node) => node.id === 'condition_nested')
+assertPresent(hydratedNestedCondition, 'nested condition node should hydrate')
+assertEqual(hydratedNestedCondition.data.conditionConfig?.groups[0]?.id, 'vip')
+assertEqual(hydratedNestedCondition.data.conditionConfig?.defaultRoute, 'fallback')
+
+const hydratedClassifierOverride = aliasCanvas.nodes.find((node) => node.id === 'classifier_override')
+assertPresent(hydratedClassifierOverride, 'classifier override node should hydrate')
+assertEqual(hydratedClassifierOverride.data.classifierConfig?.inputExpression, 'params.current')
+assertEqual(hydratedClassifierOverride.data.classifierConfig?.strategy, 'KEYWORD')
+assertEqual(hydratedClassifierOverride.data.classifierConfig?.classes[0]?.id, 'current')
+assertEqual(hydratedClassifierOverride.data.classifierConfig?.defaultRoute, 'current-default')
+assertDeepEqual(hydratedClassifierOverride.data.classifierConfig?.modelParams, {
+  temperature: 0.25,
+  responseFormat: { type: 'json_object' },
+})
+
+const aliasRoundTrip = canvasToDefinition(aliasBase, aliasCanvas).graphSpec
+assertPresent(aliasRoundTrip, 'alias GraphSpec should survive canvas serialization')
+assertEqual(aliasRoundTrip.entry, 'tool_alias')
+assertDeepEqual(aliasRoundTrip.finish, ['finish_answer'])
+
+const roundTripToolAlias = aliasRoundTrip.nodes.find((node) => node.id === 'tool_alias')
+assertPresent(roundTripToolAlias, 'tool alias node should survive round trip')
+assertEqual(roundTripToolAlias.ref?.qualifiedName, 'orders.lookup')
+assertDeepEqual(roundTripToolAlias.config?.inputMapping, {
+  keyword: 'params.keyword',
+  limit: 10,
+  filters: { active: true },
+})
+
+const roundTripParameterAlias = aliasRoundTrip.nodes.find((node) => node.id === 'parameter_alias')
+assertPresent(roundTripParameterAlias, 'parameter alias node should survive round trip')
+assertEqual(roundTripParameterAlias.config?.extractMode, 'llm')
+assertEqual(roundTripParameterAlias.config?.inputExpression, 'params.question')
+assertEqual(roundTripParameterAlias.config?.systemPrompt, 'Extract only declared fields.')
+assertEqual(roundTripParameterAlias.config?.userPrompt, 'Question: {{ params.question }}')
+assertDeepEqual(roundTripParameterAlias.config?.modelParams, {
+  temperature: 0.1,
+  responseFormat: { type: 'json_object' },
+})
+
+const roundTripLlmAlias = aliasRoundTrip.nodes.find((node) => node.id === 'llm_alias')
+assertPresent(roundTripLlmAlias, 'LLM alias node should survive round trip')
+assertEqual(roundTripLlmAlias.config?.systemPrompt, 'You are the order assistant.')
+assertDeepEqual(roundTripLlmAlias.config?.modelParams, {
+  temperature: 0.2,
+  responseFormat: { type: 'json_object' },
+})
+
+const roundTripNestedCondition = aliasRoundTrip.nodes.find((node) => node.id === 'condition_nested')
+assertPresent(roundTripNestedCondition, 'nested condition should survive round trip')
+assertEqual((roundTripNestedCondition.config?.conditionGroups as Array<{ id?: string }>)[0]?.id, 'vip')
+assertEqual(roundTripNestedCondition.config?.defaultRoute, 'fallback')
+
+const roundTripClassifierOverride = aliasRoundTrip.nodes.find((node) => node.id === 'classifier_override')
+assertPresent(roundTripClassifierOverride, 'classifier top-level override should survive round trip')
+assertEqual(roundTripClassifierOverride.config?.inputExpression, 'params.current')
+assertEqual(roundTripClassifierOverride.config?.strategy, 'KEYWORD')
+assertEqual((roundTripClassifierOverride.config?.classes as Array<{ id?: string }>)[0]?.id, 'current')
+assertEqual(roundTripClassifierOverride.config?.defaultRoute, 'current-default')
+assertDeepEqual(roundTripClassifierOverride.config?.modelParams, {
+  temperature: 0.25,
+  responseFormat: { type: 'json_object' },
+})
+
+const roundTripAnswerAlias = aliasRoundTrip.nodes.find((node) => node.id === 'finish_answer')
+assertPresent(roundTripAnswerAlias, 'answer alias node should survive round trip')
+assertEqual(roundTripAnswerAlias.config?.template, 'Completed: {{ lastOutput }}')
 
 console.log('studio canvas node data checks passed')

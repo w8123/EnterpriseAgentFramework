@@ -1,7 +1,6 @@
 .page-assistant {
   box-sizing: border-box;
   min-height: calc(100vh - 72px);
-  padding: 18px 32px 28px;
   position: relative;
   overflow: hidden;
   background:
@@ -24,7 +23,7 @@
   }
 }
 
-.bind-intro {
+.attach-intro {
   margin: 0 0 18px;
   color: #53627d;
   line-height: 1.6;
@@ -43,7 +42,6 @@
   z-index: 1;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 20px;
 
   h1 {
     margin: 10px 0 0;
@@ -2171,10 +2169,6 @@
 }
 
 @media (max-width: 720px) {
-  .page-assistant {
-    padding: 14px;
-  }
-
   .page-header {
     flex-direction: column;
     align-items: stretch;
@@ -2239,23 +2233,10 @@
 }
 
 /* SDK wizard aligned final skin: tech-violet glass for the frontend page access flow. */
-:global(.main-layout.registry-shell:has(.page-assistant) .main-content) {
-  background:
-    radial-gradient(circle at 78% 0%, rgb(var(--brand-selected-rgb) / 0.92), transparent 28%),
-    radial-gradient(circle at 20% 18%, rgb(var(--brand-selected-rgb) / 0.38), transparent 34%),
-    radial-gradient(circle at 72% 72%, rgb(var(--brand-hover-rgb) / 0.16), transparent 32%),
-    var(--brand-page-bg) !important;
-}
-
-:global(.main-layout.registry-shell:has(.page-assistant) .main-content::before) {
-  opacity: 0 !important;
-}
-
 /* 顶栏皮肤特例已删除：统一使用 MainLayout 的浅色玻璃顶栏（Phase 2.6）。 */
 
 .page-assistant {
   min-height: calc(100vh - 72px);
-  padding: var(--reachai-workbench-page-padding, var(--reachai-workbench-title-gap, 10px) 28px 16px);
   display: flex;
   flex-direction: column;
   overflow-x: hidden;
@@ -2301,8 +2282,7 @@
 .page-header {
   align-items: center;
   min-height: var(--reachai-workbench-title-height, 120px);
-  margin-bottom: 16px;
-  padding: var(--reachai-workbench-title-padding, 26px 28px);
+  padding: var(--layout-page-header-padding-block) var(--layout-page-header-padding-inline);
   overflow: hidden;
   border: 1px solid rgb(var(--brand-selected-rgb) / 0.66) !important;
   border-radius: var(--reachai-workbench-title-radius, 16px);

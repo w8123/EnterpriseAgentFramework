@@ -148,6 +148,38 @@
   font-weight: 650;
 }
 
+.eaf-chat__ui-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.eaf-chat__ui-button {
+  border: 1px solid var(--reachai-chat-border, #d9dce5);
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: #fff;
+  color: #303133;
+  cursor: pointer;
+}
+
+.eaf-chat__ui-button--primary {
+  border-color: var(--reachai-chat-primary, #4f5bd5);
+  background: var(--reachai-chat-primary, #4f5bd5);
+  color: #fff;
+}
+
+.eaf-chat__ui-button--danger {
+  border-color: #f56c6c;
+  color: #f56c6c;
+}
+
+.eaf-chat__ui-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .eaf-chat__ui table {
   width: 100%;
   border-collapse: collapse;

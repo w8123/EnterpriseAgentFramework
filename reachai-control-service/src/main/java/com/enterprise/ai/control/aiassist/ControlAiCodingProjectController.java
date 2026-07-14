@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.aiassist;
 
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
+import com.enterprise.ai.control.client.model.ControlModelCatalogClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import feign.FeignException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,26 +33,9 @@ import java.util.UUID;
 public class ControlAiCodingProjectController {
 
     private static final String AI_CODING_HEADER = "X-ReachAI-AiCoding-Key";
-    private static final String PAGE_COPILOT_KIND = "PAGE_COPILOT";
-    private static final String DEFAULT_WORKFLOW_GRAPH_SPEC_JSON = "{"
-            + "\"version\":\"1.0\","
-            + "\"entry\":\"user_input\","
-            + "\"nodes\":["
-            + "{\"id\":\"user_input\",\"type\":\"USER_INPUT\",\"name\":\"User Input\"},"
-            + "{\"id\":\"answer\",\"type\":\"ANSWER\",\"name\":\"Answer\",\"config\":{\"template\":\"{{ input }}\"}}"
-            + "],"
-            + "\"edges\":[{\"id\":\"user_input__answer\",\"from\":\"user_input\",\"to\":\"answer\"}]"
-            + "}";
-    private static final String DEFAULT_WORKFLOW_CANVAS_JSON = "{"
-            + "\"nodes\":["
-            + "{\"id\":\"user_input\",\"type\":\"USER_INPUT\",\"position\":{\"x\":120,\"y\":160},\"data\":{\"label\":\"User Input\"}},"
-            + "{\"id\":\"answer\",\"type\":\"ANSWER\",\"position\":{\"x\":420,\"y\":160},\"data\":{\"label\":\"Answer\"}}"
-            + "],"
-            + "\"edges\":[{\"id\":\"user_input__answer\",\"source\":\"user_input\",\"target\":\"answer\"}]"
-            + "}";
-
     private final CapabilityProjectOnboardingClient capabilityClient;
     private final RuntimeProxyClient runtimeClient;
+    private final ControlModelCatalogClient modelCatalogClient;
 
     @GetMapping("/manifest")
     public ResponseEntity<AiCodingGatewayManifest> manifest(@PathVariable Long projectId,
@@ -144,7 +128,7 @@ public class ControlAiCodingProjectController {
                             baseUrl + "/api/scan-projects/" + projectId + "/tools/reconcile"),
                     new ControlAiAssistProjectController.EmbedManifest("/api/reachai/embed-token", null, null, List.of()),
                     provisioning,
-                    agentWorkflowManifest(provisioning, baseUrl),
+                    agentSupervisorManifest(provisioning, baseUrl),
                     new ControlAiAssistProjectController.SecurityGuidance(
                             "REACHAI_REGISTRY_APP_SECRET",
                             "Do not paste or write the registry app secret into AI chat context.")));
@@ -161,27 +145,35 @@ public class ControlAiCodingProjectController {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
             String projectCode = stringValue(project.get("projectCode"));
             String keySlug = pageCopilotKeySlug(projectCode, projectId);
-            boolean ensureDefaultWorkflow = !Boolean.FALSE.equals(request == null ? null : request.get("ensureDefaultWorkflow"));
+            String modelInstanceId = resolveSupervisorModelInstanceId(
+                    stringValue(request == null ? null : request.get("modelInstanceId")));
+            String requestedBy = firstText(
+                    stringValue(request == null ? null : request.get("requestedBy")),
+                    "ai-coding-provisioning");
 
-            RuntimeObject agent = findOrCreateAgent(projectId, projectCode, keySlug, stringValue(project.get("name")));
-            RuntimeObject workflow = ensureDefaultWorkflow
-                    ? findOrCreateDefaultWorkflow(projectId, projectCode, keySlug, stringValue(project.get("name")))
-                    : RuntimeObject.empty(false, null);
-            RuntimeObject binding = ensureDefaultWorkflow && workflow.body() != null
-                    ? findOrCreateDefaultBinding(agent.id(), workflow.id(), projectCode)
-                    : RuntimeObject.empty(false, null);
+            RuntimeObject agent = findOrCreateAgent(
+                    projectId, projectCode, keySlug, stringValue(project.get("name")));
+            RuntimeObject supervisorConfig = ensureActiveSupervisorConfig(
+                    agent.id(), modelInstanceId, requestedBy);
 
+            Map<String, Object> provisionedAgent = new LinkedHashMap<>(agent.body());
+            provisionedAgent.put("activeConfigVersionId", supervisorConfig.body().get("id"));
             Map<String, Object> body = new LinkedHashMap<>();
-            body.put("schema", "agent-provisioning.v1");
-            body.put("agent", agent.body());
-            body.put("defaultWorkflow", workflow.body());
-            body.put("defaultBinding", binding.body());
+            body.put("schema", "agent-provisioning.v2");
+            body.put("agent", provisionedAgent);
+            body.put("supervisorConfig", supervisorConfig.body());
+            body.put("workflowTools", listValue(supervisorConfig.body().get("tools")));
             body.put("createdAgent", agent.created());
-            body.put("createdDefaultWorkflow", workflow.created());
-            body.put("createdDefaultBinding", binding.created());
+            body.put("createdSupervisorConfig", supervisorConfig.created());
+            body.put("runtimeType", "AGENTSCOPE");
             return ResponseEntity.ok(body);
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.status(409).body(Map.of(
+                    "schema", "agent-provisioning.v2",
+                    "message", ex.getMessage(),
+                    "code", "SUPERVISOR_PROVISIONING_NOT_READY"));
         }
     }
 
@@ -328,8 +320,7 @@ public class ControlAiCodingProjectController {
                     stringValue(project.get("projectCode")),
                     request == null ? null : request.pageKey(),
                     actionCount,
-                    session,
-                    null));
+                    session));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }
@@ -382,8 +373,7 @@ public class ControlAiCodingProjectController {
                             request == null ? null : request.framework(),
                             request == null ? null : request.bridgeGlobal()),
                     registeredActions,
-                    request == null || request.files() == null ? List.of() : request.files(),
-                    null));
+                    request == null || request.files() == null ? List.of() : request.files()));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }
@@ -476,35 +466,35 @@ public class ControlAiCodingProjectController {
             ControlAiAssistProjectController.ProjectManifest project,
             String root) {
         return new ControlAiAssistProjectController.AgentProvisioningManifest(
-                "agent-provisioning.v1",
-                PAGE_COPILOT_KIND,
+                "agent-provisioning.v2",
                 pageCopilotKeySlug(project.projectCode(), project.id()),
                 root + "/agents/provision",
                 true,
                 true,
                 true,
+                "REQUESTED_OR_FIRST_ACTIVE_LLM",
                 List.of(
                         "Call provisionAgentUrl before wiring embedded chat.",
                         "Use response.agent.keySlug as the business frontend agentId.",
+                        "Provisioning publishes an ACTIVE AgentScope Supervisor config without creating a placeholder Workflow.",
                         "Do not ask the user to manually create or choose a project Agent during SDK onboarding."));
     }
 
-    private ControlAiAssistProjectController.AgentWorkflowManifest agentWorkflowManifest(
+    private ControlAiAssistProjectController.AgentSupervisorManifest agentSupervisorManifest(
             ControlAiAssistProjectController.AgentProvisioningManifest provisioning,
             String baseUrl) {
         String globalAgentKeySlug = provisioning.defaultKeySlug();
-        return new ControlAiAssistProjectController.AgentWorkflowManifest(
-                "agent-workflow.decoupled.v1",
+        return new ControlAiAssistProjectController.AgentSupervisorManifest(
+                "agent-supervisor.workflow-tools.v1",
                 globalAgentKeySlug,
-                PAGE_COPILOT_KIND,
-                "runtime_workflow",
-                "SDK_GRAPH",
-                "Bind page/action/intent workflows to the project page copilot Agent instead of creating one agent per workflow.",
-                new ControlAiAssistProjectController.AgentWorkflowEndpoints(
+                "AGENTSCOPE",
+                "WORKFLOW_AS_TOOL_ALLOW_LIST",
+                new ControlAiAssistProjectController.AgentSupervisorEndpoints(
                         baseUrl + "/api/agents",
-                        baseUrl + "/api/workflows",
-                        baseUrl + "/api/agents/" + globalAgentKeySlug + "/workflow-bindings",
-                        baseUrl + "/api/agents/" + globalAgentKeySlug + "/workflow-bindings/resolve-preview"),
+                        baseUrl + "/api/agents/{agentId}/config-versions",
+                        baseUrl + "/api/agents/{agentId}/config-versions/draft",
+                        baseUrl + "/api/workflows/{workflowId}/page-assistant/attach-tool",
+                        baseUrl + "/api/runtime/agents/execute"),
                 new ControlAiAssistProjectController.WorkflowAiCodingManifest(
                         baseUrl + "/api/ai-assist/skills/workflow-ai-coding/latest.zip",
                         baseUrl + "/api/workflows/ai-coding/workflows",
@@ -519,12 +509,18 @@ public class ControlAiCodingProjectController {
                                 "Download and install the workflow-ai-coding skill before editing graphs from AI tools.",
                                 "Read /context before patch; use workflow.updatedAt as baseRevision when saving.")),
                 List.of(
-                        "Provision or reuse one project-level PAGE_COPILOT Agent entry.",
-                        "Store every executable graph as an runtime_workflow draft or version."));
+                        "Provision or reuse one project-level page copilot Agent entry.",
+                        "Store every executable graph as a runtime_workflow and publish an ACTIVE version before attachment.",
+                        "Attach published Workflows to the Agent Supervisor Workflow-as-Tool allow-list.",
+                        "Publish a new Agent config version after changing its tool catalog.",
+                        "Use only the published Agent config Workflow-as-Tool catalog for runtime selection."));
     }
 
-    private RuntimeObject findOrCreateAgent(Long projectId, String projectCode, String keySlug, String projectName) {
-        List<Map<String, Object>> agents = responseList(runtimeClient.listAgents(projectId, projectCode, PAGE_COPILOT_KIND));
+    private RuntimeObject findOrCreateAgent(Long projectId,
+                                            String projectCode,
+                                            String keySlug,
+                                            String projectName) {
+        List<Map<String, Object>> agents = responseList(runtimeClient.listAgents(projectId, projectCode));
         Map<String, Object> existing = agents.stream()
                 .filter(item -> Objects.equals(keySlug, stringValue(item.get("keySlug"))))
                 .findFirst()
@@ -538,62 +534,64 @@ public class ControlAiCodingProjectController {
         body.put("keySlug", keySlug);
         body.put("name", firstText(projectName, projectCode, "Project") + " Page Copilot");
         body.put("description", "Project page copilot Agent for embedded chat and Workflow routing.");
-        body.put("agentKind", PAGE_COPILOT_KIND);
         body.put("visibility", "PROJECT");
-        body.put("systemPrompt", "You are the project's page copilot. Route executable work to bound Workflows.");
-        body.put("entryConfigJson", "{\"source\":\"ai-coding-gateway\",\"purpose\":\"page-copilot\"}");
         body.put("enabled", true);
         return new RuntimeObject(true, responseMap(runtimeClient.createAgent(body)));
     }
 
-    private RuntimeObject findOrCreateDefaultWorkflow(Long projectId, String projectCode, String agentKeySlug, String projectName) {
-        String workflowKeySlug = agentKeySlug + "-default";
-        List<Map<String, Object>> workflows = responseList(
-                runtimeClient.listWorkflows(projectId, projectCode, "PAGE_COPILOT_DEFAULT", null));
-        Map<String, Object> existing = workflows.stream()
-                .filter(item -> Objects.equals(workflowKeySlug, stringValue(item.get("keySlug"))))
+    private RuntimeObject ensureActiveSupervisorConfig(String agentId,
+                                                       String modelInstanceId,
+                                                       String publishedBy) {
+        if (!StringUtils.hasText(agentId)) {
+            throw new IllegalArgumentException("Runtime did not return an Agent id");
+        }
+        List<Map<String, Object>> versions = responseList(runtimeClient.listAgentConfigVersions(agentId));
+        Map<String, Object> active = versions.stream()
+                .filter(item -> "ACTIVE".equalsIgnoreCase(stringValue(item.get("status"))))
                 .findFirst()
                 .orElse(null);
-        if (existing != null) {
-            return new RuntimeObject(false, existing);
+        if (active != null) {
+            return new RuntimeObject(false, active);
         }
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("projectId", projectId);
-        body.put("projectCode", projectCode);
-        body.put("keySlug", workflowKeySlug);
-        body.put("name", firstText(projectName, projectCode, "Project") + " Page Copilot Default Workflow");
-        body.put("description", "Default placeholder workflow for project page copilot routing.");
-        body.put("workflowType", "PAGE_COPILOT_DEFAULT");
-        body.put("runtimeType", "LANGGRAPH4J");
-        body.put("status", "DRAFT");
-        body.put("managedBy", "SDK_ONBOARDING");
-        body.put("graphSpecJson", DEFAULT_WORKFLOW_GRAPH_SPEC_JSON);
-        body.put("canvasJson", DEFAULT_WORKFLOW_CANVAS_JSON);
-        return new RuntimeObject(true, responseMap(runtimeClient.createWorkflow(body)));
+        Map<String, Object> draftRequest = new LinkedHashMap<>();
+        draftRequest.put("runtimeType", "AGENTSCOPE");
+        draftRequest.put("systemPrompt", "You are the project's page copilot Supervisor. Understand the request, plan, and select one or more permitted Workflows as tools. Use page-action Workflows only when the user explicitly asks to open, navigate, query, or operate a page.");
+        draftRequest.put("modelInstanceId", modelInstanceId);
+        draftRequest.put("policyProfile", "DEV_ALLOW_ALL");
+        draftRequest.put("toolCatalogMode", "ALLOW_LIST");
+        draftRequest.put("configJson", "{\"source\":\"ai-coding-gateway\",\"purpose\":\"page-copilot\",\"routing\":\"supervisor-workflow-tools\"}");
+        Map<String, Object> draft = responseMap(runtimeClient.saveAgentConfigDraft(agentId, draftRequest));
+        Long configVersionId = nullableLongValue(draft.get("id"));
+        if (configVersionId == null) {
+            throw new IllegalArgumentException("Runtime did not return an Agent Supervisor config version id");
+        }
+        Map<String, Object> published = responseMap(runtimeClient.publishAgentConfigVersion(
+                agentId, configVersionId, Map.of("publishedBy", publishedBy)));
+        if (!"ACTIVE".equalsIgnoreCase(stringValue(published.get("status")))) {
+            throw new IllegalArgumentException("Agent Supervisor config was not activated");
+        }
+        return new RuntimeObject(true, published);
     }
 
-    private RuntimeObject findOrCreateDefaultBinding(String agentId, String workflowId, String projectCode) {
-        if (!StringUtils.hasText(agentId) || !StringUtils.hasText(workflowId)) {
-            return RuntimeObject.empty(false, null);
+    private String resolveSupervisorModelInstanceId(String requestedModelInstanceId) {
+        List<Map<String, Object>> activeModels = modelDataList(modelCatalogClient.list(null, "LLM", null)).stream()
+                .filter(item -> "ACTIVE".equalsIgnoreCase(stringValue(item.get("status"))))
+                .toList();
+        if (StringUtils.hasText(requestedModelInstanceId)) {
+            return activeModels.stream()
+                    .filter(item -> requestedModelInstanceId.trim().equals(stringValue(item.get("id"))))
+                    .map(item -> requestedModelInstanceId.trim())
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Requested Agent Supervisor model is not an ACTIVE LLM instance: "
+                                    + requestedModelInstanceId.trim()));
         }
-        List<Map<String, Object>> bindings = responseList(runtimeClient.listAgentWorkflowBindings(agentId));
-        Map<String, Object> existing = bindings.stream()
-                .filter(item -> Objects.equals(workflowId, stringValue(item.get("workflowId"))))
-                .filter(item -> "DEFAULT".equalsIgnoreCase(stringValue(item.get("bindingType"))))
+        return activeModels.stream()
+                .map(item -> stringValue(item.get("id")))
+                .filter(StringUtils::hasText)
                 .findFirst()
-                .orElse(null);
-        if (existing != null) {
-            return new RuntimeObject(false, existing);
-        }
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("agentId", agentId);
-        body.put("workflowId", workflowId);
-        body.put("projectCode", projectCode);
-        body.put("bindingType", "DEFAULT");
-        body.put("priority", 0);
-        body.put("enabled", true);
-        body.put("metadataJson", "{\"source\":\"ai-coding-gateway\"}");
-        return new RuntimeObject(true, responseMap(runtimeClient.createAgentWorkflowBinding(agentId, body)));
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "No ACTIVE LLM model instance is available for the Agent Supervisor"));
     }
 
     private ResponseEntity<ControlAiAssistProjectController.AiAccessSessionView> accessSessionWithReportedStep(
@@ -705,7 +703,11 @@ public class ControlAiCodingProjectController {
     private ControlAiAssistProjectController.SdkAccessCheckResponse sdkAccessCheck(Map<String, Object> project) {
         boolean credentialConfigured = booleanValue(project.get("registryCredentialConfigured"));
         boolean aiCodingEnabled = aiCodingAccess(project).enabled();
-        String overall = credentialConfigured && aiCodingEnabled ? "PASS" : "WARN";
+        ControlAiAssistProjectController.SdkAccessCheckItem sdkSyncCallbackCheck =
+                ControlAiAssistProjectController.sdkSyncCallbackCheck(project);
+        String overall = credentialConfigured
+                && aiCodingEnabled
+                && "PASS".equals(sdkSyncCallbackCheck.status()) ? "PASS" : "WARN";
         return new ControlAiAssistProjectController.SdkAccessCheckResponse(
                 longValue(project.get("id")),
                 stringValue(project.get("projectCode")),
@@ -723,7 +725,8 @@ public class ControlAiCodingProjectController {
                         new ControlAiAssistProjectController.SdkAccessCheckItem("AI_CODING_ACCESS", "AI Coding access",
                                 aiCodingEnabled ? "PASS" : "WARN",
                                 aiCodingEnabled ? "AI Coding access enabled" : "AI Coding access is disabled",
-                                null)));
+                                null),
+                        sdkSyncCallbackCheck));
     }
 
     private ControlAiAssistProjectController.PageAssistantCheckResponse pageAssistantCheck(Map<String, Object> project,
@@ -822,6 +825,23 @@ public class ControlAiCodingProjectController {
                     .toList();
         }
         return List.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> modelDataList(ResponseEntity<Map<String, Object>> response) {
+        Object body = response == null ? null : response.getBody();
+        Object data = body instanceof Map<?, ?> map ? map.get("data") : null;
+        if (data instanceof Collection<?> collection) {
+            return collection.stream()
+                    .filter(Map.class::isInstance)
+                    .map(item -> (Map<String, Object>) item)
+                    .toList();
+        }
+        return List.of();
+    }
+
+    private List<?> listValue(Object value) {
+        return value instanceof List<?> list ? list : List.of();
     }
 
     @SuppressWarnings("unchecked")
@@ -1041,15 +1061,21 @@ public class ControlAiCodingProjectController {
         return value instanceof Number number ? number.longValue() : Long.valueOf(String.valueOf(value));
     }
 
+    private Long nullableLongValue(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value instanceof String text && StringUtils.hasText(text)) {
+            return Long.valueOf(text.trim());
+        }
+        return null;
+    }
+
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
     }
 
     private record RuntimeObject(boolean created, Map<String, Object> body) {
-        static RuntimeObject empty(boolean created, Map<String, Object> body) {
-            return new RuntimeObject(created, body);
-        }
-
         String id() {
             return body == null ? null : String.valueOf(body.get("id"));
         }

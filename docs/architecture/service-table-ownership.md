@@ -1,6 +1,6 @@
 # ReachAI Service Table Ownership
 
-> Date: 2026-07-02
+> Date: 2026-07-14
 > Scope: first physical split with one shared MySQL database
 
 ## Rules
@@ -34,12 +34,14 @@ These rows remain in the ownership matrix because V2 still records their owner s
 | `runtime_agent_eval_case_result` | `reachai-runtime-service` | - | Runtime evaluation result |
 | `runtime_agent_eval_dataset` | `reachai-runtime-service` | - | Runtime evaluation dataset |
 | `runtime_agent_eval_run` | `reachai-runtime-service` | - | Runtime evaluation run |
-| `runtime_agent_trace_span` | `reachai-runtime-service` | - | Runtime trace span |
+| `runtime_run` | `reachai-runtime-service` | - | RunOps root execution fact used by lists, KPIs, diagnostics, and replay |
+| `runtime_trace_span` | `reachai-runtime-service` | - | Runtime generic trace span child event |
 | `runtime_agent_workflow_credential` | `reachai-runtime-service` | - | Workflow credential vault metadata |
 | `runtime_agent` | `reachai-runtime-service` | - | Runtime agent catalog |
-| `runtime_agent_workflow_binding` | `reachai-runtime-service` | - | Agent to Workflow binding |
+| `runtime_agent_config_version` | `reachai-runtime-service` | - | Versioned Agent Supervisor configuration |
+| `runtime_agent_workflow_tool` | `reachai-runtime-service` | - | Workflow-as-Tool allow-list per Agent configuration version |
 | `model_instance` | `reachai-model-service` | - | Model Gateway instance registry |
-| `capability_project_instance` | `reachai-capability-service` | - | SDK runtime instance heartbeat |
+| `capability_project_instance` | `reachai-capability-service` | - | SDK access-instance heartbeat |
 | `runtime_workflow` | `reachai-runtime-service` | - | Workflow runtime definition |
 | `runtime_workflow_version` | `reachai-runtime-service` | - | Workflow release snapshot |
 | `capability_api_graph_edge` | `reachai-capability-service` | - | Capability API graph edge |

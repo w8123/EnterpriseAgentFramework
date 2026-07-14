@@ -1,8 +1,20 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>SlotExtractor 调用日志</h2>
-      <div class="header-actions">
+  <WorkbenchPage class="slot-extract-logs-page" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="governance"
+      eyebrow="Extraction Observability"
+      title="SlotExtractor 调用日志"
+      description="按提取器、能力、命中状态和时间范围追踪槽位提取质量。"
+    >
+      <template #actions>
+        <el-tooltip content="刷新调用日志" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新调用日志" @click="reload" />
+        </el-tooltip>
+      </template>
+    </PageHeader>
+
+    <FilterBar :loading="loading" :show-reset="false" query-label="查询" @query="reload">
         <el-select v-model="filterExtractor" placeholder="提取器" clearable style="width: 150px">
           <el-option v-for="e in extractors" :key="e" :label="e" :value="e" />
         </el-select>
@@ -12,12 +24,9 @@
           <el-option label="未命中" :value="false" />
         </el-select>
         <el-input-number v-model="days" :min="1" :max="90" :step="1" controls-position="right" />
-        <el-button type="primary" :icon="Search" @click="reload">查询</el-button>
-        <el-button :icon="Refresh" @click="reload" :loading="loading">刷新</el-button>
-      </div>
-    </div>
+    </FilterBar>
 
-    <el-card shadow="never">
+    <el-card class="workbench-list-surface" shadow="never">
       <el-table :data="rows" v-loading="loading" stripe size="default">
         <el-table-column prop="createTime" label="时间" width="170" />
         <el-table-column prop="extractorName" label="提取器" width="110">
@@ -58,13 +67,16 @@
         style="margin-top: 12px; justify-content: flex-end"
       />
     </el-card>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { Refresh } from '@element-plus/icons-vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import FilterBar from '@/components/common/FilterBar.vue'
 
 import { listSlotExtractors, pageSlotExtractLogs } from '@/api/slotExtractor'
 import type { SlotExtractLogRow } from '@/types/slotExtractor'
@@ -119,12 +131,3 @@ onMounted(() => {
   reload()
 })
 </script>
-
-<style scoped lang="scss">
-.page-container { padding: 16px; }
-.page-header {
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
-  h2 { margin: 0; font-size: 18px; }
-}
-.header-actions { display: flex; gap: 8px; align-items: center; }
-</style>

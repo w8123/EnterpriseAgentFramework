@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 export interface ManualActionForm {
   pageKey: string
   pageName: string
@@ -24,7 +25,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <el-dialog
+  <AppDialog
     :model-value="visible"
     title="手工声明页面动作"
     width="720px"
@@ -66,5 +67,5 @@ const emit = defineEmits<{
       <el-button @click="emit('update:visible', false)">取消</el-button>
       <el-button type="primary" :loading="submitting" @click="emit('submit')">保存动作草案</el-button>
     </template>
-  </el-dialog>
+  </AppDialog>
 </template>

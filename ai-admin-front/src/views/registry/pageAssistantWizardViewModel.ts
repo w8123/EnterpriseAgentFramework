@@ -6,7 +6,7 @@ import type { ModelInstance } from '@/types/model'
 import type { WorkflowDraftGenerationResult } from '@/types/workflow'
 import { modelOptionLabel } from '@/views/registry/pageAssistantWizardUtils'
 
-export type WizardStepKey = 'connect' | 'page' | 'action' | 'draft' | 'confirm' | 'bind' | 'studio'
+export type WizardStepKey = 'connect' | 'page' | 'action' | 'draft' | 'confirm' | 'attach' | 'studio'
 export type AssistantGoal = 'query' | 'operate' | 'queryThenAction'
 export type DraftSource = 'NONE' | 'PLATFORM_GENERATED' | 'AI_CODING_RETURNED'
 
@@ -17,7 +17,7 @@ export interface WorkflowAiCodingDraftEvidence {
   workflowName?: string
 }
 
-export const WIZARD_STEP_KEYS: WizardStepKey[] = ['connect', 'page', 'action', 'draft', 'confirm', 'bind', 'studio']
+export const WIZARD_STEP_KEYS: WizardStepKey[] = ['connect', 'page', 'action', 'draft', 'confirm', 'attach', 'studio']
 
 export interface AssistantGoalOption {
   value: AssistantGoal
@@ -82,7 +82,7 @@ export interface WizardStepsInput {
   isDraftStepComplete: boolean
   isAiCodingWorkflowSelected: boolean
   createdWorkflowId: string
-  bindingResultPresent: boolean
+  attachmentResultPresent: boolean
   draftPreview: WorkflowDraftGenerationResult | null
 }
 
@@ -125,10 +125,10 @@ export function buildWizardSteps(input: WizardStepsInput) {
     },
     {
       index: 6,
-      key: 'bind' as const,
-      title: '挂载智能体',
-      desc: '绑定 PAGE_COPILOT',
-      done: input.bindingResultPresent,
+      key: 'attach' as const,
+      title: '启用页面副驾驶',
+      desc: '发布 Supervisor 工具目录',
+      done: input.attachmentResultPresent,
     },
     {
       index: 7,
@@ -148,18 +148,18 @@ export function resolveActiveWizardStep(input: {
   isDraftStepComplete: boolean
   isAiCodingWorkflowSelected: boolean
   createdWorkflowId: string
-  bindingResultPresent: boolean
+  attachmentResultPresent: boolean
 }): WizardStepKey {
   if (!input.pageRegistryLength && !input.pageActionsLength) return 'connect'
   if (!input.selectedPageKey) return 'page'
   if (!input.selectedActionsLength) return 'action'
   if (!input.isDraftStepComplete) return 'draft'
   if (input.isAiCodingWorkflowSelected) {
-    if (!input.bindingResultPresent) return 'bind'
+    if (!input.attachmentResultPresent) return 'attach'
     return 'studio'
   }
   if (!input.createdWorkflowId) return 'confirm'
-  if (!input.bindingResultPresent) return 'bind'
+  if (!input.attachmentResultPresent) return 'attach'
   return 'studio'
 }
 
@@ -171,7 +171,7 @@ export function isRequiredWizardStepComplete(
     draftSource: DraftSource
     createdWorkflowId: string
     draftPreview: WorkflowDraftGenerationResult | null
-    bindingResultPresent: boolean
+    attachmentResultPresent: boolean
   },
 ): boolean {
   if (key === 'page') return Boolean(input.selectedPageKey)
@@ -188,7 +188,7 @@ export function isRequiredWizardStepComplete(
     }
     return Boolean(input.createdWorkflowId)
   }
-  if (key === 'bind') return input.bindingResultPresent
+  if (key === 'attach') return input.attachmentResultPresent
   return true
 }
 

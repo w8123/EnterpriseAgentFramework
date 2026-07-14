@@ -1,16 +1,16 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { AgentEntry } from '@/types/agent'
-import { listAgentEntries } from '@/api/workflow'
+import type { Agent } from '@/types/agent'
+import { listAgents } from '@/api/workflow'
 
 export const useAgentStore = defineStore('agent', () => {
-  const agents = ref<AgentEntry[]>([])
+  const agents = ref<Agent[]>([])
   const loading = ref(false)
 
   async function fetchList() {
     loading.value = true
     try {
-      const { data } = await listAgentEntries()
+      const { data } = await listAgents()
       agents.value = Array.isArray(data) ? data : []
     } catch {
       agents.value = []

@@ -186,6 +186,32 @@ public class PlatformEmbedPublicController {
         }
     }
 
+    @PostMapping("/chat/sessions/{sessionId}/interactions/{interactionId}/submit")
+    public ResponseEntity<ApiResult<EmbedChatMessageResponse>> submitInteraction(
+            @PathVariable String sessionId,
+            @PathVariable String interactionId,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody EmbedInteractionSubmitRequest request) {
+        try {
+            PlatformEmbedTokenClaims claims = verifyBearer(authorization);
+            PlatformEmbedSessionEntity session = sessionService.requireActiveSession(sessionId, claims);
+            Map<String, Object> runtimeBody = runtimeContext(session, claims);
+            runtimeBody.put("interactionId", requiredRequestText(interactionId, "interactionId"));
+            runtimeBody.put("uiSubmit", Map.of(
+                    "action", firstText(request == null ? null : request.action(), "confirm"),
+                    "values", request == null || request.values() == null ? Map.of() : request.values()));
+            runtimeBody.put("intentHint", "EMBED_INTERACTION_RESUME");
+            return ResponseEntity.ok(ApiResult.ok(executeRuntimeMessage(session, runtimeBody)));
+        } catch (PlatformEmbedTokenException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResult.fail(401, ex.getMessage()));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ApiResult.fail(400, ex.getMessage()));
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResult.fail(403, ex.getMessage()));
+        }
+    }
+
     @GetMapping("/chat/sessions/{sessionId}/page-actions/pending")
     public ResponseEntity<ApiResult<List<PageActionDispatchRequest>>> listPendingPageActions(
             @PathVariable String sessionId,
@@ -267,25 +293,39 @@ public class PlatformEmbedPublicController {
         String message = request == null ? null : request.message();
         requireText(message, "message");
         chatEventService.recordUserMessage(session, message);
-        Map<String, Object> runtimeBody = new LinkedHashMap<>();
-        runtimeBody.put("agentDefinitionId", session.getAgentId());
-        runtimeBody.put("sessionId", sessionId);
-        runtimeBody.put("userId", claims.getExternalUserId());
+        Map<String, Object> runtimeBody = runtimeContext(session, claims);
         runtimeBody.put("message", message);
+        runtimeBody.put("intentHint", "EMBED_CHAT");
+        runtimeBody.put("entryType", "EMBED");
+        return executeRuntimeMessage(session, runtimeBody);
+    }
+
+    private Map<String, Object> runtimeContext(PlatformEmbedSessionEntity session,
+                                               PlatformEmbedTokenClaims claims) {
+        Map<String, Object> runtimeBody = new LinkedHashMap<>();
+        runtimeBody.put("agentId", session.getAgentId());
+        runtimeBody.put("sessionId", session.getSessionId());
+        runtimeBody.put("userId", claims.getExternalUserId());
         runtimeBody.put("projectCode", session.getProjectCode());
         runtimeBody.put("pageKey", session.getPageKey());
         runtimeBody.put("route", session.getRoute());
-        runtimeBody.put("intentHint", "EMBED_CHAT");
         runtimeBody.put("roles", claims.getRoles() == null ? List.of() : claims.getRoles());
-        runtimeBody.put("metadata", Map.of(
-                "tenantId", session.getTenantId(),
-                "appId", session.getAppId(),
-                "projectCode", session.getProjectCode(),
-                "externalUserId", session.getExternalUserId(),
-                "globalUserId", session.getGlobalUserId(),
-                "pageInstanceId", session.getPageInstanceId(),
-                "origin", session.getOrigin(),
-                "route", session.getRoute()));
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        putIfText(metadata, "tenantId", session.getTenantId());
+        putIfText(metadata, "appId", session.getAppId());
+        putIfText(metadata, "projectCode", session.getProjectCode());
+        putIfText(metadata, "externalUserId", session.getExternalUserId());
+        putIfText(metadata, "globalUserId", session.getGlobalUserId());
+        putIfText(metadata, "pageInstanceId", session.getPageInstanceId());
+        putIfText(metadata, "origin", session.getOrigin());
+        metadata.put("entryType", "EMBED");
+        putIfText(metadata, "route", session.getRoute());
+        runtimeBody.put("metadata", metadata);
+        return runtimeBody;
+    }
+
+    private EmbedChatMessageResponse executeRuntimeMessage(PlatformEmbedSessionEntity session,
+                                                            Map<String, Object> runtimeBody) {
         ResponseEntity<Map<String, Object>> runtimeResponse = runtimeProxyClient.executeAgent(runtimeBody);
         if (!runtimeResponse.getStatusCode().is2xxSuccessful() || runtimeResponse.getBody() == null) {
             throw new IllegalStateException("runtime agent execution failed");
@@ -295,7 +335,7 @@ public class PlatformEmbedPublicController {
         String answer = text(body.get("answer"));
         chatEventService.recordAssistantMessage(session, answer, body, text(metadata.get("traceId")));
         return new EmbedChatMessageResponse(
-                firstText(text(body.get("sessionId")), sessionId),
+                firstText(text(body.get("sessionId")), session.getSessionId()),
                 answer,
                 text(body.get("intentType")),
                 stringList(body.get("toolCalls")),
@@ -312,8 +352,10 @@ public class PlatformEmbedPublicController {
         putIfText(metadata, "appId", session.getAppId());
         putIfText(metadata, "projectCode", session.getProjectCode());
         putIfText(metadata, "agentId", session.getAgentId());
-        putIfText(metadata, "pageKey", session.getPageKey());
-        putIfText(metadata, "route", session.getRoute());
+        putIfText(metadata, "commandType", event.getCommandType());
+        putIfText(metadata, "parentRequestId", event.getParentRequestId());
+        putIfText(metadata, "pageKey", firstText(event.getTargetPageKey(), session.getPageKey()));
+        putIfText(metadata, "route", firstText(event.getTargetRoute(), session.getRoute()));
         return new PageActionDispatchRequest(
                 "page.action.requested",
                 "1.0",
@@ -360,7 +402,7 @@ public class PlatformEmbedPublicController {
     }
 
     private void ensureRuntimeAgentAvailable(String projectCode, String agentId) {
-        ResponseEntity<Object> response = runtimeProxyClient.listAgents(null, projectCode, null);
+        ResponseEntity<Object> response = runtimeProxyClient.listAgents(null, projectCode);
         if (!response.getStatusCode().is2xxSuccessful()) {
             throw new PlatformEmbedTokenException("agent not found: " + agentId);
         }
@@ -526,6 +568,10 @@ public class PlatformEmbedPublicController {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record EmbedChatMessageRequest(@JsonAlias({"content", "text"}) String message) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record EmbedInteractionSubmitRequest(String action, Map<String, Object> values) {
     }
 
     public record EmbedChatMessageResponse(

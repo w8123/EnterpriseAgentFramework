@@ -43,7 +43,7 @@ export const sidebarMenu: SidebarEntry[] = [
     label: '智能体与编排',
     icon: Cpu,
     children: [
-      { index: '/agent', label: '智能体入口' },
+      { index: '/agent', label: 'Agent 管理' },
       { index: '/workflows', label: 'Workflow 编排' },
     ],
   },
@@ -76,7 +76,7 @@ export const sidebarMenu: SidebarEntry[] = [
     label: '模型管理',
     icon: Coin,
     children: [
-      { index: '/model/instances', label: '模型实例' },
+      { index: '/model/instances', label: '模型中心' },
       { index: '/model/playground', label: '模型调试台' },
     ],
   },
@@ -112,15 +112,22 @@ export const sidebarMenu: SidebarEntry[] = [
     label: '治理运维',
     icon: Compass,
     children: [
-      { index: '/domain', label: '领域定义' },
       { index: '/runops', label: '运行中心' },
-      { index: '/registry/runtimes', label: 'Runtime 纳管' },
+    ],
+  },
+  { kind: 'group', label: '未完成' },
+  {
+    kind: 'item',
+    index: '/plugins',
+    label: '插件',
+    icon: SetUp,
+    children: [
       { index: '/context/governance', label: '上下文治理' },
+      { index: '/domain', label: '领域定义' },
       { index: '/domain/board', label: '归属画布' },
       { index: '/domain/classifier-test', label: '分类器测试' },
     ],
   },
-  { kind: 'group', label: '未完成' },
   {
     kind: 'item',
     index: '/capability-group',
@@ -177,7 +184,6 @@ export function resolveActiveMenu(path: string, metaActiveMenu?: unknown): strin
   if (path.startsWith('/skill')) return '/capability'
   if (path.startsWith('/tool')) return '/tool'
   if (path.startsWith('/registry/capability-sync')) return '/capability/review'
-  if (path.startsWith('/registry/runtimes')) return '/registry/runtimes'
   if (path.startsWith('/registry/projects')) return '/registry/projects'
   if (path.startsWith('/scan-project')) return '/registry/projects'
   if (path.startsWith('/runops')) return '/runops'
@@ -207,7 +213,7 @@ export function resolveOpenGroups(path: string): string[] {
   ) {
     open.push('/user-mgmt-group')
   }
-  if (path.startsWith('/domain') || path.startsWith('/runops') || path.startsWith('/context') || path.startsWith('/registry/runtimes')) {
+  if (path.startsWith('/domain') || path.startsWith('/runops') || path.startsWith('/context')) {
     open.push('/domain-group')
   }
   if (path.startsWith('/capability') || path.startsWith('/registry/capability-sync')) {

@@ -18,11 +18,15 @@ public class PlatformPageActionEventEntity {
     private String tenantId;
     private String appId;
     private String agentId;
+    private String commandType;
+    private String parentRequestId;
     private String nodeId;
     private String actionKey;
     private String title;
     private String argsJson;
     private String targetPageInstanceId;
+    private String targetPageKey;
+    private String targetRoute;
     private Boolean confirmRequired;
     private String status;
     private String resultJson;

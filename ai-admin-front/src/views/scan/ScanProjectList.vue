@@ -1,16 +1,21 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
-      <h2>项目接入 · API 接口目录</h2>
-      <div class="header-actions">
+    <PageHeader
+      variant="standard"
+      domain="project"
+      eyebrow="PROJECT ACCESS"
+      title="项目接入 · API 接口目录"
+      description="管理扫描项目、接口发现方式与能力目录同步状态。"
+    >
+      <template #actions>
         <el-button type="primary" @click="openCreateDialog">
           <el-icon><Plus /></el-icon>新建项目
         </el-button>
-        <el-button :loading="loading" @click="fetchProjects">
-          <el-icon><Refresh /></el-icon>刷新
-        </el-button>
-      </div>
-    </div>
+        <el-tooltip content="刷新" placement="bottom">
+          <el-button :icon="Refresh" :loading="loading" aria-label="刷新" @click="fetchProjects" />
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
     <el-card shadow="never">
       <el-table :data="projects" v-loading="loading" stripe>
@@ -67,7 +72,7 @@
       <el-empty v-if="!loading && projects.length === 0" description="还没有扫描项目，先创建一个吧" />
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="isEditMode ? `编辑项目 - ${form.name}` : '新建扫描项目'" width="720px">
+    <AppDialog v-model="dialogVisible" :title="isEditMode ? `编辑项目 - ${form.name}` : '新建扫描项目'" width="720px">
       <el-form label-width="120px">
         <el-form-item label="项目名称" required>
           <el-input v-model="form.name" placeholder="如 legacy-crm" />
@@ -141,7 +146,7 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
   </div>
 </template>
 
@@ -150,6 +155,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
+import AppDialog from '@/components/common/AppDialog.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import type { ScanProject, ScanProjectUpsertRequest } from '@/types/scanProject'
 import {
   createScanProject,
@@ -346,11 +353,6 @@ onMounted(fetchProjects)
 </script>
 
 <style scoped lang="scss">
-.header-actions {
-  display: flex;
-  gap: 8px;
-}
-
 .error-text {
   color: #64748b;
 }

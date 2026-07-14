@@ -39,28 +39,7 @@ public final class RegistryContracts {
     }
 
     public record InstanceHeartbeatResponse(
-            ProjectInstanceEntity instance,
-            RuntimeGovernancePolicy policy
-    ) {
-    }
-
-    public record RuntimeGovernancePolicy(
-            boolean disabled,
-            String status,
-            String minSdkVersion,
-            Boolean allowEmbeddedExecution,
-            Boolean allowHybridExecution,
-            String message
-    ) {
-    }
-
-    public record RuntimeGovernancePolicyUpdateRequest(
-            String instanceId,
-            Boolean disabled,
-            String minSdkVersion,
-            Boolean allowEmbeddedExecution,
-            Boolean allowHybridExecution,
-            String message
+            ProjectInstanceEntity instance
     ) {
     }
 

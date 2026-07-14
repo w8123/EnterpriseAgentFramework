@@ -165,7 +165,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   const input = inputForm.elements.namedItem('message') as HTMLInputElement
   const pendingPoller = window.setInterval(() => {
     void pollPendingPageActions().catch(reportError)
-  }, 5000)
+  }, 500)
   const unregisterPageCatalogChange = bridge.onActionDefinitionsChange(() => schedulePageCatalogRegistration())
 
   schedulePageCatalogRegistration(0)
@@ -654,7 +654,27 @@ async function handleUiRequest(
 ) {
   const request = uiRequest as Record<string, unknown> | undefined
   if (request) {
-    renderStructuredUi(messagesEl, request)
+    renderStructuredUi(messagesEl, request, async (action, values) => {
+      const interactionId = String(request.interactionId || '')
+      if (!interactionId) throw new Error('interactionId is required')
+      const response = await postJson<EafChatMessageResponse>(
+        `${apiBase}/chat/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(interactionId)}/submit`,
+        { action, values },
+        token,
+      )
+      if (response.answer) appendMessage(messagesEl, 'assistant', response.answer)
+      onEvent?.({ type: 'interaction.submitted', data: response })
+      await handleResponsePageActions(
+        response,
+        bridge,
+        messagesEl,
+        sessionId,
+        apiBase,
+        token,
+        handledPageActions,
+        onEvent,
+      )
+    })
   }
   const pageAction = request?.extension && typeof request.extension === 'object'
     ? (request.extension as Record<string, unknown>).pageActionRequest
@@ -851,16 +871,25 @@ function appendSystemMessage(target: HTMLElement, text: string) {
   target.appendChild(item)
 }
 
-function renderStructuredUi(target: HTMLElement, request: Record<string, unknown>) {
+function renderStructuredUi(
+  target: HTMLElement,
+  request: Record<string, unknown>,
+  onAction?: (action: string, values: Record<string, unknown>) => Promise<void>,
+) {
   const component = String(request.component || '').toLowerCase()
   if (!component || component === 'page_action') return
+  const interactionId = String(request.interactionId || '')
+  if (interactionId && Array.from(target.querySelectorAll<HTMLElement>('[data-interaction-id]'))
+    .some((element) => element.dataset.interactionId === interactionId)) return
   const item = document.createElement('div')
   item.className = `eaf-chat__ui eaf-chat__ui--${component}`
+  if (interactionId) item.dataset.interactionId = interactionId
   const title = document.createElement('div')
   title.className = 'eaf-chat__ui-title'
   title.textContent = String(request.title || component)
   item.appendChild(title)
   const data = request.data ?? request.summary
+  if (request.message) item.appendChild(textBlock(String(request.message)))
   if (component === 'table' && Array.isArray(data)) {
     item.appendChild(renderTable(data, request.schema))
   } else if (component === 'detail' || component === 'card') {
@@ -875,6 +904,42 @@ function renderStructuredUi(target: HTMLElement, request: Record<string, unknown
     item.appendChild(renderKeyValue(data))
   } else {
     item.appendChild(renderKeyValue(data))
+  }
+  if (component === 'confirm' && onAction) {
+    const actions = Array.isArray(request.actions) && request.actions.length > 0
+      ? request.actions
+      : [
+          { key: 'reject', label: '拒绝', tone: 'danger' },
+          { key: 'confirm', label: '确认', tone: 'primary' },
+        ]
+    const actionBar = document.createElement('div')
+    actionBar.className = 'eaf-chat__ui-actions'
+    actions.forEach((rawAction) => {
+      const action = rawAction && typeof rawAction === 'object'
+        ? rawAction as Record<string, unknown>
+        : { key: String(rawAction) }
+      const actionKey = String(action.key || '')
+      if (!actionKey) return
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = `eaf-chat__ui-button eaf-chat__ui-button--${String(action.tone || 'default')}`
+      button.textContent = String(action.label || actionKey)
+      button.addEventListener('click', () => {
+        const buttons = Array.from(actionBar.querySelectorAll<HTMLButtonElement>('button'))
+        buttons.forEach((candidate) => { candidate.disabled = true })
+        const confirmed = !['reject', 'cancel'].includes(actionKey.toLowerCase())
+        void onAction(actionKey, { confirm: confirmed })
+          .then(() => {
+            actionBar.replaceChildren(textBlock(confirmed ? '已确认' : '已拒绝'))
+          })
+          .catch((error) => {
+            buttons.forEach((candidate) => { candidate.disabled = false })
+            appendSystemMessage(target, error instanceof Error ? error.message : String(error))
+          })
+      })
+      actionBar.appendChild(button)
+    })
+    item.appendChild(actionBar)
   }
   target.appendChild(item)
 }

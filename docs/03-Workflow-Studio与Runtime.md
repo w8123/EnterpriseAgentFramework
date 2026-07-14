@@ -2,132 +2,99 @@
 
 ## 定位
 
-ReachAI 已将 **Agent 入口** 与 **Workflow 编排** 解耦：
+ReachAI 将 Agent、Workflow 和 Runtime 分成三个清晰层次：
 
-- **Agent**（`ai_agent`）：智能体身份、入口策略、模型/权限/记忆范围，以及到 Workflow 的路由绑定。
-- **Workflow**（`ai_workflow`）：可执行 `GraphSpec`、Studio 画布布局、运行时类型与发布版本。
+- **Agent**（`runtime_agent`）：稳定的智能体聚合根，承载身份、入口、项目范围和启用状态。
+- **Agent 配置版本**（`runtime_agent_config_version`）：承载 Supervisor runtime、模型、提示词、规划/调用上限、超时和策略配置；只有已发布版本可执行。
+- **Workflow**（`runtime_workflow`）：可复用的确定性业务能力，运行语义是 `GraphSpec`，画布布局是 `canvas_json`。
+- **Workflow-as-Tool**（`runtime_agent_workflow_tool`）：按 Agent 配置版本维护可被 Supervisor 选择的已发布 Workflow 白名单及工具契约。
 
-**Workflow Studio** 是唯一的画布编辑器；历史 Agent 画布入口与 `agent_definition` 主模型已退役。Runtime 执行链路为：`AgentEntry` → `ai_agent_workflow_binding` 解析 → 已发布 Workflow 的 `GraphSpec` → `AgentRuntimeAdapter`。
+主执行链路是：
 
-这一层的产品亮点不是单纯“画流程图”，而是把可视化画布、交互式节点、会话式调试台、AI 生成/修改工作流、SDK 图注册、发布校验和 Runtime 执行都收敛到 Workflow 的 Graph 层；Agent 侧只负责“谁在用、从哪进、绑哪条流程”。
+`Agent` → 已发布 Agent 配置版本 → AgentScope Supervisor → 规划/选工具 → 一个或多个已发布 Workflow `GraphSpec` → 汇总回答。
 
-## 当前已落地
+## Agent Supervisor
 
-### Agent 入口（`ai_agent`）
+当前 Supervisor 运行时位于 `reachai-runtime-service`，实现为 `AgentScopeSupervisorRuntimeAdapter`，依赖 AgentScope Java `2.0.0` 正式版的 `ReActAgent`。`RuntimeAgentExecutionService` 解析 Agent、当前 ACTIVE 配置版本和该版本的 Workflow 工具目录。
 
-`AgentEntryController` 提供 `/api/agents`：
+Supervisor 的职责边界：
 
-- 列表、详情、新建、更新、删除 Agent 入口。
-- 关键字段：`key_slug`、`agent_kind`（如 `PROJECT_ENTRY`、`PAGE_COPILOT`、`GLOBAL_EMBED`）、`system_prompt`、`model_instance_id`、`allowed_roles_json`、`entry_config_json`、`visibility`、`enabled`。
-- Agent 不再内嵌 `graph_spec_json` / `canvas_json`；编排语义全部在 Workflow 上维护。
+1. 理解用户真实意图并记录短计划。
+2. 从版本化白名单选择零个、一个或多个 Workflow。
+3. 将 Workflow 结果组合成最终回答。
+4. Workflow 失败后先记录修订计划，再有限重规划。
+5. 对事实查询优先选择 API/数据 Workflow；只有用户明确要求“打开、跳转、在页面上查询或操作”时，才允许选择页面动作 Workflow。
 
-管理端入口：`AgentList.vue`、`AgentEdit.vue`、`AgentDebug.vue`、`AgentWorkflowBindings.vue`。遗留路由 `agent/:id/studio`、`agent/:id/versions` 仅保留兼容跳转，不应再作为编辑入口。
+默认执行限制：
 
-### Workflow 编排（`ai_workflow`）
+| 配置 | 默认值 |
+| --- | ---: |
+| 最大计划步骤 | 6 |
+| 最大 Workflow 调用次数 | 4 |
+| 最大重规划次数 | 2 |
+| 总执行超时 | 300 秒 |
+| 单 Workflow 超时 | 180 秒 |
+| Page Bridge 超时 | 30 秒 |
 
-`WorkflowDefinitionController` 提供 `/api/workflows`：
+只读 Workflow 可按 `parallel_read_only` 允许并行工具调用；写操作使用串行锁执行。每次调用都经过 `SupervisorToolPolicyService` 并写 Guard/Trace：READ 自动执行，PAGE_ACTION 要求用户原始问题中存在明确页面意图，WRITE 进入一次性确认，不可逆操作默认拒绝。`DEV_ALLOW_ALL` 仅跳过研发期 tenant allowlist 与 permission-role 映射，不绕过风险边界。
 
-- 列表、详情、新建、更新、删除 Workflow。
-- `GET/PUT /api/workflows/{id}/studio` 读写 Workflow Studio 草稿（`graph_spec_json` + `canvas_json`）。
-- `/graph-node-types` 暴露 Studio 节点类型目录。
-- `/runtime-validation` 做运行时配置校验。
+## Agent 配置与 Workflow-as-Tool
 
-`ai_workflow` 关键字段：
+管理 API：
 
-- `graph_spec_json`：平台 `GraphSpec`，是运行时语义的核心。
-- `canvas_json`：Workflow Studio 画布布局，与运行语义分离。
-- `workflow_type`、`runtime_type`（主线 `LANGGRAPH4J`）、`default_model_instance_id`、`default_resource_config_json`。
-- `status`（`DRAFT` / `ACTIVE` 等）、`managed_by`（`MANUAL` / `SDK` / `AI_QUICK_ACCESS`）。
+- `GET /api/agents/{agentId}/config-versions`：查看配置版本。
+- `PUT /api/agents/{agentId}/config-versions/draft`：保存下一版草稿及其 Workflow 工具白名单。
+- `POST /api/agents/{agentId}/config-versions/{configVersionId}/publish`：发布并激活配置版本。
+- `POST /api/agents/{agentId}/config-versions/{configVersionId}/copy-to-draft`：把不可变历史快照复制为新草稿。
+- `GET /api/workflows/search`：为 Agent 工具选择器提供服务端分页搜索；关键词覆盖 Workflow 名称、keySlug、描述、项目编码和类型。
 
-管理端入口：`WorkflowList.vue`、`WorkflowStudio.vue`、`WorkflowVersions.vue`。节点配置面板主路径已收拢到 `ai-admin-front/src/views/workflow/studio-panels/`；新增配置面板和 import 一律使用该目录，不再依赖历史兼容目录。
+`POST/PUT /api/agents` 只维护 Agent 身份、接入形态、项目范围、角色和启用状态；提示词、模型、Supervisor 限制与工具目录不得通过身份 API 写入。执行请求统一使用 `agentId`，不保留 `agentDefinitionId` 别名。
 
-### Agent ↔ Workflow 绑定
+管理端 `AgentEdit.vue` 维护 Supervisor 配置和 Workflow 工具，并通过配置版本 API 发布新版本。Agent 主表保持稳定，提示词、模型、限制和工具集合通过配置版本演进，避免把每次配置调整写回身份主表。
 
-`AgentWorkflowBindingController` 提供 `/api/agents/{agentId}/workflow-bindings`：
+每个 Workflow 工具可以覆盖名称、描述、输入/输出 schema，并声明 `risk_level`、`permission_key`、`read_only`、启用状态和优先级。Runtime 只装载 ACTIVE Workflow 的 ACTIVE 版本快照；草稿或没有可执行版本的 Workflow 不会被暴露给 Supervisor。
 
-- 维护 `ai_agent_workflow_binding`：按 `DEFAULT`、`PAGE`、`ROUTE`、`ACTION`、`INTENT` 等类型把 Agent 入口路由到具体 Workflow。
-- `resolve-preview` 可在发布前预览解析结果。
+## Workflow Studio 与 GraphSpec
 
-嵌入式与网关运行时由 `EmbedWorkflowRuntimeService` 解析：`AgentEntry` → binding → `ai_workflow` + 活跃版本 → `WorkflowRuntimeGraphAdapter` 编译为可执行图。
+Workflow Studio 是唯一的画布编辑器：
 
-### 统一 Graph 层
+- `runtime_workflow.graph_spec_json` 保存运行语义。
+- `runtime_workflow.canvas_json` 只保存画布布局。
+- `WorkflowReleaseValidationService` 校验节点、边、入口、变量映射、Capability 引用和可达性。
+- 发布后的 `runtime_workflow_version.graph_spec_snapshot_json` 是 Supervisor 调用时的执行事实源。
+- AI 生成使用 `POST /api/workflows/studio/generate-draft`。
+- AI 局部编辑使用 `POST /api/workflows/studio/edit-draft`。
 
-统一 Graph 层的核心类型是 `GraphSpec`（后端当前以 `reachai-runtime-service` 主路径中的 `com.enterprise.ai.agent.graph.GraphSpec` 为准；前端 Workflow 图语义类型见 `ai-admin-front/src/types/workflow.ts`，与 `AgentGraphSpec` 名称并存）。
+新增节点或 Runtime 行为必须把可执行语义写入 Workflow `GraphSpec`，不能只扩展前端画布。Workflow 仍可独立调试、发布、回滚和回放；被 Agent 使用时，它是 Supervisor 的受控工具，而不是静态入口路由。
 
-当前落地点：
+## Page Bridge 跨路由协议
 
-- `ai_workflow.graph_spec_json` 保存运行时语义，`ai_workflow.canvas_json` 保存 Studio 画布布局。
-- `WorkflowReleaseValidationService` 把 `GraphSpec` 当作发布契约，校验节点、边、入口、LLM 节点、Capability 引用、条件边、变量映射和可达性。
-- `WorkflowVersionService` 发布时把 `GraphSpec` 快照写入 `ai_workflow_version`；RunOps/Trace 回放基于发布快照追溯执行路径。
-- `AiRegistryService` 支持 SDK 注册图能力，把 SDK 上报的图标准化为 Workflow `GraphSpec`，并生成 Studio 可展示的 `canvas_json`。
+页面动作由 `reachai-control-service` 拥有会话和命令状态，Runtime 通过 internal API 调用，不跨服务直写 Control 表。跨路由动作遵循同一会话内的完整协议：
 
-### Workflow Studio 画布
+1. 校验 ACTIVE embed session、项目和 Agent 身份一致。
+2. 如果目标页面不同，向当前 Page Bridge 投递 `NAVIGATE` 命令。
+3. 等待导航完成，并取得目标页面返回的 `pageInstanceId`；未返回时，等待目标 Page Bridge 的新注册实例。
+4. 将同一 session 更新到目标 `pageKey/pageInstanceId/route`。
+5. 再向目标页面实例投递真实 Page Action，并等待成功、失败或超时。
+6. `NAVIGATE`、`TARGET_READY`、`PAGE_ACTION` 分阶段进入 Page Action Event 与 Trace。
 
-`WorkflowStudio.vue` 承载画布编辑、调试、发布、Trace 回放、Capability 提取和评测入口。AI 与调试接口已迁移到 Workflow 命名空间：
+导航和动作共享一个截止时间，不会在目标页面未就绪时提前执行。业务页面必须在路由切换后重新注册 Page Bridge；导航结果若已明确提供新实例，Control 不会再无条件等待注册表查询。
 
-- AI 生成：`POST /api/workflows/studio/generate-draft`（`LlmWorkflowDraftGenerator`）。
-- AI 局部编辑：`POST /api/workflows/studio/edit-draft`（`WorkflowDraftEditService`）。
-- 节点调试：`POST /api/workflows/studio/debug-node`（`WorkflowStudioDebugController`）。
+## Trace 与会话
 
-AI 生成/修改仍走预览/应用模式，模型输出不直接覆盖当前画布。
+Supervisor 使用调用方 `sessionId` 保持多轮会话；未提供时生成运行时会话标识。Trace 至少记录：
 
-### 交互式节点与 UI 请求
+- Agent 与激活配置版本；
+- PLAN / REPLAN；
+- Workflow、版本、参数、耗时、结果与失败码；
+- Guard/Policy 决策；
+- Page Bridge 分阶段事件；
+- 最终答案和模型元数据。
 
-交互式节点是 Studio 与 Runtime 的重要能力：执行过程中可向用户请求补充、确认、选择或展示结构化结果。
+RunOps 和 Trace 应以这些记录解释“为什么选择这个 Workflow、调用了哪些 Workflow、为何重规划”。
 
-- 节点类型定义在 `ai-admin-front/src/types/studio.ts`；配置面板在 `studio-panels/InteractionConfigPanel.vue`。
-- 运行时统一 UI 协议是 `UiRequestPayload`（后端 `.../model/interactive/UiRequestPayload.java`，前端 `types/interaction.ts`）。
-- 前端渲染由 `InteractionRenderer.vue` 承载。
+## 兼容面
 
-`LangGraph4jRuntimeAdapter` 在执行 `INTERACTION` 节点时生成 `uiRequest`，支持 `COLLECT_INPUT`、`PRESENT_OUTPUT`、`USER_CHOICE`、`CONFIRM_ACTION`、`REVIEW_EDIT` 等形态，并可进入网关、嵌入式 Chat、RunOps/Trace 和 Studio 调试台。
-
-### 会话式工作流调试台
-
-调试台基于 `Executable Debug Session`，接口集中在 `/api/runtime/debug-sessions`：
-
-- `POST` 创建并启动调试会话。
-- `GET /{sessionId}` 恢复消息、节点轨迹、当前状态和 `uiRequest`。
-- `POST /{sessionId}/submit` 从挂起点继续执行。
-- `POST /{sessionId}/cancel` 取消会话。
-
-后端通过 `executable_debug_session` 持久化会话状态；WAITING 从挂起节点继续，而非整图重跑。
-
-### Runtime Adapter
-
-统一 Runtime 接口当前由 `reachai-runtime-service` 承载：
-
-- `AgentRuntimeAdapter` 是执行契约；`AgentRuntimeRequest` / `AgentRuntimeResult` 是统一请求/响应。
-- `LangGraph4jRuntimeAdapter` 是当前 Workflow 主线执行器，读取 binding 解析后的 Workflow `GraphSpec`。
-- `AgentScopeRuntimeAdapter` 仍服务自主智能体形态（`agent_kind` / `entry_config_json` 策略侧表达）。
-- `WorkflowRuntimeGraphAdapter` 把 Agent + Workflow + 版本快照编译为 Runtime 图上下文。
-- `CursorCodeAgentRuntimeAdapter`、`OpenAIAgentsRuntimeAdapter` 当前是不可用占位适配器。
-
-Studio、发布和 RunOps 不绑定单一 Agent 框架；差异由 Agent 入口策略、Workflow `runtime_type` 和 `GraphSpec` 表达。
-
-### 发布与版本
-
-`WorkflowVersionController` 提供 `/api/workflows/{workflowId}/versions`：
-
-- 版本列表、发布校验（`/validate`）、发布、回滚。
-
-`ai_workflow_version` 保存发布快照；Agent 侧不再维护独立版本表。遗留 `/api/agents/{agentId}/versions` 若仍存在，只服务历史数据，新功能应走 Workflow 版本。
-
-### Capability 挖掘与交互能力
-
-`CapabilityMiningController` 同时暴露 `/api/skill-mining` 和 `/api/capability-mining`。Capability 草稿可从 Trace 或 Workflow 画布生成。
-
-交互式能力由 `interaction_definition`、`interaction_session`、`interaction_event` 及 legacy `skill_interaction` 路径共同承载。
-
-### 工作流凭证
-
-`WorkflowCredentialController` 提供 `/api/agent/workflow-credentials`。`agent_workflow_credential` 表供 Studio 节点调用 HTTP、MCP 或外部系统时复用凭证引用。
-
-## 仍待补齐
-
-- Studio 节点类型已很多，仍需要更稳定的用户级操作手册和节点能力矩阵。
-- `CursorCodeAgentRuntimeAdapter`、`OpenAIAgentsRuntimeAdapter` 目前仍是扩展边界，不应写成已可用生产 Runtime。
-- Agent 列表/编辑页需更清晰呈现 binding 与 Workflow 关系；历史 Agent 画布兼容路由应逐步移除。
-- 评测、Capability 挖掘与 Workflow 发布的边界需继续统一口径。
-- 交互式 Capability 仍有部分 legacy `skill_interaction` 路径，文档、UI 和代码命名需要继续收敛。
-- AI 修改工作流还需继续强化预览优先、局部 patch、差异确认和失败回滚。
-- 后续新增节点和 Runtime 行为时，应继续把可执行语义写入 Workflow `GraphSpec`，不能只扩展 `canvas_json` 的前端表现。
+- `/api/runtime/agents/execute`、`/api/runtime/agents/execute/detailed` 及既有兼容 alias 进入 Supervisor 主路径。
+- Agent 历史画布入口不再恢复；GraphSpec、画布和 Workflow 版本始终归属 Workflow。
+- `LangGraph4jRuntimeAdapter` / `RuntimeGraphSpecExecutor` 负责单个 Workflow 执行；AgentScope 负责上层理解、规划、选择和有限重规划。

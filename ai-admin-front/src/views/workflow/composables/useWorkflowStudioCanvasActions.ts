@@ -42,10 +42,17 @@ export function normalizeNodeClassNames(value: CanvasNode['class']): string[] {
 export function stripTransientNodeClasses(node: CanvasNode): CanvasNode {
   const classes = normalizeNodeClassNames(node.class)
     .filter((name) => !TRANSIENT_NODE_CLASSES.includes(name as typeof TRANSIENT_NODE_CLASSES[number]))
-  return {
+  const serializable = {
     ...node,
     class: classes.length ? classes : undefined,
-  }
+  } as CanvasNode & Record<string, unknown>
+  delete serializable.selected
+  delete serializable.dragging
+  delete serializable.resizing
+  delete serializable.dimensions
+  delete serializable.computedPosition
+  delete serializable.handleBounds
+  return serializable
 }
 
 export function cloneCanvasNode(node: CanvasNode): CanvasNode {
@@ -106,9 +113,9 @@ export interface UseWorkflowStudioCanvasActionsDeps {
   canCopySelectedNode: ComputedRef<boolean>
   selectedNode: ComputedRef<CanvasNode | null>
   selectedEdge: ComputedRef<CanvasEdge | null>
-  workflowPath: ComputedRef<Array<{ fromNodeId?: string; toNodeId?: string; route?: string; condition?: string }>>
+  workflowExecutionPath: ComputedRef<Array<{ fromNodeId?: string; toNodeId?: string; route?: string; condition?: string }>>
   workflowHitEdgeKeys: ComputedRef<Set<string>>
-  workflowPathSourceNodeIds: ComputedRef<Set<string>>
+  workflowExecutionSourceNodeIds: ComputedRef<Set<string>>
   getNodeDebugState: (nodeId: string) => WorkflowNodeTraceState | null
   getLastRouteForNode: (nodeId: string) => string
   markCanvasDirty: () => void
@@ -132,9 +139,9 @@ export function useWorkflowStudioCanvasActions({
   canCopySelectedNode,
   selectedNode,
   selectedEdge,
-  workflowPath,
+  workflowExecutionPath,
   workflowHitEdgeKeys,
-  workflowPathSourceNodeIds,
+  workflowExecutionSourceNodeIds,
   getNodeDebugState,
   getLastRouteForNode,
   markCanvasDirty,
@@ -180,7 +187,7 @@ export function useWorkflowStudioCanvasActions({
     const key = edgeKey(edge.source, edge.target)
     if (workflowHitEdgeKeys.value.has(key)) {
       classes.push('edge-route-hit')
-    } else if (workflowPath.value.length && workflowPathSourceNodeIds.value.has(edge.source)) {
+    } else if (workflowExecutionPath.value.length && workflowExecutionSourceNodeIds.value.has(edge.source)) {
       classes.push('edge-route-miss')
     }
     if ((source?.data.kind === 'condition' || source?.data.kind === 'classifier' || source?.data.kind === 'approval' || source?.data.kind === 'loop') && route) {
@@ -354,16 +361,12 @@ export function useWorkflowStudioCanvasActions({
   return {
     normalizeNodeClassNames,
     stripTransientNodeClasses,
-    cloneCanvasNode,
-    isDynamicCondition,
-    connectionCondition,
     isRouteCondition,
     isSupportedCanvasCondition,
     previewEdgeLabel,
     edgeDisplayLabel,
     decorateWorkflowEdge,
     decorateWorkflowNode,
-    decorateWorkflowEdges,
     refreshWorkflowNodeClasses,
     canvasSnapshot,
     onConnect,

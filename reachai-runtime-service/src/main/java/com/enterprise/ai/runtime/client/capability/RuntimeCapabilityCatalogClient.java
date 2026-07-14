@@ -6,7 +6,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
-import java.util.List;
 import java.util.Map;
 
 @FeignClient(name = "reachai-capability-service", url = "${services.capability-service.url:http://localhost:18605}")
@@ -28,6 +27,4 @@ public interface RuntimeCapabilityCatalogClient {
     @GetMapping("/internal/capability/projects/by-id/{projectId}")
     Map<String, Object> getProjectById(@PathVariable("projectId") Long projectId);
 
-    @GetMapping("/internal/capability/runtime-instances")
-    List<Map<String, Object>> listRuntimeInstances();
 }

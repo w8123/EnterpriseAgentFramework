@@ -1,5 +1,5 @@
 <template>
-  <div class="embed-ops-page">
+  <div class="embed-ops-page project-workbench-page">
     <div class="page-hero">
       <div class="page-head">
         <div>
@@ -107,7 +107,7 @@
       <el-empty v-else description="暂无页面" :image-size="88" />
     </el-card>
 
-    <el-drawer
+    <AppDrawer
       v-model="actionDrawerVisible"
       size="640px"
       :title="selectedPage?.name || selectedPage?.pageKey || '页面动作'"
@@ -162,9 +162,9 @@
         </el-table-column>
       </el-table>
       <el-empty v-else description="当前页面暂无匹配动作" :image-size="88" />
-    </el-drawer>
+    </AppDrawer>
 
-    <el-dialog
+    <AppDialog
       v-model="referenceDialogVisible"
       title="页面动作 Workflow 引用"
       width="980px"
@@ -189,18 +189,10 @@
             <div class="reference-sub">{{ row.workflowKeySlug || row.workflowId || '-' }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="入口 Agent" min-width="180" show-overflow-tooltip>
+        <el-table-column label="来源 Agent" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ row.agentName || row.agentKeySlug || row.agentId || '-' }}</span>
             <div class="reference-sub">{{ row.agentKeySlug || row.agentId || '-' }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column label="绑定" width="150">
-          <template #default="{ row }">
-            <el-tag size="small" effect="plain">{{ row.bindingType || '-' }}</el-tag>
-            <el-tag class="ml-6" size="small" :type="row.bindingEnabled ? 'success' : 'info'" effect="plain">
-              {{ row.bindingEnabled ? '启用' : '未启用' }}
-            </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="节点" min-width="170" show-overflow-tooltip>
@@ -222,9 +214,9 @@
         </el-table-column>
       </el-table>
       <el-empty v-if="!referenceLoading && !actionReferences.length" description="暂无 Workflow 引用" :image-size="88" />
-    </el-dialog>
+    </AppDialog>
 
-    <el-drawer
+    <AppDrawer
       v-model="credentialDrawerVisible"
       title="嵌入授权策略"
       size="920px"
@@ -261,9 +253,9 @@
           </template>
         </el-table-column>
       </el-table>
-    </el-drawer>
+    </AppDrawer>
 
-    <el-dialog
+    <AppDialog
       v-model="credentialDialogVisible"
       title="编辑嵌入授权策略"
       width="720px"
@@ -287,9 +279,9 @@
         <el-button @click="credentialDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="credentialSaving" @click="saveCredentialPolicy">保存策略</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
-    <el-drawer
+    <AppDrawer
       v-model="rendererDrawerVisible"
       title="嵌入渲染器注册表"
       size="760px"
@@ -331,7 +323,7 @@
           </template>
         </el-table-column>
       </el-table>
-    </el-drawer>
+    </AppDrawer>
 
     <PageMemoryWorkbench
       v-model="pageMemoryWorkbenchVisible"
@@ -343,6 +335,8 @@
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
+import AppDrawer from '@/components/common/AppDrawer.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ChatDotRound, Clock, Cpu, Document, Grid, Lock, MagicStick, Refresh, Select } from '@element-plus/icons-vue'
@@ -640,7 +634,7 @@ async function reloadActionReferences() {
     const { data } = await listPageActionReferences(referenceAction.value.id)
     actionReferences.value = (data || []).map((item, index) => ({
       ...item,
-      referenceKey: `${item.workflowId || 'workflow'}-${item.bindingId || 'binding'}-${item.nodeId || index}`,
+      referenceKey: `${item.workflowId || 'workflow'}-${item.workflowVersionId || 'version'}-${item.nodeId || index}`,
     })) as PageActionReferenceView[]
   } catch (error) {
     actionReferences.value = []
@@ -735,10 +729,7 @@ onMounted(load)
 .embed-ops-page {
   display: flex;
   flex-direction: column;
-  gap: 14px;
   min-height: calc(100vh - 96px);
-  margin: -16px -18px -24px;
-  padding: 24px 32px 36px;
 }
 
 .page-hero {
@@ -1151,11 +1142,6 @@ onMounted(load)
 }
 
 @media (max-width: 980px) {
-  .embed-ops-page {
-    margin: -16px -18px -24px;
-    padding: 18px;
-  }
-
   .page-hero {
     padding: 16px;
   }
@@ -1188,26 +1174,11 @@ onMounted(load)
 }
 
 /* SDK wizard aligned skin: tech-violet glass for frontend page access management. */
-:global(.main-layout.registry-shell:has(.embed-ops-page) .main-content) {
-  background:
-    radial-gradient(circle at 78% 0%, rgb(var(--brand-selected-rgb) / 0.92), transparent 28%),
-    radial-gradient(circle at 20% 18%, rgb(var(--brand-selected-rgb) / 0.38), transparent 34%),
-    radial-gradient(circle at 72% 72%, rgb(var(--brand-hover-rgb) / 0.16), transparent 32%),
-    var(--brand-page-bg) !important;
-}
-
-:global(.main-layout.registry-shell:has(.embed-ops-page) .main-content::before) {
-  opacity: 0 !important;
-}
-
 /* 顶栏皮肤特例已删除：统一使用 MainLayout 的浅色玻璃顶栏（Phase 2.6）。 */
 
 .embed-ops-page {
   position: relative;
-  gap: 12px;
   min-height: calc(100vh - 72px);
-  margin: 0;
-  padding: var(--reachai-workbench-page-padding, var(--reachai-workbench-title-gap, 10px) 28px 16px);
   overflow: hidden;
   background:
     linear-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px),
@@ -1258,7 +1229,7 @@ onMounted(load)
 
 .page-hero {
   min-height: var(--reachai-workbench-title-height, 120px);
-  padding: var(--reachai-workbench-title-padding, 26px 28px);
+  padding: var(--layout-page-header-padding-block) var(--layout-page-header-padding-inline);
   overflow: hidden;
   border: 1px solid rgb(var(--brand-selected-rgb) / 0.66) !important;
   border-radius: var(--reachai-workbench-title-radius, 16px);
@@ -1459,11 +1430,6 @@ onMounted(load)
 }
 
 @media (max-width: 980px) {
-  .embed-ops-page {
-    margin: 0;
-    padding: 14px;
-  }
-
   .page-hero {
     min-height: auto;
   }

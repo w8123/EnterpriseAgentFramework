@@ -85,11 +85,22 @@ public class PlatformEmbedSessionService {
         }
         if (!Objects.equals(entity.getAgentId(), claims.getAgentId())
                 || !Objects.equals(entity.getProjectCode(), claims.getProjectCode())
-                || !Objects.equals(entity.getExternalUserId(), claims.getExternalUserId())
-                || !Objects.equals(entity.getPageInstanceId(), claims.getPageInstanceId())) {
+                || !Objects.equals(entity.getExternalUserId(), claims.getExternalUserId())) {
             throw new PlatformEmbedTokenException("embed chat session does not match embed token");
         }
         return entity;
+    }
+
+    public void updateBridge(PlatformEmbedSessionEntity session,
+                             String pageKey,
+                             String pageInstanceId,
+                             String route) {
+        if (session == null) return;
+        if (StringUtils.hasText(pageKey)) session.setPageKey(pageKey.trim());
+        if (StringUtils.hasText(pageInstanceId)) session.setPageInstanceId(pageInstanceId.trim());
+        if (StringUtils.hasText(route)) session.setRoute(route.trim());
+        session.setUpdatedAt(LocalDateTime.now());
+        mapper.updateById(session);
     }
 
     private String writeJson(Object value) {

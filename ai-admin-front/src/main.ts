@@ -9,6 +9,7 @@ import 'element-plus/theme-chalk/dark/css-vars.css'
 import App from './App.vue'
 import router from './router'
 import './styles/theme.scss'
+import './styles/_project-list.scss'
 import './styles/index.scss'
 
 const app = createApp(App)

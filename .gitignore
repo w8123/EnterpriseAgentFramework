@@ -67,4 +67,15 @@ Thumbs.db
 **/application-secret.yml
 ai-admin-front/nul
 
+# ---- Local UI prototypes ----
+prototypes/
+
+# ---- Local test and QA output ----
+output/
+
+# ---- Root-level local design QA artifacts ----
+/agent-debug-*.png
+/ai-coding-access-overview.png
+/design-qa.md
+
 OtherOutstandingProjects/

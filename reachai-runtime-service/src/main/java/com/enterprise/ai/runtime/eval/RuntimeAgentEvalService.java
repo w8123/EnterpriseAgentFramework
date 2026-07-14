@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.eval;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -9,15 +10,18 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class RuntimeAgentEvalService {
 
-    private static final String RUNTIME_NOT_ATTACHED = "EVAL_RUNTIME_NOT_ATTACHED";
     private static final TypeReference<List<Map<String, Object>>> CASE_LIST_TYPE = new TypeReference<>() {
     };
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
@@ -28,6 +32,7 @@ public class RuntimeAgentEvalService {
     private final RuntimeAgentEvalRunMapper runMapper;
     private final RuntimeAgentEvalCaseResultMapper resultMapper;
     private final ObjectMapper objectMapper;
+    private final RuntimeAgentExecutionService executionService;
 
     public List<RuntimeAgentEvalDatasetView> listDatasets(String agentId) {
         return datasetMapper.selectList(Wrappers.<RuntimeAgentEvalDatasetEntity>lambdaQuery()
@@ -72,7 +77,6 @@ public class RuntimeAgentEvalService {
                 .toList();
     }
 
-    @Transactional
     public RuntimeAgentEvalRunView startRun(Map<String, Object> request) {
         Long datasetId = requiredLong(request, "datasetId");
         RuntimeAgentEvalDatasetEntity dataset = requiredDataset(datasetId);
@@ -81,9 +85,13 @@ public class RuntimeAgentEvalService {
                 .eq(RuntimeAgentEvalCaseEntity::getEnabled, true)
                 .orderByAsc(RuntimeAgentEvalCaseEntity::getId));
         int repeatCount = Math.max(1, intValue(request.get("repeatCount"), 1));
+        String agentId = defaultText(request, "agentId", dataset.getAgentId());
+        if (!StringUtils.hasText(agentId)) {
+            throw new IllegalArgumentException("Agent eval agentId is required");
+        }
         RuntimeAgentEvalRunEntity run = new RuntimeAgentEvalRunEntity();
         run.setDatasetId(datasetId);
-        run.setAgentId(defaultText(request, "agentId", dataset.getAgentId()));
+        run.setAgentId(agentId);
         run.setAgentName(defaultText(request, "agentName", dataset.getAgentName()));
         run.setRunName(defaultText(request, "runName", dataset.getName()));
         run.setRepeatCount(repeatCount);
@@ -95,15 +103,19 @@ public class RuntimeAgentEvalService {
         run.setCreateTime(now);
         runMapper.insert(run);
 
+        List<RuntimeAgentEvalCaseResultEntity> executed = new ArrayList<>();
+        Map<String, Object> runtimeContext = mapValue(request == null ? null
+                : firstValue(request, "runtimeContext", "graphRuntimeContext"));
         for (int round = 1; round <= repeatCount; round++) {
             for (RuntimeAgentEvalCaseEntity evalCase : cases) {
-                resultMapper.insert(notAttachedResult(run, evalCase, round));
+                RuntimeAgentEvalCaseResultEntity result = executeCase(run, evalCase, round, runtimeContext);
+                resultMapper.insert(result);
+                executed.add(result);
             }
         }
 
-        int total = cases.size() * repeatCount;
-        Map<String, Object> summary = summary(cases.size(), repeatCount, total);
-        Map<String, Object> suggestion = suggestion(total);
+        Map<String, Object> summary = summary(cases.size(), repeatCount, executed);
+        Map<String, Object> suggestion = suggestion(executed);
         run.setStatus("COMPLETED");
         run.setSummaryJson(toJson(summary));
         run.setSuggestionJson(toJson(suggestion));
@@ -159,55 +171,192 @@ public class RuntimeAgentEvalService {
         return dataset;
     }
 
-    private RuntimeAgentEvalCaseResultEntity notAttachedResult(RuntimeAgentEvalRunEntity run,
-                                                               RuntimeAgentEvalCaseEntity evalCase,
-                                                               int round) {
+    private RuntimeAgentEvalCaseResultEntity executeCase(RuntimeAgentEvalRunEntity run,
+                                                         RuntimeAgentEvalCaseEntity evalCase,
+                                                         int round,
+                                                         Map<String, Object> runtimeContext) {
         RuntimeAgentEvalCaseResultEntity result = new RuntimeAgentEvalCaseResultEntity();
         result.setRunId(run.getId());
         result.setDatasetId(run.getDatasetId());
         result.setCaseId(evalCase.getId());
         result.setCaseNo(evalCase.getCaseNo());
         result.setRoundNo(round);
-        result.setStatus("COMPLETED");
-        result.setRuntimeSuccess(false);
-        result.setAssertionPassed(false);
-        result.setScore(0.0);
-        result.setElapsedMs(0);
-        result.setErrorCode(RUNTIME_NOT_ATTACHED);
-        result.setErrorMessage("Runtime eval execution is not attached yet");
-        result.setStepResultsJson(toJson(Map.of()));
-        result.setJudgeResultJson(toJson(Map.of("reason", RUNTIME_NOT_ATTACHED)));
         result.setCreateTime(LocalDateTime.now());
+        long started = System.nanoTime();
+        try {
+            Map<String, Object> input = new LinkedHashMap<>(runtimeContext);
+            input.putAll(readMap(evalCase.getInputParamsJson()));
+            input.put("agentId", run.getAgentId());
+            input.put("message", firstText(evalCase.getMessage(), text(input, "message"), ""));
+            input.putIfAbsent("sessionId", "eval-" + run.getId() + "-" + evalCase.getId() + "-" + round);
+            input.putIfAbsent("userId", "agent-eval");
+            input.put("intentHint", "AGENT_EVAL");
+            input.put("entryType", "EVAL");
+            input.put("evalRunId", run.getId());
+            input.put("evalCaseId", evalCase.getId());
+            input.put("evalMode", true);
+            Map<String, Object> response = executionService.execute(input, true);
+            boolean runtimeSuccess = Boolean.TRUE.equals(response.get("success"));
+            String answer = text(response, "answer");
+            Map<String, Object> metadata = mapValue(response.get("metadata"));
+            Map<String, Object> expected = readMap(evalCase.getExpectedJson());
+            AssertionResult assertion = assertResponse(response, expected, runtimeSuccess);
+
+            result.setStatus("COMPLETED");
+            result.setRuntimeSuccess(runtimeSuccess);
+            result.setAssertionPassed(assertion.passed());
+            result.setScore(assertion.score());
+            result.setAnswer(answer);
+            result.setTraceId(text(metadata, "traceId"));
+            result.setStepResultsJson(toJson(Map.of(
+                    "steps", listValue(response.get("steps")),
+                    "metadata", metadata,
+                    "uiRequest", response.get("uiRequest") == null ? Map.of() : response.get("uiRequest"))));
+            result.setJudgeResultJson(toJson(Map.of(
+                    "expected", expected,
+                    "assertions", assertion.details(),
+                    "passed", assertion.passed(),
+                    "score", assertion.score())));
+            if (!runtimeSuccess) {
+                result.setErrorCode(firstText(text(metadata, "code"), "EVAL_RUNTIME_FAILED"));
+                result.setErrorMessage(firstText(answer, "Agent runtime execution failed"));
+            } else if (!assertion.passed()) {
+                result.setErrorCode("EVAL_ASSERTION_FAILED");
+                result.setErrorMessage(assertion.failedSummary());
+            }
+        } catch (Exception ex) {
+            result.setStatus("COMPLETED");
+            result.setRuntimeSuccess(false);
+            result.setAssertionPassed(false);
+            result.setScore(0.0);
+            result.setErrorCode("EVAL_EXECUTION_EXCEPTION");
+            result.setErrorMessage(firstText(ex.getMessage(), ex.getClass().getSimpleName()));
+            result.setStepResultsJson(toJson(Map.of()));
+            result.setJudgeResultJson(toJson(Map.of("reason", result.getErrorMessage())));
+        }
+        result.setElapsedMs((int) Math.min(Integer.MAX_VALUE,
+                Math.max(0, (System.nanoTime() - started) / 1_000_000L)));
         return result;
     }
 
-    private Map<String, Object> summary(int caseCount, int repeatCount, int total) {
+    private AssertionResult assertResponse(Map<String, Object> response,
+                                           Map<String, Object> expected,
+                                           boolean runtimeSuccess) {
+        List<Map<String, Object>> checks = new ArrayList<>();
+        boolean expectedSuccess = booleanValue(expected.get("success"), true);
+        check(checks, "success", expectedSuccess, runtimeSuccess);
+
+        String answer = firstText(text(response, "answer"), "");
+        for (String fragment : stringList(expected.get("answerContains"))) {
+            check(checks, "answerContains:" + fragment, true, answer.contains(fragment));
+        }
+        for (String fragment : stringList(expected.get("answerNotContains"))) {
+            check(checks, "answerNotContains:" + fragment, true, !answer.contains(fragment));
+        }
+
+        Map<String, Object> metadata = mapValue(response.get("metadata"));
+        numericMinimum(checks, expected, metadata, "minWorkflowCalls", "workflowCallCount");
+        numericMaximum(checks, expected, metadata, "maxWorkflowCalls", "workflowCallCount");
+        numericMinimum(checks, expected, metadata, "minPlanCount", "planCount");
+        numericMaximum(checks, expected, metadata, "maxPlanCount", "planCount");
+        numericMinimum(checks, expected, metadata, "minReplanCount", "replanCount");
+        numericMaximum(checks, expected, metadata, "maxReplanCount", "replanCount");
+        if (expected.containsKey("code")) {
+            check(checks, "code", text(expected, "code"), text(metadata, "code"));
+        }
+        if (expected.containsKey("interactionPending")) {
+            check(checks, "interactionPending", booleanValue(expected.get("interactionPending"), false),
+                    Boolean.TRUE.equals(metadata.get("interactionPending")));
+        }
+
+        List<Map<String, Object>> steps = mapList(response.get("steps"));
+        List<String> calledTools = steps.stream()
+                .filter(step -> "workflow".equalsIgnoreCase(text(step, "name")))
+                .map(step -> text(mapValue(step.get("detail")), "toolName"))
+                .filter(StringUtils::hasText)
+                .toList();
+        for (String tool : stringList(expected.get("calledTools"))) {
+            check(checks, "calledTool:" + tool, true, calledTools.contains(tool));
+        }
+        for (String tool : stringList(expected.get("forbiddenTools"))) {
+            check(checks, "forbiddenTool:" + tool, true, !calledTools.contains(tool));
+        }
+        if (expected.containsKey("policyDecision")) {
+            String expectedDecision = text(expected, "policyDecision");
+            boolean found = steps.stream()
+                    .filter(step -> "policy".equalsIgnoreCase(text(step, "name")))
+                    .map(step -> text(mapValue(step.get("detail")), "decision"))
+                    .anyMatch(expectedDecision::equalsIgnoreCase);
+            check(checks, "policyDecision", true, found);
+        }
+        if (expected.containsKey("uiRequestComponent")) {
+            check(checks, "uiRequestComponent", text(expected, "uiRequestComponent"),
+                    text(mapValue(response.get("uiRequest")), "component"));
+        }
+        Map<String, Object> metadataEquals = mapValue(expected.get("metadataEquals"));
+        metadataEquals.forEach((key, value) -> check(checks, "metadata." + key, value, metadata.get(key)));
+
+        int passed = (int) checks.stream().filter(item -> Boolean.TRUE.equals(item.get("passed"))).count();
+        double score = checks.isEmpty() ? (runtimeSuccess ? 1.0 : 0.0) : (double) passed / checks.size();
+        boolean allPassed = passed == checks.size();
+        String failedSummary = checks.stream()
+                .filter(item -> !Boolean.TRUE.equals(item.get("passed")))
+                .map(item -> String.valueOf(item.get("name")))
+                .reduce((left, right) -> left + ", " + right)
+                .orElse(null);
+        return new AssertionResult(allPassed, score, List.copyOf(checks), failedSummary);
+    }
+
+    private Map<String, Object> summary(int caseCount,
+                                        int repeatCount,
+                                        List<RuntimeAgentEvalCaseResultEntity> results) {
+        int total = results.size();
+        int runtimeSuccessCount = (int) results.stream().filter(item -> Boolean.TRUE.equals(item.getRuntimeSuccess())).count();
+        int passedCount = (int) results.stream().filter(item -> Boolean.TRUE.equals(item.getAssertionPassed())).count();
+        List<Integer> latencies = results.stream().map(RuntimeAgentEvalCaseResultEntity::getElapsedMs)
+                .filter(java.util.Objects::nonNull).sorted().toList();
+        Map<String, Integer> failures = new LinkedHashMap<>();
+        results.stream().filter(item -> !Boolean.TRUE.equals(item.getAssertionPassed()))
+                .forEach(item -> failures.merge(firstText(item.getErrorCode(), "EVAL_ASSERTION_FAILED"), 1, Integer::sum));
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("caseCount", caseCount);
         summary.put("repeatCount", repeatCount);
         summary.put("totalExecutions", total);
-        summary.put("runtimeSuccessCount", 0);
-        summary.put("passedExecutions", 0);
-        summary.put("runtimeSuccessRate", 0);
-        summary.put("accuracyRate", 0);
-        summary.put("avgScore", 0);
-        summary.put("p50LatencyMs", 0);
-        summary.put("p95LatencyMs", 0);
-        summary.put("biasCount", 0);
-        summary.put("failedNodeCounts", total == 0 ? Map.of() : Map.of(RUNTIME_NOT_ATTACHED, total));
+        summary.put("runtimeSuccessCount", runtimeSuccessCount);
+        summary.put("passedExecutions", passedCount);
+        summary.put("runtimeSuccessRate", ratio(runtimeSuccessCount, total));
+        summary.put("accuracyRate", ratio(passedCount, total));
+        summary.put("avgScore", results.stream().map(RuntimeAgentEvalCaseResultEntity::getScore)
+                .filter(java.util.Objects::nonNull).mapToDouble(Double::doubleValue).average().orElse(0));
+        summary.put("p50LatencyMs", percentile(latencies, 0.50));
+        summary.put("p95LatencyMs", percentile(latencies, 0.95));
+        summary.put("biasCount", results.stream().filter(item -> Boolean.TRUE.equals(item.getRuntimeSuccess())
+                && !Boolean.TRUE.equals(item.getAssertionPassed())).count());
+        summary.put("failedNodeCounts", failures);
         return summary;
     }
 
-    private Map<String, Object> suggestion(int total) {
-        return Map.of(
-                "summary", total == 0
-                        ? "No enabled eval cases were found."
-                        : "Runtime eval execution is not attached yet; run records and case results were created.",
-                "items", total == 0 ? List.of() : List.of(Map.of(
-                        "nodeId", "runtime",
-                        "severity", "MEDIUM",
-                        "reason", RUNTIME_NOT_ATTACHED,
-                        "recommendation", "Attach Agent Eval to the Runtime GraphSpec executor before using pass rates.")));
+    private Map<String, Object> suggestion(List<RuntimeAgentEvalCaseResultEntity> results) {
+        Map<String, Long> failureCounts = results.stream()
+                .filter(item -> !Boolean.TRUE.equals(item.getAssertionPassed()))
+                .collect(java.util.stream.Collectors.groupingBy(
+                        item -> firstText(item.getErrorCode(), "EVAL_ASSERTION_FAILED"),
+                        LinkedHashMap::new, java.util.stream.Collectors.counting()));
+        List<Map<String, Object>> items = failureCounts.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue(Comparator.reverseOrder()))
+                .map(entry -> Map.<String, Object>of(
+                        "nodeId", "supervisor",
+                        "severity", entry.getValue() > 1 ? "HIGH" : "MEDIUM",
+                        "reason", entry.getKey() + " x " + entry.getValue(),
+                        "recommendation", recommendation(entry.getKey())))
+                .toList();
+        String text = results.isEmpty()
+                ? "No enabled eval cases were found."
+                : items.isEmpty()
+                ? "All Agent runtime eval assertions passed."
+                : failureCounts.values().stream().mapToLong(Long::longValue).sum()
+                        + " Agent eval executions require attention.";
+        return Map.of("summary", text, "items", items);
     }
 
     private int countCases(Long datasetId) {
@@ -288,11 +437,121 @@ public class RuntimeAgentEvalService {
         return fallback;
     }
 
+    private void numericMinimum(List<Map<String, Object>> checks,
+                                Map<String, Object> expected,
+                                Map<String, Object> actual,
+                                String expectedKey,
+                                String actualKey) {
+        if (!expected.containsKey(expectedKey)) return;
+        int threshold = intValue(expected.get(expectedKey), 0);
+        int value = intValue(actual.get(actualKey), 0);
+        check(checks, expectedKey, true, value >= threshold);
+    }
+
+    private void numericMaximum(List<Map<String, Object>> checks,
+                                Map<String, Object> expected,
+                                Map<String, Object> actual,
+                                String expectedKey,
+                                String actualKey) {
+        if (!expected.containsKey(expectedKey)) return;
+        int threshold = intValue(expected.get(expectedKey), 0);
+        int value = intValue(actual.get(actualKey), 0);
+        check(checks, expectedKey, true, value <= threshold);
+    }
+
+    private void check(List<Map<String, Object>> checks, String name, Object expected, Object actual) {
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("name", name);
+        detail.put("expected", expected);
+        detail.put("actual", actual);
+        detail.put("passed", java.util.Objects.equals(expected, actual));
+        checks.add(detail);
+    }
+
+    private boolean booleanValue(Object value, boolean fallback) {
+        if (value instanceof Boolean bool) return bool;
+        if (value != null && StringUtils.hasText(String.valueOf(value))) {
+            return Boolean.parseBoolean(String.valueOf(value));
+        }
+        return fallback;
+    }
+
+    private double ratio(int value, int total) {
+        return total == 0 ? 0 : (double) value / total;
+    }
+
+    private int percentile(List<Integer> sorted, double percentile) {
+        if (sorted.isEmpty()) return 0;
+        int index = Math.max(0, (int) Math.ceil(percentile * sorted.size()) - 1);
+        return sorted.get(Math.min(index, sorted.size() - 1));
+    }
+
+    private String recommendation(String errorCode) {
+        if (errorCode == null) return "Inspect the Agent trace and assertion details.";
+        String normalized = errorCode.toUpperCase(Locale.ROOT);
+        if (normalized.contains("POLICY") || normalized.contains("FORBIDDEN") || normalized.contains("DENY")) {
+            return "Review project, tenant, roles, permissionKey, risk level, and active Agent allowlist.";
+        }
+        if (normalized.contains("ASSERTION")) {
+            return "Compare selected Workflow tools, plan/replan counts, UI request, and final answer with the expected contract.";
+        }
+        if (normalized.contains("TIMEOUT")) {
+            return "Inspect Workflow latency and the Agent total/workflow/page-bridge timeout budgets.";
+        }
+        return "Open the linked trace and inspect the failed Supervisor or Workflow step.";
+    }
+
+    private Map<String, Object> readMap(String json) {
+        if (!StringUtils.hasText(json)) return new LinkedHashMap<>();
+        try {
+            return new LinkedHashMap<>(objectMapper.readValue(json, MAP_TYPE));
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Invalid Agent Eval case JSON", ex);
+        }
+    }
+
+    private Map<String, Object> mapValue(Object value) {
+        if (!(value instanceof Map<?, ?>)) return new LinkedHashMap<>();
+        return new LinkedHashMap<>(objectMapper.convertValue(value, MAP_TYPE));
+    }
+
+    private List<Map<String, Object>> mapList(Object value) {
+        if (!(value instanceof Collection<?> collection)) return List.of();
+        return collection.stream().map(this::mapValue).toList();
+    }
+
+    private List<?> listValue(Object value) {
+        return value instanceof List<?> list ? list : List.of();
+    }
+
+    private List<String> stringList(Object value) {
+        if (value == null) return List.of();
+        Collection<?> values = value instanceof Collection<?> collection ? collection : List.of(value);
+        return values.stream().filter(java.util.Objects::nonNull).map(String::valueOf)
+                .filter(StringUtils::hasText).map(String::trim).toList();
+    }
+
+    private Object firstValue(Map<String, Object> source, String first, String second) {
+        Object value = source == null ? null : source.get(first);
+        return value == null && source != null ? source.get(second) : value;
+    }
+
+    private String firstText(String... values) {
+        for (String value : values) if (StringUtils.hasText(value)) return value.trim();
+        return null;
+    }
+
     private String toJson(Object value) {
         try {
-            return objectMapper.writeValueAsString(value == null ? Map.of() : objectMapper.convertValue(value, MAP_TYPE));
+            return objectMapper.writeValueAsString(value == null ? Map.of() : value);
         } catch (Exception ex) {
             throw new IllegalArgumentException("Invalid Agent Eval JSON payload", ex);
         }
+    }
+
+    private record AssertionResult(boolean passed,
+                                   double score,
+                                   List<Map<String, Object>> details,
+                                   String failedSummary) {
     }
 }

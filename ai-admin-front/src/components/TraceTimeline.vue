@@ -119,7 +119,7 @@ const groupedNodes = computed<NodeGroup[]>(() => {
   const groups: NodeGroup[] = []
   const spanGroupIndex = new Map<string, NodeGroup>()
   for (const node of props.nodes) {
-    if (node.source === 'agent_trace_span') {
+    if (node.source === 'runtime_trace_span') {
       if (node.parentSpanId && spanGroupIndex.has(node.parentSpanId)) {
         spanGroupIndex.get(node.parentSpanId)!.children.push(node)
         continue

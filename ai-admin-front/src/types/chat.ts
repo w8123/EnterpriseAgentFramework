@@ -7,7 +7,9 @@ export interface ChatRequest {
   userId?: string
   intentHint?: string
   /** 调试台：直执该 agent 定义，跳过意图路由 */
-  agentDefinitionId?: string
+  agentId?: string
+  /** RunOps 根运行入口 */
+  entryType?: 'DEBUG' | 'EMBED' | 'GATEWAY' | 'API' | 'EVAL' | 'REPLAY' | 'WORKFLOW_STUDIO' | 'A2A'
   roles?: string[]
   /** 恢复挂起的交互式表单能力（Interactive Form Capability） */
   interactionId?: string

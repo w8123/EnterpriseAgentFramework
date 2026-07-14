@@ -1,7 +1,5 @@
-import type { AgentGraphSpec } from './agent'
-
-/** Workflow 评测运行时上下文（对应后端 GraphRuntimeContext） */
-export interface WorkflowEvalRuntimeContext {
+/** Agent 评测运行上下文；执行已发布的 Supervisor 配置。 */
+export interface AgentEvalRuntimeContext {
   sourceType?: string
   sourceId?: string
   sourceKeySlug?: string
@@ -61,9 +59,7 @@ export interface AgentEvalRunRequest {
   agentName?: string
   runName?: string
   repeatCount: number
-  /** Workflow GraphSpec（评测执行语义，不再传 AgentDefinition） */
-  graphSpec: AgentGraphSpec
-  graphRuntimeContext: WorkflowEvalRuntimeContext
+  runtimeContext?: AgentEvalRuntimeContext
   canvasSnapshot?: Record<string, unknown>
 }
 

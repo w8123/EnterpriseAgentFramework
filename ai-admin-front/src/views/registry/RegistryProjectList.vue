@@ -1,47 +1,46 @@
 <template>
-  <div
-    class="registry-project-page"
-    :class="{ 'is-dark': theme === 'dark', 'is-compact': isProjectHeaderCompact }"
-    @wheel.passive="handleProjectWheel"
-  >
-    <div class="page-hero">
-      <div class="hero-copy">
-        <span class="hero-accent" aria-hidden="true" />
-        <div class="hero-text">
-          <h1>项目管理</h1>
-          <p>统一管理 AI 项目的注册、SDK 接入、API 接入与能力扫描。</p>
-          <div class="hero-tags" aria-label="项目管理状态">
-            <span class="tag-brand">项目中心</span>
-            <span class="tag-success">当前 {{ projects.length }} 个项目</span>
-            <span class="tag-info">SDK Starter 可用</span>
-          </div>
-        </div>
-      </div>
-      <div class="hero-actions">
-        <el-button type="primary" size="large" class="primary-action" :icon="Plus" @click="openAccessDialog('sdk')">
-          接入项目
-        </el-button>
-      </div>
-    </div>
+  <div class="registry-project-page project-workbench-page workbench-page--list" :class="{ 'is-dark': theme === 'dark' }">
+    <CollapsibleHeaderRegion :collapsed="isProjectHeaderCollapsed">
+      <PageHeader
+        variant="overview"
+        domain="project"
+        title="项目管理"
+        description="统一管理 AI 项目的注册、SDK 接入、API 接入与能力扫描。"
+        :collapsed="isProjectHeaderCollapsed"
+      >
+        <template #tags>
+          <el-tag effect="light">项目中心</el-tag>
+          <el-tag type="success" effect="light">当前 {{ projects.length }} 个项目</el-tag>
+          <el-tag type="info" effect="light">SDK Starter 可用</el-tag>
+        </template>
+        <template #actions>
+          <el-button type="primary" :icon="Plus" @click="openAccessDialog('sdk')">
+            接入项目
+          </el-button>
+        </template>
+      </PageHeader>
 
-    <div class="metric-strip">
-      <template v-for="(metric, index) in metrics" :key="metric.label">
-        <div v-if="index > 0" class="metric-divider" aria-hidden="true" />
-        <div class="metric-segment">
-          <MetricIconBg class="metric-segment-icon" :icon-key="metric.iconKey" :tone="metric.tone" />
-          <div class="metric-content">
-            <div class="metric-line">
-              <span class="metric-label">{{ metric.label }}</span>
-              <em v-if="metric.delta" class="metric-delta" :class="metric.deltaTone">{{ metric.delta }}</em>
+      <template #summary>
+        <div class="metric-strip">
+          <template v-for="(metric, index) in metrics" :key="metric.label">
+            <div v-if="index > 0" class="metric-divider" aria-hidden="true" />
+            <div class="metric-segment">
+              <MetricIconBg class="metric-segment-icon" :icon-key="metric.iconKey" :tone="metric.tone" />
+              <div class="metric-content">
+                <div class="metric-line">
+                  <span class="metric-label">{{ metric.label }}</span>
+                  <em v-if="metric.delta" class="metric-delta" :class="metric.deltaTone">{{ metric.delta }}</em>
+                </div>
+                <strong>{{ metric.value }}</strong>
+                <small>{{ metric.caption }}</small>
+              </div>
             </div>
-            <strong>{{ metric.value }}</strong>
-            <small>{{ metric.caption }}</small>
-          </div>
+          </template>
         </div>
       </template>
-    </div>
+    </CollapsibleHeaderRegion>
 
-    <el-card class="project-card" shadow="never">
+    <el-card class="project-card workbench-list-surface" shadow="never">
       <div class="toolbar">
         <el-input
           v-model="keyword"
@@ -158,7 +157,13 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="accessDialogVisible" title="接入项目" width="760px" destroy-on-close>
+    <AppDialog
+      v-model="accessDialogVisible"
+      title="接入项目"
+      description="选择 SDK 接入或扫描接入，完成项目身份、连接信息与能力发现配置。"
+      width="760px"
+      destroy-on-close
+    >
       <el-tabs v-model="accessDialogTab" class="access-dialog-tabs">
         <el-tab-pane label="SDK 接入" name="sdk">
           <el-form :model="sdkForm" label-width="120px">
@@ -254,8 +259,8 @@
             </el-form-item>
             <el-form-item label="扫描方式" required>
               <el-radio-group v-model="scanForm.scanType">
-                <el-radio label="openapi">OpenAPI</el-radio>
-                <el-radio label="controller">Controller</el-radio>
+                <el-radio value="openapi">OpenAPI</el-radio>
+                <el-radio value="controller">Controller</el-radio>
               </el-radio-group>
             </el-form-item>
             <el-form-item v-if="scanForm.scanType === 'openapi'" label="规范文件">
@@ -283,11 +288,12 @@
           保存
         </el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -295,7 +301,10 @@ import {
   Plus,
   Search,
 } from '@element-plus/icons-vue'
+import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
 import MetricIconBg from '@/components/common/MetricIconBg.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
 import {
   createScanProject,
   getScanProjects,
@@ -327,18 +336,9 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const accessDialogVisible = ref(false)
 const accessDialogTab = ref<'sdk' | 'scan'>('sdk')
-const isProjectHeaderCompact = ref(false)
 
 /** 限制表格主体高度，使横向滚动条落在视口内（靠近浏览器窗口底部），无需先滚到卡片最底 */
 const projectTableMaxHeight = ref(480)
-
-const COMPACT_COLLAPSE_SCROLL_TOP = 80
-const COMPACT_EXPAND_SCROLL_TOP = 24
-const COMPACT_WHEEL_DELTA = 8
-
-let mainContentScrollEl: HTMLElement | null = null
-let projectTableScrollEl: HTMLElement | null = null
-let previousProjectScrollTop = 0
 
 let tableHeightRaf = 0
 function scheduleUpdateProjectTableMaxHeight() {
@@ -346,65 +346,22 @@ function scheduleUpdateProjectTableMaxHeight() {
   if (tableHeightRaf) return
   tableHeightRaf = requestAnimationFrame(() => {
     tableHeightRaf = 0
-    bindProjectTableScrollEl()
-    updateProjectHeaderCompactByScroll()
     updateProjectTableMaxHeight()
   })
 }
 
-function setProjectHeaderCompact(value: boolean) {
-  if (isProjectHeaderCompact.value === value) return
-  isProjectHeaderCompact.value = value
-  nextTick(() => {
-    scheduleUpdateProjectTableMaxHeight()
-    window.setTimeout(scheduleUpdateProjectTableMaxHeight, 220)
-  })
-}
-
-function findProjectTableScrollEl() {
-  const root = document.querySelector('.registry-project-page')
-  return (
-    (root?.querySelector('.project-table .el-scrollbar__wrap') as HTMLElement | null) ||
-    (root?.querySelector('.project-table .el-table__body-wrapper') as HTMLElement | null)
-  )
-}
-
-function bindProjectTableScrollEl() {
-  const nextTableScrollEl = findProjectTableScrollEl()
-  if (projectTableScrollEl === nextTableScrollEl) return
-  projectTableScrollEl?.removeEventListener('scroll', handleProjectAreaScroll)
-  projectTableScrollEl = nextTableScrollEl
-  projectTableScrollEl?.addEventListener('scroll', handleProjectAreaScroll, { passive: true })
-}
-
-function getProjectScrollTop() {
-  return Math.max(mainContentScrollEl?.scrollTop || 0, projectTableScrollEl?.scrollTop || 0)
-}
-
-function updateProjectHeaderCompactByScroll() {
-  const scrollTop = getProjectScrollTop()
-  if (scrollTop > COMPACT_COLLAPSE_SCROLL_TOP) {
-    setProjectHeaderCompact(true)
-  } else if (scrollTop <= COMPACT_EXPAND_SCROLL_TOP && scrollTop < previousProjectScrollTop) {
-    setProjectHeaderCompact(false)
-  }
-  previousProjectScrollTop = scrollTop
-}
-
-function handleProjectAreaScroll() {
-  scheduleUpdateProjectTableMaxHeight()
-}
-
-function handleProjectWheel(event: WheelEvent) {
-  if (Math.abs(event.deltaY) < COMPACT_WHEEL_DELTA) return
-  const scrollTop = getProjectScrollTop()
-  if (event.deltaY > 0) {
-    setProjectHeaderCompact(true)
-  } else if (scrollTop <= COMPACT_EXPAND_SCROLL_TOP) {
-    setProjectHeaderCompact(false)
-  }
-  scheduleUpdateProjectTableMaxHeight()
-}
+const {
+  collapsed: isProjectHeaderCollapsed,
+  refreshScrollTargets: refreshProjectHeaderScrollTargets,
+} = useCollapsiblePageHeader({
+  rootSelector: '.registry-project-page',
+  scrollSelectors: [
+    '.project-table .el-scrollbar__wrap',
+    '.project-table .el-table__body-wrapper',
+  ],
+  onScroll: scheduleUpdateProjectTableMaxHeight,
+  onLayoutChange: scheduleUpdateProjectTableMaxHeight,
+})
 
 function updateProjectTableMaxHeight() {
   if (typeof window === 'undefined') return
@@ -480,21 +437,19 @@ const metrics = computed(() => {
 
 onMounted(() => {
   loadProjects().finally(() => {
-    nextTick(scheduleUpdateProjectTableMaxHeight)
+    nextTick(() => {
+      refreshProjectHeaderScrollTargets()
+      scheduleUpdateProjectTableMaxHeight()
+    })
   })
-  mainContentScrollEl = document.querySelector('.main-layout .main-content') as HTMLElement | null
-  previousProjectScrollTop = getProjectScrollTop()
-  mainContentScrollEl?.addEventListener('scroll', handleProjectAreaScroll, { passive: true })
   nextTick(() => {
-    bindProjectTableScrollEl()
+    refreshProjectHeaderScrollTargets()
     scheduleUpdateProjectTableMaxHeight()
   })
   window.addEventListener('resize', scheduleUpdateProjectTableMaxHeight)
 })
 
 onUnmounted(() => {
-  mainContentScrollEl?.removeEventListener('scroll', handleProjectAreaScroll)
-  projectTableScrollEl?.removeEventListener('scroll', handleProjectAreaScroll)
   window.removeEventListener('resize', scheduleUpdateProjectTableMaxHeight)
   if (tableHeightRaf) {
     cancelAnimationFrame(tableHeightRaf)
@@ -726,58 +681,20 @@ function goDetail(project: ScanProject) {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 10px;
   min-height: 0;
-  height: calc(100vh - 56px);
-  padding: 24px 28px 24px;
+  min-height: 100%;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
   background: transparent;
 }
 
-.page-hero {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  align-items: center;
-  width: 100%;
-  min-width: 0;
-  margin: 0;
-  flex-shrink: 0;
-
-  h1 {
-    margin: 0 0 8px;
-    color: #111827;
-    font-size: 26px;
-    font-weight: 800;
-    line-height: 1.2;
-  }
-
-  p {
-    margin: 0;
-    color: #667085;
-    font-size: 14px;
-  }
-}
-
-.hero-actions,
 .empty-actions,
 .toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.primary-action {
-  --el-button-bg-color: var(--brand-primary);
-  --el-button-border-color: var(--brand-primary);
-  --el-button-hover-bg-color: var(--brand-hover);
-  --el-button-hover-border-color: var(--brand-hover);
-  min-width: 142px;
-  border-radius: 8px;
-  box-shadow: 0 10px 20px rgb(var(--brand-primary-rgb) / 0.22);
 }
 
 .empty-main {
@@ -1165,225 +1082,7 @@ function goDetail(project: ScanProject) {
 
 /* Figma: 项目管理 / 项目列表 */
 .registry-project-page {
-  gap: 10px;
-  padding: var(--reachai-workbench-page-padding, var(--reachai-workbench-title-gap, 10px) 28px 16px);
   background: transparent;
-  transition:
-    gap 0.2s ease,
-    padding 0.2s ease;
-}
-
-.page-hero {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  align-items: center;
-  box-sizing: border-box;
-  min-height: var(--reachai-workbench-title-height, 120px);
-  padding: var(--reachai-workbench-title-padding, 26px 28px);
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.28);
-  border-radius: var(--reachai-workbench-title-radius, 16px);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.48) 100%),
-    var(--brand-soft-bg, rgba(255, 255, 255, 0.55));
-  box-shadow: 0 16px 28px -12px rgb(var(--brand-primary-rgb) / 0.1);
-  transition:
-    min-height 0.2s ease,
-    padding 0.2s ease,
-    border-radius 0.2s ease,
-    box-shadow 0.2s ease,
-    background 0.24s ease;
-}
-
-.registry-project-page > .page-hero {
-  margin: 0;
-}
-
-/* PNG 装饰层：降透明度，避免固定冷色调压住当前主题 */
-.page-hero::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  border-radius: inherit;
-  background: url('/reachai-project-hero-bg.png') right center / cover no-repeat;
-  opacity: 0.38;
-  pointer-events: none;
-  transition: opacity 0.24s ease;
-}
-
-/* 主题色蒙层：把 PNG 冷色洗成当前 brand 色调 */
-.page-hero::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  border-radius: inherit;
-  background:
-    linear-gradient(
-      90deg,
-      rgb(var(--brand-selected-rgb) / 0.82) 0%,
-      rgb(var(--brand-selected-rgb) / 0.52) 34%,
-      rgb(var(--brand-primary-rgb) / 0.14) 58%,
-      rgba(255, 255, 255, 0.06) 78%,
-      rgba(255, 255, 255, 0) 100%
-    ),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.18) 100%);
-  pointer-events: none;
-  transition: background 0.24s ease, opacity 0.24s ease;
-}
-
-.hero-copy {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  min-width: 0;
-  transition:
-    gap 0.2s ease,
-    align-items 0.2s ease;
-}
-
-.hero-accent {
-  flex: 0 0 auto;
-  width: 4px;
-  height: 24px;
-  margin-top: 4px;
-  border-radius: 2px;
-  background: linear-gradient(180deg, var(--brand-active) 0%, var(--brand-hover) 100%);
-  box-shadow: 0 6px 14px -8px rgb(var(--brand-primary-rgb) / 0.16);
-  transition:
-    width 0.2s ease,
-    height 0.2s ease,
-    margin 0.2s ease,
-    opacity 0.16s ease,
-    transform 0.2s ease;
-}
-
-.hero-text {
-  min-width: 0;
-}
-
-.page-hero h1 {
-  margin: 0 0 3px;
-  color: #0f172a;
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 29px;
-  letter-spacing: 0;
-  transition:
-    margin 0.2s ease,
-    font-size 0.2s ease,
-    line-height 0.2s ease;
-}
-
-.page-hero p {
-  margin: 0;
-  max-height: 18px;
-  color: #64748b;
-  font-size: 13px;
-  line-height: 18px;
-  overflow: hidden;
-  transition:
-    max-height 0.18s ease,
-    opacity 0.16s ease,
-    margin 0.18s ease,
-    transform 0.18s ease;
-}
-
-.hero-tags {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-  max-height: 26px;
-  overflow: hidden;
-  transition:
-    max-height 0.18s ease,
-    margin 0.18s ease,
-    opacity 0.16s ease,
-    transform 0.18s ease;
-}
-
-.hero-tags span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 24px;
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 18px;
-  border: none;
-  border-radius: 12px;
-}
-
-.hero-tags .tag-brand {
-  color: var(--brand-active);
-  background: var(--brand-selected-bg);
-}
-
-.hero-tags .tag-success {
-  color: #16a34a;
-  background: #f0fdf4;
-}
-
-.hero-tags .tag-info {
-  color: var(--brand-primary);
-  background: rgb(var(--brand-primary-rgb) / 0.08);
-}
-
-.hero-actions {
-  position: relative;
-  z-index: 1;
-  margin-left: auto;
-}
-
-.primary-action {
-  --el-button-bg-color: transparent;
-  --el-button-border-color: transparent;
-  --el-button-hover-bg-color: transparent;
-  --el-button-hover-border-color: transparent;
-  --el-button-active-bg-color: transparent;
-  --el-button-active-border-color: transparent;
-  min-width: 124px;
-  height: 40px;
-  padding: 0 17px 0 16px;
-  color: rgba(255, 255, 255, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.46);
-  border-radius: 12px;
-  background:
-    linear-gradient(0deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08)),
-    var(--brand-primary-gradient) !important;
-  box-shadow:
-    0 2px 8px -5px rgb(var(--brand-primary-rgb) / 0.1),
-    0 12px 22px -8px rgb(var(--brand-primary-rgb) / 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.54);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 20px;
-  transition:
-    min-width 0.2s ease,
-    height 0.2s ease,
-    padding 0.2s ease,
-    border-radius 0.2s ease,
-    transform 0.16s ease,
-    box-shadow 0.2s ease;
-}
-
-.primary-action:hover {
-  transform: translateY(-1px);
-  box-shadow:
-    0 18px 28px -14px rgb(var(--brand-primary-rgb) / 0.64),
-    inset 0 1px 0 rgba(255, 255, 255, 0.26);
-}
-
-.primary-action :deep(.el-icon) {
-  margin-right: 8px;
-  font-size: 16px;
-  opacity: 0.92;
 }
 
 .metric-strip {
@@ -1495,105 +1194,8 @@ function goDetail(project: ScanProject) {
   line-height: 16px;
 }
 
-.registry-project-page.is-compact {
-  gap: 10px;
-
-  .page-hero {
-    min-height: 64px;
-    padding: 12px 22px;
-    border-radius: 14px;
-    background:
-      linear-gradient(90deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.76) 54%, rgb(var(--brand-selected-rgb) / 0.14) 100%);
-    box-shadow: 0 12px 24px -18px rgb(var(--brand-primary-rgb) / 0.18);
-  }
-
-  .page-hero::after {
-    opacity: 0.22;
-    background-position: right center;
-    background-size: auto 120%;
-  }
-
-  .page-hero::before {
-    opacity: 0.72;
-  }
-
-  .hero-copy {
-    align-items: center;
-    gap: 0;
-  }
-
-  .hero-accent {
-    width: 0;
-    height: 28px;
-    margin: 0;
-    opacity: 0;
-    transform: scaleY(0.72);
-  }
-
-  .page-hero h1 {
-    margin: 0;
-    font-size: 22px;
-    line-height: 30px;
-  }
-
-  .page-hero p,
-  .hero-tags {
-    max-height: 0;
-    margin: 0;
-    opacity: 0;
-    transform: translateY(-4px);
-    pointer-events: none;
-  }
-
-  .primary-action {
-    min-width: 112px;
-    height: 36px;
-    padding: 0 18px;
-    border-radius: 9px;
-  }
-
-  .metric-strip {
-    min-height: 0;
-    max-height: 0;
-    padding: 0;
-    opacity: 0;
-    transform: translateY(-8px);
-    pointer-events: none;
-    border-width: 0;
-  }
-
-  .metric-segment {
-    min-height: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-
-  .metric-divider {
-    display: none;
-  }
-
-  .toolbar {
-    margin-top: 16px;
-  }
-
-  .project-table-shell {
-    margin-top: 16px;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .registry-project-page,
-  .page-hero,
-  .page-hero::before,
-  .page-hero::after,
-  .hero-copy,
-  .hero-accent,
-  .page-hero h1,
-  .page-hero p,
-  .hero-tags,
-  .primary-action,
   .metric-strip,
   .metric-segment,
   .project-card,
@@ -1890,40 +1492,6 @@ function goDetail(project: ScanProject) {
 .registry-project-page.is-dark {
   background: transparent;
 
-  .page-hero {
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%),
-      rgba(255, 255, 255, 0.04);
-
-    h1 {
-      color: #e2e8f0;
-    }
-
-    p {
-      color: #94a3b8;
-    }
-  }
-
-  .page-hero::after {
-    opacity: 0.24;
-    mix-blend-mode: soft-light;
-  }
-
-  .page-hero::before {
-    background:
-      linear-gradient(
-        90deg,
-        rgb(var(--brand-primary-rgb) / 0.22) 0%,
-        rgb(var(--brand-primary-rgb) / 0.1) 42%,
-        rgba(15, 23, 42, 0.08) 100%
-      ),
-      linear-gradient(180deg, rgba(15, 23, 42, 0.28) 0%, rgba(15, 23, 42, 0.12) 100%);
-  }
-
-  .primary-action {
-    box-shadow: 0 10px 22px rgb(var(--brand-primary-rgb) / 0.28);
-  }
-
   .empty-actions {
     :deep(.el-button--default) {
       color: #cbd5e1;
@@ -1963,6 +1531,10 @@ function goDetail(project: ScanProject) {
     small em {
       color: var(--brand-hover);
     }
+  }
+
+  .project-table-shell {
+    background: var(--surface-solid-panel);
   }
 
   .project-card {
@@ -2215,6 +1787,7 @@ function goDetail(project: ScanProject) {
   .table-footer {
     color: #94a3b8;
     border-top-color: rgba(255, 255, 255, 0.06);
+    background: color-mix(in srgb, var(--surface-solid-panel) 72%, transparent);
 
     :deep(.registry-pagination.is-background .btn-prev),
     :deep(.registry-pagination.is-background .btn-next),
@@ -2276,12 +1849,6 @@ function goDetail(project: ScanProject) {
 
 }
 
-:global(.main-layout.registry-shell .main-content:has(.registry-project-page)) {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 @media (max-width: 1200px) {
   .metric-strip {
     flex-direction: column;
@@ -2297,13 +1864,6 @@ function goDetail(project: ScanProject) {
 
   .metric-segment {
     min-height: 92px;
-  }
-
-  .page-hero {
-    align-items: flex-start;
-    flex-direction: column;
-    height: auto;
-    max-height: none;
   }
 
   .empty-main {
@@ -2344,10 +1904,6 @@ function goDetail(project: ScanProject) {
 }
 
 @media (max-width: 760px) {
-  .registry-project-page {
-    padding: 18px 14px 24px;
-  }
-
   .metric-segment {
     min-height: 84px;
   }

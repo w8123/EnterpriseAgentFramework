@@ -7,7 +7,6 @@ import type {
   ProjectInstance,
   RegistryProjectRegisterRequest,
   RegistryProjectResponse,
-  RuntimeGovernancePolicyUpdateRequest,
 } from '@/types/registry'
 
 export function registerRegistryProject(data: RegistryProjectRegisterRequest) {
@@ -27,13 +26,6 @@ export function purgeRegistryProjectOfflineInstances(projectCode: string, minIdl
     `/api/registry/projects/${projectCode}/instances/purge-offline`,
     { minIdleMinutes },
   )
-}
-
-export function updateRegistryProjectInstanceGovernancePolicy(
-  projectCode: string,
-  data: RuntimeGovernancePolicyUpdateRequest,
-) {
-  return controlRequest.post<ProjectInstance>(`/api/registry/projects/${projectCode}/instances/governance-policy`, data)
 }
 
 export function diffRegistryCapabilities(projectCode: string, data: CapabilitySyncRequest) {

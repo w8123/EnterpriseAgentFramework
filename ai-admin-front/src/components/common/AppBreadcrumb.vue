@@ -5,7 +5,6 @@
       <span class="app-breadcrumb__divider" aria-hidden="true" />
     </template>
     <el-breadcrumb :separator="separator">
-      <el-breadcrumb-item v-if="showHome" :to="homeRoute">{{ homeLabel }}</el-breadcrumb-item>
       <el-breadcrumb-item
         v-for="(item, index) in breadcrumbItems"
         :key="`${item.title}-${index}`"
@@ -47,14 +46,34 @@ const props = withDefaults(
 
 const route = useRoute()
 const router = useRouter()
-const homeRoute = computed<RouteLocationRaw>(() => props.homeTo ?? { path: '/' })
+
+function findAutoParentTarget(): RouteLocationRaw | undefined {
+  const segments = route.path.split('/').filter(Boolean)
+  for (let length = segments.length - 1; length > 0; length -= 1) {
+    const candidate = `/${segments.slice(0, length).join('/')}`
+    const resolved = router.resolve({ path: candidate })
+    if (resolved.matched.length > 1 && resolved.name !== route.name) {
+      return { path: candidate }
+    }
+  }
+  return undefined
+}
+
+const autoParentCrumbTarget = computed(() => findAutoParentTarget())
 
 const breadcrumbItems = computed<AppBreadcrumbItem[]>(() => {
   if (props.items?.length) return props.items
   const configured = route.meta.breadcrumb as AppBreadcrumbItem[] | undefined
   if (configured?.length) return configured
   const title = route.meta.title as string | undefined
-  return title ? [{ title }] : []
+  if (!title) return []
+
+  const parentTarget = autoParentCrumbTarget.value
+  if (!parentTarget) return [{ title }]
+
+  const parentRoute = router.resolve(parentTarget)
+  const parentTitle = parentRoute.meta.title as string | undefined
+  return parentTitle ? [{ title: parentTitle, to: parentTarget }, { title }] : [{ title }]
 })
 
 function resolveCrumbTo(item: AppBreadcrumbItem): RouteLocationRaw | undefined {
@@ -67,7 +86,9 @@ const parentCrumbTarget = computed<RouteLocationRaw | undefined>(() => {
     const target = resolveCrumbTo(crumbs[i])
     if (target) return target
   }
-  return undefined
+
+  // Not every nested route has a fully configured breadcrumb tree yet.
+  return autoParentCrumbTarget.value
 })
 
 const canGoBack = computed(() => props.showBack && Boolean(parentCrumbTarget.value))

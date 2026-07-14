@@ -1,8 +1,7 @@
-﻿import { controlRequest } from './request'
+import { controlRequest } from './request'
 import type {
-  AgentEntry,
-  AgentWorkflowBinding,
-  AgentWorkflowResolveRequest,
+  Agent,
+  AgentStatistics,
   PublishWorkflowVersionRequest,
   WorkflowReleaseValidationResult,
   WorkflowGraphNodeTypeDescriptor,
@@ -14,8 +13,8 @@ import type {
   WorkflowDraftEditResult,
   WorkflowDraftGenerationRequest,
   WorkflowDraftGenerationResult,
-  PageAssistantWorkflowBindRequest,
-  PageAssistantWorkflowBindingResult,
+  PageAssistantWorkflowAttachRequest,
+  PageAssistantWorkflowAttachmentResult,
   WorkflowRuntimeValidationRequest,
   WorkflowRuntimeValidationResult,
   WorkflowNodeDebugRequest,
@@ -27,29 +26,62 @@ import type {
   WorkflowStudioState,
   WorkflowVersion,
 } from '@/types/workflow'
+import type { AgentConfigDraft, AgentConfigVersion } from '@/types/agent'
 
-export function listAgentEntries(params?: {
+export function listAgents(params?: {
   projectId?: number
   projectCode?: string
-  agentKind?: string
 }) {
-  return controlRequest.get<AgentEntry[]>('/api/agents', { params })
+  return controlRequest.get<Agent[]>('/api/agents', { params })
 }
 
-export function getAgentEntry(id: string) {
-  return controlRequest.get<AgentEntry>(`/api/agents/${encodeURIComponent(id)}`)
+export function getAgentStatistics(params?: {
+  projectId?: number
+  projectCode?: string
+}) {
+  return controlRequest.get<AgentStatistics>('/api/agents/statistics', { params })
 }
 
-export function createAgentEntry(data: Partial<AgentEntry>) {
-  return controlRequest.post<AgentEntry>('/api/agents', data)
+export function getAgent(id: string) {
+  return controlRequest.get<Agent>(`/api/agents/${encodeURIComponent(id)}`)
 }
 
-export function updateAgentEntry(id: string, data: Partial<AgentEntry>) {
-  return controlRequest.put<AgentEntry>(`/api/agents/${encodeURIComponent(id)}`, data)
+export function createAgent(data: Partial<Agent>) {
+  return controlRequest.post<Agent>('/api/agents', data)
 }
 
-export function deleteAgentEntry(id: string) {
+export function updateAgent(id: string, data: Partial<Agent>) {
+  return controlRequest.put<Agent>(`/api/agents/${encodeURIComponent(id)}`, data)
+}
+
+export function deleteAgent(id: string) {
   return controlRequest.delete(`/api/agents/${encodeURIComponent(id)}`)
+}
+
+export function listAgentConfigVersions(agentId: string) {
+  return controlRequest.get<AgentConfigVersion[]>(
+    `/api/agents/${encodeURIComponent(agentId)}/config-versions`,
+  )
+}
+
+export function saveAgentConfigDraft(agentId: string, data: AgentConfigDraft) {
+  return controlRequest.put<AgentConfigVersion>(
+    `/api/agents/${encodeURIComponent(agentId)}/config-versions/draft`,
+    data,
+  )
+}
+
+export function publishAgentConfig(agentId: string, configVersionId: number, publishedBy?: string) {
+  return controlRequest.post<AgentConfigVersion>(
+    `/api/agents/${encodeURIComponent(agentId)}/config-versions/${configVersionId}/publish`,
+    { publishedBy },
+  )
+}
+
+export function copyAgentConfigToDraft(agentId: string, configVersionId: number) {
+  return controlRequest.post<AgentConfigVersion>(
+    `/api/agents/${encodeURIComponent(agentId)}/config-versions/${configVersionId}/copy-to-draft`,
+  )
 }
 
 export function listWorkflows(params?: {
@@ -59,6 +91,25 @@ export function listWorkflows(params?: {
   status?: string
 }) {
   return controlRequest.get<WorkflowDefinition[]>('/api/workflows', { params })
+}
+
+export interface WorkflowSearchPage {
+  records: WorkflowDefinition[]
+  total: number
+  current: number
+  size: number
+}
+
+export function searchWorkflows(params: {
+  projectId?: number
+  projectCode?: string
+  workflowType?: string
+  status?: string
+  keyword?: string
+  current?: number
+  size?: number
+}) {
+  return controlRequest.get<WorkflowSearchPage>('/api/workflows/search', { params })
 }
 
 export function getWorkflow(id: string) {
@@ -81,7 +132,7 @@ export function updateWorkflow(id: string, data: WorkflowDefinitionDraft) {
 }
 
 export function saveWorkflowStudio(id: string, data: WorkflowStudioSaveRequest) {
-  return controlRequest.put<WorkflowDefinition>(
+  return controlRequest.put<WorkflowStudioState>(
     `/api/workflows/${encodeURIComponent(id)}/studio`,
     data,
   )
@@ -165,46 +216,9 @@ export function rollbackWorkflowVersion(workflowId: string, versionId: number | 
   )
 }
 
-export function listAgentWorkflowBindings(agentId: string) {
-  return controlRequest.get<AgentWorkflowBinding[]>(
-    `/api/agents/${encodeURIComponent(agentId)}/workflow-bindings`,
-  )
-}
-
-export function createAgentWorkflowBinding(agentId: string, data: Partial<AgentWorkflowBinding>) {
-  return controlRequest.post<AgentWorkflowBinding>(
-    `/api/agents/${encodeURIComponent(agentId)}/workflow-bindings`,
-    data,
-  )
-}
-
-export function updateAgentWorkflowBinding(
-  agentId: string,
-  bindingId: number,
-  data: Partial<AgentWorkflowBinding>,
-) {
-  return controlRequest.put<AgentWorkflowBinding>(
-    `/api/agents/${encodeURIComponent(agentId)}/workflow-bindings/${bindingId}`,
-    data,
-  )
-}
-
-export function deleteAgentWorkflowBinding(agentId: string, bindingId: number) {
-  return controlRequest.delete(
-    `/api/agents/${encodeURIComponent(agentId)}/workflow-bindings/${bindingId}`,
-  )
-}
-
-export function resolveAgentWorkflowBinding(agentId: string, data: AgentWorkflowResolveRequest) {
-  return controlRequest.post<AgentWorkflowBinding>(
-    `/api/agents/${encodeURIComponent(agentId)}/workflow-bindings/resolve-preview`,
-    data,
-  )
-}
-
-export function bindPageAssistantWorkflow(workflowId: string, data: PageAssistantWorkflowBindRequest) {
-  return controlRequest.post<PageAssistantWorkflowBindingResult>(
-    `/api/workflows/${encodeURIComponent(workflowId)}/page-assistant/bind`,
+export function attachPageAssistantWorkflowTool(workflowId: string, data: PageAssistantWorkflowAttachRequest) {
+  return controlRequest.post<PageAssistantWorkflowAttachmentResult>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/page-assistant/attach-tool`,
     data,
   )
 }

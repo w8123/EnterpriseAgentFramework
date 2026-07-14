@@ -369,14 +369,20 @@ function syncInputs() {
 function bindInput(target: string, source: string) {
   if (!target) return
   inputMapping.value[target] = source
-  props.data.inputMapping = { ...inputMapping.value }
+  const stringMapping = Object.fromEntries(
+    Object.entries(inputMapping.value).map(([key, value]) => [
+      key,
+      typeof value === 'string' ? value : JSON.stringify(value),
+    ]),
+  )
+  props.data.inputMapping = stringMapping
   if (props.data.kind === 'tool' || props.data.kind === 'skill') {
     props.data.toolConfig ||= { inputMapping: {} }
     props.data.toolConfig.inputMapping = { ...inputMapping.value }
   }
   if (props.data.kind === 'mcp') {
     props.data.mcpConfig ||= { toolName: '', inputMapping: {} }
-    props.data.mcpConfig.inputMapping = { ...inputMapping.value }
+    props.data.mcpConfig.inputMapping = stringMapping
   }
 }
 

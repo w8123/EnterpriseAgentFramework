@@ -2,7 +2,7 @@ package com.enterprise.ai.control.aiassist;
 
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
-import com.enterprise.ai.control.compat.RuntimeCompatibilityController;
+import com.enterprise.ai.control.runtime.ControlRuntimePublicController;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -89,7 +89,7 @@ class ControlAiCodingAccessMvcTest {
                 .thenReturn(ResponseEntity.ok(Map.of("workflowId", "wf-1")));
         ControlAiCodingAccessGuard guard = new ControlAiCodingAccessGuard(capabilityClient, runtimeClient);
         MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(new RuntimeCompatibilityController(runtimeClient, guard))
+                .standaloneSetup(new ControlRuntimePublicController(runtimeClient, guard))
                 .addInterceptors(new ControlAiCodingAccessInterceptor(guard))
                 .build();
 
@@ -105,7 +105,10 @@ class ControlAiCodingAccessMvcTest {
                                           RuntimeProxyClient runtimeClient) {
         ControlAiCodingAccessGuard guard = new ControlAiCodingAccessGuard(capabilityClient, runtimeClient);
         return MockMvcBuilders
-                .standaloneSetup(new ControlAiCodingProjectController(capabilityClient, runtimeClient))
+                .standaloneSetup(new ControlAiCodingProjectController(
+                        capabilityClient,
+                        runtimeClient,
+                        mock(com.enterprise.ai.control.client.model.ControlModelCatalogClient.class)))
                 .addInterceptors(new ControlAiCodingAccessInterceptor(guard))
                 .build();
     }
@@ -114,7 +117,7 @@ class ControlAiCodingAccessMvcTest {
                                            RuntimeProxyClient runtimeClient) {
         ControlAiCodingAccessGuard guard = new ControlAiCodingAccessGuard(capabilityClient, runtimeClient);
         return MockMvcBuilders
-                .standaloneSetup(new RuntimeCompatibilityController(runtimeClient, null))
+                .standaloneSetup(new ControlRuntimePublicController(runtimeClient, null))
                 .addInterceptors(new ControlAiCodingAccessInterceptor(guard))
                 .build();
     }

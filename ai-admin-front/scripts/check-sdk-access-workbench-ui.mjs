@@ -5,6 +5,7 @@ import { join } from 'node:path'
 const wizardSource = readFileSync(join(process.cwd(), 'src/views/registry/SdkAccessWizard.vue'), 'utf8')
 const wizardStyle = readFileSync(join(process.cwd(), 'src/views/registry/styles/SdkAccessWizard.scss'), 'utf8')
 const aiCodingFigmaStyle = readFileSync(join(process.cwd(), 'src/views/registry/styles/SdkAccessWizard.ai-coding.figma.scss'), 'utf8')
+const mainLayoutSource = readFileSync(join(process.cwd(), 'src/views/layout/MainLayout.vue'), 'utf8')
 const progressSource = readFileSync(join(process.cwd(), 'src/views/registry/composables/useSdkAccessWizardProgress.ts'), 'utf8')
 const snippetSource = readFileSync(join(process.cwd(), 'src/views/registry/composables/useSdkAccessWizardSnippets.ts'), 'utf8')
 const uiStateSource = readFileSync(join(process.cwd(), 'src/views/registry/composables/useSdkAccessWizardUiState.ts'), 'utf8')
@@ -36,8 +37,10 @@ assert.doesNotMatch(wizardSource, /使用 AI 快速接入/, 'SdkAccessWizard hea
 assert.doesNotMatch(wizardSource, /刷新状态/, 'SdkAccessWizard header should not render the legacy refresh button')
 assert.doesNotMatch(wizardSource, /class="access-mode-header"/, 'SdkAccessWizard should not render a separate tab switch card below the title card')
 
-const pageHeader = wizardSource.match(/<header class="page-header[^"]*">([\s\S]*?)<\/header>/)?.[1] || ''
-assert.match(pageHeader, /class="[^"]*\baccess-mode-switch\b[^"]*"/, 'Manual and AI Coding tabs should live inside the title card')
+const pageHeader = wizardSource.match(/<PageHeader\b[\s\S]*?<\/PageHeader>/)?.[0] || ''
+assert.match(pageHeader, /variant="workbench"/, 'SdkAccessWizard should use the shared Workbench title role')
+assert.match(pageHeader, /domain="project"/, 'SdkAccessWizard should use the project title domain')
+assert.match(pageHeader, /<template #mode>[\s\S]*?<HeaderModeSwitch/, 'Manual and AI Coding modes should live in the shared title action dock')
 assert.doesNotMatch(pageHeader, /返回项目详情/, 'SdkAccessWizard title card should not duplicate the global breadcrumb back action')
 
 const manualPane = wizardSource.match(/<section v-show="accessMode === 'manual'" class="manual-access-pane wizard-shell">([\s\S]*?)<section v-show="accessMode === 'ai-coding'" class="ai-coding-access-pane">/)?.[1] || ''
@@ -69,19 +72,19 @@ assert.doesNotMatch(aiCodingPane, /切换工具后复制同一套接入任务，
 assert.doesNotMatch(aiCodingPane, /打开完整提示词/, 'AI Coding pane should not render the full prompt dialog button')
 
 assert.match(
+  wizardSource,
+  /class="sdk-access-page project-workbench-page"/,
+  'SdkAccessWizard should consume the shared project-workbench page rhythm',
+)
+assert.doesNotMatch(
   wizardStyle,
-  /:global\(\.main-layout\.registry-shell:has\(\.sdk-access-page\) \.main-content\)[\s\S]*?overflow-y:\s*auto\s*!important/,
-  'SdkAccessWizard page should remain scrollable in the main content area',
+  /:global\(\.main-layout[^)]*:has\(\.sdk-access-page\)/,
+  'SdkAccessWizard must not infer or override its MainLayout shell through :has()',
 )
 assert.match(
-  wizardStyle,
-  /:global\(\.main-layout\.registry-shell:has\(\.sdk-access-page\) \.main-content\)[\s\S]*?scrollbar-width:\s*none/,
-  'SdkAccessWizard main content scrollbar should be hidden in Firefox',
-)
-assert.match(
-  wizardStyle,
-  /:global\(\.main-layout\.registry-shell:has\(\.sdk-access-page\) \.main-content::-webkit-scrollbar\)[\s\S]*?display:\s*none/,
-  'SdkAccessWizard main content scrollbar should be hidden in WebKit browsers',
+  mainLayoutSource,
+  /\.main-content\s*\{[\s\S]*?overflow-y:\s*auto/,
+  'MainLayout main content must remain the shared vertical scroll container for long workbench pages',
 )
 assert.match(
   wizardStyle,
@@ -128,10 +131,10 @@ assert.match(
   /\.sdk-access-page \.ai-coding-side\.access-progress--refined \.progress-step\s*\{[\s\S]*?min-height:\s*64px\s*!important[\s\S]*?padding-top:\s*9px\s*!important[\s\S]*?padding-bottom:\s*9px\s*!important/,
   'AI Coding progress node cards should stay tall enough to read comfortably',
 )
-assert.match(
+assert.doesNotMatch(
   aiCodingFigmaStyle,
-  /:global\(\.main-layout\.registry-shell:has\(\.sdk-access-page\) \.app-page-background\)[\s\S]*?box-shadow:\s*none\s*!important/,
-  'SdkAccessWizard should remove the page background frame while preserving inner card borders',
+  /:global\(\.main-layout[^)]*:has\(\.sdk-access-page\)/,
+  'SdkAccessWizard visual skin must not infer or override MainLayout through :has()',
 )
 assert.doesNotMatch(wizardStyle, /\.manual-status-strip\b/, 'Manual pre-access status card styles should be removed')
 assert.doesNotMatch(wizardStyle, /\.code-shell\b/, 'Code snippet shell styles should live in the shared component')
@@ -165,6 +168,35 @@ assert.doesNotMatch(starterClientSource, /getCapability\(\)\.isSyncOnStartup|syn
 assert.match(snippetSource, /API 管理[\s\S]*手动触发/, 'AI Coding prompt should say SDK interface scanning is manually triggered from API management')
 assert.match(onboardingSkillSource, /API 管理[\s\S]*手动触发/, 'Packaged onboarding skill should say SDK interface scanning is manually triggered from API management')
 assert.match(javaSdkAccessSource, /API 管理[\s\S]*手动触发/, 'Java SDK reference should say SDK interface scanning is manually triggered from API management')
+assert.match(
+  snippetSource,
+  /\/reachai\/registry\/capabilities\/sync[\s\S]*业务登录\/JWT[\s\S]*CSRF[\s\S]*Starter[\s\S]*签名校验/,
+  'AI Coding prompt should prepare the signed inbound SDK sync callback without weakening Starter authentication',
+)
+assert.match(
+  snippetSource,
+  /Path=\/reachai\/capabilities\/\*\*,\/reachai\/registry\/\*\*/,
+  'Gateway example should route both capability invocation and registry callback traffic',
+)
+assert.match(
+  snippetSource,
+  /base-url[\s\S]*ReachAI 服务端实际可访问[\s\S]*localhost/,
+  'AI Coding prompt should explain that the registered business base URL is server-reachable rather than blindly localhost',
+)
+for (const [name, source] of [
+  ['ReachAI onboarding skill', onboardingSkillSource],
+  ['ReachAI Java SDK reference', javaSdkAccessSource],
+  ['ReachAI platform API reference', platformApisSource],
+]) {
+  assert.match(source, /\/reachai\/registry\/capabilities\/sync/, `${name} should document the inbound SDK sync callback`)
+  assert.match(source, /X-ReachAI-App-Key[\s\S]*X-ReachAI-Timestamp[\s\S]*X-ReachAI-Nonce[\s\S]*X-ReachAI-Signature/, `${name} should preserve registry signature headers`)
+  assert.match(source, /CSRF/, `${name} should cover the business CSRF boundary`)
+}
+assert.match(
+  onboardingTemplateSource,
+  /ReachAI server must be able to call this address[\s\S]*Loopback/,
+  'Onboarding application template should warn that project base URL must be reachable from ReachAI',
+)
 
 for (const retainedCopy of [
   '后端 Starter',

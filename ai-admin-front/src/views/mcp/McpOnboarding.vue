@@ -1,8 +1,13 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>MCP 接入向导</h2>
-    </div>
+  <WorkbenchPage density="spacious">
+    <PageHeader
+      variant="workbench"
+      domain="platform"
+      eyebrow="MCP Onboarding"
+      title="MCP 接入向导"
+      description="从能力暴露、Client 凭证到外部工具配置，按步骤完成企业 MCP 接入与连通性自检。"
+      density="spacious"
+    />
 
     <el-alert
       type="info"
@@ -10,70 +15,70 @@
       :closable="false"
       title="一句话理解：把本仓的 Tool / 粗粒度能力通过 MCP 协议暴露，Cursor / Claude Desktop / Dify 等可一行配置接入"
       description="先在『MCP 暴露白名单』勾选要暴露的 Tool；再在『MCP Client』生成 API Key；最后把 Key 填到客户端配置即可。"
-      style="margin-bottom: 12px"
     />
 
-    <el-row :gutter="16">
-      <el-col :span="12">
-        <el-card shadow="never">
-          <template #header>① 服务端基础信息</template>
+    <div class="mcp-onboarding__columns">
+      <div class="mcp-onboarding__column">
+        <WorkbenchPanel title="① 服务端基础信息" density="spacious">
           <el-descriptions :column="1" border size="default">
             <el-descriptions-item label="协议">MCP (JSON-RPC 2.0)</el-descriptions-item>
             <el-descriptions-item label="协议版本">2024-11-05</el-descriptions-item>
             <el-descriptions-item label="HTTP 端点">
-              <code>{{ jsonrpcUrl }}</code>
+              <code class="mcp-onboarding__inline-code">{{ jsonrpcUrl }}</code>
               <el-button size="small" :icon="DocumentCopy" link @click="copy(jsonrpcUrl)">复制</el-button>
             </el-descriptions-item>
             <el-descriptions-item label="Manifest">
-              <code>{{ manifestUrl }}</code>
+              <code class="mcp-onboarding__inline-code">{{ manifestUrl }}</code>
               <el-button size="small" :icon="DocumentCopy" link @click="copy(manifestUrl)">复制</el-button>
             </el-descriptions-item>
             <el-descriptions-item label="鉴权">
-              <code>Authorization: Bearer &lt;API Key&gt;</code>
+              <code class="mcp-onboarding__inline-code">Authorization: Bearer &lt;API Key&gt;</code>
             </el-descriptions-item>
           </el-descriptions>
-        </el-card>
+        </WorkbenchPanel>
 
-        <el-card shadow="never" style="margin-top: 12px">
-          <template #header>② Cursor 接入</template>
-          <p>编辑 <code>~/.cursor/mcp.json</code>：</p>
-          <pre>{{ cursorExample }}</pre>
-          <el-button :icon="DocumentCopy" @click="copy(cursorExample)">复制配置</el-button>
-        </el-card>
-      </el-col>
+        <WorkbenchPanel title="② Cursor 接入" density="spacious">
+          <p>编辑 <code class="mcp-onboarding__inline-code">~/.cursor/mcp.json</code>：</p>
+          <CodeSnippetBlock title="~/.cursor/mcp.json" :code="cursorExample" @copy="copy" />
+        </WorkbenchPanel>
+      </div>
 
-      <el-col :span="12">
-        <el-card shadow="never">
-          <template #header>③ Claude Desktop 接入</template>
-          <p>编辑 <code>claude_desktop_config.json</code>：</p>
-          <pre>{{ claudeExample }}</pre>
-          <el-alert type="warning" :closable="false" show-icon style="margin-top: 8px">
+      <div class="mcp-onboarding__column">
+        <WorkbenchPanel title="③ Claude Desktop 接入" density="spacious">
+          <p>编辑 <code class="mcp-onboarding__inline-code">claude_desktop_config.json</code>：</p>
+          <CodeSnippetBlock
+            title="claude_desktop_config.json"
+            :code="claudeExample"
+            @copy="copy"
+          />
+          <el-alert type="warning" :closable="false" show-icon>
             Claude Desktop 目前仅支持 stdio MCP；本仓暂不暴露 stdio，可借助
             <a href="https://github.com/modelcontextprotocol/servers" target="_blank">mcp-proxy</a>
             把 HTTP 端点桥接到 stdio。
           </el-alert>
-        </el-card>
+        </WorkbenchPanel>
 
-        <el-card shadow="never" style="margin-top: 12px">
-          <template #header>④ Dify / OpenClaw / 通用 HTTP MCP</template>
+        <WorkbenchPanel title="④ Dify / OpenClaw / 通用 HTTP MCP" density="spacious">
           <p>直接配置远端 MCP 服务地址：</p>
-          <pre>{{ genericExample }}</pre>
-        </el-card>
+          <CodeSnippetBlock title="HTTP MCP" :code="genericExample" @copy="copy" />
+        </WorkbenchPanel>
 
-        <el-card shadow="never" style="margin-top: 12px">
-          <template #header>⑤ curl 自检</template>
-          <pre>{{ curlExample }}</pre>
-          <el-button :icon="DocumentCopy" @click="copy(curlExample)">复制</el-button>
-        </el-card>
-      </el-col>
-    </el-row>
-  </div>
+        <WorkbenchPanel title="⑤ curl 自检" density="spacious">
+          <CodeSnippetBlock title="curl" :code="curlExample" @copy="copy" />
+        </WorkbenchPanel>
+      </div>
+    </div>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { DocumentCopy } from '@element-plus/icons-vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import CodeSnippetBlock from '@/components/common/CodeSnippetBlock.vue'
 
 const origin = window.location.origin
 const jsonrpcUrl = `${origin}/mcp/jsonrpc`
@@ -113,18 +118,28 @@ function copy(text: string) {
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
-  h2 { margin: 0; font-size: 18px; } }
-pre { background: #2b2d3a; color: #fff; padding: 12px; border-radius: 6px; overflow: auto; font-size: 12px; }
-code { background: #f5f7fa; padding: 2px 6px; border-radius: 3px; }
+.mcp-onboarding__columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--section-gap);
+  min-width: 0;
+}
 
-// ── 日间模式覆盖 ──
-:global([data-theme="light"]) {
-  pre {
-    background: #f5f7fa;
-    color: #1e293b;
-    border: 1px solid #ebeef5;
+.mcp-onboarding__column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--section-gap);
+  min-width: 0;
+}
+
+.mcp-onboarding__inline-code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 1080px) {
+  .mcp-onboarding__columns {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

@@ -1,15 +1,23 @@
-﻿import { controlRequest } from './request'
-import type { ReplayRequest, ReplayResult, RunComparison, RunDetail, RunDiagnostics, RunSummary } from '@/types/runops'
+import { controlRequest } from './request'
+import type {
+  ReplayRequest,
+  ReplayResult,
+  RunComparison,
+  RunDetail,
+  RunDiagnostics,
+  RunOpsQueryParams,
+  RunSummary,
+} from '@/types/runops'
 
 export function getRunOpsDetail(traceId: string) {
   return controlRequest.get<RunDetail>(`/api/runops/traces/${traceId}`)
 }
 
-export function getRecentRunOps(params?: { userId?: string; days?: number; limit?: number }) {
+export function getRecentRunOps(params?: RunOpsQueryParams) {
   return controlRequest.get<RunSummary[]>('/api/runops/traces/recent', { params })
 }
 
-export function getRunOpsDiagnostics(params?: { userId?: string; days?: number; limit?: number }) {
+export function getRunOpsDiagnostics(params?: RunOpsQueryParams) {
   return controlRequest.get<RunDiagnostics>('/api/runops/diagnostics', { params })
 }
 

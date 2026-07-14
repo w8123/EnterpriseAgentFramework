@@ -3,9 +3,9 @@
 -- 数据库：reach_ai（五服务第一阶段共用同一库；旧 ai-agent-service module 已删除）
 --
 -- 本脚本是当前唯一 SQL 基线，已合并历史服务目录和历史 upgrade 脚本中的表、
--- 补列、补索引、种子数据和必要清理结果。根目录 sql/ 默认只保留 initV2.sql
--- 与 README.md；后续 schema/索引/种子变化仍需新增当次 upgrade 脚本，确认
--- 并入下一版基线后再清理。
+-- 补列、补索引、种子数据和必要清理结果。根目录 sql/ 保留 initV2.sql、
+-- README.md 与当前仍需应用的 upgrade 脚本；后续 schema/索引/种子变化仍需
+-- 新增当次 upgrade 脚本，确认已并入基线且开发/测试库不再需要后再清理。
 --
 -- 幂等设计：
 --   - 建库 / 建表统一 IF NOT EXISTS；
@@ -647,8 +647,67 @@ CALL add_col_if_absent('capability_tool_definition', 'draft', 'TINYINT(1) NOT NU
 
 
 -- ============================================================================
--- 五、Agent 调用审计日志（Phase 1 + Phase 2.0.1 索引）
+-- 五、Runtime 根运行事实与执行子事件
 -- ============================================================================
+
+CREATE TABLE IF NOT EXISTS `runtime_run` (
+    `id`                      BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `trace_id`                VARCHAR(64)   NOT NULL                COMMENT '一次外部入口执行的全局唯一 Trace ID',
+    `run_type`                VARCHAR(32)   NOT NULL                COMMENT '根运行类型：AGENT / WORKFLOW',
+    `entry_type`              VARCHAR(32)   NOT NULL                COMMENT '入口：DEBUG / EMBED / GATEWAY / API / EVAL / REPLAY / WORKFLOW_STUDIO / A2A',
+    `status`                  VARCHAR(24)   NOT NULL DEFAULT 'RUNNING' COMMENT 'RUNNING / SUCCESS / FAILED / WAITING_APPROVAL / CANCELLED / TIMEOUT',
+    `project_id`              BIGINT        DEFAULT NULL            COMMENT '所属项目 ID',
+    `project_code`            VARCHAR(96)   DEFAULT NULL            COMMENT '所属项目编码',
+    `tenant_id`               VARCHAR(96)   DEFAULT NULL            COMMENT '租户',
+    `app_id`                  VARCHAR(96)   DEFAULT NULL            COMMENT '嵌入式业务应用 ID',
+    `session_id`              VARCHAR(128)  DEFAULT NULL            COMMENT '会话 ID',
+    `user_id`                 VARCHAR(128)  DEFAULT NULL            COMMENT 'Runtime 用户 ID',
+    `external_user_id`        VARCHAR(128)  DEFAULT NULL            COMMENT '业务系统内用户 ID',
+    `global_user_id`          VARCHAR(128)  DEFAULT NULL            COMMENT '跨系统稳定用户 ID',
+    `page_instance_id`        VARCHAR(128)  DEFAULT NULL            COMMENT '业务前端页面实例 ID',
+    `origin`                  VARCHAR(512)  DEFAULT NULL            COMMENT '请求来源或浏览器 Origin',
+    `agent_id`                VARCHAR(64)   DEFAULT NULL            COMMENT 'Agent ID；独立 Workflow 运行可为空',
+    `agent_key_slug`          VARCHAR(128)  DEFAULT NULL            COMMENT 'Agent 稳定 keySlug 快照',
+    `agent_name`              VARCHAR(128)  DEFAULT NULL            COMMENT 'Agent 名称快照',
+    `agent_config_version_id` BIGINT        DEFAULT NULL            COMMENT '本次执行固定的 Agent 配置版本 ID',
+    `agent_config_version`    INT           DEFAULT NULL            COMMENT '本次执行固定的 Agent 配置版本号',
+    `workflow_id`             VARCHAR(64)   DEFAULT NULL            COMMENT '根 Workflow ID；Agent 根运行可为空',
+    `workflow_key_slug`       VARCHAR(128)  DEFAULT NULL            COMMENT '根 Workflow 稳定 keySlug 快照',
+    `workflow_name`           VARCHAR(160)  DEFAULT NULL            COMMENT '根 Workflow 名称快照',
+    `workflow_version_id`     BIGINT        DEFAULT NULL            COMMENT '根 Workflow 发布版本 ID',
+    `workflow_version`        VARCHAR(32)   DEFAULT NULL            COMMENT '根 Workflow 发布版本号',
+    `runtime_type`            VARCHAR(32)   DEFAULT NULL            COMMENT 'AGENTSCOPE / LANGGRAPH4J 等 Runtime 类型',
+    `root_span_id`            VARCHAR(64)   DEFAULT NULL            COMMENT '根 Span ID',
+    `input_summary`           MEDIUMTEXT    DEFAULT NULL            COMMENT '脱敏、截断后的输入摘要',
+    `output_summary`          MEDIUMTEXT    DEFAULT NULL            COMMENT '脱敏、截断后的输出摘要',
+    `error_code`              VARCHAR(128)  DEFAULT NULL            COMMENT '根运行错误码',
+    `error_message`           TEXT          DEFAULT NULL            COMMENT '根运行错误信息',
+    `latency_ms`              INT           DEFAULT NULL            COMMENT '根运行总耗时毫秒',
+    `token_cost`              INT           NOT NULL DEFAULT 0      COMMENT '根运行累计 Token 消耗',
+    `plan_count`              INT           NOT NULL DEFAULT 0      COMMENT 'PLAN 事件数',
+    `replan_count`            INT           NOT NULL DEFAULT 0      COMMENT 'REPLAN 事件数',
+    `workflow_call_count`     INT           NOT NULL DEFAULT 0      COMMENT 'Workflow-as-Tool 调用数',
+    `tool_call_count`         INT           NOT NULL DEFAULT 0      COMMENT '底层 Tool / Capability 调用数',
+    `guard_deny_count`        INT           NOT NULL DEFAULT 0      COMMENT 'Guard 拒绝数',
+    `approval_count`          INT           NOT NULL DEFAULT 0      COMMENT '人工审批请求数',
+    `replay_of_trace_id`      VARCHAR(64)   DEFAULT NULL            COMMENT '回放来源 Trace ID',
+    `snapshot_json`           MEDIUMTEXT    DEFAULT NULL            COMMENT '历史 Agent 配置、Workflow 工具目录及发布版本快照',
+    `metadata_json`           MEDIUMTEXT    DEFAULT NULL            COMMENT '扩展运行元数据 JSON',
+    `started_at`              DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '开始时间',
+    `ended_at`                DATETIME      DEFAULT NULL            COMMENT '结束时间',
+    `created_at`              DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at`              DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_runtime_run_trace` (`trace_id`),
+    KEY `idx_runtime_run_project_time` (`project_id`, `started_at`),
+    KEY `idx_runtime_run_project_code_time` (`project_code`, `started_at`),
+    KEY `idx_runtime_run_status_time` (`status`, `started_at`),
+    KEY `idx_runtime_run_agent_version_time` (`agent_id`, `agent_config_version_id`, `started_at`),
+    KEY `idx_runtime_run_workflow_version_time` (`workflow_id`, `workflow_version_id`, `started_at`),
+    KEY `idx_runtime_run_entry_time` (`entry_type`, `started_at`),
+    KEY `idx_runtime_run_user_time` (`user_id`, `started_at`),
+    KEY `idx_runtime_run_replay` (`replay_of_trace_id`, `started_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='RunOps 根运行事实；每次用户或外部入口执行一行';
 
 CREATE TABLE IF NOT EXISTS `runtime_tool_call_log` (
     `id`                   BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -673,27 +732,32 @@ CREATE TABLE IF NOT EXISTS `runtime_tool_call_log` (
     KEY `idx_create_time`      (`create_time`),
     KEY `idx_user_create_time` (`user_id`,     `create_time`),
     KEY `idx_intent_create`    (`intent_type`, `create_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Tool 调用审计日志（Phase 1 采集 / Phase 2 Skill Mining 数据源）';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime Tool 调用子事件审计日志（Phase 2 Skill Mining 数据源）';
 
 -- 兼容老库：加 Phase 2.0.1 新增的三个索引
 CALL add_idx_if_absent('runtime_tool_call_log', 'idx_create_time',      'create_time');
 CALL add_idx_if_absent('runtime_tool_call_log', 'idx_user_create_time', 'user_id, create_time');
 CALL add_idx_if_absent('runtime_tool_call_log', 'idx_intent_create',    'intent_type, create_time');
 
-CREATE TABLE IF NOT EXISTS `runtime_agent_trace_span` (
+CREATE TABLE IF NOT EXISTS `runtime_trace_span` (
     `id`                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
-    `trace_id`          VARCHAR(64)  NOT NULL                COMMENT '一次 Agent 执行的 trace id',
+    `trace_id`          VARCHAR(64)  NOT NULL                COMMENT '关联 runtime_run.trace_id',
     `span_id`           VARCHAR(64)  NOT NULL                COMMENT 'Span ID',
     `parent_span_id`    VARCHAR(64)  DEFAULT NULL            COMMENT '父 Span ID',
-    `span_type`         VARCHAR(32)  NOT NULL                COMMENT 'AGENT_RUN/LLM_CALL/TOOL_CALL 等',
+    `span_type`         VARCHAR(32)  NOT NULL                COMMENT 'SUPERVISOR/PLAN/REPLAN/WORKFLOW_TOOL/GRAPH_NODE/LLM_CALL/TOOL_CALL 等',
     `runtime_type`      VARCHAR(32)  DEFAULT NULL            COMMENT 'Runtime 类型',
-    `agent_id`          VARCHAR(64)  DEFAULT NULL            COMMENT 'Agent ID',
-    `agent_name`        VARCHAR(128) DEFAULT NULL            COMMENT 'Agent 名称',
+    `agent_id`          VARCHAR(64)  DEFAULT NULL            COMMENT 'Agent ID；独立 Workflow Span 可为空',
+    `agent_name`        VARCHAR(128) DEFAULT NULL            COMMENT 'Agent 名称快照',
     `node_id`           VARCHAR(128) DEFAULT NULL            COMMENT 'GraphSpec 节点 ID',
-    `tool_name`         VARCHAR(256) DEFAULT NULL            COMMENT 'Tool/Skill 名称',
+    `tool_name`         VARCHAR(256) DEFAULT NULL            COMMENT 'Workflow-as-Tool 或底层 Tool / Capability 名称',
     `model_instance_id` VARCHAR(64)  DEFAULT NULL            COMMENT '模型实例 ID',
     `project_code`      VARCHAR(96)  DEFAULT NULL            COMMENT '项目编码',
-    `status`            VARCHAR(16)  NOT NULL DEFAULT 'SUCCESS' COMMENT 'SUCCESS/ERROR',
+    `tenant_id`         VARCHAR(96)  DEFAULT NULL            COMMENT '租户',
+    `app_id`            VARCHAR(96)  DEFAULT NULL            COMMENT '嵌入式业务应用 ID',
+    `external_user_id`  VARCHAR(128) DEFAULT NULL            COMMENT '业务系统内用户 ID',
+    `global_user_id`    VARCHAR(128) DEFAULT NULL            COMMENT '跨系统稳定用户 ID',
+    `page_instance_id`  VARCHAR(128) DEFAULT NULL            COMMENT '业务前端页面实例 ID',
+    `status`            VARCHAR(16)  NOT NULL DEFAULT 'SUCCESS' COMMENT 'RUNNING / SUCCESS / FAILED / ERROR / WAITING_APPROVAL',
     `input_summary`     MEDIUMTEXT   DEFAULT NULL            COMMENT '输入摘要',
     `output_summary`    MEDIUMTEXT   DEFAULT NULL            COMMENT '输出摘要',
     `metadata_json`     MEDIUMTEXT   DEFAULT NULL            COMMENT '结构化元数据 JSON',
@@ -708,18 +772,9 @@ CREATE TABLE IF NOT EXISTS `runtime_agent_trace_span` (
     UNIQUE KEY `uk_trace_span` (`trace_id`, `span_id`),
     KEY `idx_trace` (`trace_id`, `created_at`),
     KEY `idx_parent` (`trace_id`, `parent_span_id`),
-    KEY `idx_agent_node` (`agent_id`, `node_id`, `created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 平台统一执行 Trace Span';
-
-CALL add_idx_if_absent('runtime_agent_trace_span', 'idx_trace',      'trace_id, created_at');
-CALL add_idx_if_absent('runtime_agent_trace_span', 'idx_parent',     'trace_id, parent_span_id');
-CALL add_idx_if_absent('runtime_agent_trace_span', 'idx_agent_node', 'agent_id, node_id, created_at');
-CALL add_col_if_absent('runtime_agent_trace_span', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `project_code`');
-CALL add_col_if_absent('runtime_agent_trace_span', 'app_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''嵌入式业务应用 ID，等同 project_code'' AFTER `tenant_id`');
-CALL add_col_if_absent('runtime_agent_trace_span', 'external_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务系统内用户 ID'' AFTER `app_id`');
-CALL add_col_if_absent('runtime_agent_trace_span', 'global_user_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''跨系统稳定用户 ID'' AFTER `external_user_id`');
-CALL add_col_if_absent('runtime_agent_trace_span', 'page_instance_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务前端页面实例 ID'' AFTER `global_user_id`');
-CALL add_idx_if_absent('runtime_agent_trace_span', 'idx_trace_embed_user', '`app_id`, `external_user_id`, `created_at`');
+    KEY `idx_trace_object` (`trace_id`, `agent_id`, `node_id`, `created_at`),
+    KEY `idx_trace_embed_user` (`app_id`, `external_user_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime 通用执行 Trace Span 子事件';
 
 
 -- ============================================================================
@@ -760,8 +815,7 @@ CREATE TABLE IF NOT EXISTS `capability_eval_snapshot` (
 
 
 -- ============================================================================
--- 六.五、Phase 2.x InteractiveFormSkill — 挂起/恢复状态表
---   与历史 skill_interaction_phase2_x 补丁一致（CREATE IF NOT EXISTS，幂等）
+-- 六.五、Runtime Interaction — 交互式表单与 Supervisor 策略确认挂起/恢复
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS `runtime_skill_interaction` (
@@ -769,7 +823,7 @@ CREATE TABLE IF NOT EXISTS `runtime_skill_interaction` (
   `trace_id`        VARCHAR(64)   NOT NULL,
   `session_id`      VARCHAR(64)   DEFAULT NULL,
   `user_id`         VARCHAR(64)   DEFAULT NULL,
-  `agent_id`        BIGINT        DEFAULT NULL,
+  `agent_id`        VARCHAR(64)   DEFAULT NULL COMMENT '关联 runtime_agent.id',
   `skill_name`      VARCHAR(128)  NOT NULL,
   `status`          VARCHAR(16)   NOT NULL COMMENT 'PENDING / SUBMITTED / EXPIRED / CANCELLED',
   `slot_state`      JSON          NOT NULL COMMENT '含 slots 与 phase: COLLECT|CONFIRM',
@@ -784,7 +838,7 @@ CREATE TABLE IF NOT EXISTS `runtime_skill_interaction` (
   KEY `idx_status_expires` (`status`, `expires_at`),
   KEY `idx_user_status` (`user_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT='交互式表单 Skill 挂起状态';
+COMMENT='Runtime 交互挂起状态（交互式表单 / 人工审批 / Supervisor 策略确认）';
 
 
 -- ============================================================================
@@ -824,20 +878,69 @@ CREATE TABLE IF NOT EXISTS `runtime_agent` (
     `key_slug`           VARCHAR(128) NOT NULL,
     `name`               VARCHAR(128) NOT NULL,
     `description`        VARCHAR(512) DEFAULT NULL,
-    `agent_kind`         VARCHAR(32)  NOT NULL DEFAULT 'PROJECT_ENTRY' COMMENT 'PROJECT_ENTRY / PAGE_COPILOT / GLOBAL_EMBED / SPECIALIST / CODE_AGENT / EXTERNAL_AGENT',
     `visibility`         VARCHAR(32)  NOT NULL DEFAULT 'PROJECT',
-    `system_prompt`      MEDIUMTEXT   DEFAULT NULL,
-    `model_instance_id`  VARCHAR(64)  DEFAULT NULL,
+    `active_config_version_id` BIGINT DEFAULT NULL COMMENT '当前发布的 Agent 配置版本 ID',
     `allowed_roles_json` TEXT         DEFAULT NULL,
-    `entry_config_json`  MEDIUMTEXT   DEFAULT NULL COMMENT '入口策略、工具策略、记忆/知识范围等 JSON',
     `enabled`            TINYINT(1)   NOT NULL DEFAULT 1,
     `created_at`         DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `updated_at`         DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_ai_agent_key_slug` (`key_slug`),
     KEY `idx_ai_agent_project` (`project_id`, `enabled`),
-    KEY `idx_ai_agent_project_code` (`project_code`, `agent_kind`, `enabled`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ReachAI 智能体入口（身份、策略、Workflow 路由）';
+    KEY `idx_ai_agent_project_code` (`project_code`, `enabled`),
+    KEY `idx_runtime_agent_active_config` (`active_config_version_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ReachAI Agent 聚合根与稳定入口身份';
+
+CREATE TABLE IF NOT EXISTS `runtime_agent_config_version` (
+    `id`                    BIGINT       NOT NULL AUTO_INCREMENT,
+    `agent_id`              VARCHAR(32)  NOT NULL COMMENT '关联 runtime_agent.id',
+    `version_no`            INT          NOT NULL COMMENT 'Agent 内递增配置版本号',
+    `status`                VARCHAR(16)  NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT / ACTIVE / ARCHIVED',
+    `runtime_type`          VARCHAR(32)  NOT NULL DEFAULT 'AGENTSCOPE' COMMENT 'Supervisor Runtime 类型',
+    `system_prompt`         MEDIUMTEXT   DEFAULT NULL,
+    `model_instance_id`     VARCHAR(64)  DEFAULT NULL,
+    `max_plan_steps`        INT          NOT NULL DEFAULT 6,
+    `max_workflow_calls`    INT          NOT NULL DEFAULT 4,
+    `max_replans`           INT          NOT NULL DEFAULT 2,
+    `total_timeout_ms`      INT          NOT NULL DEFAULT 300000,
+    `workflow_timeout_ms`   INT          NOT NULL DEFAULT 180000,
+    `page_bridge_timeout_ms` INT         NOT NULL DEFAULT 30000,
+    `parallel_read_only`    TINYINT(1)   NOT NULL DEFAULT 1,
+    `policy_profile`        VARCHAR(64)  NOT NULL DEFAULT 'DEV_ALLOW_ALL',
+    `tool_catalog_mode`     VARCHAR(32)  NOT NULL DEFAULT 'ALLOW_LIST',
+    `config_json`           MEDIUMTEXT   DEFAULT NULL COMMENT '扩展配置；不得替代上方稳定字段',
+    `published_by`          VARCHAR(64)  DEFAULT NULL,
+    `published_at`          DATETIME     DEFAULT NULL,
+    `created_at`            DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`            DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_runtime_agent_config_version` (`agent_id`, `version_no`),
+    KEY `idx_runtime_agent_config_status` (`agent_id`, `status`, `version_no`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Supervisor 不可变发布配置与草稿版本';
+
+CREATE TABLE IF NOT EXISTS `runtime_agent_workflow_tool` (
+    `id`                         BIGINT       NOT NULL AUTO_INCREMENT,
+    `agent_id`                   VARCHAR(32)  NOT NULL COMMENT '关联 runtime_agent.id',
+    `agent_config_version_id`    BIGINT       NOT NULL COMMENT '关联 runtime_agent_config_version.id',
+    `workflow_id`                VARCHAR(32)  NOT NULL COMMENT '关联 runtime_workflow.id',
+    `workflow_version_id`        BIGINT       NOT NULL COMMENT '发布配置固定的 runtime_workflow_version.id',
+    `tool_name`                  VARCHAR(128) NOT NULL COMMENT '暴露给 Supervisor 的稳定 Tool 名称',
+    `description_override`       VARCHAR(1000) DEFAULT NULL,
+    `input_schema_override_json` MEDIUMTEXT   DEFAULT NULL,
+    `output_schema_override_json` MEDIUMTEXT  DEFAULT NULL,
+    `risk_level`                 VARCHAR(24)  NOT NULL DEFAULT 'READ' COMMENT 'READ / WRITE / PAGE_ACTION / IRREVERSIBLE',
+    `permission_key`             VARCHAR(160) DEFAULT NULL,
+    `read_only`                  TINYINT(1)   NOT NULL DEFAULT 1,
+    `enabled`                    TINYINT(1)   NOT NULL DEFAULT 1,
+    `priority`                   INT          NOT NULL DEFAULT 0,
+    `created_at`                 DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`                 DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_runtime_agent_version_workflow_tool` (`agent_config_version_id`, `workflow_id`),
+    UNIQUE KEY `uk_runtime_agent_version_tool_name` (`agent_config_version_id`, `tool_name`),
+    KEY `idx_runtime_agent_workflow_tool_agent` (`agent_id`, `agent_config_version_id`, `enabled`),
+    KEY `idx_runtime_agent_workflow_tool_workflow` (`workflow_id`, `workflow_version_id`, `enabled`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 配置版本固定 Workflow 发布版本的 Workflow-as-Tool 显式白名单';
 
 CREATE TABLE IF NOT EXISTS `runtime_workflow` (
     `id`                           VARCHAR(32)  NOT NULL,
@@ -884,29 +987,6 @@ CREATE TABLE IF NOT EXISTS `runtime_workflow_version` (
     KEY `idx_ai_workflow_version_status` (`workflow_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow 发布版本';
 
-CREATE TABLE IF NOT EXISTS `runtime_agent_workflow_binding` (
-    `id`                BIGINT       NOT NULL AUTO_INCREMENT,
-    `agent_id`          VARCHAR(32)  NOT NULL COMMENT '关联 runtime_agent.id',
-    `workflow_id`       VARCHAR(32)  NOT NULL COMMENT '关联 runtime_workflow.id',
-    `project_code`      VARCHAR(96)  DEFAULT NULL,
-    `binding_type`      VARCHAR(32)  NOT NULL DEFAULT 'DEFAULT' COMMENT 'DEFAULT / PAGE / ROUTE / ACTION / INTENT / TASK / FALLBACK',
-    `page_key`          VARCHAR(160) DEFAULT NULL,
-    `route_pattern`     VARCHAR(512) DEFAULT NULL,
-    `action_key`        VARCHAR(160) DEFAULT NULL,
-    `intent_type`       VARCHAR(96)  DEFAULT NULL,
-    `priority`          INT          NOT NULL DEFAULT 0,
-    `enabled`           TINYINT(1)   NOT NULL DEFAULT 1,
-    `guard_config_json` MEDIUMTEXT   DEFAULT NULL,
-    `metadata_json`     MEDIUMTEXT   DEFAULT NULL,
-    `created_at`        DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`        DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_ai_binding_agent` (`agent_id`, `enabled`, `priority`),
-    KEY `idx_ai_binding_page` (`project_code`, `agent_id`, `page_key`, `enabled`, `priority`),
-    KEY `idx_ai_binding_action` (`project_code`, `agent_id`, `page_key`, `action_key`, `enabled`),
-    KEY `idx_ai_binding_workflow` (`workflow_id`, `enabled`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 到 Workflow 路由绑定';
-
 -- Workflow Studio Eval：草稿流程自动评测
 CREATE TABLE IF NOT EXISTS `runtime_agent_eval_dataset` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -920,7 +1000,7 @@ CREATE TABLE IF NOT EXISTS `runtime_agent_eval_dataset` (
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   KEY `idx_eval_dataset_agent` (`agent_id`, `create_time`),
   KEY `idx_eval_dataset_name` (`name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 评测数据集';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Supervisor 评测数据集';
 
 CREATE TABLE IF NOT EXISTS `runtime_agent_eval_case` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -935,7 +1015,7 @@ CREATE TABLE IF NOT EXISTS `runtime_agent_eval_case` (
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY `idx_eval_case_dataset` (`dataset_id`, `enabled`, `id`),
   UNIQUE KEY `uk_eval_case_no` (`dataset_id`, `case_no`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 评测用例';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Supervisor 评测用例';
 
 CREATE TABLE IF NOT EXISTS `runtime_agent_eval_run` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -955,7 +1035,7 @@ CREATE TABLE IF NOT EXISTS `runtime_agent_eval_run` (
   KEY `idx_eval_run_dataset` (`dataset_id`, `create_time`),
   KEY `idx_eval_run_agent` (`agent_id`, `create_time`),
   KEY `idx_eval_run_status` (`status`, `create_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 评测运行任务';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Supervisor 真实运行时评测任务';
 
 CREATE TABLE IF NOT EXISTS `runtime_agent_eval_case_result` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -980,7 +1060,7 @@ CREATE TABLE IF NOT EXISTS `runtime_agent_eval_case_result` (
   KEY `idx_eval_result_run` (`run_id`, `case_id`, `round_no`),
   KEY `idx_eval_result_case` (`case_id`, `create_time`),
   KEY `idx_eval_result_status` (`run_id`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 评测用例结果';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Supervisor 运行时评测用例结果';
 
 
 -- ============================================================================
@@ -1462,7 +1542,6 @@ CREATE TABLE IF NOT EXISTS `capability_project_instance` (
     `sdk_version`       VARCHAR(64)  DEFAULT NULL,
     `status`            VARCHAR(24)  NOT NULL DEFAULT 'ONLINE',
     `metadata_json`     JSON         DEFAULT NULL,
-    `governance_policy_json` JSON    DEFAULT NULL,
     `last_heartbeat_at` DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `created_at`        DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `updated_at`        DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1471,8 +1550,6 @@ CREATE TABLE IF NOT EXISTS `capability_project_instance` (
     KEY `idx_project_status` (`project_id`, `status`),
     KEY `idx_heartbeat` (`last_heartbeat_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI 注册中心业务系统实例';
-
-CALL add_col_if_absent('capability_project_instance', 'governance_policy_json', 'JSON DEFAULT NULL COMMENT ''Runtime 治理策略'' AFTER `metadata_json`');
 
 CREATE TABLE IF NOT EXISTS `capability_sync_log` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT,
@@ -1671,11 +1748,15 @@ CREATE TABLE IF NOT EXISTS `control_page_action_event` (
     `tenant_id`               VARCHAR(96)  NOT NULL DEFAULT 'default',
     `app_id`                  VARCHAR(96)  NOT NULL,
     `agent_id`                VARCHAR(128) NOT NULL,
+    `command_type`            VARCHAR(32)  NOT NULL DEFAULT 'PAGE_ACTION',
+    `parent_request_id`       VARCHAR(96)  DEFAULT NULL,
     `node_id`                 VARCHAR(128) DEFAULT NULL,
     `action_key`              VARCHAR(160) DEFAULT NULL,
     `title`                   VARCHAR(256) DEFAULT NULL,
     `args_json`               TEXT         DEFAULT NULL,
     `target_page_instance_id` VARCHAR(128) DEFAULT NULL,
+    `target_page_key`         VARCHAR(160) DEFAULT NULL,
+    `target_route`            VARCHAR(512) DEFAULT NULL,
     `confirm_required`        TINYINT(1)   DEFAULT 0,
     `status`                  VARCHAR(32)  NOT NULL DEFAULT 'REQUESTED',
     `result_json`             TEXT         DEFAULT NULL,
@@ -1687,6 +1768,11 @@ CREATE TABLE IF NOT EXISTS `control_page_action_event` (
     KEY `idx_page_action_session` (`session_id`, `status`, `requested_at`),
     KEY `idx_page_action_app_agent` (`tenant_id`, `app_id`, `agent_id`, `requested_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式页面动作请求和执行结果';
+
+CALL add_col_if_absent('control_page_action_event', 'command_type', 'VARCHAR(32) NOT NULL DEFAULT ''PAGE_ACTION'' AFTER `agent_id`');
+CALL add_col_if_absent('control_page_action_event', 'parent_request_id', 'VARCHAR(96) DEFAULT NULL AFTER `command_type`');
+CALL add_col_if_absent('control_page_action_event', 'target_page_key', 'VARCHAR(160) DEFAULT NULL AFTER `target_page_instance_id`');
+CALL add_col_if_absent('control_page_action_event', 'target_route', 'VARCHAR(512) DEFAULT NULL AFTER `target_page_key`');
 
 CREATE TABLE IF NOT EXISTS `control_page_registry` (
     `id`                       BIGINT       NOT NULL AUTO_INCREMENT,

@@ -113,7 +113,12 @@ Important fields:
 - `dryRun` (default `true`)
 - `baseRevision` (required for save; use `workflow.updatedAt` from context)
 - `reason`
-- `layout.autoLayout` (default `true`): when enabled, patch/create saves rank-based canvas positions aligned with Workflow Studio auto-layout (`x = 80 + level * 260`, `y = 120 + lane * 150`). Verify `canvas.nodes[].position` before reporting back; do not patch GraphSpec only and ignore canvas layout.
+- `layout.autoLayout` (patch default `true`): uses the cycle-safe `layered-v2` LR policy. Create always projects and lays out canvas from GraphSpec. Patch uses 88px inter-layer and 56px same-layer card-boundary gaps by default; `false` preserves existing positions while still synchronizing canvas nodes/edges and positioning newly added nodes. Verify `canvas.nodes[].position` before reporting back.
+- `layout.direction`: `LR`
+- `layout.columnGap`: default `88`
+- `layout.rowGap`: default `56`
+
+All patch operations run through the same atomic GraphSpec mutation kernel used by Workflow Studio AI editing. Supported ops are `ADD_NODE`, `UPDATE_NODE`, `DELETE_NODE`, `ADD_EDGE`, `UPDATE_EDGE`, `DELETE_EDGE`, `SET_ENTRY`, and `SET_FINISH`. Nested patches deep-merge; node/edge ids are immutable; references are checked before a candidate can be saved.
 
 ## Validate Request
 
@@ -145,19 +150,23 @@ Request body:
   "version": "v1.0.0",
   "rolloutPercent": 100,
   "note": "initial AI Coding publish",
-  "publishedBy": "Codex"
+  "publishedBy": "Codex",
+  "baseRevision": "2026-07-14T10:30:00"
 }
 ```
 
 Rules:
 
 - Call `GET .../versions` first and publish only when `releaseValidation.valid=true`.
+- Re-read `GET .../context` immediately before publish and send the latest `workflow.updatedAt` as `baseRevision`.
 - Publish still runs server-side release validation and fails if the draft is not releasable.
+- A stale `baseRevision` returns `409` and creates no version; re-read context, validate again, then retry.
 - Use `POST .../publish`, not legacy admin publish endpoints.
 - If `v1.0.0` already exists, read version history and choose the next semantic version.
 
 ## Error Semantics
 
-- `400`: invalid payload, patch failure, revision mismatch
+- `400`: invalid payload or patch failure; malformed `baseRevision` returns `code=WORKFLOW_BASE_REVISION_INVALID`
+- `409`: stale draft revision; no save or publish was applied. The body returns `code=WORKFLOW_DRAFT_CONFLICT`, `workflowId`, `baseRevision`, and `currentRevision`; `ETag` carries the current revision.
 - `403`: project permission denied
 - `404`: workflow or trace not found

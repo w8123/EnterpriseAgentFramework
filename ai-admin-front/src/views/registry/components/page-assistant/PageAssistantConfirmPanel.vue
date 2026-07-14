@@ -20,13 +20,13 @@ defineProps<{
 
 const emit = defineEmits<{
   focusDraftStep: []
-  goBindStep: []
+  goAttachStep: []
   confirmCreateWorkflow: []
 }>()
 </script>
 
 <template>
-  <div class="step-screen">
+  <div class="step-screen page-assistant-flow-panel">
     <div class="panel-head">
       <div>
         <span class="step-kicker">步骤 5</span>
@@ -41,7 +41,7 @@ const emit = defineEmits<{
         </div>
         <div class="studio-ready-copy">
           <span>AI Coding 链路</span>
-          <strong>已选择 AI Coding Workflow，可直接挂载智能体</strong>
+          <strong>已选择已发布的 AI Coding Workflow，可加入 Supervisor 工具目录</strong>
           <p>该 Workflow 已由外部 AI 工具创建，无需在此步再次创建。</p>
         </div>
         <div class="studio-ready-state">
@@ -72,9 +72,9 @@ const emit = defineEmits<{
         <button type="button" class="secondary" @click="emit('focusDraftStep')">
           返回选择 Workflow
         </button>
-        <button type="button" class="primary" @click="emit('goBindStep')">
+        <button type="button" class="primary" @click="emit('goAttachStep')">
           <el-icon><Finished /></el-icon>
-          去挂载智能体
+          去启用页面副驾驶
         </button>
       </div>
     </div>
@@ -93,7 +93,7 @@ const emit = defineEmits<{
           <p>
             {{ draftIssueCount
               ? '请返回配置或重新生成，修复后再创建 Workflow。'
-              : '创建 Workflow 后将继续挂载到页面副驾驶 Agent，再进入 Workflow Studio。' }}
+              : '确认后会创建并发布 Workflow，再加入 Supervisor 工具目录。' }}
           </p>
         </div>
         <div class="studio-ready-state">

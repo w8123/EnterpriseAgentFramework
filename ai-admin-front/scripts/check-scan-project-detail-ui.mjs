@@ -35,7 +35,7 @@ const summarySource = readFileSync(join(process.cwd(), 'src/views/scan/composabl
 
 assert.match(
   scanDetailSource,
-  /class="registry-workbench-page api-catalog-workbench"/,
+  /class="registry-workbench-page api-catalog-workbench project-workbench-page"/,
   'API catalog detail page should opt into the shared registry workbench shell',
 )
 assert.match(
@@ -154,6 +154,12 @@ assert.match(scanProjectApiSource, /sdk-sync\/scan/, 'Scan project API should ex
 
 assert.match(addInterfaceDialogSource, /SDK 同步/, 'Add-interface dialog should include the SDK sync tab')
 assert.match(addInterfaceDialogSource, /SDK 接入指引/, 'SDK sync tab should include the onboarding guide action')
+assert.match(addInterfaceDialogSource, /ReachAI 将主动调用业务系统/, 'SDK sync tab should explain the server-to-server call direction')
+assert.match(addInterfaceDialogSource, /\/reachai\/registry\/capabilities\/sync/, 'SDK sync tab should show the exact business callback path')
+assert.match(addInterfaceDialogSource, /业务登录\/JWT与 CSRF 放行[\s\S]*Starter[\s\S]*签名/, 'SDK sync tab should explain auth bypass versus Starter signature verification')
+assert.match(addInterfaceDialogSource, /当前回调地址使用 localhost/, 'SDK sync tab should warn when the registered target is loopback')
+assert.match(addInterfaceDialogSource, /syncError[\s\S]*最近一次同步失败/, 'SDK sync tab should keep actionable failure diagnostics visible')
+assert.match(scanDetailSource, /:sync-error="sdkScanError"/, 'API catalog detail should pass persistent SDK sync diagnostics into the dialog')
 assert.match(addInterfaceDialogSource, /AI Coding 扫描/, 'Add-interface dialog should include the AI Coding scan tab')
 assert.match(addInterfaceDialogSource, /扫描解析设置/, 'Add-interface dialog should include scan parsing settings')
 assert.doesNotMatch(
@@ -348,12 +354,16 @@ assert.match(
 assert.match(toolsPanelSource, /emptyPrimaryAction/, 'Tools panel empty state should expose the stage primary action')
 assert.match(toolsPanelSource, /emptySecondaryAction/, 'Tools panel empty state should expose the stage secondary action')
 
-assert.match(
+assert.doesNotMatch(
   scanDetailStyle,
-  /:global\(\.main-layout\.registry-shell \.main-content:has\(\.api-catalog-workbench\)\)/,
-  'API catalog detail page should participate in the registry shell spacing',
+  /:global\(\.main-layout[^)]*:has\(\.api-catalog-workbench\)/,
+  'API catalog detail page must not infer or override MainLayout through :has()',
 )
-assert.match(scanDetailStyle, /\.api-catalog-workbench\s*\{[\s\S]*?padding:\s*var\(--reachai-workbench-page-padding/)
+assert.doesNotMatch(
+  scanDetailStyle,
+  /--reachai-workbench-page-padding/,
+  'API catalog detail page must consume the shared layout tokens instead of the removed legacy padding token',
+)
 assert.match(scanDetailStyle, /\.api-catalog-workbench :deep\(\.api-catalog-hero\)/)
 assert.doesNotMatch(scanDetailStyle, /\.api-catalog-workbench :deep\(\.project-meta\)/)
 assert.doesNotMatch(scanDetailStyle, /\.api-catalog-workbench :deep\(\.stage-pill\)/)

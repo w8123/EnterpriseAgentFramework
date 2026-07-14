@@ -1,6 +1,6 @@
 import { ElMessage } from 'element-plus'
 import { computed, type ComputedRef, type Ref } from 'vue'
-import { editWorkflowDraft, generateWorkflowDraft } from '@/api/workflow'
+import { editWorkflowDraft } from '@/api/workflow'
 import type { CompositionInfo } from '@/types/composition'
 import type { KnowledgeBase } from '@/types/knowledge'
 import type { ToolInfo } from '@/types/tool'
@@ -9,7 +9,6 @@ import type {
   WorkflowDraftEditOperation,
   WorkflowDraftEditOperationType,
   WorkflowDraftEditResult,
-  WorkflowDraftGenerationResult,
   WorkflowDraftResource,
   WorkflowStudioState,
 } from '@/types/workflow'
@@ -19,6 +18,7 @@ export interface UseWorkflowStudioAiDraftActionsDeps {
   workflowId: Readonly<Ref<string>>
   studioReadOnly: Readonly<Ref<boolean>>
   studio: Ref<WorkflowStudioState | null>
+  editGeneration: Readonly<Ref<number>>
   graphSpecJson: Ref<string>
   canvasJson: Ref<string>
   nodes: Ref<CanvasNode[]>
@@ -27,14 +27,9 @@ export interface UseWorkflowStudioAiDraftActionsDeps {
   selectedEdgeId: Ref<string | null>
   activeTab: Ref<string>
   validation: Ref<unknown>
-  aiModelInstanceId: Ref<string>
-  aiRequirement: Ref<string>
   aiEditInstruction: Ref<string>
-  aiDraftLoading: Ref<boolean>
   aiEditLoading: Ref<boolean>
-  aiDraftPreview: Ref<WorkflowDraftGenerationResult | null>
   aiEditPreview: Ref<WorkflowDraftEditResult | null>
-  aiDraftDialogOpen: Ref<boolean>
   availableTools: ComputedRef<ToolInfo[]>
   availableCompositions: ComputedRef<CompositionInfo[]>
   knowledgeOptions: Ref<KnowledgeBase[]>
@@ -45,6 +40,8 @@ export interface UseWorkflowStudioAiDraftActionsDeps {
   syncJsonFromCanvas: () => void
   canvasSnapshot: () => CanvasSnapshot
   applyCanvasFromStudio: (state: WorkflowStudioState) => void
+  autoLayoutWorkflowCanvas: () => Promise<void>
+  fitCanvas: () => Promise<void>
 }
 
 function workflowEditOperationLabel(type: WorkflowDraftEditOperationType) {
@@ -60,17 +57,35 @@ function workflowEditOperationLabel(type: WorkflowDraftEditOperationType) {
 }
 
 function operationTarget(item: WorkflowDraftEditOperation) {
-  const node = item.node as { id?: string; data?: { label?: string } } | undefined
-  const edge = item.edge as { id?: string; source?: string; target?: string } | undefined
+  const node = item.node as { id?: string; name?: string; data?: { label?: string } } | undefined
+  const edge = item.edge as { id?: string; from?: string; to?: string; source?: string; target?: string } | undefined
   if (item.nodeId) return item.nodeId
   if (item.edgeId) return item.edgeId
   if (node?.data?.label) return node.data.label
+  if (node?.name) return node.name
   if (node?.id) return node.id
-  if (edge?.source || edge?.target) return `${edge?.source || '?'} → ${edge?.target || '?'}`
+  const source = edge?.from || edge?.source
+  const target = edge?.to || edge?.target
+  if (source || target) return `${source || '?'} → ${target || '?'}`
   return workflowEditOperationLabel(item.type)
 }
 
 export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftActionsDeps) {
+  let previewRequestSequence = 0
+  let editLoadingSequence = 0
+  let previewContext: { workflowId: string; editGeneration: number } | null = null
+
+  function isPreviewContextCurrent() {
+    return !!previewContext
+      && previewContext.workflowId === deps.workflowId.value
+      && previewContext.editGeneration === deps.editGeneration.value
+  }
+
+  function clearPreviews() {
+    deps.aiEditPreview.value = null
+    previewContext = null
+  }
+
   const selectedNodeIdsForAi = computed(() => {
     const ids = new Set<string>()
     for (const node of deps.nodes.value) {
@@ -87,26 +102,6 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
     }
     if (deps.selectedEdgeId.value) ids.add(deps.selectedEdgeId.value)
     return Array.from(ids)
-  })
-
-  const activeAiPreview = computed(() => deps.aiDraftPreview.value || deps.aiEditPreview.value)
-
-  const aiDraftPreviewNodes = computed(() => {
-    const snapshot = deps.aiDraftPreview.value?.canvasSnapshot as { nodes?: unknown } | undefined
-    return Array.isArray(snapshot?.nodes) ? snapshot.nodes as CanvasNode[] : []
-  })
-
-  const aiDraftPreviewEdges = computed(() => {
-    const snapshot = deps.aiDraftPreview.value?.canvasSnapshot as { edges?: unknown } | undefined
-    return Array.isArray(snapshot?.edges) ? snapshot.edges as CanvasEdge[] : []
-  })
-
-  const aiDraftPreviewNodeLabels = computed(() => {
-    const labels = new Map<string, string>()
-    for (const node of aiDraftPreviewNodes.value) {
-      labels.set(node.id, node.data?.label || node.id)
-    }
-    return labels
   })
 
   const aiEditOperationGroups = computed(() => {
@@ -128,45 +123,6 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
       .filter((group) => group.items.length)
   })
 
-  const aiPreviewPlaceholderNodes = computed(() => activeAiPreview.value?.placeholderNodes || [])
-
-  const draftPreviewTitle = computed(() => {
-    if (deps.aiEditPreview.value) return deps.aiEditPreview.value.summary || 'AI edit preview'
-    return deps.aiDraftPreview.value?.graphSpec?.name || 'AI draft preview'
-  })
-
-  const draftPreviewSummary = computed(() => {
-    const preview = activeAiPreview.value
-    if (!preview) return '生成后可应用到当前 Workflow 草稿'
-    if ('summary' in preview && typeof preview.summary === 'string' && preview.summary.trim()) {
-      return preview.summary
-    }
-    const graphSpec = preview.graphSpec as unknown as { description?: string } | undefined
-    return typeof graphSpec?.description === 'string' && graphSpec.description.trim()
-      ? graphSpec.description
-      : '生成后可应用到当前 Workflow 草稿'
-  })
-
-  const draftPreviewIssues = computed(() => {
-    const preview = activeAiPreview.value
-    return [
-      ...(preview?.validationErrors || []),
-      ...(preview?.warnings || []),
-      ...(preview?.placeholderNodes || []).map((item) => `${item.label}: ${item.reason}`),
-    ]
-  })
-
-  const aiEditScopeLabel = computed(() => {
-    const nodeCount = selectedNodeIdsForAi.value.length
-    const edgeCount = selectedEdgeIdsForAi.value.length
-    if (!nodeCount && !edgeCount) return 'Whole workflow'
-    const parts = [
-      nodeCount ? `${nodeCount} node${nodeCount > 1 ? 's' : ''}` : '',
-      edgeCount ? `${edgeCount} edge${edgeCount > 1 ? 's' : ''}` : '',
-    ].filter(Boolean)
-    return `Selected ${parts.join(' / ')}`
-  })
-
   function parseCurrentCanvas() {
     if (deps.nodes.value.length) {
       deps.syncJsonFromCanvas()
@@ -180,57 +136,10 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
     }
   }
 
-  function openAiDraftDialog() {
-    deps.aiModelInstanceId.value = deps.aiModelInstanceId.value
-      || deps.studio.value?.defaultModelInstanceId
-      || deps.resolveAiModelInstanceId()
-      || ''
-    if (!deps.aiRequirement.value.trim()) {
-      deps.aiRequirement.value = deps.studio.value?.description || '基于当前 Workflow 目标，生成或补全可执行流程。'
-    }
-    deps.aiDraftPreview.value = null
-    deps.aiDraftDialogOpen.value = true
-  }
-
-  async function generateAiDraft() {
-    const requirement = deps.aiRequirement.value.trim()
-    if (!requirement) {
-      ElMessage.warning('请先输入流程需求')
-      return
-    }
-    const modelInstanceId = deps.resolveAiModelInstanceId()
-    if (!modelInstanceId) {
-      ElMessage.warning('请先选择或配置可用的 LLM 模型实例')
-      return
-    }
-    deps.aiDraftLoading.value = true
-    try {
-      const { data } = await generateWorkflowDraft({
-        workflowId: deps.workflowId.value,
-        workflowName: deps.studio.value?.name || undefined,
-        agentName: deps.studio.value?.name || undefined,
-        projectCode: deps.studio.value?.projectCode || null,
-        requirement,
-        modelInstanceId,
-        currentCanvas: parseCurrentCanvas(),
-        tools: deps.availableTools.value.map((tool) => deps.toolToDraftResource(tool)),
-        capabilities: deps.availableCompositions.value.map((item) => deps.compositionToDraftResource(item)),
-        knowledgeBases: deps.knowledgeOptions.value.map((item) => deps.knowledgeToDraftResource(item)),
-      })
-      deps.aiDraftPreview.value = data
-      deps.aiEditPreview.value = null
-      ElMessage.success('AI 流程草稿预览已生成')
-    } catch (err) {
-      ElMessage.error('生成流程草稿失败：' + (err as Error).message)
-    } finally {
-      deps.aiDraftLoading.value = false
-    }
-  }
-
-  async function editAiDraft() {
+  async function runAiAuthoring() {
     const instruction = deps.aiEditInstruction.value.trim()
     if (!instruction) {
-      ElMessage.warning('请先输入要修改的流程指令')
+      ElMessage.warning('请先描述要创建、修改或修复的 Workflow')
       return
     }
     const modelInstanceId = deps.resolveAiModelInstanceId()
@@ -238,33 +147,50 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
       ElMessage.warning('请先选择或配置可用的 LLM 模型实例')
       return
     }
+    const requestWorkflowId = deps.workflowId.value
+    const currentCanvas = parseCurrentCanvas()
+    const currentGraphSpec = readJsonObject(deps.graphSpecJson.value, {})
+    const requestEditGeneration = deps.editGeneration.value
+    const requestSequence = ++previewRequestSequence
+    const loadingSequence = ++editLoadingSequence
+    const isRequestCurrent = () => (
+      requestSequence === previewRequestSequence
+      && requestWorkflowId === deps.workflowId.value
+      && requestEditGeneration === deps.editGeneration.value
+    )
     deps.aiEditLoading.value = true
     try {
       const { data } = await editWorkflowDraft({
-        workflowId: deps.workflowId.value,
+        workflowId: requestWorkflowId,
         workflowName: deps.studio.value?.name || undefined,
         agentName: deps.studio.value?.name || undefined,
         projectCode: deps.studio.value?.projectCode || null,
         instruction,
         modelInstanceId,
-        currentCanvas: parseCurrentCanvas(),
+        currentCanvas,
+        currentGraphSpec,
         selectedNodeIds: selectedNodeIdsForAi.value,
         selectedEdgeIds: selectedEdgeIdsForAi.value,
         tools: deps.availableTools.value.map((tool) => deps.toolToDraftResource(tool)),
         capabilities: deps.availableCompositions.value.map((item) => deps.compositionToDraftResource(item)),
         knowledgeBases: deps.knowledgeOptions.value.map((item) => deps.knowledgeToDraftResource(item)),
       })
+      if (!isRequestCurrent()) {
+        ElMessage.warning('Workflow 草稿已变化，已忽略过期的 AI 编排结果')
+        return
+      }
       deps.aiEditPreview.value = data
-      deps.aiDraftPreview.value = null
-      ElMessage.success('AI 修改预览已生成')
+      previewContext = { workflowId: requestWorkflowId, editGeneration: requestEditGeneration }
+      ElMessage.success('AI 编排预览已生成')
     } catch (err) {
+      if (!isRequestCurrent()) return
       ElMessage.error((err as Error).message)
     } finally {
-      deps.aiEditLoading.value = false
+      if (loadingSequence === editLoadingSequence) deps.aiEditLoading.value = false
     }
   }
 
-  function applyPreviewGraph(
+  async function applyPreviewGraph(
     graphSpec: unknown,
     canvasSnapshotValue: unknown,
   ) {
@@ -277,92 +203,58 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
         canvasJson: deps.canvasJson.value,
       })
     }
-    deps.validation.value = null
-    deps.aiDraftPreview.value = null
-    deps.aiEditPreview.value = null
     deps.activeTab.value = 'visual'
-  }
-
-  function applyAiPreview() {
-    const preview = activeAiPreview.value
-    if (!preview) {
-      ElMessage.warning('请先生成 AI 修改预览')
-      return
-    }
-    if (preview.validationErrors?.length) {
-      ElMessage.warning('请先修复 AI 修改预览中的校验问题')
-      return
-    }
-    applyPreviewGraph(preview.graphSpec, preview.canvasSnapshot || { nodes: [], edges: [] })
-    ElMessage.success('AI 修改已应用到 Workflow 草稿')
-  }
-
-  function clearAiPreview() {
-    deps.aiDraftPreview.value = null
+    await deps.autoLayoutWorkflowCanvas()
+    await deps.fitCanvas()
+    deps.validation.value = null
     deps.aiEditPreview.value = null
+    previewContext = null
   }
 
   function clearAiEditPreview() {
     deps.aiEditPreview.value = null
+    previewContext = null
   }
 
-  function applyAiEditPreview() {
+  async function applyAiEditPreview() {
     if (deps.studioReadOnly.value) {
       ElMessage.info('代码托管 Workflow 当前为只读草稿，请修改后重启同步。')
-      return
+      return false
     }
     if (!deps.aiEditPreview.value) {
-      ElMessage.warning('请先生成 AI 修改预览')
-      return
+      ElMessage.warning('请先生成 AI 编排预览')
+      return false
+    }
+    if (!isPreviewContextCurrent()) {
+      clearPreviews()
+      ElMessage.warning('当前 Workflow 草稿已变化，请重新生成 AI 编排预览')
+      return false
     }
     if (deps.aiEditPreview.value.validationErrors?.length) {
-      ElMessage.warning('请先修复 AI 修改预览中的校验问题')
-      return
+      ElMessage.warning('请先修复 AI 编排预览中的校验问题')
+      return false
     }
     const preview = deps.aiEditPreview.value
-    applyPreviewGraph(preview.graphSpec, preview.canvasSnapshot || { nodes: [], edges: [] })
-    ElMessage.success('AI 修改已应用到 Workflow 草稿')
-  }
-
-  function handleApplyAiDraft() {
-    applyAiPreview()
-    deps.aiDraftDialogOpen.value = false
+    try {
+      await applyPreviewGraph(preview.graphSpec, preview.canvasSnapshot || { nodes: [], edges: [] })
+      ElMessage.success('AI 编排方案已应用到 Workflow 草稿')
+      return true
+    } catch (err) {
+      ElMessage.error('应用 AI 流程并自动整理失败：' + (err as Error).message)
+      return false
+    }
   }
 
   function operationKey(item: WorkflowDraftEditOperation) {
     return `${item.type}:${item.nodeId || item.edgeId || operationTarget(item)}:${item.reason || ''}`
   }
 
-  function previewNodeLabel(nodeId?: string) {
-    if (!nodeId) return '?'
-    return aiDraftPreviewNodeLabels.value.get(nodeId) || nodeId
-  }
-
   return {
-    selectedNodeIdsForAi,
-    selectedEdgeIdsForAi,
-    activeAiPreview,
-    aiDraftPreviewNodes,
-    aiDraftPreviewEdges,
-    aiDraftPreviewNodeLabels,
     aiEditOperationGroups,
-    aiPreviewPlaceholderNodes,
-    draftPreviewTitle,
-    draftPreviewSummary,
-    draftPreviewIssues,
-    aiEditScopeLabel,
-    parseCurrentCanvas,
-    openAiDraftDialog,
-    generateAiDraft,
-    editAiDraft,
-    applyAiPreview,
-    clearAiPreview,
+    runAiAuthoring,
     clearAiEditPreview,
     applyAiEditPreview,
-    handleApplyAiDraft,
     operationKey,
-    previewNodeLabel,
-    workflowEditOperationLabel,
     operationTarget,
   }
 }

@@ -2,10 +2,11 @@ package com.enterprise.ai.control.client.capability;
 
 import com.enterprise.ai.control.aiassist.ControlAiAssistProjectController;
 import org.springframework.cloud.openfeign.FeignClient;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 
 import java.util.Map;
 
@@ -15,7 +16,8 @@ public interface CapabilityProjectOnboardingClient {
     @GetMapping("/internal/capability/projects/by-id/{projectId}/onboarding")
     Map<String, Object> getOnboardingProjectById(@PathVariable("projectId") Long projectId);
 
-    @PatchMapping("/internal/capability/projects/by-id/{projectId}/ai-coding-access")
+    @RequestMapping(method = RequestMethod.PUT,
+            path = "/internal/capability/projects/by-id/{projectId}/ai-coding-access")
     Map<String, Object> updateAiCodingAccess(
             @PathVariable("projectId") Long projectId,
             @RequestBody ControlAiAssistProjectController.AiCodingAccessUpdateRequest request);

@@ -148,6 +148,49 @@ class CapabilityToolCatalogServiceTest {
     }
 
     @Test
+    void convertsJsonSchemaObjectToParameterList() {
+        List<ToolDefinitionParameter> parameters = service.parseParameters("""
+                {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "object",
+                      "title": "Query filters",
+                      "properties": {
+                        "pageIndex": {"type": "integer"},
+                        "pageSize": {"type": ["integer", "null"]}
+                      },
+                      "required": ["pageIndex"]
+                    }
+                  },
+                  "required": ["query"],
+                  "additionalProperties": false
+                }
+                """);
+
+        assertEquals(1, parameters.size());
+        ToolDefinitionParameter query = parameters.get(0);
+        assertEquals("query", query.name());
+        assertEquals("object", query.type());
+        assertEquals("Query filters", query.description());
+        assertEquals(true, query.required());
+        assertEquals(2, query.children().size());
+        assertEquals("pageIndex", query.children().get(0).name());
+        assertEquals(true, query.children().get(0).required());
+        assertEquals("integer", query.children().get(1).type());
+    }
+
+    @Test
+    void rejectsUnsupportedParameterJsonShape() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.parseParameters("\"not-a-parameter-contract\"")
+        );
+
+        assertEquals("invalid tool parameters json", error.getMessage());
+    }
+
+    @Test
     void returnsEmptyOptionalWhenToolIsMissing() {
         when(toolMapper.selectOne(any())).thenReturn(null);
 

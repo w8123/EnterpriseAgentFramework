@@ -50,12 +50,14 @@ class RegistryCompatibilityControllerTest {
     void delegatesInstanceListingToCapabilityService() {
         CapabilityProxyClient capabilityProxyClient = mock(CapabilityProxyClient.class);
         RegistryCompatibilityController controller = new RegistryCompatibilityController(capabilityProxyClient);
-        ResponseEntity<List<Map<String, Object>>> delegated = ResponseEntity.ok(List.of(
-                Map.of("projectCode", "demo", "instanceId", "instance-1")
+        ResponseEntity<Object> delegated = ResponseEntity.ok(Map.of(
+                "code", 200,
+                "message", "success",
+                "data", List.of(Map.of("projectCode", "demo", "instanceId", "instance-1"))
         ));
         when(capabilityProxyClient.listInstances("demo")).thenReturn(delegated);
 
-        ResponseEntity<List<Map<String, Object>>> response = controller.listInstances("demo");
+        ResponseEntity<Object> response = controller.listInstances("demo");
 
         assertEquals(delegated, response);
         verify(capabilityProxyClient).listInstances("demo");

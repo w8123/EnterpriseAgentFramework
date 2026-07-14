@@ -59,6 +59,7 @@ const publish: WorkflowPublishRequest = {
   rolloutPercent: 100,
   note: 'first release',
   publishedBy: 'alice',
+  baseRevision: '2026-07-14T10:30:00',
 }
 
 const runtimeType: WorkflowRuntimeType = studio.runtimeType

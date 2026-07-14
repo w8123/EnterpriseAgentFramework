@@ -1,7 +1,6 @@
 package com.enterprise.ai.control.client.runtime;
 
 import org.springframework.cloud.openfeign.FeignClient;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -9,18 +8,22 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import java.util.List;
 import java.util.Map;
 
 @FeignClient(name = "reachai-runtime-proxy", url = "${services.runtime-service.url:http://localhost:18604}")
 public interface RuntimeProxyClient {
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/agent/execute")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/agents/execute")
     ResponseEntity<Map<String, Object>> executeAgent(@RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/agent/execute/detailed")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/agents/execute/detailed")
     ResponseEntity<Map<String, Object>> executeAgentDetailed(@RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.GET, path = "/api/agent/route-evaluation")
+    @RequestMapping(method = RequestMethod.DELETE, path = "/api/runtime/agents/sessions/{sessionId}")
+    ResponseEntity<Void> clearAgentSession(@PathVariable("sessionId") String sessionId);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/agents/route-evaluation")
     ResponseEntity<Map<String, Object>> routeEvaluation(@RequestParam("days") int days);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/traces/{traceId}")
@@ -35,12 +38,26 @@ public interface RuntimeProxyClient {
     ResponseEntity<Map<String, Object>> runOpsDetail(@PathVariable("traceId") String traceId);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/runops/traces/recent")
-    ResponseEntity<Map<String, Object>> runOpsRecent(@RequestParam(value = "userId", required = false) String userId,
+    ResponseEntity<List<Map<String, Object>>> runOpsRecent(
+                                                     @RequestParam(value = "projectCode", required = false) String projectCode,
+                                                     @RequestParam(value = "status", required = false) String status,
+                                                     @RequestParam(value = "runType", required = false) String runType,
+                                                     @RequestParam(value = "entryType", required = false) String entryType,
+                                                     @RequestParam(value = "agentId", required = false) String agentId,
+                                                     @RequestParam(value = "userId", required = false) String userId,
+                                                     @RequestParam(value = "keyword", required = false) String keyword,
                                                      @RequestParam("limit") int limit,
                                                      @RequestParam("days") int days);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/runops/diagnostics")
-    ResponseEntity<Map<String, Object>> runOpsDiagnostics(@RequestParam(value = "userId", required = false) String userId,
+    ResponseEntity<Map<String, Object>> runOpsDiagnostics(
+                                                          @RequestParam(value = "projectCode", required = false) String projectCode,
+                                                          @RequestParam(value = "status", required = false) String status,
+                                                          @RequestParam(value = "runType", required = false) String runType,
+                                                          @RequestParam(value = "entryType", required = false) String entryType,
+                                                          @RequestParam(value = "agentId", required = false) String agentId,
+                                                          @RequestParam(value = "userId", required = false) String userId,
+                                                          @RequestParam(value = "keyword", required = false) String keyword,
                                                           @RequestParam("limit") int limit,
                                                           @RequestParam("days") int days);
 
@@ -61,16 +78,6 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.POST, path = "/api/runops/traces/{traceId}/replay")
     ResponseEntity<Map<String, Object>> runOpsReplay(@PathVariable("traceId") String traceId,
                                                      @RequestBody Map<String, Object> body);
-
-    @RequestMapping(method = RequestMethod.POST, path = "/api/chat")
-    ResponseEntity<Object> chat(@RequestBody Map<String, Object> body);
-
-    @RequestMapping(method = RequestMethod.POST, path = "/api/chat/stream",
-            produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    ResponseEntity<String> chatStream(@RequestBody Map<String, Object> body);
-
-    @RequestMapping(method = RequestMethod.DELETE, path = "/api/chat/session/{sessionId}")
-    ResponseEntity<Object> clearChatSession(@PathVariable("sessionId") String sessionId);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/workflows")
     ResponseEntity<Object> listWorkflows(@RequestParam(value = "projectId", required = false) Long projectId,
@@ -180,9 +187,9 @@ public interface RuntimeProxyClient {
                                                    @PathVariable("versionId") Long versionId,
                                                    @RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{id}/page-assistant/bind")
-    ResponseEntity<Object> bindPageAssistantWorkflow(@PathVariable("id") String id,
-                                                     @RequestBody Map<String, Object> body);
+    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{id}/page-assistant/attach-tool")
+    ResponseEntity<Object> attachPageAssistantWorkflowTool(@PathVariable("id") String id,
+                                                           @RequestBody Map<String, Object> body);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/agent/workflow-credentials")
     ResponseEntity<Object> listWorkflowCredentials(@RequestParam(value = "projectId", required = false) Long projectId,
@@ -198,32 +205,36 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.DELETE, path = "/api/agent/workflow-credentials/{id}")
     ResponseEntity<Object> deleteWorkflowCredential(@PathVariable("id") Long id);
 
-    @RequestMapping(method = RequestMethod.GET, path = "/api/agent/evals/datasets")
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/datasets")
     ResponseEntity<Object> listEvalDatasets(@RequestParam(value = "agentId", required = false) String agentId);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/agent/evals/datasets")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/evals/datasets")
     ResponseEntity<Object> createEvalDataset(@RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/agent/evals/datasets/{datasetId}/cases/import")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/evals/datasets/{datasetId}/cases/import")
     ResponseEntity<Object> importEvalCases(@PathVariable("datasetId") Long datasetId,
                                            @RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.GET, path = "/api/agent/evals/datasets/{datasetId}/cases")
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/datasets/{datasetId}/cases")
     ResponseEntity<Object> listEvalCases(@PathVariable("datasetId") Long datasetId);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/agent/evals/runs")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/evals/runs")
     ResponseEntity<Object> startEvalRun(@RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.GET, path = "/api/agent/evals/runs/{runId}")
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/runs/{runId}")
     ResponseEntity<Object> getEvalRun(@PathVariable("runId") Long runId);
 
-    @RequestMapping(method = RequestMethod.GET, path = "/api/agent/evals/runs/{runId}/results")
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/runs/{runId}/results")
     ResponseEntity<Object> listEvalRunResults(@PathVariable("runId") Long runId);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/agents")
     ResponseEntity<Object> listAgents(@RequestParam(value = "projectId", required = false) Long projectId,
-                                      @RequestParam(value = "projectCode", required = false) String projectCode,
-                                      @RequestParam(value = "agentKind", required = false) String agentKind);
+                                      @RequestParam(value = "projectCode", required = false) String projectCode);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/agents/statistics")
+    ResponseEntity<Object> getAgentStatistics(
+            @RequestParam(value = "projectId", required = false) Long projectId,
+            @RequestParam(value = "projectCode", required = false) String projectCode);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/agents")
     ResponseEntity<Object> createAgent(@RequestBody Map<String, Object> body);
@@ -238,31 +249,23 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.DELETE, path = "/api/agents/{id}")
     ResponseEntity<Object> deleteAgent(@PathVariable("id") String id);
 
-    @RequestMapping(method = RequestMethod.GET, path = "/api/agents/{agentId}/workflow-bindings")
-    ResponseEntity<Object> listAgentWorkflowBindings(@PathVariable("agentId") String agentId);
+    @RequestMapping(method = RequestMethod.GET, path = "/api/agents/{agentId}/config-versions")
+    ResponseEntity<Object> listAgentConfigVersions(@PathVariable("agentId") String agentId);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/agents/{agentId}/workflow-bindings")
-    ResponseEntity<Object> createAgentWorkflowBinding(@PathVariable("agentId") String agentId,
-                                                      @RequestBody Map<String, Object> body);
+    @RequestMapping(method = RequestMethod.PUT, path = "/api/agents/{agentId}/config-versions/draft")
+    ResponseEntity<Object> saveAgentConfigDraft(@PathVariable("agentId") String agentId,
+                                                @RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.PUT, path = "/api/agents/{agentId}/workflow-bindings/{bindingId}")
-    ResponseEntity<Object> updateAgentWorkflowBinding(@PathVariable("agentId") String agentId,
-                                                      @PathVariable("bindingId") Long bindingId,
-                                                      @RequestBody Map<String, Object> body);
+    @RequestMapping(method = RequestMethod.POST,
+            path = "/api/agents/{agentId}/config-versions/{configVersionId}/publish")
+    ResponseEntity<Object> publishAgentConfigVersion(@PathVariable("agentId") String agentId,
+                                                     @PathVariable("configVersionId") Long configVersionId,
+                                                     @RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.DELETE, path = "/api/agents/{agentId}/workflow-bindings/{bindingId}")
-    ResponseEntity<Object> deleteAgentWorkflowBinding(@PathVariable("agentId") String agentId,
-                                                      @PathVariable("bindingId") Long bindingId);
-
-    @RequestMapping(method = RequestMethod.POST, path = "/api/agents/{agentId}/workflow-bindings/resolve-preview")
-    ResponseEntity<Object> resolveAgentWorkflowBindingPreview(@PathVariable("agentId") String agentId,
-                                                              @RequestBody Map<String, Object> body);
-
-    @RequestMapping(method = RequestMethod.GET, path = "/api/runtimes")
-    ResponseEntity<Object> listRuntimes();
-
-    @RequestMapping(method = RequestMethod.POST, path = "/api/runtimes/embedded/dispatch")
-    ResponseEntity<Object> dispatchEmbeddedRuntime(@RequestBody Map<String, Object> body);
+    @RequestMapping(method = RequestMethod.POST,
+            path = "/api/agents/{agentId}/config-versions/{configVersionId}/copy-to-draft")
+    ResponseEntity<Object> copyAgentConfigVersionToDraft(@PathVariable("agentId") String agentId,
+                                                         @PathVariable("configVersionId") Long configVersionId);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/tools/{qualifiedName}/execute")
     ResponseEntity<Object> executeRuntimeTool(@PathVariable("qualifiedName") String qualifiedName,
@@ -289,16 +292,16 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/debug-sessions/{sessionId}/cancel")
     ResponseEntity<Object> cancelRuntimeDebugSession(@PathVariable("sessionId") String sessionId);
 
-    @RequestMapping(method = RequestMethod.GET, path = "/api/agent/interactions/human-approvals")
-    ResponseEntity<Object> listHumanApprovals(@RequestParam(value = "agentId", required = false) Long agentId,
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/interactions/human-approvals")
+    ResponseEntity<Object> listHumanApprovals(@RequestParam(value = "agentId", required = false) String agentId,
                                               @RequestParam(value = "userId", required = false) String userId,
                                               @RequestParam("limit") int limit);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/agent/interactions/human-approvals/{interactionId}/submit")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/interactions/human-approvals/{interactionId}/submit")
     ResponseEntity<Object> submitHumanApproval(@PathVariable("interactionId") String interactionId,
                                                @RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.DELETE, path = "/api/agent/interactions/human-approvals/{interactionId}")
+    @RequestMapping(method = RequestMethod.DELETE, path = "/api/runtime/interactions/human-approvals/{interactionId}")
     ResponseEntity<Object> cancelHumanApproval(@PathVariable("interactionId") String interactionId,
                                                @RequestParam(value = "userId", required = false) String userId);
 

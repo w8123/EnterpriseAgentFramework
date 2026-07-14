@@ -20,7 +20,7 @@ public class RuntimeSkillInteractionEntity {
 
     private String userId;
 
-    private Long agentId;
+    private String agentId;
 
     private String skillName;
 

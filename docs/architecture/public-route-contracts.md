@@ -26,13 +26,13 @@ This document is the short source of truth for public route lifecycle decisions.
 
 | Product area | Frontend-facing route family | Public entry | Owning implementation |
 | --- | --- | --- | --- |
-| Agent entry catalog and bindings | `/api/agents/**` | Control | Runtime |
+| Agent catalog, Supervisor config versions and Workflow-as-Tool | `/api/agents/**` | Control | Runtime |
 | Agent execution | `/api/runtime/agents/execute/**` | Control | Runtime |
 | Runtime evals | `/api/runtime/evals/**` | Control | Runtime |
 | Human approvals and runtime interactions | `/api/runtime/interactions/**` | Control | Runtime |
 | Workflow definitions, Studio, versions, AI coding | `/api/workflows/**` | Control | Runtime |
 | Workflow credentials | `/api/workflows/credentials/**` | Control | Runtime |
-| Runtime registry, debug sessions, runtime Tool execution | `/api/runtime/**` and `/api/runtimes/**` | Control | Runtime |
+| Runtime debug sessions and Tool execution | `/api/runtime/**` | Control | Runtime |
 | Traces and RunOps | `/api/traces/**`, `/api/runops/**` | Control | Runtime |
 | SDK registry and capability sync | `/api/registry/**` | Control | Capability, except Control-owned page registration and Runtime-owned agent graph sync |
 | Capability, Tool, Composition, API graph | `/api/capabilities/**`, `/api/tools/**`, `/api/compositions/**`, `/api/api-graph/**` | Control | Capability |
@@ -49,9 +49,6 @@ These routes may remain on backend services while external callers migrate. They
 
 | Compatibility route | Main path | Owner requirement |
 | --- | --- | --- |
-| `/api/agent/execute/**` | `/api/runtime/agents/execute/**` | Must delegate to Runtime-owned execution. |
-| `/api/agent/evals/**` | `/api/runtime/evals/**` | Must delegate to Runtime-owned evals. |
-| `/api/agent/interactions/**` | `/api/runtime/interactions/**` | Must delegate to Runtime-owned interactions. |
 | `/api/agent/workflow-credentials/**` | `/api/workflows/credentials/**` | Must delegate to Runtime-owned credential service. |
 | `/api/skill-mining/**` | `/api/capability-mining/**` | Must delegate to Capability-owned mining implementation. |
 
@@ -60,9 +57,6 @@ These routes may remain on backend services while external callers migrate. They
 These routes must not appear in frontend source or product-facing guidance:
 
 - `/api/agent/studio/**`
-- `/api/agent/execute/**`
-- `/api/agent/evals/**`
-- `/api/agent/interactions/**`
 - `/api/agent/workflow-credentials/**`
 - `/api/skill-mining/**`
 - `/api/api-assets/**`

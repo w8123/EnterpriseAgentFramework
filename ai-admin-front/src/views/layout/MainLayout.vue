@@ -1,11 +1,11 @@
 ﻿<template>
   <el-container
     class="main-layout"
-    :class="{ 'registry-shell': isRegistryShell, 'studio-shell': isStudioPage, 'is-dark': theme === 'dark' }"
+    :class="[`layout-${layoutMode}`, { 'is-dark': theme === 'dark' }]"
   >
     <AppPageBackground v-if="!isStudioPage" />
 
-    <el-aside v-if="!isStudioPage" :width="isSidebarCollapsed ? '84px' : '256px'" class="sidebar-aside">
+    <el-aside v-if="!isStudioPage" :width="sidebarWidth" class="sidebar-aside">
       <AppSidebar
         :collapsed="isSidebarCollapsed"
         :hide-project-panel="hideSidebarProjectPanel"
@@ -26,6 +26,8 @@
         </router-view>
       </el-main>
     </el-container>
+
+    <ExplorationStageDialog />
   </el-container>
 </template>
 
@@ -35,6 +37,7 @@ import { useRoute } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useAppStore } from '@/store/app'
 import AppBreadcrumb from '@/components/common/AppBreadcrumb.vue'
+import ExplorationStageDialog from '@/components/common/ExplorationStageDialog.vue'
 import AppPageBackground from '@/components/common/AppPageBackground.vue'
 import AppSidebar from '@/components/common/AppSidebar.vue'
 
@@ -43,20 +46,23 @@ const appStore = useAppStore()
 
 const route = useRoute()
 
-const isStudioPage = computed(() => route.name === 'AgentStudio' || route.name === 'WorkflowStudio')
-const isSidebarCollapsed = computed(() => !isStudioPage.value && appStore.sidebarCollapsed)
-const hideSidebarProjectPanel = computed(() => route.name === 'RegistryProjectList')
+type LayoutMode = 'standard' | 'project-workbench' | 'edge-to-edge' | 'studio'
+
+const layoutMode = computed<LayoutMode>(
+  () => (route.meta.layoutMode as LayoutMode | undefined) ?? 'standard',
+)
+const isStudioPage = computed(() => layoutMode.value === 'studio')
+const isSidebarCollapsed = computed(() => appStore.sidebarCollapsed)
+const sidebarWidth = computed(() =>
+  isSidebarCollapsed.value
+    ? 'var(--layout-sidebar-collapsed-width)'
+    : 'var(--layout-sidebar-expanded-width)',
+)
+const hideSidebarProjectPanel = computed(() => Boolean(route.meta.hideSidebarProjectPanel))
 
 function toggleSidebar() {
   appStore.toggleSidebar()
 }
-
-const isProjectManagementPage = computed(() =>
-  route.path.startsWith('/registry/projects') ||
-  route.path.startsWith('/scan-project'),
-)
-
-const isRegistryShell = computed(() => isProjectManagementPage.value)
 
 </script>
 
@@ -81,17 +87,18 @@ const isRegistryShell = computed(() => isProjectManagementPage.value)
   position: relative;
   z-index: 10;
   box-sizing: border-box;
-  padding: 14px 10px 14px 14px;
+  padding: var(--layout-sidebar-inset-block) var(--layout-sidebar-inset-end)
+    var(--layout-sidebar-inset-block) var(--layout-sidebar-inset-start);
   transition: width 0.18s ease;
 }
 
 .breadcrumb-rail {
-  flex: 0 0 var(--reachai-workbench-breadcrumb-height, 44px);
+  flex: 0 0 var(--layout-breadcrumb-height);
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  height: var(--reachai-workbench-breadcrumb-height, 44px);
-  padding: 0 24px;
+  height: var(--layout-breadcrumb-height);
+  padding: 0 var(--layout-content-inline);
   background: transparent;
 }
 
@@ -104,6 +111,7 @@ const isRegistryShell = computed(() => isProjectManagementPage.value)
   overflow-y: auto;
   position: relative;
   isolation: isolate;
+  padding: 0;
 }
 
 .main-content-page {
@@ -111,18 +119,7 @@ const isRegistryShell = computed(() => isProjectManagementPage.value)
   z-index: 1;
 }
 
-/*
- * registry-shell / studio-shell 仅保留结构差异（main 区零内边距，页面自带容器）。
- * 旧的 registry-shell 顶栏视觉特例已由统一浅色顶栏取代并删除。
- */
-.registry-shell,
-.studio-shell {
-  .main-content {
-    padding: 0;
-  }
-}
-
-.studio-shell {
+.layout-studio {
   background: var(--bg-primary);
 
   .main-content {

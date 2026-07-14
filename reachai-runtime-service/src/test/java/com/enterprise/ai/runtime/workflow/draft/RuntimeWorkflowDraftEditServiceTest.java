@@ -4,6 +4,9 @@ import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatData;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatRequest;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatResult;
+import com.enterprise.ai.runtime.workflow.layout.RuntimeWorkflowCanvasLayoutService;
+import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -13,6 +16,10 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class RuntimeWorkflowDraftEditServiceTest {
 
@@ -21,9 +28,18 @@ class RuntimeWorkflowDraftEditServiceTest {
         CapturingModelClient modelClient = new CapturingModelClient("""
                 {"summary":"updated answer","operations":[{"type":"UPDATE_NODE","nodeId":"answer","patch":{"data":{"answerConfig":{"template":"处理完成"},"template":"处理完成"}},"reason":"match instruction"}]}
                 """);
+        ObjectMapper objectMapper = new ObjectMapper();
+        RuntimeWorkflowDraftCandidateValidationService validationService = validationService();
+        RuntimeWorkflowGraphMutationService mutationService = new RuntimeWorkflowGraphMutationService(objectMapper);
+        RuntimeWorkflowDraftRepairService repairService = new RuntimeWorkflowDraftRepairService(
+                objectMapper, modelClient, mutationService, validationService);
         RuntimeWorkflowDraftEditService service = new RuntimeWorkflowDraftEditService(
-                new ObjectMapper(),
-                modelClient);
+                objectMapper,
+                modelClient,
+                new RuntimeWorkflowCanvasLayoutService(objectMapper),
+                mutationService,
+                validationService,
+                repairService);
         RuntimeWorkflowDraftEditRequest request = new RuntimeWorkflowDraftEditRequest(
                 "agent-1",
                 "Order Agent",
@@ -46,15 +62,27 @@ class RuntimeWorkflowDraftEditServiceTest {
                 .get("data")).get("answerConfig")).get("template"));
         assertEquals("answer", result.graphSpec().getEntry());
         assertEquals("Order Agent", result.graphSpec().getName());
+        assertEquals(2, result.canvasSnapshot().get("layoutVersion"));
+        assertEquals(88.0, x(node(result.canvasSnapshot(), "answer"))
+                - x(node(result.canvasSnapshot(), "start")) - 240.0);
         assertEquals("model-1", modelClient.requests.get(0).getModelInstanceId());
     }
 
     @Test
     void returnsValidationErrorWithoutCallingModelWhenInstructionIsBlank() {
         CapturingModelClient modelClient = new CapturingModelClient("{}");
+        ObjectMapper objectMapper = new ObjectMapper();
+        RuntimeWorkflowDraftCandidateValidationService validationService = validationService();
+        RuntimeWorkflowGraphMutationService mutationService = new RuntimeWorkflowGraphMutationService(objectMapper);
+        RuntimeWorkflowDraftRepairService repairService = new RuntimeWorkflowDraftRepairService(
+                objectMapper, modelClient, mutationService, validationService);
         RuntimeWorkflowDraftEditService service = new RuntimeWorkflowDraftEditService(
-                new ObjectMapper(),
-                modelClient);
+                objectMapper,
+                modelClient,
+                new RuntimeWorkflowCanvasLayoutService(objectMapper),
+                mutationService,
+                validationService,
+                repairService);
 
         RuntimeWorkflowDraftEditView result = service.edit(new RuntimeWorkflowDraftEditRequest(
                 "agent-1",
@@ -95,6 +123,23 @@ class RuntimeWorkflowDraftEditServiceTest {
                 .filter(item -> nodeId.equals(item.get("id")))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private RuntimeWorkflowDraftCandidateValidationService validationService() {
+        RuntimeWorkflowDraftCandidateValidationService service = mock(RuntimeWorkflowDraftCandidateValidationService.class);
+        when(service.validate(
+                nullable(String.class),
+                nullable(String.class),
+                nullable(String.class),
+                nullable(String.class),
+                any(com.enterprise.ai.agent.graph.GraphSpec.class)))
+                .thenReturn(RuntimeWorkflowReleaseValidationResult.builder().build());
+        return service;
+    }
+
+    @SuppressWarnings("unchecked")
+    private double x(Map<String, Object> node) {
+        return ((Number) ((Map<String, Object>) node.get("position")).get("x")).doubleValue();
     }
 
     private static final class CapturingModelClient implements RuntimeModelServiceClient {

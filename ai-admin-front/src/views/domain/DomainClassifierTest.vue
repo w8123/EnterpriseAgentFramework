@@ -1,13 +1,14 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>分类器测试台</h2>
-      <div class="header-actions">
-        <el-button :icon="Refresh" @click="reload" :loading="loading">刷新覆盖度</el-button>
-      </div>
-    </div>
+  <WorkbenchPage class="domain-classifier-test-page">
+    <PageHeader variant="standard" domain="governance" title="分类器测试台" compact>
+      <template #actions>
+        <el-tooltip content="刷新领域覆盖度" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新领域覆盖度" @click="reload" />
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
-    <el-row :gutter="12">
+    <section class="domain-classifier-grid"><el-row :gutter="12">
       <el-col :span="12">
         <el-card shadow="never">
           <template #header>测试输入</template>
@@ -59,14 +60,16 @@
           </el-table>
         </el-card>
       </el-col>
-    </el-row>
-  </div>
+    </el-row></section>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 
 import { classifyDomain, getDomainCoverage } from '@/api/domain'
 import type { DomainClassifyResponse, DomainCoverageRow } from '@/types/domain'
@@ -105,12 +108,3 @@ async function runTest() {
 
 onMounted(reload)
 </script>
-
-<style scoped lang="scss">
-.page-container { padding: 16px; }
-.page-header {
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
-  h2 { margin: 0; font-size: 18px; }
-}
-.header-actions { display: flex; gap: 8px; }
-</style>

@@ -1,7 +1,7 @@
 ﻿import { computed } from 'vue'
 import type { Ref } from 'vue'
 import type { Component } from 'vue'
-import { Briefcase, Coin, Collection, Connection, Document, Finished, Files, Link, MagicStick, Operation, SetUp, Switch, Tickets, Tools } from '@element-plus/icons-vue'
+import { Briefcase, Coin, Collection, Connection, Document, Finished, Files, Link, MagicStick, Operation, SetUp, Switch, Tools } from '@element-plus/icons-vue'
 import LlmModelIcon from '@/components/icons/LlmModelIcon.vue'
 import type { WorkflowGraphNodeTypeDescriptor as NodeTypeDescriptor } from '@/types/workflow'
 import type { CanvasNodeKind } from '@/types/studio'

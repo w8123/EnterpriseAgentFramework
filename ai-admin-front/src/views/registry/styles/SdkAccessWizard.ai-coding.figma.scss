@@ -1,13 +1,5 @@
 ﻿/* Figma node 125:2 — 项目管理 / SDK 接入工作台 - AI Coding */
 
-:global(.main-layout.registry-shell:has(.sdk-access-page) .main-content) {
-  background: var(
-    --brand-page-bg,
-    linear-gradient(180deg, #f2f8ff 0%, #f7fbff 55%, #eef9f5 100%)
-  ) !important;
-  background-size: var(--brand-page-bg-size, auto) !important;
-}
-
 .sdk-access-page,
 .sdk-access-page.is-light-skin,
 .sdk-access-page.is-dark-skin {
@@ -25,7 +17,6 @@
   --sdk-glass-highlight: linear-gradient(90deg, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.05) 54%, rgba(255, 255, 255, 0) 100%);
   --sdk-card-shadow: 0 18px 36px -20px rgb(var(--brand-primary-rgb) / 0.16), inset 0 1px 2px rgba(255, 255, 255, 0.62);
   position: relative;
-  padding: var(--reachai-workbench-page-padding, var(--reachai-workbench-title-gap, 10px) 28px 16px) !important;
   overflow: hidden;
   background: transparent !important;
   color: var(--sdk-text);
@@ -97,7 +88,6 @@
   align-items: stretch;
   min-height: var(--reachai-workbench-title-height, 120px);
   height: var(--reachai-workbench-title-height, 120px);
-  margin-bottom: 16px;
   padding: 0;
   overflow: hidden;
   border: 1px solid rgb(var(--brand-primary-rgb) / 0.28) !important;
@@ -591,6 +581,8 @@
 }
 
 .sdk-access-page .ai-tool-tabs button {
+  position: relative;
+  z-index: 1;
   border: 0;
   background: transparent;
   color: var(--sdk-muted);
@@ -605,6 +597,17 @@
   font-weight: 700;
 }
 
+.sdk-access-page .ai-tool-tabs button.active::after {
+  position: absolute;
+  right: 0;
+  bottom: -16px;
+  left: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--brand-primary);
+  content: '';
+}
+
 .sdk-access-page .ai-tool-tabs-track {
   position: absolute;
   left: 0;
@@ -613,31 +616,6 @@
   height: 2px;
   border-radius: 999px;
   background: rgb(var(--brand-primary-rgb) / 0.14);
-}
-
-.sdk-access-page .ai-tool-tabs-indicator {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--brand-primary);
-  transition: transform 0.2s ease, width 0.2s ease;
-}
-
-.sdk-access-page .ai-tool-tabs[data-active='cursor'] .ai-tool-tabs-indicator {
-  width: 50px;
-  transform: translateX(0);
-}
-
-.sdk-access-page .ai-tool-tabs[data-active='claude'] .ai-tool-tabs-indicator {
-  width: 92px;
-  transform: translateX(92px);
-}
-
-.sdk-access-page .ai-tool-tabs[data-active='codex'] .ai-tool-tabs-indicator {
-  width: 58px;
-  transform: translateX(232px);
 }
 
 .sdk-access-page .ai-prompt-preview {
@@ -773,14 +751,6 @@
 
 /* Final shared background override: page-specific art layers stay in cards,
    while the page field itself comes from AppPageBackground. */
-:global(.main-layout.registry-shell:has(.sdk-access-page) .main-content) {
-  background: transparent !important;
-}
-
-:global(.main-layout.registry-shell:has(.sdk-access-page) .app-page-background) {
-  box-shadow: none !important;
-}
-
 .sdk-access-page,
 .sdk-access-page.is-light-skin,
 .sdk-access-page.is-dark-skin {
@@ -799,7 +769,7 @@
 }
 
 .sdk-access-page .step-progress.access-progress--refined .access-progress span {
-  color: #38546b !important;
+  color: var(--sdk-muted) !important;
   font-size: 14px;
   letter-spacing: 0;
 }
@@ -813,7 +783,7 @@
   height: 5px;
   margin-top: 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--sdk-track-bg);
   box-shadow: inset 0 1px 2px rgb(var(--brand-active-rgb) / 0.08);
 }
 
@@ -853,15 +823,14 @@
 
 .sdk-access-page .step-progress.access-progress--refined .progress-step:hover {
   border-color: rgb(var(--brand-active-rgb) / 0.14) !important;
-  background: rgba(255, 255, 255, 0.32) !important;
+  background: var(--sdk-step-bg) !important;
 }
 
 .sdk-access-page .step-progress.access-progress--refined .progress-step.active {
   border-color: rgb(var(--brand-active-rgb) / 0.3) !important;
-  background:
-    linear-gradient(120deg, rgba(255, 255, 255, 0.76), rgb(var(--brand-selected-rgb) / 0.38)) !important;
+  background: var(--sdk-step-active-bg) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    var(--inner-highlight),
     0 16px 30px rgb(var(--brand-active-rgb) / 0.13) !important;
 }
 
@@ -892,11 +861,11 @@
   flex: 0 0 30px;
   border: 1px solid rgb(var(--brand-active-rgb) / 0.18) !important;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.74) !important;
+  background: var(--sdk-input-bg) !important;
   box-shadow:
-    0 0 0 5px rgba(255, 255, 255, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.92);
-  color: #5f748f !important;
+    0 0 0 5px rgb(var(--brand-primary-rgb) / 0.08),
+    var(--inner-highlight);
+  color: var(--sdk-muted) !important;
   font-size: 13px;
   font-weight: 900;
 }
@@ -932,7 +901,7 @@
 .sdk-access-page .step-progress.access-progress--refined .step-copy strong {
   min-width: 0;
   overflow: hidden;
-  color: #1d2a44 !important;
+  color: var(--sdk-text) !important;
   font-size: 14px !important;
   font-weight: 900;
   line-height: 1.25;
@@ -943,20 +912,20 @@
 .sdk-access-page .step-progress.access-progress--refined .step-copy small {
   margin-left: 40px;
   padding-left: 0 !important;
-  color: #647891 !important;
+  color: var(--sdk-subtle) !important;
   font-size: 12px !important;
   line-height: 1.2;
 }
 
 .sdk-access-page .step-progress.access-progress--refined .progress-step.active .step-copy small {
-  color: var(--brand-active) !important;
+  color: var(--text-link) !important;
   font-weight: 800;
 }
 
 .sdk-access-page .step-progress.access-progress--refined .step-caret {
   position: relative;
   z-index: 1;
-  color: var(--brand-active) !important;
+  color: var(--text-link) !important;
   opacity: 0.72;
   filter: none !important;
 }

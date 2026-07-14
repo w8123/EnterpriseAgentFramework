@@ -1,6 +1,8 @@
 package com.enterprise.ai.runtime.trace;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.enterprise.ai.runtime.runops.RuntimeRunEntity;
+import com.enterprise.ai.runtime.runops.RuntimeRunMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -8,9 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -24,7 +24,8 @@ public class RuntimeTraceQueryService {
     };
 
     private final RuntimeToolCallLogMapper toolLogMapper;
-    private final RuntimeAgentTraceSpanMapper spanMapper;
+    private final RuntimeTraceSpanMapper spanMapper;
+    private final RuntimeRunMapper runMapper;
     private final ObjectMapper objectMapper;
 
     public Optional<RuntimeTraceDetailView> getTraceDetail(String traceId) {
@@ -35,10 +36,10 @@ public class RuntimeTraceQueryService {
         List<RuntimeToolCallLogEntity> logs = toolLogMapper.selectList(new LambdaQueryWrapper<RuntimeToolCallLogEntity>()
                 .eq(RuntimeToolCallLogEntity::getTraceId, normalizedTraceId)
                 .orderByAsc(RuntimeToolCallLogEntity::getId));
-        List<RuntimeAgentTraceSpanEntity> spans = spanMapper.selectList(new LambdaQueryWrapper<RuntimeAgentTraceSpanEntity>()
-                .eq(RuntimeAgentTraceSpanEntity::getTraceId, normalizedTraceId)
-                .orderByAsc(RuntimeAgentTraceSpanEntity::getStartedAt)
-                .orderByAsc(RuntimeAgentTraceSpanEntity::getId));
+        List<RuntimeTraceSpanEntity> spans = spanMapper.selectList(new LambdaQueryWrapper<RuntimeTraceSpanEntity>()
+                .eq(RuntimeTraceSpanEntity::getTraceId, normalizedTraceId)
+                .orderByAsc(RuntimeTraceSpanEntity::getStartedAt)
+                .orderByAsc(RuntimeTraceSpanEntity::getId));
         if (logs.isEmpty() && spans.isEmpty()) {
             return Optional.empty();
         }
@@ -55,29 +56,16 @@ public class RuntimeTraceQueryService {
     public List<RuntimeTraceSummaryView> listRecentTraces(String userId, int limit, int days) {
         int safeLimit = Math.max(1, Math.min(limit, 200));
         int safeDays = Math.max(1, Math.min(days, 30));
-        int rawRowCap = Math.max(safeLimit * 50, 500);
-        LambdaQueryWrapper<RuntimeToolCallLogEntity> wrapper = new LambdaQueryWrapper<RuntimeToolCallLogEntity>()
-                .isNotNull(RuntimeToolCallLogEntity::getTraceId)
-                .ge(RuntimeToolCallLogEntity::getCreateTime, LocalDateTime.now().minusDays(safeDays))
-                .orderByDesc(RuntimeToolCallLogEntity::getId)
-                .last("limit " + rawRowCap);
+        LambdaQueryWrapper<RuntimeRunEntity> wrapper = new LambdaQueryWrapper<RuntimeRunEntity>()
+                .ge(RuntimeRunEntity::getStartedAt, LocalDateTime.now().minusDays(safeDays))
+                .orderByDesc(RuntimeRunEntity::getStartedAt)
+                .orderByDesc(RuntimeRunEntity::getId)
+                .last("limit " + safeLimit);
         if (StringUtils.hasText(userId)) {
-            wrapper.eq(RuntimeToolCallLogEntity::getUserId, userId.trim());
+            wrapper.eq(RuntimeRunEntity::getUserId, userId.trim());
         }
-        List<RuntimeToolCallLogEntity> logs = toolLogMapper.selectList(wrapper);
-        LinkedHashMap<String, List<RuntimeToolCallLogEntity>> grouped = new LinkedHashMap<>();
-        for (RuntimeToolCallLogEntity log : logs) {
-            String rowTraceId = log.getTraceId();
-            if (!StringUtils.hasText(rowTraceId)) {
-                continue;
-            }
-            if (!grouped.containsKey(rowTraceId) && grouped.size() >= safeLimit) {
-                continue;
-            }
-            grouped.computeIfAbsent(rowTraceId, key -> new ArrayList<>()).add(log);
-        }
-        return grouped.entrySet().stream()
-                .map(entry -> toSummary(entry.getKey(), entry.getValue()))
+        return runMapper.selectList(wrapper).stream()
+                .map(this::toSummary)
                 .toList();
     }
 
@@ -103,10 +91,10 @@ public class RuntimeTraceQueryService {
                 log.getCreateTime());
     }
 
-    private RuntimeTraceNodeView toNode(RuntimeAgentTraceSpanEntity span) {
+    private RuntimeTraceNodeView toNode(RuntimeTraceSpanEntity span) {
         return new RuntimeTraceNodeView(
                 span.getId(),
-                "runtime_agent_trace_span",
+                "runtime_trace_span",
                 span.getTraceId(),
                 span.getAgentName(),
                 traceSpanName(span),
@@ -136,7 +124,7 @@ public class RuntimeTraceQueryService {
         }
     }
 
-    static String traceSpanName(RuntimeAgentTraceSpanEntity span) {
+    static String traceSpanName(RuntimeTraceSpanEntity span) {
         if (StringUtils.hasText(span.getToolName())) {
             return "span:" + span.getToolName();
         }
@@ -146,22 +134,20 @@ public class RuntimeTraceQueryService {
         return "span:" + span.getSpanType();
     }
 
-    private RuntimeTraceSummaryView toSummary(String traceId, List<RuntimeToolCallLogEntity> traceLogs) {
-        traceLogs.sort(Comparator.comparing(RuntimeToolCallLogEntity::getId));
-        RuntimeToolCallLogEntity first = traceLogs.get(0);
-        RuntimeToolCallLogEntity last = traceLogs.get(traceLogs.size() - 1);
-        long successCount = traceLogs.stream()
-                .filter(log -> Boolean.TRUE.equals(log.getSuccess()))
-                .count();
+    private RuntimeTraceSummaryView toSummary(RuntimeRunEntity run) {
         return new RuntimeTraceSummaryView(
-                traceId,
-                first.getSessionId(),
-                first.getUserId(),
-                first.getAgentName(),
-                first.getIntentType(),
-                traceLogs.size(),
-                successCount,
-                first.getCreateTime(),
-                last.getCreateTime());
+                run.getTraceId(),
+                run.getSessionId(),
+                run.getUserId(),
+                firstText(run.getAgentName(), run.getWorkflowName()),
+                run.getEntryType(),
+                run.getToolCallCount() == null ? 0 : run.getToolCallCount(),
+                "SUCCESS".equalsIgnoreCase(run.getStatus()) ? 1L : 0L,
+                run.getStartedAt(),
+                run.getEndedAt());
+    }
+
+    private String firstText(String first, String second) {
+        return StringUtils.hasText(first) ? first : second;
     }
 }

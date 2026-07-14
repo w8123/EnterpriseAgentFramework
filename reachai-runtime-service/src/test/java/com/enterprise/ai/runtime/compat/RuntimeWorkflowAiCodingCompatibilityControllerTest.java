@@ -127,7 +127,6 @@ class RuntimeWorkflowAiCodingCompatibilityControllerTest {
                 new RuntimeWorkflowAiCodingService.ValidationView(workflowId, "CURRENT", true, List.of(), List.of()),
                 List.of(),
                 Map.of(),
-                List.of(),
                 Map.of(),
                 List.of(),
                 List.of(),

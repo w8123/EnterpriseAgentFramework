@@ -32,8 +32,18 @@
 
 - DB 字段：`runtime_workflow.graph_spec_json` 和 `runtime_workflow.canvas_json`。
 - Workflow Studio 负责 AI 生成、局部编辑、调试、发布校验和运行预览。
-- Agent 入口通过 binding 解析到 Workflow 活跃版本。
-- Runtime 执行主线在 `reachai-runtime-service`，LangGraph4j、AgentScope 和未来运行时通过 `AgentRuntimeAdapter` 解耦。
+- Agent 是稳定聚合根；可执行设置进入版本化 `runtime_agent_config_version`，允许选择的 Workflow 进入同版本的 `runtime_agent_workflow_tool`。
+- AgentScope Java `2.0.0` 正式版 Supervisor 负责理解、规划、选择一个或多个 Workflow 和有限重规划；单个 Workflow 仍按其已发布 `GraphSpec` 快照执行。
+- “项目接入工作台”的 Agent provisioning 只创建/复用项目 Agent 并发布 ACTIVE Supervisor 配置，不创建占位 Workflow；“创建页面助手”先发布 PAGE_ASSISTANT Workflow，再把它加入 Supervisor Workflow-as-Tool 白名单并发布新版 Agent 配置。
+- Agent 与 Workflow 的唯一执行关系是已发布 Agent 配置版本中的 `runtime_agent_workflow_tool` 目录。
+- Agent 身份写入和 Supervisor 配置写入必须使用独立 API；`POST/PUT /api/agents` 不再隐式创建或修改配置草稿。
+- 产品统一称为 Agent；Agent 是通用 Supervisor 聚合根，不再保留 `agent_kind` 接入形态字段。页面副驾驶按稳定 keySlug 创建或复用，Embed / Gateway / A2A 属于开放渠道而非 Agent 类型。
+- 执行请求只接受 `agentId`，删除 `agentDefinitionId` 兼容别名。
+- ACTIVE/ARCHIVED 配置不可变；历史版本只能复制为新 DRAFT 后再编辑和发布。
+- 页面动作只响应用户明确的页面意图；跨路由动作保持同一 embed session，并严格执行 `NAVIGATE -> TARGET_READY -> PAGE_ACTION`。
+- Supervisor 统一策略链固定为工具白名单/启停 -> project -> tenant -> Agent roles -> permissionKey roles -> risk；READ 自动、PAGE_ACTION 要求原始问题显式页面意图、WRITE 一次性精确确认、IRREVERSIBLE 默认拒绝。
+- Agent Eval 必须调用 `RuntimeAgentExecutionService` 执行当前已发布配置，并断言工具、PLAN/REPLAN、策略、UI 请求、Trace 与回答；不允许再生成“runtime 未接入”的占位结果。
+- Runtime 执行主线在 `reachai-runtime-service`，Supervisor 通过 `SupervisorRuntimeAdapter` 解耦，上层规划和底层 Workflow runtime 不混为一个概念。
 
 新增 Workflow Studio 节点、AI 编辑能力或 Runtime 行为时，必须把可执行语义写入 Workflow `GraphSpec`。
 

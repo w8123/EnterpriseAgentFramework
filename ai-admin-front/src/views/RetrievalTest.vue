@@ -1,8 +1,12 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>召回测试实验室</h2>
-    </div>
+  <WorkbenchPage class="retrieval-test-page">
+    <PageHeader
+      variant="standard"
+      domain="knowledge"
+      eyebrow="Retrieval Lab"
+      title="召回测试实验室"
+      description="在真实问题下验证向量、关键词、混合排序与 Reranker 的召回结果。"
+    />
 
     <el-card shadow="never" class="section-card">
       <el-form :model="searchForm" label-width="100px">
@@ -82,7 +86,7 @@
     <el-card v-if="result && result.items.length === 0" shadow="never" class="section-card">
       <el-empty description="未找到相关内容。若开启了记录命中，这次查询会进入低置信/未命中分析。" />
     </el-card>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
@@ -90,6 +94,8 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { getKnowledgeList, retrievalTest } from '@/api/knowledge'
 import type { KnowledgeBase, RetrievalTestResponse } from '@/types/knowledge'
 
@@ -171,14 +177,14 @@ onMounted(fetchKnowledgeList)
 </script>
 
 <style scoped lang="scss">
+.retrieval-test-page > .section-card {
+  margin-bottom: 0;
+}
+
 .search-meta {
   margin-left: 16px;
   font-size: 13px;
   color: var(--text-secondary);
-}
-
-.direct-alert {
-  margin-bottom: 14px;
 }
 
 .result-list {

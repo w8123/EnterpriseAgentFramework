@@ -1,14 +1,18 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <div>
-        <h2>能力变更评审 / 同步调试台</h2>
-        <p>SDK 上报先生成 snapshot 与字段级 diff，可在后端评审 API 中逐条 apply / ignore。</p>
-      </div>
-      <ProjectSelector />
-    </div>
+  <WorkbenchPage class="capability-sync-debug-page">
+    <PageHeader
+      variant="standard"
+      domain="project"
+      eyebrow="Capability Sync Review"
+      title="能力变更评审 / 同步调试台"
+      description="SDK 上报先生成 snapshot 与字段级 diff，再通过评审 API 逐条 apply 或 ignore。"
+    />
 
-    <el-row :gutter="16">
+    <WorkbenchPanel level="control" density="compact">
+      <ProjectSelector />
+    </WorkbenchPanel>
+
+    <section class="capability-sync-grid"><el-row :gutter="16">
       <el-col :span="10">
         <el-card shadow="never">
           <template #header>
@@ -72,13 +76,16 @@
           </template>
         </el-card>
       </el-col>
-    </el-row>
-  </div>
+    </el-row></section>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
 import ProjectSelector from '@/components/ProjectSelector.vue'
 import { applyRegistryCapabilities, diffRegistryCapabilities, syncRegistryCapabilities } from '@/api/registry'
 import { useProjectStore } from '@/store/project'
@@ -175,29 +182,11 @@ function formatImpact(impact: CapabilitySyncResponse['items'][number]['impact'])
 </script>
 
 <style scoped lang="scss">
-.page-container {
-  padding: 24px;
-}
-
-.page-header,
 .card-header,
 .action-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.page-header {
-  margin-bottom: 16px;
-
-  h2 {
-    margin: 0 0 6px;
-  }
-
-  p {
-    margin: 0;
-    color: var(--text-secondary);
-  }
 }
 
 .action-row {

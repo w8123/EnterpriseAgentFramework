@@ -1,22 +1,65 @@
-import type { AgentEntryKind, AgentEntryVisibility } from './workflow'
+import type { AgentVisibility } from './workflow'
 
-export type { AgentEntry, AgentEntryKind, AgentEntryVisibility } from './workflow'
+export type { Agent, AgentVisibility } from './workflow'
 
-/** AgentEntry 创建 / 编辑表单（身份与策略，不含 Workflow GraphSpec） */
-export interface AgentEntryForm {
+/** Agent 创建 / 编辑表单。Supervisor 配置通过 AgentConfigDraft 独立保存。 */
+export interface AgentIdentityForm {
   keySlug: string
   name: string
   description?: string | null
-  agentKind?: AgentEntryKind | null
   projectId?: number | null
   projectCode?: string | null
-  visibility?: AgentEntryVisibility | null
-  systemPrompt?: string | null
-  modelInstanceId?: string | null
+  visibility?: AgentVisibility | null
   allowedRoles?: string[]
-  entryConfig?: Record<string, unknown>
   enabled?: boolean | null
 }
+
+export interface AgentWorkflowToolConfig {
+  id?: number
+  workflowId: string
+  workflowKeySlug?: string
+  workflowName?: string
+  workflowVersion?: string
+  workflowVersionId?: number
+  toolName: string
+  descriptionOverride?: string | null
+  description?: string | null
+  inputSchemaOverrideJson?: string | null
+  outputSchemaOverrideJson?: string | null
+  riskLevel?: 'READ' | 'WRITE' | string
+  permissionKey?: string | null
+  readOnly?: boolean
+  enabled?: boolean
+  priority?: number
+}
+
+export interface AgentConfigVersion {
+  id: number
+  agentId: string
+  versionNo: number
+  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED' | string
+  runtimeType: 'AGENTSCOPE' | string
+  systemPrompt?: string | null
+  modelInstanceId?: string | null
+  maxPlanSteps: number
+  maxWorkflowCalls: number
+  maxReplans: number
+  totalTimeoutMs: number
+  workflowTimeoutMs: number
+  pageBridgeTimeoutMs: number
+  parallelReadOnly: boolean
+  policyProfile: string
+  toolCatalogMode: 'ALLOW_LIST' | string
+  configJson?: string | null
+  publishedBy?: string | null
+  publishedAt?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  tools: AgentWorkflowToolConfig[]
+}
+
+export type AgentConfigDraft = Omit<AgentConfigVersion,
+  'id' | 'agentId' | 'versionNo' | 'status' | 'publishedBy' | 'publishedAt' | 'createdAt' | 'updatedAt'>
 
 export interface CapabilityReference {
   kind: 'TOOL' | 'SKILL'
@@ -29,7 +72,6 @@ export interface CapabilityReference {
 
 export type AgentRuntimeType = 'AGENTSCOPE' | 'LANGGRAPH4J' | 'OPENAI_AGENTS' | 'CURSOR_CODE_AGENT'
 export type AgentRuntimePlacement = 'CENTRAL' | 'EMBEDDED' | 'HYBRID' | 'CAPABILITY_HOST'
-export type RuntimeRegistryRole = 'AGENT_RUNTIME' | 'CAPABILITY_HOST' | string
 export type AgentMode = 'AUTONOMOUS' | 'WORKFLOW' | 'CODE' | 'EXTERNAL'
 export type AgentConfigurationSurface = 'FORM' | 'STUDIO' | 'CODE_WORKSPACE' | 'EXTERNAL_CONSOLE' | string
 
@@ -211,6 +253,7 @@ export interface WorkflowDraftEditRequest {
   projectCode?: string | null
   modelInstanceId?: string
   currentCanvas?: Record<string, unknown>
+  currentGraphSpec?: Record<string, unknown>
   selectedNodeIds?: string[]
   selectedEdgeIds?: string[]
   tools?: WorkflowDraftResource[]
@@ -242,7 +285,7 @@ export interface AgentGraphNodeTypeDescriptor {
 /**
  * Workflow 画布互操作过渡类型（@deprecated）。
  * 仅供 `studio.ts` / `workflowStudio.ts` 在 GraphSpec ↔ canvas_json 之间转换。
- * Agent 管理主类型请用 `AgentEntry`；编排主类型请用 `WorkflowDefinition`。
+ * Agent 管理主类型请用 `Agent`；编排主类型请用 `WorkflowDefinition`。
  */
 export interface WorkflowCanvasSource {
   id?: string
@@ -325,82 +368,6 @@ export interface AgentRuntimeValidationResult {
   provider?: string
   message?: string
   errorCode?: string
-}
-
-export interface RuntimeRegistryEntry {
-  id: string
-  source: 'PLATFORM' | 'PROJECT_INSTANCE'
-  runtimeRole: RuntimeRegistryRole
-  runtimeType: string
-  displayName?: string
-  description?: string
-  runtimePlacement: AgentRuntimePlacement
-  status: 'ONLINE' | 'OFFLINE' | 'DISABLED' | 'STALE' | string
-  available: boolean
-  unavailableReason?: string
-  supportsGraph: boolean
-  supportsTools: boolean
-  supportsAutonomous: boolean
-  supportsWorkflow: boolean
-  supportsEmbeddedExecution: boolean
-  supportsHybridExecution: boolean
-  projectCode?: string | null
-  instanceId?: string | null
-  baseUrl?: string | null
-  host?: string | null
-  port?: number | null
-  appVersion?: string | null
-  sdkVersion?: string | null
-  lastHeartbeatAt?: string | null
-  policyDisabled?: boolean
-  minSdkVersion?: string | null
-  allowEmbeddedExecution?: boolean | null
-  allowHybridExecution?: boolean | null
-  policyMessage?: string | null
-  runtimeTypes?: string[]
-  metadata?: Record<string, unknown>
-}
-
-/** Agent 发布版本（对应后端 agent_version 表） */
-export interface AgentVersion {
-  id: number
-  agentId: string
-  version: string
-  snapshotJson: string
-  rolloutPercent: number
-  status: 'DRAFT' | 'ACTIVE' | 'RETIRED'
-  publishedBy?: string
-  publishedAt?: string
-  note?: string
-  createTime: string
-}
-
-export interface AgentReleaseValidationItem {
-  code: string
-  level: 'ERROR' | 'WARN' | string
-  nodeId?: string | null
-  message: string
-}
-
-export interface AgentReleaseValidationResult {
-  valid: boolean
-  errors: AgentReleaseValidationItem[]
-  warnings: AgentReleaseValidationItem[]
-}
-
-export interface AgentReleaseEvent {
-  id: number
-  agentId: string
-  versionId?: number | null
-  version?: string | null
-  action: 'VALIDATE' | 'PUBLISH' | 'ROLLBACK' | string
-  decision: 'PASSED' | 'BLOCKED' | 'COMPLETED' | string
-  rolloutPercent?: number | null
-  operator?: string | null
-  summary?: string | null
-  validationJson?: string | null
-  metadataJson?: string | null
-  createdAt: string
 }
 
 export interface AgentNodeDebugRequest {
@@ -505,14 +472,6 @@ export interface ExecutableDebugSessionView extends AgentWorkflowDebugRunResult 
   expiresAt?: string
 }
 
-/** 发布请求体 */
-export interface PublishVersionRequest {
-  version: string
-  rolloutPercent?: number
-  note?: string
-  publishedBy?: string
-}
-
 /** 预置意图类型（可通过管理后台自定义扩展） */
 export const INTENT_TYPES = [
   { value: 'KNOWLEDGE_QA', label: '知识问答' },
@@ -537,6 +496,7 @@ import type { UiRequestPayload } from './interaction'
 export interface AgentResult {
   success: boolean
   answer: string
+  sessionId?: string
   steps?: StepRecord[]
   toolResults?: Record<string, unknown>
   metadata?: Record<string, unknown>
@@ -548,7 +508,7 @@ export interface PendingHumanApproval {
   traceId?: string
   sessionId?: string
   userId?: string
-  agentId?: number
+  agentId?: string
   nodeId: string
   status: string
   createdAt?: string
@@ -562,5 +522,5 @@ export interface PendingHumanApproval {
 
 export interface StepRecord {
   name: string
-  detail: string
+  detail: unknown
 }

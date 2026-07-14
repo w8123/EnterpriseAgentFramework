@@ -1,12 +1,27 @@
 <template>
-  <div class="registry-detail-page" :class="{ 'is-dark-detail': theme === 'dark' }">
+  <div class="registry-detail-page project-workbench-page" :class="{ 'is-dark-detail': theme === 'dark' }">
     <AppPageBackground local />
 
-    <section class="project-hero">
-      <div class="hero-corner-actions">
+    <PageHeader
+      variant="entity"
+      domain="project"
+      :title="project?.name || projectCode"
+    >
+      <template #leading>
+        <div class="app-page-header__entity-mark" aria-hidden="true">
+          <el-icon><Box /></el-icon>
+        </div>
+      </template>
+      <template #tags>
+        <el-tag effect="plain">{{ project?.projectCode || projectCode }}</el-tag>
+        <el-tag type="info" effect="plain">{{ project?.environment || 'dev' }}</el-tag>
+      </template>
+      <template #meta>
+        <HeaderMetaList :items="headerMetaItems" />
+      </template>
+      <template #actions>
         <el-tooltip content="设为当前项目" placement="top">
           <el-button
-            class="primary-icon-action"
             circle
             :icon="Star"
             :disabled="!project"
@@ -31,57 +46,26 @@
             @click="openEditDialog"
           />
         </el-tooltip>
-        <el-dropdown trigger="click" :disabled="!project?.id" @command="handleHeroMoreCommand">
-          <el-button class="more-action" :disabled="!project?.id" :loading="deleteLoading">
-            更多
-            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="delete" :disabled="deleteLoading">
-                删除项目
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
-
-      <div class="hero-main">
-        <div class="project-mark">
-          <el-icon><Box /></el-icon>
-        </div>
-
-        <div class="project-title-block">
-          <div class="title-row">
-            <h1>{{ project?.name || projectCode }}</h1>
-            <el-tag class="code-tag" effect="plain">{{ project?.projectCode || projectCode }}</el-tag>
-            <el-tag class="env-tag" effect="plain">{{ project?.environment || 'dev' }}</el-tag>
-          </div>
-          <div class="project-meta">
-            <span>
-              状态：
-              <i class="online-dot" />
-              <b>{{ formatProjectKindLabel(project?.projectKind || 'REGISTERED') }}</b>
-            </span>
-            <span class="meta-sdk">
-              SDK：<b>{{ project?.sdkVersion || '-' }}</b>
-            </span>
-            <span>
-              可见性：<b>{{ formatVisibilityLabel(project?.visibility || 'PRIVATE') }}</b>
-            </span>
-            <span>
-              负责人：<b>{{ project?.owner || '-' }}</b>
-            </span>
-            <span class="heartbeat-meta">
-              最近心跳：<b>{{ latestHeartbeatLabel }}</b>
-            </span>
-            <span>
-              实例：<b>{{ onlineInstanceCount }} 在线</b>
-            </span>
-          </div>
-        </div>
-      </div>
-    </section>
+        <el-tooltip content="更多操作" placement="top">
+          <el-dropdown trigger="click" :disabled="!project?.id" @command="handleHeroMoreCommand">
+            <el-button
+              circle
+              :icon="MoreFilled"
+              :disabled="!project?.id"
+              :loading="deleteLoading"
+              aria-label="更多操作"
+            />
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="delete" :disabled="deleteLoading">
+                  删除项目
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
     <div class="metric-strip">
       <template v-for="(item, index) in healthMetrics" :key="item.label">
@@ -190,7 +174,7 @@
           <template #default="{ row }">{{ row.sdkVersion || '-' }}</template>
         </el-table-column>
         <el-table-column prop="lastHeartbeatAt" label="最近心跳" min-width="180">
-          <template #default="{ row }">{{ formatHeartbeatDisplay(row.lastHeartbeatAt) }}</template>
+          <template #default="{ row }">{{ formatRelativeTime(row.lastHeartbeatAt) }}</template>
         </el-table-column>
         <el-table-column label="治理" width="130">
           <template #default="{ row }">
@@ -227,81 +211,191 @@
       </div>
     </el-card>
 
-    <el-dialog
+    <GlassDialog
       v-model="aiCodingDialogVisible"
       title="AI Coding 接入信息"
-      width="720px"
+      description="让 Cursor、Claude Code、Codex 安全接入当前项目。"
+      :status="aiCodingAccessEnabled ? '已启用' : '已关闭'"
+      :status-tone="aiCodingAccessEnabled ? 'success' : 'neutral'"
+      width="920px"
       class="ai-coding-dialog"
       destroy-on-close
+      @open="aiCodingDialogTab = 'overview'"
     >
-      <el-alert
-        type="info"
-        show-icon
-        :closable="false"
-        title="供 Cursor、Claude Code、Codex 接入本项目的页面助手与 Workflow AI Coding。"
-        description="下方信息可逐项复制，也可一键复制全部；秘钥请勿提交到 Git 或聊天上下文。"
-      />
-      <section class="ai-coding-dialog-manage">
-        <div class="ai-coding-key-head">
-          <div>
-            <strong>项目级统一秘钥</strong>
-            <span>启用后外部 AI 工具可免平台登录访问本项目 AI Coding 接口。</span>
-          </div>
-          <el-switch v-model="aiCodingAccessEnabled" active-text="启用" inactive-text="关闭" />
-        </div>
-        <div class="ai-coding-key-form">
-          <el-input
-            v-model="aiCodingAccessKey"
-            :disabled="!aiCodingAccessEnabled"
-            show-password
-            placeholder="保存时为空会自动生成；清空并关闭后 AI 工具无法连接"
-          />
-          <el-button :loading="aiCodingAccessSaving" type="primary" @click="saveAiCodingAccess">保存</el-button>
-          <el-button @click="clearAiCodingAccess">清空并关闭</el-button>
+      <template #icon>
+        <el-icon><Connection /></el-icon>
+      </template>
+
+      <section class="ai-coding-security-note glass-surface-control">
+        <el-icon><Lock /></el-icon>
+        <div>
+          <strong>秘钥只用于本机 AI 编程工具</strong>
+          <span>请通过请求头发送，勿提交到 Git、前端构建产物或聊天上下文。</span>
         </div>
       </section>
-      <section class="ai-coding-info-list">
-        <div v-for="row in aiCodingInfoRows" :key="row.label" class="ai-coding-info-row">
-          <span class="ai-coding-info-label">{{ row.label }}</span>
-          <code class="ai-coding-info-value">{{ row.displayValue }}</code>
-          <el-button
-            link
-            type="primary"
-            :icon="DocumentCopy"
-            :disabled="!row.copyValue"
-            @click="copyText(row.copyValue, row.label)"
+
+      <el-tabs v-model="aiCodingDialogTab" class="ai-coding-dialog__tabs">
+        <el-tab-pane name="overview">
+          <template #label>
+            <span class="ai-coding-tab-label">接入概览</span>
+          </template>
+
+          <section
+            class="ai-coding-access-card glass-surface-control"
+            :class="{ 'is-enabled': aiCodingAccessEnabled }"
           >
-            复制
-          </el-button>
-        </div>
-      </section>
+            <div class="ai-coding-key-head">
+              <GlassSectionHeader
+                title="项目级统一秘钥"
+                description="控制外部 AI 工具是否可免平台登录访问项目接口。"
+              >
+                <template #icon><el-icon><Lock /></el-icon></template>
+              </GlassSectionHeader>
+              <el-switch v-model="aiCodingAccessEnabled" active-text="启用" inactive-text="关闭" />
+            </div>
+            <div class="ai-coding-key-form">
+              <el-input
+                v-model="aiCodingAccessKey"
+                :disabled="!aiCodingAccessEnabled"
+                show-password
+                placeholder="保存时为空会自动生成；清空并关闭后 AI 工具无法连接"
+              >
+                <template #prefix>
+                  <el-icon><Key /></el-icon>
+                </template>
+              </el-input>
+              <el-tooltip content="复制秘钥" placement="top">
+                <el-button
+                  circle
+                  :icon="DocumentCopy"
+                  :disabled="!aiCodingAccessEnabled || !aiCodingAccessKey.trim()"
+                  aria-label="复制秘钥"
+                  @click="copyText(aiCodingAccessKey, 'AI Coding 接入秘钥')"
+                />
+              </el-tooltip>
+              <el-button :loading="aiCodingAccessSaving" type="primary" @click="saveAiCodingAccess">
+                保存
+              </el-button>
+              <el-button type="danger" plain @click="clearAiCodingAccess">清空并关闭</el-button>
+            </div>
+          </section>
+
+          <section class="ai-coding-identity-section">
+            <GlassSectionHeader
+              title="项目身份"
+              description="AI 工具识别当前 ReachAI 项目所需的基础信息。"
+              :meta="`${aiCodingProjectInfoRows.length} 项`"
+            >
+              <template #icon><el-icon><Postcard /></el-icon></template>
+            </GlassSectionHeader>
+
+            <div class="ai-coding-identity-grid">
+              <GlassInfoItem
+                v-for="(row, index) in aiCodingProjectInfoRows"
+                :key="row.label"
+                class="ai-coding-identity-card"
+                :class="{ 'is-wide': index === 0 }"
+                :label="row.label"
+                :value="row.displayValue"
+                :muted="!row.copyValue"
+              >
+                <template #leading>
+                  <el-icon><component :is="aiCodingInfoIcon(row.label)" /></el-icon>
+                </template>
+                <template #trailing>
+                  <el-tooltip :content="row.copyValue ? `复制${row.label}` : `${row.label}暂无可复制内容`" placement="top">
+                    <el-button
+                      circle
+                      :icon="DocumentCopy"
+                      :disabled="!row.copyValue"
+                      :aria-label="`复制${row.label}`"
+                      @click="copyText(row.copyValue, row.label)"
+                    />
+                  </el-tooltip>
+                </template>
+              </GlassInfoItem>
+            </div>
+          </section>
+        </el-tab-pane>
+
+        <el-tab-pane name="endpoints">
+          <template #label>
+            <span class="ai-coding-tab-label">
+              完整接口
+              <i>{{ aiCodingEndpointRows.length }}</i>
+            </span>
+          </template>
+
+          <section class="ai-coding-endpoint-section">
+            <GlassSectionHeader
+              title="接口与请求头"
+              description="用于 manifest 获取、上下文候选提交、状态查询与治理审计。"
+              :meta="`${aiCodingEndpointRows.length} 项`"
+            >
+              <template #icon><el-icon><Link /></el-icon></template>
+            </GlassSectionHeader>
+
+            <div class="ai-coding-endpoint-list">
+              <GlassInfoItem
+                v-for="(row, index) in aiCodingEndpointRows"
+                :key="row.label"
+                class="ai-coding-endpoint-row"
+                :label="row.label"
+                :value="row.displayValue"
+                compact
+              >
+                <template #leading>{{ String(index + 1).padStart(2, '0') }}</template>
+                <template #trailing>
+                  <el-button
+                    class="ai-coding-endpoint-copy"
+                    :icon="DocumentCopy"
+                    :disabled="!row.copyValue"
+                    @click="copyText(row.copyValue, row.label)"
+                  >
+                    复制
+                  </el-button>
+                </template>
+              </GlassInfoItem>
+            </div>
+          </section>
+        </el-tab-pane>
+      </el-tabs>
+
+      <template #hint>
+        <el-icon><WarningFilled /></el-icon>
+        <span>复制全部会包含当前启用的接入秘钥</span>
+      </template>
       <template #footer>
         <el-button @click="aiCodingDialogVisible = false">关闭</el-button>
-        <el-button type="primary" :icon="DocumentCopy" @click="copyAiCodingBundle">复制全部接入信息</el-button>
+        <el-button type="primary" :icon="DocumentCopy" @click="copyAiCodingBundle">
+          复制全部接入信息
+        </el-button>
       </template>
-    </el-dialog>
+    </GlassDialog>
 
-    <el-dialog v-model="editDialogVisible" class="edit-project-dialog" width="760px" destroy-on-close>
-      <template #header>
-        <div class="edit-project-dialog__header">
-          <div class="edit-project-dialog__mark">
-            <el-icon><EditPen /></el-icon>
-          </div>
-          <div class="edit-project-dialog__title">
-            <span>项目配置</span>
-            <strong>编辑项目</strong>
-          </div>
-          <div class="edit-project-dialog__badge">
-            {{ formatProjectKindLabel(editForm.projectKind || 'REGISTERED') }}
-          </div>
-        </div>
+    <GlassDialog
+      v-model="editDialogVisible"
+      title="编辑项目"
+      eyebrow="项目配置"
+      description="维护项目基础属性、接入方式与访问凭据。"
+      class="edit-project-dialog"
+      width="820px"
+      destroy-on-close
+    >
+      <template #icon>
+        <el-icon><EditPen /></el-icon>
+      </template>
+      <template #aside>
+        <span class="edit-project-dialog__badge">
+          {{ formatProjectKindLabel(editForm.projectKind || 'REGISTERED') }}
+        </span>
       </template>
 
       <el-form class="edit-project-form" label-position="top">
-        <section class="edit-project-section">
-          <div class="edit-project-section__head">
-            <span>基础信息</span>
-          </div>
+        <section class="edit-project-section glass-surface-control">
+          <GlassSectionHeader title="基础信息" description="用于识别项目、环境与负责人。">
+            <template #icon><el-icon><Postcard /></el-icon></template>
+          </GlassSectionHeader>
           <el-form-item label="项目名称" required>
             <el-input v-model="editForm.name" placeholder="项目名称" />
           </el-form-item>
@@ -333,10 +427,10 @@
           </el-row>
         </section>
 
-        <section class="edit-project-section">
-          <div class="edit-project-section__head">
-            <span>接入配置</span>
-          </div>
+        <section class="edit-project-section glass-surface-control">
+          <GlassSectionHeader title="接入配置" description="维护 SDK / 扫描接入地址与访问凭据。">
+            <template #icon><el-icon><Connection /></el-icon></template>
+          </GlassSectionHeader>
           <el-row class="edit-project-row" :gutter="14">
             <el-col :span="12">
               <el-form-item :label="isEditingSdkProject ? 'Base URL' : '项目域名'" required>
@@ -393,30 +487,43 @@
         </section>
       </el-form>
       <template #footer>
-        <div class="edit-project-dialog__footer">
-          <el-button @click="editDialogVisible = false">取消</el-button>
-          <el-button type="primary" :loading="editSaving" @click="saveEditProject">保存</el-button>
-        </div>
+        <el-button @click="editDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="editSaving" @click="saveEditProject">保存</el-button>
       </template>
-    </el-dialog>
+    </GlassDialog>
 
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import GlassDialog from '@/components/common/GlassDialog.vue'
+import GlassInfoItem from '@/components/common/GlassInfoItem.vue'
+import GlassSectionHeader from '@/components/common/GlassSectionHeader.vue'
+import { computed, onMounted, ref } from 'vue'
 import {
-  ArrowDown,
   ArrowRight,
   Box,
+  Connection,
   Delete,
   DocumentCopy,
   EditPen,
+  Grid,
+  Key,
+  Link,
+  Lock,
+  Monitor,
+  MoreFilled,
+  Postcard,
   Refresh,
   Star,
+  Tickets,
+  WarningFilled,
 } from '@element-plus/icons-vue'
 import MetricIconBg from '@/components/common/MetricIconBg.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import HeaderMetaList, { type HeaderMetaItem } from '@/components/common/HeaderMetaList.vue'
 import { formatInstanceStatusLabel } from '@/utils/registryLabels'
+import { formatRelativeTime } from '@/utils/relativeTime'
 import AppPageBackground from '@/components/common/AppPageBackground.vue'
 import {
   formatProjectKindLabel,
@@ -431,14 +538,12 @@ import { useRegistryProjectDetailData } from '@/views/registry/composables/useRe
 import { useRegistryProjectDetailNavigation } from '@/views/registry/composables/useRegistryProjectDetailNavigation'
 import { useRegistryProjectDetailUiState } from '@/views/registry/composables/useRegistryProjectDetailUiState'
 import { useRegistryProjectWorkbench } from '@/views/registry/composables/useRegistryProjectWorkbench'
-import {
-  formatHeartbeatDisplay,
-} from '@/views/registry/registryProjectDetailViewModel'
 
 const { theme } = useTheme()
 
 const projectKindOptions = PROJECT_KIND_SELECT_OPTIONS
 const visibilityOptions = VISIBILITY_SELECT_OPTIONS
+const aiCodingDialogTab = ref<'overview' | 'endpoints'>('overview')
 
 let loadAiCodingAccessFn: (projectId: number) => Promise<void> = async () => {}
 
@@ -487,6 +592,18 @@ const {
 
 loadAiCodingAccessFn = loadAiCodingAccess
 
+const aiCodingProjectInfoRows = computed(() => aiCodingInfoRows.value.slice(0, 5))
+const aiCodingEndpointRows = computed(() => aiCodingInfoRows.value.slice(6))
+
+function aiCodingInfoIcon(label: string) {
+  if (label === 'ReachAI 平台地址') return Monitor
+  if (label === '项目 ID') return Tickets
+  if (label === '项目编码') return Grid
+  if (label === '项目名称') return Postcard
+  if (label === 'App Key') return Key
+  return Link
+}
+
 const {
   goCapability,
   goScanProjectDetail,
@@ -534,7 +651,7 @@ const { healthMetrics, workbenchGroups } = useRegistryProjectWorkbench({
   aiCodingAccessEnabled,
   aiCodingAccessKey,
   isSdkBackedProject,
-  formatHeartbeatDisplay,
+  formatRelativeTime,
   openAiCodingDialog,
   goCapability,
   goScanProjectDetail,
@@ -548,12 +665,30 @@ const { healthMetrics, workbenchGroups } = useRegistryProjectWorkbench({
 })
 
 const latestHeartbeatLabel = computed(() =>
-  formatHeartbeatDisplay(instances.value[0]?.lastHeartbeatAt || project.value?.lastScannedAt || null),
+  formatRelativeTime(instances.value[0]?.lastHeartbeatAt || project.value?.lastScannedAt || null),
 )
 
 const onlineInstanceCount = computed(() =>
   instances.value.filter((item) => item.status === 'ONLINE').length,
 )
+
+const headerMetaItems = computed<HeaderMetaItem[]>(() => [
+  {
+    key: 'status',
+    label: '状态',
+    value: formatProjectKindLabel(project.value?.projectKind || 'REGISTERED'),
+    tone: 'success',
+  },
+  { key: 'sdk', label: 'SDK', value: project.value?.sdkVersion || '-' },
+  {
+    key: 'visibility',
+    label: '可见性',
+    value: formatVisibilityLabel(project.value?.visibility || 'PRIVATE'),
+  },
+  { key: 'owner', label: '负责人', value: project.value?.owner || '-' },
+  { key: 'heartbeat', label: '最近心跳', value: latestHeartbeatLabel.value },
+  { key: 'instances', label: '实例', value: `${onlineInstanceCount.value} 在线` },
+])
 
 function handleHeroMoreCommand(command: string | number | object) {
   if (command === 'delete') {

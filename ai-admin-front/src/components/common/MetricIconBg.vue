@@ -1,5 +1,5 @@
 <template>
-  <span class="metric-icon-bg" :class="`metric-icon-bg--${tone}`" aria-hidden="true">
+  <span class="metric-icon-bg" :class="`metric-icon-bg--${semanticTone}`" aria-hidden="true">
     <slot v-if="$slots.default" />
 
     <svg
@@ -101,6 +101,58 @@
     </svg>
 
     <svg
+      v-else-if="iconKey === 'agent-total'"
+      class="metric-icon-bg__svg"
+      viewBox="0 0 24 24"
+      focusable="false"
+    >
+      <rect x="5.2" y="7.4" width="13.6" height="10.8" rx="3" />
+      <path d="M12 4.2v3.2" />
+      <circle cx="12" cy="3.5" r="0.8" />
+      <path d="M8.5 11.9h.1" />
+      <path d="M15.4 11.9h.1" />
+      <path d="M9.5 15.1h5" />
+    </svg>
+
+    <svg
+      v-else-if="iconKey === 'agent-enabled'"
+      class="metric-icon-bg__svg"
+      viewBox="0 0 24 24"
+      focusable="false"
+    >
+      <rect x="4.8" y="6.5" width="11.8" height="10.8" rx="2.8" />
+      <path d="M10.7 3.8v2.7" />
+      <path d="M8 11h.1M13.3 11h.1" />
+      <path d="M8.6 14h3.9" />
+      <circle cx="17.4" cy="16.4" r="3.2" />
+      <path d="m15.9 16.3 1 1 2-2.2" />
+    </svg>
+
+    <svg
+      v-else-if="iconKey === 'agent-page'"
+      class="metric-icon-bg__svg"
+      viewBox="0 0 24 24"
+      focusable="false"
+    >
+      <rect x="4.5" y="4.7" width="15" height="13.2" rx="2.3" />
+      <path d="M4.5 8.4h15" />
+      <path d="M8.1 6.6h.1M10.4 6.6h.1" />
+      <path d="M9 12.7h6" />
+      <path d="M12 10.2v5" />
+      <path d="M9.3 20h5.4" />
+    </svg>
+
+    <svg
+      v-else-if="iconKey === 'agent-workflow-tools'"
+      class="metric-icon-bg__svg"
+      viewBox="0 0 24 24"
+      focusable="false"
+    >
+      <path d="M9.7 7.5 11.2 6a4 4 0 0 1 5.7 5.7l-2.1 2.1a4 4 0 0 1-5.7 0" />
+      <path d="m14.3 16.5-1.5 1.5a4 4 0 0 1-5.7-5.7l2.1-2.1a4 4 0 0 1 5.7 0" />
+    </svg>
+
+    <svg
       v-else-if="iconKey === 'agent-ready'"
       class="metric-icon-bg__svg metric-icon-bg__svg--agent-ready"
       viewBox="0 0 24 24"
@@ -116,6 +168,55 @@
       <path d="M16.7 15h2.2" />
       <circle cx="20.1" cy="11.4" r="1.2" />
       <circle cx="20.1" cy="15" r="1.2" />
+    </svg>
+
+    <svg
+      v-else-if="iconKey === 'model-total'"
+      class="metric-icon-bg__svg"
+      viewBox="0 0 24 24"
+      focusable="false"
+    >
+      <rect x="5" y="5" width="14" height="14" rx="3" />
+      <path d="M9 2.8v2.2M15 2.8v2.2M9 19v2.2M15 19v2.2" />
+      <path d="M2.8 9H5M2.8 15H5M19 9h2.2M19 15h2.2" />
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M12 9.8v4.4M9.8 12h4.4" />
+    </svg>
+
+    <svg
+      v-else-if="iconKey === 'model-ready'"
+      class="metric-icon-bg__svg"
+      viewBox="0 0 24 24"
+      focusable="false"
+    >
+      <rect x="4.8" y="5.2" width="14.4" height="13.6" rx="3" />
+      <path d="M8.2 10.2h7.6M8.2 13.8h4.2" />
+      <circle cx="17.5" cy="16.7" r="3.1" />
+      <path d="m16 16.7 1 1 2-2.2" />
+    </svg>
+
+    <svg
+      v-else-if="iconKey === 'model-providers'"
+      class="metric-icon-bg__svg"
+      viewBox="0 0 24 24"
+      focusable="false"
+    >
+      <circle cx="12" cy="6" r="2.5" />
+      <circle cx="6" cy="17.5" r="2.5" />
+      <circle cx="18" cy="17.5" r="2.5" />
+      <path d="M10.8 8.2 7.3 15.3M13.2 8.2l3.5 7.1M8.5 17.5h7" />
+    </svg>
+
+    <svg
+      v-else-if="iconKey === 'model-types'"
+      class="metric-icon-bg__svg"
+      viewBox="0 0 24 24"
+      focusable="false"
+    >
+      <rect x="4.8" y="4.8" width="5.8" height="5.8" rx="1.4" />
+      <rect x="13.4" y="4.8" width="5.8" height="5.8" rx="1.4" />
+      <rect x="4.8" y="13.4" width="5.8" height="5.8" rx="1.4" />
+      <path d="M16.3 13.4v5.8M13.4 16.3h5.8" />
     </svg>
 
     <svg
@@ -165,7 +266,10 @@
 </template>
 
 <script setup lang="ts">
-withDefaults(
+import { computed } from 'vue'
+import type { MetricTone } from './glassWorkbench'
+
+const props = withDefaults(
   defineProps<{
     iconKey?: string
     tone?: string
@@ -175,6 +279,20 @@ withDefaults(
     tone: 'brand'
   }
 )
+
+const toneAliases: Record<string, MetricTone> = {
+  brand: 'brand',
+  success: 'success',
+  warning: 'warning',
+  danger: 'danger',
+  info: 'info',
+  neutral: 'neutral',
+  green: 'success',
+  orange: 'warning',
+  muted: 'neutral',
+}
+
+const semanticTone = computed<MetricTone>(() => toneAliases[props.tone] ?? 'brand')
 </script>
 
 <style scoped lang="scss">
@@ -185,17 +303,10 @@ withDefaults(
   flex: 0 0 var(--metric-icon-bg-size, 48px);
   width: var(--metric-icon-bg-size, 48px);
   height: var(--metric-icon-bg-size, 48px);
-  color: var(--brand-active);
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.28);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--metric-icon-bg-radius, 14px);
-  background:
-    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0) 36%),
-    radial-gradient(circle at 72% 86%, rgb(var(--brand-primary-rgb) / 0.24) 0%, rgb(var(--brand-primary-rgb) / 0) 42%),
-    linear-gradient(90deg, #ffffff 0%, rgb(var(--brand-selected-rgb) / 0.92) 58%, #ffffff 100%);
-  box-shadow:
-    0 8px 18px -8px rgb(var(--brand-primary-rgb) / 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86),
-    inset 0 0 8px rgb(var(--brand-primary-rgb) / 0.2);
+  background: var(--surface-glass-control);
+  box-shadow: var(--inner-highlight);
 }
 
 .metric-icon-bg__svg {
@@ -207,7 +318,6 @@ withDefaults(
   stroke-width: var(--metric-icon-stroke-width, 1.55);
   stroke-linecap: round;
   stroke-linejoin: round;
-  filter: drop-shadow(0 2px 4px rgb(var(--brand-primary-rgb) / 0.14));
 }
 
 .metric-icon-bg__svg--agent-ready {
@@ -215,43 +325,40 @@ withDefaults(
   transform-origin: center;
 }
 
-.metric-icon-bg--green {
-  color: #16a34a;
-  border-color: rgba(34, 197, 94, 0.28);
-  background:
-    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0) 36%),
-    radial-gradient(circle at 72% 86%, rgba(34, 197, 94, 0.22) 0%, rgba(34, 197, 94, 0) 42%),
-    linear-gradient(90deg, #ffffff 0%, rgba(240, 253, 244, 0.94) 58%, #ffffff 100%);
-  box-shadow:
-    0 8px 18px -8px rgba(34, 197, 94, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86),
-    inset 0 0 8px rgba(34, 197, 94, 0.18);
+.metric-icon-bg--brand {
+  color: var(--brand-active);
+  border-color: var(--brand-primary);
+  background: var(--surface-glass-selected);
+}
+
+.metric-icon-bg--success {
+  color: var(--status-success);
+  border-color: var(--status-success);
+  background: var(--status-success-soft);
+}
+
+.metric-icon-bg--warning {
+  color: var(--status-warning);
+  border-color: var(--status-warning);
+  background: var(--status-warning-soft);
+}
+
+.metric-icon-bg--danger {
+  color: var(--status-danger);
+  border-color: var(--status-danger);
+  background: var(--status-danger-soft);
 }
 
 .metric-icon-bg--info {
-  color: #0284c7;
-  border-color: rgba(14, 165, 233, 0.28);
-  background:
-    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0) 36%),
-    radial-gradient(circle at 72% 86%, rgba(14, 165, 233, 0.22) 0%, rgba(14, 165, 233, 0) 42%),
-    linear-gradient(90deg, #ffffff 0%, rgba(240, 249, 255, 0.94) 58%, #ffffff 100%);
-  box-shadow:
-    0 8px 18px -8px rgba(14, 165, 233, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86),
-    inset 0 0 8px rgba(14, 165, 233, 0.18);
+  color: var(--status-info);
+  border-color: var(--status-info);
+  background: var(--status-info-soft);
 }
 
-.metric-icon-bg--orange {
-  color: #ea580c;
-  border-color: rgba(249, 115, 22, 0.28);
-  background:
-    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0) 36%),
-    radial-gradient(circle at 72% 86%, rgba(249, 115, 22, 0.2) 0%, rgba(249, 115, 22, 0) 42%),
-    linear-gradient(90deg, #ffffff 0%, rgba(255, 247, 237, 0.94) 58%, #ffffff 100%);
-  box-shadow:
-    0 8px 18px -8px rgba(249, 115, 22, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86),
-    inset 0 0 8px rgba(249, 115, 22, 0.16);
+.metric-icon-bg--neutral {
+  color: var(--status-neutral);
+  border-color: var(--status-neutral);
+  background: var(--status-neutral-soft);
 }
 
 .metric-icon-bg__svg text {
@@ -266,7 +373,6 @@ withDefaults(
   color: inherit;
   font-size: var(--metric-icon-glyph-size, 24px);
   line-height: 1;
-  filter: drop-shadow(0 2px 4px rgb(var(--brand-primary-rgb) / 0.14));
 }
 
 .metric-icon-bg :deep(.el-icon svg) {

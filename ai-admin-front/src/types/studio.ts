@@ -117,7 +117,7 @@ export interface LlmNodeConfig {
   systemPrompt?: string
   userPrompt?: string
   contextVariables?: string[]
-  modelParams?: Record<string, string | number | boolean>
+  modelParams?: Record<string, unknown>
   outputFormat?: 'text' | 'json'
   structuredOutput?: boolean
   strictJsonSchema?: boolean
@@ -160,6 +160,10 @@ export interface HttpNodeConfig {
 export interface ParameterNodeConfig {
   mode: ParameterExtractMode
   modelInstanceId?: string
+  inputExpression?: string
+  systemPrompt?: string
+  userPrompt?: string
+  modelParams?: Record<string, unknown>
   fields: StudioFieldSchema[]
 }
 
@@ -257,6 +261,7 @@ export interface IntentClassifierNodeConfig {
   modelInstanceId?: string
   confidenceThreshold?: number
   llmPrompt?: string
+  modelParams?: Record<string, unknown>
 }
 
 export interface VariableAggregateItem {
@@ -317,7 +322,7 @@ export interface ToolNodeConfig {
   visibility?: string | null
   credentialRef?: string
   maxRequestTimeMs?: number
-  inputMapping: Record<string, string>
+  inputMapping: Record<string, unknown>
   mappingNote?: string
 }
 
@@ -380,6 +385,7 @@ export interface CanvasEdge {
   condition?: string
   sourceHandle?: string
   targetHandle?: string
+  priority?: number
   type?: string
   class?: string
   animated?: boolean

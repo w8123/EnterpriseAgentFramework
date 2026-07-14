@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RequestMethod;
 
 @FeignClient(name = "reachai-runtime-proxy", url = "\${services.runtime-service.url:http://localhost:18604}")
 interface RuntimeProxyClient {
-    @RequestMapping(method = RequestMethod.POST, path = "/api/agent/execute")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/agents/execute")
     Object executeAgent(Object body);
 }
 `)
@@ -46,7 +46,7 @@ const missingResult = spawnSync(process.execPath, [scriptPath], {
 
 assert.notStrictEqual(missingResult.status, 0, missingResult.stderr || missingResult.stdout)
 assert.match(missingResult.stderr, /control RuntimeProxyClient route must exist in reachai-runtime-service/)
-assert.match(missingResult.stderr, /POST \/api\/agent\/execute/)
+assert.match(missingResult.stderr, /POST \/api\/runtime\/agents\/execute/)
 
 const missingControlRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-route-contracts-missing-control-'))
 writeFile(missingControlRoot, 'reachai-control-service/src/main/java/com/enterprise/ai/control/client/runtime/RuntimeProxyClient.java', `
@@ -58,7 +58,7 @@ import org.springframework.web.bind.annotation.RequestMethod;
 
 @FeignClient(name = "reachai-runtime-proxy", url = "\${services.runtime-service.url:http://localhost:18604}")
 interface RuntimeProxyClient {
-    @RequestMapping(method = RequestMethod.POST, path = "/api/agent/execute")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/agents/execute")
     Object executeAgent(Object body);
 }
 `)
@@ -70,7 +70,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 class RuntimeAgentController {
-    @PostMapping("/api/agent/execute")
+    @PostMapping("/api/runtime/agents/execute")
     Object executeAgent(Object body) { return null; }
 }
 `)
@@ -82,7 +82,7 @@ const missingControlResult = spawnSync(process.execPath, [scriptPath], {
 
 assert.notStrictEqual(missingControlResult.status, 0, missingControlResult.stderr || missingControlResult.stdout)
 assert.match(missingControlResult.stderr, /control RuntimeProxyClient public route must be exposed by reachai-control-service/)
-assert.match(missingControlResult.stderr, /POST \/api\/agent\/execute/)
+assert.match(missingControlResult.stderr, /POST \/api\/runtime\/agents\/execute/)
 
 const missingAgentRouteRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-route-contracts-missing-agent-route-'))
 writeFile(missingAgentRouteRoot, 'ai-agent-service/src/main/java/com/enterprise/ai/agent/capability/ToolController.java', `
@@ -308,14 +308,14 @@ class PlatformAuthController {
     Object currentUser() { return null; }
 }
 `)
-writeFile(missingPlatformOwnerRoot, 'reachai-control-service/src/main/java/com/enterprise/ai/control/compat/RuntimeCompatibilityController.java', `
+writeFile(missingPlatformOwnerRoot, 'reachai-control-service/src/main/java/com/enterprise/ai/control/runtime/ControlRuntimePublicController.java', `
 package com.enterprise.ai.control.compat;
 
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-class RuntimeCompatibilityController {
+class ControlRuntimePublicController {
     @RequestMapping({"/api/agents", "/api/agents/{*path}"})
     Object proxy() { return null; }
 }
@@ -441,10 +441,10 @@ assert.match(forbiddenRuntimeDebugSessionBridgeResult.stderr, /migrated Runtime 
 assert.match(forbiddenRuntimeDebugSessionBridgeResult.stderr, /RuntimeDebugSessionCompatibilityController\.java/)
 
 const forbiddenRuntimeHumanApprovalBridgeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-route-contracts-forbidden-human-approval-'))
-writeFile(forbiddenRuntimeHumanApprovalBridgeRoot, 'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/compat/RuntimeAgentInteractionCompatibilityController.java', `
-package com.enterprise.ai.runtime.compat;
+writeFile(forbiddenRuntimeHumanApprovalBridgeRoot, 'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/interaction/RuntimeHumanApprovalController.java', `
+package com.enterprise.ai.runtime.interaction;
 
-class RuntimeAgentInteractionCompatibilityController {
+class RuntimeHumanApprovalController {
     private RuntimeLegacyProxyGateway legacyProxyGateway;
 
     Object submitHumanApproval(Object request, Object servletRequest) {
@@ -460,13 +460,13 @@ const forbiddenRuntimeHumanApprovalBridgeResult = spawnSync(process.execPath, [s
 
 assert.notStrictEqual(forbiddenRuntimeHumanApprovalBridgeResult.status, 0, forbiddenRuntimeHumanApprovalBridgeResult.stderr || forbiddenRuntimeHumanApprovalBridgeResult.stdout)
 assert.match(forbiddenRuntimeHumanApprovalBridgeResult.stderr, /migrated Runtime route must not use legacy bridge/)
-assert.match(forbiddenRuntimeHumanApprovalBridgeResult.stderr, /RuntimeAgentInteractionCompatibilityController\.java/)
+assert.match(forbiddenRuntimeHumanApprovalBridgeResult.stderr, /RuntimeHumanApprovalController\.java/)
 
 const forbiddenRuntimeRunOpsReplayBridgeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-route-contracts-forbidden-runops-replay-'))
-writeFile(forbiddenRuntimeRunOpsReplayBridgeRoot, 'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/compat/RuntimePublicCompatibilityController.java', `
+writeFile(forbiddenRuntimeRunOpsReplayBridgeRoot, 'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/api/RuntimePublicController.java', `
 package com.enterprise.ai.runtime.compat;
 
-class RuntimePublicCompatibilityController {
+class RuntimePublicController {
     private RuntimeLegacyProxyGateway legacyProxyGateway;
 
     Object runOpsReplay(Object request, Object servletRequest) {
@@ -507,10 +507,10 @@ assert.match(forbiddenRuntimeWorkflowAiCodingBridgeResult.stderr, /migrated Runt
 assert.match(forbiddenRuntimeWorkflowAiCodingBridgeResult.stderr, /RuntimeWorkflowAiCodingCompatibilityController\.java/)
 
 const forbiddenRuntimeUnexpectedBridgeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-route-contracts-unexpected-runtime-bridge-'))
-writeFile(forbiddenRuntimeUnexpectedBridgeRoot, 'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/compat/RuntimePublicCompatibilityController.java', `
+writeFile(forbiddenRuntimeUnexpectedBridgeRoot, 'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/compat/RuntimeUnexpectedCompatibilityController.java', `
 package com.enterprise.ai.runtime.compat;
 
-class RuntimePublicCompatibilityController {
+class RuntimeUnexpectedCompatibilityController {
     private RuntimeLegacyProxyGateway legacyProxyGateway;
 
     Object executeAgent(Object request, Object servletRequest) {
@@ -655,13 +655,13 @@ assert.match(forbiddenFrontendLegacyControlClientResult.stderr, /VITE_AI_AGENT_S
 assert.match(forbiddenFrontendLegacyControlClientResult.stderr, /no longer proxied/)
 
 const forbiddenBackendLegacyProxyNarrativeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-route-contracts-forbidden-backend-legacy-narrative-'))
-writeFile(forbiddenBackendLegacyProxyNarrativeRoot, 'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/compat/RuntimePublicCompatibilityController.java', `
+writeFile(forbiddenBackendLegacyProxyNarrativeRoot, 'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/api/RuntimePublicController.java', `
 package com.enterprise.ai.runtime.compat;
 
 /**
  * Real Runtime query implementations live beside this class; legacy execution paths proxy only during migration.
  */
-class RuntimePublicCompatibilityController {
+class RuntimePublicController {
 }
 `)
 writeFile(forbiddenBackendLegacyProxyNarrativeRoot, 'reachai-capability-service/src/main/java/com/enterprise/ai/capability/TestCapabilityController.java', `
@@ -820,7 +820,7 @@ import org.springframework.web.bind.annotation.RequestMethod;
 
 @FeignClient(name = "reachai-runtime-proxy", url = "\${services.runtime-service.url:http://localhost:18604}")
 interface RuntimeProxyClient {
-    @RequestMapping(method = RequestMethod.POST, path = "/api/agent/execute")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/agents/execute")
     Object executeAgent(Object body);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/debug-sessions/{sessionId}/submit")
@@ -836,22 +836,22 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 class RuntimeAgentController {
-    @PostMapping("/api/agent/execute")
+    @PostMapping("/api/runtime/agents/execute")
     Object executeAgent(Object body) { return null; }
 
     @RequestMapping({"/api/runtime/debug-sessions", "/api/runtime/debug-sessions/{*path}"})
     Object debugSession(Object body) { return null; }
 }
 `)
-writeFile(allowedRoot, 'reachai-control-service/src/main/java/com/enterprise/ai/control/compat/RuntimeCompatibilityController.java', `
+writeFile(allowedRoot, 'reachai-control-service/src/main/java/com/enterprise/ai/control/runtime/ControlRuntimePublicController.java', `
 package com.enterprise.ai.control.compat;
 
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-class RuntimeCompatibilityController {
-    @PostMapping("/api/agent/execute")
+class ControlRuntimePublicController {
+    @PostMapping("/api/runtime/agents/execute")
     Object executeAgent(Object body) { return null; }
 
     @PostMapping("/api/runtime/debug-sessions/{sessionId}/submit")
@@ -1317,9 +1317,6 @@ class CapabilityRegistryCompatibilityController {
 
     @PostMapping("/projects/{projectCode}/instances/status")
     Object status() { return null; }
-
-    @PostMapping("/projects/{projectCode}/instances/governance-policy")
-    Object governancePolicy() { return null; }
 
     @PostMapping("/projects/{projectCode}/capabilities/sync")
     Object sync() { return null; }

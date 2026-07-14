@@ -17,6 +17,14 @@ spring:
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
 
+  cloud:
+    openfeign:
+      client:
+        config:
+          default:
+            connectTimeout: 5000
+            readTimeout: 135000
+
 services:
   runtime-service:
     url: ${RUNTIME_SERVICE_URL:http://localhost:18604}

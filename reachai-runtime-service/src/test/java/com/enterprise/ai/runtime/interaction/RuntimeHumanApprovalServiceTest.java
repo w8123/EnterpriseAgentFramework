@@ -31,7 +31,7 @@ class RuntimeHumanApprovalServiceTest {
         when(mapper.selectList(any())).thenReturn(List.of(row));
 
         List<RuntimeHumanApprovalService.PendingHumanApprovalView> views =
-                service.listPendingHumanApprovals(7L, "u-1", 500);
+                service.listPendingHumanApprovals("agent-7", "u-1", 500);
 
         assertEquals(1, views.size());
         RuntimeHumanApprovalService.PendingHumanApprovalView view = views.get(0);
@@ -39,12 +39,31 @@ class RuntimeHumanApprovalServiceTest {
         assertEquals("trace-1", view.traceId());
         assertEquals("session-1", view.sessionId());
         assertEquals("u-1", view.userId());
-        assertEquals(7L, view.agentId());
+        assertEquals("agent-7", view.agentId());
         assertEquals("approveNode", view.nodeId());
         assertEquals("PENDING", view.status());
         assertEquals("Approve order", view.title());
         assertEquals("Confirm order?", view.message());
         assertEquals("A-1", view.state().get("orderId"));
+    }
+
+    @Test
+    void listPendingHumanApprovalsAlsoMapsSupervisorPolicyConfirmation() {
+        RuntimeSkillInteractionEntity row = pendingRow();
+        row.setId("spv_confirm-1");
+        row.setSkillName("supervisor-policy:team:update");
+        row.setUiPayload("""
+                {"component":"confirm","title":"确认修改班组","message":"是否继续？","interactionId":"spv_confirm-1"}
+                """);
+        when(mapper.selectList(any())).thenReturn(List.of(row));
+
+        List<RuntimeHumanApprovalService.PendingHumanApprovalView> views =
+                service.listPendingHumanApprovals("agent-7", "u-1", 500);
+
+        assertEquals(1, views.size());
+        assertEquals("spv_confirm-1", views.get(0).interactionId());
+        assertEquals("team:update", views.get(0).nodeId());
+        assertEquals("确认修改班组", views.get(0).title());
     }
 
     @Test
@@ -88,7 +107,7 @@ class RuntimeHumanApprovalServiceTest {
         row.setTraceId("trace-1");
         row.setSessionId("session-1");
         row.setUserId("u-1");
-        row.setAgentId(7L);
+        row.setAgentId("agent-7");
         row.setSkillName("graph-approval:approveNode");
         row.setStatus("PENDING");
         row.setSlotState("{}");

@@ -6,7 +6,8 @@ Internal APIs are not public frontend APIs. The frontend enters through `reachai
 
 | Contract | Owner service | Consumers | Purpose | Frontend callable |
 | --- | --- | --- | --- | --- |
-| `GET /internal/control/page-actions/{projectCode}/{pageKey}/{actionKey}` | `reachai-control-service` | `reachai-runtime-service` | Runtime release validation reads Control-owned page action catalog state without direct `eaf_page_action_registry` table access. | No |
+| `GET /internal/control/page-actions/{projectCode}/{pageKey}/{actionKey}` | `reachai-control-service` | `reachai-runtime-service` | Runtime release validation reads Control-owned page action catalog state without direct `control_page_action_registry` table access. | No |
+| `POST /internal/control/page-bridge/execute` | `reachai-control-service` | `reachai-runtime-service` | Runtime executes a page Workflow through the Control-owned embed session and Page Bridge protocol, including cross-route `NAVIGATE -> TARGET_READY -> PAGE_ACTION`, without direct access to Control tables. | No |
 | `GET /internal/runtime/health` | `reachai-runtime-service` | `reachai-control-service` | Control aggregates Runtime health for the public service topology view. | No |
 | `GET /internal/runtime/agent-tool-references` | `reachai-runtime-service` | `reachai-capability-service` | Capability scan/catalog logic reads Runtime-owned Agent-to-Tool references without direct Runtime table access. | No |
 | `GET /internal/runtime/tool-call-logs/by-tool` | `reachai-runtime-service` | `reachai-capability-service` | Capability composition metrics reads Runtime-owned tool-call history by tool. | No |
@@ -25,9 +26,8 @@ Internal APIs are not public frontend APIs. The frontend enters through `reachai
 | `GET /internal/capability/compositions/{qualifiedName}` | `reachai-capability-service` | `reachai-runtime-service` | Runtime loads Capability-owned Composition GraphSpec before executing composition routes. | No |
 | `GET /internal/capability/projects/{projectCode}` | `reachai-capability-service` | `reachai-runtime-service` | Runtime resolves Capability-owned project identity by project code. | No |
 | `GET /internal/capability/projects/by-id/{projectId}` | `reachai-capability-service` | `reachai-runtime-service` | Runtime resolves Capability-owned project identity by project id. | No |
-| `GET /internal/capability/runtime-instances` | `reachai-capability-service` | `reachai-runtime-service` | Runtime lists Capability-owned registered runtime instances when syncing runtime registry state. | No |
 | `GET /internal/capability/projects/by-id/{projectId}/onboarding` | `reachai-capability-service` | `reachai-control-service` | Control reads Capability-owned onboarding state for AI Coding project access views. | No |
-| `PATCH /internal/capability/projects/by-id/{projectId}/ai-coding-access` | `reachai-capability-service` | `reachai-control-service` | Control updates Capability-owned AI Coding access status while preserving public route shape. | No |
+| `PUT /internal/capability/projects/by-id/{projectId}/ai-coding-access` | `reachai-capability-service` | `reachai-control-service` | Control updates Capability-owned AI Coding access status while preserving the public `PATCH` route; internal PUT avoids the JDK Feign client's unsupported PATCH method. | No |
 | `GET /internal/capability/embed/credentials` | `reachai-capability-service` | `reachai-control-service` | Control lists Capability-owned embed credential policies for platform management routes. | No |
 | `PUT /internal/capability/embed/credentials/{id}/policy` | `reachai-capability-service` | `reachai-control-service` | Control updates Capability-owned embed credential policy state. | No |
 | `POST /internal/capability/embed/token/exchange/verify` | `reachai-capability-service` | `reachai-control-service` | Control verifies embed token exchange through Capability-owned credential policy rules. | No |

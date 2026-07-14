@@ -1,6 +1,6 @@
 export interface TraceNode {
   id: number
-  source?: 'tool_call_log' | 'agent_trace_span' | string
+  source?: 'runtime_tool_call_log' | 'runtime_trace_span' | string
   traceId: string
   agentName?: string
   toolName: string

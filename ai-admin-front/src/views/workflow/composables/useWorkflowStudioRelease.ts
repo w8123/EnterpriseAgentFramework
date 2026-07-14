@@ -1,21 +1,34 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, type ComputedRef, type Ref } from 'vue'
 import { publishWorkflowVersion, validateWorkflowVersion } from '@/api/workflow'
-import type { WorkflowPublishRequest, WorkflowReleaseValidationItem, WorkflowStudioState } from '@/types/workflow'
+import type {
+  WorkflowPublishRequest,
+  WorkflowReleaseValidationItem,
+  WorkflowRuntimeValidationResult,
+  WorkflowStudioState,
+  WorkflowValidationItem,
+} from '@/types/workflow'
 import type { CanvasNode } from '@/types/studio'
+import type { GraphLintItem } from '@/views/workflow/composables/useWorkflowStudioGraphAnalysis'
 
 export interface UseWorkflowStudioReleaseDeps {
   workflowId: Readonly<Ref<string>>
   studioReadOnly: Readonly<Ref<boolean>>
   studio: Ref<WorkflowStudioState | null>
   nodes: Ref<CanvasNode[]>
+  graphLintErrors: Readonly<Ref<GraphLintItem[]>>
+  graphLintWarnings: Readonly<Ref<GraphLintItem[]>>
+  editGeneration: Readonly<Ref<number>>
   publishing: Ref<boolean>
+  releaseChecking: Ref<boolean>
+  releaseValidationReady: Ref<boolean>
   publishDialogOpen: Ref<boolean>
   releaseErrors: Ref<WorkflowReleaseValidationItem[]>
   releaseWarnings: Ref<WorkflowReleaseValidationItem[]>
   publishForm: WorkflowPublishRequest
-  saveStudio: () => Promise<void>
-  loadStudio: () => Promise<void>
+  validateCurrentDraft: () => Promise<WorkflowRuntimeValidationResult | null>
+  saveStudio: () => Promise<WorkflowStudioState | null>
+  loadStudio: () => Promise<WorkflowStudioState | null>
 }
 
 export function useWorkflowStudioRelease({
@@ -23,11 +36,17 @@ export function useWorkflowStudioRelease({
   studioReadOnly,
   studio,
   nodes,
+  graphLintErrors,
+  graphLintWarnings,
+  editGeneration,
   publishing,
+  releaseChecking,
+  releaseValidationReady,
   publishDialogOpen,
   releaseErrors,
   releaseWarnings,
   publishForm,
+  validateCurrentDraft,
   saveStudio,
   loadStudio,
 }: UseWorkflowStudioReleaseDeps) {
@@ -48,24 +67,70 @@ export function useWorkflowStudioRelease({
     return warnings
   })
 
-  function publishWorkflow() {
+  function localValidationItem(item: GraphLintItem, level: 'ERROR' | 'WARN'): WorkflowReleaseValidationItem {
+    return {
+      code: 'GRAPH_LOCAL_LINT',
+      level,
+      nodeId: item.nodeId || null,
+      message: item.edgeId ? `${item.message}（连线 ${item.edgeId}）` : item.message,
+    }
+  }
+
+  function localReleaseErrors() {
+    return graphLintErrors.value.map((item) => localValidationItem(item, 'ERROR'))
+  }
+
+  function localReleaseWarnings() {
+    return graphLintWarnings.value.map((item) => localValidationItem(item, 'WARN'))
+  }
+
+  async function publishWorkflow() {
     if (studioReadOnly.value) {
       ElMessage.info('代码托管 Workflow 当前为只读草稿，请修改后重启同步。')
       return
     }
     publishDialogOpen.value = true
-    void preloadPublishValidation()
+    releaseValidationReady.value = false
+    releaseErrors.value = localReleaseErrors()
+    releaseWarnings.value = localReleaseWarnings()
+    releaseChecking.value = true
+    try {
+      const result = await validateCurrentDraft()
+      if (!result) {
+        releaseErrors.value = [validationUnavailableItem()]
+        return
+      }
+      releaseErrors.value = [
+        ...localReleaseErrors(),
+        ...(result.errors || []).map((item) => runtimeValidationItem(item, 'ERROR')),
+      ]
+      releaseWarnings.value = [
+        ...localReleaseWarnings(),
+        ...(result.warnings || []).map((item) => runtimeValidationItem(item, 'WARN')),
+      ]
+    } finally {
+      releaseChecking.value = false
+      releaseValidationReady.value = true
+    }
   }
 
-  async function preloadPublishValidation() {
-    if (!workflowId.value) return
-    try {
-      const validationResult = await validateWorkflowVersion(workflowId.value)
-      releaseErrors.value = validationResult.data.errors || []
-      releaseWarnings.value = validationResult.data.warnings || []
-    } catch {
-      releaseErrors.value = []
-      releaseWarnings.value = []
+  function runtimeValidationItem(
+    item: WorkflowValidationItem,
+    level: 'ERROR' | 'WARN',
+  ): WorkflowReleaseValidationItem {
+    return {
+      code: item.code,
+      level,
+      nodeId: item.target || null,
+      message: item.message,
+    }
+  }
+
+  function validationUnavailableItem(): WorkflowReleaseValidationItem {
+    return {
+      code: 'VALIDATION_UNAVAILABLE',
+      level: 'ERROR',
+      message: '当前草稿未能完成发布校验，请确认 Runtime 服务可用后重试。',
     }
   }
 
@@ -88,16 +153,57 @@ export function useWorkflowStudioRelease({
       ElMessage.warning('请先填写版本号')
       return
     }
+    if (!releaseValidationReady.value || releaseChecking.value) {
+      ElMessage.warning('请等待当前草稿校验完成')
+      return
+    }
+    if (releaseErrors.value.length) {
+      ElMessage.error('Workflow 发布门禁未通过，请先修复阻断项')
+      return
+    }
+    const currentLocalErrors = localReleaseErrors()
+    if (currentLocalErrors.length) {
+      releaseErrors.value = currentLocalErrors
+      releaseWarnings.value = localReleaseWarnings()
+      ElMessage.error('当前画布本地检查未通过，请先修复阻断项')
+      return
+    }
+    const publishingWorkflowId = workflowId.value
+    const publishingEditGeneration = editGeneration.value
+    const isCurrentPublishingDraft = () => (
+      workflowId.value === publishingWorkflowId
+      && editGeneration.value === publishingEditGeneration
+    )
     publishing.value = true
-    releaseErrors.value = []
-    releaseWarnings.value = []
     try {
-      await saveStudio()
-      const validationResult = await validateWorkflowVersion(workflowId.value)
-      releaseErrors.value = validationResult.data.errors || []
-      releaseWarnings.value = validationResult.data.warnings || []
+      const saved = await saveStudio()
+      if (!saved) return
+      if (!isCurrentPublishingDraft()) {
+        ElMessage.warning('发布已取消：保存后检测到新的本地修改，请重新校验')
+        return
+      }
+      let validationResult
+      try {
+        validationResult = await validateWorkflowVersion(publishingWorkflowId)
+      } catch (err) {
+        releaseErrors.value = [validationUnavailableItem()]
+        ElMessage.error('发布校验失败：' + (err as Error).message)
+        return
+      }
+      releaseErrors.value = [
+        ...localReleaseErrors(),
+        ...(validationResult.data.errors || []),
+      ]
+      releaseWarnings.value = [
+        ...localReleaseWarnings(),
+        ...(validationResult.data.warnings || []),
+      ]
       if (!validationResult.data.valid) {
         ElMessage.error('Workflow 发布门禁未通过，请先修复阻断项')
+        return
+      }
+      if (!isCurrentPublishingDraft()) {
+        ElMessage.warning('发布已取消：校验期间草稿发生变化，请重新校验')
         return
       }
       const warnings = [
@@ -115,17 +221,42 @@ export function useWorkflowStudioRelease({
           return
         }
       }
-      await publishWorkflowVersion(workflowId.value, {
+      if (!isCurrentPublishingDraft()) {
+        ElMessage.warning('发布已取消：确认期间草稿发生变化，请重新校验')
+        return
+      }
+      await publishWorkflowVersion(publishingWorkflowId, {
         version: publishForm.version.trim(),
         rolloutPercent: publishForm.rolloutPercent ?? 100,
         note: publishForm.note,
         publishedBy: publishForm.publishedBy,
+        baseRevision: saved.revision || saved.updatedAt || null,
       })
       ElMessage.success(`已发布 Workflow ${publishForm.version}（灰度 ${publishForm.rolloutPercent ?? 100}%）`)
       publishDialogOpen.value = false
-      await loadStudio()
+      if (isCurrentPublishingDraft()) {
+        await loadStudio()
+      } else {
+        ElMessage.warning('版本已发布；检测到新的本地修改，已保留当前页面且未自动刷新')
+      }
     } catch (err) {
-      ElMessage.error('发布 Workflow 失败：' + (err as Error).message)
+      const error = err as { response?: { status?: number; data?: { message?: string } }; message?: string }
+      if (error.response?.status === 409) {
+        releaseValidationReady.value = false
+        void ElMessageBox.confirm(
+          '保存后服务器草稿又被其他编辑更新，本次未发布任何版本。加载最新草稿后请重新校验并发布。',
+          '发布已取消：草稿版本冲突',
+          {
+            type: 'warning',
+            confirmButtonText: '加载最新草稿',
+            cancelButtonText: '保留当前页面',
+          },
+        ).then(() => {
+          void loadStudio()
+        }).catch(() => undefined)
+      } else {
+        ElMessage.error('发布 Workflow 失败：' + (error.response?.data?.message || error.message || '服务请求失败'))
+      }
     } finally {
       publishing.value = false
     }
@@ -134,9 +265,7 @@ export function useWorkflowStudioRelease({
   return {
     publishWarnings,
     publishWorkflow,
-    preloadPublishValidation,
     releaseValidationKey,
-    formatReleaseValidationItem,
     handlePublishWorkflow,
   }
 }

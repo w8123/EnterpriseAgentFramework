@@ -161,7 +161,7 @@ reachai:
 | `reachai.registry.app-key` | 业务系统访问 ReachAI 的应用 key |
 | `reachai.registry.app-secret` | 业务系统访问 ReachAI 的应用密钥 |
 | `reachai.project.code` | 中台识别业务系统的稳定项目编码 |
-| `reachai.project.base-url` | ReachAI 调用业务能力时使用的基础地址 |
+| `reachai.project.base-url` | ReachAI 服务端调用业务能力和手动 SDK 同步回调时使用的基础地址；必须从 ReachAI 所在网络可达 |
 | `reachai.embed.allowed-origins` | 允许嵌入对话框的业务前端 Origin |
 | `reachai.embed.allowed-agent-ids` | 允许该业务系统嵌入的 Agent |
 
@@ -209,8 +209,18 @@ public WebApiResult<Page<TeamInfoPageVO>> page(@RequestBody TeamInfoPageDTO dto)
 1. 项目列表出现 `qmssmp-teams-construction-service`。
 2. 项目名称为 `班组建设服务`。
 3. 实例心跳正常。
-4. 能力列表中出现 `teamArchivePage`。
-5. 能力详情中能看到请求路径、HTTP 方法、入参和出参结构。
+
+启动阶段不自动扫描接口。需要接口资产时，在 ReachAI 的“API 管理 -> 添加接口 -> SDK 同步”中手动触发。触发前必须确认：
+
+1. ReachAI 服务端能够访问 `{reachai.project.base-url}{context-path}/reachai/registry/capabilities/sync`；不同机器或容器部署时不要使用 `localhost`。
+2. 如果 `base-url` 指向网关，网关已把 `/reachai/registry/**` 转发到包含 Starter 的班组后端服务，并透传 `X-ReachAI-App-Key`、`X-ReachAI-Timestamp`、`X-ReachAI-Nonce`、`X-ReachAI-Signature`。
+3. 业务登录/JWT、Spring Security、Sa-Token、Shiro、自研拦截器和 CSRF 已对该 POST 路径放行，使请求能够进入 Starter Controller。
+4. 这里的“放行”不是取消鉴权：Starter 仍校验 ReachAI 注册签名，非法请求返回 `401`；该服务端调用不需要配置 CORS。
+
+手动同步成功后再确认：
+
+1. 能力列表中出现 `teamArchivePage`。
+2. 能力详情中能看到请求路径、HTTP 方法、入参和出参结构。
 
 ## 5. 网关接入步骤
 
@@ -742,10 +752,12 @@ GET http://localhost:8080/api/v1/reachai/embed-token
 2. 在业务后端启动模块引入 `reachai-spring-boot2-starter`。
 3. 在能力声明模块引入 `reachai-capability-sdk`。
 4. 在业务后端配置 `reachai.registry`、`reachai.project`、`reachai.capability`、`reachai.embed`。
-5. 给目标业务接口增加 `@ReachCapability` 和必要的参数语义。
-6. 在业务网关增加该项目的 `reachai.projects` 配置。
-7. 在业务前端配置 `reachAi.projectCode`、`reachAi.agentId`、`reachAi.tokenPath`、`reachAi.apiBase`，不配置项目级 `appSecret`。
-8. 在目标页面挂载嵌入式对话组件。
-9. 在目标页面注册 Page Action handler。
-10. 在 Workflow Studio 创建或编辑 Workflow，从页面动作目录选择 Page Action，并通过 Agent binding 暴露入口。
-11. 启动全链路并验证注册、心跳、能力、token、对话、页面动作和审计。
+5. 将 `reachai.project.base-url` 配成 ReachAI 服务端可达地址；如经过网关，路由 `/reachai/registry/**` 并对 `POST /reachai/registry/capabilities/sync` 绕过业务登录/JWT 与 CSRF，同时保留 Starter 签名校验。
+6. 给目标业务接口增加 `@ReachCapability` 和必要的参数语义。
+7. 在业务网关增加该项目的 `reachai.projects` 配置。
+8. 在“项目接入工作台”调用 `agentProvisioning.provisionAgentUrl`，创建或复用项目页面副驾驶 Agent，并确认返回 `supervisorConfig.status=ACTIVE`；该步骤不创建占位 Workflow。
+9. 在业务前端配置 `reachAi.projectCode`、返回的 `agent.keySlug`、`reachAi.tokenPath`、`reachAi.apiBase`，不配置项目级 `appSecret`。
+10. 在目标页面挂载嵌入式对话组件。
+11. 在目标页面注册 Page Action handler。
+12. 在“创建页面助手”或 Workflow Studio 创建并发布实际业务 Workflow；页面助手向导会把已发布 Workflow 加入 Supervisor 的 Workflow-as-Tool 白名单，并发布新版 Agent 配置。
+13. 启动全链路并验证注册、心跳、API 管理手动 SDK 同步、能力、token、对话、页面动作和审计。

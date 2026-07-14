@@ -1,48 +1,72 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>Tool 管理</h2>
-      <div class="header-actions">
-        <el-button type="primary" @click="openCreateDialog">
-          <el-icon><Plus /></el-icon>新建 Tool
-        </el-button>
-        <el-button @click="onRefresh" :loading="loading">
-          <el-icon><Refresh /></el-icon>刷新
-        </el-button>
-      </div>
-    </div>
-
-    <el-card shadow="never">
-      <el-form :inline="true" class="tool-filter" @submit.prevent="handleSearch">
-        <el-form-item label="关键词">
-          <el-input
-            v-model="filters.keyword"
-            clearable
-            placeholder="工具名或描述"
-            style="width: 200px"
-            @keyup.enter="handleSearch"
+  <WorkbenchPage density="comfortable" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="tool"
+      title="Tool 管理"
+      description="管理平台可被 Agent 调用的 Tool、语义信息与运行开关"
+    >
+      <template #actions>
+        <el-tooltip content="刷新" placement="top">
+          <el-button
+            circle
+            :icon="Refresh"
+            :loading="loading"
+            aria-label="刷新 Tool 列表"
+            @click="onRefresh"
           />
-        </el-form-item>
-        <el-form-item label="来源">
-          <el-select v-model="filters.source" clearable placeholder="全部" style="width: 130px">
-            <el-option label="code" value="code" />
-            <el-option label="scanner" value="scanner" />
-            <el-option label="manual" value="manual" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="启用">
-          <el-select v-model="filters.enabled" clearable placeholder="全部" style="width: 120px">
-            <el-option label="是" :value="true" />
-            <el-option label="否" :value="false" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">查询</el-button>
-          <el-button @click="resetFilters">重置</el-button>
-        </el-form-item>
-      </el-form>
+        </el-tooltip>
+        <el-button type="primary" :icon="Plus" @click="openCreateDialog">新建 Tool</el-button>
+      </template>
+    </PageHeader>
 
-      <el-table :data="tools" v-loading="loading" stripe @expand-change="onToolExpandChange">
+    <DataTableShell
+      class="project-list-table-shell workbench-list-surface"
+      v-model:current-page="pagination.current"
+      v-model:page-size="pagination.size"
+      density="compact"
+      :loading="loading"
+      :empty="tools.length === 0"
+      empty-description="暂无数据，请调整条件或先在后端注册 Tool"
+      :total="total"
+      :page-sizes="[10, 20, 50, 100]"
+      pagination-layout="total, prev, pager, next, sizes"
+      @page-change="fetchTools"
+      @size-change="handlePageSizeChange"
+    >
+      <template #toolbar>
+        <FilterBar
+          class="project-list-filter-bar"
+          :loading="loading"
+          @query="handleSearch"
+          @reset="resetFilters"
+        >
+          <el-form-item label="关键词">
+            <el-input
+              v-model="filters.keyword"
+              clearable
+              placeholder="工具名或描述"
+              style="width: 200px"
+              @keyup.enter="handleSearch"
+            />
+          </el-form-item>
+          <el-form-item label="来源">
+            <el-select v-model="filters.source" clearable placeholder="全部" style="width: 130px">
+              <el-option label="code" value="code" />
+              <el-option label="scanner" value="scanner" />
+              <el-option label="manual" value="manual" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="启用">
+            <el-select v-model="filters.enabled" clearable placeholder="全部" style="width: 120px">
+              <el-option label="是" :value="true" />
+              <el-option label="否" :value="false" />
+            </el-select>
+          </el-form-item>
+        </FilterBar>
+      </template>
+
+      <el-table :data="tools" empty-text=" " stripe @expand-change="onToolExpandChange">
         <el-table-column type="expand">
           <template #default="{ row }">
             <div class="expand-content">
@@ -111,7 +135,7 @@
         </el-table-column>
         <el-table-column label="来源" width="110" align="center">
           <template #default="{ row }">
-            <el-tag :type="sourceTagType(row.source)" size="small">{{ row.source }}</el-tag>
+            <StatusTag :label="row.source" :tone="sourceTagType(row.source)" />
           </template>
         </el-table-column>
         <el-table-column label="项目" min-width="140" show-overflow-tooltip>
@@ -127,9 +151,10 @@
         <el-table-column label="API 目录" min-width="140" align="center">
           <template #default="{ row }">
             <template v-if="row.catalogLinkStatus">
-              <el-tag :type="catalogHealthTagType(row.catalogLinkStatus)" size="small">
-                {{ catalogHealthLabel(row.catalogLinkStatus) }}
-              </el-tag>
+              <StatusTag
+                :label="catalogHealthLabel(row.catalogLinkStatus)"
+                :tone="catalogHealthTagType(row.catalogLinkStatus)"
+              />
               <el-button
                 v-if="row.projectId != null && row.catalogScanToolId != null"
                 link
@@ -227,50 +252,35 @@
         </el-table-column>
       </el-table>
 
-      <el-empty
-        v-if="!loading && tools.length === 0"
-        description="暂无数据，请调整条件或先在后端注册 Tool"
-      />
-      <div v-if="total > 0" class="pagination-wrap">
-        <el-pagination
-          v-model:current-page="pagination.current"
-          v-model:page-size="pagination.size"
-          :page-sizes="[10, 20, 50, 100]"
-          :total="total"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="fetchTools"
-          @size-change="handlePageSizeChange"
-        />
-      </div>
-    </el-card>
+      <template #empty>
+        <div class="project-list-empty-state">
+          <img src="/智能化.svg" alt="" aria-hidden="true" />
+          <div class="project-list-empty-copy">
+            <h3>暂时没有可用 Tool</h3>
+            <p>调整筛选条件，或新建一个 Tool 来补充 Agent 可调用的能力。</p>
+          </div>
+          <el-button type="primary" :icon="Plus" @click="openCreateDialog">新建 Tool</el-button>
+        </div>
+      </template>
+    </DataTableShell>
 
-    <el-dialog
+    <WizardDialog
       v-model="formDialogVisible"
       :title="formDialogTitle"
+      :steps="toolEditorStepsWithState"
+      :active-step="activeToolStep"
+      :can-advance="canAdvanceToolStep"
+      :loading="saving"
+      finish-label="保存"
       width="1180px"
       top="3vh"
       append-to-body
-      class="tool-editor-dialog"
+      @back="activeToolStep -= 1"
+      @next="advanceToolStep"
+      @finish="handleSave"
+      @cancel="formDialogVisible = false"
     >
-      <div class="tool-editor">
-        <aside class="tool-editor-rail">
-          <button
-            v-for="(step, index) in toolEditorSteps"
-            :key="step.key"
-            type="button"
-            class="tool-editor-step"
-            :class="{ active: activeToolStep === index }"
-            @click="activeToolStep = index"
-          >
-            <span class="step-index">{{ index + 1 }}</span>
-            <span>
-              <b>{{ step.title }}</b>
-              <small>{{ step.desc }}</small>
-            </span>
-          </button>
-        </aside>
-
-        <section class="tool-editor-main">
+      <section class="tool-editor-main">
           <div class="tool-editor-summary">
             <div>
               <p class="summary-eyebrow">{{ form.source || 'manual' }} Tool</p>
@@ -460,23 +470,11 @@
               </div>
             </div>
           </el-form>
-        </section>
-      </div>
-
-      <template #footer>
-        <div class="editor-footer">
-          <el-button :disabled="activeToolStep === 0" @click="activeToolStep -= 1">上一步</el-button>
-          <el-button :disabled="activeToolStep >= toolEditorSteps.length - 1" @click="activeToolStep += 1">
-            下一步
-          </el-button>
-        </div>
-        <el-button @click="formDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
-      </template>
-    </el-dialog>
+      </section>
+    </WizardDialog>
 
     <!-- 测试弹窗 -->
-    <el-dialog v-model="testDialogVisible" :title="`测试工具 — ${testingTool?.name}`" width="600px" append-to-body>
+    <AppDialog v-model="testDialogVisible" :title="`测试工具 — ${testingTool?.name}`" width="600px" append-to-body>
       <el-form v-if="testingTool" label-width="120px">
         <el-form-item
           v-for="param in testingTool.parameters"
@@ -509,8 +507,8 @@
         <el-button @click="testDialogVisible = false">关闭</el-button>
         <el-button type="primary" @click="handleTest" :loading="testRunning">执行</el-button>
       </template>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
@@ -520,6 +518,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import ParameterTable from '@/components/ParameterTable.vue'
+import AppDialog from '@/components/common/AppDialog.vue'
+import DataTableShell from '@/components/common/DataTableShell.vue'
+import FilterBar from '@/components/common/FilterBar.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import StatusTag from '@/components/common/StatusTag.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import WizardDialog from '@/components/common/WizardDialog.vue'
+import type { StatusTone, WizardStep } from '@/components/common/glassWorkbench'
 import type { ToolInfo, ToolParameter, ToolTestResult, ToolUpsertRequest } from '@/types/tool'
 import type { ScanProject } from '@/types/scanProject'
 import { getScanProjects } from '@/api/scanProject'
@@ -556,6 +562,22 @@ const toolEditorSteps = [
   { key: 'parameters', title: '参数定义', desc: 'Agent 入参 Schema' },
   { key: 'release', title: '运行控制', desc: '启用与可见性' },
 ]
+const toolEditorStepsWithState = computed<WizardStep[]>(() =>
+  toolEditorSteps.map((step, index) => ({
+    key: step.key,
+    title: step.title,
+    description: step.desc,
+    state:
+      index < activeToolStep.value
+        ? 'complete'
+        : index === activeToolStep.value
+          ? 'current'
+          : 'pending',
+  })),
+)
+const canAdvanceToolStep = computed(
+  () => activeToolStep.value !== 0 || Boolean(form.name.trim() && form.description.trim()),
+)
 const resolvedFormQualifiedName = computed(() => {
   if (form.qualifiedName) return form.qualifiedName
   if (form.projectCode && form.name) return `${form.projectCode}:${form.name}`
@@ -577,6 +599,14 @@ const testRunning = ref(false)
 const fullSemanticMd = reactive<Record<string, string>>({})
 /** idle | loading | done | none */
 const semanticLoadState = reactive<Record<string, 'idle' | 'loading' | 'done' | 'none'>>({})
+
+function advanceToolStep() {
+  if (!canAdvanceToolStep.value) {
+    ElMessage.warning('请填写工具名和描述')
+    return
+  }
+  activeToolStep.value = Math.min(activeToolStep.value + 1, toolEditorSteps.length - 1)
+}
 
 function renderMd(content: string | null | undefined): string {
   if (!content) return ''
@@ -636,7 +666,7 @@ function createEmptyForm(): ToolUpsertRequest {
   }
 }
 
-function sourceTagType(source: ToolInfo['source']) {
+function sourceTagType(source: ToolInfo['source']): StatusTone {
   if (source === 'code') return 'success'
   if (source === 'scanner') return 'warning'
   return 'info'
@@ -654,7 +684,7 @@ function catalogHealthLabel(status: string) {
   return m[status] || status
 }
 
-function catalogHealthTagType(status: string) {
+function catalogHealthTagType(status: string): StatusTone {
   if (status === 'IN_SYNC') return 'success'
   if (status === 'PENDING_UPDATE') return 'warning'
   if (status === 'API_REMOVED_STALE' || status === 'GLOBAL_MISSING') return 'danger'
@@ -980,28 +1010,6 @@ watch(
 </script>
 
 <style scoped lang="scss">
-.header-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.tool-filter {
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
-
-.tool-filter :deep(.el-form-item) {
-  margin-bottom: 12px;
-}
-
-.pagination-wrap {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 16px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-
 .expand-content {
   padding: 12px 20px;
   width: 100%;
@@ -1047,7 +1055,7 @@ watch(
   box-sizing: border-box;
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--border-divider);
 }
 
 .tool-meta {
@@ -1080,7 +1088,7 @@ watch(
 
 .param-hint {
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-muted);
   margin-top: 2px;
 }
 
@@ -1098,73 +1106,6 @@ watch(
   gap: 10px;
 }
 
-.tool-editor {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 18px;
-  min-height: 620px;
-}
-
-.tool-editor-rail {
-  padding: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.035), rgba(15, 23, 42, 0.01));
-}
-
-.tool-editor-step {
-  width: 100%;
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  padding: 12px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.18s ease;
-
-  & + & {
-    margin-top: 6px;
-  }
-
-  b {
-    display: block;
-    color: var(--text-primary);
-    font-size: 14px;
-    line-height: 1.3;
-  }
-
-  small {
-    display: block;
-    margin-top: 3px;
-    color: #64748b;
-    line-height: 1.35;
-  }
-
-  &:hover,
-  &.active {
-    border-color: rgba(99, 102, 241, 0.35);
-    background: rgba(99, 102, 241, 0.08);
-  }
-}
-
-.step-index {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: rgba(99, 102, 241, 0.12);
-  color: var(--el-color-primary);
-  font-size: 12px;
-  font-weight: 700;
-}
-
 .tool-editor-main,
 .tool-editor-form {
   min-width: 0;
@@ -1177,9 +1118,6 @@ watch(
   gap: 16px;
   padding: 16px 18px;
   margin-bottom: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 8px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(20, 184, 166, 0.06));
 
   h3 {
     margin: 2px 0 6px;
@@ -1189,14 +1127,14 @@ watch(
 
   p {
     margin: 0;
-    color: #64748b;
+    color: var(--text-muted);
     line-height: 1.6;
   }
 }
 
 .summary-eyebrow {
   margin: 0 !important;
-  color: var(--el-color-primary) !important;
+  color: var(--brand-primary) !important;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0;
@@ -1217,9 +1155,6 @@ watch(
 .tool-editor-panel {
   min-height: 450px;
   padding: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 8px;
-  background: var(--bg-secondary);
 }
 
 .panel-heading {
@@ -1241,7 +1176,7 @@ watch(
 
   p {
     margin: 6px 0 0;
-    color: #64748b;
+    color: var(--text-muted);
     font-size: 13px;
     line-height: 1.6;
   }
@@ -1254,15 +1189,10 @@ watch(
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  border: 1px solid rgba(99, 102, 241, 0.2);
-  border-radius: 8px;
-  background: rgba(99, 102, 241, 0.08);
 
   span {
     padding: 3px 7px;
-    border-radius: 6px;
-    background: rgba(99, 102, 241, 0.16);
-    color: var(--el-color-primary);
+    color: var(--brand-primary);
     font-size: 12px;
     font-weight: 800;
   }
@@ -1282,9 +1212,9 @@ watch(
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
-  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border: 1px dashed var(--border-readable);
   border-radius: 8px;
-  color: #64748b;
+  color: var(--text-muted);
 
   & + & {
     margin-top: 10px;
@@ -1306,9 +1236,7 @@ watch(
 
   span {
     padding: 5px 9px;
-    border-radius: 999px;
-    background: rgba(99, 102, 241, 0.1);
-    color: var(--el-color-primary);
+    color: var(--brand-primary);
     font-size: 12px;
     font-weight: 700;
   }
@@ -1325,9 +1253,6 @@ watch(
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 8px;
-  background: var(--bg-tertiary);
   font-weight: 600;
 }
 
@@ -1341,31 +1266,13 @@ watch(
     justify-content: space-between;
     gap: 16px;
     padding: 12px 14px;
-    border-radius: 8px;
-    background: rgba(148, 163, 184, 0.08);
   }
 
   span {
-    color: #64748b;
+    color: var(--text-muted);
     text-align: right;
     word-break: break-word;
   }
-}
-
-.editor-footer {
-  display: inline-flex;
-  gap: 8px;
-  margin-right: auto;
-}
-
-:deep(.tool-editor-dialog .el-dialog__body) {
-  padding-top: 10px;
-}
-
-:deep(.tool-editor-dialog .el-dialog__footer) {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .operation-actions {
@@ -1379,7 +1286,7 @@ watch(
   border: 0;
   background: transparent;
   padding: 0;
-  color: var(--el-color-primary);
+  color: var(--brand-primary);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
@@ -1387,19 +1294,19 @@ watch(
   line-height: 1;
 
   &:hover {
-    color: var(--el-color-primary-light-3);
+    color: var(--brand-active);
   }
 
   &:disabled {
-    color: var(--el-text-color-disabled);
+    color: var(--text-disabled);
     cursor: not-allowed;
   }
 
   &.danger {
-    color: var(--el-color-danger);
+    color: var(--status-danger);
 
     &:hover:not(:disabled) {
-      color: var(--el-color-danger-light-3);
+      color: var(--status-danger);
     }
   }
 }
@@ -1409,9 +1316,6 @@ watch(
 }
 
 .result-content {
-  background: var(--bg-tertiary);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
   padding: 12px;
   font-size: 13px;
   margin-top: 12px;
@@ -1424,7 +1328,7 @@ watch(
 
 .result-duration {
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-muted);
   margin-top: 8px;
 }
 
@@ -1450,19 +1354,19 @@ watch(
 .tool-meta-ai-loading {
   margin: 8px 0;
   font-size: 13px;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .expand-ai-doc-title {
   margin: 0 0 10px;
   font-size: 13px;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .ai-doc-miss-hint {
   margin: 6px 0 0;
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-muted);
   line-height: 1.5;
 }
 
@@ -1484,8 +1388,6 @@ watch(
   }
 
   :deep(pre) {
-    background: var(--bg-tertiary);
-    border-radius: 4px;
     padding: 8px;
     overflow: auto;
     max-width: 100%;
@@ -1497,7 +1399,7 @@ watch(
     table-layout: auto;
 
     th, td {
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-divider);
       padding: 4px 8px;
       word-break: break-word;
     }
@@ -1505,47 +1407,7 @@ watch(
 }
 
 .text-muted {
-  color: var(--el-text-color-placeholder);
+  color: var(--text-muted);
   font-size: 13px;
-}
-
-// ── 日间模式覆盖 ──
-:global([data-theme="light"]) {
-  .pagination-wrap {
-    border-top: 1px solid #ebeef5;
-  }
-
-  .param-hint,
-  .result-duration,
-  .expand-content h4 {
-    color: #94a3b8;
-  }
-
-  .result-content {
-    border: 1px solid #ebeef5;
-  }
-
-  .tool-editor-rail,
-  .tool-editor-summary,
-  .tool-editor-panel,
-  .control-card {
-    border-color: #e5e7eb;
-  }
-
-  .tool-editor-panel {
-    background: #fff;
-  }
-
-  .control-card {
-    background: #f8fafc;
-  }
-
-  .markdown-preview {
-    :deep(table) {
-      th, td {
-        border: 1px solid #ebeef5;
-      }
-    }
-  }
 }
 </style>

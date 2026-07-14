@@ -2,8 +2,8 @@
 
 ## Source of Truth
 
-- Runtime execution reads `GraphSpec` from `ai_workflow.graph_spec_json`.
-- Canvas layout lives in `ai_workflow.canvas_json` and is kept in sync by patch operations.
+- Runtime execution reads `GraphSpec` from `runtime_workflow.graph_spec_json`.
+- Canvas layout lives in `runtime_workflow.canvas_json` and is kept in sync by patch operations.
 - Never treat canvas-only changes as sufficient for runtime behavior.
 
 ## Build Materials From Context
@@ -24,16 +24,20 @@ Never invent model ids or tool names when context lists are available.
 
 ## Node Types
 
-Read the authoritative catalog from context `nodeTypes` (`AgentGraphNodeType.catalog()`). Only use supported node types.
+Read the schema catalog from context `nodeTypes` (`AgentGraphNodeType.catalog()`), then treat Runtime release validation as the executable-capability authority. A catalog type may be present for Studio configuration before its executor is production-ready.
 
-Common node families:
+Current Runtime-executable node families:
 
 - Entry/input: `USER_INPUT`
 - LLM/reasoning: `LLM`
-- Branching: `IF_ELSE`
+- Branching: `IF_ELSE`, `INTENT_CLASSIFIER`
+- Structured extraction: `PARAMETER_EXTRACT`
 - Output: `ANSWER`
-- Integrations: `HTTP_REQUEST`, `TOOL`, `CAPABILITY`, `MCP_CALL`, `KNOWLEDGE_WRITE`
+- Integrations: `TOOL`, `CAPABILITY`
 - Page automation: `PAGE_ACTION` (PAGE_ASSISTANT only)
+- Human interaction: `INTERACTION`
+
+Do not add catalog-only nodes such as `HTTP_REQUEST`, `MCP_CALL`, `CODE`, `VARIABLE_ASSIGN`, `TEMPLATE`, `LOOP`, or `HUMAN_APPROVAL` until release validation reports them executable.
 
 ## START / END Endpoints
 
@@ -144,6 +148,14 @@ Supported operators include: `contains`, `not_contains`, `eq`, `neq`, `empty`, `
 Condition operands use runtime expressions such as `input`, `params.message`, `lastOutput`, or `nodeOutput.answer`.
 Do not wrap condition operands in `{{ }}`; template rendering is for fields such as LLM `userPrompt` or ANSWER `template`.
 
+### INTENT_CLASSIFIER
+
+- `KEYWORD` uses class keywords and does not require a model.
+- `LLM` always classifies with the node model or Workflow default model.
+- `HYBRID` uses a keyword match first and falls back to the model.
+- Every class id and `defaultRoute` should have a matching outgoing edge such as `route:query` and `route:else`.
+- Classification writes `route` / `lastRoute` without replacing the preceding business `lastOutput`.
+
 ### ANSWER
 
 Fixed response template:
@@ -185,27 +197,7 @@ Prefer `toolName` or `qualifiedName` that exists in `availableTools`.
 
 ### PARAMETER_EXTRACT
 
-Use this node when extracting query/filter parameters from natural language. For Page Assistant query filters, default to LLM extraction.
-
-```json
-{
-  "op": "ADD_NODE",
-  "node": {
-    "id": "extract_filters",
-    "type": "PARAMETER_EXTRACT",
-    "name": "Extract filters",
-    "config": {
-      "extractMode": "llm",
-      "modelInstanceId": "<ACTIVE_LLM_MODEL_ID>",
-      "fields": []
-    }
-  }
-}
-```
-
-If the workflow has `defaultModelInstanceId`, use that as `modelInstanceId`; otherwise pick an ACTIVE LLM from `context.availableModels`.
-
-For page-assistant filter extraction, `fields` must be derived from the current page action's `setFilters.inputSchema.properties` or `sampleArgs`. Keep each real field key/name, type, title/label, description, and aliases. The `systemPrompt` may document synonym mapping only from that current page schema; do not hard-code business fields from another page. Example: map "负责人" to `owner` only when the current schema explicitly defines `owner` with title/description/alias "负责人"; if the current schema uses `principalUserName`, use that field instead.
+Use `extractMode=expression` to project known runtime values without a model, or `extractMode=llm` to parse natural language with the node model / Workflow default model. Declare at least one uniquely named field. Structured results are published as `nodeOutput.<nodeId>.<fieldName>` and keep their number/boolean types for downstream Tool or PAGE_ACTION mappings.
 
 ### PAGE_ACTION args binding
 
@@ -232,7 +224,7 @@ Requires `node.id` and supported `node.type`.
 
 Optional fields: `name`, `description`, `ref`, `config`, schemas, retry/errorPolicy.
 
-Canvas node is auto-created when `layout.autoLayout=true`.
+The canvas node is always projected from GraphSpec. With `layout.autoLayout=true` (default), the full canvas is rearranged; with `false`, existing coordinates are preserved and only nodes without coordinates are placed.
 
 ### UPDATE_NODE
 
@@ -243,7 +235,7 @@ Provide either:
 - `patch` map with partial fields, or
 - `node` object (id ignored)
 
-`config` merges shallowly into existing config.
+`config` and other nested maps merge deeply into the existing node. Updating `id` is rejected.
 
 ### DELETE_NODE
 
@@ -270,9 +262,17 @@ For `IF_ELSE`, set `condition` to the route id (`metro`, `reject`, etc.).
 
 Requires `edgeId`.
 
+### UPDATE_EDGE
+
+Requires `edgeId` plus a partial `patch`. `source` / `target` aliases are accepted for `from` / `to`; changing the edge id is rejected.
+
 ### SET_ENTRY
 
 Requires `entry` node id that already exists.
+
+### SET_FINISH
+
+Requires `finish`, an array of existing terminal node ids. The full finish list is replaced atomically.
 
 ## Validation Modes
 

@@ -195,6 +195,7 @@ public class CapabilityScanProjectCatalogService {
         boolean credentialConfigured = credential != null;
         boolean aiCodingEnabled = Boolean.TRUE.equals(entity.getAiCodingAccessEnabled())
                 && StringUtils.hasText(entity.getAiCodingAccessKey());
+        SdkAccessCheckItem sdkSyncCallbackCheck = sdkSyncCallbackCheck(entity);
         List<SdkAccessCheckItem> checks = List.of(
                 new SdkAccessCheckItem(
                         "PROJECT",
@@ -213,7 +214,8 @@ public class CapabilityScanProjectCatalogService {
                         "AI Coding 接入",
                         aiCodingEnabled ? "PASS" : "WARN",
                         aiCodingEnabled ? "已启用 AI Coding 接入" : "AI Coding 接入未启用",
-                        null));
+                        null),
+                sdkSyncCallbackCheck);
         String overall = checks.stream().anyMatch(check -> "FAIL".equals(check.status()))
                 ? "FAIL"
                 : checks.stream().anyMatch(check -> "WARN".equals(check.status())) ? "WARN" : "PASS";
@@ -792,6 +794,42 @@ public class CapabilityScanProjectCatalogService {
 
     private String resolveManifestBaseUrl(ScanProjectEntity project) {
         return StringUtils.hasText(project.getBaseUrl()) ? project.getBaseUrl().trim() : null;
+    }
+
+    private SdkAccessCheckItem sdkSyncCallbackCheck(ScanProjectEntity project) {
+        String baseUrl = resolveManifestBaseUrl(project);
+        if (!StringUtils.hasText(baseUrl)) {
+            return new SdkAccessCheckItem(
+                    "SDK_SYNC_CALLBACK",
+                    "SDK 同步回调",
+                    "WARN",
+                    "尚未配置 ReachAI 服务端可访问的 reachai.project.base-url",
+                    null);
+        }
+        String targetUrl = baseUrl.replaceAll("/+$", "")
+                + normalizeContextPath(project.getContextPath())
+                + "/reachai/registry/capabilities/sync";
+        boolean loopback = isLoopbackUrl(targetUrl);
+        String message = loopback
+                ? "已计算同步回调目标；当前为回环地址，仅适用于 ReachAI 与业务系统同机或共享网络命名空间"
+                : "已计算同步回调目标；实际可达性和业务鉴权/CSRF需由 API 管理手动同步验证";
+        return new SdkAccessCheckItem(
+                "SDK_SYNC_CALLBACK",
+                "SDK 同步回调",
+                "PASS",
+                message,
+                targetUrl);
+    }
+
+    private boolean isLoopbackUrl(String value) {
+        try {
+            String host = URI.create(value).getHost();
+            return host != null && ("localhost".equalsIgnoreCase(host)
+                    || "127.0.0.1".equals(host)
+                    || "::1".equals(host));
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
     }
 
     private void updateStatus(ScanProjectEntity project, String status, String errorMessage) {

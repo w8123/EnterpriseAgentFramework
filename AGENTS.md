@@ -11,6 +11,21 @@
 - Windows PowerShell 是常见执行环境；中文文件统一按 UTF-8 读写，避免 GBK/mojibake。
 - 使用 `rg` / `rg --files` 优先查找文件和文本。
 
+## Windows PowerShell 与原生程序 UTF-8 硬约束
+
+- 含中文的 Python、Node、JSON、SQL 或请求体，禁止直接通过 Windows PowerShell 默认管道传给原生程序，例如 `@'...中文...'@ | python -`。
+- 优先使用 `apply_patch` 创建 UTF-8 临时脚本或 JSON 文件，再执行对应程序。
+- 如果必须通过 PowerShell 管道传递中文，执行前必须设置：
+
+  ```powershell
+  $utf8 = [System.Text.UTF8Encoding]::new($false)
+  $OutputEncoding = $utf8
+  [Console]::InputEncoding = $utf8
+  [Console]::OutputEncoding = $utf8
+  ```
+
+- 向数据库或 API 写入中文后，必须回读验证；如果中文变成连续 `?`，视为执行失败，不得继续后续验收。
+
 ## 项目定位
 
 ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Builder，也不只是扫描历史项目生成 Tool。
@@ -19,8 +34,8 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 
 1. 业务系统通过 `reachai-spring-boot2-starter`、`reachai-capability-sdk`、`@ReachCapability`、`@ReachParam` 主动注册项目、实例、能力和 SDK 图。
 2. 平台侧形成能力快照、字段级 diff、评审 apply/ignore，并沉淀到能力资产目录。
-3. Workflow Studio 使用 `GraphSpec` 编排 Workflow（V2 表：`runtime_workflow`）；Agent 入口（V2 表：`runtime_agent`）通过 binding 绑定 Workflow。AI 生成、局部修改、调试、发布和回放均在 Workflow Studio 闭环。
-4. Runtime 通过 `AgentRuntimeAdapter` 解耦 AgentScope、LangGraph4j 和未来运行时。
+3. Workflow Studio 使用 `GraphSpec` 编排 Workflow（V2 表：`runtime_workflow`）；Agent（V2 表：`runtime_agent`）通过已发布配置版本和 Workflow-as-Tool 白名单，由 Supervisor 按用户意图选择零个、一个或多个 Workflow。AI 生成、局部修改、调试、发布和回放均在 Workflow Studio 闭环。
+4. Runtime 通过 `SupervisorRuntimeAdapter` 承载 AgentScope 的理解、规划、选择与有限重规划，通过 `AgentRuntimeAdapter` / GraphSpec executor 承载 Workflow 执行，并为未来运行时保留适配边界。
 5. RunOps、Trace、Tool ACL、Guard、Gateway、MCP、A2A、嵌入式对话和企业身份共同组成生产治理边界。
 
 当前后端重塑已进入物理服务拆分后的旧结构退场阶段。目标拓扑是 `reachai-control-service`、`reachai-runtime-service`、`reachai-capability-service`、`reachai-knowledge-service`、`reachai-model-service`。第一阶段保持同一个 MySQL 库，不拆库；公共入口由 `reachai-control-service` 保持 `/api/**`、`/embed/**` 和 SDK 注册入口兼容。旧 `ai-agent-service` module 已从仓库主路径删除，不再作为 Maven、IDEA、本地启动或部署单元存在。任何新增代码必须遵守服务表所有权和服务间 API 边界，不允许为了快速编译跨服务直接写对方表。
@@ -60,7 +75,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 - 后端类型以当前主路径服务中的 `com.enterprise.ai.agent.graph.GraphSpec` 为准；`reachai-runtime-service` 是 Runtime 执行主路径，后续再评估 shared-kernel 抽取。
 - 前端 Workflow 图语义类型以 `ai-admin-front/src/types/workflow.ts` 为准（Studio 状态、Workflow 定义等；共享节点/边结构仍可见于 `agent.ts` 的 `AgentGraphSpec`）。
 - DB 字段：`runtime_workflow.graph_spec_json`（运行语义）、`runtime_workflow.canvas_json`（画布布局）。
-- 发布校验由 `WorkflowReleaseValidationService` 负责；Runtime 执行主线在 `LangGraph4jRuntimeAdapter`（经 binding 解析 Workflow）。
+- 发布校验由 `WorkflowReleaseValidationService` 负责；Agent 执行主线由 AgentScope Supervisor 解析已发布配置版本和 Workflow-as-Tool 白名单，单个 Workflow 由 `LangGraph4jRuntimeAdapter` / `RuntimeGraphSpecExecutor` 执行。
 - 新增 Workflow Studio 节点、AI 编辑能力或 Runtime 行为时，必须把可执行语义写入 Workflow `GraphSpec`，不能只改前端画布表现。
 - AI 生成走 `/api/workflows/studio/generate-draft` 和 `LlmWorkflowDraftGenerator`；AI 局部编辑走 `/api/workflows/studio/edit-draft` 和 `WorkflowDraftEditService`。
 
@@ -76,7 +91,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 - 管理端是工作台型产品，优先信息密度、扫描效率和可重复操作体验。
 - 主题色、暗色/亮色适配优先使用现有 CSS 变量和主题文件，不要在页面里散落硬编码颜色。
 - 涉及页面布局时，先确认路由、`MainLayout.vue`、共享组件和状态管理，不要在单页里做难以复用的局部 hack。
-- Workflow Studio 变更要验证画布、配置面板、预览/应用、发布校验、Agent binding 和调试链路是否仍然一致。
+- Workflow Studio 变更要验证画布、配置面板、预览/应用、发布校验、Agent Workflow-as-Tool 配置和调试链路是否仍然一致。
 
 ## 验证规则
 

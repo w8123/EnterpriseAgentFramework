@@ -1,11 +1,18 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>槽位提取器（SlotExtractor SPI）</h2>
-      <div class="header-actions">
-        <el-button :icon="Refresh" @click="reload" :loading="loading">刷新</el-button>
-      </div>
-    </div>
+  <WorkbenchPage class="slot-extractor-list-page" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="governance"
+      eyebrow="Slot Extractor SPI"
+      title="槽位提取器"
+      description="查看提取器优先级、命中质量和兜底行为，并在测试台验证实际输入。"
+    >
+      <template #actions>
+        <el-tooltip content="刷新提取器" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新提取器" @click="reload" />
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
     <el-alert
       type="info"
@@ -13,10 +20,9 @@
       :closable="false"
       title="按 priority 顺序尝试，命中即停；置信度低于 0.5 视作未命中"
       description="提取器对 LLM 透明；交互式表单能力在 LLM 兜底前会先依次询问每个适用提取器；命中则跳过 LLM 抽取，节省 token、缩短延迟。"
-      style="margin-bottom: 12px"
     />
 
-    <el-row :gutter="16">
+    <section class="slot-extractor-grid workbench-list-surface"><el-row :gutter="16">
       <el-col :span="10">
         <el-card shadow="never">
           <template #header>已注册提取器</template>
@@ -133,14 +139,16 @@
           </el-table>
         </el-card>
       </el-col>
-    </el-row>
-  </div>
+    </el-row></section>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 import {
   getSlotExtractorMetrics,
@@ -213,16 +221,6 @@ onMounted(reload)
 </script>
 
 <style scoped lang="scss">
-.page-container {
-  padding: 16px;
-}
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  h2 { margin: 0; font-size: 18px; }
-}
 .dim { color: #999; font-size: 12px; }
 
 // ── 日间模式覆盖 ──

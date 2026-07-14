@@ -4,6 +4,10 @@ import {
   isRouteCondition,
   isSupportedCanvasCondition,
 } from '@/views/workflow/composables/useWorkflowStudioCanvasActions'
+import {
+  autoLayoutWorkflowNodes,
+  type WorkflowNodeMeasurement,
+} from '@/utils/workflowAutoLayout'
 
 export type GraphLintItem = {
   level: 'error' | 'warning'
@@ -27,6 +31,8 @@ export interface UseWorkflowStudioGraphAnalysisDeps {
   decorateWorkflowNode: (node: CanvasNode) => CanvasNode
   markCanvasDirty: () => void
   syncJsonFromCanvas: () => void
+  waitForNodeMeasurements: () => Promise<void>
+  getNodeMeasurement: (nodeId: string) => WorkflowNodeMeasurement | undefined
 }
 
 function nodeInputMapping(data: CanvasNode['data']) {
@@ -62,34 +68,6 @@ function isKnownVariableReference(
   }
   const alias = value.split('.', 1)[0]
   return graphVariables.some((item) => item.name === alias || item.nodeId === alias) || alias === currentNodeId
-}
-
-function graphRanks(nodes: CanvasNode[], edges: CanvasEdge[]) {
-  const ranks = new Map<string, number>()
-  const outgoing = new Map<string, string[]>()
-  for (const edge of edges) {
-    outgoing.set(edge.source, [...(outgoing.get(edge.source) || []), edge.target])
-  }
-  const startId = nodes.find((node) => node.data.kind === 'start')?.id || nodes[0]?.id
-  if (!startId) return ranks
-  const queue: string[] = [startId]
-  ranks.set(startId, 0)
-  for (let i = 0; i < queue.length; i += 1) {
-    const current = queue[i]
-    const currentRank = ranks.get(current) ?? 0
-    for (const target of outgoing.get(current) || []) {
-      const nextRank = currentRank + 1
-      if ((ranks.get(target) ?? -1) < nextRank) {
-        ranks.set(target, nextRank)
-        queue.push(target)
-      }
-    }
-  }
-  return ranks
-}
-
-function maxRank(ranks: Map<string, number>) {
-  return Math.max(0, ...Array.from(ranks.values()))
 }
 
 export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnalysisDeps) {
@@ -203,7 +181,8 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
         if (input.required && target && !mapping[target] && !input.source) {
           items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 必填输入未绑定：${target}` })
         }
-        const source = mapping[target] || input.source || ''
+        const mappedSource = mapping[target]
+        const source = typeof mappedSource === 'string' ? mappedSource : input.source || ''
         if (source && isProbablyVariableReference(source) && !isKnownVariableReference(source, graphVariables.value, deps.nodes.value, node.id)) {
           items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 引用了不存在的变量：${source}` })
         }
@@ -277,23 +256,19 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
   const graphLintErrors = computed(() => graphLintItems.value.filter((item) => item.level === 'error'))
   const graphLintWarnings = computed(() => graphLintItems.value.filter((item) => item.level === 'warning'))
 
-  function autoLayoutWorkflowCanvas() {
-    const rank = graphRanks(deps.nodes.value, deps.edges.value)
-    const lanes = new Map<number, number>()
-    deps.nodes.value = deps.nodes.value.map((node) => {
-      const level = rank.get(node.id) ?? (node.data.kind === 'end' ? maxRank(rank) + 1 : 1)
-      const lane = lanes.get(level) ?? 0
-      lanes.set(level, lane + 1)
-      return deps.decorateWorkflowNode({
-        ...node,
-        position: {
-          x: 80 + level * 260,
-          y: 120 + lane * 150,
-        },
-      })
+  async function autoLayoutWorkflowCanvas() {
+    await deps.waitForNodeMeasurements()
+    const measurements = Object.fromEntries(
+      deps.nodes.value
+        .map((node) => [node.id, deps.getNodeMeasurement(node.id)] as const)
+        .filter((entry): entry is readonly [string, WorkflowNodeMeasurement] => Boolean(entry[1])),
+    )
+    const layoutNodes = await autoLayoutWorkflowNodes(deps.nodes.value, deps.edges.value, {
+      measurements,
     })
-    deps.markCanvasDirty()
+    deps.nodes.value = layoutNodes.map(deps.decorateWorkflowNode)
     deps.syncJsonFromCanvas()
+    deps.markCanvasDirty()
   }
 
   return {

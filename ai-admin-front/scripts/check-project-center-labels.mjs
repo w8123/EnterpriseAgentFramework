@@ -22,10 +22,6 @@ const assetGroupIndex = sidebar.indexOf("{ kind: 'group', label: '资产与编�
 const platformGovernanceGroupIndex = sidebar.indexOf("{ kind: 'group', label: '平台治理' }")
 const unfinishedGroupIndex = sidebar.indexOf("{ kind: 'group', label: '未完成' }")
 const capabilityKernelIndex = sidebar.indexOf("label: '能力内核'")
-const governanceOpsGroupIndex = sidebar.indexOf("index: '/domain-group'")
-const runtimeRegistryLeafIndex = sidebar.indexOf("{ index: '/registry/runtimes', label: 'Runtime 纳管' }")
-const agentWorkflowGroupIndex = sidebar.indexOf("index: '/agent-workflow-group'")
-const unfinishedGroupEntryIndex = sidebar.indexOf("{ kind: 'group', label: '未完成' }")
 const capabilityReviewIndex = sidebar.indexOf("{ index: '/capability/review', label: '能力变更评审' }")
 const capabilitySnapshotIndex = sidebar.indexOf("{ index: '/capability/sync-snapshot', label: '同步能力快照' }")
 
@@ -52,14 +48,8 @@ if (
   failures.push('sidebar should place 未完成 after 平台治理 and move 能力内核 into 未完成')
 }
 
-if (
-  governanceOpsGroupIndex === -1
-  || runtimeRegistryLeafIndex === -1
-  || agentWorkflowGroupIndex === -1
-  || unfinishedGroupEntryIndex === -1
-  || !(governanceOpsGroupIndex < runtimeRegistryLeafIndex && runtimeRegistryLeafIndex < unfinishedGroupEntryIndex)
-) {
-  failures.push('sidebar Runtime 纳管 should be under 治理运维 instead of 项目中心')
+if (sidebar.includes('/registry/runtimes') || sidebar.includes('Runtime 纳管')) {
+  failures.push('sidebar should not expose the retired Runtime registry')
 }
 
 if (
@@ -76,8 +66,8 @@ if (router.includes("title: '注册中心") || router.includes("{ title: '注册
   failures.push('registry route titles or breadcrumbs still expose 注册中心')
 }
 
-if (router.includes("breadcrumb: [{ title: '项目中心' }, { title: 'Runtime 纳管' }]")) {
-  failures.push('Runtime 纳管 breadcrumb should use 治理运维, not 项目中心')
+if (router.includes('/registry/runtimes') || router.includes('RuntimeRegistry') || router.includes('Runtime 纳管')) {
+  failures.push('router should not expose the retired Runtime registry')
 }
 
 if (

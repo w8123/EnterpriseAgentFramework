@@ -104,7 +104,7 @@ public class ControlA2aEndpointController {
         ControlA2aTaskEntity taskEntity = createWorkingTask(endpoint, taskId, contextId, userId, params.get("message"));
 
         Map<String, Object> runtimeBody = new LinkedHashMap<>();
-        runtimeBody.put("agentDefinitionId", endpoint.getAgentId());
+        runtimeBody.put("agentId", endpoint.getAgentId());
         runtimeBody.put("sessionId", contextId);
         runtimeBody.put("userId", userId);
         runtimeBody.put("message", userText);

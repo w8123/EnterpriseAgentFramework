@@ -1,15 +1,19 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>业务索引管理</h2>
-      <el-button type="primary" @click="openCreateDialog">
-        <el-icon><Plus /></el-icon>
-        注册索引
-      </el-button>
-    </div>
+  <WorkbenchPage class="biz-index-list-page" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="knowledge"
+      eyebrow="Business Index"
+      title="业务索引管理"
+      description="管理业务数据的语义索引、文本模板、向量模型与附件切分配置。"
+    >
+      <template #actions>
+        <el-button type="primary" :icon="Plus" @click="openCreateDialog">注册索引</el-button>
+      </template>
+    </PageHeader>
 
     <!-- 索引列表 -->
-    <el-card shadow="never" class="section-card">
+    <el-card shadow="never" class="section-card workbench-list-surface">
       <el-table
         v-loading="bizIndexStore.loading"
         :data="bizIndexStore.bizIndexList"
@@ -72,7 +76,7 @@
     </el-card>
 
     <!-- 注册 / 编辑弹窗 -->
-    <el-dialog
+    <AppDialog
       v-model="dialogVisible"
       :title="isEdit ? '编辑索引' : '注册索引'"
       width="680px"
@@ -162,16 +166,19 @@
           {{ isEdit ? '保存' : '注册' }}
         </el-button>
       </template>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { useBizIndexStore } from '@/store/bizIndex'
 import { createBizIndex, updateBizIndex, deleteBizIndex } from '@/api/bizIndex'
 import { getModelInstances } from '@/api/model'
@@ -291,6 +298,10 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
+.biz-index-list-page > .section-card {
+  margin-bottom: 0;
+}
+
 .form-tip {
   font-size: 12px;
   color: #64748b;

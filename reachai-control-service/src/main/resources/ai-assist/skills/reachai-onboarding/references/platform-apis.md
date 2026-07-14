@@ -53,7 +53,7 @@ The response does not echo the raw key in `aiCodingAccess.accessKey` or `agentPr
 Important fields:
 - `project.id`: ReachAI project id.
 - `project.projectCode`: stable business project code.
-- `project.baseUrl`: business service base URL as known by ReachAI.
+- `project.baseUrl`: business service base URL as known by the ReachAI server. It must be reachable from ReachAI; loopback addresses are valid only when both sides share the same host or network namespace.
 - `project.registryAppKey`: app key for signed registration.
 - `project.registryCredentialConfigured`: whether ReachAI has a saved credential.
 - `aiCodingAccess.enabled`: whether external AI coding access is enabled.
@@ -68,21 +68,23 @@ Important fields:
 - `embed.defaultAgentKeySlug`: preferred stable Agent identifier for front-end `agentId`.
 - `embed.defaultAgentId`: internal Agent id fallback when no key slug is available.
 - `embed.allowedAgents`: Agent ids/key slugs exposed by the project's embed policy or project ownership.
-- `agentProvisioning.model`: Agent provisioning contract model, normally `agent-provisioning.v1`.
+- `agentProvisioning.model`: Agent provisioning contract model, normally `agent-provisioning.v2`.
 - `agentProvisioning.provisionAgentUrl`: idempotent API for AI coding tools to create or reuse the project page copilot Agent.
-- `agentProvisioning.defaultAgentKind`: default Agent kind, normally `PAGE_COPILOT`.
 - `agentProvisioning.defaultKeySlug`: predictable page copilot Agent key slug if provisioning has not been called yet.
-- `agentWorkflow.model`: decoupled Agent/Workflow manifest model, normally `agent-workflow.decoupled.v1`.
-- `agentWorkflow.globalAgentKeySlug`: stable page copilot Agent entry used for Agent/Workflow routing.
-- `agentWorkflow.bindingStrategy`: how page/action/intent Workflows are bound to the page copilot Agent.
-- `agentWorkflow.endpoints`: platform APIs for managing Agents, Workflows, bindings, and resolve preview.
-- `agentWorkflow.workflowAiCoding`: project-key protected Workflow AI Coding endpoints, including `publishUrlTemplate`, used to draw, validate, and first-publish the default Workflow created during SDK onboarding.
+- `agentProvisioning.createsSupervisorConfig` / `activatesSupervisorConfig`: provisioning creates an AgentScope config and publishes it as ACTIVE.
+- `agentProvisioning.modelSelection`: model-selection policy, normally `REQUESTED_OR_FIRST_ACTIVE_LLM`.
+- `agentSupervisor.model`: Supervisor/Workflow-as-Tool manifest model, normally `agent-supervisor.workflow-tools.v1`.
+- `agentSupervisor.globalAgentKeySlug`: stable page copilot Agent entry.
+- `agentSupervisor.runtimeType`: Supervisor runtime, normally `AGENTSCOPE`.
+- `agentSupervisor.workflowToolCatalog`: the published Workflow allow-list stored in the Agent config version.
+- `agentSupervisor.endpoints`: APIs for Agent config versions, Workflow Tool attachment, and execution.
+- `agentSupervisor.workflowAiCoding`: project-key protected Workflow AI Coding endpoints used to create, validate, and publish business Workflows before attachment.
 
 The manifest does not include `appSecret`.
 
 Read `sdkArtifacts` from the manifest for Java and browser package coordinates, source policy, and local build/install hints. Do not derive artifact URLs from the platform base URL. In particular, do not request `/repository/**`, `/maven/**`, `/repository/maven/**`, `/api/embed/sdk`, or `/npm/**` from the ReachAI platform. If SDK artifacts are not available from the declared artifact sources, report the missing artifact source instead of guessing a platform URL.
 
-Before front-end embed work, call `agentProvisioning.provisionAgentUrl` when present. Use the response `agent.keySlug` as the business front-end `agentId`. The call is idempotent, so it is safe for Cursor or another AI coding tool to retry. Do not ask the business user to choose an Agent id. If provisioning is unavailable, fall back to `agentProvisioning.defaultKeySlug`, `agentWorkflow.globalAgentKeySlug`, `embed.defaultAgentKeySlug`, or `embed.defaultAgentId`.
+Before front-end embed work, call `agentProvisioning.provisionAgentUrl` when present. Use the response `agent.keySlug` as the business front-end `agentId`. The call is idempotent, so it is safe for Cursor or another AI coding tool to retry. Do not ask the business user to choose an Agent id. If provisioning is unavailable, fall back to `agentProvisioning.defaultKeySlug`, `agentSupervisor.globalAgentKeySlug`, `embed.defaultAgentKeySlug`, or `embed.defaultAgentId`.
 
 Send `X-ReachAI-AiCoding-Key` on the provisioning request.
 
@@ -102,8 +104,7 @@ Request body:
 
 ```json
 {
-  "agentKind": "PAGE_COPILOT",
-  "ensureDefaultWorkflow": true,
+  "modelInstanceId": "optional-active-llm-model-id",
   "requestedBy": "Cursor"
 }
 ```
@@ -112,36 +113,34 @@ Response body:
 
 ```json
 {
-  "schema": "agent-provisioning.v1",
+  "schema": "agent-provisioning.v2",
   "agent": {
     "id": "agent-001",
-    "keySlug": "demo-service-page-copilot",
-    "agentKind": "PAGE_COPILOT"
+    "keySlug": "demo-service-page-copilot"
   },
-  "defaultWorkflow": {
-    "id": "workflow-001",
-    "keySlug": "demo-service-page-copilot-default",
-    "workflowType": "PAGE_COPILOT_DEFAULT"
+  "supervisorConfig": {
+    "id": "config-001",
+    "runtimeType": "AGENTSCOPE",
+    "status": "ACTIVE",
+    "modelInstanceId": "active-llm-model-id",
+    "tools": []
   },
-  "defaultBinding": {
-    "id": 1,
-    "bindingType": "DEFAULT"
-  },
+  "workflowTools": [],
   "createdAgent": true,
-  "createdDefaultWorkflow": true,
-  "createdDefaultBinding": true
+  "createdSupervisorConfig": true,
+  "runtimeType": "AGENTSCOPE"
 }
 ```
 
 Use `agent.keySlug` everywhere the business gateway token broker or front-end embed SDK asks for `agentId`.
 
-## Default Workflow First Publish
+## Workflow First Publish And Supervisor Attachment
 
-Agent provisioning can create a default Workflow and binding for the project page copilot. That Workflow is a draft until a Workflow version is published. After drawing or updating the default Workflow through Workflow AI Coding:
+Agent provisioning deliberately creates no placeholder Workflow. After creating or updating a business-meaningful Workflow through Workflow AI Coding:
 
 1. Save the GraphSpec with `POST /api/workflows/{workflowId}/ai-coding/patch` and `dryRun=false`.
 2. Confirm release validation with `GET /api/workflows/{workflowId}/ai-coding/versions` or `POST /api/workflows/{workflowId}/ai-coding/validate`.
-3. If `releaseValidation.valid=true`, call the manifest's `agentWorkflow.workflowAiCoding.publishUrlTemplate`, normally:
+3. If `releaseValidation.valid=true`, call the manifest's `agentSupervisor.workflowAiCoding.publishUrlTemplate`, normally:
 
 ```http
 POST /api/workflows/{workflowId}/ai-coding/publish
@@ -159,7 +158,7 @@ Request body:
 }
 ```
 
-If the version already exists, read `/versions` and choose the next semantic version. Do not leave SDK quick access with only an unpublished default Workflow.
+If the version already exists, read `/versions` and choose the next semantic version. For a Page Assistant Workflow, add the ACTIVE Workflow to the Supervisor catalog through `agentSupervisor.endpoints.workflowToolAttachUrlTemplate`, normally `POST /api/workflows/{workflowId}/page-assistant/attach-tool`, with `modelInstanceId` and `publishedBy`. The attach operation publishes a new ACTIVE Agent config version.
 
 ## Embed Token Exchange
 
@@ -340,6 +339,17 @@ Use the same body as `sdkAccessCheckUrl`. This endpoint requires normal platform
 `POST /api/scan-projects/{projectId}/tools/reconcile`
 
 Use after API Management manual SDK sync when the platform has received capability snapshots and the user wants API catalog rows reconciled.
+
+## Manual SDK Sync Callback
+
+API Management manual SDK sync is a two-hop server-side flow:
+
+1. ReachAI sends signed `POST {project.baseUrl}{project.contextPath}/reachai/registry/capabilities/sync` to the latest online SDK instance.
+2. The Starter scans the configured business packages and sends the capability snapshot back to ReachAI `POST /api/registry/projects/{projectCode}/capabilities/sync`.
+
+The inbound business-system callback must bypass ordinary business login/JWT authentication and CSRF, but it is not anonymous: the Starter validates `X-ReachAI-App-Key`, `X-ReachAI-Timestamp`, `X-ReachAI-Nonce`, and `X-ReachAI-Signature`. If the registered base URL is a gateway, route `/reachai/registry/**` to the Starter service and preserve those headers. CORS is not involved because both hops are server-to-server.
+
+The SDK access check may report the computed callback target, but only an actual API Management manual sync proves reachability and security-chain compatibility. Diagnose failures by status/signature: connection refused or timeout means address/network/firewall, 401/403 usually means business security or credential mismatch, and 404/405 usually means gateway route or context-path mismatch.
 
 ## Future Extension Points
 

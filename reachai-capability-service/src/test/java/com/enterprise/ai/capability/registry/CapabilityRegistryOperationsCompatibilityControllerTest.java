@@ -2,14 +2,12 @@ package com.enterprise.ai.capability.registry;
 
 import com.enterprise.ai.agent.registry.RegistryContracts.InstanceHeartbeatRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.InstanceHeartbeatResponse;
-import com.enterprise.ai.agent.registry.RegistryContracts.RuntimeGovernancePolicy;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilityDiffItemDTO;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilityReviewRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilitySnapshotDTO;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilitySyncRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.CapabilitySyncResponse;
 import com.enterprise.ai.agent.registry.ProjectInstanceEntity;
-import com.enterprise.ai.agent.registry.RegistryContracts.RuntimeGovernancePolicyUpdateRequest;
 import com.enterprise.ai.agent.registry.RegistryContracts.SdkCapabilityDescriptionSettings;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -60,9 +58,6 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
         Method updateInstanceStatus = CapabilityRegistryOperationsCompatibilityController.class
                 .getDeclaredMethod("updateInstanceStatus", String.class,
                         CapabilityRegistryOperationsCompatibilityController.InstanceStatusRequest.class);
-        Method updateInstanceGovernancePolicy = CapabilityRegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("updateInstanceGovernancePolicy", String.class,
-                        RuntimeGovernancePolicyUpdateRequest.class);
 
         assertArrayEquals(new String[] {"/api/registry"}, controllerMapping.value());
         assertArrayEquals(new String[] {"/projects/{projectCode}/instances/heartbeat"},
@@ -87,8 +82,6 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
                 purgeOfflineInstances.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/projects/{projectCode}/instances/status"},
                 updateInstanceStatus.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/projects/{projectCode}/instances/governance-policy"},
-                updateInstanceGovernancePolicy.getAnnotation(PostMapping.class).value());
     }
 
     @Test
@@ -142,10 +135,7 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
         ProjectInstanceEntity instance = new ProjectInstanceEntity();
         instance.setProjectCode("orders");
         instance.setInstanceId("dev-1");
-        InstanceHeartbeatResponse delegated = new InstanceHeartbeatResponse(
-                instance,
-                new RuntimeGovernancePolicy(false, "ONLINE", null, true, true, "ok")
-        );
+        InstanceHeartbeatResponse delegated = new InstanceHeartbeatResponse(instance);
         when(registryService.heartbeat("orders", request)).thenReturn(delegated);
 
         ResponseEntity<?> response = controller.heartbeat("orders", request);
@@ -377,32 +367,6 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(delegated, response.getBody());
         verify(registryService).updateInstanceStatus("orders", "dev-1", "disabled");
-    }
-
-    @Test
-    void governancePolicyRouteDelegatesToCapabilityRegistryService() {
-        CapabilityRegistryService registryService = mock(CapabilityRegistryService.class);
-        CapabilityRegistryOperationsCompatibilityController controller =
-                new CapabilityRegistryOperationsCompatibilityController(registryService);
-        RuntimeGovernancePolicyUpdateRequest request = new RuntimeGovernancePolicyUpdateRequest(
-                "dev-1",
-                true,
-                "0.4.0",
-                false,
-                true,
-                "paused"
-        );
-        ProjectInstanceEntity delegated = new ProjectInstanceEntity();
-        delegated.setProjectCode("orders");
-        delegated.setInstanceId("dev-1");
-        delegated.setStatus("DISABLED");
-        when(registryService.updateInstanceGovernancePolicy("orders", request)).thenReturn(delegated);
-
-        ResponseEntity<?> response = controller.updateInstanceGovernancePolicy("orders", request);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(delegated, response.getBody());
-        verify(registryService).updateInstanceGovernancePolicy("orders", request);
     }
 
     @Test

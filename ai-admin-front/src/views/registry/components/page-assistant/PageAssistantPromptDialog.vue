@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { DocumentCopy } from '@element-plus/icons-vue'
 import type { PageRegistryView } from '@/api/embedOps'
 import type { AiAccessSession, AiAccessStep, PageAssistantOnboardingManifest, ScanProject } from '@/types/scanProject'
@@ -36,7 +37,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <el-dialog v-model="visible" title="页面助手 AI 快速接入" width="860px" destroy-on-close>
+  <AppDialog v-model="visible" title="页面助手 AI 快速接入" width="860px" destroy-on-close>
     <div class="ai-prompt-dialog">
       <el-alert
         type="info"
@@ -135,5 +136,5 @@ const emit = defineEmits<{
         readonly
       />
     </div>
-  </el-dialog>
+  </AppDialog>
 </template>

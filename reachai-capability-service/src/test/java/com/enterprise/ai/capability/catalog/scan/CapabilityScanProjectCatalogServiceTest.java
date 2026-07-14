@@ -10,6 +10,7 @@ import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinition
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper;
+import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistryCredentialMapper;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.enterprise.ai.capability.internal.CapabilityToolExecutionService;
@@ -24,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -67,6 +69,31 @@ class CapabilityScanProjectCatalogServiceTest {
 
         assertEquals(List.of(project), result);
         verify(scanProjectMapper).selectList(any());
+    }
+
+    @Test
+    void sdkAccessCheckSurfacesComputedManualSyncCallbackTarget() {
+        ScanProjectEntity project = new ScanProjectEntity();
+        project.setId(7L);
+        project.setProjectCode("orders");
+        project.setBaseUrl("http://localhost:8080/");
+        project.setContextPath("/orders-api");
+        project.setAiCodingAccessEnabled(true);
+        project.setAiCodingAccessKey("aic_demo");
+        RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setProjectCode("orders");
+        credential.setStatus("ACTIVE");
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        when(registryCredentialMapper.selectOne(any())).thenReturn(credential);
+
+        CapabilityScanProjectCatalogService.SdkAccessCheckResponse response = service.sdkAccessCheck(7L);
+
+        CapabilityScanProjectCatalogService.SdkAccessCheckItem callback = response.checks().stream()
+                .filter(check -> "SDK_SYNC_CALLBACK".equals(check.key()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("http://localhost:8080/orders-api/reachai/registry/capabilities/sync", callback.evidence());
+        assertTrue(callback.message().contains("回环地址"));
     }
 
     @Test

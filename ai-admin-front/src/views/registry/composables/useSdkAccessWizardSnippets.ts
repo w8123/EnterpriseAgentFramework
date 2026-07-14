@@ -40,6 +40,7 @@ export function useSdkAccessWizardSnippets(deps: UseSdkAccessWizardSnippetsDeps)
     code: ${deps.project.value?.projectCode || deps.projectCode.value}
     name: ${deps.project.value?.name || 'your-service-name'}
     base-url: ${deps.project.value?.baseUrl || 'http://localhost:8080'}
+    # 必须填写 ReachAI 服务端实际可访问的业务系统地址；localhost 仅适用于同机、同网络命名空间联调。
     context-path: ${deps.project.value?.contextPath || ''}
     environment: ${deps.project.value?.environment || 'dev'}
   capability:
@@ -56,13 +57,14 @@ export function useSdkAccessWizardSnippets(deps: UseSdkAccessWizardSnippetsDeps)
         - id: ${deps.project.value?.projectCode || deps.projectCode.value}-reachai
           uri: ${deps.project.value?.baseUrl || 'http://localhost:18089'}
           predicates:
-            - Path=/reachai/capabilities/**
+            - Path=/reachai/capabilities/**,/reachai/registry/**
           filters:
           - PreserveHostHeader
 
 # 必须透传：
 # X-ReachAI-Invocation-Token
 # X-ReachAI-Trace-Id / X-ReachAI-Run-Id
+# X-ReachAI-App-Key / X-ReachAI-Timestamp / X-ReachAI-Nonce / X-ReachAI-Signature
 # 业务用户身份头或当前登录态`)
   const highlightedGatewaySnippet = computed(() => highlightYamlCode(gatewaySnippet.value))
 
@@ -72,7 +74,7 @@ export function useSdkAccessWizardSnippets(deps: UseSdkAccessWizardSnippetsDeps)
     const code = manifest?.project.projectCode || project?.projectCode || deps.projectCode.value
     const platformUrl = manifest?.sdk?.config?.registryUrl || window.location.origin
     const expectedKeySlug = manifest?.agentProvisioning?.defaultKeySlug
-      || manifest?.agentWorkflow?.globalAgentKeySlug
+      || manifest?.agentSupervisor?.globalAgentKeySlug
       || manifest?.embed?.defaultAgentKeySlug
       || `${code}-page-copilot`
 
@@ -148,30 +150,28 @@ createEafChat({
     const externalManifestUrl = `${externalProjectRoot}/onboarding-manifest`
     const agentProvisioning = manifest?.agentProvisioning
     const provisionAgentUrl = `${externalProjectRoot}/agents/provision`
-    const agentWorkflow = manifest?.agentWorkflow
-    const workflowAiCoding = agentWorkflow?.workflowAiCoding
-    const globalAgentKeySlug = agentProvisioning?.defaultKeySlug || agentWorkflow?.globalAgentKeySlug || embedAgentId || `${code}-page-copilot`
+    const agentSupervisor = manifest?.agentSupervisor
+    const workflowAiCoding = agentSupervisor?.workflowAiCoding
+    const globalAgentKeySlug = agentProvisioning?.defaultKeySlug || agentSupervisor?.globalAgentKeySlug || embedAgentId || `${code}-page-copilot`
     const agentProvisioningBlock = [
-      `- Agent provisioning model: ${agentProvisioning?.model || 'agent-provisioning.v1'}`,
+      `- Agent provisioning model: ${agentProvisioning?.model || 'agent-provisioning.v2'}`,
       `- Provisioning API: ${provisionAgentUrl}`,
-      `- Default Agent kind: ${agentProvisioning?.defaultAgentKind || 'PAGE_COPILOT'}`,
       `- Default Agent keySlug: ${globalAgentKeySlug}`,
       `- Idempotent: ${agentProvisioning?.idempotent === false ? 'false' : 'true'}`,
-      `- Creates default Workflow: ${agentProvisioning?.createsDefaultWorkflow === false ? 'false' : 'true'}`,
-      `- Creates default binding: ${agentProvisioning?.createsDefaultBinding === false ? 'false' : 'true'}`,
-      '- Cursor must POST the provisioning API before frontend embed work and use response.agent.keySlug as the agentId (bare JSON, not data.agent.keySlug).',
+      `- Creates Supervisor config: ${agentProvisioning?.createsSupervisorConfig === false ? 'false' : 'true'}`,
+      `- Activates Supervisor config: ${agentProvisioning?.activatesSupervisorConfig === false ? 'false' : 'true'}`,
+      `- Model selection: ${agentProvisioning?.modelSelection || 'REQUESTED_OR_FIRST_ACTIVE_LLM'}`,
+      '- Cursor must POST the provisioning API before frontend embed work, verify response.supervisorConfig.status is ACTIVE, and use response.agent.keySlug as the agentId (bare JSON, not data.agent.keySlug).',
       '- Do not ask the business user to manually create, choose, or configure the page copilot Agent during SDK onboarding.',
     ].join('\n')
-    const agentWorkflowBlock = [
-      `- Agent/Workflow model: ${agentWorkflow?.model || 'agent-workflow.decoupled.v1'}`,
+    const agentSupervisorBlock = [
+      `- Agent Supervisor model: ${agentSupervisor?.model || 'agent-supervisor.workflow-tools.v1'}`,
       `- Page copilot agent keySlug: ${globalAgentKeySlug}`,
-      `- Page copilot agent kind: ${agentWorkflow?.globalAgentKind || agentProvisioning?.defaultAgentKind || 'PAGE_COPILOT'}`,
-      `- Workflow storage target: ${agentWorkflow?.workflowStorage || 'ai_workflow'}`,
-      `- SDK graph workflow type: ${agentWorkflow?.sdkGraphWorkflowType || 'SDK_GRAPH'}`,
-      `- Binding strategy: ${agentWorkflow?.bindingStrategy || 'Bind page/action/intent workflows to the page copilot Agent.'}`,
-      `- Agents API: ${agentWorkflow?.endpoints?.agentsUrl || `${platformUrl}/api/agents`}`,
-      `- Workflows API: ${agentWorkflow?.endpoints?.workflowsUrl || `${platformUrl}/api/workflows`}`,
-      `- Bindings API: ${agentWorkflow?.endpoints?.globalAgentBindingsUrl || `${platformUrl}/api/agents/${globalAgentKeySlug}/workflow-bindings`}`,
+      `- Runtime type: ${agentSupervisor?.runtimeType || 'AGENTSCOPE'}`,
+      `- Workflow tool catalog: ${agentSupervisor?.workflowToolCatalog || 'WORKFLOW_AS_TOOL_ALLOW_LIST'}`,
+      `- Agents API: ${agentSupervisor?.endpoints?.agentsUrl || `${platformUrl}/api/agents`}`,
+      `- Config versions API: ${agentSupervisor?.endpoints?.configVersionsUrlTemplate || `${platformUrl}/api/agents/{agentId}/config-versions`}`,
+      `- Workflow Tool attach API: ${agentSupervisor?.endpoints?.workflowToolAttachUrlTemplate || `${platformUrl}/api/workflows/{workflowId}/page-assistant/attach-tool`}`,
     ].join('\n')
     const workflowAiCodingPublishUrl = workflowAiCoding?.publishUrlTemplate || `${platformUrl}/api/workflows/{workflowId}/ai-coding/publish`
     const workflowAiCodingBlock = [
@@ -190,13 +190,14 @@ createEafChat({
       '- The actual frontend agentId must come from the provisioning response: response.agent.keySlug (bare JSON, not data.agent.keySlug).',
       '- Each business page must pass the same pageKey/pageInstanceId/route/origin to token broker, createEafChat({ page }), and page actions.',
       '- The browser SDK creates /api/embed/chat/sessions with pageKey, route, pageInstanceId and bridgeActions.',
-      '- ReachAI resolves the runnable Workflow from ai_agent_workflow_binding by current pageKey/action/intent.',
-      '- Do not create one floating AI button per workflow. Page assistants are page workflows bound to the page copilot Agent entry.'
+      '- ReachAI AgentScope Supervisor selects zero, one, or multiple published Workflows from the Agent Workflow-as-Tool allow-list.',
+      '- Page-action Workflows may be selected only when the user explicitly asks to open, navigate, query, or operate a page.',
+      '- Do not create one floating AI button per workflow. Page assistants are published Workflow tools exposed by the project page copilot Agent.'
     ].join('\n')
     const responseShapeBlock = [
       '平台响应形态（不要默认所有接口都读 data. 或都读顶层）：',
       '- Embed 对外 API（token exchange、sessions、messages、page-actions）：ApiResult 包装，业务字段读 data.token / data.sessionId / data.answer',
-      '- POST .../agents/provision：裸 JSON，读 agent.keySlug（不是 data.agent.keySlug）',
+      '- POST .../agents/provision：裸 JSON，读 agent.keySlug 和 supervisorConfig.status（不是 data.agent.keySlug）',
       '- access-sessions / sdk-access-check / onboarding-manifest：裸 JSON，读顶层 sessionId、overallStatus、project/embed 等',
       '- Chat 回复禁止把顶层 message:"success" 当助手文本；助手自然语言读 data.answer',
       '- Chat 返回 data.metadata.pageActionQueue 时必须逐个执行页面动作并回传 /api/embed/chat/sessions/{sessionId}/page-actions/{requestId}/result，不能只显示 data.answer',
@@ -237,23 +238,29 @@ createEafChat({
       '- CODE_READY 通过但 RUNTIME_READY/E2E_READY 为 WARN，通常表示服务未启动、心跳未上报、未完成可选真实调用或尚未在 API 管理手动同步接口，不等于代码接入失败。',
     ].join('\n')
     const gatewayChecklistBlock = [
-      '网关接入必查 5 项：',
+      '网关接入必查 6 项：',
       '1. /api/reachai/embed-token 使用业务登录 token，只在服务端签名调用 ReachAI POST /api/embed/token/exchange。',
       '2. /api/reachai/embed/** 代理 ReachAI /api/embed/**，必须原样透传 Authorization: Bearer <embedToken>。',
       '3. Spring Security WebFlux / OAuth2 Resource Server 需要独立高优先级 SecurityWebFilterChain；只写 permitAll 不充分。',
       '4. IgnoreUrlsRemoveJwtFilter / RemoveJwtFilter / RemoveRequestHeader=Authorization / mutate().header("Authorization", "") 不能作用于 /api/reachai/embed/**。',
       '5. Spring Cloud Gateway 代理时如网关和 ReachAI 都写 CORS 头，配置 DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST。',
+      '6. ReachAI 会从服务端 POST 业务系统 /reachai/registry/capabilities/sync；网关必须路由 /reachai/registry/**，业务登录/JWT 与 CSRF 对该路径放行，同时保留 Starter 的 X-ReachAI-* 签名校验。',
     ].join('\n')
     const localTopologyBlock = [
       '本地联调拓扑：',
       `- 前端 :9200 -> 网关 :8080（${deps.embedTokenPath.value || '/api/reachai/embed-token'} + /api/reachai/embed/**）-> ReachAI :18603（/api/embed/**）。`,
       `- Chat apiBase 默认是 ReachAI 平台 origin（例如 ${platformUrl}）；gatewayBaseUrl 默认是业务网关入口（例如 ${deps.gatewayBaseUrl.value || 'http://localhost:8080'}），两者可能不同，不能互相替代。`,
+      '- reachai.project.base-url 是 ReachAI 服务端回调业务系统的地址，不是浏览器地址；如果 ReachAI 与业务系统不在同一主机或网络命名空间，不能填写 localhost。',
       '- dev proxy / Nginx / Spring Cloud Gateway 三选一即可，但必须明确浏览器最终访问的 token broker 与 chat/embed 地址。',
     ].join('\n')
     const apiManagementScanBlock = [
       'API 管理手动同步边界：',
       '- SDK 接入阶段只完成依赖、registry/project 配置、实例心跳、网关、token broker、前端 Embed 和 Workflow 首次发布；不要把扫描接口同步作为 SDK 接入完成条件。',
       '- SDK 接口扫描与同步统一移动到 ReachAI 控制台的 API 管理：进入项目的 API 管理 / 添加接口，选择 SDK 同步，由平台调用在线业务系统 starter 手动触发现场扫描。',
+      '- 手动同步调用方向是 ReachAI 服务端 -> 业务系统 POST /reachai/registry/capabilities/sync -> 业务系统扫描后回传 ReachAI；这不是浏览器请求，也不涉及 CORS。',
+      '- 在交付 API 管理 handoff 前，必须检查该 POST 路径能穿过业务网关、Spring Security、Sa-Token、Shiro、自研登录拦截器和 CSRF。只绕过业务登录/JWT/CSRF，不得移除 Starter 对 X-ReachAI-App-Key、Timestamp、Nonce、Signature 的签名校验。',
+      '- 如果 reachai.project.base-url 指向网关，必须为 /reachai/registry/** 配置到 Starter 所在业务服务的路由，并透传 X-ReachAI-App-Key / X-ReachAI-Timestamp / X-ReachAI-Nonce / X-ReachAI-Signature。',
+      '- reachai.project.base-url 必须从 ReachAI 服务所在网络实际可达；localhost / 127.0.0.1 / ::1 只适用于 ReachAI 与业务系统同机或共享网络命名空间的联调环境。',
       '- reachai.capability.scan-packages / exclude-packages 只是在为后续 API 管理手动同步准备扫描边界；不要添加启动同步开关，也不能在 AI Coding 接入阶段主动调用同步接口。',
       '- 如果本次没有明确要求准备接口元数据，不要为了 SDK 接入去补 @ReachCapability 清单；如确需准备，也只选择低风险查询方法并说明等待 API 管理手动同步。',
     ].join('\n')
@@ -308,8 +315,8 @@ createEafChat({
 - ${embedAgentLine}
 - ${allowedAgentLine}
 
-Agent/Workflow target model:
-${agentWorkflowBlock}
+    Agent Supervisor target model:
+    ${agentSupervisorBlock}
 
 Workflow AI Coding publish contract:
 ${workflowAiCodingBlock}
@@ -358,13 +365,14 @@ ${installHint}
 4. 识别业务代码主包名，作为后续 API 管理手动 SDK 同步的扫描边界；不要把业务系统依赖的框架包、平台包、第三方包接口纳入 ReachAI。若启动类根包过宽，请优先选择实际业务包。
 5. 在业务系统配置中增加 reachai.registry、reachai.project、reachai.capability 配置，并用 ${secretEnv} 引用密钥；不要添加能力启动同步配置。若准备后续 API 管理手动同步，再配置 reachai.capability.scan-packages 与 reachai.capability.exclude-packages。
 6. 本次 SDK 接入不要主动同步接口或要求项目接口目录已有数据。只有当用户明确要求准备接口元数据时，才根据现有 Controller / Service 选择 1-2 个低风险查询能力补充 @ReachCapability / @ReachParam；@ReachOutput 只用于返回 DTO 字段，不要写在方法上。
-7. 检查业务系统是否有统一网关模块、Spring Cloud Gateway 配置、Nginx 配置或前端 dev proxy。若有网关，必须补上 ReachAI 相关路由；若没有网关，必须在计划里说明缺口，不要把 secret 下沉到浏览器。
+7. 检查业务系统是否有统一网关模块、Spring Cloud Gateway 配置、Nginx 配置或前端 dev proxy。若 reachai.project.base-url 指向网关，除能力调用路由外还必须把 /reachai/registry/** 转发到 Starter 所在业务服务，并透传 X-ReachAI-App-Key、X-ReachAI-Timestamp、X-ReachAI-Nonce、X-ReachAI-Signature；若没有网关，必须在计划里说明实际回调地址，不要把 secret 下沉到浏览器。
 8. 在业务网关或服务端 token broker 中实现前端获取 embed token 的接口，默认路径可用 ${deps.embedTokenPath.value || '/api/reachai/embed-token'}。该接口必须从业务登录态解析当前用户，映射 principal.externalUserId，使用项目 appKey/appSecret 服务端签名调用 ReachAI 的 POST /api/embed/token/exchange，并按短期 token 策略缓存；appSecret 仍只能来自 ${secretEnv} 或密钥管理器。ReachAI token exchange 返回统一 ApiResult：{code:200,message:"success",data:{token,expiresIn,sessionHint}}，broker 必须读取 data.token / data.expiresIn，可兼容历史顶层 token / expiresIn，但不能只读取顶层 token，也不能把 helper 的一条路径误写成 token.data.token。
-9. 在业务前端接入 ReachAI Chat Embed：增加配置、组件或页面入口；你必须在接入阶段从本机或服务端 POST Agent provisioning API（${provisionAgentUrl}），并将返回的裸 JSON 字段 agent.keySlug 写入业务前端配置作为 agentId（不是 data.agent.keySlug，也不是让用户手工填写 Agent）。运行时浏览器不得调用 provisioning API，不得保存 aiCodingKey。使用 @reachai/embed-chat；createEafChat 的 apiBase 可以是 ReachAI 平台 origin（例如 ${platformUrl}），经业务网关时可配置 embedPathPrefix=/api/reachai/embed，或把 apiBase 直接设为相对代理根 /api/reachai/embed。让前端通过业务网关 token broker 获取 embed token，再用 token 调用 ReachAI /api/embed/chat/sessions 与消息接口。前端不得保存 appSecret，不得使用 pageRegistry.appSecret 自动上报密钥。
+9. 在业务前端接入 ReachAI Chat Embed：增加配置、组件或页面入口；你必须在接入阶段从本机或服务端 POST Agent provisioning API（${provisionAgentUrl}）。该接口会创建/复用项目页面副驾驶 Agent，并发布 ACTIVE AgentScope Supervisor 配置；不得创建默认占位 Workflow。确认返回的裸 JSON 中 supervisorConfig.status=ACTIVE 后，将 agent.keySlug 写入业务前端配置作为 agentId（不是 data.agent.keySlug，也不是让用户手工填写 Agent）。运行时浏览器不得调用 provisioning API，不得保存 aiCodingKey。使用 @reachai/embed-chat；createEafChat 的 apiBase 可以是 ReachAI 平台 origin（例如 ${platformUrl}），经业务网关时可配置 embedPathPrefix=/api/reachai/embed，或把 apiBase 直接设为相对代理根 /api/reachai/embed。让前端通过业务网关 token broker 获取 embed token，再用 token 调用 ReachAI /api/embed/chat/sessions 与消息接口。前端不得保存 appSecret，不得使用 pageRegistry.appSecret 自动上报密钥。
 10. 明确区分两类 Authorization：请求 ${deps.embedTokenPath.value || '/api/reachai/embed-token'} 时使用业务系统登录 token；请求 /api/reachai/embed/**、/api/embed/chat/sessions 或消息接口时只能使用 ReachAI 返回的短期 embed token。不要把业务登录 token 当作 embed token 传给 ReachAI Chat API。
 11. 修改业务网关白名单 / 安全链：${deps.embedTokenPath.value || '/api/reachai/embed-token'} 继续使用业务登录 token；但 /api/reachai/embed/** 是 ReachAI embed token 代理流量，必须绕过业务 OAuth/JWT 认证并原样透传 Authorization: Bearer <embedToken> 给 ReachAI。
 12. 如果业务网关使用 Spring Security WebFlux / OAuth2 Resource Server，不能只写 .pathMatchers("/api/reachai/embed/**").permitAll()；Resource Server 仍可能先解析 Authorization: Bearer <embedToken> 并按业务 JWT 失败返回 401。必须为 /api/reachai/embed/** 添加更高优先级的独立 SecurityWebFilterChain / securityMatcher，并且该链不要启用业务 oauth2ResourceServer()。
 13. 专门检查现有白名单/匿名路径过滤器是否会清空 JWT 请求头，例如 IgnoreUrlsRemoveJwtFilter、RemoveJwtFilter、RemoveRequestHeader=Authorization，或 mutate().header("Authorization", "") 这类代码。/api/reachai/embed/** 对业务登录认证是匿名，但对 ReachAI 来说必须保留 Authorization: Bearer <embedToken>，禁止在该路径清空、改写或消费 Authorization。
+    同时检查 POST /reachai/registry/capabilities/sync：Spring Security、Sa-Token、Shiro、自研登录拦截器和 CSRF 必须允许 ReachAI 的服务端签名请求到达 Starter Controller；不得把它改成无鉴权接口，Starter 仍负责校验 X-ReachAI-* 注册签名。
 14. 如果业务系统用 Spring Cloud Gateway 代理 /api/reachai/embed/** 到 ReachAI /api/embed/**，检查是否会同时由网关和 ReachAI 返回 CORS 头；若会重复，请在该路由增加类似 DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST 的响应头去重配置，避免浏览器把真实 401/500 遮蔽成 status 0 Unknown Error。
 15. 业务前端缓存 embed token 时必须按 expiresIn 提前失效；如果创建 session 或发送消息返回 embed token is expired，应清空缓存、重新调用 token broker 获取新 embed token 并重试一次。
 16. 保证网关转发时透传 X-ReachAI-Invocation-Token、X-ReachAI-Trace-Id、X-ReachAI-Run-Id，以及业务身份所需的 Authorization / 用户上下文头；业务接口不能只凭普通 X-ReachAI-* 上下文头放行。
@@ -400,6 +408,10 @@ ${installHint}
 - pageKey、pageInstanceId、route、origin 要由前端运行时生成，并在 token broker、session create、Page Action 三处保持一致，便于 ReachAI 做会话隔离、Workflow 路由和页面动作回传。
 
 API 管理手动同步准备要求：
+- 明确记录调用方向：ReachAI 服务端 POST 业务系统 /reachai/registry/capabilities/sync，业务系统再把扫描结果同步回 ReachAI。
+- 确认 reachai.project.base-url + context-path 是 ReachAI 服务端可达地址；localhost 仅限同机或共享网络命名空间。
+- 如果经过网关，补充 /reachai/registry/** 到 Starter 所在业务服务的路由并透传 X-ReachAI-App-Key、X-ReachAI-Timestamp、X-ReachAI-Nonce、X-ReachAI-Signature。
+- 对 POST /reachai/registry/capabilities/sync 绕过业务登录/JWT 与 CSRF，但保留 Starter 签名校验；不要把该路径做成无鉴权公网接口。
 - 如果本次需要为后续 API 管理手动同步准备扫描边界，必须先从启动类、业务 Controller / Service 包、Maven 模块名中推断业务代码主包，例如 com.company.order 或 com.xxx.biz。
 - reachai.capability.scan-packages 只填写业务代码包；不要填写 org.springframework、springfox、org.springdoc、com.baomidou、框架基座包、通用平台包或 SDK 包。
 - reachai.capability.exclude-packages 至少排除 org.springframework、springfox、org.springdoc、com.enterprise.ai.reach；如果项目有 hussar、framework、common-web、platform 等框架包，也要排除。

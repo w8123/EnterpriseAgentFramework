@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="studio-page">
     <header class="studio-header">
       <div class="header-left">
@@ -19,10 +19,10 @@
             <el-tag size="small" effect="plain">{{ workflowVisibilityLabel }}</el-tag>
             <el-tag
               size="small"
-              :type="graphLintErrors.length ? 'danger' : graphLintWarnings.length ? 'warning' : 'success'"
+              :type="studioValidationTagType"
               effect="plain"
             >
-              {{ graphLintErrors.length ? '阻断' : graphLintWarnings.length ? '提醒' : '健康' }}
+              {{ studioValidationLabel }}
             </el-tag>
             <el-tooltip
               v-if="studioKeySlug"
@@ -42,26 +42,24 @@
           <span>{{ saveBadgeText }}</span>
         </span>
         <el-button :icon="VideoPlay" :loading="debugLoading" @click="handleDebug">调试</el-button>
-        <el-button :icon="MagicStick" :loading="aiDraftLoading" :disabled="studioReadOnly" @click="openAiDraftDialog">AI 生成流程</el-button>
-        <el-button :icon="Link" :disabled="studioReadOnly" @click="openApiQueryTemplateDialog">API 查询流程</el-button>
-        <el-button :icon="Finished" :loading="validating || evalRunning" @click="openEvalDrawer">评测</el-button>
-        <el-button :icon="CircleCheck" :loading="validating" @click="validateRuntime">校验</el-button>
+        <el-button :icon="Link" :disabled="studioReadOnly" @click="openApiQueryTemplateDialog">
+          API 查询模板
+        </el-button>
+        <el-button :icon="CircleCheck" :loading="validating" @click="validateRuntime()">校验</el-button>
         <el-dropdown trigger="click" @command="handleHeaderCommand">
           <el-button :icon="MoreFilled">更多</el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="json" :icon="DocumentChecked">JSON 视图</el-dropdown-item>
-              <el-dropdown-item command="sync-json" :icon="Refresh">同步 GraphSpec / Canvas</el-dropdown-item>
-              <el-dropdown-item command="search" :icon="Search">搜索节点</el-dropdown-item>
+              <el-dropdown-item command="eval" :icon="Finished">批量评测</el-dropdown-item>
+              <el-dropdown-item command="json" :icon="DocumentChecked">Workflow 源码</el-dropdown-item>
               <el-dropdown-item command="fit" :icon="Aim">聚焦画布</el-dropdown-item>
               <el-dropdown-item command="layout" :icon="Rank">自动整理</el-dropdown-item>
-              <el-dropdown-item command="node-debug" :icon="VideoPlay">节点测试</el-dropdown-item>
               <el-dropdown-item command="versions" :icon="Tickets">版本记录</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <el-button :loading="saving" :disabled="studioReadOnly" @click="saveStudio">保存</el-button>
-        <el-button type="primary" :disabled="studioReadOnly" @click="publishWorkflow">发布</el-button>
+        <el-button :loading="saving" :disabled="studioReadOnly" @click="handleSaveStudio">保存</el-button>
+        <el-button type="primary" :loading="releaseChecking" :disabled="studioReadOnly" @click="publishWorkflow">发布</el-button>
       </div>
     </header>
 
@@ -89,12 +87,6 @@
             </span>
             <em>{{ group.title.slice(0, 2) }}</em>
           </button>
-          <div class="rail-spacer"></div>
-          <el-tooltip content="检查与变量" placement="right">
-            <button class="rail-item" type="button" @click="inspectorExpanded = !inspectorExpanded">
-              <el-icon><Operation /></el-icon>
-            </button>
-          </el-tooltip>
         </div>
         <div class="palette-content">
           <div class="panel-title-row">
@@ -165,8 +157,8 @@
           @node-double-click="onNodeDoubleClick"
           @edge-click="onEdgeClick"
           @pane-click="clearSelection"
-          @nodes-change="markCanvasDirty"
-          @edges-change="markCanvasDirty"
+          @nodes-change="handleCanvasNodesChange"
+          @edges-change="handleCanvasEdgesChange"
         >
           <Background />
           <MiniMap />
@@ -668,58 +660,46 @@
           </template>
         </VueFlow>
 
-        <div class="canvas-operator" :class="{ collapsed: canvasOperatorCollapsed }">
-          <el-tooltip :content="canvasOperatorCollapsed ? '展开画布工具' : '收起画布工具'" placement="top">
-            <button
-              class="canvas-operator-toggle"
-              type="button"
-              :aria-expanded="!canvasOperatorCollapsed"
-              @click="canvasOperatorCollapsed = !canvasOperatorCollapsed"
-            >
-              <el-icon><Operation /></el-icon>
-              <span>{{ canvasOperatorCollapsed ? '工具' : '收起' }}</span>
-              <el-icon class="operator-caret">
-                <ArrowUp v-if="canvasOperatorCollapsed" />
-                <ArrowDown v-else />
-              </el-icon>
-            </button>
+        <div
+          v-if="!canvasOperatorCollapsed"
+          class="canvas-operator-panel"
+          aria-label="画布工具"
+          @mousedown.stop
+          @click.stop
+        >
+          <el-tooltip content="搜索节点 Ctrl+F" placement="top">
+            <el-button :icon="Search" circle aria-label="搜索节点" @click="openCanvasSearch" />
           </el-tooltip>
-          <template v-if="!canvasOperatorCollapsed">
-            <el-divider direction="vertical" />
-            <el-tooltip content="搜索节点 Ctrl+F" placement="top">
-              <el-button :icon="Search" circle @click="openCanvasSearch" />
-            </el-tooltip>
-            <el-divider direction="vertical" />
-            <el-tooltip content="撤销 Ctrl+Z" placement="top">
-              <el-button :icon="RefreshLeft" circle :disabled="studioReadOnly || !canUndo" @click="undoCanvas" />
-            </el-tooltip>
-            <el-tooltip content="重做 Ctrl+Y" placement="top">
-              <el-button :icon="RefreshRight" circle :disabled="studioReadOnly || !canRedo" @click="redoCanvas" />
-            </el-tooltip>
-            <el-divider direction="vertical" />
-            <el-tooltip content="复制 Ctrl+C" placement="top">
-              <el-button :icon="CopyDocument" circle :disabled="!canCopySelectedNode" @click="copySelectedNode" />
-            </el-tooltip>
-            <el-tooltip content="粘贴 Ctrl+V" placement="top">
-              <el-button :icon="Files" circle :disabled="studioReadOnly || !copiedNode" @click="pasteCopiedNode" />
-            </el-tooltip>
-            <el-tooltip content="折叠/展开节点" placement="top">
-              <el-button :icon="Operation" circle :disabled="!selectedNode" @click="toggleSelectedNodeCollapsed" />
-            </el-tooltip>
-            <el-divider direction="vertical" />
-            <el-tooltip content="自动整理 Ctrl+O" placement="top">
-              <el-button :icon="Rank" circle @click="handleAutoLayout" />
-            </el-tooltip>
-            <el-tooltip content="聚焦画布 Ctrl+1" placement="top">
-              <el-button :icon="Aim" circle @click="handleFitView" />
-            </el-tooltip>
-            <el-tooltip content="缩小" placement="top">
-              <el-button :icon="ZoomOut" circle @click="handleZoomOut" />
-            </el-tooltip>
-            <el-tooltip content="放大" placement="top">
-              <el-button :icon="ZoomIn" circle @click="handleZoomIn" />
-            </el-tooltip>
-          </template>
+          <el-divider direction="vertical" />
+          <el-tooltip content="撤销 Ctrl+Z" placement="top">
+            <el-button :icon="RefreshLeft" circle :disabled="studioReadOnly || !canUndo" @click="undoCanvas" />
+          </el-tooltip>
+          <el-tooltip content="重做 Ctrl+Y" placement="top">
+            <el-button :icon="RefreshRight" circle :disabled="studioReadOnly || !canRedo" @click="redoCanvas" />
+          </el-tooltip>
+          <el-divider direction="vertical" />
+          <el-tooltip content="复制 Ctrl+C" placement="top">
+            <el-button :icon="CopyDocument" circle :disabled="!canCopySelectedNode" @click="copySelectedNode" />
+          </el-tooltip>
+          <el-tooltip content="粘贴 Ctrl+V" placement="top">
+            <el-button :icon="Files" circle :disabled="studioReadOnly || !copiedNode" @click="pasteCopiedNode" />
+          </el-tooltip>
+          <el-tooltip content="折叠/展开节点" placement="top">
+            <el-button :icon="Operation" circle :disabled="!selectedNode" @click="toggleSelectedNodeCollapsed" />
+          </el-tooltip>
+          <el-divider direction="vertical" />
+          <el-tooltip content="自动整理 Ctrl+O" placement="top">
+            <el-button :icon="Rank" circle :loading="layoutRunning" @click="handleAutoLayout" />
+          </el-tooltip>
+          <el-tooltip content="聚焦画布 Ctrl+1" placement="top">
+            <el-button :icon="Aim" circle @click="handleFitView" />
+          </el-tooltip>
+          <el-tooltip content="缩小" placement="top">
+            <el-button :icon="ZoomOut" circle @click="handleZoomOut" />
+          </el-tooltip>
+          <el-tooltip content="放大" placement="top">
+            <el-button :icon="ZoomIn" circle @click="handleZoomIn" />
+          </el-tooltip>
         </div>
 
         <div
@@ -738,22 +718,22 @@
               type="textarea"
               resize="none"
               :autosize="{ minRows: 2, maxRows: 4 }"
-              placeholder="您想更改或创建什么内容？"
-              @keydown.enter.exact.prevent="editAiDraft"
+              placeholder="描述你想创建、修改或修复的 Workflow，AI 会结合当前画布理解意图"
+              @keydown.enter.exact.prevent="runAiAuthoring"
             />
             <div class="ai-edit-toolbar">
               <div class="ai-edit-toolbar-left">
-                <el-tooltip content="当前会结合已选节点和画布上下文生成修改" placement="top">
+                <el-tooltip content="AI 会结合 GraphSpec、已选节点、校验结果和可用资源生成候选方案" placement="top">
                   <el-button text circle :icon="MagicStick" disabled />
                 </el-tooltip>
               </div>
               <div class="ai-edit-toolbar-right">
-                <el-tooltip content="最小化智能修改" placement="top">
+                <el-tooltip content="最小化 AI 编排" placement="top">
                   <el-button
                     class="ai-edit-minimize"
                     circle
                     :icon="Minus"
-                    aria-label="最小化智能修改"
+                    aria-label="最小化 AI 编排"
                     @click="aiEditMinimized = true"
                   />
                 </el-tooltip>
@@ -764,18 +744,18 @@
                       :class="{ active: !!selectedAiEditModelLabel }"
                       :disabled="aiEditLoading"
                       circle
-                      aria-label="选择语义修改模型"
+                      aria-label="选择 AI 编排模型"
                     >
                       <el-icon><LlmModelIcon /></el-icon>
                     </el-button>
                   </template>
                   <div class="ai-edit-model-panel">
-                    <div class="ai-edit-model-title">选择修改模型</div>
+                    <div class="ai-edit-model-title">选择 AI 编排模型</div>
                     <el-select
                       v-model="aiModelInstanceId"
                       filterable
                       clearable
-                      placeholder="选择用于语义修改的模型"
+                      placeholder="选择用于创建和修改的模型"
                       :disabled="aiEditLoading"
                     >
                       <el-option
@@ -788,7 +768,7 @@
                     <div class="ai-edit-model-hint">{{ selectedAiEditModelLabel || '未选择模型时会使用 Workflow 默认模型' }}</div>
                   </div>
                 </el-popover>
-                <el-tooltip content="生成修改" placement="top">
+                <el-tooltip content="生成编排方案" placement="top">
                   <el-button
                     class="ai-edit-send"
                     type="primary"
@@ -796,8 +776,8 @@
                     :icon="SendIcon"
                     :loading="aiEditLoading"
                     :disabled="!aiEditInstruction.trim()"
-                    aria-label="生成修改"
-                    @click="editAiDraft"
+                    aria-label="生成编排方案"
+                    @click="runAiAuthoring"
                   />
                 </el-tooltip>
               </div>
@@ -805,7 +785,7 @@
           </div>
           <div v-if="aiEditPreview" class="ai-edit-preview">
             <div class="ai-edit-preview-head">
-              <strong>{{ aiEditPreview.summary || 'AI 修改预览' }}</strong>
+              <strong>{{ aiEditPreview.summary || 'AI 编排预览' }}</strong>
               <span>{{ aiEditPreview.provider }} · {{ aiEditPreview.operations.length }} 项变更</span>
             </div>
             <div v-if="aiEditPreview.validationErrors?.length" class="ai-edit-alert error">
@@ -857,68 +837,183 @@
           <el-button text :icon="Close" @click="closeCanvasSearch" />
         </div>
 
-        <div v-if="inspectorExpanded" class="workflow-inspector">
-          <div class="inspector-section">
+        <div
+          v-if="activeInspectorPanel"
+          class="workflow-inspector"
+          :class="`is-${activeInspectorPanel}`"
+          role="region"
+          :aria-label="activeInspectorPanel === 'validation' ? '草稿检查' : '流程变量'"
+          @mousedown.stop
+          @click.stop
+        >
+          <section v-if="activeInspectorPanel === 'validation'" class="inspector-section">
             <div class="inspector-head">
-              <strong>流程检查</strong>
-              <el-tag size="small" :type="graphLintErrors.length ? 'danger' : graphLintWarnings.length ? 'warning' : 'success'">
-                {{ graphLintErrors.length ? graphLintErrors.length + ' 个阻断' : graphLintWarnings.length ? graphLintWarnings.length + ' 个提醒' : '健康' }}
-              </el-tag>
+              <div class="inspector-title">
+                <span class="inspector-title-icon is-validation">
+                  <el-icon><CircleCheck /></el-icon>
+                </span>
+                <div>
+                  <strong>草稿检查</strong>
+                  <small>画布结构与运行时发布门禁</small>
+                </div>
+              </div>
+              <div class="inspector-head-actions">
+                <el-tag size="small" round :type="studioValidationTagType">
+                  {{ studioValidationLabel }}
+                </el-tag>
+                <button class="inspector-close" type="button" aria-label="关闭草稿检查" @click="activeInspectorPanel = null">
+                  <el-icon><Close /></el-icon>
+                </button>
+              </div>
             </div>
-            <div v-if="graphLintItems.length" class="inspector-list">
-              <button
-                v-for="item in graphLintItems.slice(0, 5)"
-                :key="item.level + '-' + (item.nodeId || item.edgeId || item.message)"
-                class="inspector-item"
-                :class="item.level"
-                type="button"
-                @click="focusLintItem(item)"
-              >
-                <span>{{ item.level === 'error' ? '阻断' : '提醒' }}</span>
-                <em>{{ item.message }}</em>
-              </button>
+            <div class="inspector-body">
+              <div v-if="graphLintItems.length" class="inspector-list">
+                <button
+                  v-for="item in graphLintItems.slice(0, 5)"
+                  :key="item.level + '-' + (item.nodeId || item.edgeId || item.message)"
+                  class="inspector-item"
+                  :class="item.level"
+                  type="button"
+                  @click="focusLintItem(item)"
+                >
+                  <span>{{ item.level === 'error' ? '阻断' : '提醒' }}</span>
+                  <em>{{ item.message }}</em>
+                  <el-icon class="inspector-item-arrow"><ArrowRight /></el-icon>
+                </button>
+              </div>
+              <div v-if="runtimeValidationItems.length" class="inspector-list runtime-validation-list">
+                <button
+                  v-for="item in runtimeValidationItems.slice(0, 5)"
+                  :key="item.level + '-' + item.code + '-' + (item.target || item.message)"
+                  class="inspector-item"
+                  :class="item.level"
+                  type="button"
+                  @click="focusRuntimeValidationItem(item.target)"
+                >
+                  <span>{{ item.level === 'error' ? '发布阻断' : '运行提醒' }}</span>
+                  <em>{{ item.message }}</em>
+                  <el-icon class="inspector-item-arrow"><ArrowRight /></el-icon>
+                </button>
+              </div>
+              <div v-if="validationRequestError" class="inspector-empty-state is-error">
+                <span class="inspector-empty-icon"><Close /></span>
+                <div>
+                  <strong>发布校验暂不可用</strong>
+                  <span>{{ validationRequestError }}</span>
+                </div>
+              </div>
+              <div v-else-if="!graphLintItems.length && !runtimeValidationItems.length" class="inspector-empty-state">
+                <span class="inspector-empty-icon"><CircleCheck /></span>
+                <div>
+                  <strong>{{ validation?.valid ? '当前草稿检查通过' : '画布结构检查通过' }}</strong>
+                  <span>{{ validation?.valid
+                    ? '画布与运行时配置均已满足发布要求。'
+                    : '运行“校验”可继续确认模型、资源与运行时配置。' }}</span>
+                </div>
+              </div>
             </div>
-            <div v-else class="inspector-empty">当前画布结构可发布，继续补充业务节点即可。</div>
-          </div>
-          <div class="inspector-section">
+          </section>
+          <section v-else class="inspector-section">
             <div class="inspector-head">
-              <strong>变量</strong>
-              <el-tag size="small">{{ graphVariables.length }}</el-tag>
+              <div class="inspector-title">
+                <span class="inspector-title-icon is-variable">
+                  <el-icon><Coin /></el-icon>
+                </span>
+                <div>
+                  <strong>流程变量</strong>
+                  <small>可在节点表达式和输入映射中引用</small>
+                </div>
+              </div>
+              <div class="inspector-head-actions">
+                <span class="inspector-count">{{ graphVariables.length }} 个</span>
+                <button class="inspector-close" type="button" aria-label="关闭变量面板" @click="activeInspectorPanel = null">
+                  <el-icon><Close /></el-icon>
+                </button>
+              </div>
             </div>
-            <div class="variable-chips">
-              <button
-                v-for="item in graphVariables.slice(0, 12)"
-                :key="item.name"
-                class="variable-chip"
-                type="button"
-                @click="selectedNodeId = item.nodeId"
-              >
-                <span>{{ item.name }}</span>
-                <em>{{ item.source }}</em>
-              </button>
-              <span v-if="!graphVariables.length" class="inspector-empty">暂无节点输出变量</span>
+            <div class="inspector-body">
+              <div v-if="graphVariables.length" class="variable-chips">
+                <button
+                  v-for="item in graphVariables.slice(0, 12)"
+                  :key="item.name"
+                  class="variable-chip"
+                  type="button"
+                  :title="`${item.name} · ${item.source}`"
+                  @click="selectedNodeId = item.nodeId"
+                >
+                  <span class="variable-chip-icon"><Coin /></span>
+                  <span class="variable-chip-content">
+                    <code>{{ item.name }}</code>
+                    <small>来源：{{ item.source }}</small>
+                  </span>
+                  <el-icon><ArrowRight /></el-icon>
+                </button>
+              </div>
+              <div v-else class="inspector-empty-state">
+                <span class="inspector-empty-icon"><Coin /></span>
+                <div>
+                  <strong>暂无流程变量</strong>
+                  <span>配置节点输出别名后，可在后续节点中直接引用。</span>
+                </div>
+              </div>
+              <div v-if="graphVariables.length > 12" class="inspector-more-hint">
+                当前展示前 12 个变量，共 {{ graphVariables.length }} 个
+              </div>
             </div>
-          </div>
+          </section>
         </div>
         <div class="canvas-statusbar">
           <div class="status-left">
+            <el-tooltip :content="canvasOperatorCollapsed ? '展开画布工具' : '收起画布工具'" placement="top">
+              <button
+                class="status-pill canvas-tools-pill"
+                :class="{ active: !canvasOperatorCollapsed }"
+                type="button"
+                :aria-expanded="!canvasOperatorCollapsed"
+                @click="toggleCanvasOperator"
+              >
+                <el-icon><Operation /></el-icon>
+                <strong>工具</strong>
+                <el-icon class="operator-caret">
+                  <ArrowUp v-if="canvasOperatorCollapsed" />
+                  <ArrowDown v-else />
+                </el-icon>
+              </button>
+            </el-tooltip>
             <button
               class="status-pill"
-              :class="{ danger: graphLintErrors.length, warning: !graphLintErrors.length && graphLintWarnings.length }"
+              :class="{
+                active: activeInspectorPanel === 'validation',
+                danger: studioValidationTagType === 'danger',
+                warning: studioValidationTagType === 'warning',
+              }"
               type="button"
-              @click="inspectorExpanded = !inspectorExpanded"
+              :aria-expanded="activeInspectorPanel === 'validation'"
+              @click="toggleInspectorPanel('validation')"
             >
               <span class="status-dot"></span>
-              <strong>{{ graphLintErrors.length ? '阻断' : graphLintWarnings.length ? '提醒' : '健康' }}</strong>
-              <em>{{ graphLintErrors.length || graphLintWarnings.length || '正常' }}</em>
+              <strong>{{ studioValidationLabel }}</strong>
+              <em>草稿检查</em>
             </button>
-            <button class="status-pill" type="button" @click="inspectorExpanded = !inspectorExpanded">
+            <button
+              class="status-pill"
+              :class="{ active: activeInspectorPanel === 'variables' }"
+              type="button"
+              :aria-expanded="activeInspectorPanel === 'variables'"
+              @click="toggleInspectorPanel('variables')"
+            >
               <strong>变量</strong>
               <em>{{ graphVariables.length }}</em>
             </button>
-            <button v-if="aiEditMinimized" class="status-pill smart-edit-pill" type="button" @click="aiEditMinimized = false">
+            <button
+              class="status-pill smart-edit-pill"
+              :class="{ active: !aiEditMinimized }"
+              type="button"
+              :aria-expanded="!aiEditMinimized"
+              @click="toggleAiEditBar"
+            >
               <el-icon><MagicStick /></el-icon>
-              <strong>智能修改</strong>
+              <strong>AI 编排</strong>
             </button>
           </div>
         </div>
@@ -1726,15 +1821,57 @@
       </div>
     </el-drawer>
 
-    <el-drawer v-model="jsonDrawerVisible" title="Workflow JSON" size="50%">
+    <el-drawer
+      v-model="jsonDrawerVisible"
+      title="Workflow 源码"
+      size="50%"
+      destroy-on-close
+      @closed="resetJsonDraft"
+    >
+      <el-alert
+        type="info"
+        :closable="false"
+        class="json-source-alert"
+        title="GraphSpec 是运行语义；Canvas 只保存布局。修改不会立即影响画布，点击“校验并应用”后才会进入当前草稿。"
+      />
       <el-tabs v-model="activeTab">
         <el-tab-pane label="GraphSpec" name="graph">
-          <el-input v-model="graphSpecJson" type="textarea" :autosize="{ minRows: 24 }" spellcheck="false" class="json-editor" />
+          <el-input
+            v-model="jsonDraftGraphSpec"
+            type="textarea"
+            :autosize="{ minRows: 24 }"
+            :disabled="studioReadOnly || jsonApplying"
+            spellcheck="false"
+            class="json-editor"
+          />
         </el-tab-pane>
         <el-tab-pane label="Canvas" name="canvas">
-          <el-input v-model="canvasJson" type="textarea" :autosize="{ minRows: 24 }" spellcheck="false" class="json-editor" />
+          <el-input
+            v-model="jsonDraftCanvas"
+            type="textarea"
+            :autosize="{ minRows: 24 }"
+            :disabled="studioReadOnly || jsonApplying"
+            spellcheck="false"
+            class="json-editor"
+          />
         </el-tab-pane>
       </el-tabs>
+      <template #footer>
+        <div class="json-source-footer">
+          <span>{{ jsonDraftChanged ? '源码有尚未应用的修改' : '源码与当前画布一致' }}</span>
+          <div>
+            <el-button @click="resetJsonDraft">重置</el-button>
+            <el-button
+              type="primary"
+              :loading="jsonApplying"
+              :disabled="studioReadOnly || !jsonDraftChanged"
+              @click="applyJsonDraft"
+            >
+              校验并应用
+            </el-button>
+          </div>
+        </div>
+      </template>
     </el-drawer>
 
     <el-dialog v-model="apiQueryTemplateOpen" title="从项目接口生成查询流程" width="900px" class="api-query-template-dialog">
@@ -1822,92 +1959,24 @@
       </div>
     </el-dialog>
 
-    <el-dialog v-model="aiDraftDialogOpen" title="AI 生成 Workflow 流程草稿" width="760px" class="ai-draft-dialog">
-      <div class="ai-draft-body">
-        <el-alert
-          type="info"
-          :closable="false"
-          title="生成结果只替换当前前端草稿，不会自动保存或发布。占位节点需要补全后才能通过发布校验。"
-        />
-        <div class="ai-draft-model-row">
-          <span>生成模型</span>
-          <el-select
-            v-model="aiModelInstanceId"
-            filterable
-            clearable
-            placeholder="选择用于生成和 LLM 节点的模型"
-            :disabled="aiDraftLoading"
-          >
-            <el-option
-              v-for="item in aiDraftModelOptions"
-              :key="item.id"
-              :label="modelOptionLabel(item)"
-              :value="item.id"
-            />
-          </el-select>
-        </div>
-        <el-input
-          v-model="aiRequirement"
-          type="textarea"
-          :rows="4"
-          maxlength="1000"
-          show-word-limit
-          placeholder="例如：查询订单状态，如果订单已完成就回复物流信息，否则提示当前处理进度。"
-        />
-        <div class="ai-draft-actions">
-          <span>{{ availableTools.length }} 个工具 / {{ availableCompositions.length }} 个能力 / {{ knowledgeOptions.length }} 个知识库可供匹配</span>
-          <el-button type="primary" :loading="aiDraftLoading" @click="generateAiDraft">生成预览</el-button>
-        </div>
-        <div v-if="aiDraftPreview" class="ai-draft-preview">
-          <div class="ai-draft-preview-head">
-            <div>
-              <strong>{{ aiDraftPreview.graphSpec?.name || 'AI 生成流程' }}</strong>
-              <span>{{ aiDraftPreview.provider }} / {{ aiDraftPreviewNodes.length }} 个节点</span>
-            </div>
-            <el-tag :type="aiDraftPreview.placeholderNodes?.length ? 'warning' : 'success'" size="small">
-              {{ aiDraftPreview.placeholderNodes?.length ? '含占位节点' : '可编辑草稿' }}
-            </el-tag>
-          </div>
-          <el-alert v-if="aiDraftPreview.warnings?.length" type="warning" :closable="false" class="ai-draft-warning">
-            <template #title>
-              <span v-for="item in aiDraftPreview.warnings" :key="item">{{ item }}</span>
-            </template>
-          </el-alert>
-          <el-alert v-if="aiDraftPreview.validationErrors?.length" type="error" :closable="false" class="ai-draft-warning">
-            <template #title>
-              <span v-for="item in aiDraftPreview.validationErrors" :key="item">{{ item }}</span>
-            </template>
-          </el-alert>
-          <div v-if="aiDraftPreview.placeholderNodes?.length" class="ai-draft-placeholders">
-            <el-tag v-for="item in aiDraftPreview.placeholderNodes" :key="item.nodeId" type="warning" effect="plain">
-              {{ item.label }}：{{ item.reason }}
-            </el-tag>
-          </div>
-          <div v-if="aiDraftPreviewEdges.length" class="ai-draft-edge-list">
-            <div v-for="edge in aiDraftPreviewEdges" :key="edge.id" class="ai-draft-edge">
-              <span>{{ previewNodeLabel(edge.source) }}</span>
-              <el-tag size="small" effect="plain">{{ previewEdgeLabel(edge) }}</el-tag>
-              <span>{{ previewNodeLabel(edge.target) }}</span>
-            </div>
-          </div>
-          <div class="ai-draft-node-list">
-            <div v-for="node in aiDraftPreviewNodes" :key="node.id" class="ai-draft-node">
-              <strong>{{ node.data?.label || node.id }}</strong>
-              <span>{{ nodeKindLabel(node.data?.kind) }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="aiDraftDialogOpen = false">取消</el-button>
-        <el-button type="primary" :disabled="!aiDraftPreview || !!aiDraftPreview.validationErrors?.length" @click="handleApplyAiDraft">
-          替换当前草稿
-        </el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="publishDialogOpen" title="发布 Workflow 版本" width="640px">
-      <div v-if="releaseErrors.length || releaseWarnings.length" class="release-check-panel">
+    <el-dialog
+      v-model="publishDialogOpen"
+      title="发布 Workflow 版本"
+      width="640px"
+      :close-on-click-modal="!publishing"
+      :close-on-press-escape="!publishing"
+      :show-close="!publishing"
+      :before-close="handlePublishDialogBeforeClose"
+    >
+      <el-alert
+        v-if="releaseChecking"
+        type="info"
+        :closable="false"
+        show-icon
+        class="publish-warning"
+        title="正在校验当前画布草稿，而不是上一次保存的版本…"
+      />
+      <div v-else-if="releaseErrors.length || releaseWarnings.length" class="release-check-panel">
         <div class="release-check-head">
           <div>
             <strong>Workflow 发布门禁</strong>
@@ -1935,6 +2004,14 @@
         </el-collapse>
       </div>
       <el-alert
+        v-else-if="releaseValidationReady"
+        type="success"
+        :closable="false"
+        show-icon
+        class="publish-warning"
+        title="当前画布草稿已通过发布门禁"
+      />
+      <el-alert
         v-if="publishWarnings.length"
         type="warning"
         :closable="false"
@@ -1960,15 +2037,21 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="publishDialogOpen = false">取消</el-button>
-        <el-button type="primary" :loading="publishing" @click="handlePublishWorkflow">确认发布</el-button>
+        <el-button :disabled="publishing" @click="publishDialogOpen = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="publishing"
+          :disabled="releaseChecking || !releaseValidationReady || !!releaseErrors.length"
+          @click="handlePublishWorkflow"
+        >
+          确认发布
+        </el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import type { Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -1987,7 +2070,6 @@ import {
   Delete,
   Document,
   DocumentChecked,
-  EditPen,
   Files,
   Finished,
   Link,
@@ -1996,9 +2078,7 @@ import {
   Minus,
   Operation,
   Plus,
-  Promotion,
   Rank,
-  Refresh,
   RefreshLeft,
   RefreshRight,
   Search,
@@ -2016,7 +2096,6 @@ import { Background } from '@vue-flow/background'
 import { MiniMap } from '@vue-flow/minimap'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
-import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 import {
   getWorkflowDebugSession,
@@ -2024,12 +2103,11 @@ import {
 } from '@/api/workflow'
 import { extractDraftFromTrace } from '@/api/capabilityMining'
 import type { TraceNode } from '@/types/trace'
-import type { RunDetail, RunSpan, RunSummary, WorkflowPathItem } from '@/types/runops'
+import type { RunDetail, RunExecutionPathItem, RunSpan, RunSummary } from '@/types/runops'
 import type { ChatResponse } from '@/types/chat'
 import type {
   WorkflowDebugRunResult,
   WorkflowDraftEditResult,
-  WorkflowDraftGenerationResult,
   WorkflowNodeDebugResult,
   WorkflowPublishRequest,
   WorkflowReleaseValidationItem,
@@ -2043,27 +2121,26 @@ import type {
   CanvasEdge,
   CanvasNode,
   CanvasNodeKind,
-  CanvasSnapshot,
   InteractionCallNodeRequest,
   StudioVariableOption,
 } from '@/types/studio'
 import type { ModelInstance } from '@/types/model'
 import TraceTimeline from '@/components/TraceTimeline.vue'
 import InteractionRenderer from '@/components/interaction/InteractionRenderer.vue'
-import type { UiFieldPayload, UiRequestPayload } from '@/types/interaction'
+import type { UiRequestPayload } from '@/types/interaction'
 import {
   createWorkflowCanvasNode,
   workflowCanvasToSaveRequest,
   workflowStudioToCanvas,
 } from '@/utils/workflowStudio'
-import {
-  runDisplayName,
-  runMatchesCurrentWorkflow,
-} from '@/utils/workflowRunOps'
+import { runMatchesCurrentWorkflow } from '@/utils/workflowRunOps'
 import LlmModelIcon from '@/components/icons/LlmModelIcon.vue'
 import SendIcon from '@/components/icons/SendIcon.vue'
 import type { StudioFieldSchema } from '@/types/studio'
-import { normalizeCanvasEdgeHandles } from '@/utils/studio'
+import {
+  WORKFLOW_LAYOUT_DEFAULT_HANDLE_KEY,
+  type WorkflowNodeMeasurement,
+} from '@/utils/workflowAutoLayout'
 import NodeConfigPanel from '@/views/workflow/studio-panels/NodeConfigPanel.vue'
 import { useWorkflowStudioNodeMetadata } from '@/views/workflow/composables/useWorkflowStudioNodeMetadata'
 import { useWorkflowStudioPalette } from '@/views/workflow/composables/useWorkflowStudioPalette'
@@ -2096,7 +2173,7 @@ import { formatJson, normalizeJson } from '@/views/workflow/composables/workflow
 
 const route = useRoute()
 const router = useRouter()
-const { fitView, screenToFlowCoordinate, setCenter, zoomIn, zoomOut, getViewport } = useVueFlow()
+const { fitView, screenToFlowCoordinate, setCenter, zoomIn, zoomOut, getViewport, findNode } = useVueFlow()
 const workflowId = computed(() => String(route.params.workflowId || route.params.id || ''))
 const studio = ref<WorkflowStudioState | null>(null)
 const graphSpecJson = ref('')
@@ -2108,7 +2185,10 @@ const loading = ref(false)
 const saving = ref(false)
 const validating = ref(false)
 const publishing = ref(false)
-const nodeKeyword = ref('')
+const releaseChecking = ref(false)
+const releaseValidationReady = ref(false)
+let validationSequence = 0
+const layoutRunning = ref(false)
 const canvasSearchOpen = ref(false)
 const canvasSearchKeyword = ref('')
 const canvasSearchIndex = ref(0)
@@ -2118,19 +2198,19 @@ const edges = ref<CanvasEdge[]>([])
 const selectedNodeId = ref<string | null>(null)
 const selectedEdgeId = ref<string | null>(null)
 const visualDirty = ref(false)
+const editGeneration = ref(0)
 const copiedNode = ref<CanvasNode | null>(null)
 const historyPast = ref<string[]>([])
 const historyFuture = ref<string[]>([])
 const historyApplying = ref(false)
 const historyReady = ref(false)
 const validation = ref<WorkflowRuntimeValidationResult | null>(null)
+const validationRequestError = ref('')
 const debugNodeId = ref('')
 const debugMessage = ref('这是一条测试消息')
 const nodeDebugMessage = ref('这是一条节点测试消息')
 const nodeDebugStateJson = ref('{}')
 const nodeDebugStateText = ref('{\n  "input": "这是一条节点测试消息"\n}')
-const runInputParamsJson = ref('{}')
-const runDebugOptionsJson = ref('{}')
 const nodeDebugLoading = ref(false)
 const debugLoading = ref(false)
 const nodeDebugResult = ref<WorkflowNodeDebugResult | null>(null)
@@ -2138,7 +2218,6 @@ const debugRunResult = ref<WorkflowDebugRunResult | null>(null)
 const debugSession = ref<WorkflowDebugSessionView | null>(null)
 const debugResult = ref<ChatResponse | null>(null)
 const debugInputParams = reactive<Record<string, unknown>>({})
-const debugInteractionParams = reactive<Record<string, unknown>>({})
 const currentTraceId = ref('')
 const traceNodes = ref<TraceNode[]>([])
 const runOpsDetail = ref<RunDetail | null>(null)
@@ -2153,24 +2232,53 @@ const selectedDebugStepIndex = ref<number | null>(null)
 const currentDebugNodeId = ref('')
 const debugPlaybackToken = ref(0)
 const aiModelInstanceId = ref('')
-const aiRequirement = ref('')
 const aiEditInstruction = ref('')
-const aiDraftLoading = ref(false)
 const aiEditLoading = ref(false)
 const aiEditMinimized = ref(false)
-const aiDraftPreview = ref<WorkflowDraftGenerationResult | null>(null)
 const aiEditPreview = ref<WorkflowDraftEditResult | null>(null)
 const paletteExpanded = ref(false)
 const activePaletteGroup = ref('推理')
 const propertyPanelCollapsed = ref(true)
 const canvasOperatorCollapsed = ref(true)
-const inspectorExpanded = ref(false)
+type InspectorPanel = 'validation' | 'variables'
+const activeInspectorPanel = ref<InspectorPanel | null>(null)
+
+function toggleInspectorPanel(panel: InspectorPanel) {
+  const nextPanel = activeInspectorPanel.value === panel ? null : panel
+  activeInspectorPanel.value = nextPanel
+  if (nextPanel) {
+    aiEditMinimized.value = true
+    canvasOperatorCollapsed.value = true
+  }
+}
+
+function toggleAiEditBar() {
+  const nextMinimized = !aiEditMinimized.value
+  aiEditMinimized.value = nextMinimized
+  if (!nextMinimized) {
+    activeInspectorPanel.value = null
+    canvasOperatorCollapsed.value = true
+  }
+}
+
+function toggleCanvasOperator() {
+  const nextCollapsed = !canvasOperatorCollapsed.value
+  canvasOperatorCollapsed.value = nextCollapsed
+  if (!nextCollapsed) {
+    activeInspectorPanel.value = null
+    aiEditMinimized.value = true
+  }
+}
+
 const nodeSearchOpen = ref(false)
 const nodeSearchKeyword = ref('')
 const propertyDetailOpen = ref(false)
 type PropertyDetailSection = 'base' | 'node' | 'debug' | 'trace'
 const propertyDetailSection = ref<PropertyDetailSection>('base')
 const jsonDrawerVisible = ref(false)
+const jsonDraftGraphSpec = ref('')
+const jsonDraftCanvas = ref('')
+const jsonApplying = ref(false)
 const debugOpen = ref(false)
 const publishDialogOpen = ref(false)
 const releaseErrors = ref<WorkflowReleaseValidationItem[]>([])
@@ -2190,20 +2298,15 @@ const workflowMeta = reactive({
   description: '',
   defaultModelInstanceId: '',
 })
-const aiDraftDialogOpen = ref(false)
-
 const selectedToolName = computed(() => {
   const node = nodes.value.find((item) => item.id === selectedNodeId.value) || null
   return node?.data.kind === 'tool' ? node.data.toolConfig?.ref || '' : ''
 })
 
 const {
-  nodeTypesLoading,
   nodeTypes,
   modelOptions,
   knowledgeOptions,
-  toolOptions,
-  compositionOptions,
   credentialOptions,
   paramSourceHints,
   graphNodeTypeCapabilitiesLoaded,
@@ -2235,32 +2338,57 @@ const selectedAiEditModelLabel = computed(() =>
   selectedAiEditModel.value ? modelOptionLabel(selectedAiEditModel.value) : '',
 )
 
-const statusTagType = computed(() => {
-  if (studio.value?.status === 'ACTIVE') return 'success'
-  if (studio.value?.status === 'ARCHIVED') return 'info'
-  return 'warning'
+const jsonDraftChanged = computed(() =>
+  jsonDraftGraphSpec.value !== graphSpecJson.value
+  || jsonDraftCanvas.value !== canvasJson.value,
+)
+
+
+const runtimeValidationItems = computed(() => [
+  ...(validation.value?.errors || []).map((item) => ({ ...item, level: 'error' as const })),
+  ...(validation.value?.warnings || []).map((item) => ({ ...item, level: 'warning' as const })),
+])
+
+const studioValidationLabel = computed(() => {
+  const localBlockers = graphLintErrors.value.length
+  const runtimeBlockers = validation.value?.errors.length || 0
+  const warningCount = graphLintWarnings.value.length + (validation.value?.warnings?.length || 0)
+  if (localBlockers || runtimeBlockers) return `${localBlockers + runtimeBlockers} 个阻断`
+  if (validationRequestError.value) return '校验不可用'
+  if (validation.value?.valid && warningCount) return `${warningCount} 个提醒`
+  if (validation.value?.valid) return '可发布'
+  if (warningCount) return `${warningCount} 个画布提醒`
+  return '待校验'
 })
 
-const validationLabel = computed(() => {
-  if (!validation.value) return 'Pending'
-  return validation.value.valid ? 'Valid' : `${validation.value.errors.length} issue(s)`
-})
-
-const validationTagType = computed(() => {
-  if (!validation.value) return 'info'
-  return validation.value.valid ? 'success' : 'danger'
+const studioValidationTagType = computed(() => {
+  if (graphLintErrors.value.length || validation.value?.errors.length || validationRequestError.value) return 'danger'
+  if (graphLintWarnings.value.length || validation.value?.warnings?.length) return 'warning'
+  return validation.value?.valid ? 'success' : 'info'
 })
 
 const saveBadgeText = computed(() => {
   if (saving.value) return '保存中'
   if (visualDirty.value || workflowMetaDirty()) return '待保存'
+  if (studio.value?.hasUnpublishedChanges) {
+    return studio.value.activeVersion ? '已保存，待发布' : '草稿已保存'
+  }
+  if (studio.value?.activeVersion?.version) return `已发布 ${studio.value.activeVersion.version}`
+  if (studio.value?.status === 'ACTIVE') return '已发布'
   return lastSavedAt.value === '--:--' ? '已保存' : `已保存 ${lastSavedAt.value}`
 })
 
 const saveStateClass = computed(() => ({
   'is-saving': saving.value,
   'is-pending': !saving.value && (visualDirty.value || workflowMetaDirty()),
-  'is-saved': !saving.value && !visualDirty.value && !workflowMetaDirty(),
+  'is-unpublished': !saving.value
+    && !visualDirty.value
+    && !workflowMetaDirty()
+    && !!studio.value?.hasUnpublishedChanges,
+  'is-saved': !saving.value
+    && !visualDirty.value
+    && !workflowMetaDirty()
+    && !studio.value?.hasUnpublishedChanges,
 }))
 
 function categoryLabel(value?: string | null) {
@@ -2286,6 +2414,36 @@ const connectionLineOptions = {
   type: ConnectionLineType.SmoothStep,
 }
 
+function workflowHandleCenters(
+  handles?: Array<{ id?: string | null; y: number; height: number }>,
+) {
+  return Object.fromEntries(
+    (handles || []).map((handle) => [
+      handle.id?.trim() || WORKFLOW_LAYOUT_DEFAULT_HANDLE_KEY,
+      handle.y + handle.height / 2,
+    ]),
+  )
+}
+
+function getWorkflowNodeMeasurement(nodeId: string): WorkflowNodeMeasurement | undefined {
+  const graphNode = findNode(nodeId)
+  const width = graphNode?.dimensions.width || 0
+  const height = graphNode?.dimensions.height || 0
+  if (width <= 0 || height <= 0) return undefined
+  return {
+    width,
+    height,
+    sourceHandleCenters: workflowHandleCenters(graphNode?.handleBounds.source),
+    targetHandleCenters: workflowHandleCenters(graphNode?.handleBounds.target),
+  }
+}
+
+async function waitForWorkflowNodeMeasurements() {
+  await nextTick()
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  await nextTick()
+}
+
 function visibilityLabel(value?: string | null) {
   const normalized = String(value || '').toUpperCase()
   const labels: Record<string, string> = {
@@ -2298,10 +2456,12 @@ function visibilityLabel(value?: string | null) {
 }
 
 const workflowVisibilityLabel = computed(() => {
-  const status = studio.value?.status
-  if (status === 'ACTIVE') return '已发布'
-  if (status === 'ARCHIVED') return '已归档'
-  return '草稿'
+  if (studio.value?.status === 'ARCHIVED') return '已归档'
+  const activeVersion = studio.value?.activeVersion?.version
+  if (!activeVersion) return studio.value?.status === 'ACTIVE' ? '已发布' : '尚未发布'
+  return studio.value?.hasUnpublishedChanges
+    ? `当前发布 ${activeVersion}`
+    : `已发布 ${activeVersion}`
 })
 
 const studioDisplayName = computed(() => studio.value?.name || workflowMeta.name || '未命名')
@@ -2342,7 +2502,6 @@ const {
 } = useWorkflowStudioNodeMetadata()
 
 const {
-  rememberDebugSession,
   forgetDebugSession,
   applyDebugSession,
   clearDebugSessionView,
@@ -2393,7 +2552,6 @@ const { resetWorkflowSessionState, clearWorkflowDocumentState } = useWorkflowStu
   debugRunResult,
   debugSession,
   debugResult,
-  aiDraftPreview,
   aiEditPreview,
   validation,
   visualDirty,
@@ -2414,16 +2572,6 @@ const { resetWorkflowSessionState, clearWorkflowDocumentState } = useWorkflowStu
 const selectedNodeTrace = computed(() =>
   selectedNodeId.value ? nodeTraceStates.value[selectedNodeId.value] || null : null,
 )
-
-const filteredNodeTypes = computed(() => {
-  const keyword = nodeKeyword.value.trim().toLowerCase()
-  if (!keyword) return nodeTypes.value
-  return nodeTypes.value.filter((node) =>
-    [node.type, node.canvasKind, node.canvasCategory, node.family, ...(node.aliases || [])]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(keyword)),
-  )
-})
 
 const selectedNode = computed(() =>
   nodes.value.find((node) => node.id === selectedNodeId.value) || null,
@@ -2509,10 +2657,6 @@ const debugWaitingRequest = computed<UiRequestPayload | null>(() => {
   return null
 })
 
-const debugWaitingFields = computed<UiFieldPayload[]>(() =>
-  (debugWaitingRequest.value?.fields || []).filter((field) => !!debugUiFieldKey(field)),
-)
-
 const debugSessionMessages = computed(() => debugSession.value?.messages || [])
 
 const debugCurrentUiRequest = computed<UiRequestPayload | null>(() =>
@@ -2532,15 +2676,24 @@ const traceToolNames = computed(() => {
   return Array.from(new Set(names))
 })
 
-const workflowPath = computed<WorkflowPathItem[]>(() => runOpsDetail.value?.workflowPath ?? [])
+const workflowExecutionPath = computed<RunExecutionPathItem[]>(() =>
+  (runOpsDetail.value?.executionPath ?? []).filter((item) => {
+    const spanType = (item.spanType || '').trim().toUpperCase()
+    if (spanType === 'WORKFLOW' || spanType === 'WORKFLOW_NODE') return true
+    if (item.fromNodeId || item.toNodeId) return true
+    return Boolean(item.nodeId && !['SUPERVISOR', 'PLAN', 'REPLAN', 'WORKFLOW_TOOL'].includes(spanType))
+  }),
+)
 
-const workflowPathSourceNodeIds = computed(() => {
+const workflowExecutionNodeIds = computed(() => {
   const ids = new Set<string>()
   for (const step of debugRunResult.value?.steps || []) {
     ids.add(step.nodeId)
   }
-  for (const item of workflowPath.value) {
-    if (item.fromNodeId) ids.add(item.fromNodeId)
+  for (const item of workflowExecutionPath.value) {
+    const nodeId = item.fromNodeId || item.nodeId
+    if (nodeId) ids.add(nodeId)
+    if (item.toNodeId) ids.add(item.toNodeId)
   }
   return ids
 })
@@ -2552,20 +2705,26 @@ const workflowHitEdgeKeys = computed(() => {
       keys.add(edgeKey(step.nodeId, step.nextNodeId))
     }
   }
-  for (const item of workflowPath.value) {
+  for (const item of workflowExecutionPath.value) {
     if (item.fromNodeId && item.toNodeId) {
       keys.add(edgeKey(item.fromNodeId, item.toNodeId))
     }
+  }
+  const nodeSequence = workflowExecutionPath.value
+    .map((item) => item.fromNodeId || item.nodeId || item.toNodeId || '')
+    .filter((nodeId, index, values) => !!nodeId && (index === 0 || nodeId !== values[index - 1]))
+  for (let index = 0; index < nodeSequence.length - 1; index += 1) {
+    keys.add(edgeKey(nodeSequence[index], nodeSequence[index + 1]))
   }
   return keys
 })
 
 const workflowReplaySummary = computed(() => {
-  if (!workflowPath.value.length) return []
-  const waiting = workflowPath.value.filter((item) => workflowItemStatus(item) === 'waiting').length
-  const errors = workflowPath.value.filter((item) => workflowItemStatus(item) === 'error').length
+  if (!workflowExecutionPath.value.length) return []
+  const waiting = workflowExecutionPath.value.filter((item) => workflowExecutionItemStatus(item) === 'waiting').length
+  const errors = workflowExecutionPath.value.filter((item) => workflowExecutionItemStatus(item) === 'error').length
   return [
-    { label: 'RunOps path', value: String(workflowPath.value.length) },
+    { label: 'RunOps path', value: String(workflowExecutionPath.value.length) },
     { label: 'Waiting', value: String(waiting) },
     { label: 'Errors', value: String(errors) },
   ]
@@ -2607,16 +2766,12 @@ const nodeTraceList = computed(() =>
 
 const debugOpsItems = computed(() => {
   const metadata = debugResult.value?.metadata || {}
-  const fallback = metadata.embeddedFallbackReason ? '已回落' : metadata.runtimePlacement === 'HYBRID' ? '未回落' : '-'
   return [
-    { label: '版本', value: textValue(metadata.version) },
-    { label: '运行位置', value: textValue(metadata.runtimePlacement) },
+    { label: '发布版本', value: textValue(metadata.agentConfigVersion || metadata.workflowVersion) },
     { label: '运行时', value: textValue(metadata.runtimeType) },
     { label: '业务项目', value: textValue(metadata.projectCode) },
     { label: 'Workflow', value: textValue(metadata.workflowKeySlug || metadata.workflowId) },
-    { label: '入口绑定', value: textValue(metadata.entryAgentKeySlug || metadata.entryAgentId) },
     { label: '实例', value: textValue(metadata.instanceId) },
-    { label: 'HYBRID 回落', value: fallback },
     { label: '追踪 ID', value: textValue(metadata.traceId) },
   ].filter((item) => item.value !== '-')
 })
@@ -2648,11 +2803,6 @@ const variablePreview = computed(() => {
   }
 })
 
-const selectedDebugStep = computed(() => {
-  if (selectedDebugStepIndex.value === null) return null
-  return debugSessionSteps.value[selectedDebugStepIndex.value] || null
-})
-
 const nodeTraceStates = computed<Record<string, WorkflowNodeTraceState>>(() => {
   const states: Record<string, WorkflowNodeTraceState> = {}
   const debugSteps = debugRunResult.value?.steps || []
@@ -2680,13 +2830,13 @@ const nodeTraceStates = computed<Record<string, WorkflowNodeTraceState>>(() => {
       const previous = states[next.nodeId]
       states[next.nodeId] = preferNodeTraceState(previous, next)
     }
-    for (const item of workflowPath.value) {
-      const nodeId = (item.fromNodeId || '').trim()
+    for (const item of workflowExecutionPath.value) {
+      const nodeId = (item.fromNodeId || item.nodeId || '').trim()
       if (!nodeId) continue
       const previous = states[nodeId]
       const next: WorkflowNodeTraceState = {
         nodeId,
-        status: workflowItemStatus(item),
+        status: workflowExecutionItemStatus(item),
         route: item.route || item.condition,
         createdAt: item.startedAt,
       }
@@ -2714,7 +2864,23 @@ const nodeTraceStates = computed<Record<string, WorkflowNodeTraceState>>(() => {
 })
 
 function markCanvasDirty() {
+  if (loading.value || historyApplying.value || !historyReady.value) return
+  editGeneration.value += 1
   visualDirty.value = true
+  validation.value = null
+  validationRequestError.value = ''
+}
+
+function handleCanvasNodesChange(changes: Array<{ type?: string }>) {
+  if (changes.some((change) => ['add', 'remove', 'position'].includes(change.type || ''))) {
+    markCanvasDirty()
+  }
+}
+
+function handleCanvasEdgesChange(changes: Array<{ type?: string }>) {
+  if (changes.some((change) => ['add', 'remove'].includes(change.type || ''))) {
+    markCanvasDirty()
+  }
 }
 
 function lastRouteForNode(nodeId: string) {
@@ -2722,7 +2888,9 @@ function lastRouteForNode(nodeId: string) {
     const route = nodeDebugResult.value.lastRoute || String(nodeDebugResult.value.outputState?.lastRoute || '')
     if (route) return route
   }
-  const fromWorkflow = workflowPath.value.find((item) => item.fromNodeId === nodeId && item.route)?.route
+  const fromWorkflow = workflowExecutionPath.value.find(
+    (item) => (item.fromNodeId || item.nodeId) === nodeId && item.route,
+  )?.route
   if (fromWorkflow) return fromWorkflow
   const trace = nodeTraceStates.value[nodeId]
   if (trace?.route) return trace.route
@@ -2739,7 +2907,6 @@ function lastRouteForNode(nodeId: string) {
 const {
   decorateWorkflowEdge,
   decorateWorkflowNode,
-  decorateWorkflowEdges,
   refreshWorkflowNodeClasses,
   canvasSnapshot,
   onConnect,
@@ -2749,11 +2916,7 @@ const {
   deleteSelectedNode,
   syncSelectedEdgeLabel,
   applySelectedEdgeCondition,
-  cloneCanvasNode,
-  previewEdgeLabel,
-  connectionCondition,
   edgeDisplayLabel,
-  isDynamicCondition,
   stripTransientNodeClasses,
 } = useWorkflowStudioCanvasActions({
   studioReadOnly,
@@ -2768,9 +2931,9 @@ const {
   canCopySelectedNode,
   selectedNode,
   selectedEdge,
-  workflowPath,
+  workflowExecutionPath,
   workflowHitEdgeKeys,
-  workflowPathSourceNodeIds,
+  workflowExecutionSourceNodeIds: workflowExecutionNodeIds,
   getNodeDebugState: (nodeId) => nodeDebugStateForCanvas(nodeId),
   getLastRouteForNode: lastRouteForNode,
   markCanvasDirty,
@@ -2794,6 +2957,8 @@ const {
   decorateWorkflowNode,
   markCanvasDirty,
   syncJsonFromCanvas,
+  waitForNodeMeasurements: waitForWorkflowNodeMeasurements,
+  getNodeMeasurement: getWorkflowNodeMeasurement,
 })
 
 const {
@@ -2814,6 +2979,7 @@ const {
   selectedNodeId,
   selectedEdgeId,
   visualDirty,
+  editGeneration,
   stripTransientNodeClasses,
   decorateWorkflowNode,
   decorateWorkflowEdge,
@@ -2833,15 +2999,17 @@ function applyCanvasFromStudio(state: WorkflowStudioState) {
 
 function syncJsonFromCanvas() {
   if (!studio.value) return
-  const saveRequest = workflowCanvasToSaveRequest(studio.value, canvasSnapshot())
+  const saveRequest = workflowCanvasToSaveRequest({
+    ...studio.value,
+    graphSpecJson: graphSpecJson.value,
+    canvasJson: canvasJson.value,
+  }, canvasSnapshot())
   graphSpecJson.value = formatJson(saveRequest.graphSpecJson)
   canvasJson.value = formatJson(saveRequest.canvasJson || '{"nodes":[],"edges":[]}')
-  visualDirty.value = false
   validation.value = null
 }
 
 const {
-  syncWorkflowMetaFromStudio,
   workflowMetaDirty,
   loadStudio,
   saveStudio,
@@ -2856,6 +3024,7 @@ const {
   nodes,
   workflowMeta,
   visualDirty,
+  editGeneration,
   lastSavedAt,
   validation,
   aiModelInstanceId,
@@ -2865,6 +3034,14 @@ const {
   loadCredentialOptions,
   clearWorkflowDocumentState,
 })
+
+async function handleSaveStudio() {
+  const saved = await saveStudio()
+  if (saved) {
+    await validateRuntime({ silent: true, syncCanvas: false })
+  }
+  return saved
+}
 
 const {
   resolveAiModelInstanceId,
@@ -2879,8 +3056,6 @@ const {
 
 const {
   buildDebugBaseRequest,
-  buildWorkflowDebugDraftDefinition,
-  currentStudioStateForDebug,
   nodeDebugState: resolveNodeDebugState,
   nodeRunClass: resolveNodeRunClass,
   nodeRunLabel: resolveNodeRunLabel,
@@ -2897,9 +3072,7 @@ const {
   clearTraceReplay,
   recentRunLabel,
   handleRunPublishedDebug,
-  runNodeDebug,
   handleRunNodeDebug,
-  clearWorkflowDebugView,
   isDebugStepRunning,
 } = useWorkflowStudioDebugRun({
   workflowId,
@@ -2919,7 +3092,6 @@ const {
   nodeDebugMessage,
   nodeDebugStateJson,
   debugInputParams,
-  debugInteractionParams,
   currentTraceId,
   traceNodes,
   runOpsDetail,
@@ -2938,14 +3110,12 @@ const {
   selectedNode,
   nodeDebugStateText,
   debugInputFields,
-  debugWaitingFields,
   resolveAiModelInstanceId,
   syncJsonFromCanvas,
   canvasSnapshot,
   refreshWorkflowNodeClasses,
   applyDebugSession,
   forgetDebugSession,
-  clearDebugSessionView,
   loadStoredDebugSession,
   getViewport,
   setCenter,
@@ -2979,34 +3149,17 @@ const {
 })
 
 const {
-  selectedNodeIdsForAi,
-  selectedEdgeIdsForAi,
-  activeAiPreview,
-  aiDraftPreviewNodes,
-  aiDraftPreviewEdges,
-  aiDraftPreviewNodeLabels,
   aiEditOperationGroups,
-  aiPreviewPlaceholderNodes,
-  draftPreviewTitle,
-  draftPreviewSummary,
-  draftPreviewIssues,
-  aiEditScopeLabel,
-  openAiDraftDialog,
-  generateAiDraft,
-  editAiDraft,
-  applyAiPreview,
-  clearAiPreview,
+  runAiAuthoring,
   clearAiEditPreview,
   applyAiEditPreview,
-  handleApplyAiDraft,
   operationKey,
-  previewNodeLabel,
-  workflowEditOperationLabel,
   operationTarget,
 } = useWorkflowStudioAiDraftActions({
   workflowId,
   studioReadOnly,
   studio,
+  editGeneration,
   graphSpecJson,
   canvasJson,
   nodes,
@@ -3015,14 +3168,9 @@ const {
   selectedEdgeId,
   activeTab,
   validation,
-  aiModelInstanceId,
-  aiRequirement,
   aiEditInstruction,
-  aiDraftLoading,
   aiEditLoading,
-  aiDraftPreview,
   aiEditPreview,
-  aiDraftDialogOpen,
   availableTools,
   availableCompositions,
   knowledgeOptions,
@@ -3033,6 +3181,8 @@ const {
   syncJsonFromCanvas,
   canvasSnapshot,
   applyCanvasFromStudio,
+  autoLayoutWorkflowCanvas,
+  fitCanvas: handleFitView,
 })
 
 const {
@@ -3066,23 +3216,55 @@ const {
 const {
   publishWarnings,
   publishWorkflow,
-  preloadPublishValidation,
   releaseValidationKey,
-  formatReleaseValidationItem,
   handlePublishWorkflow,
 } = useWorkflowStudioRelease({
   workflowId,
   studioReadOnly,
   studio,
   nodes,
+  graphLintErrors,
+  graphLintWarnings,
+  editGeneration,
   publishing,
+  releaseChecking,
+  releaseValidationReady,
   publishDialogOpen,
   releaseErrors,
   releaseWarnings,
   publishForm,
+  validateCurrentDraft: () => validateRuntime({ silent: true }),
   saveStudio,
   loadStudio,
 })
+
+function handlePublishDialogBeforeClose(done: () => void) {
+  if (!publishing.value) done()
+}
+
+const primaryOverlayRefs = [
+  debugOpen,
+  evalOpen,
+  jsonDrawerVisible,
+  apiQueryTemplateOpen,
+  publishDialogOpen,
+]
+
+watch(
+  () => primaryOverlayRefs.map((item) => item.value),
+  (visible, previous) => {
+    const openedIndex = visible.findIndex((shown, index) => shown && !previous[index])
+    if (openedIndex < 0) return
+    const publishIndex = primaryOverlayRefs.indexOf(publishDialogOpen)
+    if (publishing.value && publishDialogOpen.value && openedIndex !== publishIndex) {
+      primaryOverlayRefs[openedIndex].value = false
+      return
+    }
+    primaryOverlayRefs.forEach((item, index) => {
+      if (index !== openedIndex && item.value) item.value = false
+    })
+  },
+)
 
 function nodeDebugStateForCanvas(nodeId: string) {
   return resolveNodeDebugState(nodeId, nodeTraceStates.value)
@@ -3160,6 +3342,7 @@ onMounted(async () => {
   ])
   applyProjectApiRouteContext()
   resetHistorySnapshot()
+  await validateRuntime({ silent: true, syncCanvas: false })
   window.addEventListener('resize', updateViewportWidth)
   window.addEventListener('keydown', handleStudioShortcut)
 })
@@ -3184,8 +3367,26 @@ watch(
   () => {
     if (!historyReady.value || historyApplying.value) return
     pushHistorySnapshot()
+    markCanvasDirty()
   },
   { flush: 'post' },
+)
+
+watch(
+  () => [
+    workflowMeta.name,
+    workflowMeta.keySlug,
+    workflowMeta.workflowType,
+    workflowMeta.description,
+    workflowMeta.defaultModelInstanceId,
+  ].join('\u0000'),
+  () => {
+    if (studio.value && workflowMetaDirty()) {
+      editGeneration.value += 1
+      validation.value = null
+      validationRequestError.value = ''
+    }
+  },
 )
 
 watch(
@@ -3216,44 +3417,66 @@ watch(
   async (nextId, prevId) => {
     if (!nextId || nextId === prevId) return
     resetWorkflowSessionState()
+    validationRequestError.value = ''
     await loadStudio()
+    await validateRuntime({ silent: true, syncCanvas: false })
   },
 )
 
-watch(
-  () => debugWaitingRequest.value?.interactionId || '',
-  () => {
-    for (const key of Object.keys(debugInteractionParams)) {
-      delete debugInteractionParams[key]
-    }
-    const request = debugWaitingRequest.value
-    if (!request) return
-    const prefilled = request.prefilled || {}
-    for (const field of debugWaitingFields.value) {
-      const key = debugUiFieldKey(field)
-      if (!key) continue
-      debugInteractionParams[key] = prefilled[key] ?? ''
-    }
-  },
-)
+function workflowRequestErrorMessage(err: unknown) {
+  const error = err as { response?: { data?: { message?: string } }; message?: string }
+  return error.response?.data?.message || error.message || '服务请求失败'
+}
 
-async function validateRuntime() {
+async function validateRuntime(options: { silent?: boolean; syncCanvas?: boolean } = {}) {
+  if (!studio.value || !workflowId.value) return null
+  const validationToken = ++validationSequence
+  let validatedWorkflowId = workflowId.value
+  let validatedGraphSpecJson = graphSpecJson.value
+  let validatedModelInstanceId = workflowMeta.defaultModelInstanceId
+  let validatedEditGeneration = editGeneration.value
+  const isCurrentValidation = () => (
+    validationToken === validationSequence
+    && workflowId.value === validatedWorkflowId
+    && graphSpecJson.value === validatedGraphSpecJson
+    && workflowMeta.defaultModelInstanceId === validatedModelInstanceId
+    && editGeneration.value === validatedEditGeneration
+  )
   validating.value = true
   try {
-    if (nodes.value.length) {
+    if (options.syncCanvas !== false && nodes.value.length) {
       syncJsonFromCanvas()
     }
+    validatedWorkflowId = workflowId.value
+    validatedGraphSpecJson = graphSpecJson.value
+    validatedModelInstanceId = workflowMeta.defaultModelInstanceId
+    validatedEditGeneration = editGeneration.value
     const { data } = await validateWorkflowRuntimeApi({
-      workflowId: workflowId.value,
-      graphSpecJson: graphSpecJson.value,
+      workflowId: validatedWorkflowId,
+      graphSpecJson: validatedGraphSpecJson,
       runtimeType: studio.value?.runtimeType || 'LANGGRAPH4J',
+      defaultModelInstanceId: validatedModelInstanceId,
     })
+    if (!isCurrentValidation()) return null
     validation.value = data
-    if (data.valid) {
+    validationRequestError.value = ''
+    if (data.valid && !options.silent) {
       ElMessage.success('Workflow GraphSpec 校验通过')
     }
+    if (!data.valid && !options.silent) {
+      ElMessage.warning(`Workflow 仍有 ${data.errors.length} 个发布阻断项`)
+    }
+    return data
+  } catch (err) {
+    if (!isCurrentValidation()) return null
+    validation.value = null
+    validationRequestError.value = workflowRequestErrorMessage(err)
+    if (!options.silent) {
+      ElMessage.error(`Workflow 校验失败：${validationRequestError.value}`)
+    }
+    return null
   } finally {
-    validating.value = false
+    if (validationToken === validationSequence) validating.value = false
   }
 }
 
@@ -3321,6 +3544,53 @@ function refreshCanvasFromJson() {
     canvasJson: canvasJson.value,
   }
   applyCanvasFromStudio(state)
+}
+
+function resetJsonDraft() {
+  jsonDraftGraphSpec.value = graphSpecJson.value
+  jsonDraftCanvas.value = canvasJson.value
+}
+
+function openJsonDrawer() {
+  if (nodes.value.length) {
+    syncJsonFromCanvas()
+  }
+  resetJsonDraft()
+  activeTab.value = 'graph'
+  jsonDrawerVisible.value = true
+}
+
+async function applyJsonDraft() {
+  if (studioReadOnly.value) {
+    ElMessage.info('代码托管 Workflow 当前为只读草稿，请修改后重启同步。')
+    return
+  }
+  jsonApplying.value = true
+  try {
+    const graph = normalizeJson(jsonDraftGraphSpec.value, 'GraphSpec')
+    const canvas = normalizeJson(jsonDraftCanvas.value || '{}', 'Canvas')
+    graphSpecJson.value = formatJson(graph)
+    canvasJson.value = formatJson(canvas)
+    refreshCanvasFromJson()
+    markCanvasDirty()
+    resetHistorySnapshot()
+    const data = await validateRuntime({ silent: true })
+    resetJsonDraft()
+    if (!data) {
+      ElMessage.warning('源码已应用到当前草稿，但运行时校验尚未完成')
+      return
+    }
+    jsonDrawerVisible.value = false
+    if (data.valid) {
+      ElMessage.success('源码已校验并应用到当前草稿')
+    } else {
+      ElMessage.warning(`源码已应用，仍有 ${data.errors.length} 个发布阻断项`)
+    }
+  } catch (err) {
+    ElMessage.error('Workflow 源码应用失败：' + (err as Error).message)
+  } finally {
+    jsonApplying.value = false
+  }
 }
 
 function handleCreateInteractionCallNode(request: InteractionCallNodeRequest) {
@@ -3408,8 +3678,16 @@ function handleZoomOut() {
 }
 
 async function handleAutoLayout() {
-  autoLayoutWorkflowCanvas()
-  await handleFitView()
+  if (layoutRunning.value) return
+  layoutRunning.value = true
+  try {
+    await autoLayoutWorkflowCanvas()
+    await handleFitView()
+  } catch (err) {
+    ElMessage.error('自动整理失败：' + (err as Error).message)
+  } finally {
+    layoutRunning.value = false
+  }
 }
 
 function toggleSelectedNodeCollapsed() {
@@ -3433,6 +3711,11 @@ function handleStudioShortcut(event: KeyboardEvent) {
   if (isInputTarget(event.target)) return
   const key = event.key.toLowerCase()
   const mod = event.ctrlKey || event.metaKey
+  if (mod && key === 's') {
+    event.preventDefault()
+    void handleSaveStudio()
+    return
+  }
   if (mod && key === 'f') {
     event.preventDefault()
     openCanvasSearch()
@@ -3500,6 +3783,19 @@ function focusLintItem(item: GraphLintItem) {
   }
 }
 
+function focusRuntimeValidationItem(target?: string | null) {
+  const normalized = String(target || '').trim()
+  if (!normalized) return
+  const directNode = nodes.value.find((node) => node.id === normalized)
+  const prefixedNodeId = normalized.replace(/^nodes?[.:/]/i, '').split(/[.:/]/)[0]
+  const node = directNode || nodes.value.find((item) => item.id === prefixedNodeId)
+  if (!node) return
+  selectedNodeId.value = node.id
+  selectedEdgeId.value = null
+  propertyPanelCollapsed.value = false
+  void focusDebugNode(node.id)
+}
+
 function normalizeCanvasKind(type: string): CanvasNodeKind {
   const normalized = type.trim()
   const upper = normalized.toUpperCase()
@@ -3552,10 +3848,6 @@ function normalizeCanvasKind(type: string): CanvasNodeKind {
   return allowed.includes(normalized as CanvasNodeKind)
     ? normalized as CanvasNodeKind
     : 'tool'
-}
-
-function findNodeDescriptor(kind: CanvasNodeKind) {
-  return nodeTypes.value.find((item) => normalizeCanvasKind(item.canvasKind || item.type || '') === kind)
 }
 
 function sourceLabel(value?: string | null) {
@@ -3679,13 +3971,12 @@ function portSummary(ports: CanvasNode['data']['inputs'] | CanvasNode['data']['o
 }
 
 function handleHeaderCommand(command: string | number | object) {
-  if (command === 'json') {
-    jsonDrawerVisible.value = true
+  if (command === 'eval') {
+    openEvalDrawer()
     return
   }
-  if (command === 'sync-json') {
-    syncJsonFromCanvas()
-    jsonDrawerVisible.value = true
+  if (command === 'json') {
+    openJsonDrawer()
     return
   }
   if (command === 'fit') {
@@ -3694,10 +3985,6 @@ function handleHeaderCommand(command: string | number | object) {
   }
   if (command === 'layout') {
     void handleAutoLayout()
-    return
-  }
-  if (command === 'search') {
-    openCanvasSearch()
     return
   }
   if (command === 'node-debug') {
@@ -3714,22 +4001,6 @@ function handleHeaderCommand(command: string | number | object) {
 
 function debugStepStatusClass(status?: string) {
   return `is-${debugStepStatus(status)}`
-}
-
-function debugStepClass(status?: string) {
-  return debugStepStatusClass(status)
-}
-
-function debugStepTagType(status?: string) {
-  const normalized = debugStepStatus(status)
-  if (normalized === 'success') return 'success'
-  if (normalized === 'error') return 'danger'
-  if (normalized === 'waiting') return 'warning'
-  return 'primary'
-}
-
-function debugStepOutput(step: WorkflowDebugStepResult) {
-  return step.output ?? step.rawOutput ?? step.statePatch ?? step.uiRequest ?? step.artifact ?? null
 }
 
 function debugSessionVisualClass(status?: string) {
@@ -3775,10 +4046,6 @@ function uiRequestFromOutput(output: Record<string, unknown> | null) {
   return request.component || request.fields ? request as unknown as UiRequestPayload : null
 }
 
-function debugUiFieldKey(field: UiFieldPayload) {
-  return String(field.key || field.name || '').trim()
-}
-
 function debugFieldLabel(field: StudioFieldSchema) {
   return `${field.name}${field.required ? ' *' : ''}`
 }
@@ -3803,7 +4070,7 @@ function stringMeta(metadata: Record<string, unknown>, key: string) {
   return value === null || value === undefined ? '' : String(value)
 }
 
-function workflowItemStatus(item: WorkflowPathItem): WorkflowNodeTraceState['status'] {
+function workflowExecutionItemStatus(item: RunExecutionPathItem): WorkflowNodeTraceState['status'] {
   const status = (item.status || item.workflowStatus || '').trim().toUpperCase()
   if (status === 'RUNNING' || status === 'EXECUTING') return 'running'
   if (status === 'WAITING') return 'waiting'
@@ -4008,6 +4275,24 @@ function formatDebugResult(value: unknown) {
   line-height: 1.55;
 }
 
+.json-source-alert {
+  margin-bottom: 12px;
+}
+
+.json-source-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.json-source-footer > div {
+  display: flex;
+  gap: 8px;
+}
+
 .canvas-toolbar {
   display: flex;
   align-items: center;
@@ -4210,7 +4495,6 @@ function formatDebugResult(value: unknown) {
   font-family: Consolas, Monaco, 'Courier New', monospace;
 }
 
-.ai-draft-form,
 .debug-form {
   display: grid;
   gap: 10px;
@@ -4229,7 +4513,6 @@ function formatDebugResult(value: unknown) {
   gap: 6px;
 }
 
-.ai-draft-form :deep(textarea),
 .debug-form :deep(textarea) {
   font-family: Consolas, Monaco, 'Courier New', monospace;
   font-size: 12px;
@@ -4277,17 +4560,14 @@ function formatDebugResult(value: unknown) {
   line-height: 1.5;
 }
 
-.ai-edit-preview,
-.ai-draft-preview,
-.ai-draft-placeholders {
+.ai-edit-preview {
   display: grid;
   gap: 10px;
   min-width: 0;
   margin-bottom: 12px;
 }
 
-.ai-edit-preview-head,
-.ai-draft-preview-head {
+.ai-edit-preview-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4295,9 +4575,7 @@ function formatDebugResult(value: unknown) {
   min-width: 0;
 }
 
-.ai-edit-preview-head strong,
-.ai-draft-preview-head strong,
-.ai-draft-placeholders strong {
+.ai-edit-preview-head strong {
   min-width: 0;
   overflow: hidden;
   color: var(--el-text-color-primary);
@@ -4307,8 +4585,7 @@ function formatDebugResult(value: unknown) {
   white-space: nowrap;
 }
 
-.ai-edit-preview-head span,
-.ai-draft-preview-head span {
+.ai-edit-preview-head span {
   flex-shrink: 0;
   color: var(--el-text-color-secondary);
   font-size: 12px;
@@ -4350,59 +4627,6 @@ function formatDebugResult(value: unknown) {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 10px;
-}
-
-.ai-draft-node-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 8px;
-}
-
-.ai-draft-node {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  background: var(--el-fill-color-extra-light);
-}
-
-.ai-draft-node strong,
-.ai-draft-node span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ai-draft-node strong {
-  color: var(--el-text-color-primary);
-  font-size: 12px;
-}
-
-.ai-draft-node span,
-.ai-draft-edge-list span,
-.ai-draft-placeholder {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.ai-draft-edge-list,
-.ai-draft-placeholders {
-  display: grid;
-  gap: 6px;
-}
-
-.ai-draft-edge-list span,
-.ai-draft-placeholder {
-  min-width: 0;
-  overflow: hidden;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: var(--el-fill-color-light);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .eval-body {
@@ -4671,6 +4895,17 @@ function formatDebugResult(value: unknown) {
   color: #1d4ed8;
 }
 
+.save-state.is-unpublished i {
+  background: #d97706;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.14);
+}
+
+.save-state.is-unpublished {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #b45309;
+}
+
 .save-state.is-saved i {
   background: #22c55e;
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
@@ -4772,10 +5007,6 @@ function formatDebugResult(value: unknown) {
   background: #f0f5ff;
   color: #3157ff;
   box-shadow: inset 3px 0 0 #3157ff;
-}
-
-.rail-spacer {
-  flex: 1;
 }
 
 .palette-content {
@@ -5006,11 +5237,11 @@ function formatDebugResult(value: unknown) {
   background: #1f2937;
 }
 
-.canvas-operator {
+.canvas-operator-panel {
   position: absolute;
-  left: 22px;
+  left: 18px;
   right: auto;
-  bottom: 86px;
+  bottom: 68px;
   z-index: 8;
   display: flex;
   align-items: center;
@@ -5021,18 +5252,13 @@ function formatDebugResult(value: unknown) {
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16);
   backdrop-filter: blur(12px);
-  transition: width 0.18s ease, padding 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  max-width: calc(100% - 36px);
+  overflow-x: auto;
+  transition: padding 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 
-.canvas-operator .el-button {
+.canvas-operator-panel .el-button {
   margin-left: 0;
-}
-
-.canvas-operator.collapsed {
-  padding: 6px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.13);
 }
 
 .canvas-search-panel {
@@ -5049,54 +5275,340 @@ function formatDebugResult(value: unknown) {
 
 .workflow-inspector {
   position: absolute;
-  left: 14px;
-  right: 14px;
+  left: 18px;
+  right: auto;
   bottom: 72px;
-  z-index: 5;
-  display: grid;
-  grid-template-columns: minmax(260px, 1.15fr) minmax(220px, 0.85fr);
-  gap: 10px;
+  z-index: 6;
+  width: min(760px, calc(100% - 36px));
   pointer-events: none;
+}
+
+.workflow-inspector.is-variables {
+  width: min(860px, calc(100% - 36px));
 }
 
 .inspector-section {
   min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 14px;
+  background: var(--el-bg-color-overlay, #fff);
+  box-shadow: 0 20px 52px rgba(15, 23, 42, 0.14);
   pointer-events: auto;
+  backdrop-filter: blur(16px);
+}
+
+.inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 66px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  background: linear-gradient(135deg, var(--el-fill-color-blank) 0%, var(--el-color-primary-light-9) 100%);
+}
+
+.inspector-title,
+.inspector-head-actions {
+  display: flex;
+  align-items: center;
+}
+
+.inspector-title {
+  min-width: 0;
+  gap: 10px;
+}
+
+.inspector-title > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.inspector-title strong {
+  color: var(--el-text-color-primary);
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.inspector-title small {
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspector-title-icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 10px;
+  font-size: 17px;
+}
+
+.inspector-title-icon.is-validation {
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+}
+
+.inspector-title-icon.is-variable {
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+}
+
+.inspector-head-actions {
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.inspector-count {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.inspector-close {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+}
+
+.inspector-close:hover {
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-primary);
+}
+
+.inspector-body {
+  max-height: min(300px, calc(100vh - 230px));
+  padding: 12px 14px 14px;
+  overflow-y: auto;
 }
 
 .inspector-list {
   display: grid;
-  gap: 6px;
+  gap: 8px;
+}
+
+.runtime-validation-list {
+  margin-top: 8px;
 }
 
 .inspector-item {
   display: grid;
-  grid-template-columns: 54px 1fr;
+  grid-template-columns: auto minmax(0, 1fr) 16px;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  background: #fff;
+  padding: 10px 11px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-primary);
   cursor: pointer;
   text-align: left;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.inspector-item:hover {
+  transform: translateY(-1px);
+  border-color: var(--el-color-primary-light-5);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.inspector-item > span {
+  min-width: 48px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.inspector-item em {
+  min-width: 0;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.inspector-item-arrow {
+  color: var(--el-text-color-placeholder);
+  font-size: 13px;
 }
 
 .inspector-item.error {
-  border-color: #fecaca;
-  background: #fff5f5;
+  border-color: var(--el-color-danger-light-7);
+  background: var(--el-color-danger-light-9);
+}
+
+.inspector-item.error > span {
+  background: var(--el-color-danger-light-8);
+  color: var(--el-color-danger);
 }
 
 .inspector-item.warning {
-  border-color: #fed7aa;
-  background: #fffbeb;
+  border-color: var(--el-color-warning-light-7);
+  background: var(--el-color-warning-light-9);
+}
+
+.inspector-item.warning > span {
+  background: var(--el-color-warning-light-8);
+  color: var(--el-color-warning-dark-2);
+}
+
+.inspector-empty-state {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 64px;
+  padding: 12px;
+  border: 1px dashed var(--el-border-color);
+  border-radius: 10px;
+  background: var(--el-fill-color-lighter);
+}
+
+.inspector-empty-state.is-error {
+  border-color: var(--el-color-danger-light-7);
+  background: var(--el-color-danger-light-9);
+}
+
+.inspector-empty-icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--el-color-success-light-8);
+  color: var(--el-color-success);
+  font-size: 16px;
+}
+
+.inspector-empty-state.is-error .inspector-empty-icon {
+  background: var(--el-color-danger-light-8);
+  color: var(--el-color-danger);
+}
+
+.inspector-empty-state > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.inspector-empty-state strong {
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+}
+
+.inspector-empty-state > div > span {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.variable-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.variable-chip {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 9px 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.variable-chip:hover {
+  transform: translateY(-1px);
+  border-color: var(--el-color-primary-light-5);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.variable-chip-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  font-size: 14px;
+}
+
+.variable-chip-content {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.variable-chip code {
+  overflow: hidden;
+  color: var(--el-text-color-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.variable-chip small {
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.variable-chip > .el-icon {
+  color: var(--el-text-color-placeholder);
+  font-size: 13px;
+}
+
+.inspector-more-hint {
+  margin-top: 10px;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  text-align: right;
+}
+
+.inspector-close:focus-visible,
+.inspector-item:focus-visible,
+.variable-chip:focus-visible {
+  outline: 2px solid var(--el-color-primary-light-5);
+  outline-offset: 2px;
 }
 
 .canvas-statusbar {
@@ -5160,6 +5672,32 @@ function formatDebugResult(value: unknown) {
 .status-pill.warning {
   border-color: #fed7aa;
   color: #c2410c;
+}
+
+.status-pill.active {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.1);
+}
+
+.status-pill.danger.active {
+  border-color: var(--el-color-danger-light-5);
+  background: var(--el-color-danger-light-9);
+}
+
+.status-pill.warning.active {
+  border-color: var(--el-color-warning-light-5);
+  background: var(--el-color-warning-light-9);
+}
+
+.canvas-tools-pill {
+  color: #4f46e5;
+}
+
+.canvas-tools-pill.active {
+  border-color: rgba(99, 102, 241, 0.38);
+  background: linear-gradient(135deg, rgba(238, 242, 255, 0.98), rgba(240, 253, 250, 0.9));
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.12);
 }
 
 .smart-edit-pill {
@@ -5259,34 +5797,6 @@ function formatDebugResult(value: unknown) {
   font-size: 12px;
 }
 
-.ai-draft-body {
-  display: grid;
-  gap: 12px;
-}
-
-.ai-draft-model-row {
-  display: grid;
-  grid-template-columns: 88px 1fr;
-  align-items: center;
-  gap: 10px;
-}
-
-.ai-draft-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.ai-draft-edge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-
 .inspector-pill {
   display: inline-flex;
   align-items: center;
@@ -5305,7 +5815,7 @@ function formatDebugResult(value: unknown) {
 .ai-edit-bar {
   position: absolute;
   right: 22px;
-  bottom: 18px;
+  bottom: 72px;
   left: 22px;
   z-index: 10;
   display: grid;
@@ -5925,9 +6435,10 @@ function formatDebugResult(value: unknown) {
   --node-soft: rgba(37, 99, 235, 0.1);
   --node-line: rgba(37, 99, 235, 0.2);
   position: relative;
-  width: auto;
-  min-width: 204px;
-  max-width: 250px;
+  box-sizing: border-box;
+  width: 240px;
+  min-width: 240px;
+  max-width: 240px;
   min-height: 118px;
   padding: 20px 14px 0;
   overflow: hidden;
@@ -6044,6 +6555,7 @@ function formatDebugResult(value: unknown) {
 }
 
 .studio-page .studio-node .node-desc {
+  display: -webkit-box;
   min-height: 34px;
   margin-top: 9px;
   padding: 8px 10px;
@@ -6053,8 +6565,10 @@ function formatDebugResult(value: unknown) {
   color: #475569;
   font-size: 11px;
   line-height: 1.45;
-  text-overflow: clip;
+  text-overflow: ellipsis;
   white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .studio-page .studio-node .node-alias {
@@ -6086,8 +6600,9 @@ function formatDebugResult(value: unknown) {
 }
 
 .studio-page .studio-node.collapsed {
-  width: auto;
-  min-width: 170px;
+  width: 190px;
+  min-width: 190px;
+  max-width: 190px;
   min-height: 64px;
   padding: 18px 14px 14px 58px;
 }
@@ -6366,8 +6881,9 @@ function formatDebugResult(value: unknown) {
   --node-color: #ea580c;
   --node-soft: rgba(234, 88, 12, 0.1);
   --node-line: rgba(234, 88, 12, 0.24);
-  min-width: 278px;
-  max-width: 320px;
+  width: 300px;
+  min-width: 300px;
+  max-width: 300px;
 }
 
 .studio-page .aggregate-node {
@@ -6444,33 +6960,6 @@ function formatDebugResult(value: unknown) {
   max-height: min(74vh, 760px);
   overflow: auto;
   padding: 18px 22px 22px;
-}
-
-.canvas-operator-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 11px;
-  border: 1px solid rgba(129, 140, 248, 0.22);
-  border-radius: 999px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(238, 242, 255, 0.82)),
-    radial-gradient(circle at 18% 12%, rgba(99, 102, 241, 0.12), transparent 48%);
-  color: #4f46e5;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 800;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.canvas-operator-toggle:hover {
-  transform: translateY(-1px);
-  border-color: rgba(99, 102, 241, 0.42);
-  box-shadow:
-    0 12px 24px rgba(79, 70, 229, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86);
 }
 
 :global(.studio-debug-drawer-overlay) {
@@ -7315,9 +7804,10 @@ function formatDebugResult(value: unknown) {
     width: min(340px, 86vw);
   }
 
-  .canvas-operator {
+  .canvas-operator-panel {
     left: 12px;
     bottom: 72px;
+    max-width: calc(100% - 24px);
   }
 
   .workflow-inspector {

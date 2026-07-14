@@ -3,10 +3,15 @@ package com.enterprise.ai.capability.internal;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionEntity;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectToolEntity;
+import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
+import com.enterprise.ai.agent.registry.RegistrySecurityService;
+import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationClaims;
+import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationToken;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -83,6 +88,37 @@ class CapabilityToolExecutionServiceTest {
         assertEquals("POST", invoker.invocation.method());
         assertEquals("http://orders/api/orders/create", invoker.invocation.url());
         assertEquals(Map.of("orderNo", "A001"), invoker.invocation.body());
+    }
+
+    @Test
+    void signsSdkInvocationWithRuntimePrincipal() {
+        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
+        RegistrySecurityService securityService = mock(RegistrySecurityService.class);
+        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("ok", true)));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, securityService);
+        ToolDefinitionEntity tool = tool("qmssmp:teamArchivePage", true);
+        tool.setProjectCode("qmssmp");
+        when(mapper.selectOne(any())).thenReturn(tool);
+        RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setProjectCode("qmssmp");
+        credential.setAppKey("qmssmp");
+        credential.setAppSecret("secret");
+        when(securityService.findPrimaryActiveCredential("qmssmp")).thenReturn(Optional.of(credential));
+
+        service.execute("qmssmp:teamArchivePage", Map.of(
+                "input", Map.of("pageIndex", 1),
+                "context", Map.of(
+                        "externalUserId", "u-1",
+                        "roles", java.util.List.of("team-reader"),
+                        "sessionId", "s-1")));
+
+        Map<?, ?> headers = (Map<?, ?>) invoker.invocation.metadata().get("headers");
+        String token = String.valueOf(headers.get(ReachAiInvocationToken.HEADER_NAME));
+        ReachAiInvocationClaims claims = ReachAiInvocationToken.verify(
+                "secret", token, "qmssmp", "queryOrder", System.currentTimeMillis());
+        assertEquals("u-1", claims.getExternalUserId());
+        assertEquals(java.util.List.of("team-reader"), claims.getRoles());
+        assertEquals("s-1", claims.getSessionId());
     }
 
     private ToolDefinitionEntity tool(String qualifiedName, boolean enabled) {

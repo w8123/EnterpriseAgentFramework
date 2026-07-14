@@ -1,12 +1,19 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>领域定义（DomainClassifier）</h2>
-      <div class="header-actions">
+  <WorkbenchPage class="domain-list-page" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="governance"
+      eyebrow="Domain Governance"
+      title="领域定义"
+      description="定义业务领域、分类关键词与 Agent 可见范围，为 Tool 和能力召回提供治理标签。"
+    >
+      <template #actions>
+        <el-tooltip content="刷新领域定义" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新领域定义" @click="reload" />
+        </el-tooltip>
         <el-button type="primary" :icon="Plus" @click="openCreate">新建领域</el-button>
-        <el-button :icon="Refresh" @click="reload" :loading="loading">刷新</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <el-alert
       type="info"
@@ -14,10 +21,9 @@
       :closable="false"
       title="领域 = Tool / 粗粒度能力的业务标签集合，分类器在召回前做软过滤"
       description="关键词以 JSON 数组形式存储；命中后由 KeywordDomainClassifier 按命中长度加权排序。后端开关：ai.domain.enabled / ai.domain.soft-fallback。"
-      style="margin-bottom: 12px"
     />
 
-    <el-card shadow="never">
+    <el-card class="workbench-list-surface" shadow="never">
       <el-table :data="rows" v-loading="loading" stripe>
         <el-table-column prop="code" label="code" width="120">
           <template #default="{ row }"><code>{{ row.code }}</code></template>
@@ -68,7 +74,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogOpen" :title="editing?.id ? `编辑领域 ${editing.code}` : '新建领域'" width="560px">
+    <AppDialog v-model="dialogOpen" :title="editing?.id ? `编辑领域 ${editing.code}` : '新建领域'" width="560px">
       <el-form :model="editing" label-width="120px" v-if="editing">
         <el-form-item label="code" required>
           <el-input v-model="editing.code" :disabled="!!editing.id" placeholder="hr / finance / crm" />
@@ -104,14 +110,17 @@
         <el-button @click="dialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 
 import { createDomain, deleteDomain, listDomains, updateDomain } from '@/api/domain'
 import type { DomainDef } from '@/types/domain'
@@ -206,12 +215,3 @@ async function handleToggleVisible(row: DomainDef, agentVisible: boolean) {
 
 onMounted(reload)
 </script>
-
-<style scoped lang="scss">
-.page-container { padding: 16px; }
-.page-header {
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
-  h2 { margin: 0; font-size: 18px; }
-}
-.header-actions { display: flex; gap: 8px; }
-</style>

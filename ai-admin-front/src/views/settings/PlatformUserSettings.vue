@@ -1,14 +1,20 @@
 <template>
-  <div class="platform-user-page">
-    <div class="page-header">
-      <div>
-        <h2>平台用户与角色</h2>
-        <p>维护管理端与 Workflow Studio 账号的角色授权，支持全局与项目两种作用域。</p>
-      </div>
-      <el-button :icon="Refresh" :loading="loading" @click="reload">刷新</el-button>
-    </div>
+  <WorkbenchPage class="platform-user-page" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="platform"
+      eyebrow="Platform Identity"
+      title="平台用户与角色"
+      description="维护管理端与 Workflow Studio 账号的角色授权，支持全局与项目两种作用域。"
+    >
+      <template #actions>
+        <el-tooltip content="刷新平台用户" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新平台用户" @click="reload" />
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
-    <el-table :data="users" v-loading="loading" stripe class="platform-user-table">
+    <el-table :data="users" v-loading="loading" stripe class="platform-user-table workbench-list-surface">
       <el-table-column prop="username" label="用户名" min-width="150" />
       <el-table-column prop="displayName" label="显示名" min-width="160">
         <template #default="{ row }">
@@ -49,7 +55,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogOpen" title="角色授权" width="820px">
+    <AppDialog v-model="dialogOpen" title="角色授权" width="820px">
       <div v-if="currentUser" class="dialog-user">
         <strong>{{ formatPlatformUserDisplayName(currentUser.displayName, currentUser.username) }}</strong>
         <span>{{ currentUser.username }} · {{ formatSourceProviderLabel(currentUser.sourceProvider) }}</span>
@@ -94,14 +100,17 @@
         <el-button @click="dialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveGrants">保存</el-button>
       </template>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Delete, Plus, Refresh } from '@element-plus/icons-vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import CommonStatusTag from '@/components/CommonStatusTag.vue'
 import ProjectMultiSelect from '@/components/ProjectMultiSelect.vue'
 import {
@@ -223,55 +232,9 @@ onMounted(reload)
 
 <style scoped lang="scss">
 .platform-user-page {
-  min-height: calc(100vh - 56px);
-  padding: var(--reachai-workbench-page-padding, var(--reachai-workbench-title-gap, 10px) 28px 16px);
+  min-height: 100%;
   background: transparent;
   color: var(--text-primary);
-}
-
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: var(--reachai-workbench-title-height, 120px);
-  margin-bottom: 16px;
-  padding: var(--reachai-workbench-title-padding, 26px 28px);
-  border: 1px solid rgb(var(--brand-selected-rgb) / 0.58);
-  border-radius: var(--reachai-workbench-title-radius, 16px);
-  background: var(--brand-glass-bg);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 18px 44px rgb(var(--brand-primary-rgb) / 0.12);
-  backdrop-filter: blur(20px) saturate(1.08);
-
-  h2 {
-    margin: 0 0 8px;
-    color: var(--text-primary);
-    font-size: 24px;
-    line-height: 1.25;
-    font-weight: 800;
-  }
-
-  p {
-    margin: 0;
-    color: var(--text-secondary);
-    font-size: 14px;
-    line-height: 1.6;
-  }
-
-  :deep(.el-button) {
-    border-radius: 8px;
-    border-color: rgb(var(--brand-selected-rgb) / 0.72);
-    background: rgba(255, 255, 255, 0.72);
-    color: var(--text-primary);
-
-    &:hover {
-      border-color: rgb(var(--brand-primary-rgb) / 0.32);
-      background: rgb(var(--brand-selected-rgb) / 0.42);
-      color: var(--brand-primary);
-    }
-  }
 }
 
 .platform-user-table {
@@ -340,7 +303,6 @@ onMounted(reload)
     color: #e5e7eb;
   }
 
-  .page-header,
   .platform-user-table {
     border-color: rgb(var(--brand-primary-rgb) / 0.28);
     background: linear-gradient(145deg, rgba(15, 23, 42, 0.82), rgb(var(--brand-primary-rgb) / 0.18));

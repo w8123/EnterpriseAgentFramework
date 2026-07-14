@@ -1,0 +1,199 @@
+:root,
+html[data-theme='dark'] {
+  --el-color-primary: var(--brand-primary);
+  --el-color-primary-light-3: var(--brand-hover);
+  --el-color-primary-light-5: var(--brand-disabled);
+  --el-color-primary-light-7: rgb(var(--brand-selected-rgb) / 0.82);
+  --el-color-primary-light-8: rgb(var(--brand-selected-rgb) / 0.9);
+  --el-color-primary-light-9: var(--brand-selected);
+  --el-color-primary-dark-2: var(--brand-active);
+  --el-color-success: var(--status-success);
+  --el-color-success-light-3: color-mix(in srgb, var(--status-success) 70%, white);
+  --el-color-success-light-5: color-mix(in srgb, var(--status-success) 48%, white);
+  --el-color-success-light-7: color-mix(in srgb, var(--status-success) 28%, white);
+  --el-color-success-light-8: color-mix(in srgb, var(--status-success) 18%, white);
+  --el-color-success-light-9: color-mix(in srgb, var(--status-success) 10%, white);
+  --el-color-success-dark-2: color-mix(in srgb, var(--status-success) 82%, black);
+  --el-color-warning: var(--status-warning);
+  --el-color-warning-light-3: color-mix(in srgb, var(--status-warning) 70%, white);
+  --el-color-warning-light-5: color-mix(in srgb, var(--status-warning) 48%, white);
+  --el-color-warning-light-7: color-mix(in srgb, var(--status-warning) 28%, white);
+  --el-color-warning-light-8: color-mix(in srgb, var(--status-warning) 18%, white);
+  --el-color-warning-light-9: color-mix(in srgb, var(--status-warning) 10%, white);
+  --el-color-warning-dark-2: color-mix(in srgb, var(--status-warning) 82%, black);
+  --el-color-danger: var(--status-danger);
+  --el-color-danger-light-3: color-mix(in srgb, var(--status-danger) 70%, white);
+  --el-color-danger-light-5: color-mix(in srgb, var(--status-danger) 48%, white);
+  --el-color-danger-light-7: color-mix(in srgb, var(--status-danger) 28%, white);
+  --el-color-danger-light-8: color-mix(in srgb, var(--status-danger) 18%, white);
+  --el-color-danger-light-9: color-mix(in srgb, var(--status-danger) 10%, white);
+  --el-color-danger-dark-2: color-mix(in srgb, var(--status-danger) 82%, black);
+  --el-color-error: var(--status-danger);
+  --el-color-error-light-3: var(--el-color-danger-light-3);
+  --el-color-error-light-5: var(--el-color-danger-light-5);
+  --el-color-error-light-7: var(--el-color-danger-light-7);
+  --el-color-error-light-8: var(--el-color-danger-light-8);
+  --el-color-error-light-9: var(--el-color-danger-light-9);
+  --el-color-error-dark-2: var(--el-color-danger-dark-2);
+  --el-color-info: var(--status-info);
+  --el-color-info-light-3: color-mix(in srgb, var(--status-info) 70%, white);
+  --el-color-info-light-5: color-mix(in srgb, var(--status-info) 48%, white);
+  --el-color-info-light-7: color-mix(in srgb, var(--status-info) 28%, white);
+  --el-color-info-light-8: color-mix(in srgb, var(--status-info) 18%, white);
+  --el-color-info-light-9: color-mix(in srgb, var(--status-info) 10%, white);
+  --el-color-info-dark-2: color-mix(in srgb, var(--status-info) 82%, black);
+  --el-bg-color: var(--surface-solid-panel);
+  --el-bg-color-overlay: var(--surface-solid-overlay);
+  --el-bg-color-page: var(--surface-solid-page);
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-secondary);
+  --el-text-color-secondary: var(--text-muted);
+  --el-text-color-placeholder: var(--text-muted);
+  --el-text-color-disabled: var(--text-disabled);
+  --el-border-color: var(--border-readable);
+  --el-border-color-light: var(--border-subtle);
+  --el-border-color-lighter: var(--border-subtle);
+  --el-border-color-extra-light: var(--border-subtle);
+  --el-border-color-dark: var(--border-readable);
+  --el-fill-color: var(--surface-solid-control);
+  --el-fill-color-light: var(--surface-solid-control);
+  --el-fill-color-lighter: var(--surface-solid-panel);
+  --el-fill-color-extra-light: var(--surface-solid-panel);
+  --el-fill-color-dark: var(--surface-solid-control);
+  --el-fill-color-blank: var(--surface-solid-panel);
+  --el-mask-color: rgb(8 18 28 / 0.58);
+  --el-mask-color-extra-light: rgb(8 18 28 / 0.26);
+  --el-box-shadow: var(--shadow-panel);
+  --el-box-shadow-light: var(--shadow-panel);
+  --el-box-shadow-lighter: var(--inner-highlight);
+  --el-box-shadow-dark: var(--shadow-overlay);
+  --el-disabled-bg-color: var(--surface-solid-disabled);
+  --el-disabled-text-color: var(--text-disabled);
+  --el-disabled-border-color: var(--border-subtle);
+  --el-overlay-color: rgb(8 18 28 / 0.58);
+  --el-overlay-color-light: rgb(8 18 28 / 0.38);
+  --el-overlay-color-lighter: rgb(8 18 28 / 0.22);
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: var(--text-secondary);
+  --el-menu-active-color: var(--text-primary);
+  --el-menu-hover-bg-color: rgb(var(--brand-primary-rgb) / 0.08);
+  --el-menu-hover-text-color: var(--text-primary);
+  --el-component-size: var(--control-height);
+}
+
+html[data-theme='dark'] {
+  --el-color-primary-light-3: color-mix(in srgb, var(--brand-primary) 68%, var(--surface-solid-page));
+  --el-color-primary-light-5: color-mix(in srgb, var(--brand-primary) 50%, var(--surface-solid-page));
+  --el-color-primary-light-7: color-mix(in srgb, var(--brand-primary) 34%, var(--surface-solid-page));
+  --el-color-primary-light-8: color-mix(in srgb, var(--brand-primary) 24%, var(--surface-solid-page));
+  --el-color-primary-light-9: color-mix(in srgb, var(--brand-primary) 16%, var(--surface-solid-page));
+  --el-color-primary-dark-2: color-mix(in srgb, var(--brand-primary) 82%, white);
+  --el-color-success-light-3: color-mix(in srgb, var(--status-success) 64%, var(--surface-solid-page));
+  --el-color-success-light-5: color-mix(in srgb, var(--status-success) 48%, var(--surface-solid-page));
+  --el-color-success-light-7: color-mix(in srgb, var(--status-success) 32%, var(--surface-solid-page));
+  --el-color-success-light-8: color-mix(in srgb, var(--status-success) 24%, var(--surface-solid-page));
+  --el-color-success-light-9: color-mix(in srgb, var(--status-success) 16%, var(--surface-solid-page));
+  --el-color-success-dark-2: color-mix(in srgb, var(--status-success) 82%, white);
+  --el-color-warning-light-3: color-mix(in srgb, var(--status-warning) 64%, var(--surface-solid-page));
+  --el-color-warning-light-5: color-mix(in srgb, var(--status-warning) 48%, var(--surface-solid-page));
+  --el-color-warning-light-7: color-mix(in srgb, var(--status-warning) 32%, var(--surface-solid-page));
+  --el-color-warning-light-8: color-mix(in srgb, var(--status-warning) 24%, var(--surface-solid-page));
+  --el-color-warning-light-9: color-mix(in srgb, var(--status-warning) 16%, var(--surface-solid-page));
+  --el-color-warning-dark-2: color-mix(in srgb, var(--status-warning) 82%, white);
+  --el-color-danger-light-3: color-mix(in srgb, var(--status-danger) 64%, var(--surface-solid-page));
+  --el-color-danger-light-5: color-mix(in srgb, var(--status-danger) 48%, var(--surface-solid-page));
+  --el-color-danger-light-7: color-mix(in srgb, var(--status-danger) 32%, var(--surface-solid-page));
+  --el-color-danger-light-8: color-mix(in srgb, var(--status-danger) 24%, var(--surface-solid-page));
+  --el-color-danger-light-9: color-mix(in srgb, var(--status-danger) 16%, var(--surface-solid-page));
+  --el-color-danger-dark-2: color-mix(in srgb, var(--status-danger) 82%, white);
+  --el-color-info-light-3: color-mix(in srgb, var(--status-info) 64%, var(--surface-solid-page));
+  --el-color-info-light-5: color-mix(in srgb, var(--status-info) 48%, var(--surface-solid-page));
+  --el-color-info-light-7: color-mix(in srgb, var(--status-info) 32%, var(--surface-solid-page));
+  --el-color-info-light-8: color-mix(in srgb, var(--status-info) 24%, var(--surface-solid-page));
+  --el-color-info-light-9: color-mix(in srgb, var(--status-info) 16%, var(--surface-solid-page));
+  --el-color-info-dark-2: color-mix(in srgb, var(--status-info) 82%, white);
+}
+
+.el-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: var(--surface-solid-control);
+  --el-table-row-hover-bg-color: rgb(var(--brand-primary-rgb) / 0.06);
+  --el-table-header-text-color: var(--text-muted);
+  --el-table-text-color: var(--text-secondary);
+  --el-table-border-color: var(--border-subtle);
+  --el-table-current-row-bg-color: rgb(var(--brand-primary-rgb) / 0.08);
+  --el-table-fixed-box-shadow: var(--shadow-panel);
+}
+
+.el-pagination {
+  --el-fill-color-blank: var(--surface-solid-control);
+  --el-pagination-button-color: var(--text-secondary);
+  --el-pagination-button-disabled-color: var(--text-disabled);
+  --el-pagination-button-disabled-bg-color: var(--surface-solid-disabled);
+  --el-color-primary: var(--brand-primary);
+  --el-border-color: var(--border-readable);
+}
+
+.el-tabs {
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-secondary);
+  --el-border-color-light: var(--border-subtle);
+  --el-color-primary: var(--brand-primary);
+}
+
+.el-card {
+  --el-card-bg-color: var(--surface-solid-panel);
+  --el-card-border-color: var(--border-subtle);
+}
+
+.el-dialog {
+  --el-dialog-bg-color: var(--surface-solid-overlay);
+  --el-dialog-border-radius: var(--radius-lg);
+  --el-text-color-primary: var(--text-primary);
+  --el-border-color: var(--border-readable);
+}
+
+.el-input,
+.el-textarea {
+  --el-input-bg-color: var(--surface-solid-control);
+  --el-input-hover-border-color: rgb(var(--brand-primary-rgb) / 0.48);
+  --el-input-focus-border-color: var(--brand-primary);
+  --el-input-text-color: var(--text-primary);
+  --el-input-placeholder-color: var(--text-muted);
+  --el-input-border-color: var(--border-readable);
+}
+
+.el-select {
+  --el-border-color-hover: rgb(var(--brand-primary-rgb) / 0.48);
+  --el-fill-color-light: var(--surface-solid-disabled);
+}
+
+.el-tag {
+  --el-tag-bg-color: rgb(var(--brand-primary-rgb) / 0.1);
+  --el-tag-border-color: rgb(var(--brand-primary-rgb) / 0.2);
+  --el-tag-text-color: var(--brand-active);
+}
+
+.el-popover.el-popper {
+  --el-popover-bg-color: var(--surface-solid-overlay);
+  --el-popover-border-color: var(--border-readable);
+}
+
+.el-drawer {
+  --el-drawer-bg-color: var(--surface-solid-overlay);
+  --el-text-color-primary: var(--text-primary);
+  --el-border-color: var(--border-readable);
+}
+
+.el-pagination .btn-prev:focus-visible,
+.el-pagination .btn-next:focus-visible,
+.el-pagination .el-pager li:focus-visible,
+.el-tabs__item:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.el-loading-mask {
+  background-color: color-mix(in srgb, var(--surface-solid-page) 78%, transparent);
+}

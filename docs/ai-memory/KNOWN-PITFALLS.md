@@ -51,15 +51,18 @@ Get-Content -Encoding UTF8 path\to\file.md
 
 处理顺序：
 
-1. Agent 身份/策略/入口 → `runtime_agent` + `/api/agents` + `AgentEntryController`。
+1. Agent 身份/策略/入口 → `runtime_agent` + `/api/agents` + `AgentController`。
 2. GraphSpec / 画布 / 发布 → `runtime_workflow` + `/api/workflows` + `WorkflowStudio.vue`。
-3. Agent 到 Workflow 路由 → `runtime_agent_workflow_binding` + `/api/agents/{agentId}/workflow-bindings`。
-4. 不要在新功能中恢复 `AgentManageController`、`AgentStudio.vue` 或 `agent_definition` 字段语义。
+3. Agent 执行配置 → `runtime_agent_config_version` + `/api/agents/{agentId}/config-versions`。
+4. Agent 可选 Workflow → `runtime_agent_workflow_tool`，随配置版本保存和发布。
+5. Agent 执行工具集必须来自当前 ACTIVE `runtime_agent_config_version` 对应的 `runtime_agent_workflow_tool`；不要从页面、路由或其他旁路推导 Workflow。
+6. 不要在新功能中恢复 `AgentManageController`、`AgentStudio.vue` 或 `agent_definition` 字段语义。
 
 历史例子：
 
 - 在 `agent_definition` 上保存 `graph_spec_json` 会导致 Runtime 与 Studio 数据源分裂。
 - 遗留 `/api/agents/{agentId}/versions` 与 Workflow 版本并存时，新发布应只走 `/api/workflows/{workflowId}/versions`。
+- 页面动作未等待目标 Page Bridge 就绪就执行，会把跨路由动作投递给旧页面实例；必须检查同 session 的 `NAVIGATE -> TARGET_READY -> PAGE_ACTION` 阶段。
 
 ## Legacy Studio Panel Build Failures
 

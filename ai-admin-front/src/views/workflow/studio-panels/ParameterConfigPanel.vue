@@ -45,6 +45,10 @@ const props = defineProps<{
 const config = computed<ParameterNodeConfig>(() => {
   props.data.parameterConfig ||= {
     mode: 'expression',
+    inputExpression: 'input',
+    systemPrompt: '',
+    userPrompt: '',
+    modelParams: {},
     fields: [{ name: 'value', type: 'string', required: false, source: 'lastOutput' }],
   }
   return props.data.parameterConfig

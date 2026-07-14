@@ -34,7 +34,7 @@ public interface CapabilityRuntimeInteractionClient {
             String traceId,
             String sessionId,
             String userId,
-            Long agentId,
+            String agentId,
             String skillName,
             String status,
             String slotState,

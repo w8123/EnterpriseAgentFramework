@@ -1,8 +1,21 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>MCP 调用流水</h2>
-      <div class="header-actions">
+  <WorkbenchPage class="mcp-call-monitor-page" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="governance"
+      eyebrow="MCP Observability"
+      title="MCP 调用流水"
+      description="按 Client、方法和执行结果追踪 MCP 调用，定位延迟、错误与关联 Trace。"
+    >
+      <template #actions>
+        <el-tooltip content="刷新调用流水" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新调用流水" @click="reload" />
+        </el-tooltip>
+      </template>
+    </PageHeader>
+
+    <WorkbenchPanel level="control" density="comfortable">
+      <div class="mcp-filter-row">
         <el-input v-model="filterMethod" placeholder="method 过滤" clearable style="width: 180px" />
         <el-select v-model="filterClient" placeholder="Client" clearable style="width: 180px">
           <el-option v-for="c in clients" :key="c.id" :label="c.name" :value="c.id" />
@@ -12,11 +25,10 @@
           <el-option label="失败" :value="false" />
         </el-select>
         <el-input-number v-model="days" :min="1" :max="90" :step="1" controls-position="right" />
-        <el-button :icon="Refresh" @click="reload" :loading="loading">刷新</el-button>
       </div>
-    </div>
+    </WorkbenchPanel>
 
-    <el-card shadow="never">
+    <el-card class="workbench-list-surface" shadow="never">
       <el-table :data="rows" v-loading="loading" stripe size="small">
         <el-table-column prop="createdAt" label="时间" width="170" />
         <el-table-column prop="clientName" label="Client" width="160" show-overflow-tooltip />
@@ -51,13 +63,16 @@
         style="margin-top: 12px; justify-content: flex-end"
       />
     </el-card>
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 import { listMcpClients, pageMcpCallLogs } from '@/api/mcp'
 import type { McpCallLog, McpClient } from '@/types/mcp'
@@ -104,10 +119,10 @@ onMounted(reload)
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 16px; }
-.page-header {
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
-  h2 { margin: 0; font-size: 18px; }
+.mcp-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
 }
-.header-actions { display: flex; gap: 8px; align-items: center; }
 </style>

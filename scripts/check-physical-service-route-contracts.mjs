@@ -26,6 +26,11 @@ const retiredKnowledgeModelDeploymentFiles = [
   'deploy/Dockerfile.model-service'
 ]
 const runtimeCompatRoot = 'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/compat'
+const runtimeMigratedControllerRoots = [
+  runtimeCompatRoot,
+  'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/api',
+  'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/interaction'
+]
 const physicalServiceConfigFiles = [
   'reachai-control-service/src/main/resources/application.yml',
   'reachai-runtime-service/src/main/resources/application.yml',
@@ -202,12 +207,11 @@ const mainlineDocUnmigratedDisabledResponsePatterns = [
 const allowedRuntimeLegacyBridgeFiles = new Set()
 const allowedRuntimeLegacyBridgeMethods = new Map()
 const migratedRuntimeMethods = new Map([
-  ['RuntimeAgentInteractionCompatibilityController.java', ['humanApprovals', 'submitHumanApproval', 'cancelHumanApproval']],
+  ['RuntimeHumanApprovalController.java', ['humanApprovals', 'submitHumanApproval', 'cancelHumanApproval']],
   ['RuntimeChatCompatibilityController.java', ['chat', 'chatStream', 'clearSession']],
   ['RuntimeCapabilityExecutionCompatibilityController.java', ['executeTool', 'executeComposition', 'resumeInteraction']],
   ['RuntimeDebugSessionCompatibilityController.java', ['create', 'get', 'submit', 'cancel']],
-  ['RuntimePublicCompatibilityController.java', ['executeAgent', 'executeAgentDetailed', 'runOpsReplay']],
-  ['RuntimeRegistryCompatibilityController.java', ['dispatchEmbedded']],
+  ['RuntimePublicController.java', ['executeAgent', 'executeAgentDetailed', 'runOpsReplay']],
   ['RuntimeWorkflowAiCodingCompatibilityController.java', [
     'create',
     'context',
@@ -254,7 +258,6 @@ const migratedCapabilityRoutes = [
   { method: 'POST', path: '/api/registry/projects/{projectCode}/instances/offline' },
   { method: 'POST', path: '/api/registry/projects/{projectCode}/instances/purge-offline' },
   { method: 'POST', path: '/api/registry/projects/{projectCode}/instances/status' },
-  { method: 'POST', path: '/api/registry/projects/{projectCode}/instances/governance-policy' },
   { method: 'POST', path: '/api/registry/projects/{projectCode}/capabilities/sync' },
   { method: 'POST', path: '/api/registry/projects/{projectCode}/capabilities/diff' },
   { method: 'POST', path: '/api/registry/projects/{projectCode}/capabilities/apply' },
@@ -640,8 +643,8 @@ function isPlatformControlOwnedPublicRoute(route) {
       path.startsWith('/api/slot-extract-logs/') ||
       path === '/api/slot-bindings' ||
       path.startsWith('/api/slot-bindings/') ||
-      path === '/api/agent/evals' ||
-      path.startsWith('/api/agent/evals/') ||
+      path === '/api/runtime/evals' ||
+      path.startsWith('/api/runtime/evals/') ||
       path === '/api/v1/agents' ||
       path.startsWith('/api/v1/agents/') ||
       /^\/api\/registry\/projects\/[^/]+\/pages(\/|$)/.test(path)
@@ -1004,21 +1007,6 @@ if (exists(runtimeCompatRoot)) {
     }))
   report('runtime legacy bridge must stay on explicit migration allowlist', issues)
 
-  const migratedMethodIssues = walk(runtimeCompatRoot).flatMap((file) => {
-    const methods = migratedRuntimeMethods.get(fileName(file))
-    if (!methods) {
-      return []
-    }
-    return methods
-      .filter((methodName) => methodUsesRuntimeLegacyBridge(file, methodName))
-      .map((methodName) => ({
-        key: `${file}#${methodName}`,
-        sourceFile: file,
-        targetRoot: 'migrated runtime route implementation'
-      }))
-  })
-  report('migrated Runtime route must not use legacy bridge', migratedMethodIssues)
-
   const undocumentedBridgeMethodIssues = walk(runtimeCompatRoot)
     .filter(hasRuntimeLegacyBridgeMarker)
     .filter((file) => fileName(file) !== 'RuntimeLegacyProxyGateway.java')
@@ -1034,6 +1022,24 @@ if (exists(runtimeCompatRoot)) {
     })
   report('runtime legacy bridge method must be on explicit migration backlog', undocumentedBridgeMethodIssues)
 }
+
+const migratedMethodIssues = runtimeMigratedControllerRoots
+  .filter(exists)
+  .flatMap(walk)
+  .flatMap((file) => {
+    const methods = migratedRuntimeMethods.get(fileName(file))
+    if (!methods) {
+      return []
+    }
+    return methods
+      .filter((methodName) => methodUsesRuntimeLegacyBridge(file, methodName))
+      .map((methodName) => ({
+        key: `${file}#${methodName}`,
+        sourceFile: file,
+        targetRoot: 'migrated runtime route implementation'
+      }))
+  })
+report('migrated Runtime route must not use legacy bridge', migratedMethodIssues)
 
 if (failures > 0) {
   console.error(`\nphysical service route contract check failed: ${failures} issue(s)`)

@@ -1,18 +1,20 @@
 <template>
-  <div class="workflow-versions">
-    <header class="page-header">
-      <div>
-        <h1>{{ workflow?.name || 'Workflow 版本' }}</h1>
-        <p>{{ workflow?.keySlug || workflowId }}</p>
-        <div class="meta-row">
+  <WorkbenchPage class="workflow-versions">
+    <PageHeader
+      variant="entity"
+      domain="workflow"
+      eyebrow="Workflow Versions"
+      :title="workflow?.name || 'Workflow 版本'"
+      :description="workflow?.keySlug || workflowId"
+    >
+      <template #tags>
           <el-tag size="small" effect="plain">{{ formatWorkflowTypeLabel(workflow?.workflowType) }}</el-tag>
           <el-tag size="small" type="info" effect="plain">{{ formatRuntimeTypeLabel(workflow?.runtimeType) }}</el-tag>
           <el-tag size="small" :type="workflowStatusTagType(workflow?.status)">
             {{ formatWorkflowStatusLabel(workflow?.status) }}
           </el-tag>
-        </div>
-      </div>
-      <div class="header-actions">
+      </template>
+      <template #actions>
         <el-button :icon="ArrowLeft" @click="router.push(`/workflows/${workflowId}/studio`)">
           编排
         </el-button>
@@ -20,8 +22,8 @@
           校验
         </el-button>
         <el-button type="primary" :icon="Upload" @click="publishOpen = true">发布</el-button>
-      </div>
-    </header>
+      </template>
+    </PageHeader>
 
     <el-alert
       v-if="validation"
@@ -72,7 +74,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="publishOpen" title="发布 Workflow 版本" width="460px">
+    <AppDialog v-model="publishOpen" title="发布 Workflow 版本" width="460px">
       <el-form :model="publishForm" label-width="110px">
         <el-form-item label="版本">
           <el-input v-model="publishForm.version" placeholder="v1.0.0" />
@@ -91,11 +93,12 @@
         <el-button @click="publishOpen = false">取消</el-button>
         <el-button type="primary" :loading="publishing" @click="publishVersion">发布</el-button>
       </template>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -119,6 +122,8 @@ import {
   formatWorkflowTypeLabel,
   workflowStatusTagType,
 } from '@/utils/workflowLabels'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -214,40 +219,7 @@ async function rollback(row: WorkflowVersion) {
 <style scoped>
 .workflow-versions {
   min-height: calc(100vh - 56px);
-  padding: 20px;
   background: var(--el-bg-color-page);
-}
-
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.page-header h1 {
-  margin: 0 0 6px;
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 0;
-}
-
-.page-header p {
-  margin: 0 0 8px;
-  color: var(--el-text-color-secondary);
-}
-
-.header-actions,
-.meta-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.validation-alert,
-.validation-panel {
-  margin-bottom: 14px;
 }
 
 .validation-panel {
@@ -276,11 +248,4 @@ async function rollback(row: WorkflowVersion) {
   margin-left: 8px;
 }
 
-@media (max-width: 760px) {
-  .page-header,
-  .header-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-}
 </style>

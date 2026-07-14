@@ -3,7 +3,9 @@ package com.enterprise.ai.capability.internal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
@@ -21,9 +23,17 @@ public class DefaultCapabilityHttpToolInvoker implements CapabilityHttpToolInvok
     public Map<String, Object> invoke(CapabilityHttpToolInvocation invocation) {
         RestTemplate restTemplate = restTemplateBuilder.build();
         HttpMethod method = HttpMethod.valueOf(invocation.method());
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        Object configuredHeaders = invocation.metadata() == null ? null : invocation.metadata().get("headers");
+        if (configuredHeaders instanceof Map<?, ?> headerMap) {
+            headerMap.forEach((key, value) -> {
+                if (key != null && value != null) headers.set(String.valueOf(key), String.valueOf(value));
+            });
+        }
         HttpEntity<?> entity = method == HttpMethod.GET
-                ? HttpEntity.EMPTY
-                : new HttpEntity<>(invocation.body());
+                ? new HttpEntity<>(headers)
+                : new HttpEntity<>(invocation.body(), headers);
         ResponseEntity<Object> response = restTemplate.exchange(invocation.url(), method, entity, Object.class);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("statusCode", response.getStatusCode().value());

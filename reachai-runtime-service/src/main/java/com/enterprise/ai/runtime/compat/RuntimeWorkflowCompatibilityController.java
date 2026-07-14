@@ -7,6 +7,7 @@ import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowSearchPage;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowStudioService;
 import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftEditRequest;
 import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftEditService;
@@ -15,6 +16,7 @@ import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftGenerationRe
 import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftGenerationService;
 import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftGenerationView;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.BeanUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -48,6 +50,19 @@ public class RuntimeWorkflowCompatibilityController {
         return ResponseEntity.ok(workflowDefinitionService.list(projectId, projectCode, workflowType, status));
     }
 
+    @GetMapping("/api/workflows/search")
+    public ResponseEntity<RuntimeWorkflowSearchPage> search(
+            @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String projectCode,
+            @RequestParam(required = false) String workflowType,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "1") int current,
+            @RequestParam(defaultValue = "10") int size) {
+        return ResponseEntity.ok(workflowDefinitionService.search(
+                projectId, projectCode, workflowType, status, keyword, current, size));
+    }
+
     @PostMapping("/api/workflows")
     public ResponseEntity<RuntimeWorkflowDefinitionEntity> create(
             @RequestBody RuntimeWorkflowDefinitionEntity request) {
@@ -72,7 +87,8 @@ public class RuntimeWorkflowCompatibilityController {
         if (request == null) {
             return ResponseEntity.ok(new RuntimeWorkflowRuntimeValidationView(false, List.of(
                     new RuntimeWorkflowRuntimeValidationView.Item(
-                            "WORKFLOW_REQUEST_EMPTY", null, "workflow runtime validation request is required"))));
+                            "WORKFLOW_REQUEST_EMPTY", null, "workflow runtime validation request is required")),
+                    List.of()));
         }
         RuntimeWorkflowReleaseValidationResult result;
         if (request.graphSpecJson() != null && !request.graphSpecJson().isBlank()) {
@@ -81,11 +97,11 @@ public class RuntimeWorkflowCompatibilityController {
             if (proposed == null) {
                 result = report.build();
             } else {
-                RuntimeWorkflowDefinitionEntity workflow = workflowForValidation(request);
+                RuntimeWorkflowDefinitionEntity workflow = workflowForValidation(request, true);
                 result = validationService.validateProposed(workflow, proposed);
             }
         } else {
-            RuntimeWorkflowDefinitionEntity workflow = workflowForValidation(request);
+            RuntimeWorkflowDefinitionEntity workflow = workflowForValidation(request, false);
             result = validationService.validate(workflow);
         }
         return ResponseEntity.ok(toValidationView(result));
@@ -97,7 +113,7 @@ public class RuntimeWorkflowCompatibilityController {
     }
 
     @PutMapping("/api/workflows/{id}/studio")
-    public ResponseEntity<RuntimeWorkflowDefinitionEntity> saveStudio(
+    public ResponseEntity<RuntimeWorkflowStudioService.WorkflowStudioState> saveStudio(
             @PathVariable String id,
             @RequestBody RuntimeWorkflowStudioSaveRequest request) {
         RuntimeWorkflowStudioService.WorkflowStudioSaveRequest saveRequest = request == null
@@ -105,7 +121,17 @@ public class RuntimeWorkflowCompatibilityController {
                 : new RuntimeWorkflowStudioService.WorkflowStudioSaveRequest(
                         request.graphSpecJson(),
                         request.canvasJson(),
-                        request.extraJson());
+                        request.extraJson(),
+                        request.baseRevision(),
+                        request.keySlug(),
+                        request.name(),
+                        request.description(),
+                        request.workflowType(),
+                        request.runtimeType(),
+                        request.inputSchemaJson(),
+                        request.outputSchemaJson(),
+                        request.defaultModelInstanceId(),
+                        request.defaultResourceConfigJson());
         return ResponseEntity.ok(studioService.saveStudioDraft(id, saveRequest));
     }
 
@@ -154,20 +180,34 @@ public class RuntimeWorkflowCompatibilityController {
         }
     }
 
-    private RuntimeWorkflowDefinitionEntity workflowForValidation(RuntimeWorkflowRuntimeValidationRequest request) {
+    private RuntimeWorkflowDefinitionEntity workflowForValidation(RuntimeWorkflowRuntimeValidationRequest request,
+                                                                  boolean applyDraftOverrides) {
         if (request.workflowId() == null || request.workflowId().isBlank()) {
             RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
             workflow.setRuntimeType(request.runtimeType());
             return workflow;
         }
-        return workflowDefinitionService.findById(request.workflowId())
+        RuntimeWorkflowDefinitionEntity persisted = workflowDefinitionService.findById(request.workflowId())
                 .orElse(null);
+        if (persisted == null || !applyDraftOverrides || request.defaultModelInstanceId() == null) {
+            return persisted;
+        }
+        RuntimeWorkflowDefinitionEntity proposed = new RuntimeWorkflowDefinitionEntity();
+        BeanUtils.copyProperties(persisted, proposed);
+        proposed.setDefaultModelInstanceId(request.defaultModelInstanceId());
+        return proposed;
     }
 
     private RuntimeWorkflowRuntimeValidationView toValidationView(RuntimeWorkflowReleaseValidationResult result) {
         return new RuntimeWorkflowRuntimeValidationView(
                 result.valid(),
                 result.errors().stream()
+                        .map(item -> new RuntimeWorkflowRuntimeValidationView.Item(
+                                item.code(),
+                                item.nodeId(),
+                                item.message()))
+                        .toList(),
+                result.warnings().stream()
                         .map(item -> new RuntimeWorkflowRuntimeValidationView.Item(
                                 item.code(),
                                 item.nodeId(),

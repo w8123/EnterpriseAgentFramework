@@ -1,5 +1,6 @@
 const TOKEN_KEY = 'reachai.platform.accessToken'
 const USER_KEY = 'reachai.platform.user'
+const EXPLORATION_NOTICE_ACK_KEY = 'reachai.platform.explorationNotice.ack.v1'
 
 export interface PlatformUserProfile {
   userId: number
@@ -20,6 +21,7 @@ export function setPlatformToken(token: string) {
 export function clearPlatformToken() {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_KEY)
+  resetExplorationNoticeAcknowledgement()
 }
 
 export function setPlatformUser(user: PlatformUserProfile) {
@@ -33,5 +35,30 @@ export function getPlatformUser(): PlatformUserProfile | null {
     return JSON.parse(raw) as PlatformUserProfile
   } catch {
     return null
+  }
+}
+
+export function hasAcknowledgedExplorationNotice(): boolean {
+  try {
+    return sessionStorage.getItem(EXPLORATION_NOTICE_ACK_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+export function acknowledgeExplorationNotice() {
+  try {
+    sessionStorage.setItem(EXPLORATION_NOTICE_ACK_KEY, 'true')
+  } catch {
+    // Storage can be unavailable in privacy-restricted browsers. The current
+    // layout still keeps the dialog closed after acknowledgement.
+  }
+}
+
+export function resetExplorationNoticeAcknowledgement() {
+  try {
+    sessionStorage.removeItem(EXPLORATION_NOTICE_ACK_KEY)
+  } catch {
+    // Keep authentication cleanup resilient when storage access is blocked.
   }
 }

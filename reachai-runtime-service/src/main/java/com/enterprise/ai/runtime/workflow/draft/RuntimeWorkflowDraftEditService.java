@@ -6,6 +6,10 @@ import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatRequest;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatRequest.ChatMessage;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatResult;
+import com.enterprise.ai.runtime.workflow.layout.RuntimeWorkflowCanvasLayoutService;
+import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService;
+import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService.MutationOperation;
+import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService.MutationResult;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -41,9 +45,14 @@ public class RuntimeWorkflowDraftEditService {
 
     private final ObjectMapper objectMapper;
     private final RuntimeModelServiceClient modelServiceClient;
+    private final RuntimeWorkflowCanvasLayoutService canvasLayoutService;
+    private final RuntimeWorkflowGraphMutationService graphMutationService;
+    private final RuntimeWorkflowDraftCandidateValidationService candidateValidationService;
+    private final RuntimeWorkflowDraftRepairService repairService;
 
     public RuntimeWorkflowDraftEditView edit(RuntimeWorkflowDraftEditRequest request) {
         Map<String, Object> canvas = mutableCanvas(request == null ? null : request.currentCanvas());
+        GraphSpec graphSpec = currentGraphSpec(request, canvas);
         List<String> validationErrors = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         List<RuntimeWorkflowDraftEditOperationView> operations = List.of();
@@ -51,50 +60,102 @@ public class RuntimeWorkflowDraftEditService {
 
         if (request == null || !StringUtils.hasText(request.instruction())) {
             validationErrors.add("instruction is required");
-            return result(summary, operations, canvas, warnings, validationErrors);
+            return result(summary, operations, canvas, graphSpec, warnings, validationErrors);
         }
         if (!StringUtils.hasText(request.modelInstanceId())) {
             validationErrors.add("modelInstanceId is required");
-            return result(summary, operations, canvas, warnings, validationErrors);
+            return result(summary, operations, canvas, graphSpec, warnings, validationErrors);
         }
 
-        String raw = callModel(request, canvas);
+        String raw = callModel(request, canvas, graphSpec);
         try {
             JsonNode root = objectMapper.readTree(extractJsonObject(raw));
             summary = root.path("summary").asText("");
             operations = parseOperations(root.path("operations"));
         } catch (Exception ex) {
             validationErrors.add("AI did not return valid JSON patch: " + ex.getMessage());
-            return result(summary, operations, canvas, warnings, validationErrors);
+            return result(summary, operations, canvas, graphSpec, warnings, validationErrors);
         }
 
-        applyOperations(canvas, operations, validationErrors);
+        try {
+            MutationResult mutation = graphMutationService.mutate(graphSpec, mutationOperations(graphSpec, operations));
+            graphSpec = mutation.graphSpec();
+            var releaseValidation = candidateValidationService.validate(
+                    request.workflowId(),
+                    request.projectCode(),
+                    null,
+                    request.modelInstanceId(),
+                    graphSpec);
+            RuntimeWorkflowDraftRepairService.RepairResult repair = repairService.repair(
+                    new RuntimeWorkflowDraftRepairService.RepairRequest(
+                            request.workflowId(),
+                            request.projectCode(),
+                            null,
+                            request.modelInstanceId(),
+                            request.instruction(),
+                            request.selectedNodeIds(),
+                            request.selectedEdgeIds(),
+                            draftResources(request),
+                            RuntimeWorkflowDraftRepairService.DEFAULT_MAX_REPAIR_ROUNDS),
+                    graphSpec,
+                    releaseValidation);
+            graphSpec = repair.graphSpec();
+            releaseValidation = repair.validation();
+            warnings.addAll(repair.warnings());
+            canvas = canvasLayoutService.projectAndLayout(
+                    graphSpec,
+                    canvas,
+                    RuntimeWorkflowCanvasLayoutService.Options.defaults());
+            releaseValidation.errors().stream()
+                    .map(item -> item.code() + ": " + item.message())
+                    .forEach(validationErrors::add);
+            releaseValidation.warnings().stream()
+                    .map(item -> item.code() + ": " + item.message())
+                    .forEach(warnings::add);
+        } catch (IllegalArgumentException ex) {
+            validationErrors.add(ex.getMessage());
+        }
         warnings.addAll(buildWarnings(canvas));
-        return result(summary, operations, canvas, warnings, validationErrors);
+        return result(summary, operations, canvas, graphSpec, warnings, validationErrors);
+    }
+
+    private Map<String, Object> draftResources(RuntimeWorkflowDraftEditRequest request) {
+        Map<String, Object> resources = new LinkedHashMap<>();
+        resources.put("tools", request.tools() == null ? List.of() : request.tools());
+        resources.put("capabilities", request.capabilities() == null ? List.of() : request.capabilities());
+        resources.put("knowledgeBases", request.knowledgeBases() == null ? List.of() : request.knowledgeBases());
+        return resources;
     }
 
     private RuntimeWorkflowDraftEditView result(String summary,
                                                 List<RuntimeWorkflowDraftEditOperationView> operations,
                                                 Map<String, Object> canvas,
+                                                GraphSpec graphSpec,
                                                 List<String> warnings,
                                                 List<String> validationErrors) {
+        Map<String, Object> layoutCanvas = canvasLayoutService.projectAndLayout(
+                graphSpec,
+                canvas,
+                RuntimeWorkflowCanvasLayoutService.Options.defaults());
         return new RuntimeWorkflowDraftEditView(
                 PROVIDER,
                 summary == null ? "" : summary,
                 operations,
-                canvas,
-                toGraphSpec(canvas),
+                layoutCanvas,
+                graphSpec,
                 warnings,
-                placeholderNodes(canvas),
+                placeholderNodes(layoutCanvas),
                 validationErrors);
     }
 
-    private String callModel(RuntimeWorkflowDraftEditRequest request, Map<String, Object> canvas) {
+    private String callModel(RuntimeWorkflowDraftEditRequest request,
+                             Map<String, Object> canvas,
+                             GraphSpec graphSpec) {
         ModelChatRequest modelRequest = ModelChatRequest.builder()
                 .modelInstanceId(request.modelInstanceId().trim())
                 .messages(List.of(
                         ChatMessage.builder().role("system").content(systemPrompt()).build(),
-                        ChatMessage.builder().role("user").content(userPrompt(request, canvas)).build()))
+                        ChatMessage.builder().role("user").content(userPrompt(request, canvas, graphSpec)).build()))
                 .build();
         ModelChatResult result = modelServiceClient.chat(modelRequest);
         if (result == null || result.getData() == null || result.getData().getContent() == null) {
@@ -115,172 +176,168 @@ public class RuntimeWorkflowDraftEditService {
         return operations;
     }
 
-    private void applyOperations(Map<String, Object> canvas,
-                                 List<RuntimeWorkflowDraftEditOperationView> operations,
-                                 List<String> errors) {
-        for (RuntimeWorkflowDraftEditOperationView operation : operations) {
+    private GraphSpec currentGraphSpec(RuntimeWorkflowDraftEditRequest request,
+                                       Map<String, Object> canvas) {
+        if (request != null && request.currentGraphSpec() != null) {
+            return objectMapper.convertValue(request.currentGraphSpec(), GraphSpec.class);
+        }
+        Object embedded = canvas.get("graphSpec");
+        if (embedded instanceof Map<?, ?> map && !map.isEmpty()) {
+            return objectMapper.convertValue(map, GraphSpec.class);
+        }
+        return toGraphSpec(canvas);
+    }
+
+    private List<MutationOperation> mutationOperations(
+            GraphSpec graphSpec,
+            List<RuntimeWorkflowDraftEditOperationView> operations) {
+        List<MutationOperation> result = new ArrayList<>();
+        for (RuntimeWorkflowDraftEditOperationView operation : operations == null ? List.<RuntimeWorkflowDraftEditOperationView>of() : operations) {
             if (operation == null || operation.getType() == null) {
-                errors.add("operation type is required");
+                result.add(null);
                 continue;
             }
-            switch (operation.getType()) {
-                case ADD_NODE -> addNode(canvas, operation, errors);
-                case UPDATE_NODE -> updateNode(canvas, operation, errors);
-                case DELETE_NODE -> deleteNode(canvas, operation, errors);
-                case ADD_EDGE -> addEdge(canvas, operation, errors);
-                case UPDATE_EDGE -> updateEdge(canvas, operation, errors);
-                case DELETE_EDGE -> deleteEdge(canvas, operation, errors);
-            }
+            result.add(switch (operation.getType()) {
+                case ADD_NODE -> new MutationOperation(
+                        MutationOperation.Op.ADD_NODE,
+                        graphNode(operation.getNode()),
+                        null, null, null, null, null, null);
+                case UPDATE_NODE -> new MutationOperation(
+                        MutationOperation.Op.UPDATE_NODE,
+                        null,
+                        operation.getNodeId(),
+                        graphNodePatch(graphSpec, operation),
+                        null, null, null, null);
+                case DELETE_NODE -> new MutationOperation(
+                        MutationOperation.Op.DELETE_NODE,
+                        null, operation.getNodeId(), null, null, null, null, null);
+                case ADD_EDGE -> new MutationOperation(
+                        MutationOperation.Op.ADD_EDGE,
+                        null, null, null, graphEdge(operation.getEdge()), null, null, null);
+                case UPDATE_EDGE -> new MutationOperation(
+                        MutationOperation.Op.UPDATE_EDGE,
+                        null, null, graphEdgePatch(operation.getPatch()), null, operation.getEdgeId(), null, null);
+                case DELETE_EDGE -> new MutationOperation(
+                        MutationOperation.Op.DELETE_EDGE,
+                        null, null, null, null, operation.getEdgeId(), null, null);
+            });
         }
+        return result;
     }
 
-    private void addNode(Map<String, Object> canvas,
-                         RuntimeWorkflowDraftEditOperationView operation,
-                         List<String> errors) {
-        Map<String, Object> node = mutableMap(operation.getNode());
-        String id = text(node.get("id"));
+    private GraphSpec.Node graphNode(Map<String, Object> rawNode) {
+        Map<String, Object> node = mutableMap(rawNode);
         Map<String, Object> data = mutableMap(node.get("data"));
-        String kind = firstText(text(data.get("kind")), text(node.get("type")));
-        if (!StringUtils.hasText(id) || !StringUtils.hasText(kind)) {
-            errors.add("ADD_NODE requires node.id and node.data.kind/type");
-            return;
+        if (!data.isEmpty()) {
+            String id = text(node.get("id"));
+            String kind = firstText(text(data.get("kind")), text(node.get("type")));
+            return toGraphNode(id, kind, node, data);
         }
-        if (findNode(canvas, id) != null) {
-            errors.add("ADD_NODE references duplicate node id: " + id);
-            return;
+        GraphSpec.Node graphNode = objectMapper.convertValue(node, GraphSpec.Node.class);
+        if (StringUtils.hasText(graphNode.getType())) {
+            graphNode.setType(AgentGraphNodeType.normalize(graphNode.getType()));
         }
-        data.put("kind", kind);
-        data.putIfAbsent("configVersion", 2);
-        data.putIfAbsent("label", id);
-        node.put("type", firstText(text(node.get("type")), kind));
-        node.put("data", data);
-        node.putIfAbsent("position", nextPosition(canvas));
-        nodes(canvas).add(node);
+        return graphNode;
     }
 
-    private void updateNode(Map<String, Object> canvas,
-                            RuntimeWorkflowDraftEditOperationView operation,
-                            List<String> errors) {
-        String id = firstText(operation.getNodeId(), text(operation.getPatch() == null ? null : operation.getPatch().get("id")));
-        Map<String, Object> node = findNode(canvas, id);
-        if (node == null) {
-            errors.add("UPDATE_NODE references missing node id: " + id);
-            return;
+    private Map<String, Object> graphNodePatch(GraphSpec graphSpec,
+                                               RuntimeWorkflowDraftEditOperationView operation) {
+        Map<String, Object> raw = mutableMap(operation.getPatch());
+        if (raw.isEmpty()) {
+            raw = mutableMap(operation.getNode());
         }
-        Map<String, Object> rawPatch = mutableMap(operation.getPatch());
-        if (rawPatch.isEmpty() && operation.getNode() != null) {
-            rawPatch = mutableMap(operation.getNode());
-        }
-        String patchId = text(rawPatch.get("id"));
-        if (StringUtils.hasText(patchId) && !Objects.equals(id, patchId)) {
-            errors.add("UPDATE_NODE cannot change node id from " + id + " to " + patchId);
-            return;
-        }
-        rawPatch.remove("id");
-        deepMerge(node, normalizeNodePatch(node, rawPatch));
-    }
-
-    private void deleteNode(Map<String, Object> canvas,
-                            RuntimeWorkflowDraftEditOperationView operation,
-                            List<String> errors) {
-        String id = operation.getNodeId();
-        if (isBoundaryNode(id)) {
-            errors.add("DELETE_NODE cannot remove start/end boundary nodes: " + id);
-            return;
-        }
-        if (findNode(canvas, id) == null) {
-            errors.add("DELETE_NODE references missing node id: " + id);
-            return;
-        }
-        nodes(canvas).removeIf(item -> Objects.equals(id, text(item.get("id"))));
-        edges(canvas).removeIf(edge -> Objects.equals(id, text(edge.get("source")))
-                || Objects.equals(id, text(edge.get("target"))));
-    }
-
-    private void addEdge(Map<String, Object> canvas,
-                         RuntimeWorkflowDraftEditOperationView operation,
-                         List<String> errors) {
-        Map<String, Object> edge = mutableMap(operation.getEdge());
-        String id = text(edge.get("id"));
-        String source = text(edge.get("source"));
-        String target = text(edge.get("target"));
-        if (!StringUtils.hasText(id) || !StringUtils.hasText(source) || !StringUtils.hasText(target)) {
-            errors.add("ADD_EDGE requires edge.id, edge.source and edge.target");
-            return;
-        }
-        if (findEdge(canvas, id) != null) {
-            errors.add("ADD_EDGE references duplicate edge id: " + id);
-            return;
-        }
-        if (findNode(canvas, source) == null || findNode(canvas, target) == null) {
-            errors.add("ADD_EDGE references missing source/target node: " + id);
-            return;
-        }
-        edge.putIfAbsent("condition", "always");
-        edges(canvas).add(edge);
-    }
-
-    private void updateEdge(Map<String, Object> canvas,
-                            RuntimeWorkflowDraftEditOperationView operation,
-                            List<String> errors) {
-        String id = operation.getEdgeId();
-        Map<String, Object> edge = findEdge(canvas, id);
-        if (edge == null) {
-            errors.add("UPDATE_EDGE references missing edge id: " + id);
-            return;
-        }
-        Map<String, Object> patch = mutableMap(operation.getPatch());
-        String source = firstText(text(patch.get("source")), text(edge.get("source")));
-        String target = firstText(text(patch.get("target")), text(edge.get("target")));
-        if (findNode(canvas, source) == null || findNode(canvas, target) == null) {
-            errors.add("UPDATE_EDGE references missing source/target node: " + id);
-            return;
-        }
-        deepMerge(edge, patch);
-    }
-
-    private void deleteEdge(Map<String, Object> canvas,
-                            RuntimeWorkflowDraftEditOperationView operation,
-                            List<String> errors) {
-        String id = operation.getEdgeId();
-        if (findEdge(canvas, id) == null) {
-            errors.add("DELETE_EDGE references missing edge id: " + id);
-            return;
-        }
-        edges(canvas).removeIf(edge -> Objects.equals(id, text(edge.get("id"))));
-    }
-
-    private Map<String, Object> normalizeNodePatch(Map<String, Object> node, Map<String, Object> rawPatch) {
-        Map<String, Object> normalized = new LinkedHashMap<>();
-        Map<String, Object> dataPatch = new LinkedHashMap<>();
-        Object data = rawPatch.get("data");
-        if (data instanceof Map<?, ?>) {
-            deepMerge(dataPatch, mutableMap(data));
-        }
-        Object config = rawPatch.get("config");
-        if (config instanceof Map<?, ?>) {
-            deepMerge(dataPatch, mutableMap(config));
-        }
-        for (Map.Entry<String, Object> entry : rawPatch.entrySet()) {
-            String key = entry.getKey();
-            if ("data".equals(key) || "config".equals(key)) {
-                continue;
-            }
-            if (NODE_DATA_PATCH_KEYS.contains(key)) {
-                dataPatch.put(key, entry.getValue());
-            } else {
-                normalized.put(key, entry.getValue());
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (String key : List.of("name", "description", "ref", "inputs", "outputs", "inputSchema",
+                "outputSchema", "retry", "errorPolicy", "layout")) {
+            if (raw.containsKey(key)) {
+                result.put(key, raw.get(key));
             }
         }
-        Map<String, Object> currentData = mutableMap(node.get("data"));
-        String kind = firstText(text(dataPatch.get("kind")), text(currentData.get("kind")), text(node.get("type")));
-        if ("answer".equalsIgnoreCase(kind)) {
-            normalizeAnswerPatch(dataPatch);
+        if (raw.containsKey("type")) {
+            result.put("type", AgentGraphNodeType.normalize(text(raw.get("type"))));
         }
-        if (!dataPatch.isEmpty()) {
-            normalized.put("data", dataPatch);
+        Map<String, Object> data = mutableMap(raw.get("data"));
+        for (String key : NODE_DATA_PATCH_KEYS) {
+            if (raw.containsKey(key)) {
+                data.putIfAbsent(key, raw.get(key));
+            }
         }
-        return normalized;
+        if (raw.get("config") instanceof Map<?, ?> config) {
+            deepMerge(data, mutableMap(config));
+        }
+        GraphSpec.Node current = findGraphNode(graphSpec, operation.getNodeId());
+        String currentType = current == null ? "" : current.getType();
+        String kind = firstText(text(data.remove("kind")), text(raw.get("type")), currentType);
+        if (StringUtils.hasText(kind)) {
+            result.put("type", AgentGraphNodeType.normalize(kind));
+        }
+        String label = text(data.remove("label"));
+        if (StringUtils.hasText(label)) {
+            result.put("name", label);
+        }
+        putIfPresent(result, "description", data.remove("description"));
+        putIfPresent(result, "inputs", data.remove("inputs"));
+        putIfPresent(result, "outputs", data.remove("outputs"));
+        putIfPresent(result, "inputSchema", data.remove("inputSchema"));
+        putIfPresent(result, "outputSchema", data.remove("outputSchema"));
+        putIfPresent(result, "retry", data.remove("retry"));
+        putIfPresent(result, "errorPolicy", data.remove("errorPolicy"));
+        Object collapsed = data.remove("collapsed");
+        if (collapsed != null) {
+            Map<String, Object> layout = mutableMap(result.get("layout"));
+            layout.put("collapsed", collapsed);
+            result.put("layout", layout);
+        }
+        data.remove("configVersion");
+        data.remove("category");
+        if ("ANSWER".equalsIgnoreCase(AgentGraphNodeType.normalize(kind))) {
+            normalizeAnswerPatch(data);
+        }
+        if (!data.isEmpty()) {
+            result.put("config", data);
+        }
+        return result;
+    }
+
+    private GraphSpec.Edge graphEdge(Map<String, Object> rawEdge) {
+        Map<String, Object> edge = mutableMap(rawEdge);
+        String from = boundaryEndpoint(firstText(text(edge.get("from")), text(edge.get("source"))));
+        String to = boundaryEndpoint(firstText(text(edge.get("to")), text(edge.get("target"))));
+        return GraphSpec.Edge.builder()
+                .id(text(edge.get("id")))
+                .from(from)
+                .to(to)
+                .condition(firstText(text(edge.get("condition")), text(edge.get("label")), "always"))
+                .sourceHandle(text(edge.get("sourceHandle")))
+                .targetHandle(text(edge.get("targetHandle")))
+                .build();
+    }
+
+    private Map<String, Object> graphEdgePatch(Map<String, Object> rawPatch) {
+        Map<String, Object> patch = mutableMap(rawPatch);
+        if (patch.containsKey("source")) {
+            patch.put("from", boundaryEndpoint(text(patch.remove("source"))));
+        }
+        if (patch.containsKey("target")) {
+            patch.put("to", boundaryEndpoint(text(patch.remove("target"))));
+        }
+        return patch;
+    }
+
+    private GraphSpec.Node findGraphNode(GraphSpec graphSpec, String nodeId) {
+        if (graphSpec == null || graphSpec.getNodes() == null || !StringUtils.hasText(nodeId)) {
+            return null;
+        }
+        return graphSpec.getNodes().stream()
+                .filter(node -> node != null && nodeId.equals(node.getId()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private void putIfPresent(Map<String, Object> target, String key, Object value) {
+        if (value != null) {
+            target.put(key, value);
+        }
     }
 
     private void normalizeAnswerPatch(Map<String, Object> dataPatch) {
@@ -401,16 +458,20 @@ public class RuntimeWorkflowDraftEditService {
 
     private String systemPrompt() {
         return """
-                You are a Workflow Studio workflow editor. Return only strict JSON.
+                You are a Workflow Studio GraphSpec editor. Return only strict JSON.
                 Schema:
                 {"summary":"short summary","operations":[{"type":"ADD_NODE|UPDATE_NODE|DELETE_NODE|ADD_EDGE|UPDATE_EDGE|DELETE_EDGE","nodeId":"optional","edgeId":"optional","node":{},"edge":{},"patch":{},"reason":"why"}]}
-                Use the current canvas ids. Do not delete start or end. Keep edits local to selected nodes or edges when selections exist.
-                Canvas node data must include kind and configVersion=2.
-                For UPDATE_NODE, put VueFlow canvas data changes under patch.data. For answer nodes, update both patch.data.answerConfig.template and patch.data.template.
+                GraphSpec is the semantic source of truth. Canvas is layout context only.
+                Use existing GraphSpec node and edge ids. START and END are boundary endpoints, not editable nodes.
+                Keep edits local to selected nodes or edges when selections exist.
+                ADD_NODE.node and ADD_EDGE.edge use GraphSpec shapes. UPDATE_NODE.patch updates GraphSpec node fields.
+                Put runtime node configuration under patch.config. Never change a node or edge id in an update.
                 """;
     }
 
-    private String userPrompt(RuntimeWorkflowDraftEditRequest request, Map<String, Object> canvas) {
+    private String userPrompt(RuntimeWorkflowDraftEditRequest request,
+                              Map<String, Object> canvas,
+                              GraphSpec graphSpec) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("agentId", request.agentId());
         payload.put("agentName", request.agentName());
@@ -418,7 +479,8 @@ public class RuntimeWorkflowDraftEditService {
         payload.put("instruction", request.instruction());
         payload.put("selectedNodeIds", request.selectedNodeIds() == null ? List.of() : request.selectedNodeIds());
         payload.put("selectedEdgeIds", request.selectedEdgeIds() == null ? List.of() : request.selectedEdgeIds());
-        payload.put("currentCanvas", canvas);
+        payload.put("currentGraphSpec", graphSpec);
+        payload.put("currentCanvasLayout", canvas);
         payload.put("tools", request.tools() == null ? List.of() : request.tools());
         payload.put("capabilities", request.capabilities() == null ? List.of() : request.capabilities());
         payload.put("knowledgeBases", request.knowledgeBases() == null ? List.of() : request.knowledgeBases());
@@ -471,14 +533,6 @@ public class RuntimeWorkflowDraftEditService {
                 .orElse(null);
     }
 
-    private Map<String, Object> findEdge(Map<String, Object> canvas, String id) {
-        if (!StringUtils.hasText(id)) return null;
-        return edges(canvas).stream()
-                .filter(edge -> Objects.equals(id, text(edge.get("id"))))
-                .findFirst()
-                .orElse(null);
-    }
-
     private List<String> buildWarnings(Map<String, Object> canvas) {
         List<String> warnings = new ArrayList<>();
         Set<String> ids = new LinkedHashSet<>();
@@ -524,11 +578,6 @@ public class RuntimeWorkflowDraftEditService {
                 target.put(entry.getKey(), entry.getValue());
             }
         }
-    }
-
-    private Map<String, Object> nextPosition(Map<String, Object> canvas) {
-        int index = nodes(canvas).size();
-        return Map.of("x", 240 + index * 80, "y", 200 + (index % 3) * 40);
     }
 
     private String extractJsonObject(String raw) {

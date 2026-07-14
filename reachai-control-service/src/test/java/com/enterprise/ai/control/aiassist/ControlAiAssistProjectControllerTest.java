@@ -44,7 +44,7 @@ class ControlAiAssistProjectControllerTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
-        assertEquals("reachai.onboarding.v1", response.getBody().schema());
+        assertEquals("reachai.onboarding.v2", response.getBody().schema());
         assertEquals(7L, response.getBody().project().id());
         assertEquals("orders", response.getBody().project().projectCode());
         assertEquals(true, response.getBody().aiCodingAccess().enabled());
@@ -61,6 +61,11 @@ class ControlAiAssistProjectControllerTest {
         assertEquals("bare-json", response.getBody().responseShapes().get("agentProvisioning").wrapper());
         assertEquals("agent.keySlug",
                 response.getBody().responseShapes().get("agentProvisioning").fields().get("agentKeySlug"));
+        assertEquals("supervisorConfig.status",
+                response.getBody().responseShapes().get("agentProvisioning").fields().get("supervisorConfigStatus"));
+        assertEquals("agent-provisioning.v2", response.getBody().agentProvisioning().model());
+        assertEquals(true, response.getBody().agentProvisioning().activatesSupervisorConfig());
+        assertEquals("AGENTSCOPE", response.getBody().agentSupervisor().runtimeType());
         assertEquals("http://localhost:18603/api/ai-assist/projects/7/onboarding-manifest",
                 response.getBody().endpoints().manifestUrl());
         verify(client).getOnboardingProjectById(7L);
@@ -117,6 +122,8 @@ class ControlAiAssistProjectControllerTest {
                 "id", 7L,
                 "name", "Orders",
                 "projectCode", "orders",
+                "baseUrl", "https://orders.example.com",
+                "contextPath", "/orders-api",
                 "registryCredentialConfigured", true,
                 "aiCodingAccess", Map.of("enabled", true, "accessKey", "aic_test")
         ));
@@ -129,6 +136,13 @@ class ControlAiAssistProjectControllerTest {
         assertEquals(7L, response.getBody().checkResult().projectId());
         assertEquals("orders", response.getBody().checkResult().projectCode());
         assertEquals("PASS", response.getBody().checkResult().overallStatus());
+        assertEquals(
+                "https://orders.example.com/orders-api/reachai/registry/capabilities/sync",
+                response.getBody().checkResult().checks().stream()
+                        .filter(check -> "SDK_SYNC_CALLBACK".equals(check.key()))
+                        .findFirst()
+                        .orElseThrow()
+                        .evidence());
         assertEquals("PASS", response.getBody().session().status());
     }
 

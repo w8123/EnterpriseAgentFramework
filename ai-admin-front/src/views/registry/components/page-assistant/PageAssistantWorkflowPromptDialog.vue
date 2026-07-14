@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { DocumentCopy } from '@element-plus/icons-vue'
 import type { AiAccessStep } from '@/types/scanProject'
 import type { WorkflowAiCodingDraftEvidence } from '@/views/registry/pageAssistantWizardViewModel'
@@ -31,7 +32,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <el-dialog
+  <AppDialog
     v-model="visible"
     title="使用 AI Coding 生成页面助手 Workflow"
     width="860px"
@@ -122,5 +123,5 @@ const emit = defineEmits<{
         {{ workflowAiCodingPromptCopied ? '已复制' : '复制提示词' }}
       </el-button>
     </template>
-  </el-dialog>
+  </AppDialog>
 </template>

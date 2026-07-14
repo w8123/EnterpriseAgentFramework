@@ -138,10 +138,10 @@ export function buildPageAssistantOnboardingPrompt(context: PageAssistantOnboard
 - Page Action 返回结果里的 message 只是动作状态说明，不是 Chat Message API 的请求字段。
 
 Agent / Workflow 架构说明：
-- 业务系统里出现的统一 AI 按钮使用项目下的 PAGE_COPILOT Agent；该 Agent 通常由 SDK 快速接入阶段通过 ReachAI provisioning 自动创建或复用。
+- 业务系统里出现的统一 AI 按钮使用项目下的页面副驾驶 Agent；该 Agent 通常由 SDK 快速接入阶段通过 ReachAI provisioning 自动创建或复用。
 - 本次页面助手接入不要创建 Agent，不要调用 /api/agents 管理接口，也不要恢复旧 Agent Studio。
-- 你只需要通过 page-assistant 专用接口注册当前页面和 Page Action；ReachAI 平台会创建或复用 PAGE_ASSISTANT Workflow，并通过 ai_agent_workflow_binding 按 pageKey/route 挂载到 PAGE_COPILOT Agent。
-- GraphSpec、画布、调试、发布、版本和回放都在 Workflow Studio 中闭环；Agent 页面只负责身份、入口、策略和 Workflow 路由。
+- 你只需要通过 page-assistant 专用接口注册当前页面和 Page Action；随后 ReachAI“创建页面助手”向导会创建并发布 PAGE_ASSISTANT Workflow，把它加入项目页面副驾驶 Agent 的 Supervisor Workflow-as-Tool 白名单，并发布新版 Agent 配置。
+- GraphSpec、画布、调试、发布、版本和回放都在 Workflow Studio 中闭环；Agent 页面只负责身份、入口、Supervisor 策略和 Workflow-as-Tool 目录。
 
 ReachAI 平台上下文：
 - 平台地址：${context.platformUrl || '请从当前环境确认'}

@@ -262,9 +262,11 @@ ${JSON.stringify(createBody, null, 2)}
 7. 保存 patch（dryRun=false，baseRevision 对齐 context.workflow.updatedAt）后，读取 \`GET ${platformUrl}/api/workflows/{workflowId}/ai-coding/versions\`，确认 releaseValidation.valid=true。
 
 8. 首次发布 Workflow（必须执行）:
+   - 发布前重新读取一次 \`GET ${platformUrl}/api/workflows/{workflowId}/ai-coding/context\`，并取最新的 \`workflow.updatedAt\`。
    - \`POST ${platformUrl}/api/workflows/{workflowId}/ai-coding/publish\`
    - Header 使用 \`${aiCodingHeader}\`
-   - Body 至少包含 \`{"version":"v1.0.0","note":"initial PAGE_ASSISTANT AI Coding publish","publishedBy":"${toolName}"}\`；若版本已存在，读取 /versions 后使用下一个语义化版本号。
+   - Body 至少包含 \`{"version":"v1.0.0","note":"initial PAGE_ASSISTANT AI Coding publish","publishedBy":"${toolName}","baseRevision":"<latest context.workflow.updatedAt>"}\`。
+   - 若返回 409，本次没有创建版本；必须重新读取 context、重新校验，再用新的 revision 发布。若版本已存在，读取 /versions 后使用下一个语义化版本号。
 
 9. 回传结果到页面助手向导（**必须执行**）:
    - \`POST ${reportUrl}\`
@@ -301,7 +303,7 @@ ${JSON.stringify(createBody, null, 2)}
 \`\`\`
 
    - \`status\` 取 validate、page-assistant/validate 与 runtimeVerification 的综合结果（PASS/WARN/FAIL）；无法做真实业务页面浏览器验证时不要回传 PASS。
-   - 回传成功后，用户在 ReachAI 页面助手向导可看到 workflowId 并继续挂载智能体。
+   - 回传成功后，用户在 ReachAI 页面助手向导可看到 workflowId，并将已发布 Workflow 加入 Supervisor 工具目录。
 
 ## GraphSpec 关键规则
 

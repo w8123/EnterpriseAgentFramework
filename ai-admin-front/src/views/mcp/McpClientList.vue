@@ -1,12 +1,19 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>MCP Client 凭证</h2>
-      <div class="header-actions">
+  <WorkbenchPage class="mcp-client-list-page" layout="list">
+    <PageHeader
+      variant="standard"
+      domain="governance"
+      eyebrow="MCP Access"
+      title="MCP Client 凭证"
+      description="管理外部 MCP Client 的访问凭证、角色和工具白名单，并跟踪凭证有效期与最近使用状态。"
+    >
+      <template #actions>
+        <el-tooltip content="刷新 Client 凭证" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新 Client 凭证" @click="reload" />
+        </el-tooltip>
         <el-button type="primary" :icon="Plus" @click="openCreate">新建 Client</el-button>
-        <el-button :icon="Refresh" @click="reload" :loading="loading">刷新</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <el-alert
       type="info"
@@ -14,10 +21,9 @@
       :closable="false"
       title="API Key 仅在创建后明文显示一次；请立即复制保存"
       description="DB 仅保存 SHA-256 哈希。Client 调用时通过 Authorization: Bearer <apiKey> 传入。"
-      style="margin-bottom: 12px"
     />
 
-    <el-card shadow="never">
+    <el-card class="workbench-list-surface" shadow="never">
       <el-table :data="rows" v-loading="loading" stripe>
         <el-table-column prop="name" label="名称" min-width="160" />
         <el-table-column prop="apiKeyPrefix" label="API Key" width="140">
@@ -70,7 +76,7 @@
     </el-card>
 
     <!-- 创建/编辑 -->
-    <el-dialog v-model="dialogOpen" :title="editing?.id ? `编辑 ${editing.name}` : '新建 MCP Client'" width="540px">
+    <AppDialog v-model="dialogOpen" :title="editing?.id ? `编辑 ${editing.name}` : '新建 MCP Client'" width="540px">
       <el-form :model="form" label-width="120px">
         <el-form-item label="名称" required>
           <el-input v-model="form.name" placeholder="如：Cursor (个人开发) / Dify SaaS" />
@@ -93,10 +99,10 @@
         <el-button @click="dialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
 
     <!-- 创建后展示明文 API Key -->
-    <el-dialog v-model="apiKeyDialogOpen" title="API Key 已生成" width="600px" :close-on-click-modal="false">
+    <AppDialog v-model="apiKeyDialogOpen" title="API Key 已生成" width="600px" :close-on-click-modal="false">
       <el-alert type="warning" :closable="false" show-icon>
         请立即复制并保存以下 API Key，关闭后将无法再次查看。
       </el-alert>
@@ -109,14 +115,17 @@
       <template #footer>
         <el-button type="primary" @click="apiKeyDialogOpen = false">已保存</el-button>
       </template>
-    </el-dialog>
-  </div>
+    </AppDialog>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
+import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { DocumentCopy, Plus, Refresh } from '@element-plus/icons-vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 import {
   createMcpClient,
@@ -249,12 +258,6 @@ onMounted(reload)
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 16px; }
-.page-header {
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
-  h2 { margin: 0; font-size: 18px; }
-}
-.header-actions { display: flex; gap: 8px; }
 .dim { color: #999; font-size: 12px; }
 .apikey-box {
   display: flex; gap: 8px; align-items: center;

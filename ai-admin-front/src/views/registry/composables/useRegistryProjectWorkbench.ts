@@ -27,7 +27,7 @@ export interface UseRegistryProjectWorkbenchDeps {
   aiCodingAccessEnabled: Ref<boolean>
   aiCodingAccessKey: Ref<string>
   isSdkBackedProject: Readonly<Ref<boolean>>
-  formatHeartbeatDisplay: (value?: string | null) => string
+  formatRelativeTime: (value?: string | null) => string
   openAiCodingDialog: () => void
   goCapability: (path: string) => void
   goScanProjectDetail: () => void
@@ -43,7 +43,7 @@ export interface UseRegistryProjectWorkbenchDeps {
 export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDeps) {
   const latestHeartbeat = computed(() => {
     const raw = deps.instances.value[0]?.lastHeartbeatAt || deps.project.value?.lastScannedAt
-    return deps.formatHeartbeatDisplay(raw ?? null)
+    return deps.formatRelativeTime(raw ?? null)
   })
 
   const activePageActionCount = computed(() =>
@@ -56,7 +56,7 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
 
   const lastPageActionSeenAt = computed(() => {
     const raw = deps.pageActions.value[0]?.lastSeenAt || deps.pageRegistry.value[0]?.lastSeenAt
-    return deps.formatHeartbeatDisplay(raw ?? null)
+    return deps.formatRelativeTime(raw ?? null)
   })
 
   const healthMetrics = computed(() => [
@@ -87,7 +87,7 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
     {
       label: '最近上报',
       value: lastPageActionSeenAt.value,
-      desc: '页面、动作、实例的最近观测时间',
+      desc: '最近观测时间',
       icon: Clock,
       tone: lastPageActionSeenAt.value !== '-' ? 'good' : 'neutral',
       clickable: false,

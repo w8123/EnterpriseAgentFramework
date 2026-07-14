@@ -1,38 +1,63 @@
+export type RunType = 'AGENT' | 'WORKFLOW'
+
+export type RunEntryType = 'DEBUG' | 'EMBED' | 'GATEWAY' | 'EVAL' | 'REPLAY' | 'API'
+
+export type RunStatus =
+  | 'RUNNING'
+  | 'SUCCESS'
+  | 'FAILED'
+  | 'WAITING_APPROVAL'
+  | 'CANCELLED'
+  | 'TIMEOUT'
+
+export interface RunOpsQueryParams {
+  projectCode?: string
+  status?: RunStatus
+  runType?: RunType
+  entryType?: RunEntryType
+  agentId?: string
+  userId?: string
+  keyword?: string
+  days?: number
+  limit?: number
+}
+
+/** 一次 Agent 或 Workflow 根运行。Tool 仅作为运行内事件，不是根运行类型。 */
 export interface RunSummary {
   traceId: string
-  status: 'SUCCESS' | 'ERROR' | string
-  /** 历史字段：Agent 运行时为 Agent id；Workflow 运行可能为 sourceId/workflowId 兼容值 */
-  agentId?: string
-  agentName?: string
-  version?: string
-  versionId?: number
-  runtimeType?: string
-  runtimePlacement?: string
-  graphCode?: string
+  runType: RunType
+  entryType: RunEntryType
+  status: RunStatus
+  projectCode?: string
+  tenantId?: string
   sessionId?: string
   userId?: string
-  intentType?: string
+  agentId?: string
+  agentKeySlug?: string
+  agentName?: string
+  agentConfigVersionId?: number
+  agentConfigVersion?: number
+  workflowId?: string
+  workflowKeySlug?: string
+  workflowName?: string
+  workflowVersionId?: number
+  workflowVersion?: string
+  runtimeType?: string
+  inputSummary?: string
+  outputSummary?: string
+  errorCode?: string
+  errorMessage?: string
   startedAt?: string
   endedAt?: string
   latencyMs?: number
   tokenCost?: number
-  nodeCount?: number
+  planCount?: number
+  replanCount?: number
+  workflowCallCount?: number
   toolCallCount?: number
-  errorCount?: number
-  fallback?: boolean
-  dispatchUrl?: string
-  fallbackReason?: string
-  /** Workflow 归属（RunOps 从 span metadata 提取） */
-  workflowId?: string
-  workflowKeySlug?: string
-  workflowVersion?: string
-  workflowVersionId?: number | string
-  /** 聊天/嵌入入口 AgentEntry id，不是 WorkflowDefinition id */
-  entryAgentId?: string
-  entryAgentKeySlug?: string
-  sourceType?: string
-  /** GraphSpec-native 来源 id，Workflow 场景通常等于 workflowId */
-  sourceId?: string
+  guardDenyCount?: number
+  approvalCount?: number
+  replayOfTraceId?: string
   metadata?: Record<string, unknown>
 }
 
@@ -84,12 +109,12 @@ export interface RunGuardDecision {
   createdAt?: string
 }
 
+/** 原运行所使用的已发布配置，只读展示并作为重放依据。 */
 export interface RunSnapshot {
-  agentId?: string
-  agentName?: string
-  keySlug?: string
+  runType?: RunType
+  agentConfigVersionId?: number
+  workflowVersionId?: number
   runtimeType?: string
-  runtimePlacement?: string
   runtimeConfig?: Record<string, unknown>
   graphSpec?: unknown
   snapshotJson?: string
@@ -101,36 +126,48 @@ export interface RunDetail {
   toolCalls: RunToolCall[]
   guardDecisions: RunGuardDecision[]
   snapshot?: RunSnapshot
-  workflowPath?: WorkflowPathItem[]
+  executionPath?: RunExecutionPathItem[]
   repairHints: string[]
 }
 
-export interface WorkflowPathItem {
+export interface RunExecutionPathItem {
+  spanId?: string
+  parentSpanId?: string
+  depth: number
+  spanType?: string
+  label?: string
+  status?: string
+  nodeId?: string
+  toolName?: string
   fromNodeId?: string
   toNodeId?: string
   condition?: string
   route?: string
-  status?: string
   workflowStatus?: string
   interactionId?: string
-  spanId?: string
+  runtimeType?: string
   startedAt?: string
   endedAt?: string
 }
 
 export interface FailureCluster {
-  /** 历史字段：Agent 运行时为 Agent id */
+  versionType?: RunType
   agentId?: string
   agentName?: string
-  version?: string
-  versionId?: number
+  agentConfigVersionId?: number
+  agentConfigVersion?: number
+  workflowId?: string
+  workflowName?: string
+  workflowVersionId?: number
+  workflowVersion?: string
   runtimeType?: string
-  runtimePlacement?: string
   errorType?: string
+  errorCode?: string
+  errorMessage?: string
+  spanType?: string
   nodeId?: string
   toolName?: string
   count?: number
-  fallbackCount?: number
   avgLatencyMs?: number
   firstSeenAt?: string
   lastSeenAt?: string
@@ -138,23 +175,19 @@ export interface FailureCluster {
   traceIds?: string[]
   sampleError?: string
   repairHints?: string[]
-  /** Workflow 归属（失败聚类按 workflowId|workflowVersionId 分组时填充） */
-  workflowId?: string
-  workflowKeySlug?: string
-  workflowVersion?: string
-  workflowVersionId?: number | string
-  sourceType?: string
-  sourceId?: string
 }
 
 export interface VersionComparison {
-  /** 历史字段：Agent 运行时为 Agent id */
+  versionType?: RunType
   agentId?: string
   agentName?: string
-  version?: string
-  versionId?: number
+  agentConfigVersionId?: number
+  agentConfigVersion?: number
+  workflowId?: string
+  workflowName?: string
+  workflowVersionId?: number
+  workflowVersion?: string
   runtimeType?: string
-  runtimePlacement?: string
   runCount?: number
   successCount?: number
   failureCount?: number
@@ -162,18 +195,12 @@ export interface VersionComparison {
   avgLatencyMs?: number
   p95LatencyMs?: number
   avgTokenCost?: number
-  fallbackCount?: number
+  replanCount?: number
+  workflowCallCount?: number
   toolErrorCount?: number
   guardDenyCount?: number
   latestTraceId?: string
   latestStartedAt?: string
-  /** Workflow 归属（版本对比按 workflowId|workflowVersionId 分组时填充） */
-  workflowId?: string
-  workflowKeySlug?: string
-  workflowVersion?: string
-  workflowVersionId?: number | string
-  sourceType?: string
-  sourceId?: string
 }
 
 export interface RunDiagnostics {
@@ -181,12 +208,12 @@ export interface RunDiagnostics {
   versionComparisons: VersionComparison[]
 }
 
+/** 重放始终使用原运行的已发布配置版本，不提供当前配置切换。 */
 export interface ReplayRequest {
   messageOverride?: string
   sessionId?: string
   userId?: string
   roles?: string[]
-  useSnapshot?: boolean
 }
 
 export interface ReplayResult {
@@ -196,23 +223,12 @@ export interface ReplayResult {
   userId?: string
   agentId?: string
   agentName?: string
-  version?: string
-  versionId?: number
+  agentConfigVersionId?: number
+  agentConfigVersion?: number
   message?: string
   success: boolean
   answer?: string
   metadata?: Record<string, unknown>
-  workflowId?: string
-  workflowKeySlug?: string
-  workflowVersion?: string
-  workflowVersionId?: number | string
-  entryAgentId?: string
-  entryAgentKeySlug?: string
-  sourceType?: string
-  sourceId?: string
-  /** GRAPH_SPEC | AGENT_DEFINITION | AGENT_DEFINITION_FALLBACK */
-  executionPath?: string
-  fallbackReason?: string
 }
 
 export interface DiffItem {

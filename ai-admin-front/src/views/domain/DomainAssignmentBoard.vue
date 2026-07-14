@@ -1,12 +1,21 @@
 <template>
-  <div class="page-container">
-    <div class="page-header">
-      <h2>领域归属画布</h2>
-      <div class="header-actions">
+  <WorkbenchPage class="domain-assignment-board-page">
+    <PageHeader
+      variant="workbench"
+      domain="governance"
+      eyebrow="Domain Assignment"
+      title="领域归属画布"
+      description="在领域树、已挂接资产与候选目标之间完成 Tool、能力、Agent 和项目的归属治理。"
+    >
+      <template #tags>
         <el-tag size="small" type="info">{{ domains.length }} 个领域</el-tag>
-        <el-button :icon="Refresh" @click="reload" :loading="loading">刷新</el-button>
-      </div>
-    </div>
+      </template>
+      <template #actions>
+        <el-tooltip content="刷新领域归属" placement="top">
+          <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新领域归属" @click="reload" />
+        </el-tooltip>
+      </template>
+    </PageHeader>
 
     <el-alert
       type="info"
@@ -14,10 +23,9 @@
       :closable="false"
       title="左：领域树。中：当前领域已挂的 Tool / 能力 / Agent / Project。右：候选目标，勾选后批量挂接。"
       description="挂接 source = AUTO_FROM_PROJECT 的条目由扫描器自动生成；删除后下次扫描会被重新写入，建议直接调整 scan_project.default_domain_code。"
-      style="margin-bottom: 12px"
     />
 
-    <el-row :gutter="12">
+    <section class="domain-assignment-grid"><el-row :gutter="12">
       <!-- 领域树 -->
       <el-col :span="6">
         <el-card shadow="never">
@@ -129,14 +137,16 @@
           </el-scrollbar>
         </el-card>
       </el-col>
-    </el-row>
-  </div>
+    </el-row></section>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 
 import {
   deleteAssignment,
@@ -268,13 +278,6 @@ onMounted(reload)
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 16px; }
-.page-header {
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
-  h2 { margin: 0; font-size: 18px; }
-}
-.header-actions { display: flex; gap: 8px; align-items: center; }
-
 .dom-item {
   display: flex; gap: 6px; align-items: center;
   padding: 8px 10px; border-radius: 6px; cursor: pointer;

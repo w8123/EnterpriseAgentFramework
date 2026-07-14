@@ -19,7 +19,10 @@ class RuntimeWorkflowDebugServiceTest {
     private final RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
     private final RuntimeWorkflowDebugService service = new RuntimeWorkflowDebugService(
             workflowService,
-            new RuntimeGraphSpecExecutor(new ObjectMapper(), new NoopModelClient(), new NoopCapabilityClient()),
+            new RuntimeGraphSpecExecutor(new ObjectMapper(), new NoopModelClient(), new NoopCapabilityClient(),
+                    mock(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.class)),
+            mock(com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService.class),
+            mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper.class),
             new ObjectMapper());
 
     @Test
@@ -102,6 +105,42 @@ class RuntimeWorkflowDebugServiceTest {
         assertEquals("节点：state-input", result.outputState().get("lastOutput"));
     }
 
+    @Test
+    void debugRunExposesIntentClassifierRouteInStepDetails() {
+        RuntimeWorkflowDebugService.DebugRunRequest request = new RuntimeWorkflowDebugService.DebugRunRequest(
+                null,
+                "wf-router",
+                "Router",
+                "CHAT",
+                "orders",
+                "LANGGRAPH4J",
+                null,
+                """
+                        {
+                          "entry":"classifier",
+                          "nodes":[
+                            {"id":"classifier","type":"INTENT_CLASSIFIER","config":{
+                              "strategy":"KEYWORD",
+                              "classes":[{"id":"search","keywords":["查询"]}],
+                              "defaultRoute":"else"
+                            }},
+                            {"id":"answer","type":"ANSWER","config":{"template":"done"}}
+                          ],
+                          "edges":[{"from":"classifier","to":"answer","condition":"route:search"}]
+                        }
+                        """,
+                null,
+                "查询订单",
+                Map.of(),
+                Map.of());
+
+        RuntimeWorkflowDebugService.DebugRunResult result = service.debugRun(request);
+
+        assertEquals(true, result.success());
+        assertEquals("search", result.steps().get(0).route());
+        assertEquals("done", result.answer());
+    }
+
     private static final class NoopModelClient implements RuntimeModelServiceClient {
         @Override
         public ModelChatResult chat(ModelChatRequest request) {
@@ -136,9 +175,5 @@ class RuntimeWorkflowDebugServiceTest {
             return Map.of();
         }
 
-        @Override
-        public List<Map<String, Object>> listRuntimeInstances() {
-            return List.of();
-        }
     }
 }

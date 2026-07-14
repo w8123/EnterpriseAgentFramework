@@ -123,9 +123,5 @@ class RuntimeCapabilityExecutionCompatibilityControllerTest {
             return Map.of();
         }
 
-        @Override
-        public List<Map<String, Object>> listRuntimeInstances() {
-            return List.of();
-        }
     }
 }

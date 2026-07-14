@@ -17,9 +17,35 @@ const source = readFileSync(modulePath, 'utf8')
 const draftRequirementSource = readFileSync(draftRequirementPath, 'utf8')
 const workflowAiCodingPromptSource = readFileSync(workflowAiCodingPromptPath, 'utf8')
 const wizardSource = readFileSync(join(process.cwd(), 'src/views/registry/PageAssistantWizard.vue'), 'utf8')
+const wizardViewModelSource = readFileSync(join(process.cwd(), 'src/views/registry/pageAssistantWizardViewModel.ts'), 'utf8')
+const workflowLifecycleSource = readFileSync(join(process.cwd(), 'src/views/registry/composables/usePageAssistantWorkflowLifecycle.ts'), 'utf8')
+const workflowAiCodingComposableSource = readFileSync(
+  join(process.cwd(), 'src/views/registry/composables/usePageAssistantWorkflowAiCoding.ts'),
+  'utf8',
+)
+const wizardDraftConfigSource = readFileSync(
+  join(process.cwd(), 'src/views/registry/composables/usePageAssistantWizardDraftConfig.ts'),
+  'utf8',
+)
+const pageAssistantDraftPanelSource = readFileSync(
+  join(process.cwd(), 'src/views/registry/components/page-assistant/PageAssistantDraftPanel.vue'),
+  'utf8',
+)
 const sdkAccessWizardSource = readFileSync(join(process.cwd(), 'src/views/registry/SdkAccessWizard.vue'), 'utf8')
+const sdkAccessWizardSnippetsSource = readFileSync(
+  join(process.cwd(), 'src/views/registry/composables/useSdkAccessWizardSnippets.ts'),
+  'utf8',
+)
+const sdkAccessWorkbenchSource = `${sdkAccessWizardSource}\n${sdkAccessWizardSnippetsSource}`
 const scanProjectApiSource = readFileSync(join(process.cwd(), 'src/api/scanProject.ts'), 'utf8')
 const scanProjectTypesSource = readFileSync(join(process.cwd(), 'src/types/scanProject.ts'), 'utf8')
+const pageAssistantRegistrySource = execFileSync('rg', ['--files', 'src/views/registry'], {
+  encoding: 'utf8',
+})
+  .split(/\r?\n/)
+  .filter((path) => /\.(?:ts|vue)$/.test(path))
+  .map((path) => readFileSync(join(process.cwd(), path), 'utf8'))
+  .join('\n')
 const pageAssistantSkillSource = readFileSync(
   join(
     process.cwd(),
@@ -105,10 +131,10 @@ assert.equal(typeof decidePageAssistantFlowMode, 'function')
 assert.equal(typeof buildIntentClasses, 'function')
 assert.equal(typeof buildPageAssistantWorkflowAiCodingPrompt, 'function')
 
-assert.match(wizardSource, /使用 AI Coding 生成/)
-assert.match(wizardSource, /buildPageAssistantWorkflowAiCodingPrompt/)
+assert.match(pageAssistantDraftPanelSource, /使用 AI Coding 生成/)
+assert.match(workflowAiCodingComposableSource, /buildPageAssistantWorkflowAiCodingPrompt/)
 assert.match(wizardSource, /workflowAiCodingPromptDialogVisible/)
-assert.match(wizardSource, /pageAssistantDraftRequirement/)
+assert.match(wizardDraftConfigSource, /pageAssistantDraftRequirement/)
 
 const linearRequirement = buildPageAssistantDraftRequirement({
   pageName: '班组档案',
@@ -218,6 +244,9 @@ assert.match(workflowAiCodingPrompt, /INTENT_ROUTER/)
 assert.match(workflowAiCodingPrompt, /page-assistant\/validate/)
 assert.match(workflowAiCodingPrompt, /Workflow AI Coding 允许发布/)
 assert.match(workflowAiCodingPrompt, /\/api\/workflows\/\{workflowId\}\/ai-coding\/publish/)
+assert.match(workflowAiCodingPrompt, /baseRevision/)
+assert.match(workflowAiCodingPrompt, /发布前重新读取.*context/)
+assert.match(workflowAiCodingPrompt, /409.*没有创建版本/)
 assert.match(workflowAiCodingPrompt, /不要.*SDK 快速接入/)
 assert.match(workflowAiCodingPrompt, /不要.*registerPage/)
 assert.match(workflowAiCodingPrompt, /\/api\/ai-assist\/skills\/workflow-ai-coding\/latest\.zip/)
@@ -255,49 +284,45 @@ assert.match(workflowAiCodingPrompt, /不要把 readTable 结果在聊天框里�
 assert.match(workflowAiCodingPrompt, /不要设计绕过页面的后端 API Tool 查询链/)
 assert.doesNotMatch(workflowAiCodingPrompt, /reachai-page-assistant-onboarding\/latest\.zip/)
 
-assert.match(wizardSource, /WORKFLOW_AI_CODING_DRAFT_STEP_KEY|workflow-ai-coding-draft/)
-assert.match(wizardSource, /打开 Studio/)
-assert.match(wizardSource, /使用该 Workflow 继续/)
-assert.match(wizardSource, /useAiCodingWorkflowDraft/)
-assert.match(wizardSource, /openAiCodingWorkflowStudio/)
-assert.match(wizardSource, /pageAssistantToolUrl/)
-assert.match(wizardSource, /-AiCodingKey \$env:REACHAI_AI_CODING_KEY/)
-assert.doesNotMatch(wizardSource, /scaffold\?\.scaffoldCommand/)
-assert.doesNotMatch(wizardSource, /scaffold\?\.verifyCommand/)
-assert.doesNotMatch(wizardSource, /function withAiCodingKey/)
-assert.doesNotMatch(wizardSource, /return `\$\{value\}\$\{separator\}aiCodingKey=/)
-assert.match(sdkAccessWizardSource, /Workflow AI Coding 允许发布/)
-assert.match(sdkAccessWizardSource, /\/api\/workflows\/\{workflowId\}\/ai-coding\/publish/)
-assert.match(sdkAccessWizardSource, /首次发布/)
+assert.match(pageAssistantRegistrySource, /WORKFLOW_AI_CODING_DRAFT_STEP_KEY|workflow-ai-coding-draft/)
+assert.match(pageAssistantRegistrySource, /打开 Studio/)
+assert.match(pageAssistantRegistrySource, /使用该 Workflow 继续/)
+assert.match(pageAssistantRegistrySource, /useAiCodingWorkflowDraft/)
+assert.match(pageAssistantRegistrySource, /openAiCodingWorkflowStudio/)
+assert.match(pageAssistantRegistrySource, /pageAssistantToolUrl/)
+assert.match(pageAssistantRegistrySource, /-AiCodingKey \$env:REACHAI_AI_CODING_KEY/)
+assert.doesNotMatch(pageAssistantRegistrySource, /scaffold\?\.scaffoldCommand/)
+assert.doesNotMatch(pageAssistantRegistrySource, /scaffold\?\.verifyCommand/)
+assert.doesNotMatch(pageAssistantRegistrySource, /function withAiCodingKey/)
+assert.doesNotMatch(pageAssistantRegistrySource, /return `\$\{value\}\$\{separator\}aiCodingKey=/)
+assert.match(pageAssistantRegistrySource, /Workflow AI Coding 允许发布/)
+assert.match(pageAssistantRegistrySource, /\/api\/workflows\/\{workflowId\}\/ai-coding\/publish/)
+assert.match(pageAssistantRegistrySource, /首次发布/)
 
-assert.match(wizardSource, /draftSource|DraftSource/)
-assert.match(wizardSource, /AI_CODING_RETURNED/)
-assert.match(wizardSource, /PLATFORM_GENERATED/)
-assert.match(wizardSource, /confirmSwitchToPlatformGeneration/)
-assert.match(wizardSource, /改用平台生成/)
-assert.match(wizardSource, /不会删除 AI Coding 已创建的 Workflow/)
-assert.match(wizardSource, /生成 \/ 选择 Workflow 草稿/)
+assert.match(pageAssistantRegistrySource, /draftSource|DraftSource/)
+assert.match(pageAssistantRegistrySource, /AI_CODING_RETURNED/)
+assert.match(pageAssistantRegistrySource, /PLATFORM_GENERATED/)
+assert.match(pageAssistantRegistrySource, /confirmSwitchToPlatformGeneration/)
+assert.match(pageAssistantRegistrySource, /改用平台生成/)
+assert.match(pageAssistantRegistrySource, /不会删除 AI Coding 已创建的 Workflow/)
+assert.match(pageAssistantRegistrySource, /生成 \/ 选择 Workflow 草稿/)
 
-assert.match(wizardSource, /draftSource\.value = 'AI_CODING_RETURNED'/)
-assert.match(wizardSource, /useAiCodingWorkflowDraft[\s\S]*selectStep\('bind'\)/)
+assert.match(pageAssistantRegistrySource, /draftSource\.value = 'AI_CODING_RETURNED'/)
+assert.match(pageAssistantRegistrySource, /useAiCodingWorkflowDraft[\s\S]*selectStep\('attach'\)/)
 assert.doesNotMatch(
-  wizardSource.match(/async function useAiCodingWorkflowDraft\(\) \{[\s\S]*?^}/m)?.[0] || 'async function useAiCodingWorkflowDraft() {}',
+  pageAssistantRegistrySource.match(/async function useAiCodingWorkflowDraft\(\) \{[\s\S]*?^}/m)?.[0] || 'async function useAiCodingWorkflowDraft() {}',
   /draftPreview\.value = data/,
 )
 
-assert.match(wizardSource, /async function generateDraft[\s\S]*confirmSwitchToPlatformGeneration/)
-assert.match(wizardSource, /function requiredStepComplete[\s\S]*AI_CODING_RETURNED/)
+assert.match(pageAssistantRegistrySource, /async function generateDraft[\s\S]*confirmSwitchToPlatformGeneration/)
+assert.match(pageAssistantRegistrySource, /function requiredStepComplete[\s\S]*AI_CODING_RETURNED/)
 
-const workflowAiCodingPromptBlock = wizardSource.match(
-  /const workflowAiCodingPrompt = computed\([\s\S]*?\n\}\)\)/,
-)?.[0] || ''
-assert.ok(workflowAiCodingPromptBlock, 'workflowAiCodingPrompt computed block not found')
 assert.match(
-  workflowAiCodingPromptBlock,
+  workflowAiCodingComposableSource,
   /skillPackageUrl:\s*`\$\{window\.location\.origin\}\/api\/ai-assist\/skills\/workflow-ai-coding\/latest\.zip`/,
 )
 assert.doesNotMatch(
-  workflowAiCodingPromptBlock,
+  workflowAiCodingComposableSource,
   /pageAssistantManifest\.value\?\.(?:endpoints|scaffold)\.skillPackageUrl/,
 )
 
@@ -430,9 +455,10 @@ assert.match(prompt, /Maven repository/)
 assert.match(prompt, /绑定目标页时/)
 assert.match(prompt, /同步目录时/)
 assert.match(prompt, /page-assistant/)
-assert.match(prompt, /PAGE_COPILOT/)
+assert.match(prompt, /页面副驾驶 Agent/)
 assert.match(prompt, /PAGE_ASSISTANT Workflow/)
-assert.match(prompt, /ai_agent_workflow_binding/)
+assert.match(prompt, /Supervisor Workflow-as-Tool 白名单/)
+assert.match(prompt, /发布新版 Agent 配置/)
 assert.match(prompt, /Workflow Studio/)
 assert.match(prompt, /POST \/api\/embed\/chat\/sessions\/\{sessionId\}\/messages/)
 assert.match(prompt, /"message": "用户输入的自然语言问题"/)
@@ -483,8 +509,8 @@ assert.match(prompt, /浏览器运行时代码不得调用这些接口/)
 assert.doesNotMatch(prompt, /secret-must-not-leak/)
 assert.doesNotMatch(prompt, /App Secret：/)
 
-const frontendSnippetBlock = sdkAccessWizardSource.match(
-  /const frontendSnippet = computed\(\(\) => \{[\s\S]*?return `([\s\S]*?)`\s*\n\}\)/,
+const frontendSnippetBlock = sdkAccessWorkbenchSource.match(
+  /const frontendSnippet = computed\(\(\) => \{[\s\S]*?return `([\s\S]*?)`\s*\n\s*\}\)/,
 )?.[1] || ''
 assert.ok(frontendSnippetBlock, 'SdkAccessWizard frontendSnippet template not found')
 assert.match(frontendSnippetBlock, /Browser runtime must NOT call \/api\/ai-coding\/projects\/\*\*/)
@@ -495,12 +521,12 @@ assert.doesNotMatch(frontendSnippetBlock, /provisionAgentUrl/)
 assert.doesNotMatch(frontendSnippetBlock, /\/agents\/provision/)
 assert.doesNotMatch(frontendSnippetBlock, /fetch\([^)]*ai-assist/)
 assert.doesNotMatch(
-  sdkAccessWizardSource,
+  sdkAccessWorkbenchSource,
   /Browser runtime must NOT call \/api\/ai-assist\/\*\*|fetch \/api\/ai-assist\/\*\*（含 agents\/provision/,
   'SdkAccessWizard browser runtime safety text must not describe external project APIs as /api/ai-assist/**',
 )
 assert.match(
-  sdkAccessWizardSource,
+  sdkAccessWorkbenchSource,
   /\/api\/ai-coding\/projects\/\*\*/,
   'SdkAccessWizard browser runtime safety text should name the project-scoped ai-coding gateway path',
 )
@@ -514,60 +540,60 @@ assert.match(
   /\/api\/ai-coding\/projects\/\{projectId\}\/(?:onboarding-manifest|agents\/provision|access-sessions)/,
   'Packaged SDK onboarding security reference should name project-scoped ai-coding gateway paths',
 )
-assert.match(sdkAccessWizardSource, /运行时浏览器不得调用 provisioning API/)
-assert.match(sdkAccessWizardSource, /浏览器运行时代码不得 fetch \/api\/ai-coding\/projects\/\*\*/)
-assert.match(sdkAccessWizardSource, /@ReachOutput\s*只用于返回 DTO 字段/)
-assert.match(sdkAccessWizardSource, /CODE_READY[\s\S]*RUNTIME_READY[\s\S]*E2E_READY/)
-assert.match(sdkAccessWizardSource, /网关接入必查 5 项/)
-assert.match(sdkAccessWizardSource, /前端 :9200[\s\S]*网关 :8080[\s\S]*ReachAI :18603/)
+assert.match(sdkAccessWorkbenchSource, /运行时浏览器不得调用 provisioning API/)
+assert.match(sdkAccessWorkbenchSource, /浏览器运行时代码不得 fetch \/api\/ai-coding\/projects\/\*\*/)
+assert.match(sdkAccessWorkbenchSource, /@ReachOutput\s*只用于返回 DTO 字段/)
+assert.match(sdkAccessWorkbenchSource, /CODE_READY[\s\S]*RUNTIME_READY[\s\S]*E2E_READY/)
+assert.match(sdkAccessWorkbenchSource, /网关接入必查 5 项/)
+assert.match(sdkAccessWorkbenchSource, /前端 :9200[\s\S]*网关 :8080[\s\S]*ReachAI :18603/)
 assert.match(onboardingSkillSource, /`?@ReachOutput`?\s+is field-only/)
 assert.match(onboardingSkillSource, /CODE_READY[\s\S]*RUNTIME_READY[\s\S]*E2E_READY/)
 assert.match(onboardingJavaSdkAccessSource, /Gateway checklist/)
 assert.match(onboardingJavaSdkAccessSource, /Local dev topology/)
 
 assert.doesNotMatch(
-  sdkAccessWizardSource,
+  sdkAccessWorkbenchSource,
   /appendQuery\(platformManifestUrl,\s*'aiCodingKey'/,
   'SdkAccessWizard onboarding prompt must not put aiCodingKey into the manifest URL',
 )
 assert.doesNotMatch(
-  sdkAccessWizardSource,
+  sdkAccessWorkbenchSource,
   /appendQuery\(fallbackProvisionAgentUrl,\s*'aiCodingKey'/,
   'SdkAccessWizard onboarding prompt must not put aiCodingKey into the provisioning URL',
 )
 assert.doesNotMatch(
-  sdkAccessWizardSource,
+  sdkAccessWorkbenchSource,
   /reportUrlPatternWithKey|sessionCheckUrlWithKey/,
   'SdkAccessWizard onboarding prompt must use header-auth progress/check URLs',
 )
 assert.doesNotMatch(
-  sdkAccessWizardSource,
+  sdkAccessWorkbenchSource,
   /latestSessionUrl\s*=[\s\S]*appendQuery\([^)]*access-sessions\/latest[\s\S]*?'aiCodingKey'/,
   'SdkAccessWizard onboarding prompt must not put aiCodingKey into latest-session URL',
 )
 assert.match(
-  sdkAccessWizardSource,
+  sdkAccessWorkbenchSource,
   /X-ReachAI-AiCoding-Key/,
   'SdkAccessWizard onboarding prompt must instruct external tools to send the AI Coding key as a header',
 )
 assert.match(
-  sdkAccessWizardSource,
+  sdkAccessWorkbenchSource,
   /externalProjectRoot\s*=\s*`\$\{platformUrl\}\/api\/ai-coding\/projects\/\$\{projectId\}`/,
   'SdkAccessWizard external tool manifest URL should use the AI Coding gateway project alias',
 )
 assert.match(
-  sdkAccessWizardSource,
+  sdkAccessWorkbenchSource,
   /`\$\{externalProjectRoot\}\/access-sessions\/\$\{sessionId\}\/checks\/run`/,
   'SdkAccessWizard external tool progress/check URLs should use the AI Coding gateway project alias',
 )
 assert.match(
-  wizardSource,
+  pageAssistantRegistrySource,
   /\/api\/ai-coding\/projects\/\$\{pageAssistantProjectIdForTool\.value\}\/page-assistant/,
   'PageAssistantWizard external tool URLs should use the AI Coding gateway project alias',
 )
 assert.match(
-  wizardSource,
-  /\/api\/ai-coding\/projects\/\$\{project\.value\.id\}\/page-assistant\/sessions\/\$\{sessionId\}\/workflow-ai-coding-result/,
+  pageAssistantRegistrySource,
+  /\/api\/ai-coding\/projects\/\$\{(?:deps\.)?project\.value\.id\}\/page-assistant\/sessions\/\$\{sessionId\}\/workflow-ai-coding-result/,
   'PageAssistant workflow AI Coding report URL should use the AI Coding gateway project alias',
 )
 assert.doesNotMatch(
@@ -596,12 +622,12 @@ assert.match(
   'Page Assistant manifest type should expose the platform-session console path',
 )
 assert.doesNotMatch(
-  sdkAccessWizardSource,
+  sdkAccessWorkbenchSource,
   /stripQueryParam\([^)]*aiCodingKey|function stripQueryParam/,
   'SdkAccessWizard must not keep legacy aiCodingKey URL stripping helpers',
 )
 assert.doesNotMatch(
-  wizardSource,
+  pageAssistantRegistrySource,
   /stripAiCodingKeyQuery/,
   'PageAssistantWizard must not keep legacy aiCodingKey URL stripping helpers',
 )
@@ -613,12 +639,13 @@ assert.doesNotMatch(
 
 assert.doesNotMatch(wizardSource, /Agent Studio/)
 assert.doesNotMatch(wizardSource, /\/agent\/new\/studio/)
-assert.doesNotMatch(wizardSource, /page-assistant-draft/)
-assert.match(wizardSource, /确认草稿/)
-assert.match(wizardSource, /挂载智能体/)
-assert.match(wizardSource, /bindPageAssistantWorkflow/)
-assert.match(wizardSource, /Workflow Studio/)
-assert.match(wizardSource, /\/workflows\/\$\{workflowId\}\/studio/)
+assert.doesNotMatch(pageAssistantRegistrySource, /page-assistant-draft/)
+assert.match(pageAssistantRegistrySource, /确认草稿/)
+assert.match(wizardViewModelSource, /启用页面副驾驶/)
+assert.match(workflowLifecycleSource, /attachPageAssistantWorkflowTool/)
+assert.match(workflowLifecycleSource, /publishWorkflowVersion/)
+assert.match(pageAssistantRegistrySource, /Workflow Studio/)
+assert.match(pageAssistantRegistrySource, /\/workflows\/\$\{workflowId\}\/studio/)
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..')
 const helperScriptPaths = [

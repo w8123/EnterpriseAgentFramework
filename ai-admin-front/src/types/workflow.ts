@@ -17,30 +17,37 @@ import type {
 } from './agent'
 import type { UiRequestPayload } from './interaction'
 
-export type AgentEntryKind = 'PROJECT_ENTRY' | 'PAGE_COPILOT' | 'GLOBAL_EMBED' | 'PAGE_ENTRY' | string
-export type AgentEntryVisibility = 'PROJECT' | 'PRIVATE' | 'PUBLIC' | string
-export type WorkflowType = 'CHAT' | 'SDK_GRAPH' | 'PAGE_ACTION' | string
+export type AgentVisibility = 'PROJECT' | 'PRIVATE' | 'PUBLIC' | string
+export type WorkflowType = 'CHAT' | 'SDK_GRAPH' | 'PAGE_ASSISTANT' | string
 export type WorkflowRuntimeType = AgentRuntimeType | string
 export type WorkflowStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED' | string
 export type WorkflowManagedBy = 'MANUAL' | 'SDK' | 'AI_QUICK_ACCESS' | string
-export type AgentWorkflowBindingType = 'DEFAULT' | 'PAGE' | 'ROUTE' | 'ACTION' | 'INTENT' | string
 
-export interface AgentEntry {
+export interface Agent {
   id: string
   projectId?: number | null
   projectCode?: string | null
   keySlug: string
   name: string
   description?: string | null
-  agentKind?: AgentEntryKind | null
-  visibility?: AgentEntryVisibility | null
-  systemPrompt?: string | null
-  modelInstanceId?: string | null
+  visibility?: AgentVisibility | null
   allowedRolesJson?: string | null
-  entryConfigJson?: string | null
   enabled?: boolean | null
+  activeConfigVersionId?: number | null
+  displayConfigVersionId?: number | null
+  displayConfigVersionNo?: number | null
+  configStatus?: 'NONE' | 'DRAFT' | 'ACTIVE' | 'ARCHIVED' | string | null
+  runtimeType?: string | null
+  workflowToolCount?: number | null
   createdAt?: string | null
   updatedAt?: string | null
+}
+
+export interface AgentStatistics {
+  totalAgents: number
+  enabledAgents: number
+  workflowToolAgents: number
+  activeWorkflowTools: number
 }
 
 export interface WorkflowDefinition {
@@ -75,6 +82,7 @@ export interface WorkflowDefinitionDraft
 
 export interface WorkflowStudioState {
   workflowId: string
+  id?: string
   projectId?: number | null
   projectCode?: string | null
   keySlug?: string | null
@@ -86,21 +94,50 @@ export interface WorkflowStudioState {
   runtimeType: WorkflowRuntimeType
   defaultModelInstanceId?: string | null
   defaultResourceConfigJson?: string | null
+  inputSchemaJson?: string | null
+  outputSchemaJson?: string | null
   status: WorkflowStatus
   managedBy: WorkflowManagedBy
   extraJson?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  deletable?: boolean | null
+  revision?: string | null
+  activeVersion?: WorkflowActiveVersionSummary | null
+  hasUnpublishedChanges?: boolean
 }
 
 export interface WorkflowStudioSaveRequest {
   graphSpecJson: string
   canvasJson?: string | null
   extraJson?: string | null
+  baseRevision?: string | null
+  keySlug?: string | null
+  name?: string | null
+  description?: string | null
+  workflowType?: WorkflowType | null
+  runtimeType?: WorkflowRuntimeType | null
+  inputSchemaJson?: string | null
+  outputSchemaJson?: string | null
+  defaultModelInstanceId?: string | null
+  defaultResourceConfigJson?: string | null
+}
+
+export interface WorkflowActiveVersionSummary {
+  id: number
+  version: string
+  rolloutPercent?: number | null
+  status?: string | null
+  publishedBy?: string | null
+  publishedAt?: string | null
+  note?: string | null
 }
 
 export interface WorkflowRuntimeValidationRequest {
   workflowId?: string
   graphSpecJson?: string
   runtimeType?: WorkflowRuntimeType
+  defaultModelInstanceId?: string | null
 }
 
 export interface WorkflowValidationItem {
@@ -112,6 +149,7 @@ export interface WorkflowValidationItem {
 export interface WorkflowRuntimeValidationResult {
   valid: boolean
   errors: WorkflowValidationItem[]
+  warnings?: WorkflowValidationItem[]
 }
 
 export type WorkflowGraphNodeTypeDescriptor = AgentGraphNodeTypeDescriptor
@@ -207,6 +245,7 @@ export interface WorkflowPublishRequest {
   rolloutPercent?: number
   note?: string
   publishedBy?: string
+  baseRevision?: string | null
 }
 
 export type PublishWorkflowVersionRequest = WorkflowPublishRequest
@@ -224,48 +263,22 @@ export interface WorkflowReleaseValidationResult {
   warnings: WorkflowReleaseValidationItem[]
 }
 
-export interface AgentWorkflowBinding {
-  id?: number
-  /** AgentEntry / chat·embed 入口 id，不是 WorkflowDefinition id */
-  agentId: string
-  workflowId: string
-  projectCode?: string | null
-  bindingType?: AgentWorkflowBindingType | null
-  pageKey?: string | null
-  routePattern?: string | null
-  actionKey?: string | null
-  intentType?: string | null
-  priority?: number | null
-  enabled?: boolean | null
-  guardConfigJson?: string | null
-  metadataJson?: string | null
-  createdAt?: string | null
-  updatedAt?: string | null
-}
-
-export interface AgentWorkflowResolveRequest {
-  /** AgentEntry / chat·embed 入口 id 或 keySlug，不是 WorkflowDefinition id */
-  agentId?: string
-  projectCode?: string
-  pageKey?: string
-  route?: string
-  actionKey?: string
-  intentType?: string
-}
-
-export interface PageAssistantWorkflowBindRequest {
+export interface PageAssistantWorkflowAttachRequest {
   projectId?: number | null
   projectCode?: string | null
   agentId?: string | null
-  pageKey: string
-  routePattern?: string | null
-  actionKeys?: string[]
+  modelInstanceId: string
+  publishedBy?: string | null
 }
 
-export interface PageAssistantWorkflowBindingResult {
+export interface PageAssistantWorkflowAttachmentResult {
   agentId: string
   agentKeySlug: string
   workflowId: string
   workflowKeySlug: string
-  bindingId: number
+  toolName: string
+  configVersionId: number
+  configVersionNo: number
+  configStatus: string
+  published: boolean
 }

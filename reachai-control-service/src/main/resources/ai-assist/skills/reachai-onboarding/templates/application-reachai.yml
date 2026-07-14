@@ -8,6 +8,7 @@ reachai:
   project:
     code: ${REACHAI_PROJECT_CODE}
     name: ${REACHAI_PROJECT_NAME}
+    # ReachAI server must be able to call this address. Loopback is only valid when both sides share a host/network namespace.
     base-url: ${REACHAI_PROJECT_BASE_URL:http://localhost:8080}
     context-path: ${REACHAI_PROJECT_CONTEXT_PATH:}
     environment: ${REACHAI_PROJECT_ENV:dev}
