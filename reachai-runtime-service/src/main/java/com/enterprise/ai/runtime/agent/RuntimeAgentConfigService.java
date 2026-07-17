@@ -11,6 +11,7 @@ import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionMapper;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +41,7 @@ public class RuntimeAgentConfigService {
     private final RuntimeAgentMapper agentMapper;
     private final RuntimeWorkflowDefinitionMapper workflowMapper;
     private final RuntimeWorkflowVersionMapper workflowVersionMapper;
+    private final ObjectMapper objectMapper;
 
     public List<AgentConfigVersionView> list(String agentId) {
         requireAgent(agentId);
@@ -512,6 +514,20 @@ public class RuntimeAgentConfigService {
         }
         if (!"ALLOW_LIST".equalsIgnoreCase(target.getToolCatalogMode())) {
             throw new IllegalArgumentException("Agent toolCatalogMode must be ALLOW_LIST");
+        }
+        validateConfigJson(target.getConfigJson());
+    }
+
+    private void validateConfigJson(String configJson) {
+        if (!StringUtils.hasText(configJson)) return;
+        try {
+            if (!objectMapper.readTree(configJson).isObject()) {
+                throw new IllegalArgumentException("Agent configJson must be a JSON object");
+            }
+        } catch (IllegalArgumentException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Agent configJson must be valid JSON", ex);
         }
     }
 

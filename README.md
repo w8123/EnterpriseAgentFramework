@@ -61,7 +61,7 @@
 加群二维码如下（二维码有效期有限，如失效可重新获取）：
 
 <p align="center">
-  <img src="docs/系统截图/ReachAI学习交流群.png" alt="ReachAI 学习交流群二维码" width="360" />
+  <img src="docs/系统截图/ReachAI学习交流群.jpg" alt="ReachAI 学习交流群二维码" width="360" />
 </p>
 
 ## ReachAI 是什么

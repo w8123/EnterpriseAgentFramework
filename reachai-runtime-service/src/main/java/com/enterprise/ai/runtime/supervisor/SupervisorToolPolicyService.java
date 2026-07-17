@@ -46,10 +46,11 @@ public class SupervisorToolPolicyService {
         String riskLevel = normalizeRisk(tool);
         String permissionKey = text(tool.getPermissionKey());
         String profile = firstText(config.getPolicyProfile(), "STANDARD").toUpperCase(Locale.ROOT);
-        Map<String, Object> policy = policy(config.getConfigJson());
+        ParsedPolicy parsedPolicy = policy(config.getConfigJson());
+        Map<String, Object> policy = parsedPolicy.values();
         Map<String, Object> metadata = metadata(profile, riskLevel, permissionKey, tool, input, args);
 
-        PolicyDecision structural = structuralChecks(agent, config, tool, input, profile, policy, metadata);
+        PolicyDecision structural = structuralChecks(agent, config, tool, input, profile, parsedPolicy, metadata);
         if (structural != null) {
             trace(structural, trace, agent, input, tool, metadata);
             return structural;
@@ -94,8 +95,12 @@ public class SupervisorToolPolicyService {
                                             RuntimeAgentWorkflowToolEntity tool,
                                             Map<String, Object> input,
                                             String profile,
-                                            Map<String, Object> policy,
+                                            ParsedPolicy parsedPolicy,
                                             Map<String, Object> metadata) {
+        if (!parsedPolicy.valid()) {
+            return deny("Supervisor policy configuration is invalid");
+        }
+        Map<String, Object> policy = parsedPolicy.values();
         if (!"ALLOW_LIST".equalsIgnoreCase(config.getToolCatalogMode())) {
             return deny("Supervisor toolCatalogMode must be ALLOW_LIST");
         }
@@ -165,14 +170,14 @@ public class SupervisorToolPolicyService {
         return metadata;
     }
 
-    private Map<String, Object> policy(String configJson) {
-        if (!StringUtils.hasText(configJson)) return Map.of();
+    private ParsedPolicy policy(String configJson) {
+        if (!StringUtils.hasText(configJson)) return new ParsedPolicy(Map.of(), true);
         try {
             Map<String, Object> root = objectMapper.readValue(configJson, MAP_TYPE);
             Map<String, Object> nested = mapValue(root.get("policy"));
-            return nested.isEmpty() ? root : nested;
+            return new ParsedPolicy(nested.isEmpty() ? root : nested, true);
         } catch (Exception ex) {
-            return Map.of();
+            return new ParsedPolicy(Map.of(), false);
         }
     }
 
@@ -265,5 +270,8 @@ public class SupervisorToolPolicyService {
                                  String reason,
                                  String interactionId,
                                  Object uiRequest) {
+    }
+
+    private record ParsedPolicy(Map<String, Object> values, boolean valid) {
     }
 }

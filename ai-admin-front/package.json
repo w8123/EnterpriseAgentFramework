@@ -17,7 +17,13 @@
     "check:sdk-access-workbench": "node scripts/check-sdk-access-workbench-ui.mjs",
     "check:page-assistant-progress": "node scripts/check-page-assistant-progress-ui.mjs",
     "check:scan-project-detail-ui": "node scripts/check-scan-project-detail-ui.mjs",
+    "check:model-center-v2-ui": "node scripts/check-model-center-v2-ui.mjs",
     "build:sdk": "vite build --config vite.sdk.config.ts && node scripts/write-embed-chat-package.mjs",
+    "test:conversation": "vitest run --config vitest.conversation.config.ts",
+    "test:conversation:watch": "vitest --config vitest.conversation.config.ts",
+    "test:sdk": "vitest run --config vitest.sdk.config.ts",
+    "test:workflow": "vitest run --config vitest.workflow.config.ts",
+    "test:model": "vitest run --config vitest.model.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -27,8 +33,8 @@
     "@vue-flow/core": "^1.42.0",
     "@vue-flow/minimap": "^1.5.0",
     "axios": "^1.7.9",
-    "elkjs": "^0.11.1",
     "element-plus": "^2.9.1",
+    "elkjs": "^0.11.1",
     "marked": "^14.1.3",
     "pinia": "^2.3.0",
     "vue": "^3.5.13",
@@ -37,9 +43,12 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/test-utils": "^2.4.11",
+    "happy-dom": "^15.11.7",
     "sass": "^1.83.0",
     "typescript": "~5.6.3",
     "vite": "^6.0.5",
+    "vitest": "^3.2.4",
     "vue-tsc": "^2.2.0"
   }
 }

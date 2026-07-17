@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.compat;
 
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowRevisionConflictException;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowRevisionFormatException;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowKeySlugConflictException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +18,14 @@ import java.util.Map;
         RuntimeWorkflowVersionCompatibilityController.class
 })
 public class RuntimeWorkflowRevisionExceptionHandler {
+
+    @ExceptionHandler(RuntimeWorkflowKeySlugConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleKeySlugConflict(RuntimeWorkflowKeySlugConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "code", "WORKFLOW_KEY_SLUG_EXISTS",
+                "message", "Workflow Key 已存在，请使用其他 Key",
+                "keySlug", ex.getKeySlug()));
+    }
 
     @ExceptionHandler(RuntimeWorkflowRevisionConflictException.class)
     public ResponseEntity<Map<String, Object>> handleConflict(RuntimeWorkflowRevisionConflictException ex) {

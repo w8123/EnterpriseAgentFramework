@@ -90,5 +90,10 @@ public interface RuntimeModelServiceClient {
         private int promptTokens;
         private int completionTokens;
         private int totalTokens;
+        private Integer reasoningTokens;
+
+        public ModelUsage(int promptTokens, int completionTokens, int totalTokens) {
+            this(promptTokens, completionTokens, totalTokens, null);
+        }
     }
 }

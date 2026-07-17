@@ -13,7 +13,8 @@ public class ModelInstanceRuntime {
     private String provider;
     private String modelType;
     private String modelName;
-    private String endpointType;
-    private Map<String, Object> credential;
+    private String protocol;
+    /** 明文连接配置，仅供运行时内部使用 */
+    private Map<String, Object> connectionConfig;
     private Map<String, Object> defaultOptions;
 }

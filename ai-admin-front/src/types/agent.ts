@@ -235,6 +235,10 @@ export type WorkflowDraftEditOperationType =
   | 'ADD_EDGE'
   | 'UPDATE_EDGE'
   | 'DELETE_EDGE'
+  | 'SET_ENTRY'
+  | 'SET_FINISH'
+
+export type WorkflowDraftEditStatus = 'SUCCEEDED' | 'FAILED'
 
 export interface WorkflowDraftEditOperation {
   type: WorkflowDraftEditOperationType
@@ -263,6 +267,7 @@ export interface WorkflowDraftEditRequest {
 }
 
 export interface WorkflowDraftEditResult {
+  status?: WorkflowDraftEditStatus | string
   provider: string
   summary: string
   operations: WorkflowDraftEditOperation[]
@@ -271,6 +276,10 @@ export interface WorkflowDraftEditResult {
   warnings: string[]
   placeholderNodes: WorkflowDraftPlaceholder[]
   validationErrors: string[]
+  attempts?: number
+  failureCode?: string | null
+  /** Correlates Studio preview with runtime authoring logs (sessionId). */
+  authoringId?: string | null
 }
 
 export interface AgentGraphNodeTypeDescriptor {
@@ -523,4 +532,11 @@ export interface PendingHumanApproval {
 export interface StepRecord {
   name: string
   detail: unknown
+  /** 同一阶段稳定标识；有则前端按 stepId upsert */
+  stepId?: string
+  state?: 'started' | 'completed' | 'failed' | 'cancelled' | 'waiting' | string
+  sequence?: number
+  source?: string
+  title?: string
+  timestamp?: string
 }

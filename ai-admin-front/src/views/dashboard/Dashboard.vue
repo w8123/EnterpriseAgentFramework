@@ -370,45 +370,42 @@ async function fetchStats() {
 }
 
 async function checkHealth() {
-  await Promise.all([
-    checkControlAndInternalServices(),
-    checkHttpService('reachai-knowledge-service', '/ai/actuator/health'),
-    checkHttpService('reachai-model-service', '/model/providers'),
-  ])
+  await checkControlAndInternalServices()
 }
 
 async function checkControlAndInternalServices() {
-  try {
-    const resp = await fetch('/api/internal-services/health', { signal: AbortSignal.timeout(5000) })
-    serviceHealth['reachai-control-service'] = resp.ok ? 'online' : 'offline'
-    if (!resp.ok) {
-      serviceHealth['reachai-runtime-service'] = 'offline'
-      serviceHealth['reachai-capability-service'] = 'offline'
-      return
-    }
-    const body = await resp.json() as InternalServicesHealthResponse
-    serviceHealth['reachai-runtime-service'] = isUp(body.services?.runtime) ? 'online' : 'offline'
-    serviceHealth['reachai-capability-service'] = isUp(body.services?.capability) ? 'online' : 'offline'
-  } catch {
+  const markAllOffline = () => {
     serviceHealth['reachai-control-service'] = 'offline'
     serviceHealth['reachai-runtime-service'] = 'offline'
     serviceHealth['reachai-capability-service'] = 'offline'
+    serviceHealth['reachai-model-service'] = 'offline'
+    serviceHealth['reachai-knowledge-service'] = 'offline'
   }
-}
 
-async function checkHttpService(name: string, healthPath: string) {
   try {
-    const resp = await fetch(healthPath, { signal: AbortSignal.timeout(5000) })
-    serviceHealth[name] = resp.ok ? 'online' : 'offline'
+    const resp = await fetch('/api/internal-services/health', { signal: AbortSignal.timeout(5000) })
+    if (!resp.ok) {
+      markAllOffline()
+      return
+    }
+    serviceHealth['reachai-control-service'] = 'online'
+    const body = (await resp.json()) as InternalServicesHealthResponse
+    serviceHealth['reachai-runtime-service'] = isUp(body.services?.runtime) ? 'online' : 'offline'
+    serviceHealth['reachai-capability-service'] = isUp(body.services?.capability) ? 'online' : 'offline'
+    serviceHealth['reachai-model-service'] = isUp(body.services?.model) ? 'online' : 'offline'
+    serviceHealth['reachai-knowledge-service'] = isUp(body.services?.knowledge) ? 'online' : 'offline'
   } catch {
-    serviceHealth[name] = 'offline'
+    markAllOffline()
   }
 }
 
 interface InternalServicesHealthResponse {
+  status?: string
   services?: {
     runtime?: { status?: string }
     capability?: { status?: string }
+    model?: { status?: string }
+    knowledge?: { status?: string }
   }
 }
 

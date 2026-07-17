@@ -10,6 +10,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -22,9 +23,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -43,6 +43,7 @@ public class PlatformEmbedPublicController {
     private final PlatformEmbedChatEventService chatEventService;
     private final CapabilityProxyClient capabilityProxyClient;
     private final RuntimeProxyClient runtimeProxyClient;
+    private final PlatformEmbedStreamRelay embedStreamRelay;
     private final PlatformPageActionEventMapper pageActionEventMapper;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -151,38 +152,58 @@ public class PlatformEmbedPublicController {
     }
 
     @PostMapping(value = "/chat/sessions/{sessionId}/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public ResponseEntity<SseEmitter> streamMessage(
+    public ResponseEntity<StreamingResponseBody> streamMessage(
             @PathVariable String sessionId,
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody EmbedChatMessageRequest request) {
         try {
-            EmbedChatMessageResponse response = executeEmbedMessage(sessionId, authorization, request);
-            SseEmitter emitter = new SseEmitter();
-            if (StringUtils.hasText(response.answer())) {
-                emitter.send(SseEmitter.event()
-                        .name("message.delta")
-                        .data(Map.of("text", response.answer())));
-            }
-            if (response.uiRequest() != null) {
-                emitter.send(SseEmitter.event()
-                        .name("ui.requested")
-                        .data(response.uiRequest()));
-            }
-            emitter.send(SseEmitter.event()
-                    .name("message.completed")
-                    .data(response));
-            emitter.complete();
-            return ResponseEntity.ok()
-                    .contentType(MediaType.TEXT_EVENT_STREAM)
-                    .body(emitter);
+            PlatformEmbedTokenClaims claims = verifyBearer(authorization);
+            PlatformEmbedSessionEntity session = sessionService.requireActiveSession(sessionId, claims);
+            String message = request == null ? null : request.message();
+            requireText(message, "message");
+            chatEventService.recordUserMessage(session, message);
+            Map<String, Object> runtimeBody = runtimeContext(session, claims);
+            runtimeBody.put("message", message);
+            runtimeBody.put("intentHint", "EMBED_CHAT");
+            runtimeBody.put("entryType", "EMBED");
+            StreamingResponseBody stream = outputStream ->
+                    embedStreamRelay.streamMessage(session, runtimeBody, outputStream);
+            return streamResponse(stream);
         } catch (PlatformEmbedTokenException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().build();
         } catch (IllegalStateException ex) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        } catch (IOException ex) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @PostMapping(value = "/chat/sessions/{sessionId}/interactions/{interactionId}/submit/stream",
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<StreamingResponseBody> streamSubmitInteraction(
+            @PathVariable String sessionId,
+            @PathVariable String interactionId,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody EmbedInteractionSubmitRequest request) {
+        try {
+            PlatformEmbedTokenClaims claims = verifyBearer(authorization);
+            PlatformEmbedSessionEntity session = sessionService.requireActiveSession(sessionId, claims);
+            Map<String, Object> runtimeBody = runtimeContext(session, claims);
+            runtimeBody.put("interactionId", requiredRequestText(interactionId, "interactionId"));
+            runtimeBody.put("uiSubmit", Map.of(
+                    "action", firstText(request == null ? null : request.action(), "confirm"),
+                    "values", request == null || request.values() == null ? Map.of() : request.values()));
+            runtimeBody.put("intentHint", "EMBED_INTERACTION_RESUME");
+            runtimeBody.put("entryType", "EMBED");
+            StreamingResponseBody stream = outputStream ->
+                    embedStreamRelay.streamMessage(session, runtimeBody, outputStream);
+            return streamResponse(stream);
+        } catch (PlatformEmbedTokenException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().build();
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
     }
 
@@ -539,6 +560,14 @@ public class PlatformEmbedPublicController {
 
     private String firstText(String primary, String fallback) {
         return StringUtils.hasText(primary) ? primary : fallback;
+    }
+
+    private ResponseEntity<StreamingResponseBody> streamResponse(StreamingResponseBody stream) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noCache())
+                .header("X-Accel-Buffering", "no")
+                .contentType(MediaType.TEXT_EVENT_STREAM)
+                .body(stream);
     }
 
     public record EmbedTokenExchangeRequest(

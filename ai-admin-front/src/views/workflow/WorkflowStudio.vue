@@ -783,12 +783,30 @@
               </div>
             </div>
           </div>
-          <div v-if="aiEditPreview" class="ai-edit-preview">
+          <div
+            v-if="aiEditPreview"
+            class="ai-edit-preview"
+            :class="{ 'is-failed': aiEditPreviewFailed }"
+          >
             <div class="ai-edit-preview-head">
-              <strong>{{ aiEditPreview.summary || 'AI 编排预览' }}</strong>
-              <span>{{ aiEditPreview.provider }} · {{ aiEditPreview.operations.length }} 项变更</span>
+              <strong>
+                {{ aiEditPreviewFailed ? 'AI 编排生成失败' : (aiEditPreview.summary || 'AI 编排预览') }}
+              </strong>
+              <span>
+                {{ aiEditPreview.provider }}
+                · {{ aiEditPreview.status || (aiEditPreviewFailed ? 'FAILED' : 'SUCCEEDED') }}
+                · {{ aiEditPreview.operations.length }} 项变更
+                <template v-if="aiEditPreview.attempts != null"> · {{ aiEditPreview.attempts }} 次 mutation</template>
+              </span>
             </div>
-            <div v-if="aiEditPreview.validationErrors?.length" class="ai-edit-alert error">
+            <div v-if="aiEditPreviewFailed" class="ai-edit-alert error">
+              <span>{{ aiEditPreview.summary || 'AI 编排生成失败，Agent 已尝试自动修正，但仍未生成合法 Workflow。' }}</span>
+              <span v-if="aiEditPreview.authoringId">错误编号：{{ aiEditPreview.authoringId }}</span>
+              <span v-if="aiEditPreview.failureCode">失败码：{{ aiEditPreview.failureCode }}</span>
+              <span>当前方案未通过校验，不能应用到草稿。</span>
+              <span v-for="item in aiEditPreview.validationErrors || []" :key="item">{{ item }}</span>
+            </div>
+            <div v-else-if="aiEditPreview.validationErrors?.length" class="ai-edit-alert error">
               <span v-for="item in aiEditPreview.validationErrors" :key="item">{{ item }}</span>
             </div>
             <div v-if="aiEditPreview.warnings?.length" class="ai-edit-alert warning">
@@ -809,8 +827,18 @@
             <div class="ai-edit-actions">
               <el-button text @click="clearAiEditPreview">取消</el-button>
               <el-button
+                v-if="aiEditPreviewFailed"
                 type="primary"
-                :disabled="!!aiEditPreview.validationErrors?.length"
+                :loading="aiEditLoading"
+                :disabled="aiEditLoading"
+                @click="regenerateAiAuthoring"
+              >
+                重新生成
+              </el-button>
+              <el-button
+                v-else
+                type="primary"
+                :disabled="aiEditPreviewFailed || !!aiEditPreview.validationErrors?.length"
                 @click="applyAiEditPreview"
               >
                 应用到草稿
@@ -1540,87 +1568,56 @@
       <div class="debug-body" :class="debugSessionVisualClass(debugSession?.status)">
         <div class="debug-session-grid">
           <section class="debug-chat-panel" :class="debugSessionVisualClass(debugSession?.status)">
-            <div class="debug-chat-messages">
-              <template v-if="debugSessionMessages.length">
-                <article
-                  v-for="message in debugSessionMessages"
-                  :key="message.id"
-                  class="debug-message"
-                  :class="`is-${message.role}`"
-                >
-                  <div class="debug-message-role">{{ debugMessageRole(message.role) }}</div>
-                  <div class="debug-message-content">
-                    <p>{{ message.content || '-' }}</p>
-                    <InteractionRenderer
-                      v-if="message.uiRequest && shouldRenderDebugMessageUi(message)"
-                      :ui-request="message.uiRequest"
-                      @submit="handleDebugUiSubmit"
-                      @cancel="handleCancelDebugSession"
-                    />
-                  </div>
-                </article>
+            <ConversationView
+              class="debug-chat-conversation"
+              chrome="inline"
+              density="comfortable"
+              surface="admin"
+              atmosphere
+              :snapshot="debugConversationSnapshot"
+              :resolve-status-hint="resolveWorkflowStatusHint"
+              :resolve-thinking-presentation="resolveWorkflowThinkingPresentation"
+              hide-composer
+              @stop="handleCancelDebugSession"
+              @interaction-submit="handleDebugInteractionSubmit"
+              @interaction-cancel="handleDebugInteractionCancel"
+            >
+              <template #empty>
+                <el-empty description="输入问题后开始一次可恢复调试会话" />
               </template>
-              <el-empty v-else description="输入问题后开始一次可恢复调试会话" />
-            </div>
-            <section class="debug-input-card debug-unified-input debug-chat-composer">
-              <InteractionRenderer
-                v-if="debugCurrentUiRequest"
-                :ui-request="debugCurrentUiRequest"
-                @submit="handleDebugUiSubmit"
-                @cancel="handleCancelDebugSession"
-              />
-              <template v-else>
-                <div v-if="debugInputFields.length" class="debug-field-grid">
-                  <el-form-item
-                    v-for="field in debugInputFields"
-                    :key="field.name"
-                    :label="debugFieldLabel(field)"
-                  >
-                    <el-switch
-                      v-if="field.type === 'boolean'"
-                      v-model="debugInputParams[field.name]"
-                    />
-                    <el-input-number
-                      v-else-if="field.type === 'number' || field.type === 'integer'"
-                      v-model="debugInputParams[field.name]"
-                      style="width: 100%"
-                    />
+              <template #composer>
+                <section class="debug-input-card debug-unified-input debug-chat-composer">
+                  <UnifiedInteractionRenderer
+                    v-if="workflowInitialUiRequest"
+                    :request="workflowInitialUiRequest"
+                    @submit="(action, values) => handleDebugInteractionSubmit(WORKFLOW_INITIAL_INPUT_ID, action, values)"
+                    @cancel="handleDebugInteractionCancel(WORKFLOW_INITIAL_INPUT_ID)"
+                  />
+                  <template v-else-if="debugConversationSnapshot.turnStatus !== 'waiting'">
                     <el-input
-                      v-else-if="field.type === 'object' || field.type === 'array'"
-                      v-model="debugInputParams[field.name]"
+                      v-model="debugMessage"
                       type="textarea"
                       :rows="3"
-                      :placeholder="field.description || '输入 JSON 或文本'"
+                      resize="none"
+                      placeholder="输入测试消息..."
+                      :disabled="isDebugConversationBusy"
                     />
-                    <el-input
-                      v-else
-                      v-model="debugInputParams[field.name]"
-                      :placeholder="field.description || '输入字段值'"
-                    />
-                  </el-form-item>
-                </div>
-                <el-input
-                  v-else
-                  v-model="debugMessage"
-                  type="textarea"
-                  :rows="3"
-                  resize="none"
-                  placeholder="输入测试消息..."
-                />
-                <div class="debug-actions">
-                  <el-tooltip content="运行当前草稿" placement="top">
-                    <el-button
-                      type="primary"
-                      circle
-                      :icon="SendIcon"
-                      :loading="debugLoading"
-                      aria-label="运行当前草稿"
-                      @click="handleRunDraftDebug"
-                    />
-                  </el-tooltip>
-                </div>
+                    <div class="debug-actions">
+                      <el-tooltip content="运行当前草稿" placement="top">
+                        <el-button
+                          type="primary"
+                          circle
+                          :icon="SendIcon"
+                          :loading="isDebugConversationBusy"
+                          aria-label="运行当前草稿"
+                          @click="handleRunDraftDebug"
+                        />
+                      </el-tooltip>
+                    </div>
+                  </template>
+                </section>
               </template>
-            </section>
+            </ConversationView>
           </section>
 
           <section class="debug-steps-panel">
@@ -2126,7 +2123,12 @@ import type {
 } from '@/types/studio'
 import type { ModelInstance } from '@/types/model'
 import TraceTimeline from '@/components/TraceTimeline.vue'
-import InteractionRenderer from '@/components/interaction/InteractionRenderer.vue'
+import {
+  ConversationView,
+  UnifiedInteractionRenderer,
+  WORKFLOW_INITIAL_INPUT_ID,
+  type ConversationMessage,
+} from '@/conversation'
 import type { UiRequestPayload } from '@/types/interaction'
 import {
   createWorkflowCanvasNode,
@@ -3065,6 +3067,9 @@ const {
   handleDebug,
   handleRunDraftDebug,
   handleDebugUiSubmit,
+  handleDebugInteractionSubmit,
+  handleDebugInteractionCancel,
+  handleDebugConversationSend,
   handleCancelDebugSession,
   loadRecentStudioRuns,
   handleLoadTraceReplay,
@@ -3074,6 +3079,10 @@ const {
   handleRunPublishedDebug,
   handleRunNodeDebug,
   isDebugStepRunning,
+  debugConversationSnapshot,
+  workflowInitialUiRequest,
+  isDebugConversationBusy,
+  disposeDebugConversation,
 } = useWorkflowStudioDebugRun({
   workflowId,
   studio,
@@ -3127,6 +3136,55 @@ const {
   parseOptionalObject,
 })
 
+function resolveWorkflowStatusHint(message: ConversationMessage) {
+  if (message.role !== 'assistant') return undefined
+  if (message.status !== 'pending' && message.status !== 'streaming') return undefined
+  const steps = debugSessionSteps.value
+  if (steps.length) {
+    const current = steps[steps.length - 1]
+    const nodeLabel = current.nodeName || current.nodeType || current.nodeId
+    if (nodeLabel) return `当前节点：${nodeLabel}`
+  }
+  return 'Workflow 运行中'
+}
+
+function workflowThinkingStepState(status?: string): 'complete' | 'active' | 'pending' | 'error' {
+  const normalized = (status || '').trim().toUpperCase()
+  if (normalized === 'RUNNING' || normalized === 'EXECUTING' || normalized === 'WAITING') return 'active'
+  if (normalized === 'ERROR' || normalized === 'FAILED' || normalized === 'FAILURE' || normalized === 'FAIL') {
+    return 'error'
+  }
+  if (['SUCCESS', 'OK', 'COMPLETED'].includes(normalized)) return 'complete'
+  return 'pending'
+}
+
+/** 仅展示安全节点结构信息；input/output/statePatch 留在右侧轨迹面板 */
+function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
+  if (message.role !== 'assistant') return undefined
+  if (message.status !== 'pending' && message.status !== 'streaming') return undefined
+  const steps = debugSessionSteps.value
+  if (!steps.length) return undefined
+  return {
+    label: `节点执行 ${steps.length} 步`,
+    count: steps.length,
+    steps: steps.map((step, index) => {
+      const title = step.nodeName || step.nodeType || step.nodeId || `节点 ${index + 1}`
+      const parts = [
+        step.nodeType ? `类型 ${step.nodeType}` : '',
+        step.status ? `状态 ${step.status}` : '',
+        step.route ? `路由 ${step.route}` : '',
+        step.nextNodeId ? `下一节点 ${step.nextNodeId}` : '',
+      ].filter(Boolean)
+      return {
+        id: `wf-step-${step.index ?? index}-${step.nodeId || 'node'}`,
+        title,
+        detail: parts.length ? parts.join(' · ') : undefined,
+        state: workflowThinkingStepState(step.status),
+      }
+    }),
+  }
+}
+
 const {
   evalOpen,
   evalRunning,
@@ -3150,7 +3208,9 @@ const {
 
 const {
   aiEditOperationGroups,
+  aiEditPreviewFailed,
   runAiAuthoring,
+  regenerateAiAuthoring,
   clearAiEditPreview,
   applyAiEditPreview,
   operationKey,
@@ -3350,6 +3410,11 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('resize', updateViewportWidth)
   window.removeEventListener('keydown', handleStudioShortcut)
+  disposeDebugConversation()
+})
+
+watch(debugOpen, (open) => {
+  if (!open) disposeDebugConversation()
 })
 
 watch(
@@ -4565,6 +4630,13 @@ function formatDebugResult(value: unknown) {
   gap: 10px;
   min-width: 0;
   margin-bottom: 12px;
+}
+
+.ai-edit-preview.is-failed {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--el-color-danger) 35%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--el-color-danger) 8%, transparent);
 }
 
 .ai-edit-preview-head {
@@ -7061,6 +7133,14 @@ function formatDebugResult(value: unknown) {
     linear-gradient(rgba(255, 255, 255, 0.72), rgba(248, 250, 252, 0.58)) padding-box,
     linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(148, 163, 184, 0.34)) border-box;
 
+  .debug-chat-conversation {
+    flex: 1;
+    min-height: 0;
+    border: none;
+    background: transparent;
+    border-radius: inherit;
+  }
+
   &::before,
   &::after {
     content: '';
@@ -7191,29 +7271,41 @@ function formatDebugResult(value: unknown) {
 }
 
 .debug-chat-composer {
-  margin-top: 12px;
-  padding: 12px;
-  border-color: rgba(129, 140, 248, 0.22);
-  border-radius: 16px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(239, 246, 255, 0.78)),
-    rgba(255, 255, 255, 0.86);
-  box-shadow: 0 18px 42px rgba(79, 70, 229, 0.11);
+  margin-top: 0;
+  padding: var(--reachai-chat-composer-padding, 12px 16px 14px);
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--reachai-chat-glass-border, rgb(255 255 255 / 0.72));
+  background: var(--reachai-chat-glass-composer);
+  box-shadow:
+    var(--reachai-chat-glass-highlight),
+    var(--reachai-chat-glass-shadow-composer);
+  -webkit-backdrop-filter: var(--reachai-chat-glass-blur-composer);
+  backdrop-filter: var(--reachai-chat-glass-blur-composer);
 
   :deep(.el-textarea__inner),
   :deep(.el-input__wrapper) {
-    border-radius: 12px;
-    color: #0f172a;
-    background: rgba(255, 255, 255, 0.9);
-    box-shadow: inset 0 0 0 1px rgba(203, 213, 225, 0.72);
+    border-radius: 0;
+    color: var(--reachai-chat-text, #1e293b);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  :deep(.el-textarea__inner::placeholder) {
+    color: var(--reachai-chat-text-muted, #64748b);
+    opacity: 1;
   }
 
   .debug-actions .el-button--primary {
     width: 42px;
     height: 42px;
     border: 0;
-    background: linear-gradient(135deg, #635bff, #7c3aed 55%, #06b6d4);
-    box-shadow: 0 12px 26px rgba(99, 91, 255, 0.28);
+    background: linear-gradient(
+      135deg,
+      var(--reachai-chat-primary-soft, #818cf8),
+      var(--reachai-chat-primary, #6366f1)
+    );
+    box-shadow: 0 12px 26px rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.28);
   }
 }
 

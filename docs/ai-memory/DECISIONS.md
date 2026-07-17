@@ -10,7 +10,7 @@
 - `reachai-runtime-service`: Runtime Host，承接 Agent、Workflow、GraphSpec、Trace、RunOps、调试和运行时内部 API。
 - `reachai-capability-service`: Capability Catalog，承接 SDK 注册、能力快照、diff/review/apply、扫描目录和能力资产 API。
 - `reachai-knowledge-service`: Knowledge / Retrieval，承接知识库、文件、chunk、RAG、业务索引、向量检索和历史扫描器实现。
-- `reachai-model-service`: Model Gateway，承接模型实例中心、Chat、Embedding、Rerank 和 OpenAI 兼容代理。
+- `reachai-model-service`: Model Gateway，承接模型中心 V2（`model_template` + `model_instance`）、Chat、Embedding、Rerank；不再保留未使用的 `/model/openai-proxy` 入口。
 
 第一阶段保持同一个 MySQL 库，不拆库。旧 `ai-agent-service` module 已从仓库主路径删除，不再作为 Maven、IDEA、本地启动或部署单元存在。
 
@@ -54,6 +54,25 @@
 `Skill` 多为历史命名或兼容存储名。V2 新库基线已把历史 SQL 表 `skill_draft`、`skill_eval_snapshot`、`skill_interaction` 收敛为 `capability_draft`、`capability_eval_snapshot`、`runtime_skill_interaction`。`skill_name`、`skill_kind` 等字段如仍承载业务语义，不做无关改名。
 
 `reachai-knowledge-service` 是 Knowledge / Retrieval 部署单元，不再称为“技能服务”。
+
+## 模型中心 V2（第一阶段）
+
+模型中心只保留两个领域对象：
+
+- `model_template`：平台维护的只读目录/创建模板；不含真实 API Key；本阶段不提供模板写接口。
+- `model_instance`：对 Agent / Workflow / Knowledge 暴露的稳定可执行资源；业务继续绑定稳定 `modelInstanceId`，实例内部配置可改以支持原地替换。
+
+关键约束：
+
+- 模板与实例之间不建外键，实例不保存 `template_id`；从模板创建只复制快照，模板后续变化不影响已有实例。
+- 协议仅 `OPENAI_COMPATIBLE`；模型类型仅 `LLM` / `EMBEDDING` / `RERANKER`。
+- `project_code` 为预留字段（NULL=全局），本期只存取，不做强制项目隔离。
+- 实例启停状态（ACTIVE/DISABLED/ARCHIVED）与连通测试状态（UNKNOWN/SUCCESS/FAILED）是两套语义；删除等于归档，无物理删除。
+- `connection_config_json` 必须 `aesgcm:` 加密；API 仅返回掩码敏感字段；不再兼容明文读取或 `apiKeyEnv` / `BUILT_IN`。
+- `baseUrl` 为 API Root，path 为相对路径；Chat/Embedding/Rerank 受保护字段不可被 defaultOptions/options 覆盖；BaseURL authority 变更必须重输凭证。
+- `project_scope_key` 由数据库生成列维护；管理端旧契约仍待第二阶段原子升级。
+
+详见 `docs/architecture/model-center-v2.md`。
 
 ## SQL 决策
 

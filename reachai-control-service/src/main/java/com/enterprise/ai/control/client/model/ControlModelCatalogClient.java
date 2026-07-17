@@ -13,7 +13,7 @@ import java.util.Map;
 public interface ControlModelCatalogClient {
 
     @RequestMapping(method = RequestMethod.GET, path = "/model/instances")
-    ResponseEntity<Map<String, Object>> list(@RequestParam(value = "workspaceId", required = false) String workspaceId,
+    ResponseEntity<Map<String, Object>> list(@RequestParam(value = "projectCode", required = false) String projectCode,
                                              @RequestParam(value = "modelType", required = false) String modelType,
                                              @RequestParam(value = "provider", required = false) String provider);
 

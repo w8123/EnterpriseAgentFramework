@@ -32,20 +32,28 @@ public class RuntimeAgentExecutionService {
     private final RuntimeRunLifecycleService runLifecycleService;
 
     public Map<String, Object> execute(Map<String, Object> request, boolean detailed) {
-        return execute(request, detailed, SupervisorRuntimeAdapter.SupervisorEventSink.NOOP);
+        return execute(request, detailed, SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                RuntimeAgentExecutionCancellation.NOOP);
     }
 
     public Map<String, Object> execute(Map<String, Object> request,
                                        boolean detailed,
                                        SupervisorRuntimeAdapter.SupervisorEventSink eventSink) {
+        return execute(request, detailed, eventSink, RuntimeAgentExecutionCancellation.NOOP);
+    }
+
+    public Map<String, Object> execute(Map<String, Object> request,
+                                       boolean detailed,
+                                       SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
+                                       RuntimeAgentExecutionCancellation cancellation) {
         Map<String, Object> body = normalizeContext(request);
         body.putIfAbsent("traceId", newTraceId());
         String interactionId = text(body.get("interactionId"));
         if (StringUtils.hasText(interactionId)
                 && interactionId.startsWith(SupervisorApprovalInteractionService.INTERACTION_PREFIX)) {
-            return resumeSupervisorApproval(interactionId, body, detailed, eventSink);
+            return resumeSupervisorApproval(interactionId, body, detailed, eventSink, cancellation);
         }
-        return executeResolved(body, detailed, null, eventSink);
+        return executeResolved(body, detailed, null, eventSink, cancellation);
     }
 
     /**
@@ -83,7 +91,8 @@ public class RuntimeAgentExecutionService {
     private Map<String, Object> resumeSupervisorApproval(String interactionId,
                                                          Map<String, Object> submission,
                                                          boolean detailed,
-                                                         SupervisorRuntimeAdapter.SupervisorEventSink eventSink) {
+                                                         SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
+                                                         RuntimeAgentExecutionCancellation cancellation) {
         try {
             SupervisorApprovalInteractionService.ResumeDecision decision =
                     approvalInteractionService.prepareResume(interactionId, submission);
@@ -105,7 +114,7 @@ public class RuntimeAgentExecutionService {
             Map<String, Object> originalInput = normalizeContext(decision.originalInput());
             originalInput.put("agentId", decision.agentId());
             originalInput.put("traceId", firstText(text(submission.get("traceId")), newTraceId()));
-            return executeResolved(originalInput, detailed, decision.grant(), eventSink);
+            return executeResolved(originalInput, detailed, decision.grant(), eventSink, cancellation);
         } catch (IllegalArgumentException ex) {
             return error("SUPERVISOR_APPROVAL_INVALID", ex.getMessage(), null,
                     submission, detailed, List.of());
@@ -115,7 +124,8 @@ public class RuntimeAgentExecutionService {
     private Map<String, Object> executeResolved(Map<String, Object> body,
                                                 boolean detailed,
                                                 SupervisorRuntimeAdapter.PolicyApprovalGrant approvalGrant,
-                                                SupervisorRuntimeAdapter.SupervisorEventSink eventSink) {
+                                                SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
+                                                RuntimeAgentExecutionCancellation cancellation) {
         String agentLookup = firstText(
                 text(body.get("agentId")),
                 text(body.get("keySlug")));
@@ -142,7 +152,7 @@ public class RuntimeAgentExecutionService {
                     "Agent has no published Supervisor configuration: " + agentView.keySlug(),
                     agentView, body, detailed, bootstrap);
         }
-        return executeResolvedConfig(body, detailed, approvalGrant, eventSink,
+        return executeResolvedConfig(body, detailed, approvalGrant, eventSink, cancellation,
                 agentView, activeConfig.get(), false);
     }
 
@@ -150,6 +160,18 @@ public class RuntimeAgentExecutionService {
                                                       boolean detailed,
                                                       SupervisorRuntimeAdapter.PolicyApprovalGrant approvalGrant,
                                                       SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
+                                                      RuntimeAgentView agentView,
+                                                      RuntimeAgentConfigVersionEntity config,
+                                                      boolean historicalReplay) {
+        return executeResolvedConfig(body, detailed, approvalGrant, eventSink,
+                RuntimeAgentExecutionCancellation.NOOP, agentView, config, historicalReplay);
+    }
+
+    private Map<String, Object> executeResolvedConfig(Map<String, Object> body,
+                                                      boolean detailed,
+                                                      SupervisorRuntimeAdapter.PolicyApprovalGrant approvalGrant,
+                                                      SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
+                                                      RuntimeAgentExecutionCancellation cancellation,
                                                       RuntimeAgentView agentView,
                                                       RuntimeAgentConfigVersionEntity config,
                                                       boolean historicalReplay) {
@@ -168,7 +190,8 @@ public class RuntimeAgentExecutionService {
         List<RuntimeAgentWorkflowToolEntity> tools = configService.resolveTools(agentView.id(), config);
         bootstrap.add(step("resolve-workflow-tools", String.valueOf(tools.size())));
         SupervisorRuntimeAdapter.SupervisorResult result = supervisorRuntime.execute(
-                new SupervisorRuntimeAdapter.SupervisorRequest(agentView, config, tools, body, approvalGrant, eventSink));
+                new SupervisorRuntimeAdapter.SupervisorRequest(
+                        agentView, config, tools, body, approvalGrant, eventSink, cancellation));
         List<Map<String, Object>> steps = new ArrayList<>(bootstrap);
         if (result.steps() != null) steps.addAll(result.steps());
 

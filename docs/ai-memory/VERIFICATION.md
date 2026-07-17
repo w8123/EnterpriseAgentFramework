@@ -44,7 +44,7 @@ live smoke 检查：
 - `reachai-capability-service` 的 `/internal/capability/health`
 - `reachai-knowledge-service` 的 `/ai/actuator/health`
 - `reachai-model-service` 的 `/actuator/health`
-- Control 的 `/api/internal-services/health` 是否能聚合 Runtime 和 Capability
+- Control 的 `/api/internal-services/health` 是否能聚合 Runtime、Capability、Model 和 Knowledge；单服务失败应返回 DOWN 而不是整接口 500
 
 ## 单模块后端验证
 

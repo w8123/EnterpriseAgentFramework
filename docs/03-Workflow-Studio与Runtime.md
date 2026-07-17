@@ -63,7 +63,7 @@ Workflow Studio 是唯一的画布编辑器：
 - `WorkflowReleaseValidationService` 校验节点、边、入口、变量映射、Capability 引用和可达性。
 - 发布后的 `runtime_workflow_version.graph_spec_snapshot_json` 是 Supervisor 调用时的执行事实源。
 - AI 生成使用 `POST /api/workflows/studio/generate-draft`。
-- AI 局部编辑使用 `POST /api/workflows/studio/edit-draft`。
+- AI 编排使用 `POST /api/workflows/studio/edit-draft`：AgentScope Authoring Adapter 通过受约束工具修改内存候选，确定性内核负责 mutation / validation；仅 `status=SUCCEEDED` 可应用到草稿。
 
 新增节点或 Runtime 行为必须把可执行语义写入 Workflow `GraphSpec`，不能只扩展前端画布。Workflow 仍可独立调试、发布、回滚和回放；被 Agent 使用时，它是 Supervisor 的受控工具，而不是静态入口路由。
 

@@ -47,7 +47,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 - `reachai-runtime-service/`: 当前 Runtime Host 部署单元，承接 Agent、Workflow、GraphSpec、Trace、RunOps、调试和运行时内部 API。
 - `reachai-capability-service/`: 当前 Capability Catalog 部署单元，承接 SDK 注册、能力快照、diff/review/apply、扫描目录和能力资产 API。
 - `reachai-knowledge-service/`: 当前 Knowledge / Retrieval 部署单元；包括知识库、文件、chunk、RAG、业务索引、向量检索和历史扫描器实现。不要再把它描述成“技能服务”。
-- `reachai-model-service/`: 当前 Model Gateway 部署单元；包括模型实例中心、Chat、Embedding、Rerank 和 OpenAI 兼容代理。
+- `reachai-model-service/`: 当前 Model Gateway 部署单元；包括模型中心 V2（`model_template` + `model_instance`）、Chat、Embedding、Rerank。不再提供未使用的 `/model/openai-proxy` 入口。
 - `reachai-capability-sdk/`: JDK8 兼容的业务能力声明 SDK 契约。
 - `reachai-spring-boot2-starter/`: Spring Boot 2 业务系统接入、扫描、注册和 SDK 图同步。
 - `ai-runtime-contract/`: 中台内部 Tool / Skill 运行时契约。
@@ -77,7 +77,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 - DB 字段：`runtime_workflow.graph_spec_json`（运行语义）、`runtime_workflow.canvas_json`（画布布局）。
 - 发布校验由 `WorkflowReleaseValidationService` 负责；Agent 执行主线由 AgentScope Supervisor 解析已发布配置版本和 Workflow-as-Tool 白名单，单个 Workflow 由 `LangGraph4jRuntimeAdapter` / `RuntimeGraphSpecExecutor` 执行。
 - 新增 Workflow Studio 节点、AI 编辑能力或 Runtime 行为时，必须把可执行语义写入 Workflow `GraphSpec`，不能只改前端画布表现。
-- AI 生成走 `/api/workflows/studio/generate-draft` 和 `LlmWorkflowDraftGenerator`；AI 局部编辑走 `/api/workflows/studio/edit-draft` 和 `WorkflowDraftEditService`。
+- AI 生成兼容入口走 `/api/workflows/studio/generate-draft`；Workflow Studio 设计期自然语言编排走 `/api/workflows/studio/edit-draft`，由 `WorkflowAuthoringAgentAdapter`（AgentScope）经受约束工具修改内存候选，再由确定性 GraphSpec mutation / validation 校验。
 
 ## 命名规则
 

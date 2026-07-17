@@ -6,7 +6,7 @@
 
 | 主路径服务 | 默认端口 | 第一阶段职责 |
 | --- | --- | --- |
-| `reachai-model-service` | `18601` | Model Gateway；模型实例、Chat、Embedding、Rerank 和 OpenAI 兼容代理 |
+| `reachai-model-service` | `18601` | Model Gateway：模型中心 V2、Chat、Embedding、Rerank |
 | `reachai-knowledge-service` | `18602`；context-path `/ai` | Knowledge / Retrieval；知识库、文件、chunk、RAG、业务索引和向量检索 |
 | `reachai-capability-service` | `18605` | SDK 注册、项目实例、能力快照、diff/review/apply、扫描目录和能力资产 |
 | `reachai-runtime-service` | `18604` | Agent 入口、Workflow、GraphSpec 运行语义、调试、回放和人工交互 |

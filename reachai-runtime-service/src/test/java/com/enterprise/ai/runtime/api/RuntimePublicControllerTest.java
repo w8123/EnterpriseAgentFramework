@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.api;
 
 import com.enterprise.ai.runtime.route.RuntimeRouteEvaluationService;
 import com.enterprise.ai.runtime.route.RuntimeRouteEvaluationView;
+import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsQueryService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsReplayService;
@@ -19,14 +20,24 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -78,6 +89,167 @@ class RuntimePublicControllerTest {
                 runOpsCompare.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/api/runops/traces/{traceId}/replay"},
                 runOpsReplay.getAnnotation(PostMapping.class).value());
+    }
+
+    @Test
+    void toExecutionErrorPayloadKeepsCodeTraceAndOmitsReasoning() {
+        Map<String, Object> result = Map.of(
+                "success", false,
+                "answer", "模型在生成最终答案前达到最大输出长度，请提高最大输出或关闭思考模式后重试。",
+                "sessionId", "s1",
+                "metadata", Map.of(
+                        "code", "MODEL_OUTPUT_TOKEN_LIMIT",
+                        "traceId", "t1",
+                        "model", Map.of(
+                                "finishReason", "length",
+                                "modelInstanceId", "seed-deepseek-v4-flash",
+                                "reasoningContent", "secret-chain",
+                                "usage", Map.of("completionTokens", 4096),
+                                "eventCounts", Map.of("reasoningDeltaCount", 3)
+                        )));
+        Map<String, Object> payload = RuntimePublicController.toExecutionErrorPayload(
+                result, Map.of("sessionId", "s1"));
+
+        assertEquals("MODEL_OUTPUT_TOKEN_LIMIT", payload.get("code"));
+        assertEquals("t1", payload.get("traceId"));
+        assertEquals("s1", payload.get("sessionId"));
+        assertTrue(String.valueOf(payload.get("message")).contains("最大输出长度"));
+        assertFalse(String.valueOf(payload).contains("secret-chain"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> metadata = (Map<String, Object>) payload.get("metadata");
+        assertEquals("length", metadata.get("finishReason"));
+        assertEquals("seed-deepseek-v4-flash", metadata.get("modelInstanceId"));
+    }
+
+    @Test
+    void isExecutionFailureDetectsSuccessFalse() {
+        assertTrue(RuntimePublicController.isExecutionFailure(Map.of("success", false)));
+        assertFalse(RuntimePublicController.isExecutionFailure(Map.of("success", true)));
+    }
+
+    @Test
+    void isSupervisorCancelledReadsMetadataCode() {
+        assertTrue(RuntimePublicController.isSupervisorCancelled(Map.of(
+                "success", false,
+                "metadata", Map.of("code", "SUPERVISOR_CANCELLED"))));
+        assertFalse(RuntimePublicController.isSupervisorCancelled(Map.of(
+                "success", false,
+                "metadata", Map.of("code", "AGENT_EXECUTION_FAILED"))));
+    }
+
+    @Test
+    void executeAgentStreamRegistersLifecycleCancelBeforeAsyncStart() throws Exception {
+        RuntimeAgentExecutionService executionService = mock(RuntimeAgentExecutionService.class);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicBoolean cancelledSeen = new AtomicBoolean(false);
+        AtomicReference<RuntimeAgentExecutionCancellation> captured = new AtomicReference<>();
+        when(executionService.execute(any(), eq(true), any(), any())).thenAnswer(invocation -> {
+            RuntimeAgentExecutionCancellation cancellation = invocation.getArgument(3);
+            captured.set(cancellation);
+            started.countDown();
+            release.await(5, TimeUnit.SECONDS);
+            cancelledSeen.set(cancellation.isCancelled());
+            return Map.of(
+                    "success", true,
+                    "answer", "ok",
+                    "metadata", Map.of("code", "SUPERVISOR_COMPLETED", "contentStreamed", true));
+        });
+
+        RuntimePublicController controller = controller(mock(RuntimeTraceQueryService.class), executionService);
+        org.springframework.http.ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.SseEmitter> response =
+                controller.executeAgentStream(Map.of("agentId", "a1", "message", "hi"));
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter = response.getBody();
+        assertNotNull(emitter);
+        assertEquals("no", response.getHeaders().getFirst("X-Accel-Buffering"));
+        assertTrue(started.await(3, TimeUnit.SECONDS));
+        assertNotNull(captured.get());
+        assertFalse(captured.get().isCancelled());
+        // 无 Servlet 初始化时 emitter.complete() 不会派发回调；直接触发已注册的 onCompletion
+        invokeEmitterCallback(emitter, "completionCallback");
+        release.countDown();
+        Thread.sleep(200);
+        assertTrue(cancelledSeen.get(), "onCompletion must cancel request-level cancellation");
+    }
+
+    @Test
+    void executeAgentStreamTimeoutCallbackCancelsRequest() throws Exception {
+        RuntimeAgentExecutionService executionService = mock(RuntimeAgentExecutionService.class);
+        CountDownLatch started = new CountDownLatch(1);
+        AtomicReference<RuntimeAgentExecutionCancellation> captured = new AtomicReference<>();
+        when(executionService.execute(any(), eq(true), any(), any())).thenAnswer(invocation -> {
+            captured.set(invocation.getArgument(3));
+            started.countDown();
+            Thread.sleep(500);
+            return Map.of("success", true, "answer", "ok",
+                    "metadata", Map.of("code", "SUPERVISOR_COMPLETED", "contentStreamed", true));
+        });
+        RuntimePublicController controller = controller(mock(RuntimeTraceQueryService.class), executionService);
+        org.springframework.http.ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.SseEmitter> response =
+                controller.executeAgentStream(Map.of("agentId", "a1", "message", "hi"));
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter = response.getBody();
+        assertNotNull(emitter);
+        assertEquals("no", response.getHeaders().getFirst("X-Accel-Buffering"));
+        assertTrue(started.await(3, TimeUnit.SECONDS));
+        invokeEmitterCallback(emitter, "timeoutCallback");
+        assertTrue(captured.get().isCancelled(), "onTimeout must cancel request-level cancellation");
+    }
+
+    @Test
+    void executeAgentStreamErrorCallbackCancelsRequest() throws Exception {
+        RuntimeAgentExecutionService executionService = mock(RuntimeAgentExecutionService.class);
+        CountDownLatch started = new CountDownLatch(1);
+        AtomicReference<RuntimeAgentExecutionCancellation> captured = new AtomicReference<>();
+        when(executionService.execute(any(), eq(true), any(), any())).thenAnswer(invocation -> {
+            captured.set(invocation.getArgument(3));
+            started.countDown();
+            Thread.sleep(500);
+            return Map.of("success", true, "answer", "ok",
+                    "metadata", Map.of("code", "SUPERVISOR_COMPLETED", "contentStreamed", true));
+        });
+        RuntimePublicController controller = controller(mock(RuntimeTraceQueryService.class), executionService);
+        org.springframework.http.ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.SseEmitter> response =
+                controller.executeAgentStream(Map.of("agentId", "a1", "message", "hi"));
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter = response.getBody();
+        assertNotNull(emitter);
+        assertEquals("no", response.getHeaders().getFirst("X-Accel-Buffering"));
+        assertTrue(started.await(3, TimeUnit.SECONDS));
+        invokeEmitterErrorCallback(emitter);
+        assertTrue(captured.get().isCancelled(), "onError must cancel request-level cancellation");
+    }
+
+    private static void invokeEmitterCallback(
+            org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter,
+            String fieldName) throws Exception {
+        Class<?> type = org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter.class;
+        java.lang.reflect.Field field = type.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        Object callback = field.get(emitter);
+        assertNotNull(callback, fieldName + " must exist");
+        java.lang.reflect.Field delegates = callback.getClass().getDeclaredField("delegates");
+        delegates.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        List<Runnable> list = (List<Runnable>) delegates.get(callback);
+        assertFalse(list == null || list.isEmpty(), fieldName + " must be registered before async start");
+        ((Runnable) callback).run();
+    }
+
+    private static void invokeEmitterErrorCallback(
+            org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter) throws Exception {
+        Class<?> type = org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter.class;
+        java.lang.reflect.Field field = type.getDeclaredField("errorCallback");
+        field.setAccessible(true);
+        Object callback = field.get(emitter);
+        assertNotNull(callback);
+        java.lang.reflect.Field delegates = callback.getClass().getDeclaredField("delegates");
+        delegates.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        List<?> list = (List<?>) delegates.get(callback);
+        assertFalse(list == null || list.isEmpty(), "errorCallback must be registered before async start");
+        @SuppressWarnings("unchecked")
+        java.util.function.Consumer<Throwable> consumer =
+                (java.util.function.Consumer<Throwable>) callback;
+        consumer.accept(new IOException("client disconnected"));
     }
 
     @Test

@@ -16,7 +16,7 @@
 
 | 服务 | 默认端口 | 入口 | 当前职责 |
 | --- | ---: | --- | --- |
-| `reachai-model-service` | 18601 | `/model/**` | 模型实例、Chat、Embedding、Rerank、OpenAI 兼容代理 |
+| `reachai-model-service` | 18601 | `/model/**` | 模型实例、Chat、Embedding、Rerank |
 | `reachai-knowledge-service` | 18602 | `/ai/**` | 知识库、文件、chunk、RAG、业务索引、向量检索 |
 | `reachai-control-service` | 18603 | `/api/**`, `/embed/**` | Platform Control、管理端 BFF、公共 API 兼容入口 |
 | `reachai-runtime-service` | 18604 | Control 转发 + `/internal/runtime/**` | Agent Runtime、Workflow Studio 运行语义、Trace、RunOps、调试 |
@@ -38,7 +38,7 @@
 | Runtime Host | `reachai-runtime-service` | Agent、Workflow、GraphSpec、Trace、RunOps、调试、执行链路 |
 | Capability Catalog | `reachai-capability-service` | SDK 注册、能力快照、字段级 diff、review/apply、能力资产目录 |
 | Knowledge / Retrieval | `reachai-knowledge-service` | 知识库、检索、向量索引、RAG 和历史扫描器实现 |
-| Model Gateway | `reachai-model-service` | 模型实例、对话、Embedding、Rerank 和 OpenAI 兼容代理 |
+| Model Gateway | `reachai-model-service` | 模型中心 V2、对话、Embedding、Rerank |
 
 新增代码必须落在 owning service 内。跨服务调用应走显式 HTTP client、契约对象或内部 API，不允许为了快速编译直接跨服务写对方表或复用对方内部实现类。
 

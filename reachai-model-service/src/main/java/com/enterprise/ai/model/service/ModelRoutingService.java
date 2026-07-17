@@ -1,10 +1,11 @@
 package com.enterprise.ai.model.service;
 
 import com.enterprise.ai.common.exception.BizException;
-import com.enterprise.ai.model.instance.EndpointType;
 import com.enterprise.ai.model.instance.ModelInstanceEntity;
 import com.enterprise.ai.model.instance.ModelInstanceRuntime;
 import com.enterprise.ai.model.instance.ModelInstanceService;
+import com.enterprise.ai.model.instance.ModelProtocol;
+import com.enterprise.ai.model.instance.ModelType;
 import com.enterprise.ai.model.runtime.OpenAiCompatibleRuntimeClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -18,19 +19,27 @@ public class ModelRoutingService {
     private final OpenAiCompatibleRuntimeClient openAiCompatibleRuntimeClient;
 
     public ChatResponse chat(ChatRequest request) {
-        return openAiCompatibleRuntimeClient.chat(resolveRuntime(request.getModelInstanceId()), request);
+        ModelInstanceRuntime runtime = resolveRuntime(request.getModelInstanceId());
+        assertModelType(runtime, ModelType.LLM);
+        return openAiCompatibleRuntimeClient.chat(runtime, request);
     }
 
-    public Flux<String> chatStream(ChatRequest request) {
-        return openAiCompatibleRuntimeClient.chatStream(resolveRuntime(request.getModelInstanceId()), request);
+    public Flux<ModelStreamEvent> chatStreamEvents(ChatRequest request) {
+        ModelInstanceRuntime runtime = resolveRuntime(request.getModelInstanceId());
+        assertModelType(runtime, ModelType.LLM);
+        return openAiCompatibleRuntimeClient.chatStreamEvents(runtime, request);
     }
 
     public EmbeddingResponse embed(EmbeddingRequest request) {
-        return openAiCompatibleRuntimeClient.embed(resolveRuntime(request.getModelInstanceId()), request.getTexts());
+        ModelInstanceRuntime runtime = resolveRuntime(request.getModelInstanceId());
+        assertModelType(runtime, ModelType.EMBEDDING);
+        return openAiCompatibleRuntimeClient.embed(runtime, request.getTexts());
     }
 
     public RerankResponse rerank(RerankRequest request) {
-        return openAiCompatibleRuntimeClient.rerank(resolveRuntime(request.getModelInstanceId()), request);
+        ModelInstanceRuntime runtime = resolveRuntime(request.getModelInstanceId());
+        assertModelType(runtime, ModelType.RERANKER);
+        return openAiCompatibleRuntimeClient.rerank(runtime, request);
     }
 
     private ModelInstanceRuntime resolveRuntime(String modelInstanceId) {
@@ -39,9 +48,16 @@ public class ModelRoutingService {
         }
         ModelInstanceEntity entity = modelInstanceService.getActiveEntity(modelInstanceId);
         ModelInstanceRuntime runtime = modelInstanceService.toRuntime(entity);
-        if (!EndpointType.OPENAI_COMPATIBLE.name().equals(runtime.getEndpointType())) {
+        if (!ModelProtocol.OPENAI_COMPATIBLE.name().equals(runtime.getProtocol())) {
             throw new BizException(400, "Only OPENAI_COMPATIBLE model instances are supported");
         }
         return runtime;
+    }
+
+    private void assertModelType(ModelInstanceRuntime runtime, ModelType expected) {
+        if (runtime.getModelType() == null || !expected.name().equals(runtime.getModelType())) {
+            throw new BizException(400, expected.name() + " operation requires a " + expected.name()
+                    + " model instance, got: " + runtime.getModelType());
+        }
     }
 }

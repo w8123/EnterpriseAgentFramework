@@ -112,6 +112,7 @@ const STANDARD_PAGE_FILES = new Set([
   'src/views/BizIndexList.vue',
   'src/views/BizIndexDetail.vue',
   'src/views/model/ModelInstances.vue',
+  'src/views/model/ModelInstanceDetail.vue',
   'src/views/tool/ToolList.vue',
   'src/views/tool/ToolRetrievalTest.vue',
   'src/views/capability/CapabilityKernel.vue',
@@ -2048,7 +2049,7 @@ function createRepositoryFixture() {
     projectWorkbenchDirectComponentFiles: PROJECT_WORKBENCH_DIRECT_COMPONENT_FILES,
     exemptPageFiles: EXEMPT_PAGE_FILES,
     listFillPageFiles: LIST_FILL_PAGE_FILES,
-    expectedSetSizes: { standard: 37, projectWorkbench: 8, exempt: 3 },
+    expectedSetSizes: { standard: 38, projectWorkbench: 8, exempt: 3 },
     expectedListFillSize: 22,
   }
 }

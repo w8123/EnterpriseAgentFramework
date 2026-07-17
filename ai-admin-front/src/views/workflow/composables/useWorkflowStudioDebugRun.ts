@@ -1,12 +1,10 @@
+import { computed, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { ComputedRef, Ref } from 'vue'
 import {
-  cancelWorkflowDebugSession,
-  createWorkflowDebugSession,
   debugWorkflowNode,
   debugWorkflowRun,
   listWorkflowVersions,
-  submitWorkflowDebugSession,
 } from '@/api/workflow'
 import { getTraceDetail } from '@/api/trace'
 import type { TraceNode } from '@/types/trace'
@@ -26,6 +24,15 @@ import { runDisplayName } from '@/utils/workflowRunOps'
 import { normalizeJson } from '@/views/workflow/composables/workflowStudioJson'
 import type { WorkflowNodeTraceState } from '@/views/workflow/composables/useWorkflowStudioCanvasActions'
 import type { CanvasSnapshot } from '@/types/studio'
+import {
+  buildWorkflowInitialFormRequest,
+  createConversationController,
+  createEmptySnapshot,
+  createWorkflowDraftTransport,
+  WORKFLOW_INITIAL_INPUT_ID,
+  type ConversationEventEnvelope,
+  type ConversationSnapshot,
+} from '@/conversation'
 
 const DEBUG_DRAWER_WIDTH_RATIO = 0.58
 const DEBUG_DRAWER_MAX_WIDTH = 960
@@ -129,6 +136,141 @@ function sleep(ms: number) {
 }
 
 export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
+  const debugConversationSnapshot = ref<ConversationSnapshot>(createEmptySnapshot())
+  let sessionViewSyncToken = 0
+  let debugController: ReturnType<typeof createConversationController> | null = null
+
+  async function syncShellFromWorkflowSessionView(view: WorkflowDebugSessionView) {
+    const token = sessionViewSyncToken + 1
+    sessionViewSyncToken = token
+    deps.applyDebugSession(view)
+    deps.currentTraceId.value = view.traceId || ''
+    deps.replayTraceInput.value = view.traceId || ''
+    deps.selectedRecentTraceId.value = view.traceId || ''
+    deps.refreshWorkflowNodeClasses()
+    await replayDebugSteps(view.steps || [])
+    if (sessionViewSyncToken !== token) return
+    deps.selectedDebugStepIndex.value = view.steps?.length ? view.steps.length - 1 : null
+  }
+
+  function handleWorkflowDebugEvent(event: ConversationEventEnvelope) {
+    if (event.type === 'debug.trace.available') {
+      const traceId = String((event.data as { traceId?: string }).traceId || event.traceId || '')
+      if (traceId) {
+        deps.currentTraceId.value = traceId
+        deps.replayTraceInput.value = traceId
+        deps.selectedRecentTraceId.value = traceId
+      }
+      return
+    }
+    if (!event.type.startsWith('debug.workflow.node.')) return
+    const data = event.data as { nodeId?: string; index?: number }
+    if (data.nodeId) {
+      deps.currentDebugNodeId.value = data.nodeId
+      deps.selectedNodeId.value = data.nodeId
+      deps.selectedEdgeId.value = null
+      focusDebugNode(data.nodeId, 280)
+    }
+    if (typeof data.index === 'number') {
+      deps.selectedDebugStepIndex.value = data.index
+    }
+    deps.refreshWorkflowNodeClasses()
+  }
+
+  function createDebugController() {
+    const transport = createWorkflowDraftTransport({
+      tryStream: true,
+      getSessionId: () => deps.debugSession.value?.sessionId,
+      setSessionId: (sessionId) => {
+        if (!sessionId) {
+          deps.debugSession.value = null
+          return
+        }
+        if (deps.debugSession.value?.sessionId === sessionId) return
+        deps.debugSession.value = {
+          ...(deps.debugSession.value || {}),
+          sessionId,
+        } as WorkflowDebugSessionView
+      },
+      getCreateRequest: () => ({
+        targetType: 'WORKFLOW_DRAFT',
+        draftDefinition: buildWorkflowDebugDraftDefinition(),
+        debugOptions: {},
+      }),
+      onSessionView: (view) => {
+        void syncShellFromWorkflowSessionView(view).then(() => {
+          if (!deps.debugLoading.value) return
+          if (debugStepStatus(view.status) === 'waiting') {
+            ElMessage.warning('当前 Workflow 草稿等待用户补充信息')
+          } else {
+            ElMessage[view.success ? 'success' : 'error'](
+              view.success ? '当前草稿调试完成' : '当前草稿调试失败',
+            )
+          }
+          deps.debugLoading.value = false
+        }).catch((err) => {
+          if (!deps.debugLoading.value) return
+          ElMessage.error('同步调试会话失败：' + (err as Error).message)
+          deps.debugLoading.value = false
+        })
+      },
+    })
+
+    return createConversationController({
+      transport,
+      initialSessionId: deps.debugSession.value?.sessionId,
+      onDebugEvent: handleWorkflowDebugEvent,
+      onChange(state) {
+        debugConversationSnapshot.value = state
+      },
+    })
+  }
+
+  function ensureDebugController() {
+    if (!debugController) {
+      debugController = createDebugController()
+    }
+    return debugController
+  }
+
+  function disposeDebugConversation() {
+    debugController?.dispose()
+    debugController = null
+  }
+
+  async function restoreDebugConversation() {
+    const snapshot = await ensureDebugController().restore()
+    if (snapshot?.sessionId && deps.debugSession.value) {
+      debugConversationSnapshot.value = snapshot
+    }
+  }
+
+  const isDebugConversationBusy = computed(() => {
+    const status = debugConversationSnapshot.value.turnStatus
+    return status === 'sending' || status === 'streaming' || deps.debugLoading.value
+  })
+
+  const workflowInitialUiRequest = computed(() => {
+    if (debugConversationSnapshot.value.turnStatus === 'waiting') return null
+    if (debugConversationSnapshot.value.sessionId) return null
+    if (!deps.debugInputFields.value.length) return null
+    return buildWorkflowInitialFormRequest(
+      deps.debugInputFields.value.map((field) => ({
+        key: field.name,
+        label: field.name,
+        type: field.type,
+        required: field.required,
+        placeholder: field.description,
+        options: field.options,
+      })),
+      deps.debugInputParams,
+    )
+  })
+
+  onUnmounted(() => {
+    disposeDebugConversation()
+  })
+
   function currentStudioStateForDebug(): WorkflowStudioState {
     if (!deps.studio.value) {
       throw new Error('Workflow 未加载')
@@ -318,9 +460,14 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
       await loadRecentStudioRuns()
     }
     await deps.loadStoredDebugSession()
+    await restoreDebugConversation()
   }
 
-  async function executeDraftDebug(inputParams: Record<string, unknown>, message: string) {
+  async function beginDraftDebugTurn(input: {
+    message?: string
+    values?: Record<string, unknown>
+    interactionId?: string
+  }) {
     deps.debugLoading.value = true
     deps.currentTraceId.value = ''
     deps.traceNodes.value = []
@@ -332,30 +479,23 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     deps.selectedDebugStepIndex.value = null
     deps.currentDebugNodeId.value = ''
     deps.debugPlaybackToken.value += 1
+    // Clear transport-owned session id so a new free-text turn never submits a stale session.
     try {
-      const payload = buildWorkflowDebugDraftDefinition()
-      const { data } = await createWorkflowDebugSession({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: payload,
-        message,
-        inputParams,
-        debugOptions: {},
-      })
-      deps.applyDebugSession(data)
-      deps.currentTraceId.value = data.traceId || ''
-      deps.replayTraceInput.value = data.traceId || ''
-      deps.selectedRecentTraceId.value = data.traceId || ''
-      deps.refreshWorkflowNodeClasses()
-      await replayDebugSteps(data.steps || [])
-      deps.selectedDebugStepIndex.value = data.steps?.length ? data.steps.length - 1 : null
-      if (debugStepStatus(data.status) === 'waiting') {
-        ElMessage.warning('当前 Workflow 草稿等待用户补充信息')
-      } else {
-        ElMessage[data.success ? 'success' : 'error'](data.success ? '当前草稿调试完成' : '当前草稿调试失败')
+      await ensureDebugController().clearSession()
+    } catch {
+      // ignore clear errors; create path will still run
+    }
+    try {
+      await ensureDebugController().send(input)
+      const status = debugConversationSnapshot.value.turnStatus
+      if (status === 'failed') {
+        ElMessage.error(debugConversationSnapshot.value.error || '草稿调试失败')
+        deps.debugLoading.value = false
+      } else if (status !== 'waiting' && status !== 'completed' && status !== 'sending' && status !== 'streaming') {
+        deps.debugLoading.value = false
       }
     } catch (err) {
       ElMessage.error('草稿调试失败：' + (err as Error).message)
-    } finally {
       deps.debugLoading.value = false
     }
   }
@@ -367,32 +507,58 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
       ElMessage.warning('请输入测试消息或用户输入字段')
       return
     }
-    await executeDraftDebug(inputParams, message)
+    deps.debugMessage.value = ''
+    if (deps.debugInputFields.value.length) {
+      await beginDraftDebugTurn({
+        interactionId: WORKFLOW_INITIAL_INPUT_ID,
+        values: inputParams,
+        message,
+      })
+      return
+    }
+    await beginDraftDebugTurn({ message })
   }
 
-  async function handleDebugUiSubmit(values: Record<string, unknown>) {
+  async function handleDebugConversationSend(text: string) {
+    const message = text.trim()
+    if (!message) return
+    deps.debugMessage.value = ''
+    await beginDraftDebugTurn({ message })
+  }
+
+  async function handleDebugInteractionSubmit(
+    interactionId: string,
+    action: string,
+    values: Record<string, unknown>,
+  ) {
+    if (interactionId === WORKFLOW_INITIAL_INPUT_ID) {
+      const message = debugMessageFromParams(values)
+      if (!message.trim() && !Object.keys(values).length) {
+        ElMessage.warning('请输入测试消息或用户输入字段')
+        return
+      }
+      await beginDraftDebugTurn({
+        interactionId: WORKFLOW_INITIAL_INPUT_ID,
+        values,
+        message,
+      })
+      return
+    }
     if (!deps.debugSession.value?.sessionId) {
       ElMessage.warning('当前没有可继续的调试会话')
       return
     }
     deps.debugLoading.value = true
     try {
-      const { data } = await submitWorkflowDebugSession(deps.debugSession.value.sessionId, {
-        action: 'submit',
-        values,
-      })
-      deps.applyDebugSession(data)
-      deps.currentTraceId.value = data.traceId || ''
-      deps.replayTraceInput.value = data.traceId || ''
-      deps.selectedRecentTraceId.value = data.traceId || ''
-      deps.refreshWorkflowNodeClasses()
-      await replayDebugSteps(data.steps || [])
-      deps.selectedDebugStepIndex.value = data.steps?.length ? data.steps.length - 1 : null
-      ElMessage[debugStepStatus(data.status) === 'waiting' ? 'warning' : data.success ? 'success' : 'error'](
-        debugStepStatus(data.status) === 'waiting'
-          ? '调试会话等待继续输入'
-          : data.success ? '调试会话已继续执行' : '调试会话执行失败',
-      )
+      await ensureDebugController().submitInteraction(interactionId, action, values)
+      const status = debugConversationSnapshot.value.turnStatus
+      if (status === 'failed') {
+        ElMessage.error(debugConversationSnapshot.value.error || '调试会话执行失败')
+      } else if (status === 'waiting') {
+        ElMessage.warning('调试会话等待继续输入')
+      } else if (status === 'completed') {
+        ElMessage.success('调试会话已继续执行')
+      }
     } catch (err) {
       ElMessage.error('提交交互失败：' + (err as Error).message)
     } finally {
@@ -400,12 +566,37 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     }
   }
 
+  async function handleDebugUiSubmit(values: Record<string, unknown>) {
+    const waitingBlock = debugConversationSnapshot.value.messages
+      .flatMap((message) => message.blocks)
+      .find((block) => block.type === 'interaction' && block.state === 'waiting')
+    const interactionId = deps.debugSession.value?.uiRequest?.interactionId
+      || (waitingBlock && waitingBlock.type === 'interaction' ? waitingBlock.request.interactionId : undefined)
+    if (!interactionId) {
+      ElMessage.warning('当前没有可提交的交互')
+      return
+    }
+    await handleDebugInteractionSubmit(interactionId, 'submit', values)
+  }
+
+  /** 取消交互卡片：仅 submit action=cancel，不调用 session cancel / controller.cancel() */
+  async function handleDebugInteractionCancel(interactionId: string) {
+    if (interactionId === WORKFLOW_INITIAL_INPUT_ID) {
+      // 本地初始表单：只关闭本地 waiting，不创建会话
+      debugConversationSnapshot.value = {
+        ...debugConversationSnapshot.value,
+        turnStatus: 'idle',
+      }
+      return
+    }
+    await handleDebugInteractionSubmit(interactionId, 'cancel', {})
+  }
+
   async function handleCancelDebugSession() {
     if (!deps.debugSession.value?.sessionId) return
     deps.debugLoading.value = true
     try {
-      const { data } = await cancelWorkflowDebugSession(deps.debugSession.value.sessionId)
-      deps.applyDebugSession(data)
+      await ensureDebugController().cancel()
       deps.currentDebugNodeId.value = ''
       deps.refreshWorkflowNodeClasses()
       ElMessage.success('调试会话已取消')
@@ -626,6 +817,9 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     handleDebug,
     handleRunDraftDebug,
     handleDebugUiSubmit,
+    handleDebugInteractionSubmit,
+    handleDebugInteractionCancel,
+    handleDebugConversationSend,
     handleCancelDebugSession,
     loadRecentStudioRuns,
     handleLoadTraceReplay,
@@ -635,5 +829,10 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     handleRunPublishedDebug,
     handleRunNodeDebug,
     isDebugStepRunning,
+    debugConversationSnapshot,
+    workflowInitialUiRequest,
+    isDebugConversationBusy,
+    restoreDebugConversation,
+    disposeDebugConversation,
   }
 }

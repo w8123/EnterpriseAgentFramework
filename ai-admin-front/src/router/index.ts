@@ -143,7 +143,17 @@ const routes: RouteRecordRaw[] = [
         path: 'model/instances',
         name: 'ModelInstances',
         component: () => import('@/views/model/ModelInstances.vue'),
-        meta: { title: '模型中心', layoutMode: 'standard' },
+        meta: { title: '模型中心', layoutMode: 'standard', activeMenu: '/model/instances' },
+      },
+      {
+        path: 'model/instances/:id',
+        name: 'ModelInstanceDetail',
+        component: () => import('@/views/model/ModelInstanceDetail.vue'),
+        meta: {
+          title: '模型详情',
+          layoutMode: 'standard',
+          activeMenu: '/model/instances',
+        },
       },
       {
         path: 'model/playground',

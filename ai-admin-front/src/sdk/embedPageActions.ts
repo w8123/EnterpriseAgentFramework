@@ -1,0 +1,355 @@
+import type { EafPageBridge, PageActionResult } from './eafPageBridge'
+import type { EafChatEvent, EafChatMessageResponse } from './eafChat'
+
+export interface PageActionDispatchRequest {
+  type: 'page.action.requested'
+  protocolVersion?: string
+  requestId: string
+  actionKey: string
+  title?: string
+  args?: Record<string, unknown>
+  target?: Record<string, unknown>
+  confirm?: boolean
+  metadata?: Record<string, unknown>
+}
+
+interface ReachAiWindowPageBridge {
+  execute?: (pageKey: string, actionKey: string, args?: Record<string, unknown>, options?: Record<string, unknown>) => Promise<unknown> | unknown
+  list?: (pageKey?: string) => unknown[]
+}
+
+export function pageActionQueueFromResponse(response: EafChatMessageResponse): PageActionDispatchRequest[] {
+  const raw = response.metadata?.pageActionQueue
+  if (!Array.isArray(raw)) return []
+  const pageKey = pageKeyFromMetadata(response.metadata)
+  return raw
+    .map((item) => normalizePageActionRequest(item, pageKey))
+    .filter((item): item is PageActionDispatchRequest => !!item)
+}
+
+export function normalizePageActionRequest(value: unknown, fallbackPageKey?: string): PageActionDispatchRequest | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if (record.type !== 'page.action.requested') return null
+  if (typeof record.requestId !== 'string' || typeof record.actionKey !== 'string') return null
+  const metadata = record.metadata && typeof record.metadata === 'object'
+    ? { ...record.metadata as Record<string, unknown> }
+    : {}
+  const pageKey = typeof record.pageKey === 'string' ? record.pageKey : fallbackPageKey
+  if (pageKey && !metadata.pageKey) metadata.pageKey = pageKey
+  return {
+    type: 'page.action.requested',
+    protocolVersion: typeof record.protocolVersion === 'string' ? record.protocolVersion : undefined,
+    requestId: record.requestId,
+    actionKey: record.actionKey,
+    title: typeof record.title === 'string' ? record.title : undefined,
+    args: record.args && typeof record.args === 'object' ? record.args as Record<string, unknown> : undefined,
+    target: record.target && typeof record.target === 'object' ? record.target as Record<string, unknown> : undefined,
+    confirm: record.confirm === true,
+    metadata,
+  }
+}
+
+export async function executePageActionRequest(
+  request: unknown,
+  bridge: EafPageBridge,
+  handledPageActions: Set<string>,
+  responseMetadata?: Record<string, unknown>,
+): Promise<PageActionResult | null> {
+  const normalized = normalizePageActionRequest(request, pageKeyFromMetadata(responseMetadata))
+  if (!normalized?.requestId) return null
+  if (handledPageActions.has(normalized.requestId)) return null
+  return runPageActionBridge(normalized, bridge, responseMetadata, handledPageActions)
+}
+
+/**
+ * completion 与 pending poll 共用：按 requestId 保证 onEvent / Bridge / result POST 精确一次。
+ * 支持 in-flight Promise 去重，避免并发双执行。
+ */
+export async function dispatchPageActionExactlyOnce(options: {
+  request: unknown
+  bridge: EafPageBridge
+  sessionId: string
+  apiBase: string
+  token: string
+  handledPageActions: Set<string>
+  inFlightPageActions: Map<string, Promise<void>>
+  responseMetadata?: Record<string, unknown>
+  onRequested?: (request: PageActionDispatchRequest) => void
+  onError?: (error: unknown) => void
+  refreshToken?: () => Promise<string>
+  fetchImpl?: typeof fetch
+}): Promise<void> {
+  const normalized = normalizePageActionRequest(options.request, pageKeyFromMetadata(options.responseMetadata))
+  if (!normalized?.requestId) return
+  const requestId = normalized.requestId
+  if (options.handledPageActions.has(requestId)) return
+
+  const existing = options.inFlightPageActions.get(requestId)
+  if (existing) {
+    await existing
+    return
+  }
+
+  const work = (async () => {
+    if (options.handledPageActions.has(requestId)) return
+    // 先认领，防止并发第二进入 Bridge
+    options.handledPageActions.add(requestId)
+    options.onRequested?.(normalized)
+    try {
+      const result = await runPageActionBridge(
+        normalized,
+        options.bridge,
+        options.responseMetadata,
+        new Set(), // 已认领，内部不再二次 gated
+      )
+      if (!result) return
+      if (result.status === 'FAILED' || result.status === 'TIMEOUT') {
+        options.onError?.(new Error(result.error || `Page action ${result.status}: ${normalized.actionKey}`))
+      }
+      let token = options.token
+      try {
+        await postPageActionResult(
+          options.apiBase,
+          options.sessionId,
+          token,
+          result,
+          options.fetchImpl,
+        )
+      } catch (error) {
+        if (!isUnauthorized(error) || !options.refreshToken) throw error
+        token = await options.refreshToken()
+        await postPageActionResult(
+          options.apiBase,
+          options.sessionId,
+          token,
+          result,
+          options.fetchImpl,
+        )
+      }
+    } catch (error) {
+      options.onError?.(error)
+    }
+  })()
+
+  options.inFlightPageActions.set(requestId, work)
+  try {
+    await work
+  } finally {
+    options.inFlightPageActions.delete(requestId)
+  }
+}
+
+async function runPageActionBridge(
+  normalized: PageActionDispatchRequest,
+  bridge: EafPageBridge,
+  responseMetadata: Record<string, unknown> | undefined,
+  handledPageActions: Set<string>,
+): Promise<PageActionResult | null> {
+  const result = await bridge.handleEvent(normalized)
+  if (result && result.status !== 'ACTION_NOT_FOUND') {
+    handledPageActions.add(normalized.requestId)
+    return result
+  }
+  const fallback = await executeWindowPageBridgeAction(normalized, responseMetadata)
+  if (fallback) {
+    if (fallback.status !== 'ACTION_NOT_FOUND') handledPageActions.add(normalized.requestId)
+    return fallback
+  }
+  if (result) {
+    handledPageActions.add(normalized.requestId)
+  }
+  return result
+}
+
+export async function processMessagePageActionQueue(options: {
+  response: EafChatMessageResponse
+  bridge: EafPageBridge
+  sessionId: string
+  apiBase: string
+  token: string
+  handledPageActions: Set<string>
+  inFlightPageActions: Map<string, Promise<void>>
+  onRequested?: (request: PageActionDispatchRequest) => void
+  onError?: (error: unknown) => void
+  refreshToken?: () => Promise<string>
+  fetchImpl?: typeof fetch
+}): Promise<void> {
+  const queue = pageActionQueueFromResponse(options.response)
+  for (const request of queue) {
+    await dispatchPageActionExactlyOnce({
+      request,
+      bridge: options.bridge,
+      sessionId: options.sessionId,
+      apiBase: options.apiBase,
+      token: options.token,
+      handledPageActions: options.handledPageActions,
+      inFlightPageActions: options.inFlightPageActions,
+      responseMetadata: options.response.metadata,
+      onRequested: options.onRequested,
+      onError: options.onError,
+      refreshToken: options.refreshToken,
+      fetchImpl: options.fetchImpl,
+    })
+  }
+}
+
+async function executeWindowPageBridgeAction(
+  request: PageActionDispatchRequest,
+  responseMetadata?: Record<string, unknown>,
+): Promise<PageActionResult | null> {
+  const globalBridge = typeof window !== 'undefined'
+    ? (window as Window & { __REACHAI_PAGE_BRIDGE__?: ReachAiWindowPageBridge }).__REACHAI_PAGE_BRIDGE__
+    : undefined
+  if (!globalBridge || typeof globalBridge.execute !== 'function') return null
+  const pageKey = pageKeyFromRequest(request) || pageKeyFromMetadata(responseMetadata)
+  if (!pageKey) {
+    return {
+      protocolVersion: request.protocolVersion || '1.0',
+      type: 'page.action.result',
+      requestId: request.requestId,
+      actionKey: request.actionKey,
+      status: 'ACTION_NOT_FOUND',
+      error: 'Page action pageKey is missing for window.__REACHAI_PAGE_BRIDGE__ fallback',
+    }
+  }
+  try {
+    const raw = await globalBridge.execute(pageKey, request.actionKey, request.args || {}, {
+      confirmed: true,
+      requestId: request.requestId,
+    })
+    const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : { data: raw }
+    const rawStatus = String(record.status || 'SUCCESS').toUpperCase()
+    const success = rawStatus === 'SUCCESS'
+    const error = record.error && typeof record.error === 'object'
+      ? String((record.error as Record<string, unknown>).message || record.message || '')
+      : String(record.message || '')
+    return {
+      protocolVersion: request.protocolVersion || '1.0',
+      type: 'page.action.result',
+      requestId: request.requestId,
+      actionKey: request.actionKey,
+      status: success ? 'SUCCESS' : 'FAILED',
+      data: record.data ?? raw,
+      error: success ? undefined : error || `Page action returned ${rawStatus}`,
+    }
+  } catch (error) {
+    return {
+      protocolVersion: request.protocolVersion || '1.0',
+      type: 'page.action.result',
+      requestId: request.requestId,
+      actionKey: request.actionKey,
+      status: 'FAILED',
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+function pageKeyFromRequest(request: PageActionDispatchRequest): string | undefined {
+  const metadataPageKey = request.metadata?.pageKey
+  return typeof metadataPageKey === 'string' && metadataPageKey.trim() ? metadataPageKey.trim() : undefined
+}
+
+export function pageKeyFromMetadata(metadata?: Record<string, unknown>): string | undefined {
+  const pageKey = metadata?.pageKey
+  return typeof pageKey === 'string' && pageKey.trim() ? pageKey.trim() : undefined
+}
+
+export async function postPageActionResult(
+  apiBase: string,
+  sessionId: string,
+  token: string,
+  result: PageActionResult,
+  fetchImpl: typeof fetch = fetch,
+) {
+  await postJson(
+    `${apiBase}/chat/sessions/${encodeURIComponent(sessionId)}/page-actions/${encodeURIComponent(result.requestId)}/result`,
+    result,
+    token,
+    fetchImpl,
+  )
+}
+
+export async function pollPendingPageActions(options: {
+  apiBase: string
+  token: string
+  sessionId: string
+  bridge: EafPageBridge
+  handledPageActions: Set<string>
+  pendingPageActions: Set<string>
+  inFlightPageActions?: Map<string, Promise<void>>
+  context?: Record<string, unknown>
+  onEvent?: (event: EafChatEvent) => void
+  onError?: (error: unknown) => void
+  refreshToken?: () => Promise<string>
+  fetchImpl?: typeof fetch
+}) {
+  const fetchImpl = options.fetchImpl || fetch
+  const inFlight = options.inFlightPageActions || new Map<string, Promise<void>>()
+  const pendingUrl = `${options.apiBase}/chat/sessions/${encodeURIComponent(options.sessionId)}/page-actions/pending?limit=10`
+  let requests: PageActionDispatchRequest[]
+  try {
+    requests = await getJson(pendingUrl, options.token, fetchImpl)
+  } catch (error) {
+    if (!isUnauthorized(error) || !options.refreshToken) throw error
+    const token = await options.refreshToken()
+    requests = await getJson(pendingUrl, token, fetchImpl)
+  }
+  for (const request of requests) {
+    if (!request?.requestId) continue
+    await dispatchPageActionExactlyOnce({
+      request,
+      bridge: options.bridge,
+      sessionId: options.sessionId,
+      apiBase: options.apiBase,
+      token: options.token,
+      handledPageActions: options.handledPageActions,
+      inFlightPageActions: inFlight,
+      responseMetadata: options.context,
+      onRequested: (req) => options.onEvent?.({ type: 'page.action.requested', data: req }),
+      onError: options.onError,
+      refreshToken: options.refreshToken,
+      fetchImpl,
+    })
+  }
+}
+
+async function postJson<T>(url: string, body: unknown, token: string, fetchImpl: typeof fetch): Promise<T> {
+  const response = await fetchImpl(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || (payload.code && payload.code !== 200 && payload.code !== 0)) {
+    throw requestError(payload.message || `Request failed: ${response.status}`, response.status)
+  }
+  return (payload.data ?? payload) as T
+}
+
+async function getJson<T>(url: string, token: string, fetchImpl: typeof fetch): Promise<T> {
+  const response = await fetchImpl(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || (payload.code && payload.code !== 200 && payload.code !== 0)) {
+    throw requestError(payload.message || `Request failed: ${response.status}`, response.status)
+  }
+  return (payload.data ?? payload) as T
+}
+
+function requestError(message: string, status: number): Error & { status?: number } {
+  const error = new Error(message) as Error & { status?: number }
+  error.status = status
+  return error
+}
+
+function isUnauthorized(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && (error as { status?: number }).status === 401)
+}

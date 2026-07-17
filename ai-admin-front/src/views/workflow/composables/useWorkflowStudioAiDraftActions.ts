@@ -52,6 +52,8 @@ function workflowEditOperationLabel(type: WorkflowDraftEditOperationType) {
     ADD_EDGE: '新增连线',
     UPDATE_EDGE: '修改连线',
     DELETE_EDGE: '删除连线',
+    SET_ENTRY: '设置入口',
+    SET_FINISH: '设置结束',
   }
   return labels[type] || type
 }
@@ -67,12 +69,46 @@ function operationTarget(item: WorkflowDraftEditOperation) {
   const source = edge?.from || edge?.source
   const target = edge?.to || edge?.target
   if (source || target) return `${source || '?'} → ${target || '?'}`
+  if (item.patch && typeof item.patch.entry === 'string') return item.patch.entry
   return workflowEditOperationLabel(item.type)
+}
+
+export function isAiEditPreviewSucceeded(preview: WorkflowDraftEditResult | null | undefined) {
+  if (!preview) return false
+  const status = String(preview.status || '').toUpperCase()
+  if (status === 'FAILED') return false
+  if (preview.validationErrors?.length) return false
+  if (status === 'SUCCEEDED') return true
+  // Backward compatible: older payloads without status succeed only when validation is clean.
+  return !preview.validationErrors?.length
+}
+
+export function formatAiAuthoringFailureMessage(preview: WorkflowDraftEditResult | null | undefined) {
+  const authoringId = String(preview?.authoringId || '').trim()
+  const summary = String(preview?.summary || '').trim()
+  if (summary) {
+    if (authoringId && !summary.includes(authoringId)) {
+      return `${summary}（错误编号：${authoringId}）`
+    }
+    return summary
+  }
+  if (authoringId) {
+    return `AI 编排执行异常，请重新生成。如问题持续出现，请联系管理员并提供错误编号：${authoringId}。`
+  }
+  return 'AI 编排生成失败，Agent 已尝试自动修正，但仍未生成合法 Workflow。'
+}
+
+/** True when the current draft canvas has no editable nodes (first entry / cleared). */
+export function isDraftCanvasEmpty(nodes: CanvasNode[], canvasJson: string) {
+  if (nodes.length > 0) return false
+  const canvas = readJsonObject(canvasJson, { nodes: [] }) as { nodes?: unknown }
+  return !Array.isArray(canvas.nodes) || canvas.nodes.length === 0
 }
 
 export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftActionsDeps) {
   let previewRequestSequence = 0
   let editLoadingSequence = 0
+  let lastAiAuthoringInstruction = ''
   let previewContext: { workflowId: string; editGeneration: number } | null = null
 
   function isPreviewContextCurrent() {
@@ -113,6 +149,8 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
       'ADD_EDGE',
       'UPDATE_EDGE',
       'DELETE_EDGE',
+      'SET_ENTRY',
+      'SET_FINISH',
     ]
     return order
       .map((type) => ({
@@ -121,6 +159,12 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
         items: operations.filter((item) => item.type === type),
       }))
       .filter((group) => group.items.length)
+  })
+
+  const aiEditPreviewFailed = computed(() => {
+    const preview = deps.aiEditPreview.value
+    if (!preview) return false
+    return !isAiEditPreviewSucceeded(preview)
   })
 
   function parseCurrentCanvas() {
@@ -136,8 +180,8 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
     }
   }
 
-  async function runAiAuthoring() {
-    const instruction = deps.aiEditInstruction.value.trim()
+  async function runAiAuthoring(instructionOverride?: string) {
+    const instruction = (instructionOverride ?? deps.aiEditInstruction.value).trim()
     if (!instruction) {
       ElMessage.warning('请先描述要创建、修改或修复的 Workflow')
       return
@@ -147,6 +191,20 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
       ElMessage.warning('请先选择或配置可用的 LLM 模型实例')
       return
     }
+    if (deps.aiEditLoading.value) {
+      return
+    }
+
+    lastAiAuthoringInstruction = instruction
+    // A request has been accepted; keep its immutable value locally for regenerate,
+    // while returning the visible composer to an empty state for the next instruction.
+    if (instructionOverride === undefined) {
+      deps.aiEditInstruction.value = ''
+    }
+
+    // Clear previous preview immediately once the new request is accepted.
+    clearPreviews()
+
     const requestWorkflowId = deps.workflowId.value
     const currentCanvas = parseCurrentCanvas()
     const currentGraphSpec = readJsonObject(deps.graphSpecJson.value, {})
@@ -181,7 +239,11 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
       }
       deps.aiEditPreview.value = data
       previewContext = { workflowId: requestWorkflowId, editGeneration: requestEditGeneration }
-      ElMessage.success('AI 编排预览已生成')
+      if (isAiEditPreviewSucceeded(data)) {
+        ElMessage.success('AI 编排预览已生成')
+      } else {
+        ElMessage.error(formatAiAuthoringFailureMessage(data))
+      }
     } catch (err) {
       if (!isRequestCurrent()) return
       ElMessage.error((err as Error).message)
@@ -190,10 +252,19 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
     }
   }
 
+  async function regenerateAiAuthoring() {
+    if (deps.aiEditLoading.value) return
+    clearPreviews()
+    const instruction = lastAiAuthoringInstruction || deps.aiEditInstruction.value.trim()
+    await runAiAuthoring(instruction)
+  }
+
   async function applyPreviewGraph(
     graphSpec: unknown,
     canvasSnapshotValue: unknown,
+    options?: { autoLayout?: boolean },
   ) {
+    const shouldAutoLayout = !!options?.autoLayout
     deps.graphSpecJson.value = formatJson(JSON.stringify(graphSpec))
     deps.canvasJson.value = formatJson(JSON.stringify(canvasSnapshotValue || { nodes: [], edges: [] }))
     if (deps.studio.value) {
@@ -204,7 +275,11 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
       })
     }
     deps.activeTab.value = 'visual'
-    await deps.autoLayoutWorkflowCanvas()
+    // Only auto-layout when the draft canvas was empty before apply, so existing
+    // hand-placed nodes are not reshuffled.
+    if (shouldAutoLayout) {
+      await deps.autoLayoutWorkflowCanvas()
+    }
     await deps.fitCanvas()
     deps.validation.value = null
     deps.aiEditPreview.value = null
@@ -230,17 +305,27 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
       ElMessage.warning('当前 Workflow 草稿已变化，请重新生成 AI 编排预览')
       return false
     }
-    if (deps.aiEditPreview.value.validationErrors?.length) {
-      ElMessage.warning('请先修复 AI 编排预览中的校验问题')
+    if (!isAiEditPreviewSucceeded(deps.aiEditPreview.value)) {
+      ElMessage.warning('当前方案未通过校验，不能应用到草稿')
       return false
     }
     const preview = deps.aiEditPreview.value
+    // Decide before replacing the draft with the AI preview.
+    const shouldAutoLayout = isDraftCanvasEmpty(deps.nodes.value, deps.canvasJson.value)
     try {
-      await applyPreviewGraph(preview.graphSpec, preview.canvasSnapshot || { nodes: [], edges: [] })
-      ElMessage.success('AI 编排方案已应用到 Workflow 草稿')
+      await applyPreviewGraph(
+        preview.graphSpec,
+        preview.canvasSnapshot || { nodes: [], edges: [] },
+        { autoLayout: shouldAutoLayout },
+      )
+      ElMessage.success(shouldAutoLayout
+        ? 'AI 编排方案已应用到 Workflow 草稿，并已自动整理画布'
+        : 'AI 编排方案已应用到 Workflow 草稿')
       return true
     } catch (err) {
-      ElMessage.error('应用 AI 流程并自动整理失败：' + (err as Error).message)
+      ElMessage.error((shouldAutoLayout
+        ? '应用 AI 流程并自动整理失败：'
+        : '应用 AI 流程失败：') + (err as Error).message)
       return false
     }
   }
@@ -251,10 +336,15 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
 
   return {
     aiEditOperationGroups,
+    aiEditPreviewFailed,
     runAiAuthoring,
+    regenerateAiAuthoring,
     clearAiEditPreview,
     applyAiEditPreview,
     operationKey,
     operationTarget,
+    isAiEditPreviewSucceeded,
+    formatAiAuthoringFailureMessage,
+    isDraftCanvasEmpty,
   }
 }

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -122,7 +123,14 @@ public class RuntimeWorkflowDefinitionService {
             throw new IllegalArgumentException("workflow is required");
         }
         normalizeForCreate(entity);
-        mapper.insert(entity);
+        assertKeySlugAvailable(entity.getKeySlug(), null);
+        try {
+            mapper.insert(entity);
+        } catch (DuplicateKeyException ex) {
+            // The preflight check makes the common path clear; the database remains the
+            // authoritative guard when two requests race to create the same key.
+            throw new RuntimeWorkflowKeySlugConflictException(entity.getKeySlug());
+        }
         return entity;
     }
 
@@ -141,12 +149,18 @@ public class RuntimeWorkflowDefinitionService {
         LocalDateTime expectedRevision = parseBaseRevision(baseRevision);
         assertRevision(current, baseRevision, expectedRevision);
         merge(current, update);
+        assertKeySlugAvailable(current.getKeySlug(), current.getId());
         current.setUpdatedAt(nextRevision(persistedRevision));
-        int updated = expectedRevision == null
-                ? mapper.updateById(current)
-                : mapper.update(current, Wrappers.<RuntimeWorkflowDefinitionEntity>lambdaUpdate()
-                        .eq(RuntimeWorkflowDefinitionEntity::getId, current.getId())
-                        .eq(RuntimeWorkflowDefinitionEntity::getUpdatedAt, expectedRevision));
+        int updated;
+        try {
+            updated = expectedRevision == null
+                    ? mapper.updateById(current)
+                    : mapper.update(current, Wrappers.<RuntimeWorkflowDefinitionEntity>lambdaUpdate()
+                            .eq(RuntimeWorkflowDefinitionEntity::getId, current.getId())
+                            .eq(RuntimeWorkflowDefinitionEntity::getUpdatedAt, expectedRevision));
+        } catch (DuplicateKeyException ex) {
+            throw new RuntimeWorkflowKeySlugConflictException(current.getKeySlug());
+        }
         if (updated <= 0) {
             RuntimeWorkflowDefinitionEntity latest = findById(id).orElse(current);
             throw revisionConflict(id, baseRevision, latest.getUpdatedAt());
@@ -254,6 +268,16 @@ public class RuntimeWorkflowDefinitionService {
     private void requireValidKeySlug(String keySlug) {
         if (!StringUtils.hasText(keySlug) || !KEY_SLUG.matcher(keySlug.trim()).matches()) {
             throw new IllegalArgumentException("invalid workflow keySlug: " + keySlug);
+        }
+    }
+
+    private void assertKeySlugAvailable(String keySlug, String excludedWorkflowId) {
+        RuntimeWorkflowDefinitionEntity existing = mapper.selectOne(
+                Wrappers.<RuntimeWorkflowDefinitionEntity>lambdaQuery()
+                        .eq(RuntimeWorkflowDefinitionEntity::getKeySlug, keySlug.trim())
+                        .last("LIMIT 1"));
+        if (existing != null && !existing.getId().equals(excludedWorkflowId)) {
+            throw new RuntimeWorkflowKeySlugConflictException(keySlug.trim());
         }
     }
 

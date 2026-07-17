@@ -53,7 +53,9 @@ const checks = [
   endpointCheck(services.knowledge, '/ai/actuator/health'),
   endpointCheck(services.model, '/actuator/health'),
   controlInternalServiceCheck('runtime'),
-  controlInternalServiceCheck('capability')
+  controlInternalServiceCheck('capability'),
+  controlInternalServiceCheck('model'),
+  controlInternalServiceCheck('knowledge')
 ]
 
 const { results, attempts, waited } = await runChecksUntilReady()

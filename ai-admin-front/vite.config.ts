@@ -3,6 +3,9 @@ import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
 export default defineConfig({
+  define: {
+    __REACHAI_EMBED_SDK__: false,
+  },
   plugins: [vue()],
   resolve: {
     alias: {
@@ -21,10 +24,32 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:18603',
         changeOrigin: true,
+        timeout: 600_000,
+        proxyTimeout: 600_000,
+        configure(proxy) {
+          // SSE：禁止中间层缓冲，保证 message.delta 按帧到达浏览器
+          proxy.on('proxyRes', (proxyRes, _req, res) => {
+            const contentType = String(proxyRes.headers['content-type'] || '')
+            if (!contentType.includes('text/event-stream')) return
+            res.setHeader('Cache-Control', 'no-cache, no-transform')
+            res.setHeader('X-Accel-Buffering', 'no')
+            // 压缩会缓冲整包，SSE 必须 identity
+            if (proxyRes.headers['content-encoding']) {
+              delete proxyRes.headers['content-encoding']
+            }
+          })
+        },
       },
-      '^/model/(providers|instances|chat)(/.*)?(\\?.*)?$': {
+      '^/model/(templates|instances|chat)(/.*)?(\\?.*)?$': {
         target: 'http://localhost:18601',
         changeOrigin: true,
+        bypass(req) {
+          // SPA routes share /model/instances*; keep HTML navigations on the Vite app.
+          const accept = String(req.headers.accept || '')
+          if (accept.includes('text/html')) {
+            return '/index.html'
+          }
+        },
       },
     },
   },

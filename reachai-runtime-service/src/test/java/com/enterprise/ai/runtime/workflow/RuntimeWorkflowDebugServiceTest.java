@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.workflow;
 
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
+import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,22 @@ class RuntimeWorkflowDebugServiceTest {
             mock(com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService.class),
             mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper.class),
             new ObjectMapper());
+
+    @Test
+    void mapExecutionStatusMapsCancelledCodeToCancelledNotError() {
+        assertEquals("CANCELLED", RuntimeWorkflowDebugService.mapExecutionStatus(
+                new RuntimeGraphSpecExecutionResult(false, "RUNTIME_GRAPH_CANCELLED",
+                        "Workflow execution cancelled", "n1", "LLM", List.of(), Map.of())));
+        assertEquals("ERROR", RuntimeWorkflowDebugService.mapExecutionStatus(
+                new RuntimeGraphSpecExecutionResult(false, "RUNTIME_GRAPH_LLM_FAILED",
+                        "boom", "n1", "LLM", List.of(), Map.of())));
+        assertEquals("WAITING_USER", RuntimeWorkflowDebugService.mapExecutionStatus(
+                new RuntimeGraphSpecExecutionResult(false, "RUNTIME_GRAPH_INTERACTION_WAITING",
+                        "wait", "n1", "INTERACTION", List.of(), Map.of())));
+        assertEquals("SUCCESS", RuntimeWorkflowDebugService.mapExecutionStatus(
+                new RuntimeGraphSpecExecutionResult(true, "RUNTIME_GRAPH_EXECUTED",
+                        "ok", "n1", "ANSWER", List.of(), Map.of())));
+    }
 
     @Test
     void debugRunExecutesWorkflowGraphSpecLocally() {

@@ -20,8 +20,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Bounded candidate-only repair loop used after deterministic GraphSpec validation.
- * It never persists a workflow and never executes runtime side effects.
+ * Bounded candidate-only repair loop used by compatibility create entry {@code /generate-draft}.
+ *
+ * <p>This is not an independent "repair model". It reuses the same selected
+ * {@code modelInstanceId} for direct repair rounds after deterministic validation.
+ * Workflow Studio {@code /edit-draft} no longer uses this loop; that path is owned by
+ * AgentScope Workflow Authoring tools and limited re-planning.</p>
+ *
+ * <p>It never persists a workflow and never executes runtime side effects.</p>
  */
 @Service
 @RequiredArgsConstructor

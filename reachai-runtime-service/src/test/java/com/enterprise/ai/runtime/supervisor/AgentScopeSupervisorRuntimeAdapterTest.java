@@ -39,20 +39,48 @@ class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
     void answersDirectlyWithAnImplicitZeroToolPlan() {
-        AgentScopeSupervisorRuntimeAdapter adapter = adapter(model(List.of(text("你好，我是班组助手"))));
+        // INTERNAL 直接文本 + PUBLIC_FINAL 强制补救一轮（不得公开 INTERNAL 原文、不得批量 flush）
+        AgentScopeSupervisorRuntimeAdapter adapter = adapter(model(List.of(
+                text("你好，我是班组助手"),
+                text("你好，我是班组助手"))));
         List<String> events = new ArrayList<>();
+        List<Map<String, Object>> stepPayloads = new ArrayList<>();
 
         SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
                 agent(), config(false), List.of(), Map.of(
                         "message", "你好", "sessionId", "s-zero", "projectCode", "qmssmp"),
-                null, (event, data) -> events.add(event)));
+                null, (event, data) -> {
+                    events.add(event);
+                    if ("supervisor.step".equals(event) && data instanceof Map<?, ?> map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> typed = (Map<String, Object>) map;
+                        stepPayloads.add(typed);
+                    }
+                }));
 
-        assertTrue(result.success());
+        assertTrue(result.success(), String.valueOf(result.metadata()));
         assertEquals("你好，我是班组助手", result.answer());
-        assertEquals(1, result.metadata().get("planCount"));
+        assertTrue(events.contains("message.delta"));
+        assertEquals(0, result.metadata().get("planCount"),
+                "implicit direct decision must not inflate AgentScope planCount");
+        assertEquals("DIRECT", result.metadata().get("decisionMode"));
+        assertEquals(false, result.metadata().get("workflowSelected"));
         assertEquals(0, result.metadata().get("workflowCallCount"));
         assertEquals("s-zero", result.metadata().get("sessionId"));
-        assertTrue(events.contains("supervisor.step"));
+        assertTrue(events.contains("supervisor.step"),
+                "forced PUBLIC_FINAL must emit final_answer supervisor.step");
+        assertTrue(stepPayloads.stream().anyMatch(p ->
+                "final-answer".equals(p.get("stepId"))
+                        && "started".equals(p.get("state"))
+                        && "runtime_fallback".equals(p.get("source"))));
+        int firstFinalIdx = -1;
+        int firstDeltaIdx = -1;
+        for (int i = 0; i < events.size(); i++) {
+            if (firstFinalIdx < 0 && "supervisor.step".equals(events.get(i))) firstFinalIdx = i;
+            if (firstDeltaIdx < 0 && "message.delta".equals(events.get(i))) firstDeltaIdx = i;
+        }
+        assertTrue(firstFinalIdx >= 0 && firstDeltaIdx > firstFinalIdx,
+                "final_answer started must precede first message.delta");
     }
 
     @Test
@@ -63,7 +91,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         stubWorkflow(ownerTool);
         AtomicInteger active = new AtomicInteger();
         AtomicInteger maxActive = new AtomicInteger();
-        when(graphExecutor.execute(any(), any())).thenAnswer(invocation -> {
+        when(graphExecutor.execute(any(), any(), any(), any())).thenAnswer(invocation -> {
             int current = active.incrementAndGet();
             maxActive.accumulateAndGet(current, Math::max);
             Thread.sleep(150);
@@ -77,6 +105,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 calls(
                         call("team-1", "query_team", Map.of("kind", "team")),
                         call("owner-1", "query_owner", Map.of("kind", "owner"))),
+                text("班组与负责人信息已汇总"),
                 text("班组与负责人信息已汇总"))));
 
         SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
@@ -87,6 +116,10 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         assertEquals(2, result.metadata().get("workflowCallCount"));
         assertEquals(2, maxActive.get());
         assertEquals("班组与负责人信息已汇总", result.answer());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> steps = (List<Map<String, Object>>) result.metadata().get("steps");
+        assertTrue(steps.stream().anyMatch(s ->
+                "workflow".equals(s.get("name")) && "completed".equals(s.get("state"))));
     }
 
     @Test
@@ -97,7 +130,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         stubWorkflow(secondPageAction);
         AtomicInteger active = new AtomicInteger();
         AtomicInteger maxActive = new AtomicInteger();
-        when(graphExecutor.execute(any(), any())).thenAnswer(invocation -> {
+        when(graphExecutor.execute(any(), any(), any(), any())).thenAnswer(invocation -> {
             int current = active.incrementAndGet();
             maxActive.accumulateAndGet(current, Math::max);
             Thread.sleep(120);
@@ -111,6 +144,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 calls(
                         call("page-1", "open_team_page", Map.of()),
                         call("page-2", "query_owner_on_page", Map.of())),
+                text("页面操作已完成"),
                 text("页面操作已完成"))));
 
         SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
@@ -128,7 +162,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         RuntimeAgentWorkflowToolEntity tool = tool("wf-team", "query_team");
         stubWorkflow(tool);
         AtomicInteger execution = new AtomicInteger();
-        when(graphExecutor.execute(any(), any())).thenAnswer(invocation -> execution.incrementAndGet() == 1
+        when(graphExecutor.execute(any(), any(), any(), any())).thenAnswer(invocation -> execution.incrementAndGet() == 1
                 ? new RuntimeGraphSpecExecutionResult(false, "UPSTREAM_FAILED", "第一次失败",
                 null, null, List.of(), Map.of())
                 : success("第二次成功"));
@@ -139,6 +173,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 calls(call("replan-1", "record_supervisor_plan", Map.of(
                         "summary", "失败后重试", "steps", List.of("调整参数后重试"), "reason", "上游暂时失败"))),
                 calls(call("team-2", "query_team", Map.of())),
+                text("重规划后查询成功"),
                 text("重规划后查询成功"))));
 
         SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
@@ -157,7 +192,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         RuntimeAgentWorkflowToolEntity tool = tool("wf-model", "classify_intent");
         stubWorkflow(tool, "published-model", "newer-draft-model");
         List<Map<String, Object>> workflowInputs = new ArrayList<>();
-        when(graphExecutor.execute(any(), any())).thenAnswer(invocation -> {
+        when(graphExecutor.execute(any(), any(), any(), any())).thenAnswer(invocation -> {
             workflowInputs.add(invocation.getArgument(1));
             return success("classified");
         });
@@ -165,6 +200,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 calls(call("plan-model", "record_supervisor_plan", Map.of(
                         "summary", "识别意图", "steps", List.of("执行分类 Workflow")))),
                 calls(call("workflow-model", "classify_intent", Map.of())),
+                text("分类完成"),
                 text("分类完成"))));
 
         SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
@@ -184,6 +220,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 traceService, mock(SupervisorApprovalInteractionService.class), objectMapper);
         return new AgentScopeSupervisorRuntimeAdapter(
                 modelClient,
+                null,
                 workflowMapper,
                 versionMapper,
                 graphExecutor,

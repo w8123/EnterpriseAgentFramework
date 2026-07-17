@@ -11,9 +11,10 @@ public class ModelInstanceRequest {
     private String provider;
     private ModelType modelType;
     private String modelName;
-    private EndpointType endpointType;
-    private String workspaceId;
-    private Map<String, Object> credential;
+    private ModelProtocol protocol;
+    private String projectCode;
+    /** 连接配置（规范字段），非 credential */
+    private Map<String, Object> connection;
     private Map<String, Object> defaultOptions;
     private Object paramsSchema;
     private ModelInstanceStatus status;

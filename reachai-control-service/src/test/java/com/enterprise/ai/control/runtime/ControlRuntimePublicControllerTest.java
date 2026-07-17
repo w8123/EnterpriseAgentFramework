@@ -138,6 +138,10 @@ class ControlRuntimePublicControllerTest {
                 .getDeclaredMethod("submitRuntimeDebugSession", String.class, Map.class);
         Method cancelRuntimeDebugSession = ControlRuntimePublicController.class
                 .getDeclaredMethod("cancelRuntimeDebugSession", String.class);
+        Method createRuntimeDebugSessionStream = ControlRuntimePublicController.class
+                .getDeclaredMethod("createRuntimeDebugSessionStream", Map.class);
+        Method submitRuntimeDebugSessionStream = ControlRuntimePublicController.class
+                .getDeclaredMethod("submitRuntimeDebugSessionStream", String.class, Map.class);
         Method listHumanApprovals = ControlRuntimePublicController.class
                 .getDeclaredMethod("listHumanApprovals", String.class, String.class, int.class);
         Method submitHumanApproval = ControlRuntimePublicController.class
@@ -253,6 +257,10 @@ class ControlRuntimePublicControllerTest {
                 submitRuntimeDebugSession.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/runtime/debug-sessions/{sessionId}/cancel"},
                 cancelRuntimeDebugSession.getAnnotation(PostMapping.class).value());
+        assertArrayEquals(new String[] {"/api/runtime/debug-sessions/stream"},
+                createRuntimeDebugSessionStream.getAnnotation(PostMapping.class).value());
+        assertArrayEquals(new String[] {"/api/runtime/debug-sessions/{sessionId}/submit/stream"},
+                submitRuntimeDebugSessionStream.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/runtime/interactions/human-approvals"},
                 listHumanApprovals.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/api/runtime/interactions/human-approvals/{interactionId}/submit"},
@@ -465,7 +473,26 @@ class ControlRuntimePublicControllerTest {
         response.getBody().writeTo(output);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        verify(streamProxy).stream(request, output);
+        assertEquals("no-cache, no-transform", response.getHeaders().getCacheControl());
+        assertEquals("no", response.getHeaders().getFirst("X-Accel-Buffering"));
+        verify(streamProxy).stream(RuntimeAgentStreamProxy.AGENT_EXECUTE_STREAM, request, output);
+    }
+
+    @Test
+    void relaysDebugSessionStreamsWithoutFeignBuffering() throws Exception {
+        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
+        RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
+        ControlRuntimePublicController controller = new ControlRuntimePublicController(
+                runtimeProxyClient, null, streamProxy);
+        Map<String, Object> request = Map.of("targetType", "WORKFLOW_DRAFT");
+        ByteArrayOutputStream createOutput = new ByteArrayOutputStream();
+        ByteArrayOutputStream submitOutput = new ByteArrayOutputStream();
+
+        controller.createRuntimeDebugSessionStream(request).getBody().writeTo(createOutput);
+        controller.submitRuntimeDebugSessionStream("session-1", request).getBody().writeTo(submitOutput);
+
+        verify(streamProxy).stream(RuntimeAgentStreamProxy.DEBUG_SESSION_STREAM, request, createOutput);
+        verify(streamProxy).streamDebugSubmit("session-1", request, submitOutput);
     }
 
     @Test

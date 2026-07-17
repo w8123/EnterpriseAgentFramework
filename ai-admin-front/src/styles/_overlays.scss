@@ -34,8 +34,17 @@
   flex: 1 1 auto;
   max-block-size: min(70vh, 44rem);
   overflow: auto;
+  overscroll-behavior: contain;
   padding: var(--panel-padding);
   color: var(--text-secondary);
+}
+
+// Element Plus locks document.body when a dialog opens. The workbench itself
+// uses an internal scroll container, so lock that container as well to prevent
+// wheel events at the dialog's scroll boundary from moving the page underneath.
+body.el-popup-parent--hidden .main-content,
+body.el-popup-parent--hidden .sidebar-aside {
+  overflow: hidden;
 }
 
 .app-dialog.el-dialog .el-dialog__body.app-dialog__body--delegated-scroll {

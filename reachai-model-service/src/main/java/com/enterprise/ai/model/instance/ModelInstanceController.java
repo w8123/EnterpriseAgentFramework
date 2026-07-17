@@ -1,13 +1,15 @@
 package com.enterprise.ai.model.instance;
 
 import com.enterprise.ai.common.dto.ApiResult;
-import com.enterprise.ai.model.service.ChatRequest;
-import com.enterprise.ai.model.service.ChatResponse;
-import com.enterprise.ai.model.service.EmbeddingRequest;
-import com.enterprise.ai.model.service.EmbeddingResponse;
-import com.enterprise.ai.model.service.ModelRoutingService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
@@ -17,13 +19,15 @@ import java.util.List;
 public class ModelInstanceController {
 
     private final ModelInstanceService service;
-    private final ModelRoutingService routingService;
+    private final ModelInstanceTestService testService;
 
     @GetMapping
-    public ApiResult<List<ModelInstanceResponse>> list(@RequestParam(required = false) String workspaceId,
+    public ApiResult<List<ModelInstanceResponse>> list(@RequestParam(required = false) String keyword,
+                                                       @RequestParam(required = false) String provider,
                                                        @RequestParam(required = false) String modelType,
-                                                       @RequestParam(required = false) String provider) {
-        return ApiResult.ok(service.list(workspaceId, modelType, provider));
+                                                       @RequestParam(required = false) String projectCode,
+                                                       @RequestParam(required = false, defaultValue = "false") boolean includeArchived) {
+        return ApiResult.ok(service.list(projectCode, modelType, provider, keyword, includeArchived));
     }
 
     @GetMapping("/{id}")
@@ -36,6 +40,12 @@ public class ModelInstanceController {
         return ApiResult.ok(service.create(request));
     }
 
+    @PostMapping("/from-template/{templateId}")
+    public ApiResult<ModelInstanceResponse> createFromTemplate(@PathVariable("templateId") String templateId,
+                                                               @RequestBody ModelInstanceRequest request) {
+        return ApiResult.ok(service.createFromTemplate(templateId, request));
+    }
+
     @PutMapping("/{id}")
     public ApiResult<ModelInstanceResponse> update(@PathVariable("id") String id,
                                                    @RequestBody ModelInstanceRequest request) {
@@ -43,62 +53,18 @@ public class ModelInstanceController {
         return ApiResult.ok(service.update(id, request));
     }
 
-    @DeleteMapping("/{id}")
-    public ApiResult<Boolean> delete(@PathVariable("id") String id) {
-        return ApiResult.ok(service.delete(id));
+    @PostMapping("/test-draft")
+    public ApiResult<ModelInstanceTestResponse> testDraft(@RequestBody ModelInstanceRequest request) {
+        return ApiResult.ok(testService.testDraft(request));
     }
 
     @PostMapping("/{id}/test")
     public ApiResult<ModelInstanceTestResponse> test(@PathVariable("id") String id) {
-        ModelInstanceResponse instance = service.get(id);
-        long start = System.currentTimeMillis();
-        try {
-            Integer dimension = null;
-            if (ModelType.EMBEDDING.name().equals(instance.getModelType())) {
-                EmbeddingResponse response = routingService.embed(EmbeddingRequest.builder()
-                        .modelInstanceId(id)
-                        .texts(List.of("hello"))
-                        .build());
-                dimension = response.getDimension();
-            } else if (ModelType.RERANKER.name().equals(instance.getModelType())) {
-                routingService.rerank(com.enterprise.ai.model.service.RerankRequest.builder()
-                        .modelInstanceId(id)
-                        .query("hello")
-                        .documents(List.of("hello world", "goodbye"))
-                        .topN(2)
-                        .build());
-            } else {
-                ChatResponse response = routingService.chat(ChatRequest.builder()
-                        .modelInstanceId(id)
-                        .messages(List.of(ChatRequest.ChatMessage.builder()
-                                .role("user")
-                                .content("hello")
-                                .build()))
-                        .build());
-                if (response.getContent() == null || response.getContent().isBlank()) {
-                    throw new IllegalStateException("empty model response");
-                }
-            }
-            return ApiResult.ok(ModelInstanceTestResponse.builder()
-                    .success(true)
-                    .latencyMs(System.currentTimeMillis() - start)
-                    .message("ok")
-                    .modelInstanceId(id)
-                    .provider(instance.getProvider())
-                    .modelName(instance.getModelName())
-                    .modelType(instance.getModelType())
-                    .dimension(dimension)
-                    .build());
-        } catch (Exception e) {
-            return ApiResult.ok(ModelInstanceTestResponse.builder()
-                    .success(false)
-                    .latencyMs(System.currentTimeMillis() - start)
-                    .message(e.getMessage())
-                    .modelInstanceId(id)
-                    .provider(instance.getProvider())
-                    .modelName(instance.getModelName())
-                    .modelType(instance.getModelType())
-                    .build());
-        }
+        return ApiResult.ok(testService.testSaved(id));
+    }
+
+    @PostMapping("/{id}/archive")
+    public ApiResult<ModelInstanceResponse> archive(@PathVariable("id") String id) {
+        return ApiResult.ok(service.archive(id));
     }
 }

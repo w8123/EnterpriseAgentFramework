@@ -27,11 +27,19 @@ class RuntimeDebugSessionCompatibilityControllerTest {
         Method submit = RuntimeDebugSessionCompatibilityController.class
                 .getDeclaredMethod("submit", String.class, RuntimeExecutableDebugSessionService.SubmitRequest.class);
         Method cancel = RuntimeDebugSessionCompatibilityController.class.getDeclaredMethod("cancel", String.class);
+        Method streamCreate = RuntimeDebugSessionCompatibilityController.class
+                .getDeclaredMethod("streamCreate", RuntimeExecutableDebugSessionService.CreateRequest.class);
+        Method streamSubmit = RuntimeDebugSessionCompatibilityController.class
+                .getDeclaredMethod("streamSubmit", String.class, RuntimeExecutableDebugSessionService.SubmitRequest.class);
 
         assertArrayEquals(new String[] {"/api/runtime/debug-sessions"}, create.getAnnotation(PostMapping.class).path());
+        assertArrayEquals(new String[] {"/api/runtime/debug-sessions/stream"},
+                streamCreate.getAnnotation(PostMapping.class).path());
         assertArrayEquals(new String[] {"/api/runtime/debug-sessions/{sessionId}"}, get.getAnnotation(GetMapping.class).path());
         assertArrayEquals(new String[] {"/api/runtime/debug-sessions/{sessionId}/submit"},
                 submit.getAnnotation(PostMapping.class).path());
+        assertArrayEquals(new String[] {"/api/runtime/debug-sessions/{sessionId}/submit/stream"},
+                streamSubmit.getAnnotation(PostMapping.class).path());
         assertArrayEquals(new String[] {"/api/runtime/debug-sessions/{sessionId}/cancel"},
                 cancel.getAnnotation(PostMapping.class).path());
     }
@@ -68,5 +76,26 @@ class RuntimeDebugSessionCompatibilityControllerTest {
         verify(service).get("session-1");
         verify(service).submit("session-1", submitRequest);
         verify(service).cancel("session-1");
+    }
+
+    @Test
+    void delegatesDebugSessionStreamRoutesToRuntimeService() {
+        RuntimeExecutableDebugSessionService service = mock(RuntimeExecutableDebugSessionService.class);
+        RuntimeDebugSessionCompatibilityController controller = new RuntimeDebugSessionCompatibilityController(service);
+        RuntimeExecutableDebugSessionService.CreateRequest createRequest =
+                new RuntimeExecutableDebugSessionService.CreateRequest("WORKFLOW_DRAFT", Map.of(), "hello", Map.of(), Map.of());
+        RuntimeExecutableDebugSessionService.SubmitRequest submitRequest =
+                new RuntimeExecutableDebugSessionService.SubmitRequest("submit", Map.of("approved", true), null);
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter createEmitter =
+                new org.springframework.web.servlet.mvc.method.annotation.SseEmitter();
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter submitEmitter =
+                new org.springframework.web.servlet.mvc.method.annotation.SseEmitter();
+        when(service.streamCreate(createRequest)).thenReturn(createEmitter);
+        when(service.streamSubmit("session-1", submitRequest)).thenReturn(submitEmitter);
+
+        assertEquals(createEmitter, controller.streamCreate(createRequest));
+        assertEquals(submitEmitter, controller.streamSubmit("session-1", submitRequest));
+        verify(service).streamCreate(createRequest);
+        verify(service).streamSubmit("session-1", submitRequest);
     }
 }

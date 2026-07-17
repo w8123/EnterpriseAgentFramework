@@ -5,7 +5,11 @@ import org.springframework.web.bind.annotation.GetMapping;
 
 import java.util.Map;
 
-@FeignClient(name = "reachai-capability-health", url = "${services.capability-service.url:http://localhost:18605}")
+@FeignClient(
+        name = "reachai-capability-health",
+        url = "${services.capability-service.url:http://localhost:18605}",
+        configuration = com.enterprise.ai.control.internal.InternalHealthFeignConfig.class
+)
 public interface CapabilityHealthClient {
 
     @GetMapping("/internal/capability/health")

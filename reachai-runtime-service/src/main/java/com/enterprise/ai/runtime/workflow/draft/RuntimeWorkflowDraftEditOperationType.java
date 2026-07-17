@@ -6,5 +6,7 @@ public enum RuntimeWorkflowDraftEditOperationType {
     DELETE_NODE,
     ADD_EDGE,
     UPDATE_EDGE,
-    DELETE_EDGE
+    DELETE_EDGE,
+    SET_ENTRY,
+    SET_FINISH
 }

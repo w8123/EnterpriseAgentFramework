@@ -4,3 +4,5 @@ dist-sdk
 .env.local
 .env.*.local
 *.log
+tmp-conversation-acceptance/
+tmp-prism-visual/

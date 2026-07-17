@@ -5,6 +5,10 @@ spring:
   application:
     name: reachai-control-service
 
+  mvc:
+    async:
+      request-timeout: ${REACHAI_CONTROL_ASYNC_REQUEST_TIMEOUT:10m}
+
   datasource:
     url: ${AI_MYSQL_URL:jdbc:mysql://${AI_MYSQL_HOST:localhost}:${AI_MYSQL_PORT:3306}/${AI_MYSQL_DATABASE:reach_ai}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai}
     username: ${AI_MYSQL_USER:reach_ai}
@@ -24,6 +28,20 @@ spring:
           default:
             connectTimeout: 5000
             readTimeout: 135000
+          # Health probes use InternalHealthFeignConfig (1.5s connect / 2s read).
+          # Named entries document intent; Feign configuration class is authoritative.
+          reachai-runtime-health:
+            connectTimeout: 1500
+            readTimeout: 2000
+          reachai-capability-health:
+            connectTimeout: 1500
+            readTimeout: 2000
+          reachai-model-health:
+            connectTimeout: 1500
+            readTimeout: 2000
+          reachai-knowledge-health:
+            connectTimeout: 1500
+            readTimeout: 2000
 
 services:
   runtime-service:

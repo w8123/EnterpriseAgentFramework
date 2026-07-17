@@ -14,5 +14,6 @@ public class ModelInstanceTestResponse {
     private String provider;
     private String modelName;
     private String modelType;
+    private String lastTestStatus;
     private Integer dimension;
 }

@@ -1,22 +1,34 @@
 package com.enterprise.ai.runtime.debug;
 
+import com.enterprise.ai.runtime.api.SseHeartbeatSupport;
+import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
+import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
-@RequiredArgsConstructor
 public class RuntimeExecutableDebugSessionService {
+
+    private static final long DEBUG_STREAM_TIMEOUT_MS = 600_000L;
+    private static final long DEFAULT_HEARTBEAT_INTERVAL_MS = 8_000L;
 
     private static final String REQUEST_PARAMS = "__requestParams";
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
@@ -30,8 +42,39 @@ public class RuntimeExecutableDebugSessionService {
     private final RuntimeExecutableDebugSessionMapper mapper;
     private final RuntimeWorkflowDebugService workflowDebugService;
     private final ObjectMapper objectMapper;
+    private final SseHeartbeatSupport heartbeatSupport;
+    private final long debugStreamHeartbeatIntervalMs;
+
+    @Autowired
+    public RuntimeExecutableDebugSessionService(RuntimeExecutableDebugSessionMapper mapper,
+                                                 RuntimeWorkflowDebugService workflowDebugService,
+                                                ObjectMapper objectMapper,
+                                                SseHeartbeatSupport heartbeatSupport,
+                                                @Value("${reachai.runtime.debug-stream.heartbeat-interval-ms:8000}")
+                                                long debugStreamHeartbeatIntervalMs) {
+        this.mapper = mapper;
+        this.workflowDebugService = workflowDebugService;
+        this.objectMapper = objectMapper;
+        this.heartbeatSupport = heartbeatSupport == null ? new SseHeartbeatSupport() : heartbeatSupport;
+        this.debugStreamHeartbeatIntervalMs = debugStreamHeartbeatIntervalMs > 0
+                ? debugStreamHeartbeatIntervalMs
+                : DEFAULT_HEARTBEAT_INTERVAL_MS;
+    }
+
+    /** 测试构造：默认 heartbeat 周期与调度器。 */
+    public RuntimeExecutableDebugSessionService(RuntimeExecutableDebugSessionMapper mapper,
+                                                RuntimeWorkflowDebugService workflowDebugService,
+                                                ObjectMapper objectMapper) {
+        this(mapper, workflowDebugService, objectMapper, new SseHeartbeatSupport(), DEFAULT_HEARTBEAT_INTERVAL_MS);
+    }
 
     public SessionView create(CreateRequest request) {
+        return create(request, RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none());
+    }
+
+    public SessionView create(CreateRequest request,
+                              RuntimeGraphSpecExecutionEventSink eventSink,
+                              RuntimeGraphSpecExecutionCancellation cancellation) {
         if (request == null || request.draftDefinition() == null || request.draftDefinition().isEmpty()) {
             throw new IllegalArgumentException("draftDefinition is required");
         }
@@ -47,7 +90,7 @@ public class RuntimeExecutableDebugSessionService {
                 request.draftDefinition(),
                 nullToEmpty(request.message()),
                 request.inputParams() == null ? Map.of() : request.inputParams(),
-                options));
+                options), eventSink, cancellation);
 
         List<MessageView> messages = new ArrayList<>();
         if (StringUtils.hasText(request.message())) {
@@ -81,10 +124,23 @@ public class RuntimeExecutableDebugSessionService {
     }
 
     public SessionView submit(String sessionId, SubmitRequest request) {
+        return submit(sessionId, request,
+                RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none());
+    }
+
+    public SessionView submit(String sessionId,
+                              SubmitRequest request,
+                              RuntimeGraphSpecExecutionEventSink eventSink,
+                              RuntimeGraphSpecExecutionCancellation cancellation) {
         RuntimeExecutableDebugSessionEntity entity = requireSession(sessionId);
         String status = normalizeStatus(entity.getStatus());
         if (!"WAITING".equalsIgnoreCase(status)) {
             throw new IllegalArgumentException("debug session is not waiting: " + sessionId);
+        }
+        String action = firstText(request == null ? null : request.action(), "submit");
+        // 交互取消：结束 WAITING，不继续执行下游节点
+        if ("cancel".equalsIgnoreCase(action)) {
+            return cancel(sessionId);
         }
         if (!StringUtils.hasText(entity.getCurrentNodeId())) {
             throw new IllegalArgumentException("debug session has no waiting node: " + sessionId);
@@ -121,7 +177,7 @@ public class RuntimeExecutableDebugSessionService {
                 draft,
                 request == null ? "" : nullToEmpty(request.message()),
                 state,
-                options));
+                options), eventSink, cancellation);
 
         List<MessageView> messages = readMessages(entity.getMessagesJson());
         messages.add(message("user", submitMessage(request, submitted), entity.getCurrentNodeId(), entity.getTraceId(), null));
@@ -151,6 +207,333 @@ public class RuntimeExecutableDebugSessionService {
         entity.setMessagesJson(writeJson(messages));
         mapper.updateById(entity);
         return toView(entity);
+    }
+
+    public SseEmitter streamCreate(CreateRequest request) {
+        SseEmitter emitter = new SseEmitter(DEBUG_STREAM_TIMEOUT_MS);
+        RuntimeGraphSpecExecutionCancellation cancellation = new RuntimeGraphSpecExecutionCancellation();
+        ScheduledFuture<?> heartbeat = heartbeatSupport.start(
+                emitter, debugStreamHeartbeatIntervalMs, cancellation::cancel);
+        AtomicBoolean completed = new AtomicBoolean(false);
+        Runnable stopHeartbeatAndCancel = () -> {
+            heartbeatSupport.stop(heartbeat);
+            cancellation.cancel();
+        };
+        emitter.onCompletion(() -> {
+            completed.set(true);
+            stopHeartbeatAndCancel.run();
+        });
+        emitter.onTimeout(() -> {
+            stopHeartbeatAndCancel.run();
+            emitter.complete();
+        });
+        emitter.onError(error -> stopHeartbeatAndCancel.run());
+        CompletableFuture.runAsync(() -> {
+            try {
+                streamCreateInternal(emitter, request, cancellation, completed);
+            } finally {
+                heartbeatSupport.stop(heartbeat);
+            }
+        });
+        return emitter;
+    }
+
+    public SseEmitter streamSubmit(String sessionId, SubmitRequest request) {
+        SseEmitter emitter = new SseEmitter(DEBUG_STREAM_TIMEOUT_MS);
+        RuntimeGraphSpecExecutionCancellation cancellation = new RuntimeGraphSpecExecutionCancellation();
+        ScheduledFuture<?> heartbeat = heartbeatSupport.start(
+                emitter, debugStreamHeartbeatIntervalMs, cancellation::cancel);
+        AtomicBoolean completed = new AtomicBoolean(false);
+        Runnable stopHeartbeatAndCancel = () -> {
+            heartbeatSupport.stop(heartbeat);
+            cancellation.cancel();
+        };
+        emitter.onCompletion(() -> {
+            completed.set(true);
+            stopHeartbeatAndCancel.run();
+        });
+        emitter.onTimeout(() -> {
+            stopHeartbeatAndCancel.run();
+            emitter.complete();
+        });
+        emitter.onError(error -> stopHeartbeatAndCancel.run());
+        CompletableFuture.runAsync(() -> {
+            try {
+                streamSubmitInternal(emitter, sessionId, request, cancellation, completed);
+            } finally {
+                heartbeatSupport.stop(heartbeat);
+            }
+        });
+        return emitter;
+    }
+
+    private void streamCreateInternal(SseEmitter emitter,
+                                      CreateRequest request,
+                                      RuntimeGraphSpecExecutionCancellation cancellation,
+                                      AtomicBoolean completed) {
+        try {
+            runStreamCreate(emitterSink(emitter), request, cancellation);
+            emitter.complete();
+        } catch (Exception ex) {
+            // 仅「未取消且未完成」的真实异常才能包装为 stream error；
+            // 已取消 / 已完成时禁止再写 turn.failed（含取消后执行抛错、浏览器断开写失败）。
+            if (shouldCompleteStreamError(cancellation.isCancelled(), completed.get())) {
+                completeStreamError(emitter, ex);
+            }
+        }
+    }
+
+    private void streamSubmitInternal(SseEmitter emitter,
+                                      String sessionId,
+                                      SubmitRequest request,
+                                      RuntimeGraphSpecExecutionCancellation cancellation,
+                                      AtomicBoolean completed) {
+        try {
+            runStreamSubmit(emitterSink(emitter), sessionId, request, cancellation);
+            emitter.complete();
+        } catch (Exception ex) {
+            if (shouldCompleteStreamError(cancellation.isCancelled(), completed.get())) {
+                completeStreamError(emitter, ex);
+            }
+        }
+    }
+
+    /**
+     * 生产路径核心：create 流业务事件序列（不含 emitter.complete）。
+     * 包可见供单测直接断言唯一业务终态，不经旁路辅助函数。
+     */
+    void runStreamCreate(DebugSessionSseSink rawSink,
+                         CreateRequest request,
+                         RuntimeGraphSpecExecutionCancellation cancellation) throws Exception {
+        AtomicBoolean businessTerminalSent = new AtomicBoolean(false);
+        DebugSessionSseSink sink = onceBusinessTerminalSink(rawSink, businessTerminalSent);
+        sink.send("turn.started", Map.of("phase", "create"));
+        SessionView view = create(request, liveExecutionSink(sink), cancellation);
+        // 节点事件已在执行中实时发出；此处只补尚未发出的业务终态，禁止按 steps 重放
+        emitTerminalSessionEvents(view, sink);
+        // session.completed 仅为流收尾信封，不是业务成功终态
+        rawSink.send("session.completed", view);
+    }
+
+    /**
+     * 生产路径核心：submit 流业务事件序列（不含 emitter.complete）。
+     */
+    void runStreamSubmit(DebugSessionSseSink rawSink,
+                         String sessionId,
+                         SubmitRequest request,
+                         RuntimeGraphSpecExecutionCancellation cancellation) throws Exception {
+        AtomicBoolean businessTerminalSent = new AtomicBoolean(false);
+        DebugSessionSseSink sink = onceBusinessTerminalSink(rawSink, businessTerminalSent);
+        sink.send("turn.started", Map.of("phase", "submit", "sessionId", sessionId));
+        String action = firstText(request == null ? null : request.action(), "submit");
+        SessionView view;
+        if ("cancel".equalsIgnoreCase(action)) {
+            view = submit(sessionId, request);
+        } else {
+            view = submit(sessionId, request, liveExecutionSink(sink), cancellation);
+        }
+        emitTerminalSessionEvents(view, sink);
+        rawSink.send("session.completed", view);
+    }
+
+    private DebugSessionSseSink emitterSink(SseEmitter emitter) {
+        return (eventName, data) -> sendEvent(emitter, eventName, data);
+    }
+
+    /**
+     * 一轮 Debug turn 只允许一个业务终态事件：
+     * turn.completed / turn.waiting / turn.cancelled / turn.failed。
+     */
+    static DebugSessionSseSink onceBusinessTerminalSink(DebugSessionSseSink delegate,
+                                                        AtomicBoolean businessTerminalSent) {
+        return (eventName, data) -> {
+            if (isBusinessTerminalEvent(eventName)
+                    && !businessTerminalSent.compareAndSet(false, true)) {
+                return;
+            }
+            delegate.send(eventName, data);
+        };
+    }
+
+    static boolean isBusinessTerminalEvent(String eventName) {
+        return "turn.completed".equals(eventName)
+                || "turn.waiting".equals(eventName)
+                || "turn.cancelled".equals(eventName)
+                || "turn.failed".equals(eventName);
+    }
+
+    /**
+     * 流 catch 是否允许调用 completeStreamError。
+     * 已取消或流已完成时禁止再写错误终态。
+     */
+    static boolean shouldCompleteStreamError(boolean cancelled, boolean completed) {
+        return !cancelled && !completed;
+    }
+
+    /** 包可见：单测直接断言安全最终输出的 node.output.delta + message.delta 各一次。 */
+    RuntimeGraphSpecExecutionEventSink liveExecutionSink(DebugSessionSseSink sink) {
+        return new RuntimeGraphSpecExecutionEventSink() {
+            @Override
+            public void onNodeStarted(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
+                sendQuietly(sink, "node.started", safePayload);
+            }
+
+            @Override
+            public void onNodeDelta(String nodeId, String nodeType, String text, Map<String, Object> safePayload) {
+                Map<String, Object> payload = new LinkedHashMap<>(safePayload == null ? Map.of() : safePayload);
+                payload.put("text", text == null ? "" : text);
+                sendQuietly(sink, "node.output.delta", payload);
+                // 仅安全最终输出节点会调用 onNodeDelta；同步映射为公共 message.delta
+                if (Boolean.TRUE.equals(payload.get("publicUserOutput")) && StringUtils.hasText(text)) {
+                    sendQuietly(sink, "message.delta", Map.of("text", text));
+                }
+            }
+
+            @Override
+            public void onNodeCompleted(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
+                sendQuietly(sink, "node.completed", safePayload);
+            }
+
+            @Override
+            public void onNodeWaiting(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
+                sendQuietly(sink, "node.waiting", safePayload);
+            }
+
+            @Override
+            public void onNodeFailed(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
+                sendQuietly(sink, "node.failed", safePayload);
+            }
+
+            @Override
+            public void onExecutionCancelled(Map<String, Object> safePayload) {
+                sendQuietly(sink, "turn.cancelled", safePayload == null ? Map.of() : safePayload);
+            }
+        };
+    }
+
+    private void sendQuietly(DebugSessionSseSink sink, String eventName, Object data) {
+        try {
+            sink.send(eventName, data);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to emit debug SSE event: " + eventName, ex);
+        }
+    }
+
+    /**
+     * 生产路径与单测共用的 SSE 写出接口：streamCreate/streamSubmit 的 emitSessionEvents 必须走此 sink。
+     */
+    @FunctionalInterface
+    interface DebugSessionSseSink {
+        void send(String eventName, Object data) throws IOException;
+    }
+
+    /**
+     * 将会话终态写为 SSE 事件。包内可见，供测试捕获真实事件名与 payload（非辅助函数旁路）。
+     * <p>
+     * 注意：流式路径已在执行中实时发出 node.*，此处默认只发终态，避免结束后重放重复节点。
+     * 兼容旧测试可传 {@code replayNodes=true}。
+     */
+    void emitSessionEvents(SessionView view, DebugSessionSseSink sink) throws IOException {
+        emitSessionEvents(view, sink, false);
+    }
+
+    void emitSessionEvents(SessionView view, DebugSessionSseSink sink, boolean replayNodes) throws IOException {
+        if (replayNodes) {
+            List<RuntimeWorkflowDebugService.DebugStepResult> steps =
+                    view.steps() == null ? List.of() : view.steps();
+            for (RuntimeWorkflowDebugService.DebugStepResult step : steps) {
+                Map<String, Object> nodePayload = new LinkedHashMap<>();
+                putIfText(nodePayload, "nodeId", step.nodeId());
+                putIfText(nodePayload, "nodeType", step.nodeType());
+                putIfText(nodePayload, "nodeName", step.nodeName());
+                putIfText(nodePayload, "status", step.status());
+                sink.send("node.started", nodePayload);
+                String nodeEvent = nodeEventName(step.status());
+                sink.send(nodeEvent, nodePayload);
+            }
+        }
+        emitTerminalSessionEvents(view, sink);
+    }
+
+    void emitTerminalSessionEvents(SessionView view, DebugSessionSseSink sink) throws IOException {
+        String status = normalizeStatus(view.status());
+        if ("WAITING".equals(status)) {
+            sink.send("turn.waiting", Map.of(
+                    "sessionId", view.sessionId(),
+                    "currentNodeId", firstText(view.currentNodeId(), ""),
+                    "uiRequest", view.uiRequest()));
+            if (view.uiRequest() != null) {
+                sink.send("ui.requested", view.uiRequest());
+            }
+            return;
+        }
+        String terminalEvent = terminalSseEventName(status);
+        if ("turn.failed".equals(terminalEvent)) {
+            sink.send("turn.failed", Map.of(
+                    "sessionId", view.sessionId(),
+                    "status", status,
+                    "answer", firstText(view.answer(), ""),
+                    "message", firstText(view.answer(), "Workflow 调试失败")));
+            return;
+        }
+        if ("turn.cancelled".equals(terminalEvent)) {
+            sink.send("turn.cancelled", Map.of(
+                    "sessionId", view.sessionId(),
+                    "status", "CANCELLED",
+                    "answer", firstText(view.answer(), ""),
+                    "message", "debug session cancelled"));
+            return;
+        }
+        sink.send("turn.completed", Map.of(
+                "sessionId", view.sessionId(),
+                "status", status,
+                "answer", firstText(view.answer(), "")));
+    }
+
+    /**
+     * ERROR/FAILED → turn.failed；CANCELLED → turn.cancelled；其它成功态 → turn.completed。
+     */
+    static String terminalSseEventName(String status) {
+        if ("ERROR".equals(status) || "FAILED".equals(status)) {
+            return "turn.failed";
+        }
+        if ("CANCELLED".equals(status)) {
+            return "turn.cancelled";
+        }
+        return "turn.completed";
+    }
+    private String nodeEventName(String status) {
+        if (!StringUtils.hasText(status)) {
+            return "node.completed";
+        }
+        return switch (status.trim().toUpperCase()) {
+            case "WAITING", "WAITING_USER" -> "node.waiting";
+            case "ERROR", "FAILED" -> "node.failed";
+            default -> "node.completed";
+        };
+    }
+
+    private void completeStreamError(SseEmitter emitter, Exception ex) {
+        try {
+            sendEvent(emitter, "turn.failed", Map.of(
+                    "code", "DEBUG_SESSION_STREAM_FAILED",
+                    "message", ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage()));
+            emitter.complete();
+        } catch (Exception sendError) {
+            emitter.completeWithError(ex);
+        }
+    }
+
+    private void sendEvent(SseEmitter emitter, String event, Object data) throws IOException {
+        synchronized (emitter) {
+            emitter.send(SseEmitter.event().name(event).data(data, MediaType.APPLICATION_JSON));
+        }
+    }
+
+    private void putIfText(Map<String, Object> map, String key, String value) {
+        if (StringUtils.hasText(value)) {
+            map.put(key, value);
+        }
     }
 
     private RuntimeWorkflowDebugService.DebugRunRequest debugRunRequest(String targetType,

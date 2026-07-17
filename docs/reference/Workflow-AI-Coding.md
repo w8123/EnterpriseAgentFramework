@@ -4,12 +4,12 @@ Workflow AI Coding 是面向 Cursor、Codex、Claude Code 等 AI 编程工具的
 
 它与 Workflow Studio 的关系：
 
-- **Workflow Studio**：人类可视化编辑器；网页内 AI 把自然语言转成 GraphSpec operations，再进入统一修改内核。
+- **Workflow Studio**：人类可视化编辑器；网页内 AI 由 AgentScope Authoring Adapter 理解自然语言，通过受约束工具修改内存候选 GraphSpec，再进入统一修改内核与发布级校验。
 - **Workflow AI Coding**：Cursor / Codex / CLI 等外部工具直接提交结构化 GraphSpec operations，也进入同一修改内核。
 - **核心语义对象**：`Workflow.graph_spec_json`（`GraphSpec`），不是 canvas，也不是裸 Graph 层。
 - **禁止直接改数据库**：所有变更必须走 `/api/workflows/{workflowId}/ai-coding/*` 或现有 Workflow API。
 
-网页 AI 的创建/修改与外部 AI Coding 共用 `RuntimeWorkflowGraphMutationService`、发布级 Proposal 校验和 canvas 投影。网页入口额外执行最多两轮的候选修复（生成/修改 → 校验 → 最小 patch → 再校验），但在用户应用前不保存、不发布、不执行 Workflow。架构边界见 [Workflow Authoring 统一内核](../architecture/workflow-authoring-kernel.md)。
+网页 AI 的创建/修改与外部 AI Coding 共用 `RuntimeWorkflowGraphMutationService`、发布级 Proposal 校验和 canvas 投影。Workflow Studio `/edit-draft` 主链路由 AgentScope 根据工具错误有限重试；兼容 `/generate-draft` 仍可对同一选定模型做最多两轮直接修复轮次。二者都不是独立“修复模型”，且在用户应用前不保存、不发布、不执行 Workflow。OpenCode / Codex / Cursor 仍是外部 AI Coding 客户端，不是 Runtime 必选依赖。架构边界见 [Workflow Authoring 统一内核](../architecture/workflow-authoring-kernel.md)。
 
 Agent 负责稳定身份和入口；版本化 Supervisor 配置通过 Workflow-as-Tool 白名单选择已发布 Workflow。Page Assistant 只是 Workflow AI Coding 的后续使用场景之一，不是本协议的核心对象。
 

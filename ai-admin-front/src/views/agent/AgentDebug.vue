@@ -8,7 +8,7 @@
     >
       <template #leading>
         <div class="app-page-header__entity-mark" aria-hidden="true">
-          <el-icon><Cpu /></el-icon>
+          <el-icon><LlmModelIcon /></el-icon>
         </div>
       </template>
       <template #tags>
@@ -50,10 +50,10 @@
             <strong>对话</strong>
           </div>
           <div class="toolbar-actions">
-            <span class="run-state" :class="{ active: streaming || sending }">
-              <i />{{ streaming || sending ? '执行中' : '就绪' }}
+            <span class="run-state" :class="{ active: isConversationBusy }">
+              <i />{{ isConversationBusy ? '执行中' : '就绪' }}
             </span>
-            <el-tooltip v-if="streaming" content="停止执行" placement="top">
+            <el-tooltip v-if="isConversationBusy" content="停止执行" placement="top">
               <button class="toolbar-icon-button stop-button" type="button" aria-label="停止执行" @click="stopExecution">
                 <el-icon><CircleClose /></el-icon>
               </button>
@@ -63,7 +63,7 @@
                 class="toolbar-icon-button clear-button"
                 type="button"
                 aria-label="清除对话"
-                :disabled="streaming || sending || (!messages.length && !sessionId)"
+                :disabled="isConversationBusy || (!conversationSnapshot.messages.length && !sessionId)"
                 @click="handleClearSession"
               >
                 <el-icon><Delete /></el-icon>
@@ -72,160 +72,90 @@
           </div>
         </div>
 
-        <div ref="messagesRef" class="chat-messages" aria-live="polite">
-          <div v-if="messages.length === 0" class="chat-empty">
-            <div class="empty-orbit">
-              <img src="/agent-debug/agent-prism.png" alt="" />
+        <ConversationView
+          class="chat-conversation"
+          chrome="inline"
+          density="comfortable"
+          surface="admin"
+          atmosphere
+          :snapshot="conversationSnapshot"
+          :resolve-status-hint="resolveAssistantStatusHint"
+          :resolve-thinking-presentation="resolveAssistantThinkingPresentation"
+          hide-composer
+          @stop="stopExecution"
+          @interaction-submit="handleInteractionSubmit"
+          @interaction-cancel="handleInteractionCancel"
+        >
+          <template #empty>
+            <div class="chat-empty">
+              <div class="empty-orbit">
+                <img :src="prismAvatarUrl" alt="" />
+              </div>
+              <h3>开始一次 Agent 调试</h3>
+              <p>输入问题，观察 Supervisor 的理解、规划、Workflow 选择与最终回答。</p>
             </div>
-            <h3>开始一次 Agent 调试</h3>
-            <p>输入问题，观察 Supervisor 的理解、规划、Workflow 选择与最终回答。</p>
-          </div>
-
-          <template v-for="(msg, index) in messages" :key="msg.id">
-            <article v-if="msg.role === 'user'" class="message-item user-message">
-              <div class="user-message-content">
-                <span class="message-role">你</span>
-                <div class="user-message-bubble">{{ msg.content }}</div>
-              </div>
-              <div class="user-avatar" aria-hidden="true">
-                <el-icon><User /></el-icon>
-              </div>
-            </article>
-
-            <article
-              v-else
-              class="agent-message"
-              :class="{ 'is-thinking': isThinkingMessage(msg, index) }"
-            >
-              <div class="agent-avatar" aria-hidden="true">
-                <img src="/agent-debug/agent-prism.png" alt="" />
-              </div>
-
-              <div
-                v-if="isThinkingMessage(msg, index)"
-                class="agent-card-shell thinking-card-shell"
-              >
-                <div class="agent-card thinking-card">
-                  <div class="agent-card-heading">
-                    <div class="agent-card-title thinking-title">
-                      <el-icon><MagicStick /></el-icon>
-                      <strong>思考中…</strong>
-                      <span class="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
-                    </div>
-                  </div>
-                  <div class="thinking-summary-row">
-                    <span class="thinking-summary">{{ currentThinkingSummary }}</span>
-                    <button
-                      class="thinking-toggle"
-                      type="button"
-                      :disabled="!displaySteps.length"
-                      :aria-expanded="thinkingExpanded"
-                      :aria-label="thinkingExpanded ? '收起本轮推理' : '展开本轮推理'"
-                      @click="thinkingExpanded = !thinkingExpanded"
-                    >
-                      <span>本轮推理</span>
-                      <b>{{ displaySteps.length }} 步</b>
-                      <span class="thinking-toggle-icon">
-                        <el-icon><ArrowDown /></el-icon>
-                      </span>
-                    </button>
-                  </div>
-                  <p v-if="msg.content" class="stream-preview">{{ msg.content }}</p>
-                  <ol v-if="thinkingExpanded && displaySteps.length" class="thinking-step-list">
-                    <li
-                      v-for="(step, stepIndex) in displaySteps"
-                      :key="`${step.name}-${stepIndex}`"
-                      class="thinking-step"
-                      :class="`is-${thinkingStepState(stepIndex)}`"
-                    >
-                      <span class="thinking-step-marker">
-                        <el-icon v-if="thinkingStepState(stepIndex) === 'complete'"><Check /></el-icon>
-                        <el-icon v-else-if="thinkingStepState(stepIndex) === 'active'" class="spin-icon"><Loading /></el-icon>
-                        <template v-else>{{ stepIndex + 1 }}</template>
-                      </span>
-                      <span class="thinking-step-copy">
-                        <strong>{{ formatStepName(step.name, stepIndex) }}</strong>
-                        <small>{{ summarizeStepDetail(step.detail) }}</small>
-                      </span>
-                      <span class="thinking-step-state">{{ thinkingStepStateLabel(stepIndex) }}</span>
-                    </li>
-                  </ol>
-                </div>
-              </div>
-
-              <div
-                v-else
-                class="agent-card-shell response-card-shell"
-                :class="`is-${msg.debugStatus || 'complete'}`"
-              >
-                <div class="agent-card response-card" :class="`is-${msg.debugStatus || 'complete'}`">
-                  <div class="agent-card-heading">
-                    <div class="agent-card-title">
-                      <el-icon><MagicStick /></el-icon>
-                      <strong>{{ msg.role === 'system' ? '系统' : (agentName || 'Agent') }}</strong>
-                    </div>
-                    <StatusTag
-                      :label="responseStatusLabel(msg)"
-                      :tone="responseStatusTone(msg)"
-                    />
-                  </div>
-                  <div class="response-content">{{ msg.content }}</div>
-
-                  <DynamicInteraction
-                    v-if="msg.uiRequest"
-                    class="interaction-card"
-                    :payload="msg.uiRequest"
-                    @action="(act, vals) => handleUiAction(msg.uiRequest!, act, vals)"
-                  />
-
-                  <div v-if="msg.toolCalls?.length || msg.elapsedMs || msg.traceId" class="message-meta">
-                    <span v-for="tool in msg.toolCalls" :key="tool" class="tool-chip">
-                      <el-icon><Tools /></el-icon>{{ tool }}
-                    </span>
-                    <span v-if="msg.elapsedMs" class="elapsed-chip">
-                      <el-icon><Timer /></el-icon>{{ formatElapsed(msg.elapsedMs) }}
-                    </span>
-                    <button v-if="msg.traceId" class="trace-link" type="button" @click="openTrace(msg.traceId)">
-                      <el-icon><Connection /></el-icon>查看 Trace
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </article>
           </template>
-        </div>
-
-        <form class="chat-input" @submit.prevent="handleSend">
-          <el-input
-            v-model="inputMessage"
-            type="textarea"
-            :autosize="{ minRows: 2, maxRows: 5 }"
-            placeholder="输入消息"
-            resize="none"
-            :disabled="streaming || sending"
-            aria-label="调试消息"
-            @keydown="handleKeydown"
-          />
-          <div class="input-actions">
-            <span class="input-hint">Ctrl + Enter 发送</span>
-            <el-button
-              class="send-button"
-              :icon="streaming || sending ? Loading : Promotion"
-              type="primary"
-              native-type="submit"
-              :loading="streaming || sending"
-              :disabled="streaming || sending || !inputMessage.trim()"
+          <template #message-meta="{ message }">
+            <div
+              v-if="messageMetaVisible(message)"
+              class="message-meta"
             >
-              {{ streaming || sending ? '思考中' : '发送' }}
-            </el-button>
-          </div>
-        </form>
+              <span
+                v-for="tool in messageToolCalls(message)"
+                :key="tool"
+                class="tool-chip"
+              >
+                <el-icon><Tools /></el-icon>{{ tool }}
+              </span>
+              <span v-if="messageElapsedMs(message)" class="elapsed-chip">
+                <el-icon><Timer /></el-icon>{{ formatElapsed(messageElapsedMs(message)!) }}
+              </span>
+              <button
+                v-if="messageTraceId(message)"
+                class="trace-link"
+                type="button"
+                @click="openTrace(messageTraceId(message))"
+              >
+                <el-icon><Connection /></el-icon>查看运行详情
+              </button>
+            </div>
+          </template>
+          <template #composer>
+            <form class="chat-input" @submit.prevent="handleSend">
+              <div class="input-composer">
+                <el-input
+                  v-model="inputMessage"
+                  type="textarea"
+                  :autosize="{ minRows: 2, maxRows: 5 }"
+                  placeholder="输入消息"
+                  resize="none"
+                  :disabled="isConversationBusy"
+                  aria-label="调试消息"
+                  @keydown="handleKeydown"
+                />
+                <div class="input-actions">
+                  <span class="input-hint"><kbd>Ctrl</kbd><b>+</b><kbd>Enter</kbd><em>发送</em></span>
+                  <el-button
+                    class="send-button"
+                    :icon="isConversationBusy ? Loading : Promotion"
+                    type="primary"
+                    native-type="submit"
+                    :loading="isConversationBusy"
+                    :disabled="isConversationBusy || !inputMessage.trim()"
+                  >
+                    {{ isConversationBusy ? '思考中' : '发送' }}
+                  </el-button>
+                </div>
+              </div>
+            </form>
+          </template>
+        </ConversationView>
       </main>
 
       <div
         class="workbench-resizer"
         role="separator"
-        aria-label="调整对话与执行洞察宽度"
+        aria-label="调整对话与本轮执行面板宽度"
         aria-orientation="vertical"
         :aria-valuemin="MIN_INSIGHT_WIDTH"
         :aria-valuemax="MAX_INSIGHT_WIDTH"
@@ -249,55 +179,59 @@
         <div class="detail-header">
           <div>
             <span class="toolbar-label">Supervisor Runtime</span>
-            <h3>执行洞察</h3>
+            <h3>本轮执行</h3>
           </div>
           <div class="detail-header-actions">
-            <el-tooltip content="查看本轮 Trace" placement="top">
-              <button class="detail-icon-button" type="button" :disabled="!latestTraceId" @click="openTrace(latestTraceId)">
+            <el-tooltip content="查看本轮执行链路与原始运行数据" placement="top">
+              <button
+                class="detail-action-button"
+                type="button"
+                :disabled="!latestTraceId"
+                aria-label="查看运行详情"
+                @click="openTrace(latestTraceId)"
+              >
                 <el-icon><Connection /></el-icon>
-              </button>
-            </el-tooltip>
-            <el-tooltip content="查看运行元数据" placement="top">
-              <button class="detail-icon-button" type="button" :disabled="!lastAgentResult?.metadata" @click="metadataDrawerVisible = true">
-                <el-icon><Operation /></el-icon>
+                <span>查看运行详情</span>
               </button>
             </el-tooltip>
           </div>
         </div>
 
         <div class="insight-summary">
-          <div><strong>{{ displaySteps.length }}</strong><span>个步骤</span></div>
+          <div><strong>{{ displaySteps.length }}</strong><span>个阶段</span></div>
           <i aria-hidden="true" />
           <div><span>人工审批</span><strong>{{ pendingApprovals.length }}</strong></div>
         </div>
 
         <el-tabs v-model="activeTab" class="detail-tabs" stretch>
           <el-tab-pane name="supervisor">
-            <template #label>执行过程 <b class="tab-count">{{ displaySteps.length }}</b></template>
+            <template #label>执行阶段 <b class="tab-count">{{ displaySteps.length }}</b></template>
             <div class="execution-panel">
               <div class="execution-state" :class="`is-${executionPhase}`">
                 <i />{{ executionStatusText }}
               </div>
 
+              <p v-if="turnExecutionNote" class="execution-note">{{ turnExecutionNote }}</p>
+
               <div class="metric-grid">
                 <div class="metric-card">
                   <span>规划 / 重规划</span>
-                  <strong>{{ lastAgentResult?.metadata?.planCount || 0 }} / {{ lastAgentResult?.metadata?.replanCount || 0 }}</strong>
+                  <strong>{{ formatOptionalCount(planCount) }} / {{ formatOptionalCount(replanCount) }}</strong>
                 </div>
                 <div class="metric-card">
                   <span>Workflow 调用</span>
-                  <strong>{{ lastAgentResult?.metadata?.workflowCallCount || 0 }}</strong>
+                  <strong>{{ formatOptionalCount(workflowCallCount) }}</strong>
                 </div>
               </div>
 
               <div v-if="!displaySteps.length" class="empty-detail compact">
                 <el-icon><DataLine /></el-icon>
-                <p>发送消息后查看 Supervisor 执行链路</p>
+                <p>发送消息后查看 Supervisor 执行阶段</p>
               </div>
               <div v-else class="execution-step-list">
                 <article
                   v-for="(step, stepIndex) in displaySteps"
-                  :key="`${step.name}-${stepIndex}`"
+                  :key="step.stepId || `${step.name}-${stepIndex}`"
                   class="execution-step"
                   :class="[`is-${insightStepState(stepIndex)}`, { 'is-open': selectedStepIndex === stepIndex }]"
                 >
@@ -309,7 +243,7 @@
                       <template v-else>{{ stepIndex + 1 }}</template>
                     </span>
                     <span class="execution-step-copy">
-                      <strong>{{ formatStepName(step.name, stepIndex) }}</strong>
+                      <strong>{{ step.title || formatStepName(step.name, stepIndex) }}</strong>
                       <small>{{ step.name }}</small>
                     </span>
                     <el-icon class="step-chevron"><ArrowDown /></el-icon>
@@ -340,7 +274,7 @@
                   <p v-if="item.message" class="approval-message">{{ item.message }}</p>
                   <div class="approval-meta">
                     <span>{{ item.nodeId }}</span>
-                    <button v-if="item.traceId" type="button" @click="openTrace(item.traceId)">查看 Trace</button>
+                    <button v-if="item.traceId" type="button" @click="openTrace(item.traceId)">查看运行详情</button>
                   </div>
                   <DynamicInteraction
                     v-if="item.uiRequest"
@@ -366,24 +300,87 @@
 
     <AppDrawer
       v-model="traceDrawerVisible"
-      :title="`Trace 回放 · ${activeTraceId}`"
-      description="查看本轮 Agent 调试的结构化执行节点与耗时。"
-      size="min(720px, 92vw)"
+      class="agent-debug-trace-drawer"
+      title="本轮运行详情"
+      size="min(760px, 94vw)"
+      :show-close="false"
     >
-      <TraceTimeline :nodes="traceNodes" />
+      <template #header="{ close, titleId, titleClass }">
+        <div class="trace-drawer-header">
+          <div class="trace-drawer-header__copy">
+            <h2 :id="titleId" :class="[titleClass, 'trace-drawer-header__title']">本轮运行详情</h2>
+            <div v-if="activeTraceId" class="trace-drawer-header__id-row">
+              <el-tooltip :content="activeTraceId" placement="bottom" :show-after="300">
+                <code class="trace-drawer-header__id" :title="activeTraceId">{{ activeTraceId }}</code>
+              </el-tooltip>
+              <el-button
+                class="trace-drawer-header__copy-btn"
+                text
+                size="small"
+                :icon="CopyDocument"
+                aria-label="复制 Trace ID"
+                @click="copyTraceId"
+              >
+                复制
+              </el-button>
+            </div>
+            <p class="trace-drawer-header__desc">查看本轮执行链路、节点耗时与原始运行数据。</p>
+          </div>
+          <button
+            type="button"
+            class="trace-drawer-header__close"
+            aria-label="关闭本轮运行详情"
+            @click="close"
+          >
+            <el-icon><Close /></el-icon>
+          </button>
+        </div>
+      </template>
+
+      <el-tabs v-model="traceDetailTab" class="trace-detail-tabs">
+        <el-tab-pane label="执行链路" name="timeline">
+          <TraceTimeline :nodes="traceNodes" :loading="traceLoading" />
+        </el-tab-pane>
+        <el-tab-pane label="原始响应" name="raw">
+          <div class="raw-response-panel">
+            <template v-if="rawResponseMode === 'show'">
+              <div class="raw-response-toolbar">
+                <span>本轮 lastAgentResult.metadata</span>
+                <el-button
+                  text
+                  size="small"
+                  :icon="CopyDocument"
+                  aria-label="复制 JSON"
+                  @click="copyRawResponseJson"
+                >
+                  复制 JSON
+                </el-button>
+              </div>
+              <pre class="metadata-json">{{ rawResponseJson }}</pre>
+            </template>
+            <div v-else-if="rawResponseMode === 'mismatch'" class="empty-detail compact raw-response-empty">
+              <el-icon><DataLine /></el-icon>
+              <p>当前页面未保留该 Trace 对应的原始响应，请前往 RunOps 查看持久化运行数据。</p>
+            </div>
+            <div v-else class="empty-detail compact raw-response-empty">
+              <el-icon><DataLine /></el-icon>
+              <p>暂无本轮原始响应</p>
+            </div>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
+
       <template #footer>
         <el-button @click="traceDrawerVisible = false">关闭</el-button>
-        <el-button type="primary" :disabled="!activeTraceId" @click="openRunOps">在 RunOps 中查看</el-button>
+        <el-button
+          type="primary"
+          :icon="DataLine"
+          :disabled="!activeTraceId"
+          @click="openRunOps"
+        >
+          前往 RunOps 深度分析
+        </el-button>
       </template>
-    </AppDrawer>
-
-    <AppDrawer
-      v-model="metadataDrawerVisible"
-      title="运行元数据"
-      description="Supervisor 本轮规划、Workflow 选择与运行时返回的原始元数据。"
-      size="min(620px, 92vw)"
-    >
-      <pre class="metadata-json">{{ JSON.stringify(lastAgentResult?.metadata || {}, null, 2) }}</pre>
     </AppDrawer>
   </main>
 </template>
@@ -398,20 +395,17 @@ import {
   ChatDotRound,
   CircleCheck,
   CircleClose,
+  Close,
   Connection,
   CopyDocument,
-  Cpu,
   DArrowLeft,
   DataLine,
   Delete,
   Loading,
   Lock,
-  MagicStick,
-  Operation,
   Promotion,
   Timer,
   Tools,
-  User,
 } from '@element-plus/icons-vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -419,68 +413,106 @@ import StatusTag from '@/components/common/StatusTag.vue'
 import type { StatusTone } from '@/components/common/glassWorkbench'
 import TraceTimeline from '@/components/TraceTimeline.vue'
 import DynamicInteraction from '@/components/interaction/DynamicInteraction.vue'
-import type { ChatMessage, ChatRequest } from '@/types/chat'
+import LlmModelIcon from '@/components/icons/LlmModelIcon.vue'
 import type { UiRequestPayload } from '@/types/interaction'
 import type { AgentResult, PendingHumanApproval, StepRecord } from '@/types/agent'
 import type { TraceNode } from '@/types/trace'
 import type { Agent } from '@/types/workflow'
 import { getAgent } from '@/api/workflow'
 import {
-  clearAgentSession,
-  executeAgentStream,
   listPendingHumanApprovals,
   submitHumanApproval,
 } from '@/api/agent'
 import { getTraceDetail } from '@/api/trace'
+import {
+  ConversationView,
+  createAgentDebugTransport,
+  createConversationController,
+  createEmptySnapshot,
+  textContentOf,
+  type ConversationMessage,
+  type ConversationSnapshot,
+} from '@/conversation'
+import prismAvatarUrl from '@/conversation/assets/agent-prism.webp'
 
 const route = useRoute()
 const router = useRouter()
 const agentId = route.params.id as string
 
 type ExecutionPhase = 'idle' | 'running' | 'success' | 'error' | 'stopped'
-type DebugMessageStatus = 'running' | 'complete' | 'error' | 'stopped'
 type StepState = 'complete' | 'active' | 'error' | 'pending'
-
-interface DebugChatMessage extends ChatMessage {
-  debugStatus?: DebugMessageStatus
-  elapsedMs?: number
-}
 
 const INSIGHT_WIDTH_STORAGE_KEY = 'reachai-agent-debug-insight-width'
 const DEFAULT_INSIGHT_WIDTH = 312
-const MIN_CONVERSATION_WIDTH = 460
+const MIN_CONVERSATION_WIDTH = 340
 const RESIZER_WIDTH = 14
 const RESIZE_BREAKPOINT = 1080
 const MIN_INSIGHT_WIDTH = 260
-const MAX_INSIGHT_WIDTH = 640
+/** 需足够大，才能在常见桌面 debug-body 宽度下把左侧对话区拖到约 380px */
+const MAX_INSIGHT_WIDTH = 900
 
 const agent = ref<Agent | null>(null)
 const agentName = ref('')
 const sessionId = ref('')
 const inputMessage = ref('')
-const messages = ref<DebugChatMessage[]>([])
-const sending = ref(false)
-const streaming = ref(false)
+const conversationSnapshot = ref<ConversationSnapshot>(createEmptySnapshot())
 const activeTab = ref('supervisor')
-const messagesRef = ref<HTMLElement>()
 const debugBodyRef = ref<HTMLElement>()
 const lastAgentResult = ref<AgentResult | null>(null)
 const liveSteps = ref<StepRecord[]>([])
 const traceDrawerVisible = ref(false)
-const metadataDrawerVisible = ref(false)
 const activeTraceId = ref('')
+const traceDetailTab = ref<'timeline' | 'raw'>('timeline')
 const traceNodes = ref<TraceNode[]>([])
+const traceLoading = ref(false)
 const pendingApprovals = ref<PendingHumanApproval[]>([])
 const approvalLoading = ref(false)
 const executionPhase = ref<ExecutionPhase>('idle')
-const thinkingExpanded = ref(false)
 const selectedStepIndex = ref(-1)
 const resizing = ref(false)
 const insightWidth = ref(readStoredInsightWidth())
+/** 本地占位真实状态：在收到 turn.started 前不得声称 Supervisor 已开始推理 */
+const runtimeConnected = ref(false)
+const hasStreamedAnswer = ref(false)
 
-let activeAbortController: AbortController | null = null
-let msgCounter = 0
+let turnStartedAt = 0
 let resizingActive = false
+
+const transport = createAgentDebugTransport({
+  agentId,
+  getSessionId: () => sessionId.value || undefined,
+  setSessionId: (id) => {
+    sessionId.value = id || ''
+  },
+  entryType: 'DEBUG',
+})
+
+const controller = createConversationController({
+  transport,
+  initialSessionId: sessionId.value || undefined,
+  onPublicEvent(event) {
+    if (event.type === 'turn.started') {
+      runtimeConnected.value = true
+    }
+    if (event.type === 'message.delta') {
+      hasStreamedAnswer.value = true
+    }
+  },
+  onDebugEvent(event) {
+    if (event.type !== 'debug.supervisor.step') return
+    upsertLiveStep(event.data as StepRecord & Record<string, unknown>)
+  },
+  onChange(state) {
+    const enriched = enrichSnapshot(state)
+    conversationSnapshot.value = enriched
+    syncShellFromSnapshot(enriched)
+  },
+})
+
+const isConversationBusy = computed(() => {
+  const status = conversationSnapshot.value.turnStatus
+  return status === 'sending' || status === 'streaming'
+})
 
 const displaySteps = computed(() => lastAgentResult.value?.steps?.length
   ? lastAgentResult.value.steps
@@ -492,6 +524,89 @@ const executionStatusText = computed(() => ({
   error: 'Supervisor 执行失败',
   stopped: 'Supervisor 执行已停止',
 })[executionPhase.value])
+
+const UNSAFE_THINKING_DETAIL = /reason(ing)?|chain\s*of\s*thought|prompt|internal|system|内部|思维链/i
+
+/** 安全阶段摘要：仅 Agent Debug Shell 注入，不进入共享层写死文案 */
+const currentThinkingSummary = computed(() => {
+  if (hasStreamedAnswer.value) return '正在生成回答…'
+  const step = displaySteps.value[displaySteps.value.length - 1]
+  if (step) {
+    const title = typeof step.title === 'string' ? step.title.trim() : ''
+    if (title) return title
+    const detail = typeof step.detail === 'string' ? step.detail.trim() : ''
+    if (detail && detail.length <= 120 && !UNSAFE_THINKING_DETAIL.test(detail)) {
+      return detail
+    }
+    return `正在执行：${formatStepName(step.name, displaySteps.value.length - 1)}`
+  }
+  if (runtimeConnected.value) {
+    return 'Supervisor 已开始处理请求'
+  }
+  return '正在连接运行时…'
+})
+
+function resolveAssistantStatusHint(message: ConversationMessage) {
+  if (message.role !== 'assistant') return undefined
+  if (message.status !== 'pending' && message.status !== 'streaming') return undefined
+  return currentThinkingSummary.value
+}
+
+function safeThinkingDetail(detail: unknown): string | undefined {
+  if (typeof detail === 'string') {
+    const text = detail.trim()
+    if (!text || text.length > 120) return undefined
+    if (UNSAFE_THINKING_DETAIL.test(text)) return undefined
+    return text
+  }
+  return undefined
+}
+
+function upsertLiveStep(raw: StepRecord & Record<string, unknown>) {
+  const stepId = raw.stepId ? String(raw.stepId) : undefined
+  const next: StepRecord = {
+    name: String(raw.name || 'supervisor'),
+    detail: raw.detail,
+    stepId,
+    state: raw.state ? String(raw.state) : undefined,
+    sequence: typeof raw.sequence === 'number' ? raw.sequence : undefined,
+    source: raw.source ? String(raw.source) : undefined,
+    title: raw.title ? String(raw.title) : undefined,
+    timestamp: raw.timestamp ? String(raw.timestamp) : undefined,
+  }
+  if (stepId) {
+    const index = liveSteps.value.findIndex((s) => s.stepId === stepId)
+    if (index >= 0) {
+      const prev = liveSteps.value[index]
+      liveSteps.value.splice(index, 1, {
+        ...prev,
+        ...next,
+        sequence: next.sequence ?? prev.sequence,
+      })
+      return
+    }
+  }
+  // 无 stepId 的旧事件：保持 append 兼容
+  liveSteps.value.push(next)
+}
+
+/** 思考卡片安全步骤：仅映射高层阶段，绝不展示 reasoning / prompt */
+function resolveAssistantThinkingPresentation(message: ConversationMessage) {
+  if (message.role !== 'assistant') return undefined
+  if (message.status !== 'pending' && message.status !== 'streaming') return undefined
+  const steps = displaySteps.value
+  if (!steps.length) return undefined
+  return {
+    label: `本轮执行 ${steps.length} 步`,
+    count: steps.length,
+    steps: steps.map((step, index) => ({
+      id: step.stepId || `agent-step-${index}-${step.name || 'step'}`,
+      title: step.title || formatStepName(step.name, index),
+      detail: safeThinkingDetail(step.detail),
+      state: mapThinkingStepState(step, index),
+    })),
+  }
+}
 const agentConfigStatusLabel = computed(() => {
   if (agent.value?.configStatus === 'ACTIVE') return '已发布'
   if (agent.value?.configStatus === 'DRAFT') return '草稿'
@@ -505,17 +620,204 @@ const agentConfigStatusTone = computed<StatusTone>(() => {
   return 'neutral'
 })
 const latestTraceId = computed(() => {
-  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
-    if (messages.value[index].traceId) return messages.value[index].traceId || ''
+  for (let index = conversationSnapshot.value.messages.length - 1; index >= 0; index -= 1) {
+    const traceId = conversationSnapshot.value.messages[index].metadata?.traceId
+    if (traceId) return String(traceId)
   }
   return String(lastAgentResult.value?.metadata?.traceId || '')
 })
-const currentThinkingSummary = computed(() => {
-  const step = displaySteps.value[displaySteps.value.length - 1]
-  if (!step) return 'Supervisor 正在理解意图，并选择本轮需要的能力。'
-  const detail = summarizeStepDetail(step.detail)
-  return detail || `正在${formatStepName(step.name, displaySteps.value.length - 1)}`
+
+const planCount = computed(() => readOptionalNumber(lastAgentResult.value?.metadata, 'planCount'))
+const replanCount = computed(() => readOptionalNumber(lastAgentResult.value?.metadata, 'replanCount'))
+const workflowCallCount = computed(() => readOptionalNumber(lastAgentResult.value?.metadata, 'workflowCallCount'))
+
+/** 仅在有可靠信号时解释「直接回答」；字段缺失不伪装为 0，也不断言「未发生」。 */
+const turnExecutionNote = computed(() => {
+  if (executionPhase.value === 'idle' || executionPhase.value === 'running') return ''
+  const steps = displaySteps.value
+  if (!steps.length) return ''
+
+  const onlyDirectAnswer = steps.every((step) => isDirectAnswerStepName(step.name))
+  if (!onlyDirectAnswer) return ''
+
+  const hasApprovals = pendingApprovals.value.length > 0
+  const hasTools = hasObservedToolActivity(lastAgentResult.value)
+  if (hasApprovals || hasTools) return ''
+
+  const plan = planCount.value
+  const replan = replanCount.value
+  const workflowCalls = workflowCallCount.value
+  const countsReliable = plan !== null && replan !== null && workflowCalls !== null
+
+  if (countsReliable && plan === 0 && replan === 0 && workflowCalls === 0) {
+    return '本轮直接回答，未触发规划、Workflow 或人工审批。'
+  }
+
+  if (!countsReliable) {
+    return '本轮仅观察到直接回答阶段。'
+  }
+
+  return ''
 })
+
+type RawResponseMode = 'show' | 'mismatch' | 'empty'
+
+/**
+ * 防止审批项等其它 traceId 打开详情时，误展示当前轮次 lastAgentResult.metadata。
+ * - match / latest-fallback → show
+ * - 明确不一致 → mismatch
+ * - 无 metadata → empty
+ */
+const rawResponseMode = computed((): RawResponseMode => {
+  const metadata = lastAgentResult.value?.metadata
+  if (metadata == null) return 'empty'
+
+  const metaTraceId = readOptionalTraceId(metadata)
+  const active = activeTraceId.value
+
+  if (metaTraceId) {
+    return metaTraceId === active ? 'show' : 'mismatch'
+  }
+
+  // metadata 无 traceId：仅当打开的是明确的本轮 latestTraceId 时展示
+  if (active && latestTraceId.value && active === latestTraceId.value) {
+    return 'show'
+  }
+
+  if (active && latestTraceId.value && active !== latestTraceId.value) {
+    return 'mismatch'
+  }
+
+  // 有 metadata、无冲突 id 时按本轮数据展示
+  return 'show'
+})
+
+const rawResponseJson = computed(() => {
+  if (rawResponseMode.value !== 'show') return ''
+  return JSON.stringify(lastAgentResult.value?.metadata ?? {}, null, 2)
+})
+
+function enrichAssistantMetadata(meta: Record<string, unknown>): Record<string, unknown> {
+  const result = metadataAsAgentResult(meta)
+  return {
+    ...meta,
+    traceId: meta.traceId || result.metadata?.traceId,
+    toolCalls: extractToolCalls(result),
+    elapsedMs: resolveElapsedMs(result, turnStartedAt),
+  }
+}
+
+function enrichSnapshot(state: ConversationSnapshot): ConversationSnapshot {
+  return {
+    ...state,
+    messages: state.messages.map((message) => {
+      if (message.role !== 'assistant' || message.status === 'streaming' || message.status === 'pending') {
+        return message
+      }
+      if (!message.metadata) return message
+      return {
+        ...message,
+        metadata: enrichAssistantMetadata(message.metadata),
+      }
+    }),
+  }
+}
+
+function metadataAsAgentResult(meta: Record<string, unknown>): AgentResult {
+  const nested = (meta.metadata && typeof meta.metadata === 'object' && !Array.isArray(meta.metadata))
+    ? meta.metadata as Record<string, unknown>
+    : undefined
+  // success 显式 false 才失败；缺失时不默认当成功（由 turnStatus 决定右侧态）
+  const explicitSuccess = meta.success === true || nested?.success === true
+  const explicitFailure = meta.success === false
+    || nested?.success === false
+    || String(meta.success).toLowerCase() === 'false'
+  return {
+    success: explicitFailure ? false : explicitSuccess ? true : meta.success !== false,
+    answer: String(meta.answer || ''),
+    sessionId: meta.sessionId as string | undefined,
+    steps: Array.isArray(meta.steps) ? meta.steps as StepRecord[] : undefined,
+    toolResults: meta.toolResults as Record<string, unknown> | undefined,
+    metadata: nested || (meta.traceId || meta.code
+      ? {
+          ...(meta.traceId ? { traceId: meta.traceId } : {}),
+          ...(meta.code ? { code: meta.code } : {}),
+          ...(meta.finishReason ? { finishReason: meta.finishReason } : {}),
+        }
+      : undefined),
+    uiRequest: meta.uiRequest as UiRequestPayload | undefined,
+  }
+}
+
+function findLastAssistantMessage(state: ConversationSnapshot): ConversationMessage | undefined {
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    if (state.messages[index].role === 'assistant') return state.messages[index]
+  }
+  return undefined
+}
+
+function syncShellFromSnapshot(state: ConversationSnapshot) {
+  const lastAssistant = findLastAssistantMessage(state)
+  if (lastAssistant?.metadata) {
+    const result = metadataAsAgentResult(lastAssistant.metadata)
+    lastAgentResult.value = {
+      ...result,
+      answer: result.answer || textContentOf(lastAssistant),
+      steps: result.steps?.length ? result.steps : liveSteps.value,
+    }
+  }
+
+  if (state.turnStatus === 'sending' || state.turnStatus === 'streaming') {
+    executionPhase.value = 'running'
+  } else if (state.turnStatus === 'cancelled') {
+    executionPhase.value = 'stopped'
+  } else if (state.turnStatus === 'failed') {
+    executionPhase.value = 'error'
+  } else if (state.turnStatus === 'completed' || state.turnStatus === 'waiting') {
+    executionPhase.value = lastAgentResult.value?.success === false ? 'error' : 'success'
+    const uiRequest = lastAgentResult.value?.uiRequest
+    if (uiRequest?.component === 'confirm') {
+      void loadPendingApprovals()
+    }
+  } else if (state.turnStatus === 'idle') {
+    executionPhase.value = state.messages.length ? executionPhase.value : 'idle'
+  }
+}
+
+function messageMetaVisible(message: ConversationMessage) {
+  const meta = message.metadata || {}
+  const toolCalls = meta.toolCalls
+  return Boolean(
+    (Array.isArray(toolCalls) && toolCalls.length)
+    || meta.elapsedMs
+    || meta.traceId,
+  )
+}
+
+function messageToolCalls(message: ConversationMessage): string[] {
+  const toolCalls = message.metadata?.toolCalls
+  return Array.isArray(toolCalls) ? toolCalls.map(String) : []
+}
+
+function messageElapsedMs(message: ConversationMessage): number | undefined {
+  const value = Number(message.metadata?.elapsedMs)
+  return Number.isFinite(value) && value >= 0 ? value : undefined
+}
+
+function messageTraceId(message: ConversationMessage): string | undefined {
+  const traceId = message.metadata?.traceId
+  return traceId ? String(traceId) : undefined
+}
+
+function beginTurnShellReset() {
+  turnStartedAt = performance.now()
+  liveSteps.value = []
+  lastAgentResult.value = null
+  activeTab.value = 'supervisor'
+  selectedStepIndex.value = -1
+  runtimeConnected.value = false
+  hasStreamedAnswer.value = false
+}
 
 function readStoredInsightWidth() {
   try {
@@ -523,20 +825,6 @@ function readStoredInsightWidth() {
     return Number.isFinite(value) ? Math.min(MAX_INSIGHT_WIDTH, Math.max(MIN_INSIGHT_WIDTH, value)) : DEFAULT_INSIGHT_WIDTH
   } catch {
     return DEFAULT_INSIGHT_WIDTH
-  }
-}
-
-function createMsg(
-  role: ChatMessage['role'],
-  content: string,
-  extra?: Partial<DebugChatMessage>,
-): DebugChatMessage {
-  return {
-    id: `msg-${++msgCounter}`,
-    role,
-    content,
-    timestamp: Date.now(),
-    ...extra,
   }
 }
 
@@ -549,33 +837,85 @@ function formatStepDetail(detail: unknown) {
   }
 }
 
-function summarizeStepDetail(detail: unknown) {
-  const text = formatStepDetail(detail).replace(/\s+/g, ' ').trim()
-  if (!text) return '等待运行时返回步骤详情'
-  return text.length > 96 ? `${text.slice(0, 96)}…` : text
-}
-
 function formatStepName(name: string, index: number) {
   const normalized = name.toLowerCase()
   if (normalized.includes('config')) return '读取已发布配置'
-  if (normalized.includes('workflow') || normalized.includes('tool')) return '筛选 Workflow-as-Tool'
-  if (normalized.includes('plan')) return '规划执行路径'
+  if (normalized === 'workflow' || normalized.includes('workflow')) return '调用 Workflow'
+  if (normalized.includes('plan') || normalized.includes('replan')) return '规划执行路径'
   if (normalized.includes('answer') || normalized.includes('final') || normalized.includes('respond')) return '生成最终回答'
+  if (normalized.includes('policy')) return '策略检查'
   if (normalized.includes('agent') || normalized.includes('resolve')) return '识别 Agent 范围'
   return name || `步骤 ${index + 1}`
 }
 
-function thinkingStepState(index: number): Exclude<StepState, 'error'> {
-  if (!streaming.value || index < displaySteps.value.length - 1) return 'complete'
-  return index === displaySteps.value.length - 1 ? 'active' : 'pending'
+/** 类型安全读取可选数值：字段缺失返回 null，不伪装为 0。 */
+function readOptionalNumber(
+  source: Record<string, unknown> | null | undefined,
+  key: string,
+): number | null {
+  if (!source || !Object.prototype.hasOwnProperty.call(source, key)) return null
+  const value = source[key]
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
 }
 
-function thinkingStepStateLabel(index: number) {
-  const state = thinkingStepState(index)
-  return state === 'complete' ? '已完成' : state === 'active' ? '进行中' : '等待中'
+function formatOptionalCount(value: number | null): string {
+  return value === null ? '—' : String(value)
+}
+
+function readOptionalTraceId(source: Record<string, unknown>): string {
+  const value = source.traceId
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return ''
+}
+
+function isDirectAnswerStepName(name: string): boolean {
+  const normalized = String(name || '').toLowerCase()
+  return normalized.includes('answer')
+    || normalized.includes('final')
+    || normalized.includes('respond')
+    || normalized === 'final_answer'
+}
+
+function hasObservedToolActivity(result: AgentResult | null): boolean {
+  if (!result) return false
+  const toolResults = result.toolResults
+  if (toolResults && Object.keys(toolResults).length > 0) return true
+  const toolCalls = result.metadata?.toolCalls
+  if (Array.isArray(toolCalls) && toolCalls.length > 0) return true
+  return false
+}
+
+function mapThinkingStepState(
+  step: StepRecord,
+  index: number,
+): 'complete' | 'active' | 'pending' | 'error' {
+  const state = String(step.state || '').toLowerCase()
+  if (state === 'failed' || state === 'cancelled') return 'error'
+  if (state === 'completed') return 'complete'
+  if (state === 'started' || state === 'waiting' || state === 'active') return 'active'
+  return insightStepState(index) === 'error'
+    ? 'error'
+    : insightStepState(index) === 'complete'
+      ? 'complete'
+      : insightStepState(index) === 'active'
+        ? 'active'
+        : 'pending'
 }
 
 function insightStepState(index: number): StepState {
+  const step = displaySteps.value[index]
+  const state = String(step?.state || '').toLowerCase()
+  if (state === 'failed' || state === 'cancelled') return 'error'
+  if (state === 'completed') return 'complete'
+  if (state === 'started' || state === 'waiting' || state === 'active') {
+    return executionPhase.value === 'running' ? 'active' : 'complete'
+  }
   if (executionPhase.value === 'running') {
     return index === displaySteps.value.length - 1 ? 'active' : 'complete'
   }
@@ -584,24 +924,6 @@ function insightStepState(index: number): StepState {
   }
   if (executionPhase.value === 'success' || index < displaySteps.value.length - 1) return 'complete'
   return 'pending'
-}
-
-function isThinkingMessage(message: DebugChatMessage, index: number) {
-  return message.debugStatus === 'running'
-    && index === messages.value.length - 1
-    && (streaming.value || sending.value)
-}
-
-function responseStatusLabel(message: DebugChatMessage) {
-  if (message.debugStatus === 'error') return '执行失败'
-  if (message.debugStatus === 'stopped') return '已停止'
-  return message.role === 'system' ? '系统消息' : '回答完成'
-}
-
-function responseStatusTone(message: DebugChatMessage): StatusTone {
-  if (message.debugStatus === 'error') return 'danger'
-  if (message.debugStatus === 'stopped') return 'warning'
-  return message.role === 'system' ? 'info' : 'success'
 }
 
 function formatElapsed(elapsedMs: number) {
@@ -626,6 +948,9 @@ function extractToolCalls(result: AgentResult) {
 async function openTrace(traceId?: string) {
   if (!traceId) return
   activeTraceId.value = traceId
+  traceDetailTab.value = 'timeline'
+  traceNodes.value = []
+  traceLoading.value = true
   traceDrawerVisible.value = true
   try {
     const { data } = await getTraceDetail(traceId)
@@ -633,6 +958,8 @@ async function openTrace(traceId?: string) {
   } catch {
     traceNodes.value = []
     ElMessage.error('加载 Trace 失败')
+  } finally {
+    traceLoading.value = false
   }
 }
 
@@ -640,6 +967,26 @@ function openRunOps() {
   if (!activeTraceId.value) return
   traceDrawerVisible.value = false
   router.push(`/runops/${encodeURIComponent(activeTraceId.value)}`)
+}
+
+async function copyTraceId() {
+  if (!activeTraceId.value) return
+  try {
+    await navigator.clipboard.writeText(activeTraceId.value)
+    ElMessage.success('Trace ID 已复制')
+  } catch {
+    ElMessage.error('复制失败，请手动复制')
+  }
+}
+
+async function copyRawResponseJson() {
+  if (rawResponseMode.value !== 'show' || !rawResponseJson.value) return
+  try {
+    await navigator.clipboard.writeText(rawResponseJson.value)
+    ElMessage.success('JSON 已复制')
+  } catch {
+    ElMessage.error('复制失败，请手动复制')
+  }
 }
 
 async function copySessionId() {
@@ -650,12 +997,6 @@ async function copySessionId() {
   } catch {
     ElMessage.error('复制失败，请手动复制')
   }
-}
-
-function scrollToBottom() {
-  nextTick(() => {
-    if (messagesRef.value) messagesRef.value.scrollTop = messagesRef.value.scrollHeight
-  })
 }
 
 async function loadAgent() {
@@ -689,92 +1030,31 @@ function handleKeydown(event: KeyboardEvent) {
 
 async function handleSend() {
   const message = inputMessage.value.trim()
-  if (!message || streaming.value || sending.value) return
-  messages.value.push(createMsg('user', message))
+  if (!message || isConversationBusy.value) return
   inputMessage.value = ''
-  scrollToBottom()
-  await runAgentExecution({
-    message,
-    sessionId: sessionId.value || undefined,
-    agentId,
-    entryType: 'DEBUG',
-  }, '执行失败，请重试')
+  beginTurnShellReset()
+  await controller.send(message)
 }
 
-async function runAgentExecution(request: ChatRequest, failureText: string): Promise<AgentResult | null> {
-  const startedAt = performance.now()
-  const placeholder = createMsg('assistant', '', { loading: true, debugStatus: 'running' })
-  messages.value.push(placeholder)
-  activeTab.value = 'supervisor'
-  lastAgentResult.value = null
-  liveSteps.value = []
-  streaming.value = true
-  executionPhase.value = 'running'
-  thinkingExpanded.value = false
-  selectedStepIndex.value = -1
-  activeAbortController = new AbortController()
-  scrollToBottom()
+async function handleInteractionSubmit(
+  interactionId: string,
+  action: string,
+  values: Record<string, unknown>,
+) {
+  beginTurnShellReset()
+  await controller.submitInteraction(interactionId, action, values)
+  await loadPendingApprovals()
+}
 
-  try {
-    const result = await executeAgentStream(request, {
-      onEvent(streamEvent) {
-        if (streamEvent.event !== 'supervisor.step' || !streamEvent.data || typeof streamEvent.data !== 'object') return
-        const step = streamEvent.data as { name?: unknown; detail?: unknown }
-        liveSteps.value.push({
-          name: String(step.name || 'supervisor'),
-          detail: step.detail,
-        })
-      },
-      onMessageDelta(text) {
-        placeholder.loading = false
-        placeholder.content += text
-        scrollToBottom()
-      },
-    }, activeAbortController.signal)
-    placeholder.loading = false
-    placeholder.content = placeholder.content || result.answer || '(无回答)'
-    placeholder.traceId = (result.metadata?.traceId as string) || undefined
-    placeholder.uiRequest = result.uiRequest
-    placeholder.toolCalls = extractToolCalls(result)
-    placeholder.elapsedMs = resolveElapsedMs(result, startedAt)
-    placeholder.debugStatus = result.success ? 'complete' : 'error'
-    sessionId.value = result.sessionId || sessionId.value
-    lastAgentResult.value = result
-    executionPhase.value = result.success ? 'success' : 'error'
-    if (result.uiRequest?.component === 'confirm') await loadPendingApprovals()
-    return result
-  } catch (error) {
-    placeholder.loading = false
-    const executionError = error instanceof Error ? error : new Error(String(error))
-    const stopped = executionError.name === 'AbortError'
-    placeholder.content = stopped
-      ? '执行已停止'
-      : executionError.message
-        ? `${failureText}：${executionError.message}`
-        : failureText
-    placeholder.debugStatus = stopped ? 'stopped' : 'error'
-    placeholder.elapsedMs = resolveElapsedMs(null, startedAt)
-    executionPhase.value = stopped ? 'stopped' : 'error'
-    return null
-  } finally {
-    streaming.value = false
-    activeAbortController = null
-    scrollToBottom()
-  }
+/** 取消交互卡片：提交 action=cancel，不调用 controller.cancel()（那是停止生成） */
+async function handleInteractionCancel(interactionId: string) {
+  beginTurnShellReset()
+  await controller.submitInteraction(interactionId, 'cancel', {})
+  await loadPendingApprovals()
 }
 
 function stopExecution() {
-  activeAbortController?.abort()
-}
-
-async function handleUiAction(payload: UiRequestPayload, action: string, values: Record<string, unknown>) {
-  await runAgentExecution({
-    sessionId: sessionId.value || undefined,
-    interactionId: payload.interactionId,
-    uiSubmit: { action, values },
-    entryType: 'DEBUG',
-  }, '交互提交失败，请重试')
-  await loadPendingApprovals()
+  void controller.cancel()
 }
 
 async function handlePendingApprovalAction(
@@ -784,51 +1064,37 @@ async function handlePendingApprovalAction(
 ) {
   const routeAction = values?.confirm === false ? 'reject' : action
   if (approval.interactionId.startsWith('spv_')) {
-    await runAgentExecution({
-      interactionId: approval.interactionId,
-      uiSubmit: { action: routeAction, values },
-      sessionId: sessionId.value || approval.sessionId || undefined,
-      entryType: 'DEBUG',
-    }, '审批提交失败，请重试')
+    beginTurnShellReset()
+    await controller.submitInteraction(approval.interactionId, routeAction, values)
     await loadPendingApprovals()
     return
   }
 
-  sending.value = true
   try {
     const { data } = await submitHumanApproval(approval.interactionId, {
       action: routeAction,
       values,
       sessionId: sessionId.value || approval.sessionId || undefined,
     })
-    messages.value.push(createMsg('assistant', data.answer || '审批已提交', {
-      traceId: (data.metadata?.traceId as string) || undefined,
-      uiRequest: data.uiRequest,
-      toolCalls: extractToolCalls(data),
-      debugStatus: data.success ? 'complete' : 'error',
-    }))
     lastAgentResult.value = data
     executionPhase.value = data.success ? 'success' : 'error'
     await loadPendingApprovals()
-    scrollToBottom()
+    ElMessage.success(data.answer || '审批已提交')
   } catch {
     ElMessage.error('审批提交失败')
-  } finally {
-    sending.value = false
   }
 }
 
 async function handleClearSession() {
-  if (streaming.value || sending.value) return
+  if (isConversationBusy.value) return
   try {
-    if (sessionId.value) await clearAgentSession(sessionId.value)
-    sessionId.value = ''
-    messages.value = []
+    await controller.clearSession()
     liveSteps.value = []
     lastAgentResult.value = null
     executionPhase.value = 'idle'
-    thinkingExpanded.value = false
     selectedStepIndex.value = -1
+    runtimeConnected.value = false
+    hasStreamedAnswer.value = false
     ElMessage.success('对话已清除')
   } catch {
     ElMessage.error('清除失败')
@@ -916,35 +1182,46 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  activeAbortController?.abort()
+  controller.dispose()
   window.removeEventListener('resize', handleWindowResize)
 })
 </script>
 
 <style scoped lang="scss">
 .agent-debug-page {
-  --agent-spectrum-anchor: var(--brand-primary);
-  --agent-spectrum-cool: color-mix(in oklab, var(--brand-primary) 12%, #58dcff);
-  --agent-spectrum-violet: color-mix(in oklab, var(--brand-primary) 18%, #9687ff);
-  --agent-spectrum-rose: color-mix(in oklab, var(--brand-primary) 12%, #f5a2d8);
-  --agent-spectrum-warm: color-mix(in oklab, var(--brand-primary) 10%, #ffc38b);
-  --agent-atmosphere-art-opacity: 1;
-  --agent-atmosphere-art-saturation: 1;
-  --agent-atmosphere-wash-top: rgb(245 248 255 / 0.58);
-  --agent-atmosphere-wash-bottom: rgb(238 244 255 / 0.32);
-  --agent-atmosphere-glow-primary: rgb(100 220 255 / 0.10);
-  --agent-atmosphere-glow-secondary: rgb(143 96 255 / 0.11);
-  --agent-atmosphere-bottom-tint: transparent;
-  --agent-atmosphere-theme-wash: linear-gradient(115deg, transparent, transparent);
-  --agent-card-anchor-glow: color-mix(in srgb, var(--agent-spectrum-anchor) 14%, transparent);
-  --agent-card-cool-glow: color-mix(in srgb, var(--agent-spectrum-cool) 15%, transparent);
-  --agent-card-rose-glow: color-mix(in srgb, var(--agent-spectrum-rose) 14%, transparent);
-  --agent-card-warm-glow: color-mix(in srgb, var(--agent-spectrum-warm) 12%, transparent);
-  --agent-card-sweep-start: color-mix(in srgb, var(--agent-spectrum-anchor) 6%, transparent);
-  --agent-card-sweep-cool: color-mix(in srgb, var(--agent-spectrum-cool) 8%, transparent);
-  --agent-card-sweep-warm: color-mix(in srgb, var(--agent-spectrum-warm) 7%, transparent);
-  --agent-card-sweep-rose: color-mix(in srgb, var(--agent-spectrum-rose) 9%, transparent);
-  --agent-card-base: rgb(255 255 255 / 0.76);
+  /* Shell 品牌光谱 → 共享 ReachAI Prism Token */
+  --reachai-chat-spectrum-anchor: var(--brand-primary);
+  --reachai-chat-spectrum-cool: color-mix(in oklab, var(--brand-primary) 12%, #58dcff);
+  --reachai-chat-spectrum-violet: color-mix(in oklab, var(--brand-primary) 18%, #9687ff);
+  --reachai-chat-spectrum-rose: color-mix(in oklab, var(--brand-primary) 12%, #f5a2d8);
+  --reachai-chat-spectrum-warm: color-mix(in oklab, var(--brand-primary) 10%, #ffc38b);
+  --reachai-chat-atmosphere-art-opacity: 1;
+  --reachai-chat-atmosphere-art-saturation: 1;
+  --reachai-chat-atmosphere-wash-top: rgb(245 248 255 / 0.58);
+  --reachai-chat-atmosphere-wash-bottom: rgb(238 244 255 / 0.32);
+  --reachai-chat-atmosphere-glow-primary: rgb(100 220 255 / 0.10);
+  --reachai-chat-atmosphere-glow-secondary: rgb(143 96 255 / 0.11);
+  --reachai-chat-atmosphere-bottom-tint: transparent;
+  --reachai-chat-atmosphere-theme-wash: linear-gradient(115deg, transparent, transparent);
+  /* 卡片阅读面 / 辉光强度走共享 conversation-tokens，禁止在此重新铺高饱和底色 */
+  --agent-spectrum-anchor: var(--reachai-chat-spectrum-anchor);
+  --agent-spectrum-cool: var(--reachai-chat-spectrum-cool);
+  --agent-spectrum-violet: var(--reachai-chat-spectrum-violet);
+  --agent-spectrum-rose: var(--reachai-chat-spectrum-rose);
+  --agent-spectrum-warm: var(--reachai-chat-spectrum-warm);
+  --agent-atmosphere-art-opacity: var(--reachai-chat-atmosphere-art-opacity);
+  --agent-atmosphere-art-saturation: var(--reachai-chat-atmosphere-art-saturation);
+  --agent-atmosphere-wash-top: var(--reachai-chat-atmosphere-wash-top);
+  --agent-atmosphere-wash-bottom: var(--reachai-chat-atmosphere-wash-bottom);
+  --agent-atmosphere-glow-primary: var(--reachai-chat-atmosphere-glow-primary);
+  --agent-atmosphere-glow-secondary: var(--reachai-chat-atmosphere-glow-secondary);
+  --agent-atmosphere-bottom-tint: var(--reachai-chat-atmosphere-bottom-tint);
+  --agent-atmosphere-theme-wash: var(--reachai-chat-atmosphere-theme-wash);
+  /* Insight 面板边缘辉光（与共享卡片阅读面解耦，强度对齐 conversation-tokens） */
+  --agent-card-anchor-glow: color-mix(in srgb, var(--agent-spectrum-anchor) 7%, transparent);
+  --agent-card-cool-glow: color-mix(in srgb, var(--agent-spectrum-cool) 8%, transparent);
+  --agent-card-rose-glow: color-mix(in srgb, var(--agent-spectrum-rose) 7%, transparent);
+  --agent-card-warm-glow: color-mix(in srgb, var(--agent-spectrum-warm) 6%, transparent);
   display: flex;
   box-sizing: border-box;
   width: 100%;
@@ -958,60 +1235,69 @@ onBeforeUnmount(() => {
 }
 
 :global(html[data-brand='metro-green']) .agent-debug-page {
-  --agent-spectrum-anchor: color-mix(in oklab, var(--brand-primary) 62%, #67d7b5);
-  --agent-spectrum-cool: color-mix(in oklab, var(--brand-primary) 22%, #73d7cb);
-  --agent-spectrum-violet: color-mix(in oklab, var(--brand-primary) 24%, #9bcfc5);
-  --agent-spectrum-rose: color-mix(in oklab, var(--brand-primary) 14%, #acdcca);
-  --agent-spectrum-warm: color-mix(in oklab, var(--brand-primary) 12%, #ead9b1);
-  --agent-atmosphere-art-opacity: 0.56;
-  --agent-atmosphere-art-saturation: 0.03;
-  --agent-atmosphere-wash-top: rgb(246 252 250 / 0.86);
-  --agent-atmosphere-wash-bottom: rgb(231 248 241 / 0.68);
-  --agent-atmosphere-glow-primary: rgb(74 203 166 / 0.2);
-  --agent-atmosphere-glow-secondary: rgb(237 202 129 / 0.12);
-  --agent-atmosphere-bottom-tint: rgb(145 226 203 / 0.18);
-  --agent-atmosphere-theme-wash: linear-gradient(115deg, rgb(159 226 204 / 0.18), rgb(248 250 239 / 0.08) 50%, rgb(237 213 166 / 0.12));
-  --agent-card-anchor-glow: rgb(43 159 122 / 0.2);
-  --agent-card-cool-glow: rgb(83 207 190 / 0.22);
-  --agent-card-rose-glow: rgb(154 219 196 / 0.14);
-  --agent-card-warm-glow: rgb(232 211 169 / 0.14);
-  --agent-card-sweep-start: rgb(43 159 122 / 0.1);
-  --agent-card-sweep-cool: rgb(83 207 190 / 0.12);
-  --agent-card-sweep-warm: rgb(232 211 169 / 0.1);
-  --agent-card-sweep-rose: rgb(154 219 196 / 0.1);
-  --agent-card-base: rgb(247 253 250 / 0.92);
+  /* 仅调光谱与氛围；正文阅读层保持共享中性玻璃 */
+  --reachai-chat-spectrum-anchor: color-mix(in oklab, var(--brand-primary) 62%, #67d7b5);
+  --reachai-chat-spectrum-cool: color-mix(in oklab, var(--brand-primary) 22%, #73d7cb);
+  --reachai-chat-spectrum-violet: color-mix(in oklab, var(--brand-primary) 24%, #9bcfc5);
+  --reachai-chat-spectrum-rose: color-mix(in oklab, var(--brand-primary) 14%, #acdcca);
+  --reachai-chat-spectrum-warm: color-mix(in oklab, var(--brand-primary) 12%, #ead9b1);
+  --reachai-chat-atmosphere-art-opacity: 0.56;
+  --reachai-chat-atmosphere-art-saturation: 0.03;
+  --reachai-chat-atmosphere-wash-top: rgb(246 252 250 / 0.86);
+  --reachai-chat-atmosphere-wash-bottom: rgb(231 248 241 / 0.68);
+  --reachai-chat-atmosphere-glow-primary: rgb(74 203 166 / 0.12);
+  --reachai-chat-atmosphere-glow-secondary: rgb(237 202 129 / 0.08);
+  --reachai-chat-atmosphere-bottom-tint: rgb(145 226 203 / 0.1);
+  --reachai-chat-atmosphere-theme-wash: linear-gradient(115deg, rgb(159 226 204 / 0.12), rgb(248 250 239 / 0.06) 50%, rgb(237 213 166 / 0.08));
+  --agent-spectrum-anchor: var(--reachai-chat-spectrum-anchor);
+  --agent-spectrum-cool: var(--reachai-chat-spectrum-cool);
+  --agent-spectrum-violet: var(--reachai-chat-spectrum-violet);
+  --agent-spectrum-rose: var(--reachai-chat-spectrum-rose);
+  --agent-spectrum-warm: var(--reachai-chat-spectrum-warm);
+  --agent-atmosphere-theme-wash: var(--reachai-chat-atmosphere-theme-wash);
+  --agent-atmosphere-wash-top: var(--reachai-chat-atmosphere-wash-top);
+  --agent-atmosphere-wash-bottom: var(--reachai-chat-atmosphere-wash-bottom);
+  --agent-atmosphere-bottom-tint: var(--reachai-chat-atmosphere-bottom-tint);
 }
 
 :global(html[data-brand='solar-gold']) .agent-debug-page {
-  --agent-spectrum-anchor: color-mix(in oklab, var(--brand-primary) 60%, #f1b75c);
-  --agent-spectrum-cool: color-mix(in oklab, var(--brand-primary) 8%, #c8dde2);
-  --agent-spectrum-violet: color-mix(in oklab, var(--brand-primary) 10%, #d8c9c2);
-  --agent-spectrum-rose: color-mix(in oklab, var(--brand-primary) 10%, #efbda5);
-  --agent-spectrum-warm: color-mix(in oklab, var(--brand-primary) 12%, #f5d58c);
-  --agent-atmosphere-art-opacity: 0.52;
-  --agent-atmosphere-art-saturation: 0.02;
-  --agent-atmosphere-wash-top: rgb(255 252 245 / 0.88);
-  --agent-atmosphere-wash-bottom: rgb(252 242 220 / 0.7);
-  --agent-atmosphere-glow-primary: rgb(240 181 83 / 0.2);
-  --agent-atmosphere-glow-secondary: rgb(239 177 153 / 0.14);
-  --agent-atmosphere-bottom-tint: rgb(247 211 139 / 0.2);
-  --agent-atmosphere-theme-wash: linear-gradient(115deg, rgb(247 211 139 / 0.18), rgb(255 248 230 / 0.1) 48%, rgb(239 177 153 / 0.14));
-  --agent-card-anchor-glow: rgb(208 126 31 / 0.18);
-  --agent-card-cool-glow: rgb(184 215 222 / 0.08);
-  --agent-card-rose-glow: rgb(239 177 153 / 0.16);
-  --agent-card-warm-glow: rgb(245 204 111 / 0.22);
-  --agent-card-sweep-start: rgb(208 126 31 / 0.09);
-  --agent-card-sweep-cool: rgb(184 215 222 / 0.06);
-  --agent-card-sweep-warm: rgb(245 204 111 / 0.13);
-  --agent-card-sweep-rose: rgb(239 177 153 / 0.1);
-  --agent-card-base: rgb(255 251 243 / 0.93);
+  /* 仅调光谱与氛围；正文阅读层保持共享中性玻璃 */
+  --reachai-chat-spectrum-anchor: color-mix(in oklab, var(--brand-primary) 60%, #f1b75c);
+  --reachai-chat-spectrum-cool: color-mix(in oklab, var(--brand-primary) 8%, #c8dde2);
+  --reachai-chat-spectrum-violet: color-mix(in oklab, var(--brand-primary) 10%, #d8c9c2);
+  --reachai-chat-spectrum-rose: color-mix(in oklab, var(--brand-primary) 10%, #efbda5);
+  --reachai-chat-spectrum-warm: color-mix(in oklab, var(--brand-primary) 12%, #f5d58c);
+  --reachai-chat-atmosphere-art-opacity: 0.52;
+  --reachai-chat-atmosphere-art-saturation: 0.02;
+  --reachai-chat-atmosphere-wash-top: rgb(255 252 245 / 0.88);
+  --reachai-chat-atmosphere-wash-bottom: rgb(252 242 220 / 0.7);
+  --reachai-chat-atmosphere-glow-primary: rgb(240 181 83 / 0.12);
+  --reachai-chat-atmosphere-glow-secondary: rgb(239 177 153 / 0.08);
+  --reachai-chat-atmosphere-bottom-tint: rgb(247 211 139 / 0.1);
+  --reachai-chat-atmosphere-theme-wash: linear-gradient(115deg, rgb(247 211 139 / 0.12), rgb(255 248 230 / 0.06) 48%, rgb(239 177 153 / 0.08));
+  --agent-spectrum-anchor: var(--reachai-chat-spectrum-anchor);
+  --agent-spectrum-cool: var(--reachai-chat-spectrum-cool);
+  --agent-spectrum-violet: var(--reachai-chat-spectrum-violet);
+  --agent-spectrum-rose: var(--reachai-chat-spectrum-rose);
+  --agent-spectrum-warm: var(--reachai-chat-spectrum-warm);
+  --agent-atmosphere-theme-wash: var(--reachai-chat-atmosphere-theme-wash);
+  --agent-atmosphere-wash-top: var(--reachai-chat-atmosphere-wash-top);
+  --agent-atmosphere-wash-bottom: var(--reachai-chat-atmosphere-wash-bottom);
+  --agent-atmosphere-bottom-tint: var(--reachai-chat-atmosphere-bottom-tint);
 }
 
 .agent-debug-header {
   --page-header-material: url('/agent-debug/conversation-atmosphere.png');
   --page-header-material-position: center 43%;
+  --agent-header-content-offset: -4px;
   flex: 0 0 auto;
   min-height: 112px;
+
+  :deep(.app-page-header__leading),
+  :deep(.app-page-header__main),
+  :deep(.app-page-header__trailing) {
+    transform: translateY(var(--agent-header-content-offset));
+  }
 
   :deep(.app-page-header__entity-mark) {
     color: var(--brand-primary);
@@ -1032,8 +1318,6 @@ onBeforeUnmount(() => {
 .toolbar-title,
 .toolbar-actions,
 .run-state,
-.agent-card-title,
-.thinking-summary-row,
 .message-meta,
 .tool-chip,
 .elapsed-chip,
@@ -1069,8 +1353,7 @@ onBeforeUnmount(() => {
 
 .header-copy-button,
 .toolbar-icon-button,
-.detail-icon-button,
-.thinking-toggle,
+.detail-action-button,
 .trace-link,
 .execution-step > button,
 .approval-meta button {
@@ -1136,6 +1419,34 @@ onBeforeUnmount(() => {
 .chat-panel {
   display: flex;
   flex-direction: column;
+  background: transparent;
+}
+
+.chat-conversation {
+  flex: 1 1 auto;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+
+  :deep(.reachai-message-list) {
+    padding: 34px 32px 38px;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  :deep(.reachai-message-list::-webkit-scrollbar) {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  :deep(.reachai-message-list__empty) {
+    padding: 0;
+    color: inherit;
+  }
 }
 
 .chat-toolbar {
@@ -1187,8 +1498,7 @@ onBeforeUnmount(() => {
   }
 }
 
-.toolbar-icon-button,
-.detail-icon-button {
+.toolbar-icon-button {
   display: inline-grid;
   place-items: center;
   width: 36px;
@@ -1211,6 +1521,11 @@ onBeforeUnmount(() => {
   &:disabled {
     cursor: not-allowed;
     opacity: 0.38;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
   }
 }
 
@@ -1235,7 +1550,7 @@ onBeforeUnmount(() => {
   -ms-overflow-style: none;
   padding: 34px 32px 38px;
   scroll-behavior: smooth;
-  background-color: color-mix(in srgb, var(--surface-solid-page) 76%, transparent);
+  background-color: transparent;
 }
 
 .chat-messages::-webkit-scrollbar {
@@ -1250,11 +1565,7 @@ onBeforeUnmount(() => {
   inset: 0;
   pointer-events: none;
   opacity: var(--agent-atmosphere-art-opacity);
-  background-image:
-    linear-gradient(180deg, var(--agent-atmosphere-wash-top), var(--agent-atmosphere-wash-bottom)),
-    url('/agent-debug/conversation-atmosphere.png');
-  background-position: center, center bottom;
-  background-size: cover, 100% 100%;
+  background: linear-gradient(180deg, var(--agent-atmosphere-wash-top), var(--agent-atmosphere-wash-bottom));
   background-repeat: no-repeat;
   filter: saturate(var(--agent-atmosphere-art-saturation));
 }
@@ -1317,234 +1628,10 @@ onBeforeUnmount(() => {
   }
 }
 
-.user-message,
-.agent-message {
-  position: relative;
-  z-index: 1;
-}
-
-.user-message {
-  display: flex;
-  justify-content: flex-end;
-  gap: 11px;
-  margin: 0 0 30px auto;
-}
-
-.user-message-content {
-  display: flex;
-  max-width: min(650px, 70%);
-  min-width: 0;
-  flex-direction: column;
-  align-items: flex-end;
-}
-
-.message-role {
-  margin: 0 6px 7px;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 750;
-}
-
-.user-message-bubble {
-  padding: 13px 18px;
-  border-radius: 18px 18px 5px 18px;
-  color: var(--text-inverse);
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--brand-primary) 82%, var(--brand-hover)),
-    var(--brand-primary) 48%,
-    var(--brand-active)
-  );
-  box-shadow: 0 12px 26px rgb(var(--brand-primary-rgb) / 0.24);
-  font-size: 14px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.user-avatar {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  margin-top: 22px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
-  border-radius: 13px;
-  color: var(--brand-primary);
-  background: rgb(255 255 255 / 0.66);
-  box-shadow: var(--inner-highlight);
-  backdrop-filter: blur(14px);
-}
-
-.agent-message {
-  display: grid;
-  grid-template-columns: 60px minmax(0, min(820px, calc(100% - 76px)));
-  gap: 15px;
-  align-items: start;
-  margin: 0 0 32px;
-}
-
-.agent-avatar {
-  display: grid;
-  width: 58px;
-  height: 58px;
-  place-items: center;
-  border: 1px solid rgb(255 255 255 / 0.7);
-  border-radius: 50%;
-  background: rgb(255 255 255 / 0.48);
-  box-shadow: 0 12px 30px rgb(var(--brand-primary-rgb) / 0.18), inset 0 0 0 5px rgb(255 255 255 / 0.30);
-  backdrop-filter: blur(14px);
-
-  img {
-    width: 49px;
-    height: 49px;
-    border-radius: 50%;
-    object-fit: cover;
-  }
-}
-
-.agent-card-shell {
-  position: relative;
-  isolation: isolate;
-  padding: 2px;
-  overflow: hidden;
-  border-radius: 26px;
-  box-shadow:
-    -18px 18px 48px color-mix(in srgb, var(--agent-spectrum-anchor) 14%, transparent),
-    2px 22px 54px color-mix(in srgb, var(--agent-spectrum-cool) 12%, transparent),
-    22px 18px 48px color-mix(in srgb, var(--agent-spectrum-rose) 12%, transparent);
-}
-
-.response-card-shell {
-  background: linear-gradient(
-    112deg,
-    color-mix(in oklab, var(--agent-spectrum-anchor) 88%, var(--agent-spectrum-violet)) 0%,
-    var(--agent-spectrum-cool) 28%,
-    var(--agent-spectrum-warm) 62%,
-    var(--agent-spectrum-rose) 81%,
-    color-mix(in oklab, var(--agent-spectrum-anchor) 76%, var(--agent-spectrum-violet)) 100%
-  );
-
-  &.is-error {
-    background: linear-gradient(112deg, rgb(255 133 151 / 0.82), rgb(222 89 135 / 0.78), rgb(255 181 116 / 0.72));
-  }
-
-  &.is-stopped {
-    background: linear-gradient(112deg, rgb(255 195 112 / 0.74), rgb(165 140 255 / 0.75), rgb(103 193 255 / 0.68));
-  }
-}
-
-.thinking-card-shell {
-  padding: 2px;
-
-  &::before {
-    content: '';
-    position: absolute;
-    z-index: -1;
-    width: 150%;
-    aspect-ratio: 1;
-    top: 50%;
-    left: 50%;
-    background: conic-gradient(
-      from 210deg,
-      var(--agent-spectrum-anchor),
-      var(--agent-spectrum-cool) 22%,
-      var(--agent-spectrum-violet) 39%,
-      var(--agent-spectrum-rose) 58%,
-      var(--agent-spectrum-warm) 75%,
-      var(--agent-spectrum-cool) 89%,
-      var(--agent-spectrum-anchor)
-    );
-    transform: translate(-50%, -50%);
-    animation: thinking-rim 4.2s linear infinite;
-  }
-
-  &::after {
-    content: '';
-    position: absolute;
-    z-index: -2;
-    inset: -16px;
-    border-radius: 34px;
-    background: linear-gradient(
-      112deg,
-      color-mix(in srgb, var(--agent-spectrum-anchor) 22%, transparent),
-      color-mix(in srgb, var(--agent-spectrum-cool) 22%, transparent) 30%,
-      color-mix(in srgb, var(--agent-spectrum-violet) 18%, transparent) 48%,
-      color-mix(in srgb, var(--agent-spectrum-rose) 20%, transparent) 70%,
-      color-mix(in srgb, var(--agent-spectrum-warm) 18%, transparent)
-    );
-    filter: blur(20px);
-    animation: aura-breathe 2.4s ease-in-out infinite alternate;
-  }
-}
-
-.agent-card {
-  position: relative;
-  border-radius: 24px;
-  color: var(--text-primary);
-  background:
-    radial-gradient(circle at 4% 4%, var(--agent-card-anchor-glow), transparent 43%),
-    radial-gradient(circle at 42% -8%, var(--agent-card-cool-glow), transparent 46%),
-    radial-gradient(circle at 102% 4%, var(--agent-card-rose-glow), transparent 44%),
-    radial-gradient(circle at 78% 112%, var(--agent-card-warm-glow), transparent 46%),
-    linear-gradient(
-      116deg,
-      var(--agent-card-sweep-start),
-      var(--agent-card-sweep-cool) 35%,
-      rgb(255 255 255 / 0.12) 52%,
-      var(--agent-card-sweep-warm) 72%,
-      var(--agent-card-sweep-rose)
-    ),
-    var(--agent-card-base);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.86);
-  backdrop-filter: blur(28px) saturate(1.16);
-}
-
-.agent-card-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 18px 22px 0;
-}
-
-.agent-card-title {
-  gap: 9px;
-  min-width: 0;
-  color: var(--text-primary);
-
-  .el-icon {
-    color: var(--brand-primary);
-    font-size: 18px;
-  }
-
-  strong {
-    overflow: hidden;
-    font-size: 15px;
-    font-weight: 820;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.response-content {
-  padding: 14px 22px 18px;
-  color: var(--text-primary);
-  font-size: 14px;
-  line-height: 1.8;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.interaction-card {
-  margin: 0 22px 16px;
-}
-
 .message-meta {
   gap: 7px;
-  padding: 12px 22px 16px;
-  border-top: 1px solid rgb(115 133 172 / 0.12);
+  padding: 0;
+  border-top: 0;
   flex-wrap: wrap;
 }
 
@@ -1579,132 +1666,6 @@ onBeforeUnmount(() => {
   }
 }
 
-.thinking-card {
-  padding-bottom: 16px;
-}
-
-.thinking-title strong {
-  font-size: 17px;
-}
-
-.thinking-dots {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-
-  i {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--brand-primary);
-    animation: thinking-dot 1.3s ease-in-out infinite;
-
-    &:nth-child(2) { animation-delay: 0.16s; }
-    &:nth-child(3) { animation-delay: 0.32s; }
-  }
-}
-
-.thinking-summary-row {
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 22px 8px;
-}
-
-.thinking-summary {
-  min-width: 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.thinking-toggle {
-  display: inline-flex;
-  min-height: 34px;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 7px;
-  padding: 4px 6px 4px 12px;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.10);
-  border-radius: 999px;
-  color: var(--brand-primary);
-  background: rgb(255 255 255 / 0.48);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.82);
-  transition: background 0.16s ease, transform 0.16s ease;
-
-  span,
-  b {
-    font-size: 11px;
-    font-weight: 750;
-  }
-
-  b {
-    padding: 2px 6px;
-    border-radius: 999px;
-    background: rgb(var(--brand-primary-rgb) / 0.09);
-  }
-
-  &:hover:not(:disabled) {
-    transform: translateY(-1px);
-    background: rgb(255 255 255 / 0.72);
-  }
-
-  &:disabled {
-    cursor: default;
-    opacity: 0.56;
-  }
-
-  &[aria-expanded='true'] .thinking-toggle-icon {
-    transform: rotate(180deg);
-  }
-}
-
-.thinking-toggle-icon {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border-radius: 50%;
-  background: rgb(255 255 255 / 0.72);
-  transition: transform 0.2s ease;
-}
-
-.stream-preview {
-  margin: 4px 22px 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-}
-
-.thinking-step-list {
-  display: grid;
-  gap: 0;
-  margin: 12px 22px 0;
-  padding: 14px 0 0;
-  border-top: 1px solid rgb(115 133 172 / 0.14);
-  list-style: none;
-}
-
-.thinking-step {
-  position: relative;
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
-  gap: 11px;
-  align-items: start;
-  padding: 7px 0 11px;
-
-  &:not(:last-child)::after {
-    content: '';
-    position: absolute;
-    top: 36px;
-    bottom: -3px;
-    left: 15px;
-    width: 1px;
-    background: var(--border-divider);
-  }
-}
-
-.thinking-step-marker,
 .execution-step-marker {
   display: grid;
   place-items: center;
@@ -1715,24 +1676,16 @@ onBeforeUnmount(() => {
   font-weight: 800;
 }
 
-.thinking-step-marker {
-  width: 31px;
-  height: 31px;
-}
-
-.thinking-step.is-complete .thinking-step-marker,
 .execution-step.is-complete .execution-step-marker {
   color: var(--status-success);
   background: color-mix(in srgb, var(--status-success) 10%, var(--surface-solid-control));
 }
 
-.thinking-step.is-active .thinking-step-marker,
 .execution-step.is-active .execution-step-marker {
   color: var(--brand-primary);
   background: rgb(var(--brand-primary-rgb) / 0.10);
 }
 
-.thinking-step-copy,
 .execution-step-copy {
   display: flex;
   min-width: 0;
@@ -1755,16 +1708,6 @@ onBeforeUnmount(() => {
   }
 }
 
-.thinking-step-state {
-  padding-top: 7px;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.thinking-step.is-complete .thinking-step-state { color: var(--status-success); }
-.thinking-step.is-active .thinking-step-state { color: var(--brand-primary); }
-
 .spin-icon {
   animation: icon-spin 1s linear infinite;
 }
@@ -1772,25 +1715,50 @@ onBeforeUnmount(() => {
 .chat-input {
   flex: 0 0 auto;
   margin: 0;
-  padding: 12px 18px 14px;
-  border-top: 1px solid var(--border-divider);
-  background:
-    linear-gradient(135deg, rgb(255 255 255 / 0.58), rgb(237 245 255 / 0.46));
-  backdrop-filter: blur(22px) saturate(1.08);
+  padding: var(--reachai-chat-composer-padding, 12px 16px 14px);
+  border-top: 1px solid var(--reachai-chat-glass-border, rgb(255 255 255 / 0.72));
+  background: var(--reachai-chat-glass-composer);
+  box-shadow:
+    var(--reachai-chat-glass-highlight),
+    var(--reachai-chat-glass-shadow-composer);
+  -webkit-backdrop-filter: var(--reachai-chat-glass-blur-composer);
+  backdrop-filter: var(--reachai-chat-glass-blur-composer);
+}
+
+.input-composer {
+  padding: 2px 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transition: box-shadow 160ms ease;
+
+  &:focus-within {
+    /* 焦点环落在外层 .chat-input（ConversationView :deep），内层不再叠白块 */
+    background: transparent;
+    box-shadow: none;
+  }
 
   :deep(.el-textarea__inner) {
     min-height: 56px !important;
-    padding: 10px 12px;
+    padding: 10px 4px;
     border: 0;
     border-radius: 0;
-    color: var(--text-primary);
+    color: var(--reachai-chat-text, var(--text-primary, #1e293b));
     background: transparent;
     box-shadow: none;
     font-size: 13px;
+    font-weight: 500;
+    line-height: 1.6;
     resize: none;
 
     &:focus {
       box-shadow: none;
+    }
+
+    &::placeholder {
+      color: var(--reachai-chat-text-muted, #64748b);
+      opacity: 1;
     }
   }
 }
@@ -1800,25 +1768,73 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding-top: 10px;
+  padding: 9px 2px 0;
   border-top: 1px solid var(--border-divider);
 }
 
 .input-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 650;
+
+  kbd {
+    min-width: 22px;
+    padding: 2px 5px;
+    border: 1px solid color-mix(in srgb, var(--border-readable) 55%, transparent);
+    border-bottom-color: color-mix(in srgb, var(--text-muted) 34%, transparent);
+    border-radius: 5px;
+    color: var(--text-secondary);
+    background: rgb(255 255 255 / 0.74);
+    box-shadow: 0 1px 0 rgb(15 23 42 / 0.05);
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 760;
+    line-height: 1.25;
+    text-align: center;
+  }
+
+  b {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  em {
+    margin-left: 2px;
+    font-style: normal;
+  }
 }
 
 .send-button {
-  min-width: 94px;
+  min-width: 102px;
+  min-height: 38px;
   border: 0;
-  border-radius: 13px;
-  background: linear-gradient(135deg, #6b63f3, #4e48e8);
-  box-shadow: 0 10px 24px rgb(79 70 229 / 0.22);
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--brand-hover), var(--brand-primary));
+  box-shadow:
+    0 10px 22px rgb(var(--brand-primary-rgb) / 0.22),
+    inset 0 1px 0 rgb(255 255 255 / 0.24);
+  font-weight: 730;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+
+  &:hover:not(.is-disabled) {
+    filter: brightness(1.04);
+    box-shadow:
+      0 13px 26px rgb(var(--brand-primary-rgb) / 0.30),
+      inset 0 1px 0 rgb(255 255 255 / 0.28);
+    transform: translateY(-1px);
+  }
 
   &.is-disabled {
-    opacity: 0.58;
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--brand-hover) 58%, transparent),
+      color-mix(in srgb, var(--brand-primary) 58%, transparent)
+    );
+    box-shadow: none;
+    opacity: 0.72;
   }
 }
 
@@ -1878,8 +1894,34 @@ onBeforeUnmount(() => {
 }
 
 .detail-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 10% 6%, var(--agent-card-anchor-glow), transparent 42%),
+    radial-gradient(circle at 94% 14%, var(--agent-card-rose-glow), transparent 40%),
+    radial-gradient(circle at 72% 100%, var(--agent-card-cool-glow), transparent 46%),
+    var(--agent-atmosphere-theme-wash),
+    linear-gradient(155deg, rgb(255 255 255 / 0.72), rgb(var(--brand-selected-rgb) / 0.34) 58%, rgb(255 255 255 / 0.52));
+}
+
+.detail-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    linear-gradient(180deg, var(--agent-atmosphere-wash-top), var(--agent-atmosphere-wash-bottom)),
+    linear-gradient(180deg, transparent 42%, var(--agent-atmosphere-bottom-tint));
+  opacity: 0.72;
+}
+
+.detail-panel > * {
+  position: relative;
+  z-index: 1;
 }
 
 .detail-header {
@@ -1889,6 +1931,10 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   padding: 20px 20px 14px;
+
+  > div:first-child {
+    min-width: 0;
+  }
 
   h3 {
     margin: 5px 0 0;
@@ -1900,7 +1946,7 @@ onBeforeUnmount(() => {
 
 .toolbar-label {
   display: block;
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--brand-primary) 42%, var(--text-muted));
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.10em;
@@ -1908,22 +1954,63 @@ onBeforeUnmount(() => {
 }
 
 .detail-header-actions {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 7px;
+  min-width: 0;
 }
 
-.detail-icon-button {
-  width: 32px;
+.detail-action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
   height: 32px;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
+  padding: 0 10px;
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, rgb(var(--brand-selected-rgb) / 0.55) 48%, var(--surface-solid-control));
+  box-shadow: var(--inner-highlight);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+  transition:
+    transform var(--motion-duration-fast, 0.16s) var(--motion-easing-standard, ease),
+    border-color var(--motion-duration-fast, 0.16s) var(--motion-easing-standard, ease),
+    color var(--motion-duration-fast, 0.16s) var(--motion-easing-standard, ease),
+    background var(--motion-duration-fast, 0.16s) var(--motion-easing-standard, ease);
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: var(--border-focus);
+    color: var(--brand-primary);
+    background: var(--surface-solid-control);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.38;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
 }
 
 .insight-summary {
   flex: 0 0 auto;
   gap: 12px;
   padding: 0 20px 14px;
-  border-bottom: 1px solid var(--border-divider);
+  border-bottom: 1px solid color-mix(in srgb, var(--brand-primary) 12%, var(--border-divider));
 
   div {
     display: flex;
@@ -1932,7 +2019,7 @@ onBeforeUnmount(() => {
   }
 
   strong {
-    color: var(--text-primary);
+    color: var(--brand-primary);
     font-size: 22px;
     font-weight: 860;
   }
@@ -1946,7 +2033,7 @@ onBeforeUnmount(() => {
   i {
     width: 1px;
     height: 20px;
-    background: var(--border-divider);
+    background: color-mix(in srgb, var(--brand-primary) 18%, var(--border-divider));
   }
 }
 
@@ -1960,9 +2047,11 @@ onBeforeUnmount(() => {
   :deep(.el-tabs__header) {
     margin: 0 0 12px;
     padding: 4px;
-    border: 1px solid var(--border-subtle);
+    border: 1px solid rgb(var(--brand-primary-rgb) / 0.14);
     border-radius: 13px;
-    background: color-mix(in srgb, var(--surface-solid-control) 68%, transparent);
+    background:
+      linear-gradient(145deg, rgb(255 255 255 / 0.58), rgb(var(--brand-selected-rgb) / 0.42)),
+      color-mix(in srgb, var(--surface-solid-control) 52%, transparent);
   }
 
   :deep(.el-tabs__nav-wrap::after),
@@ -1981,8 +2070,9 @@ onBeforeUnmount(() => {
 
   :deep(.el-tabs__item.is-active) {
     color: var(--brand-primary);
-    background: var(--surface-solid-control);
-    box-shadow: 0 5px 14px rgb(52 76 121 / 0.08), var(--inner-highlight);
+    background:
+      linear-gradient(145deg, rgb(255 255 255 / 0.94), rgb(var(--brand-selected-rgb) / 0.62));
+    box-shadow: 0 5px 14px rgb(var(--brand-primary-rgb) / 0.12), var(--inner-highlight);
   }
 
   :deep(.el-tabs__content),
@@ -2012,13 +2102,26 @@ onBeforeUnmount(() => {
   margin-left: 5px;
   place-items: center;
   border-radius: 999px;
-  background: rgb(var(--brand-primary-rgb) / 0.08);
+  color: var(--brand-primary);
+  background: rgb(var(--brand-primary-rgb) / 0.10);
   font-size: 10px;
 }
 
 .execution-panel,
 .approval-panel {
   padding: 0 2px 12px;
+}
+
+.execution-note {
+  margin: 0 2px 12px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--brand-primary) 14%, var(--border-subtle));
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: color-mix(in srgb, rgb(var(--brand-selected-rgb) / 0.55) 42%, transparent);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.5;
 }
 
 .execution-state {
@@ -2055,10 +2158,12 @@ onBeforeUnmount(() => {
 
 .metric-card {
   padding: 11px 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.12);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-solid-control) 64%, transparent);
-  box-shadow: var(--inner-highlight);
+  background:
+    radial-gradient(circle at 8% 0%, var(--agent-card-anchor-glow), transparent 58%),
+    linear-gradient(145deg, rgb(255 255 255 / 0.78), rgb(var(--brand-selected-rgb) / 0.36));
+  box-shadow: 0 8px 18px rgb(var(--brand-primary-rgb) / 0.06), var(--inner-highlight);
 
   span {
     display: block;
@@ -2070,7 +2175,7 @@ onBeforeUnmount(() => {
   strong {
     display: block;
     margin-top: 5px;
-    color: var(--text-primary);
+    color: var(--brand-primary);
     font-size: 17px;
     font-weight: 850;
   }
@@ -2083,15 +2188,23 @@ onBeforeUnmount(() => {
 
 .execution-step {
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid rgb(var(--brand-primary-rgb) / 0.10);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--surface-solid-control) 62%, transparent);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.76), rgb(var(--brand-selected-rgb) / 0.28));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.72);
   transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
 
   &.is-active {
     border-color: rgb(var(--brand-primary-rgb) / 0.30);
-    background: color-mix(in srgb, var(--brand-selected-bg) 44%, var(--surface-solid-control));
-    box-shadow: 0 8px 20px rgb(var(--brand-primary-rgb) / 0.09);
+    background:
+      radial-gradient(circle at 6% 0%, var(--agent-card-cool-glow), transparent 55%),
+      linear-gradient(145deg, rgb(255 255 255 / 0.86), rgb(var(--brand-selected-rgb) / 0.52));
+    box-shadow: 0 8px 20px rgb(var(--brand-primary-rgb) / 0.10);
+  }
+
+  &.is-complete {
+    border-color: color-mix(in srgb, var(--status-success) 22%, rgb(var(--brand-primary-rgb) / 0.10));
   }
 
   &.is-error {
@@ -2181,9 +2294,11 @@ onBeforeUnmount(() => {
 
 .approval-item {
   padding: 13px;
-  border: 1px solid color-mix(in srgb, var(--status-warning) 24%, var(--border-subtle));
+  border: 1px solid color-mix(in srgb, var(--status-warning) 24%, rgb(var(--brand-primary-rgb) / 0.12));
   border-radius: 14px;
-  background: color-mix(in srgb, var(--status-warning) 5%, var(--surface-solid-control));
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.72), rgb(var(--brand-selected-rgb) / 0.22)),
+    color-mix(in srgb, var(--status-warning) 6%, transparent);
 }
 
 .approval-title {
@@ -2222,15 +2337,19 @@ onBeforeUnmount(() => {
   gap: 10px;
   margin: 10px 14px 14px;
   padding: 12px 13px;
-  border: 1px solid color-mix(in srgb, var(--status-success) 18%, var(--border-subtle));
+  border: 1px solid color-mix(in srgb, var(--status-success) 18%, rgb(var(--brand-primary-rgb) / 0.12));
   border-radius: 14px;
   color: var(--status-success);
-  background: color-mix(in srgb, var(--status-success) 5%, var(--surface-solid-control));
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.7), rgb(var(--brand-selected-rgb) / 0.26)),
+    color-mix(in srgb, var(--status-success) 6%, transparent);
 
   &.has-pending {
-    border-color: color-mix(in srgb, var(--status-warning) 28%, var(--border-subtle));
+    border-color: color-mix(in srgb, var(--status-warning) 28%, rgb(var(--brand-primary-rgb) / 0.12));
     color: var(--status-warning);
-    background: color-mix(in srgb, var(--status-warning) 6%, var(--surface-solid-control));
+    background:
+      linear-gradient(145deg, rgb(255 255 255 / 0.7), rgb(var(--brand-selected-rgb) / 0.26)),
+      color-mix(in srgb, var(--status-warning) 7%, transparent);
   }
 
   .el-icon {
@@ -2257,34 +2376,157 @@ onBeforeUnmount(() => {
   }
 }
 
+.trace-drawer-header {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-inline-end: 4px;
+}
+
+.trace-drawer-header__copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.trace-drawer-header__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+}
+
+.trace-drawer-header__id-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.trace-drawer-header__id {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-drawer-header__copy-btn {
+  flex: 0 0 auto;
+}
+
+.trace-drawer-header__desc {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.trace-drawer-header__close {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color var(--motion-duration-fast) var(--motion-easing-standard),
+    background-color var(--motion-duration-fast) var(--motion-easing-standard),
+    border-color var(--motion-duration-fast) var(--motion-easing-standard);
+
+  &:hover {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--surface-solid-control) 88%, transparent);
+    border-color: var(--border-subtle);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
+}
+
 .metadata-json {
-  max-height: calc(100vh - 240px);
+  max-height: min(62vh, 640px);
   margin: 0;
   overflow: auto;
-  padding: 16px;
-  border: 1px solid rgb(113 131 156 / 0.22);
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
   border-radius: var(--radius-md);
-  color: #dce8ff;
-  background: #101827;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--surface-solid-control) 78%, #0b1220);
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   font-size: 12px;
   line-height: 1.7;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
-@keyframes thinking-rim {
-  to { transform: translate(-50%, -50%) rotate(1turn); }
+.trace-detail-tabs {
+  min-width: 0;
+
+  :deep(.el-tabs__header) {
+    margin: 0 0 12px;
+  }
+
+  :deep(.el-tabs__nav-wrap) {
+    min-width: 0;
+  }
+
+  :deep(.el-tabs__item) {
+    font-weight: 750;
+  }
+
+  :deep(.el-tabs__item:focus-visible) {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
+
+  :deep(.el-tab-pane) {
+    min-width: 0;
+  }
 }
 
-@keyframes aura-breathe {
-  from { opacity: 0.56; transform: scale(0.985); }
-  to { opacity: 0.96; transform: scale(1.018); }
+.raw-response-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
 }
 
-@keyframes thinking-dot {
-  0%, 70%, 100% { opacity: 0.34; transform: translateY(0); }
-  35% { opacity: 1; transform: translateY(-3px); }
+.raw-response-toolbar {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.raw-response-empty {
+  margin-top: 8px;
 }
 
 @keyframes icon-spin {
@@ -2298,34 +2540,84 @@ onBeforeUnmount(() => {
 }
 
 :global([data-theme='dark']) {
-  .chat-messages {
-    background-color: rgb(10 18 34 / 0.68);
-    background-image:
-      linear-gradient(180deg, rgb(11 20 38 / 0.74), rgb(17 27 52 / 0.62)),
-      url('/agent-debug/conversation-atmosphere.png');
-    background-blend-mode: multiply, normal;
+  .chat-panel {
+    background: transparent;
   }
 
-  .agent-card {
-    background:
-      radial-gradient(circle at 4% 4%, rgb(var(--brand-primary-rgb) / 0.26), transparent 44%),
-      radial-gradient(circle at 42% -8%, color-mix(in srgb, var(--agent-spectrum-cool) 22%, transparent), transparent 47%),
-      radial-gradient(circle at 102% 4%, color-mix(in srgb, var(--agent-spectrum-rose) 18%, transparent), transparent 45%),
-      radial-gradient(circle at 78% 112%, color-mix(in srgb, var(--agent-spectrum-warm) 15%, transparent), transparent 47%),
-      linear-gradient(116deg, rgb(var(--brand-primary-rgb) / 0.08), transparent 48%, color-mix(in srgb, var(--agent-spectrum-rose) 8%, transparent)),
-      rgb(15 23 42 / 0.88);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.10);
+  .chat-conversation :deep(.reachai-message-list) {
+    background-color: transparent;
   }
 
-  .empty-orbit,
-  .user-avatar,
-  .agent-avatar,
-  .thinking-toggle {
+
+  .empty-orbit {
     background: rgb(20 31 52 / 0.72);
   }
 
   .chat-input {
-    background: linear-gradient(135deg, rgb(15 25 44 / 0.88), rgb(20 31 57 / 0.76));
+    background: linear-gradient(135deg, rgb(15 25 44 / 0.34), rgb(20 31 57 / 0.22));
+  }
+
+  .detail-panel {
+    background:
+      radial-gradient(circle at 10% 6%, rgb(var(--brand-primary-rgb) / 0.22), transparent 42%),
+      radial-gradient(circle at 94% 14%, color-mix(in srgb, var(--agent-spectrum-rose) 18%, transparent), transparent 40%),
+      radial-gradient(circle at 72% 100%, color-mix(in srgb, var(--agent-spectrum-cool) 16%, transparent), transparent 46%),
+      linear-gradient(155deg, rgb(16 27 46 / 0.88), rgb(12 22 38 / 0.82));
+  }
+
+  .detail-panel::before {
+    opacity: 0.35;
+  }
+
+  .detail-action-button,
+  .metric-card,
+  .execution-step {
+    background:
+      linear-gradient(145deg, rgb(24 37 56 / 0.84), rgb(var(--brand-selected-rgb) / 0.12));
+  }
+
+  .metadata-json {
+    color: #dce8ff;
+    background: #101827;
+    border-color: rgb(113 131 156 / 0.22);
+  }
+
+  .execution-note {
+    background: color-mix(in srgb, rgb(24 37 56 / 0.84) 72%, transparent);
+  }
+
+  .approval-item {
+    background:
+      linear-gradient(145deg, rgb(24 37 56 / 0.84), rgb(var(--brand-selected-rgb) / 0.1)),
+      color-mix(in srgb, var(--status-warning) 8%, transparent);
+  }
+
+  .approval-policy {
+    background:
+      linear-gradient(145deg, rgb(24 37 56 / 0.84), rgb(var(--brand-selected-rgb) / 0.1)),
+      color-mix(in srgb, var(--status-success) 8%, transparent);
+
+    &.has-pending {
+      background:
+        linear-gradient(145deg, rgb(24 37 56 / 0.84), rgb(var(--brand-selected-rgb) / 0.1)),
+        color-mix(in srgb, var(--status-warning) 10%, transparent);
+    }
+  }
+
+  .detail-tabs {
+    :deep(.el-tabs__header) {
+      background: linear-gradient(145deg, rgb(24 37 56 / 0.78), rgb(var(--brand-selected-rgb) / 0.1));
+    }
+
+    :deep(.el-tabs__item.is-active) {
+      background: linear-gradient(145deg, rgb(30 44 64 / 0.92), rgb(var(--brand-selected-rgb) / 0.16));
+    }
+  }
+
+  .execution-step.is-active {
+    background:
+      radial-gradient(circle at 6% 0%, color-mix(in srgb, var(--agent-spectrum-cool) 18%, transparent), transparent 55%),
+      linear-gradient(145deg, rgb(28 42 64 / 0.92), rgb(var(--brand-selected-rgb) / 0.18));
   }
 }
 
@@ -2352,10 +2644,6 @@ onBeforeUnmount(() => {
   .detail-panel {
     min-height: 560px;
   }
-
-  .agent-message {
-    grid-template-columns: 54px minmax(0, 1fr);
-  }
 }
 
 @media (max-width: 720px) {
@@ -2376,55 +2664,11 @@ onBeforeUnmount(() => {
     padding: 0 16px;
   }
 
-  .chat-messages {
+  .chat-conversation :deep(.reachai-message-list) {
     padding: 24px 15px 30px;
   }
 
-  .user-message-content {
-    max-width: calc(100% - 49px);
-  }
-
-  .agent-message {
-    grid-template-columns: 42px minmax(0, 1fr);
-    gap: 9px;
-  }
-
-  .agent-avatar {
-    width: 42px;
-    height: 42px;
-
-    img {
-      width: 36px;
-      height: 36px;
-    }
-  }
-
-  .agent-card-shell {
-    border-radius: 20px;
-  }
-
-  .agent-card {
-    border-radius: 18px;
-  }
-
-  .agent-card-heading,
-  .thinking-summary-row {
-    padding-right: 15px;
-    padding-left: 15px;
-  }
-
-  .thinking-summary-row {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .response-content {
-    padding-right: 15px;
-    padding-left: 15px;
-  }
-
-  .message-meta,
-  .thinking-step-list {
+  .message-meta {
     margin-right: 0;
     margin-left: 0;
     padding-right: 15px;
@@ -2442,16 +2686,23 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .thinking-card-shell::before,
-  .thinking-card-shell::after,
-  .thinking-dots i,
   .spin-icon,
   .run-state.active i,
   .execution-state.is-running i {
     animation: none !important;
   }
 
-  .chat-messages {
+  .toolbar-icon-button,
+  .detail-action-button {
+    transition: none !important;
+  }
+
+  .toolbar-icon-button:hover:not(:disabled),
+  .detail-action-button:hover:not(:disabled) {
+    transform: none;
+  }
+
+  .chat-conversation :deep(.reachai-message-list) {
     scroll-behavior: auto;
   }
 }

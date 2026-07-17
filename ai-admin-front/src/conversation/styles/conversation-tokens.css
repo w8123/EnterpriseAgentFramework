@@ -1,0 +1,261 @@
+/**
+ * ReachAI Prism Conversation — 唯一共享对话 Token。
+ * 命名空间：.reachai-conversation / .eaf-chat / .reachai-chat-root
+ * 管理端可覆盖 --reachai-chat-primary / spectrum；SDK 使用下方独立默认值。
+ * 原则：彩色留在边缘，内容区回归中性；玻璃可透明，阅读底必须安静。
+ */
+
+.reachai-conversation,
+.eaf-chat,
+.reachai-chat-root {
+  /* Brand anchor — 默认 indigo，与管理端 brand-primary 对齐；勿用绿色 */
+  --reachai-chat-primary: #6366f1;
+  --reachai-chat-primary-rgb: 99 102 241;
+  --reachai-chat-primary-contrast: #ffffff;
+  --reachai-chat-primary-soft: color-mix(in srgb, var(--reachai-chat-primary) 72%, #8b5cf6);
+  --reachai-chat-primary-deep: color-mix(in srgb, var(--reachai-chat-primary) 42%, #1e1b4b);
+
+  /* Spectrum — 描边 / 外围光晕锚点，不用于正文底大面积铺色 */
+  --reachai-chat-spectrum-anchor: var(--reachai-chat-primary);
+  --reachai-chat-spectrum-cool: color-mix(in oklab, var(--reachai-chat-spectrum-anchor) 12%, #58dcff);
+  --reachai-chat-spectrum-violet: color-mix(in oklab, var(--reachai-chat-spectrum-anchor) 18%, #9687ff);
+  --reachai-chat-spectrum-rose: color-mix(in oklab, var(--reachai-chat-spectrum-anchor) 12%, #f5a2d8);
+  --reachai-chat-spectrum-warm: color-mix(in oklab, var(--reachai-chat-spectrum-anchor) 10%, #ffc38b);
+
+  /* Surfaces / text — 稳定深蓝灰，避免纯黑/白色正文 */
+  --reachai-chat-surface: #ffffff;
+  --reachai-chat-surface-muted: #f5f7fb;
+  --reachai-chat-text: #1e293b;
+  --reachai-chat-text-secondary: #526176;
+  --reachai-chat-text-muted: #64748b;
+  --reachai-chat-border: rgb(115 133 172 / 0.16);
+  --reachai-chat-danger: #b42318;
+  --reachai-chat-success: #067647;
+  --reachai-chat-warning: #b54708;
+
+  /* Shared glass material — 卡片 / Composer / 控件统一取用，禁止组件内重复硬编码 */
+  --reachai-chat-glass-card: rgb(248 250 255 / 0.7);
+  --reachai-chat-glass-card-fallback: rgb(248 250 255 / 0.94);
+  --reachai-chat-glass-card-reading-layer: linear-gradient(
+    135deg,
+    rgb(255 255 255 / 0.7),
+    rgb(248 250 255 / 0.62)
+  );
+  --reachai-chat-glass-composer: rgb(255 255 255 / 0.72);
+  --reachai-chat-glass-composer-fallback: rgb(255 255 255 / 0.92);
+  --reachai-chat-glass-interaction: rgb(255 255 255 / 0.7);
+  --reachai-chat-glass-control: rgb(255 255 255 / 0.84);
+  --reachai-chat-glass-border: rgb(255 255 255 / 0.72);
+  --reachai-chat-glass-border-soft: rgb(115 133 172 / 0.14);
+  --reachai-chat-glass-highlight: inset 0 1px 0 rgb(255 255 255 / 0.74);
+  --reachai-chat-glass-inset-edge: inset 0 -1px 0 rgb(255 255 255 / 0.14);
+  --reachai-chat-glass-saturation: 0.78;
+  --reachai-chat-glass-blur: blur(24px) saturate(0.78);
+  --reachai-chat-glass-blur-composer: blur(24px) saturate(0.82);
+  --reachai-chat-glass-shadow:
+    0 20px 48px rgb(15 23 42 / 0.055),
+    0 6px 18px rgb(15 23 42 / 0.035);
+  --reachai-chat-glass-shadow-composer:
+    0 -6px 24px rgb(15 23 42 / 0.035),
+    0 8px 22px rgb(15 23 42 / 0.04);
+  --reachai-chat-glass-focus-ring: 0 0 0 1px rgb(var(--reachai-chat-primary-rgb) / 0.28),
+    0 0 0 6px rgb(var(--reachai-chat-primary-rgb) / 0.08);
+  --reachai-chat-card-glow-opacity: 0.07;
+
+  /* User bubble — 保留主题渐变与白字，加深终点保证对比 */
+  --reachai-chat-user-bubble: linear-gradient(
+    135deg,
+    var(--reachai-chat-primary-soft),
+    var(--reachai-chat-primary) 48%,
+    var(--reachai-chat-primary-deep)
+  );
+  --reachai-chat-user-shadow: 0 12px 26px rgb(var(--reachai-chat-primary-rgb) / 0.24);
+
+  /* Assistant card — 边缘辉光 5%～9%，中心走中性阅读层 */
+  --reachai-chat-card-base: var(--reachai-chat-glass-card);
+  --reachai-chat-card-anchor-glow: color-mix(in srgb, var(--reachai-chat-spectrum-anchor) 7%, transparent);
+  --reachai-chat-card-cool-glow: color-mix(in srgb, var(--reachai-chat-spectrum-cool) 8%, transparent);
+  --reachai-chat-card-rose-glow: color-mix(in srgb, var(--reachai-chat-spectrum-rose) 7%, transparent);
+  --reachai-chat-card-warm-glow: color-mix(in srgb, var(--reachai-chat-spectrum-warm) 6%, transparent);
+  --reachai-chat-card-sweep-start: color-mix(in srgb, var(--reachai-chat-spectrum-anchor) 2%, transparent);
+  --reachai-chat-card-sweep-cool: color-mix(in srgb, var(--reachai-chat-spectrum-cool) 2.5%, transparent);
+  --reachai-chat-card-sweep-warm: color-mix(in srgb, var(--reachai-chat-spectrum-warm) 2%, transparent);
+  --reachai-chat-card-sweep-rose: color-mix(in srgb, var(--reachai-chat-spectrum-rose) 2.5%, transparent);
+  --reachai-chat-card-border: linear-gradient(
+    112deg,
+    color-mix(in oklab, var(--reachai-chat-spectrum-anchor) 88%, var(--reachai-chat-spectrum-violet)) 0%,
+    var(--reachai-chat-spectrum-cool) 28%,
+    var(--reachai-chat-spectrum-warm) 62%,
+    var(--reachai-chat-spectrum-rose) 81%,
+    color-mix(in oklab, var(--reachai-chat-spectrum-anchor) 76%, var(--reachai-chat-spectrum-violet)) 100%
+  );
+  --reachai-chat-card-border-danger: linear-gradient(
+    112deg,
+    rgb(255 133 151 / 0.82),
+    rgb(222 89 135 / 0.78),
+    rgb(255 181 116 / 0.72)
+  );
+  --reachai-chat-card-border-warning: linear-gradient(
+    112deg,
+    rgb(255 195 112 / 0.74),
+    rgb(165 140 255 / 0.75),
+    rgb(103 193 255 / 0.68)
+  );
+
+  /* Atmosphere / prism 图片 URL 由 ConversationView 在运行时注入（避免 SDK CSS base64） */
+  --reachai-chat-atmosphere-image: none;
+  --reachai-chat-prism-avatar: none;
+  --reachai-chat-atmosphere-art-opacity: 1;
+  --reachai-chat-atmosphere-art-saturation: 1;
+  --reachai-chat-atmosphere-wash-top: rgb(245 248 255 / 0.58);
+  --reachai-chat-atmosphere-wash-bottom: rgb(238 244 255 / 0.32);
+  --reachai-chat-atmosphere-glow-primary: rgb(100 220 255 / 0.1);
+  --reachai-chat-atmosphere-glow-secondary: rgb(143 96 255 / 0.11);
+  --reachai-chat-atmosphere-bottom-tint: transparent;
+  --reachai-chat-atmosphere-theme-wash: linear-gradient(115deg, transparent, transparent);
+
+  /* Geometry / motion / density */
+  --reachai-chat-radius: 12px;
+  --reachai-chat-message-radius: 18px;
+  --reachai-chat-card-radius: 24px;
+  --reachai-chat-shadow: var(--reachai-chat-glass-shadow);
+  --reachai-chat-motion-duration: 4.2s;
+  --reachai-chat-motion-breathe: 2.4s;
+  --reachai-chat-width: 380px;
+  --reachai-chat-height: 560px;
+  --reachai-chat-font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --reachai-chat-avatar-size: 56px;
+  --reachai-chat-user-avatar-size: 38px;
+  --reachai-chat-card-max-width: 820px;
+  --reachai-chat-user-max-width: 70%;
+  --reachai-chat-space-y: 28px;
+  --reachai-chat-list-padding: 24px 28px 28px;
+  --reachai-chat-composer-padding: 12px 16px 14px;
+}
+
+/* 管理端：继承品牌色（若页面已定义 --brand-primary）；正文保持中性，不跟主题染色 */
+.reachai-conversation {
+  --reachai-chat-primary: var(--brand-primary, #6366f1);
+  --reachai-chat-primary-rgb: var(--brand-primary-rgb, 99 102 241);
+  --reachai-chat-text: var(--text-primary, #1e293b);
+  --reachai-chat-text-secondary: var(--text-secondary, #526176);
+  --reachai-chat-text-muted: var(--text-muted, #64748b);
+}
+
+.reachai-conversation--compact,
+.eaf-chat .reachai-conversation--compact {
+  --reachai-chat-avatar-size: 40px;
+  --reachai-chat-user-avatar-size: 32px;
+  --reachai-chat-card-max-width: 100%;
+  --reachai-chat-user-max-width: 86%;
+  --reachai-chat-space-y: 18px;
+  --reachai-chat-list-padding: 14px 12px 16px;
+  --reachai-chat-composer-padding: 10px 12px 12px;
+  --reachai-chat-card-radius: 18px;
+  --reachai-chat-message-radius: 14px;
+}
+
+/* 暗色：深蓝灰中性玻璃，不复用亮色白玻璃 */
+html.dark .reachai-conversation,
+html[data-theme='dark'] .reachai-conversation,
+.reachai-conversation[data-theme='dark'],
+html.dark .eaf-chat,
+html[data-theme='dark'] .eaf-chat,
+.eaf-chat[data-theme='dark'],
+html.dark .reachai-chat-root,
+html[data-theme='dark'] .reachai-chat-root {
+  --reachai-chat-glass-card: rgb(15 23 42 / 0.78);
+  --reachai-chat-glass-card-fallback: rgb(15 23 42 / 0.96);
+  --reachai-chat-glass-card-reading-layer: linear-gradient(
+    135deg,
+    rgb(15 23 42 / 0.78),
+    rgb(30 41 59 / 0.68)
+  );
+  --reachai-chat-glass-composer: rgb(15 23 42 / 0.78);
+  --reachai-chat-glass-composer-fallback: rgb(15 23 42 / 0.96);
+  --reachai-chat-glass-interaction: rgb(30 41 59 / 0.78);
+  --reachai-chat-glass-control: rgb(51 65 85 / 0.86);
+  --reachai-chat-glass-border: rgb(148 163 184 / 0.26);
+  --reachai-chat-glass-border-soft: rgb(148 163 184 / 0.2);
+  --reachai-chat-glass-highlight: inset 0 1px 0 rgb(255 255 255 / 0.1);
+  --reachai-chat-glass-inset-edge: inset 0 -1px 0 rgb(0 0 0 / 0.28);
+  --reachai-chat-glass-saturation: 0.8;
+  --reachai-chat-glass-blur: blur(24px) saturate(0.8);
+  --reachai-chat-glass-blur-composer: blur(24px) saturate(0.82);
+  --reachai-chat-glass-shadow:
+    0 20px 48px rgb(0 0 0 / 0.28),
+    0 6px 18px rgb(0 0 0 / 0.16);
+  --reachai-chat-glass-shadow-composer:
+    0 -6px 24px rgb(0 0 0 / 0.22),
+    0 8px 22px rgb(99 102 241 / 0.08);
+  --reachai-chat-card-base: var(--reachai-chat-glass-card);
+  --reachai-chat-card-anchor-glow: color-mix(in srgb, var(--reachai-chat-spectrum-anchor) 6%, transparent);
+  --reachai-chat-card-cool-glow: color-mix(in srgb, var(--reachai-chat-spectrum-cool) 5%, transparent);
+  --reachai-chat-card-rose-glow: color-mix(in srgb, var(--reachai-chat-spectrum-rose) 5%, transparent);
+  --reachai-chat-card-warm-glow: color-mix(in srgb, var(--reachai-chat-spectrum-warm) 4%, transparent);
+  --reachai-chat-surface: #151821;
+  --reachai-chat-surface-muted: #1c2130;
+  --reachai-chat-text: #eef2ff;
+  --reachai-chat-text-secondary: #c7d0e0;
+  --reachai-chat-text-muted: #9aa6bc;
+  --reachai-chat-border: rgb(148 163 184 / 0.22);
+  --reachai-chat-atmosphere-wash-top: rgb(18 22 36 / 0.55);
+  --reachai-chat-atmosphere-wash-bottom: rgb(18 22 36 / 0.35);
+}
+
+/* 无 backdrop-filter 时提高不透明度，保证可读 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .reachai-conversation,
+  .eaf-chat,
+  .reachai-chat-root {
+    --reachai-chat-glass-card: var(--reachai-chat-glass-card-fallback);
+    --reachai-chat-glass-composer: var(--reachai-chat-glass-composer-fallback);
+    --reachai-chat-glass-card-reading-layer: linear-gradient(
+      135deg,
+      rgb(255 255 255 / 0.9),
+      rgb(248 250 255 / 0.86)
+    );
+    --reachai-chat-glass-interaction: rgb(255 255 255 / 0.94);
+    --reachai-chat-glass-control: rgb(255 255 255 / 0.96);
+    --reachai-chat-card-base: var(--reachai-chat-glass-card-fallback);
+  }
+
+  html.dark .reachai-conversation,
+  html[data-theme='dark'] .reachai-conversation,
+  .reachai-conversation[data-theme='dark'],
+  html.dark .eaf-chat,
+  html[data-theme='dark'] .eaf-chat,
+  html.dark .reachai-chat-root,
+  html[data-theme='dark'] .reachai-chat-root {
+    --reachai-chat-glass-card-reading-layer: linear-gradient(
+      135deg,
+      rgb(15 23 42 / 0.94),
+      rgb(30 41 59 / 0.9)
+    );
+    --reachai-chat-glass-interaction: rgb(30 41 59 / 0.94);
+    --reachai-chat-glass-control: rgb(51 65 85 / 0.96);
+  }
+}
+
+@keyframes reachai-prism-rim {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+@keyframes reachai-prism-breathe {
+  from { opacity: 0.55; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1.02); }
+}
+
+@keyframes reachai-prism-dot {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
+  40% { transform: translateY(-3px); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reachai-conversation,
+  .eaf-chat,
+  .reachai-chat-root {
+    --reachai-chat-motion-duration: 0s;
+    --reachai-chat-motion-breathe: 0s;
+  }
+}

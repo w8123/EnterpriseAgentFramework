@@ -21,7 +21,7 @@ The current backend deployment units are:
 - `reachai-runtime-service`: Runtime Host for Agent, Workflow, GraphSpec execution, Trace, RunOps, debug, and runtime internal APIs.
 - `reachai-capability-service`: Capability Catalog for SDK registration, snapshots, diff/review/apply, scan project catalog, and capability assets.
 - `reachai-knowledge-service`: Knowledge / Retrieval for knowledge bases, files, chunks, RAG, vector retrieval, business index, and scanner implementation.
-- `reachai-model-service`: Model Gateway for model instances, chat, embedding, rerank, and OpenAI-compatible proxy.
+- `reachai-model-service`: Model Gateway for model templates/instances, Chat, Embedding, and Rerank. The former OpenAI-compatible HTTP proxy endpoint has been removed.
 
 ## Local Development
 
@@ -59,7 +59,7 @@ The frontend keeps separate API clients in `src/api/request.ts`:
 | --- | --- | --- |
 | `textRequest` | `/ai` | Knowledge bases, file import, retrieval test, RAG, scanner-backed knowledge utilities, and business index APIs. |
 | `controlRequest` | site root | Platform Control public API/BFF paths such as `/api/agents`, `/api/workflows`, `/api/tools`, `/api/scan-projects`, and `/api/internal-services/health`. |
-| `modelRequest` | `/model` | Model Gateway paths such as `/model/providers`, `/model/instances`, and `/model/chat`. |
+| `modelRequest` | `/model` | Model Gateway paths such as `/model/templates`, `/model/instances`, `/model/chat`, and `/model/chat/stream/events`. |
 
 The Vite proxy in `vite.config.ts` maps those paths to the local backend ports listed above. If a route is not implemented, it should be implemented in the owning service or removed from the UI path; the frontend should not depend on a hidden legacy backend fallback.
 

@@ -54,7 +54,7 @@ public class CredentialCipher {
             return "{}";
         }
         if (!encryptedText.startsWith(PREFIX)) {
-            return encryptedText;
+            throw new IllegalStateException("Model credential must be encrypted (aesgcm:). Plaintext is not accepted.");
         }
         try {
             byte[] payload = Base64.getDecoder().decode(encryptedText.substring(PREFIX.length()));

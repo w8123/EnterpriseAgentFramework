@@ -39,5 +39,7 @@ public class ChatResponse {
         private int promptTokens;
         private int completionTokens;
         private int totalTokens;
+        /** 供应商返回时填充（如 completion_tokens_details.reasoning_tokens） */
+        private Integer reasoningTokens;
     }
 }

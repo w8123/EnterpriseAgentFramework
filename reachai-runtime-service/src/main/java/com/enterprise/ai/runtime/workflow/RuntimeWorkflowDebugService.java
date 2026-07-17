@@ -2,6 +2,8 @@ package com.enterprise.ai.runtime.workflow;
 
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
+import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
+import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
 import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
@@ -31,7 +33,17 @@ public class RuntimeWorkflowDebugService {
     private final ObjectMapper objectMapper;
 
     public DebugRunResult debugRun(DebugRunRequest request) {
+        return debugRun(request, RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none());
+    }
+
+    public DebugRunResult debugRun(DebugRunRequest request,
+                                   RuntimeGraphSpecExecutionEventSink eventSink,
+                                   RuntimeGraphSpecExecutionCancellation cancellation) {
         DebugRunRequest actual = request == null ? DebugRunRequest.empty() : request;
+        RuntimeGraphSpecExecutionEventSink sink = eventSink == null
+                ? RuntimeGraphSpecExecutionEventSink.NOOP : eventSink;
+        RuntimeGraphSpecExecutionCancellation cancel = cancellation == null
+                ? RuntimeGraphSpecExecutionCancellation.none() : cancellation;
         String runId = firstText(text(debugOption(actual.debugOptions(), "runId")),
                 "studio-debug-run-" + UUID.randomUUID());
         String traceId = firstText(text(debugOption(actual.debugOptions(), "traceId")), runId);
@@ -49,8 +61,8 @@ public class RuntimeWorkflowDebugService {
 
         String entryNodeId = text(debugOption(actual.debugOptions(), "entryNodeId"));
         RuntimeGraphSpecExecutionResult execution = StringUtils.hasText(entryNodeId)
-                ? graphSpecExecutor.executeFromNode(resolved.graphSpecJson(), context, entryNodeId)
-                : graphSpecExecutor.execute(resolved.graphSpecJson(), context);
+                ? graphSpecExecutor.executeFromNode(resolved.graphSpecJson(), context, entryNodeId, sink, cancel)
+                : graphSpecExecutor.execute(resolved.graphSpecJson(), context, sink, cancel);
         finishWorkflowTrace(trace, execution, actual, context);
         return toDebugRunResult(runId, traceId, actual, context, resolved.graph(), execution, started);
     }
@@ -419,11 +431,25 @@ public class RuntimeWorkflowDebugService {
     }
 
     private String status(RuntimeGraphSpecExecutionResult execution) {
+        return mapExecutionStatus(execution);
+    }
+
+    /**
+     * 将 GraphSpec 执行结果映射为 Debug 会话业务状态。
+     * {@code RUNTIME_GRAPH_CANCELLED} 必须为 {@code CANCELLED}，不得落入 {@code ERROR}。
+     */
+    static String mapExecutionStatus(RuntimeGraphSpecExecutionResult execution) {
+        if (execution == null) {
+            return "ERROR";
+        }
         if (execution.success()) {
             return "SUCCESS";
         }
         if ("RUNTIME_GRAPH_INTERACTION_WAITING".equals(execution.code())) {
             return "WAITING_USER";
+        }
+        if ("RUNTIME_GRAPH_CANCELLED".equals(execution.code())) {
+            return "CANCELLED";
         }
         return "ERROR";
     }

@@ -10,9 +10,14 @@ export interface ModelChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
   reasoningContent?: string
-  toolCalls?: unknown[]
+  toolCalls?: ModelStreamToolCall[] | unknown[]
   toolCallId?: string
   name?: string
+  finishReason?: string
+  /** Present when stream ended via abort / interrupt / error with partial content. */
+  incompleteReason?: 'aborted' | 'interrupted' | 'error'
+  errorCode?: string
+  errorMessage?: string
 }
 
 export interface ModelChatResponse {
@@ -31,18 +36,78 @@ export interface TokenUsage {
   totalTokens: number
 }
 
-export type ModelType =
-  | 'LLM'
-  | 'EMBEDDING'
-  | 'RERANKER'
-  | 'STT'
-  | 'TTS'
-  | 'IMAGE'
-  | 'IMAGE_GENERATION'
-  | 'VIDEO'
+/** Structured model stream event types — mirror ModelStreamEvent on model-service. */
+export type ModelStreamEventType =
+  | 'content.delta'
+  | 'reasoning.delta'
+  | 'tool_call.delta'
+  | 'usage'
+  | 'completed'
+  | 'error'
 
-export type EndpointType = 'BUILT_IN' | 'OPENAI_COMPATIBLE'
-export type ModelInstanceStatus = 'ACTIVE' | 'DISABLED' | 'ERROR'
+export interface ModelStreamToolCallDelta {
+  index?: number | null
+  id?: string | null
+  type?: string | null
+  name?: string | null
+  arguments?: string | null
+}
+
+export interface ModelStreamToolCall {
+  index: number
+  id?: string
+  type?: string
+  name?: string
+  arguments: string
+}
+
+export interface ModelStreamEvent {
+  type: ModelStreamEventType | string
+  text?: string | null
+  toolCall?: ModelStreamToolCallDelta | null
+  usage?: TokenUsage | null
+  finishReason?: string | null
+  message?: string | null
+  code?: string | null
+  raw?: unknown
+}
+
+export type ModelStreamTerminalReason = 'completed' | 'error' | 'aborted' | 'interrupted' | null
+
+export interface ModelStreamState {
+  content: string
+  reasoningContent: string
+  toolCalls: ModelStreamToolCall[]
+  usage: TokenUsage | null
+  finishReason: string | null
+  errorCode: string | null
+  errorMessage: string | null
+  terminal: ModelStreamTerminalReason
+}
+
+export const MODEL_STREAM_INTERRUPTED = 'MODEL_STREAM_INTERRUPTED'
+
+export type ModelType = 'LLM' | 'EMBEDDING' | 'RERANKER'
+export type ModelProtocol = 'OPENAI_COMPATIBLE'
+export type ModelInstanceStatus = 'ACTIVE' | 'DISABLED' | 'ARCHIVED'
+export type ModelTestStatus = 'UNKNOWN' | 'SUCCESS' | 'FAILED'
+
+export interface ModelConnectionConfig {
+  baseUrl?: string
+  chatPath?: string
+  embeddingPath?: string
+  rerankPath?: string
+  apiKey?: string
+  authHeader?: string
+  authPrefix?: string
+}
+
+export interface ModelCredentialSchemaField {
+  key: string
+  label: string
+  required?: boolean
+  secret?: boolean
+}
 
 export interface ModelInstance {
   id: string
@@ -50,38 +115,108 @@ export interface ModelInstance {
   provider: string
   modelType: ModelType
   modelName: string
-  endpointType: EndpointType
-  workspaceId: string
-  credential: Record<string, unknown>
+  protocol: ModelProtocol | string
+  projectCode?: string | null
+  connection: ModelConnectionConfig
   defaultOptions: Record<string, unknown>
   paramsSchema: unknown
   status: ModelInstanceStatus
-  remark?: string
+  lastTestStatus: ModelTestStatus
+  lastTestAt?: string | null
+  lastTestLatencyMs?: number | null
+  lastTestError?: string | null
+  remark?: string | null
   createdAt?: string
   updatedAt?: string
 }
 
-export interface ModelInstanceRequest {
+export interface ModelTemplate {
+  id: string
   name: string
   provider: string
   modelType: ModelType
   modelName: string
-  endpointType: EndpointType
-  workspaceId?: string
-  credential?: Record<string, unknown>
+  protocol: ModelProtocol | string
+  connectionDefaults: ModelConnectionConfig
+  credentialSchema: ModelCredentialSchemaField[] | unknown
+  defaultOptions: Record<string, unknown>
+  paramsSchema: unknown
+  capabilities?: unknown
+  iconKey?: string | null
+  enabled: boolean
+  sortOrder?: number
+  remark?: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ModelInstanceCreateRequest {
+  name: string
+  provider: string
+  modelType: ModelType
+  modelName: string
+  protocol?: ModelProtocol
+  connection: ModelConnectionConfig
   defaultOptions?: Record<string, unknown>
   paramsSchema?: unknown
-  status?: ModelInstanceStatus
-  remark?: string
+  status?: 'ACTIVE' | 'DISABLED'
+  remark?: string | null
+}
+
+export interface ModelInstanceFromTemplateRequest {
+  name: string
+  modelName?: string
+  connection?: ModelConnectionConfig
+  defaultOptions?: Record<string, unknown>
+  status?: 'ACTIVE' | 'DISABLED'
+  remark?: string | null
+}
+
+export interface ModelInstanceUpdateRequest {
+  name: string
+  provider?: string
+  modelName?: string
+  connection?: ModelConnectionConfig
+  defaultOptions?: Record<string, unknown>
+  paramsSchema?: unknown
+  status?: 'ACTIVE' | 'DISABLED'
+  remark?: string | null
+}
+
+export interface ModelInstanceDraftTestRequest {
+  id?: string
+  name?: string
+  provider: string
+  modelType: ModelType
+  modelName: string
+  protocol?: ModelProtocol
+  connection: ModelConnectionConfig
+  defaultOptions?: Record<string, unknown>
 }
 
 export interface ModelInstanceTestResult {
   success: boolean
   latencyMs: number
   message: string
-  modelInstanceId: string
-  provider: string
-  modelName: string
-  modelType: string
+  modelInstanceId?: string
+  provider?: string
+  modelName?: string
+  modelType?: string
+  lastTestStatus?: ModelTestStatus
   dimension?: number
+}
+
+export interface ModelInstanceListParams {
+  keyword?: string
+  provider?: string
+  modelType?: ModelType | string
+  projectCode?: string
+  includeArchived?: boolean
+}
+
+export interface ModelTemplateListParams {
+  keyword?: string
+  provider?: string
+  modelType?: ModelType | string
+  enabled?: boolean
 }

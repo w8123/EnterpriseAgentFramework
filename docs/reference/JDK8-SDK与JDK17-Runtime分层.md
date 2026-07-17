@@ -20,7 +20,7 @@ JDK8 侧不运行完整 Agent Runtime，不依赖 LangGraph4j，不承担平台�
 | `reachai-runtime-service` | JDK17 | Runtime Host，执行 Agent、Workflow、GraphSpec、Trace、RunOps 和调试。 |
 | `reachai-capability-service` | JDK17 | Capability Catalog，管理能力快照、diff、评审、扫描目录和能力资产。 |
 | `reachai-knowledge-service` | JDK17 | Knowledge / Retrieval，管理知识库、RAG、向量检索、业务索引和扫描器实现。 |
-| `reachai-model-service` | JDK17 | Model Gateway，管理模型实例、Chat、Embedding、Rerank 和 OpenAI 兼容代理。 |
+| `reachai-model-service` | JDK17 | Model Gateway，管理模型模板/实例、Chat、Embedding、Rerank。原 OpenAI 兼容 HTTP 代理入口已删除，不再提供。 |
 
 ## 接入链路
 
@@ -39,7 +39,7 @@ JDK8 侧不运行完整 Agent Runtime，不依赖 LangGraph4j，不承担平台�
 | SDK 注册入口 | 对外兼容入口由 `reachai-control-service` 保持，内部归属 `reachai-capability-service`。 |
 | Runtime 执行 | Agent、Workflow、GraphSpec、Trace、RunOps 和调试归 `reachai-runtime-service`。 |
 | 知识检索 | RAG、Embedding 前处理、向量检索和业务索引归 `reachai-knowledge-service`。 |
-| 模型调用 | Chat、Embedding、Rerank 和 OpenAI 兼容代理归 `reachai-model-service`。 |
+| 模型调用 | Chat、Embedding、Rerank 归 `reachai-model-service`；不再提供 OpenAI 兼容 HTTP 代理入口。 |
 | 前端公共 API | 管理端 `/api/**` 不直接绕过 Control 打 Runtime 或 Capability 内部端口。 |
 
 第一阶段保持同一个 MySQL 库，不拆库，但服务代码必须遵守 owning service 边界。

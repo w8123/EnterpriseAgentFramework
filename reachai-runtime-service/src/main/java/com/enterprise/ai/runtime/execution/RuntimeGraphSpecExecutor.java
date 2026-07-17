@@ -28,6 +28,20 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Workflow GraphSpec 线性执行器。
+ * <p>
+ * 取消语义为<strong>节点边界协作式取消</strong>：
+ * <ul>
+ *   <li>节点前后检查 cancellation；取消后停止后续节点，返回 {@code RUNTIME_GRAPH_CANCELLED}</li>
+ *   <li>LLM / TOOL / CAPABILITY / PAGE_ACTION / 模型分类与参数抽取在同步 Feign 调用前后检查取消；
+ *       调用返回后若已取消，丢弃成功结果且不发 public delta</li>
+ *   <li>OpenFeign 同步 HTTP（{@code modelServiceClient.chat}、{@code capabilityClient.executeTool}、
+ *       {@code controlClient.executePageBridge}）在现有技术栈下<strong>无法硬中断</strong>进行中的 socket；
+ *       8s heartbeat SLA 只描述「发现连接断开并设置取消信号」的时限，不承诺节点内 HTTP 在 8s 内停止</li>
+ *   <li>已发生的外部副作用不回滚；取消不得伪装为 TIMEOUT</li>
+ * </ul>
+ */
 @Service
 @RequiredArgsConstructor
 public class RuntimeGraphSpecExecutor {
@@ -57,18 +71,41 @@ public class RuntimeGraphSpecExecutor {
     }
 
     public RuntimeGraphSpecExecutionResult execute(String graphSpecJson, Map<String, Object> request) {
-        return execute(graphSpecJson, request, null);
+        return execute(graphSpecJson, request, null,
+                RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none());
+    }
+
+    public RuntimeGraphSpecExecutionResult execute(String graphSpecJson,
+                                                   Map<String, Object> request,
+                                                   RuntimeGraphSpecExecutionEventSink sink,
+                                                   RuntimeGraphSpecExecutionCancellation cancellation) {
+        return execute(graphSpecJson, request, null, sink, cancellation);
     }
 
     public RuntimeGraphSpecExecutionResult executeFromNode(String graphSpecJson,
                                                            Map<String, Object> request,
                                                            String entryNodeId) {
-        return execute(graphSpecJson, request, entryNodeId);
+        return execute(graphSpecJson, request, entryNodeId,
+                RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none());
+    }
+
+    public RuntimeGraphSpecExecutionResult executeFromNode(String graphSpecJson,
+                                                           Map<String, Object> request,
+                                                           String entryNodeId,
+                                                           RuntimeGraphSpecExecutionEventSink sink,
+                                                           RuntimeGraphSpecExecutionCancellation cancellation) {
+        return execute(graphSpecJson, request, entryNodeId, sink, cancellation);
     }
 
     private RuntimeGraphSpecExecutionResult execute(String graphSpecJson,
                                                     Map<String, Object> request,
-                                                    String entryOverride) {
+                                                    String entryOverride,
+                                                    RuntimeGraphSpecExecutionEventSink sink,
+                                                    RuntimeGraphSpecExecutionCancellation cancellation) {
+        RuntimeGraphSpecExecutionEventSink eventSink = sink == null
+                ? RuntimeGraphSpecExecutionEventSink.NOOP : sink;
+        RuntimeGraphSpecExecutionCancellation cancel = cancellation == null
+                ? RuntimeGraphSpecExecutionCancellation.none() : cancellation;
         GraphSpec graph;
         try {
             graph = objectMapper.readValue(graphSpecJson, GraphSpec.class);
@@ -99,6 +136,11 @@ public class RuntimeGraphSpecExecutor {
         String currentNodeId = entry;
         RuntimeGraphSpecExecutionResult lastResult = null;
         for (int index = 0; index < MAX_LINEAR_STEPS && StringUtils.hasText(currentNodeId); index++) {
+            if (cancel.isCancelled()) {
+                eventSink.onExecutionCancelled(Map.of("currentNodeId", currentNodeId));
+                return withSteps(failure("RUNTIME_GRAPH_CANCELLED", "Workflow execution cancelled",
+                        currentNodeId, null), steps);
+            }
             GraphSpec.Node node = nodesById.get(currentNodeId);
             if (node == null) {
                 return withSteps(failure("RUNTIME_GRAPH_NEXT_NODE_INVALID",
@@ -106,26 +148,63 @@ public class RuntimeGraphSpecExecutor {
                         currentNodeId,
                         null), steps);
             }
-            RuntimeGraphSpecExecutionResult nodeResult = executeNode(node, context);
+            String nodeType = AgentGraphNodeType.normalize(node.getType());
+            String nodeName = firstText(node.getName(), node.getId());
+            long nodeStartedAt = System.currentTimeMillis();
+            eventSink.onNodeStarted(node.getId(), nodeType, nodeName, safeNodePayload(node, nodeType, null));
+            RuntimeGraphSpecExecutionResult nodeResult = executeNode(node, context, graph, eventSink, cancel);
+            long elapsedMs = System.currentTimeMillis() - nodeStartedAt;
             steps.addAll(nodeResult.steps());
+            // Cooperative cancellation：停止后续节点与可取消资源；不回滚当前节点已发生的外部副作用。
+            // 节点内同步调用返回后也会把取消映射为 RUNTIME_GRAPH_CANCELLED，禁止落入 onNodeFailed。
+            if (cancel.isCancelled() || "RUNTIME_GRAPH_CANCELLED".equals(nodeResult.code())) {
+                eventSink.onExecutionCancelled(Map.of(
+                        "currentNodeId", node.getId(),
+                        "code", "RUNTIME_GRAPH_CANCELLED"));
+                return withSteps(failure("RUNTIME_GRAPH_CANCELLED", "Workflow execution cancelled",
+                        node.getId(), nodeType), steps);
+            }
             if (!nodeResult.success()) {
+                if ("RUNTIME_GRAPH_INTERACTION_WAITING".equals(nodeResult.code())) {
+                    Map<String, Object> waitingPayload = safeNodePayload(node, nodeType, elapsedMs);
+                    waitingPayload.put("status", "WAITING");
+                    eventSink.onNodeWaiting(node.getId(), nodeType, nodeName, waitingPayload);
+                } else {
+                    Map<String, Object> failedPayload = safeNodePayload(node, nodeType, elapsedMs);
+                    failedPayload.put("status", "FAILED");
+                    failedPayload.put("code", nodeResult.code());
+                    failedPayload.put("summary", safeSummary(nodeResult.answer()));
+                    eventSink.onNodeFailed(node.getId(), nodeType, nodeName, failedPayload);
+                }
                 return withSteps(nodeResult, steps);
             }
+            Map<String, Object> completedPayload = safeNodePayload(node, nodeType, elapsedMs);
+            completedPayload.put("status", "SUCCESS");
+            completedPayload.put("summary", safeSummary(nodeResult.answer()));
+            String nextPreview = null;
+            NextNodeResolution next = null;
+            if (!"ANSWER".equals(nodeResult.nodeType())) {
+                next = resolveNextNode(graph, node.getId(), nodeResult);
+                nextPreview = next.nodeId();
+            }
+            if (StringUtils.hasText(nextPreview)) {
+                completedPayload.put("nextNodeId", nextPreview);
+            }
+            eventSink.onNodeCompleted(node.getId(), nodeType, nodeName, completedPayload);
             lastResult = withSteps(nodeResult, steps);
             rememberNodeOutput(context, node, nodeResult);
             if ("ANSWER".equals(nodeResult.nodeType())) {
                 return lastResult;
             }
-            NextNodeResolution next = resolveNextNode(graph, node.getId(), nodeResult);
             String route = resultRoute(nodeResult);
-            if (StringUtils.hasText(route) && !next.matched()) {
+            if (StringUtils.hasText(route) && next != null && !next.matched()) {
                 return withSteps(failure(
                         "RUNTIME_GRAPH_ROUTE_UNRESOLVED",
                         nodeResult.nodeType() + " route has no matching outgoing edge: " + route,
                         node.getId(),
                         nodeResult.nodeType()), steps);
             }
-            currentNodeId = next.nodeId();
+            currentNodeId = next == null ? null : next.nodeId();
         }
         if (StringUtils.hasText(currentNodeId)) {
             return withSteps(failure("RUNTIME_GRAPH_STEP_LIMIT_EXCEEDED",
@@ -138,23 +217,53 @@ public class RuntimeGraphSpecExecutor {
                 : lastResult;
     }
 
-    private RuntimeGraphSpecExecutionResult executeNode(GraphSpec.Node node, Map<String, Object> context) {
+    private Map<String, Object> safeNodePayload(GraphSpec.Node node, String nodeType, Long elapsedMs) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("nodeId", node.getId());
+        payload.put("nodeType", nodeType);
+        payload.put("nodeName", firstText(node.getName(), node.getId()));
+        if (elapsedMs != null) {
+            payload.put("elapsedMs", elapsedMs);
+        }
+        return payload;
+    }
+
+    private String safeSummary(String answer) {
+        if (!StringUtils.hasText(answer)) {
+            return "";
+        }
+        String trimmed = answer.trim();
+        return trimmed.length() <= 240 ? trimmed : trimmed.substring(0, 240);
+    }
+
+    private RuntimeGraphSpecExecutionResult executeNode(GraphSpec.Node node,
+                                                        Map<String, Object> context,
+                                                        GraphSpec graph,
+                                                        RuntimeGraphSpecExecutionEventSink eventSink,
+                                                        RuntimeGraphSpecExecutionCancellation cancel) {
         String nodeType = AgentGraphNodeType.normalize(node.getType());
+        if (cancel.isCancelled()) {
+            return cancelled(node.getId(), nodeType);
+        }
         return switch (nodeType) {
             case "USER_INPUT" -> executeUserInput(node, context);
-            case "INTENT_CLASSIFIER" -> executeIntentClassifier(node, context);
+            case "INTENT_CLASSIFIER" -> executeIntentClassifier(node, context, cancel);
             case "IF_ELSE" -> executeCondition(node, context);
-            case "PARAMETER_EXTRACT" -> executeParameterExtract(node, context);
+            case "PARAMETER_EXTRACT" -> executeParameterExtract(node, context, cancel);
             case "ANSWER" -> executeAnswer(node, context);
-            case "LLM" -> executeLlm(node, context);
-            case "TOOL", "CAPABILITY" -> executeTool(node, nodeType, context);
-            case "PAGE_ACTION" -> executePageAction(node, context);
+            case "LLM" -> executeLlm(node, context, graph, eventSink, cancel);
+            case "TOOL", "CAPABILITY" -> executeTool(node, nodeType, context, cancel);
+            case "PAGE_ACTION" -> executePageAction(node, context, cancel);
             case "INTERACTION" -> executeInteraction(node, context);
             default -> failure("RUNTIME_GRAPH_NODE_UNSUPPORTED",
                     "Runtime GraphSpec node type is not executable yet: " + nodeType,
                     node.getId(),
                     nodeType);
         };
+    }
+
+    private RuntimeGraphSpecExecutionResult cancelled(String nodeId, String nodeType) {
+        return failure("RUNTIME_GRAPH_CANCELLED", "Workflow execution cancelled", nodeId, nodeType);
     }
 
     private RuntimeGraphSpecExecutionResult executeUserInput(GraphSpec.Node node, Map<String, Object> context) {
@@ -171,7 +280,8 @@ public class RuntimeGraphSpecExecutor {
     }
 
     private RuntimeGraphSpecExecutionResult executeIntentClassifier(GraphSpec.Node node,
-                                                                     Map<String, Object> context) {
+                                                                     Map<String, Object> context,
+                                                                     RuntimeGraphSpecExecutionCancellation cancel) {
         Map<String, Object> config = classifierConfig(node);
         String strategy = normalizeClassifierStrategy(text(config.get("strategy")));
         List<ClassifierClass> classes = classifierClasses(config.get("classes"));
@@ -197,9 +307,19 @@ public class RuntimeGraphSpecExecutor {
                         node.getId(),
                         "INTENT_CLASSIFIER");
             }
+            if (cancel.isCancelled()) {
+                return cancelled(node.getId(), "INTENT_CLASSIFIER");
+            }
             try {
+                // Feign sync chat：节点边界协作式取消，无法硬中断进行中的 HTTP
                 decision = modelDecision(node, config, context, input, classes, defaultRoute, modelInstanceId);
+                if (cancel.isCancelled()) {
+                    return cancelled(node.getId(), "INTENT_CLASSIFIER");
+                }
             } catch (Exception ex) {
+                if (cancel.isCancelled()) {
+                    return cancelled(node.getId(), "INTENT_CLASSIFIER");
+                }
                 return failure("RUNTIME_GRAPH_CLASSIFIER_FAILED",
                         "INTENT_CLASSIFIER model execution failed: " + ex.getMessage(),
                         node.getId(),
@@ -282,7 +402,8 @@ public class RuntimeGraphSpecExecutor {
     }
 
     private RuntimeGraphSpecExecutionResult executeParameterExtract(GraphSpec.Node node,
-                                                                     Map<String, Object> context) {
+                                                                     Map<String, Object> context,
+                                                                     RuntimeGraphSpecExecutionCancellation cancel) {
         Map<String, Object> config = parameterConfig(node);
         String mode = "LLM".equalsIgnoreCase(firstText(
                 text(config.get("extractMode")),
@@ -306,6 +427,9 @@ public class RuntimeGraphSpecExecutor {
                         node.getId(),
                         "PARAMETER_EXTRACT");
             }
+            if (cancel.isCancelled()) {
+                return cancelled(node.getId(), "PARAMETER_EXTRACT");
+            }
             try {
                 String inputExpression = firstText(text(config.get("inputExpression")), "input");
                 String input = classifierInput(inputExpression, context);
@@ -317,6 +441,7 @@ public class RuntimeGraphSpecExecutor {
                 String userPrompt = firstText(
                         renderTemplate(text(config.get("userPrompt")), context),
                         input);
+                // Feign sync chat：节点边界协作式取消，无法硬中断进行中的 HTTP
                 ModelChatResult result = modelServiceClient.chat(ModelChatRequest.builder()
                         .modelInstanceId(modelInstanceId)
                         .messages(List.of(
@@ -324,6 +449,9 @@ public class RuntimeGraphSpecExecutor {
                                 ChatMessage.builder().role("user").content(userPrompt).build()))
                         .options(mapValue(firstPresent(config.get("modelParams"), config.get("options"))))
                         .build());
+                if (cancel.isCancelled()) {
+                    return cancelled(node.getId(), "PARAMETER_EXTRACT");
+                }
                 ModelChatData data = result == null ? null : result.getData();
                 modelOutput = data == null ? null : text(data.getContent());
                 if (!StringUtils.hasText(modelOutput)) {
@@ -331,9 +459,15 @@ public class RuntimeGraphSpecExecutor {
                 }
                 extracted = normalizeExtractedFields(parseJsonObject(modelOutput), fields, context, false);
             } catch (IllegalArgumentException ex) {
+                if (cancel.isCancelled()) {
+                    return cancelled(node.getId(), "PARAMETER_EXTRACT");
+                }
                 return failure("RUNTIME_GRAPH_PARAMETER_REQUIRED",
                         ex.getMessage(), node.getId(), "PARAMETER_EXTRACT");
             } catch (Exception ex) {
+                if (cancel.isCancelled()) {
+                    return cancelled(node.getId(), "PARAMETER_EXTRACT");
+                }
                 return failure("RUNTIME_GRAPH_PARAMETER_EXTRACT_FAILED",
                         "PARAMETER_EXTRACT model execution failed: " + ex.getMessage(),
                         node.getId(),
@@ -811,7 +945,11 @@ public class RuntimeGraphSpecExecutor {
         };
     }
 
-    private RuntimeGraphSpecExecutionResult executeLlm(GraphSpec.Node node, Map<String, Object> request) {
+    private RuntimeGraphSpecExecutionResult executeLlm(GraphSpec.Node node,
+                                                       Map<String, Object> request,
+                                                       GraphSpec graph,
+                                                       RuntimeGraphSpecExecutionEventSink eventSink,
+                                                       RuntimeGraphSpecExecutionCancellation cancel) {
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
         String modelInstanceId = resolveModelInstanceId(config, request);
         if (!StringUtils.hasText(modelInstanceId)) {
@@ -820,13 +958,22 @@ public class RuntimeGraphSpecExecutor {
                     node.getId(),
                     "LLM");
         }
+        if (cancel.isCancelled()) {
+            return cancelled(node.getId(), "LLM");
+        }
         ModelChatRequest modelRequest = ModelChatRequest.builder()
                 .modelInstanceId(modelInstanceId)
                 .messages(buildLlmMessages(config, request))
                 .options(mapValue(firstPresent(config.get("modelParams"), config.get("options"))))
                 .build();
+        boolean publicUserOutput = isSafePublicUserOutputLlm(node, graph, config);
         try {
+            // Feign sync chat：节点边界协作式取消，无法硬中断进行中的 HTTP
             ModelChatResult result = modelServiceClient.chat(modelRequest);
+            if (cancel.isCancelled()) {
+                // 丢弃成功结果；禁止 public delta / 成功 Memory 路径
+                return cancelled(node.getId(), "LLM");
+            }
             ModelChatData data = result == null ? null : result.getData();
             String answer = data == null ? null : text(data.getContent());
             if (!StringUtils.hasText(answer)) {
@@ -835,7 +982,14 @@ public class RuntimeGraphSpecExecutor {
                         node.getId(),
                         "LLM");
             }
+            // 安全最终输出：整段答案一次性作为 node.delta / 公共增量（LLM 节点当前走 sync chat，无 Token 流）
+            if (publicUserOutput && eventSink != null) {
+                Map<String, Object> deltaPayload = safeNodePayload(node, "LLM", null);
+                deltaPayload.put("publicUserOutput", true);
+                eventSink.onNodeDelta(node.getId(), "LLM", answer, deltaPayload);
+            }
             Map<String, Object> metadata = modelMetadata(node, data);
+            metadata.put("publicUserOutput", publicUserOutput);
             return new RuntimeGraphSpecExecutionResult(
                     true,
                     "RUNTIME_GRAPH_EXECUTED",
@@ -845,11 +999,65 @@ public class RuntimeGraphSpecExecutor {
                     List.of(step("execute-node", node.getId())),
                     metadata);
         } catch (Exception ex) {
+            if (cancel.isCancelled()) {
+                return cancelled(node.getId(), "LLM");
+            }
             return failure("RUNTIME_GRAPH_LLM_FAILED",
                     "LLM node execution failed: " + ex.getMessage(),
                     node.getId(),
                     "LLM");
         }
+    }
+
+    /**
+     * 仅当 LLM 节点可被确定性判定为用户最终输出时，才允许公开文本增量。
+     * 不凭节点名称猜测；内部分类/参数抽取等不得公开。
+     */
+    private boolean isSafePublicUserOutputLlm(GraphSpec.Node node, GraphSpec graph, Map<String, Object> config) {
+        if (config != null && Boolean.TRUE.equals(config.get("publicUserOutput"))) {
+            return true;
+        }
+        if (graph == null || node == null || !StringUtils.hasText(node.getId())) {
+            return false;
+        }
+        List<GraphSpec.Edge> outgoing = graph.getEdges() == null ? List.of() : graph.getEdges().stream()
+                .filter(edge -> edge != null && node.getId().equals(text(edge.getFrom())))
+                .toList();
+        if (outgoing.isEmpty()) {
+            // 终止 LLM 节点
+            return true;
+        }
+        if (outgoing.size() != 1) {
+            return false;
+        }
+        GraphSpec.Edge edge = outgoing.get(0);
+        String targetId = text(edge.getTo());
+        GraphSpec.Node next = graph.getNodes() == null ? null : graph.getNodes().stream()
+                .filter(candidate -> candidate != null && targetId != null
+                        && targetId.equals(candidate.getId()))
+                .findFirst()
+                .orElse(null);
+        if (next == null || !"ANSWER".equals(AgentGraphNodeType.normalize(next.getType()))) {
+            return false;
+        }
+        return isPassthroughAnswer(next);
+    }
+
+    private boolean isPassthroughAnswer(GraphSpec.Node answerNode) {
+        Map<String, Object> config = answerNode.getConfig() == null ? Map.of() : answerNode.getConfig();
+        String template = firstText(
+                text(config.get("template")),
+                text(config.get("answer")),
+                text(config.get("content")),
+                text(config.get("message")));
+        if (!StringUtils.hasText(template)) {
+            return true;
+        }
+        String normalized = template.trim();
+        return "{{lastOutput}}".equals(normalized)
+                || "{{previousOutput}}".equals(normalized)
+                || "{{last_output}}".equals(normalized)
+                || "{{previous_output}}".equals(normalized);
     }
 
     private RuntimeGraphSpecExecutionResult executeInteraction(GraphSpec.Node node, Map<String, Object> context) {
@@ -879,7 +1087,8 @@ public class RuntimeGraphSpecExecutor {
 
     private RuntimeGraphSpecExecutionResult executeTool(GraphSpec.Node node,
                                                         String nodeType,
-                                                        Map<String, Object> context) {
+                                                        Map<String, Object> context,
+                                                        RuntimeGraphSpecExecutionCancellation cancel) {
         String qualifiedName = resolveQualifiedName(node);
         if (!StringUtils.hasText(qualifiedName)) {
             return failure("RUNTIME_GRAPH_TOOL_REF_REQUIRED",
@@ -887,11 +1096,18 @@ public class RuntimeGraphSpecExecutor {
                     node.getId(),
                     nodeType);
         }
+        if (cancel.isCancelled()) {
+            return cancelled(node.getId(), nodeType);
+        }
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("input", buildToolInput(node, context));
         request.put("context", toolExecutionContext(node, nodeType, context));
         try {
+            // Feign sync executeTool：节点边界协作式取消，无法硬中断进行中的 HTTP
             Map<String, Object> result = capabilityClient.executeTool(qualifiedName, request);
+            if (cancel.isCancelled()) {
+                return cancelled(node.getId(), nodeType);
+            }
             Object output = firstPresent(result == null ? null : result.get("data"),
                     result == null ? null : result.get("result"));
             output = firstPresent(output, result == null ? null : result.get("body"));
@@ -911,6 +1127,9 @@ public class RuntimeGraphSpecExecutor {
                     List.of(step("execute-node", node.getId())),
                     metadata);
         } catch (Exception ex) {
+            if (cancel.isCancelled()) {
+                return cancelled(node.getId(), nodeType);
+            }
             return failure("RUNTIME_GRAPH_TOOL_FAILED",
                     nodeType + " node execution failed: " + ex.getMessage(),
                     node.getId(),
@@ -958,7 +1177,8 @@ public class RuntimeGraphSpecExecutor {
     }
 
     private RuntimeGraphSpecExecutionResult executePageAction(GraphSpec.Node node,
-                                                               Map<String, Object> context) {
+                                                               Map<String, Object> context,
+                                                               RuntimeGraphSpecExecutionCancellation cancel) {
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
         String sessionId = text(context.get("sessionId"));
         String projectCode = firstText(text(config.get("projectCode")), text(context.get("projectCode")));
@@ -972,9 +1192,13 @@ public class RuntimeGraphSpecExecutor {
                     "PAGE_ACTION requires sessionId, projectCode, agentId, pageKey and actionKey",
                     node.getId(), "PAGE_ACTION");
         }
+        if (cancel.isCancelled()) {
+            return cancelled(node.getId(), "PAGE_ACTION");
+        }
         Map<String, Object> args = buildToolInput(node, context);
         int timeoutMs = intValue(context.get("pageBridgeTimeoutMs"), DEFAULT_PAGE_BRIDGE_TIMEOUT_MS);
         try {
+            // Feign sync Page Bridge：节点边界协作式取消，无法硬中断进行中的 HTTP
             PageBridgeExecutionResponse response = controlClient.executePageBridge(new PageBridgeExecutionRequest(
                     sessionId,
                     projectCode,
@@ -986,6 +1210,9 @@ public class RuntimeGraphSpecExecutor {
                     args,
                     Boolean.TRUE.equals(config.get("confirm")) || Boolean.TRUE.equals(config.get("confirmRequired")),
                     timeoutMs));
+            if (cancel.isCancelled()) {
+                return cancelled(node.getId(), "PAGE_ACTION");
+            }
             Map<String, Object> metadata = nodeMetadata(node, "PAGE_ACTION");
             metadata.put("pageKey", targetPageKey);
             metadata.put("actionKey", actionKey);
@@ -1007,6 +1234,9 @@ public class RuntimeGraphSpecExecutor {
                     response.data() == null ? response.status() : String.valueOf(response.data()),
                     node.getId(), "PAGE_ACTION", List.of(step("execute-page-action", node.getId())), metadata);
         } catch (Exception ex) {
+            if (cancel.isCancelled()) {
+                return cancelled(node.getId(), "PAGE_ACTION");
+            }
             return failure("RUNTIME_PAGE_ACTION_FAILED", "PAGE_ACTION failed: " + ex.getMessage(),
                     node.getId(), "PAGE_ACTION");
         }
@@ -1150,8 +1380,10 @@ public class RuntimeGraphSpecExecutor {
         putIfPresent(metadata, "model", data.getModel());
         putIfPresent(metadata, "provider", data.getProvider());
         putIfPresent(metadata, "usage", data.getUsage());
-        putIfPresent(metadata, "reasoningContent", data.getReasoningContent());
-        putIfPresent(metadata, "toolCalls", data.getToolCalls());
+        // 禁止把 reasoning 正文写入 metadata / Trace 公共字段
+        if (data.getReasoningContent() != null && !data.getReasoningContent().isEmpty()) {
+            metadata.put("reasoningLength", data.getReasoningContent().length());
+        }
         putIfPresent(metadata, "finishReason", data.getFinishReason());
         return metadata;
     }

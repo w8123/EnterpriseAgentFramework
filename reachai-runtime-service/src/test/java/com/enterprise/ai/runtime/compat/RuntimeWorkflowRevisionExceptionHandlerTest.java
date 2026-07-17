@@ -5,6 +5,7 @@ import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowRevisionConflictException;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowRevisionFormatException;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowKeySlugConflictException;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowStudioService;
 import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftEditService;
 import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftGenerationService;
@@ -19,11 +20,35 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class RuntimeWorkflowRevisionExceptionHandlerTest {
+
+    @Test
+    void returnsClearConflictWhenWorkflowKeyAlreadyExists() throws Exception {
+        RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
+        when(workflowService.create(any())).thenThrow(new RuntimeWorkflowKeySlugConflictException("1111"));
+        RuntimeWorkflowCompatibilityController controller = new RuntimeWorkflowCompatibilityController(
+                workflowService,
+                mock(RuntimeWorkflowReleaseValidationService.class),
+                mock(RuntimeWorkflowStudioService.class),
+                mock(RuntimeWorkflowDebugService.class),
+                mock(RuntimeWorkflowDraftGenerationService.class),
+                mock(RuntimeWorkflowDraftEditService.class));
+
+        MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new RuntimeWorkflowRevisionExceptionHandler())
+                .build()
+                .perform(post("/api/workflows")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"keySlug\":\"1111\",\"name\":\"测试问答\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("WORKFLOW_KEY_SLUG_EXISTS"))
+                .andExpect(jsonPath("$.keySlug").value("1111"));
+    }
 
     @Test
     void returnsStructuredConflictWithCurrentRevisionEtag() throws Exception {

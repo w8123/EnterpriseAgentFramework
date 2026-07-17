@@ -80,7 +80,7 @@ Capability Catalog 承接 SDK 注册、能力快照、diff/review/apply、扫描
 
 `reachai-knowledge-service` 是 Knowledge / Retrieval 部署单元，不再称为“技能服务”。它承接知识库、文件、chunk、RAG、业务索引、向量检索和历史扫描器实现。
 
-`reachai-model-service` 是 Model Gateway 部署单元，承接模型实例中心、Chat、Embedding、Rerank 和 OpenAI 兼容代理。
+`reachai-model-service` 是 Model Gateway 部署单元，承接模型中心 V2（model_template + model_instance）、Chat、Embedding、Rerank；不再提供 /model/openai-proxy。
 
 需要持续防回流：
 

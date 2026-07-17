@@ -6,7 +6,9 @@ import com.enterprise.ai.model.util.ChatDebugLogs;
 import com.enterprise.ai.model.util.EmbeddingDebugLogs;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
@@ -27,15 +29,21 @@ public class ModelController {
         return ApiResult.ok(routingService.chat(request));
     }
 
-    @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> chatStream(@RequestBody ChatRequest request) {
-        log.info("[ChatStream] received modelInstanceId={}, messages={}",
+    /** 模型结构化流唯一入口；旧 `/model/chat/stream` 文本流已删除。 */
+    @PostMapping(value = "/chat/stream/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<Flux<ModelStreamEvent>> chatStreamEvents(@RequestBody ChatRequest request) {
+        log.info("[ChatStreamEvents] received modelInstanceId={}, messages={}",
                 request.getModelInstanceId(),
                 request.getMessages() == null ? 0 : request.getMessages().size());
-        ChatDebugLogs.logChatRequest(log, "[ChatStream] request", request);
-        return routingService.chatStream(request)
-                .doOnComplete(() -> log.info("[ChatStream] completed modelInstanceId={}", request.getModelInstanceId()))
-                .doOnError(e -> log.error("[ChatStream] failed modelInstanceId={}", request.getModelInstanceId(), e));
+        ChatDebugLogs.logChatRequest(log, "[ChatStreamEvents] request", request);
+        Flux<ModelStreamEvent> events = routingService.chatStreamEvents(request)
+                .doOnComplete(() -> log.info("[ChatStreamEvents] completed modelInstanceId={}", request.getModelInstanceId()))
+                .doOnError(e -> log.error("[ChatStreamEvents] failed modelInstanceId={}", request.getModelInstanceId(), e));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noCache().noTransform())
+                .header("X-Accel-Buffering", "no")
+                .contentType(MediaType.TEXT_EVENT_STREAM)
+                .body(events);
     }
 
     @PostMapping("/embedding")

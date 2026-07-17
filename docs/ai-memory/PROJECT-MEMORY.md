@@ -27,7 +27,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台。它不是单纯的 Work
 - `reachai-runtime-service/`: Runtime Host，承接 Agent、Workflow、GraphSpec、Trace、RunOps、调试和运行时内部 API。
 - `reachai-capability-service/`: Capability Catalog，承接 SDK 注册、能力快照、diff/review/apply、扫描目录和能力资产 API。
 - `reachai-knowledge-service/`: Knowledge / Retrieval，承接知识库、文件、chunk、文档 pipeline、RAG、业务索引、向量检索和历史扫描器实现。不要再称为“技能服务”。
-- `reachai-model-service/`: Model Gateway，承接模型实例中心、模型配置、Chat、Embedding、Rerank 和 OpenAI 兼容代理。
+- `reachai-model-service/`: Model Gateway，承接模型中心 V2（model_template + model_instance）、Chat、Embedding、Rerank；不再提供 /model/openai-proxy。
 - `ai-common/`: 通用模型、响应和工具类。
 - `reachai-capability-sdk/`: JDK8 兼容的业务系统能力声明 SDK 契约。
 - `reachai-spring-boot2-starter/`: Spring Boot 2 接入、扫描、注册、心跳、能力同步和 SDK 图同步。

@@ -591,9 +591,11 @@ assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "serviceHealt
 assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "serviceHealth['reachai-runtime-service']")
 assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "serviceHealth['reachai-capability-service']")
 assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "serviceHealth['reachai-knowledge-service']")
-assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "checkHttpService('reachai-knowledge-service', '/ai/actuator/health')")
-assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "checkHttpService('reachai-model-service', '/model/providers')")
+assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', "serviceHealth['reachai-model-service']")
 assertIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '/api/internal-services/health')
+assertNotIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', 'checkHttpService')
+assertNotIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '/model/providers')
+assertNotIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', '/ai/actuator/health')
 assertNotIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', 'http://localhost:18604')
 assertNotIncludes('ai-admin-front/src/views/dashboard/Dashboard.vue', 'http://localhost:18605')
 assertIncludes('reachai-knowledge-service/src/main/resources/application.yml', 'port: 18602')
@@ -639,14 +641,14 @@ assertNotMatches('.run/00-reachai-five-services.run.xml', /(^|[^a-z-])ai-skills-
 assertNotMatches('.run/00-reachai-five-services.run.xml', /(^|[^a-z-])ai-model-service([^a-z-]|$)/, 'standalone ai-model-service')
 assertMatches('ai-admin-front/vite.config.ts', /['"]\/ai['"]:\s*\{[\s\S]*?target:\s*['"]http:\/\/localhost:18602['"]/, '/ai proxy -> 18602')
 assertMatches('ai-admin-front/vite.config.ts', /['"]\/api['"]:\s*\{[\s\S]*?target:\s*['"]http:\/\/localhost:18603['"]/, '/api proxy -> 18603')
-assertMatches('ai-admin-front/vite.config.ts', /\^\/model\/\(providers\|instances\|chat\)[\s\S]*?target:\s*['"]http:\/\/localhost:18601['"]/, '/model proxy -> 18601')
+assertMatches('ai-admin-front/vite.config.ts', /\^\/model\/\(templates\|instances\|chat\)[\s\S]*?target:\s*['"]http:\/\/localhost:18601['"]/, '/model proxy -> 18601')
 assertPackagePrefixUnder('reachai-control-service/src/main/java/com/enterprise/ai/control', 'com.enterprise.ai.control')
 assertPackagePrefixUnder('reachai-runtime-service/src/main/java/com/enterprise/ai/runtime', 'com.enterprise.ai.runtime')
 assertPackagePrefixUnder('reachai-capability-service/src/main/java/com/enterprise/ai/capability', 'com.enterprise.ai.capability')
 
 const keyApiPaths = [
   ['reachai-model-service/src/main/java/com/enterprise/ai/model/controller/ModelController.java', '@RequestMapping("/model")'],
-  ['reachai-model-service/src/main/java/com/enterprise/ai/model/controller/OpenAIProxyController.java', '@RequestMapping("/model/openai-proxy")'],
+  ['reachai-model-service/src/main/java/com/enterprise/ai/model/template/ModelTemplateController.java', '@RequestMapping("/model/templates")'],
   ['reachai-model-service/src/main/java/com/enterprise/ai/model/instance/ModelInstanceController.java', '@RequestMapping("/model/instances")'],
   ['reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/KnowledgeController.java', '@RequestMapping("/knowledge")'],
   ['reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/FileController.java', '@RequestMapping("/file")'],

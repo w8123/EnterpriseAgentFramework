@@ -899,7 +899,7 @@ function toggleFooterPanel(panel: 'profile' | 'settings') {
 }
 
 .appearance-swatch[data-brand-option='coral-rose'] {
-  background: linear-gradient(135deg, #e11d48, #fb7185);
+  background: linear-gradient(135deg, #db2777, #f472b6);
 }
 
 .appearance-swatch[data-brand-option='solar-gold'] {

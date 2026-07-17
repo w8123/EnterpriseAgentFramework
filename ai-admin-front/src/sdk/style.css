@@ -1,23 +1,38 @@
-.eaf-chat {
-  --reachai-chat-primary: #2563eb;
-  box-sizing: border-box;
+/**
+ * Embed SDK 外壳样式（Header / 定位 / 根容器）。
+ * 消息、Composer、氛围背景由共享 Conversation 组件 + conversation-tokens 提供。
+ */
+@import '../conversation/styles/conversation-tokens.css';
+
+.eaf-chat,
+.reachai-chat-root {
+  --reachai-chat-primary: #6366f1;
+  --reachai-chat-primary-rgb: 99 102 241;
+  /* 内嵌宿主：跟随 mount 容器宽度，便于 Conversation @container 头像响应 */
+  box-sizing: border-box !important;
   display: flex;
   flex-direction: column;
-  width: min(380px, calc(100vw - 24px));
-  max-height: min(620px, calc(100vh - 24px));
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   overflow: hidden;
-  border: 1px solid #d8dee8;
-  border-radius: 8px;
-  background: #fff;
-  color: #172033;
+  border: 1px solid rgb(115 133 172 / 0.22);
+  border-radius: 14px;
+  background: var(--reachai-chat-surface, #fff);
+  color: var(--reachai-chat-text, #14201f);
   box-shadow: 0 16px 40px rgb(15 23 42 / 18%);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--reachai-chat-font-family);
 }
 
 .eaf-chat *,
 .eaf-chat *::before,
-.eaf-chat *::after {
-  box-sizing: border-box;
+.eaf-chat *::after,
+.reachai-chat-root *,
+.reachai-chat-root *::before,
+.reachai-chat-root *::after {
+  /* 抵抗宿主全局 box-sizing / 布局污染 */
+  box-sizing: border-box !important;
 }
 
 .eaf-chat--bottom-right,
@@ -25,6 +40,9 @@
   position: fixed;
   z-index: 2147483000;
   bottom: 16px;
+  width: min(var(--reachai-chat-width, 380px), calc(100vw - 24px));
+  height: auto;
+  max-height: min(var(--reachai-chat-height, 560px), calc(100vh - 24px));
 }
 
 .eaf-chat--bottom-right {
@@ -42,8 +60,12 @@
   gap: 8px;
   min-height: 44px;
   padding: 10px 12px;
-  background: var(--reachai-chat-primary);
-  color: #fff;
+  background: linear-gradient(
+    135deg,
+    var(--reachai-chat-primary-soft, #818cf8),
+    var(--reachai-chat-primary, #6366f1)
+  );
+  color: var(--reachai-chat-primary-contrast, #fff);
 }
 
 .eaf-chat__brand {
@@ -66,19 +88,15 @@
   line-height: 1;
 }
 
-.eaf-chat__messages {
+.eaf-chat__body {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 8px;
-  min-height: 240px;
-  overflow: auto;
-  padding: 12px;
-  background: #f7f9fc;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.eaf-chat--closed .eaf-chat__messages,
-.eaf-chat--closed .eaf-chat__input {
+.eaf-chat--closed .eaf-chat__body {
   display: none;
 }
 
@@ -86,127 +104,13 @@
   max-height: 44px;
 }
 
-.eaf-chat__message,
-.eaf-chat__action-result,
-.eaf-chat__ui {
-  max-width: 100%;
-  padding: 8px 10px;
-  border-radius: 8px;
-  overflow-wrap: anywhere;
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-.eaf-chat__message--user {
-  align-self: flex-end;
-  background: var(--reachai-chat-primary);
-  color: #fff;
-}
-
-.eaf-chat__message--assistant,
-.eaf-chat__ui {
-  align-self: flex-start;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-}
-
-.eaf-chat__message--system,
-.eaf-chat__action-result {
-  align-self: stretch;
-  background: #eef4ff;
-  color: #40516f;
-}
-
-.eaf-chat__input {
-  display: flex;
-  gap: 8px;
-  padding: 10px;
-  border-top: 1px solid #e2e8f0;
-}
-
-.eaf-chat__input input {
-  flex: 1 1 auto;
-  min-width: 0;
-  border: 1px solid #ccd6e3;
-  border-radius: 6px;
-  padding: 8px 10px;
-  font: inherit;
-}
-
-.eaf-chat__input button {
-  border: 0;
-  border-radius: 6px;
-  padding: 8px 12px;
-  background: var(--reachai-chat-primary);
-  color: #fff;
-  cursor: pointer;
-  font: inherit;
-}
-
-.eaf-chat__ui-title {
-  margin-bottom: 6px;
-  font-weight: 650;
-}
-
-.eaf-chat__ui-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.eaf-chat__ui-button {
-  border: 1px solid var(--reachai-chat-border, #d9dce5);
-  border-radius: 8px;
-  padding: 6px 12px;
-  background: #fff;
-  color: #303133;
-  cursor: pointer;
-}
-
-.eaf-chat__ui-button--primary {
-  border-color: var(--reachai-chat-primary, #4f5bd5);
-  background: var(--reachai-chat-primary, #4f5bd5);
-  color: #fff;
-}
-
-.eaf-chat__ui-button--danger {
-  border-color: #f56c6c;
-  color: #f56c6c;
-}
-
-.eaf-chat__ui-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.eaf-chat__ui table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.eaf-chat__ui th,
-.eaf-chat__ui td {
-  border-bottom: 1px solid #e2e8f0;
-  padding: 6px;
-  text-align: left;
-  vertical-align: top;
-}
-
-.eaf-chat__ui dl {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 6px 10px;
-  margin: 0;
-}
-
-.eaf-chat__ui dt {
-  color: #64748b;
-}
-
-.eaf-chat__ui dd {
-  margin: 0;
+.eaf-chat .eaf-chat__conversation,
+.eaf-chat .reachai-conversation {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  border: none;
+  border-radius: 0;
 }
 
 @media (max-width: 520px) {

@@ -131,6 +131,18 @@ class SupervisorToolPolicyServiceTest {
                 input("查询"), Map.of(), null).decision());
     }
 
+    @Test
+    void rejectsInvalidPolicyJsonInsteadOfSkippingTenantAndPermissionChecks() {
+        config.setConfigJson("{invalid-json");
+
+        SupervisorToolPolicyService.PolicyDecision decision = service.evaluate(
+                trace, agent, config, tool("READ", "team:read", true), input("query"), Map.of(), null);
+
+        assertFalse(decision.allowed());
+        assertEquals("DENY", decision.decision());
+        assertEquals("Supervisor policy configuration is invalid", decision.reason());
+    }
+
     private RuntimeAgentWorkflowToolEntity tool(String risk, String permissionKey, boolean readOnly) {
         RuntimeAgentWorkflowToolEntity tool = new RuntimeAgentWorkflowToolEntity();
         tool.setToolName("query_team");

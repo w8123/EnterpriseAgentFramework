@@ -6,6 +6,7 @@ import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionMapper;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -28,7 +30,7 @@ class RuntimeAgentConfigServiceTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentConfigService service = new RuntimeAgentConfigService(
-                configMapper, toolMapper, agentMapper, workflowMapper, versionMapper);
+                configMapper, toolMapper, agentMapper, workflowMapper, versionMapper, new ObjectMapper());
 
         RuntimeAgentEntity agent = new RuntimeAgentEntity();
         agent.setId("agent-1");
@@ -75,7 +77,7 @@ class RuntimeAgentConfigServiceTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentConfigService service = new RuntimeAgentConfigService(
-                configMapper, toolMapper, agentMapper, workflowMapper, versionMapper);
+                configMapper, toolMapper, agentMapper, workflowMapper, versionMapper, new ObjectMapper());
 
         RuntimeAgentEntity agent = new RuntimeAgentEntity();
         agent.setId("agent-1");
@@ -123,7 +125,7 @@ class RuntimeAgentConfigServiceTest {
         RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
         RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
         RuntimeAgentConfigService service = new RuntimeAgentConfigService(
-                configMapper, toolMapper, agentMapper, workflowMapper, versionMapper);
+                configMapper, toolMapper, agentMapper, workflowMapper, versionMapper, new ObjectMapper());
 
         RuntimeAgentEntity agent = new RuntimeAgentEntity();
         agent.setId("agent-1");
@@ -182,5 +184,35 @@ class RuntimeAgentConfigServiceTest {
         assertEquals("ACTIVE", draft.getStatus());
         assertEquals("ARCHIVED", previousActive.getStatus());
         assertEquals(6L, agent.getActiveConfigVersionId());
+    }
+
+    @Test
+    void publishRejectsInvalidConfigJson() {
+        RuntimeAgentConfigVersionMapper configMapper = mock(RuntimeAgentConfigVersionMapper.class);
+        RuntimeAgentWorkflowToolMapper toolMapper = mock(RuntimeAgentWorkflowToolMapper.class);
+        RuntimeAgentMapper agentMapper = mock(RuntimeAgentMapper.class);
+        RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
+        RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
+        RuntimeAgentConfigService service = new RuntimeAgentConfigService(
+                configMapper, toolMapper, agentMapper, workflowMapper, versionMapper, new ObjectMapper());
+
+        RuntimeAgentEntity agent = new RuntimeAgentEntity();
+        agent.setId("agent-1");
+        when(agentMapper.selectById("agent-1")).thenReturn(agent);
+        RuntimeAgentConfigVersionEntity draft = new RuntimeAgentConfigVersionEntity();
+        draft.setId(6L);
+        draft.setAgentId("agent-1");
+        draft.setStatus("DRAFT");
+        draft.setRuntimeType("AGENTSCOPE");
+        draft.setSystemPrompt("You are the orders supervisor");
+        draft.setModelInstanceId("model-1");
+        draft.setToolCatalogMode("ALLOW_LIST");
+        draft.setConfigJson("{invalid-json");
+        when(configMapper.selectById(6L)).thenReturn(draft);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.publish("agent-1", 6L, "tester"));
+
+        assertEquals("Agent configJson must be valid JSON", error.getMessage());
     }
 }

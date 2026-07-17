@@ -3,8 +3,14 @@ import type {
   ModelChatRequest,
   ModelChatResponse,
   ModelInstance,
-  ModelInstanceRequest,
+  ModelInstanceCreateRequest,
+  ModelInstanceDraftTestRequest,
+  ModelInstanceFromTemplateRequest,
+  ModelInstanceListParams,
   ModelInstanceTestResult,
+  ModelInstanceUpdateRequest,
+  ModelTemplate,
+  ModelTemplateListParams,
 } from '@/types/model'
 import type { ApiResult } from '@/types/import'
 
@@ -12,30 +18,42 @@ export function modelChat(data: ModelChatRequest) {
   return modelRequest.post<ApiResult<ModelChatResponse>>('/chat', data)
 }
 
-export function modelChatStream(data: ModelChatRequest): Promise<Response> {
-  return fetch('/model/chat/stream', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
+export function getModelTemplates(params?: ModelTemplateListParams) {
+  return modelRequest.get<ApiResult<ModelTemplate[]>>('/templates', { params })
 }
 
-export function getModelInstances(params?: { workspaceId?: string; modelType?: string; provider?: string }) {
+export function getModelTemplate(id: string) {
+  return modelRequest.get<ApiResult<ModelTemplate>>(`/templates/${id}`)
+}
+
+export function getModelInstances(params?: ModelInstanceListParams) {
   return modelRequest.get<ApiResult<ModelInstance[]>>('/instances', { params })
 }
 
-export function createModelInstance(data: ModelInstanceRequest) {
+export function getModelInstance(id: string) {
+  return modelRequest.get<ApiResult<ModelInstance>>(`/instances/${id}`)
+}
+
+export function createModelInstance(data: ModelInstanceCreateRequest) {
   return modelRequest.post<ApiResult<ModelInstance>>('/instances', data)
 }
 
-export function updateModelInstance(id: string, data: ModelInstanceRequest) {
+export function createModelInstanceFromTemplate(templateId: string, data: ModelInstanceFromTemplateRequest) {
+  return modelRequest.post<ApiResult<ModelInstance>>(`/instances/from-template/${templateId}`, data)
+}
+
+export function updateModelInstance(id: string, data: ModelInstanceUpdateRequest) {
   return modelRequest.put<ApiResult<ModelInstance>>(`/instances/${id}`, data)
 }
 
-export function deleteModelInstance(id: string) {
-  return modelRequest.delete<ApiResult<boolean>>(`/instances/${id}`)
+export function testModelInstanceDraft(data: ModelInstanceDraftTestRequest) {
+  return modelRequest.post<ApiResult<ModelInstanceTestResult>>('/instances/test-draft', data)
 }
 
 export function testModelInstance(id: string) {
   return modelRequest.post<ApiResult<ModelInstanceTestResult>>(`/instances/${id}/test`)
+}
+
+export function archiveModelInstance(id: string) {
+  return modelRequest.post<ApiResult<ModelInstance>>(`/instances/${id}/archive`)
 }

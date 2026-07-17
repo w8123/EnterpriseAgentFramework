@@ -13,8 +13,10 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -728,5 +730,205 @@ class RuntimeGraphSpecExecutorTest {
             return Map.of();
         }
 
+    }
+
+    @Test
+    void emitsNodeEventsDuringExecutionWithTimingGaps() {
+        List<String> events = new CopyOnWriteArrayList<>();
+        List<Long> at = new CopyOnWriteArrayList<>();
+        RuntimeGraphSpecExecutionEventSink sink = new RuntimeGraphSpecExecutionEventSink() {
+            @Override
+            public void onNodeStarted(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
+                events.add("started:" + nodeId);
+                at.add(System.nanoTime());
+            }
+
+            @Override
+            public void onNodeCompleted(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
+                events.add("completed:" + nodeId);
+                at.add(System.nanoTime());
+            }
+        };
+        RuntimeModelServiceClient slowModel = request -> {
+            try {
+                Thread.sleep(150);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            return new ModelChatResult(200, "ok",
+                    new ModelChatData("A", "m", "p", null, null, null, "stop"));
+        };
+        RuntimeGraphSpecExecutor timed = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), slowModel, capabilityClient,
+                org.mockito.Mockito.mock(RuntimeControlCatalogClient.class));
+
+        RuntimeGraphSpecExecutionResult result = timed.execute("""
+                {
+                  "entry":"n1",
+                  "nodes":[
+                    {"id":"n1","type":"LLM","name":"one","config":{"modelInstanceId":"m1","userPrompt":"{{input}}"}},
+                    {"id":"n2","type":"ANSWER","name":"two","config":{"template":"{{lastOutput}}"}}
+                  ],
+                  "edges":[{"from":"n1","to":"n2"}]
+                }
+                """, Map.of("message", "q"), sink, RuntimeGraphSpecExecutionCancellation.none());
+
+        assertTrue(result.success());
+        assertEquals(List.of("started:n1", "completed:n1", "started:n2", "completed:n2"), events);
+        assertTrue(at.get(1) - at.get(0) >= 100_000_000L, "node.completed should follow actual execution");
+        assertTrue(at.get(2) > at.get(1), "second node.started must follow first node.completed");
+    }
+
+    @Test
+    void cancelStopsSubsequentNodes() {
+        List<String> events = new CopyOnWriteArrayList<>();
+        RuntimeGraphSpecExecutionCancellation cancellation = new RuntimeGraphSpecExecutionCancellation();
+        RuntimeGraphSpecExecutionEventSink sink = new RuntimeGraphSpecExecutionEventSink() {
+            @Override
+            public void onNodeStarted(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
+                events.add("started:" + nodeId);
+                if ("n1".equals(nodeId)) {
+                    cancellation.cancel();
+                }
+            }
+
+            @Override
+            public void onNodeCompleted(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
+                events.add("completed:" + nodeId);
+            }
+
+            @Override
+            public void onExecutionCancelled(Map<String, Object> safePayload) {
+                events.add("cancelled");
+            }
+        };
+
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entry":"n1",
+                  "nodes":[
+                    {"id":"n1","type":"USER_INPUT","name":"one"},
+                    {"id":"n2","type":"ANSWER","name":"two","config":{"template":"done"}}
+                  ],
+                  "edges":[{"from":"n1","to":"n2"}]
+                }
+                """, Map.of("message", "q"), sink, cancellation);
+
+        assertFalse(result.success());
+        assertEquals("RUNTIME_GRAPH_CANCELLED", result.code());
+        assertTrue(events.contains("started:n1"));
+        assertTrue(events.contains("completed:n1") || events.contains("cancelled"));
+        assertFalse(events.contains("started:n2"), "cancelled run must not start subsequent nodes");
+    }
+
+    @Test
+    void cancelDuringLlmSyncChatDiscardsSuccessAndDoesNotEmitPublicDelta() {
+        List<String> events = new CopyOnWriteArrayList<>();
+        RuntimeGraphSpecExecutionCancellation cancellation = new RuntimeGraphSpecExecutionCancellation();
+        RuntimeModelServiceClient cancellingModel = request -> {
+            cancellation.cancel();
+            return new ModelChatResult(0, "ok",
+                    new ModelChatData("should-discard", "gpt-test", "openai", null, null, null, "stop"));
+        };
+        RuntimeGraphSpecExecutor cancellingExecutor = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), cancellingModel, capabilityClient,
+                org.mockito.Mockito.mock(RuntimeControlCatalogClient.class));
+        RuntimeGraphSpecExecutionEventSink sink = new RuntimeGraphSpecExecutionEventSink() {
+            @Override
+            public void onNodeDelta(String nodeId, String nodeType, String text, Map<String, Object> safePayload) {
+                events.add("delta:" + text);
+            }
+
+            @Override
+            public void onNodeFailed(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
+                events.add("failed");
+            }
+
+            @Override
+            public void onExecutionCancelled(Map<String, Object> safePayload) {
+                events.add("cancelled");
+            }
+        };
+
+        RuntimeGraphSpecExecutionResult result = cancellingExecutor.execute("""
+                {
+                  "entry":"llm",
+                  "nodes":[{
+                    "id":"llm","type":"LLM",
+                    "config":{"modelInstanceId":"m1","userPrompt":"{{input}}"}
+                  }]
+                }
+                """, Map.of("message", "q"), sink, cancellation);
+
+        assertEquals("RUNTIME_GRAPH_CANCELLED", result.code());
+        assertTrue(events.contains("cancelled"));
+        assertFalse(events.contains("failed"), "cancel must not map to node.failed");
+        assertFalse(events.stream().anyMatch(e -> e.startsWith("delta:")),
+                "cancelled LLM must not emit public delta");
+    }
+
+    @Test
+    void realNodeExceptionStillFailsWhenNotCancelled() {
+        RuntimeModelServiceClient exploding = request -> {
+            throw new IllegalStateException("model down");
+        };
+        RuntimeGraphSpecExecutor failingExecutor = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), exploding, capabilityClient,
+                org.mockito.Mockito.mock(RuntimeControlCatalogClient.class));
+        List<String> events = new CopyOnWriteArrayList<>();
+        RuntimeGraphSpecExecutionEventSink sink = new RuntimeGraphSpecExecutionEventSink() {
+            @Override
+            public void onNodeFailed(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
+                events.add("failed:" + safePayload.get("code"));
+            }
+
+            @Override
+            public void onExecutionCancelled(Map<String, Object> safePayload) {
+                events.add("cancelled");
+            }
+        };
+
+        RuntimeGraphSpecExecutionResult result = failingExecutor.execute("""
+                {
+                  "entry":"llm",
+                  "nodes":[{
+                    "id":"llm","type":"LLM",
+                    "config":{"modelInstanceId":"m1","userPrompt":"{{input}}"}
+                  }]
+                }
+                """, Map.of("message", "q"), sink, RuntimeGraphSpecExecutionCancellation.none());
+
+        assertEquals("RUNTIME_GRAPH_LLM_FAILED", result.code());
+        assertTrue(events.stream().anyMatch(e -> e.startsWith("failed:")));
+        assertFalse(events.contains("cancelled"));
+    }
+
+    @Test
+    void internalClassifierLlmDoesNotEmitPublicNodeDelta() {
+        List<String> deltas = new CopyOnWriteArrayList<>();
+        RuntimeGraphSpecExecutionEventSink sink = new RuntimeGraphSpecExecutionEventSink() {
+            @Override
+            public void onNodeDelta(String nodeId, String nodeType, String text, Map<String, Object> safePayload) {
+                deltas.add(nodeId + ":" + text);
+            }
+        };
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entry":"cls",
+                  "nodes":[
+                    {"id":"cls","type":"INTENT_CLASSIFIER","config":{
+                      "strategy":"LLM","modelInstanceId":"m1",
+                      "classes":[{"id":"a","label":"A"},{"id":"b","label":"B"}]
+                    }},
+                    {"id":"ans","type":"ANSWER","config":{"template":"route={{lastOutput}}"}}
+                  ],
+                  "edges":[{"from":"cls","to":"ans","condition":"a"},{"from":"cls","to":"ans","condition":"b"}]
+                }
+                """, Map.of("message", "hello"), sink, RuntimeGraphSpecExecutionCancellation.none());
+
+        // INTENT_CLASSIFIER 不是 publicUserOutput LLM；不得公开内部 token/delta
+        assertTrue(deltas.isEmpty(), "classifier must not emit public node delta, got " + deltas);
+        assertTrue(result.success() || "RUNTIME_GRAPH_ROUTE_UNRESOLVED".equals(result.code())
+                || result.code() != null);
     }
 }

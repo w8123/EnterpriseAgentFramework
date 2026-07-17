@@ -1,52 +1,27 @@
 <template>
-  <div v-if="payload" class="dynamic-interaction">
-    <el-alert v-if="payload.title" :title="payload.title" type="info" :closable="false" show-icon class="mb" />
-    <FormCard
-      v-if="payload.component === 'form'"
-      :fields="payload.fields || []"
-      :prefilled="payload.prefilled"
-      @submit="forwardSubmit('submit', $event)"
-      @cancel="forwardSubmit('cancel', {})"
+  <div v-if="normalized" class="dynamic-interaction">
+    <el-alert
+      v-if="normalized.title"
+      :title="normalized.title"
+      type="info"
+      :closable="false"
+      show-icon
+      class="mb"
     />
-    <SummaryCard
-      v-else-if="payload.component === 'summary_card'"
-      :title="payload.title"
-      :message="payload.message"
-      :summary="payload.summary"
-      @submit="forwardSubmit('submit', {})"
-      @modify="forwardSubmit('modify', {})"
-      @cancel="forwardSubmit('cancel', {})"
+    <UnifiedInteractionRenderer
+      :request="normalized"
+      state="waiting"
+      @submit="forwardSubmit"
+      @cancel="forwardCancel"
+      @action="forwardAction"
     />
-    <TextQuestionCard
-      v-else-if="payload.component === 'text_question'"
-      :message="payload.message"
-      @submit="forwardSubmit('submit', $event)"
-      @cancel="forwardSubmit('cancel', {})"
-    />
-    <SelectCard
-      v-else-if="payload.component === 'select' && payload.fields?.[0]"
-      :field="payload.fields[0]"
-      :prefilled="payload.prefilled"
-      @submit="forwardSubmit('submit', $event)"
-      @cancel="forwardSubmit('cancel', {})"
-    />
-    <ConfirmCard
-      v-else-if="payload.component === 'confirm'"
-      :message="payload.message"
-      @submit="forwardSubmit('submit', $event)"
-      @cancel="forwardSubmit('cancel', {})"
-    />
-    <el-alert v-else :title="'不支持的 UI 组件: ' + (payload.component || '')" type="warning" :closable="false" />
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+import { UnifiedInteractionRenderer, normalizeUiRequest } from '@/conversation'
 import type { UiRequestPayload } from '@/types/interaction'
-import FormCard from './FormCard.vue'
-import SummaryCard from './SummaryCard.vue'
-import TextQuestionCard from './TextQuestionCard.vue'
-import SelectCard from './SelectCard.vue'
-import ConfirmCard from './ConfirmCard.vue'
 
 const props = defineProps<{
   payload: UiRequestPayload | null | undefined
@@ -57,8 +32,18 @@ const emit = defineEmits<{
   action: [action: string, values: Record<string, unknown>]
 }>()
 
+const normalized = computed(() => normalizeUiRequest(props.payload))
+
+function forwardAction(action: string, values: Record<string, unknown>) {
+  emit('action', action, values)
+}
+
 function forwardSubmit(action: string, values: Record<string, unknown>) {
   emit('action', action, values)
+}
+
+function forwardCancel() {
+  emit('action', 'cancel', {})
 }
 </script>
 

@@ -40,7 +40,8 @@ These rows remain in the ownership matrix because V2 still records their owner s
 | `runtime_agent` | `reachai-runtime-service` | - | Runtime agent catalog |
 | `runtime_agent_config_version` | `reachai-runtime-service` | - | Versioned Agent Supervisor configuration |
 | `runtime_agent_workflow_tool` | `reachai-runtime-service` | - | Workflow-as-Tool allow-list per Agent configuration version |
-| `model_instance` | `reachai-model-service` | - | Model Gateway instance registry |
+| `model_template` | `reachai-model-service` | - | Model Center V2 catalog templates (no secrets) |
+| `model_instance` | `reachai-model-service` | - | Model Center V2 executable instances (stable modelInstanceId) |
 | `capability_project_instance` | `reachai-capability-service` | - | SDK access-instance heartbeat |
 | `runtime_workflow` | `reachai-runtime-service` | - | Workflow runtime definition |
 | `runtime_workflow_version` | `reachai-runtime-service` | - | Workflow release snapshot |

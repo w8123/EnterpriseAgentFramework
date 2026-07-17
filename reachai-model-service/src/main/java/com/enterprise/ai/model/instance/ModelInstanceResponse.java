@@ -14,12 +14,17 @@ public class ModelInstanceResponse {
     private String provider;
     private String modelType;
     private String modelName;
-    private String endpointType;
-    private String workspaceId;
-    private Map<String, Object> credential;
+    private String protocol;
+    private String projectCode;
+    /** 脱敏后的连接配置 */
+    private Map<String, Object> connection;
     private Map<String, Object> defaultOptions;
     private Object paramsSchema;
     private String status;
+    private String lastTestStatus;
+    private LocalDateTime lastTestAt;
+    private Long lastTestLatencyMs;
+    private String lastTestError;
     private String remark;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

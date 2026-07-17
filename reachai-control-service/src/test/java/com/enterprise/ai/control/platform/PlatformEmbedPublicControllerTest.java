@@ -8,8 +8,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import java.io.ByteArrayOutputStream;
 import java.util.List;
 import java.util.Map;
 
@@ -39,6 +40,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class),
                 mock(RuntimeProxyClient.class),
+                mock(PlatformEmbedStreamRelay.class),
                 mock(PlatformPageActionEventMapper.class));
         String token = tokenService.issue(PlatformEmbedTokenIssueCommand.builder()
                 .tenantId("default")
@@ -97,6 +99,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 capabilityProxyClient,
                 runtimeProxyClient,
+                mock(PlatformEmbedStreamRelay.class),
                 mock(PlatformPageActionEventMapper.class));
         when(capabilityProxyClient.verifyEmbedTokenExchange(
                 eq("app-bzjs12"),
@@ -169,6 +172,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 capabilityProxyClient,
                 mock(RuntimeProxyClient.class),
+                mock(PlatformEmbedStreamRelay.class),
                 mock(PlatformPageActionEventMapper.class));
         when(capabilityProxyClient.verifyEmbedTokenExchange(
                 eq("app-bzjs12"),
@@ -221,6 +225,7 @@ class PlatformEmbedPublicControllerTest {
                 chatEventService,
                 mock(CapabilityProxyClient.class),
                 runtimeProxyClient,
+                mock(PlatformEmbedStreamRelay.class),
                 mock(PlatformPageActionEventMapper.class));
         String token = tokenService.issue(PlatformEmbedTokenIssueCommand.builder()
                 .tenantId("default")
@@ -300,6 +305,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class),
                 runtimeProxyClient,
+                mock(PlatformEmbedStreamRelay.class),
                 mock(PlatformPageActionEventMapper.class));
         String token = tokenService.issue(PlatformEmbedTokenIssueCommand.builder()
                 .tenantId("default")
@@ -350,7 +356,7 @@ class PlatformEmbedPublicControllerTest {
     }
 
     @Test
-    void streamsEmbedChatMessageThroughRuntimeAndRecordsChatEvents() {
+    void streamsEmbedChatMessageThroughRuntimeProxyAndRecordsUserMessage() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper();
         PlatformEmbedTokenProperties tokenProperties = new PlatformEmbedTokenProperties();
         tokenProperties.setSecret("test-embed-token-secret");
@@ -358,13 +364,14 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
         PlatformEmbedChatEventMapper chatEventMapper = mock(PlatformEmbedChatEventMapper.class);
         PlatformEmbedChatEventService chatEventService = new PlatformEmbedChatEventService(chatEventMapper, objectMapper);
-        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
+        PlatformEmbedStreamRelay embedStreamRelay = mock(PlatformEmbedStreamRelay.class);
         PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
                 tokenService,
                 sessionService,
                 chatEventService,
                 mock(CapabilityProxyClient.class),
-                runtimeProxyClient,
+                mock(RuntimeProxyClient.class),
+                embedStreamRelay,
                 mock(PlatformPageActionEventMapper.class));
         String token = tokenService.issue(PlatformEmbedTokenIssueCommand.builder()
                 .tenantId("default")
@@ -382,40 +389,66 @@ class PlatformEmbedPublicControllerTest {
                         List.of("operator"),
                         Map.of("dept", "ops")))
                 .build()).token();
-        PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
-        session.setSessionId("embed-1");
-        session.setTenantId("default");
-        session.setAppId("bzjs12");
-        session.setProjectCode("bzjs12");
-        session.setAgentId("orders-bot");
-        session.setExternalUserId("user-1");
-        session.setGlobalUserId("global-1");
-        session.setPageKey("orders.list");
-        session.setPageInstanceId("page-1");
-        session.setRoute("/orders");
-        session.setOrigin("http://localhost:5173");
-        session.setStatus("ACTIVE");
+        PlatformEmbedSessionEntity session = activeSession();
         when(sessionService.requireActiveSession(eq("embed-1"), any())).thenReturn(session);
-        when(runtimeProxyClient.executeAgent(any())).thenReturn(ResponseEntity.ok(Map.of(
-                "success", true,
-                "sessionId", "embed-1",
-                "answer", "订单已找到",
-                "metadata", Map.of("traceId", "trace-1"))));
 
-        ResponseEntity<SseEmitter> response = controller.streamMessage(
+        ResponseEntity<StreamingResponseBody> response = controller.streamMessage(
                 "embed-1",
                 "Bearer " + token,
                 new PlatformEmbedPublicController.EmbedChatMessageRequest("查订单"));
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        response.getBody().writeTo(output);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(MediaType.TEXT_EVENT_STREAM, response.getHeaders().getContentType());
-        assertNotNull(response.getBody());
-        verify(runtimeProxyClient).executeAgent(argThat(body ->
+        assertEquals("no-cache", response.getHeaders().getCacheControl());
+        assertEquals("no", response.getHeaders().getFirst("X-Accel-Buffering"));
+        verify(embedStreamRelay).streamMessage(eq(session), argThat(body ->
                 "orders-bot".equals(body.get("agentId"))
                         && "embed-1".equals(body.get("sessionId"))
                         && "查订单".equals(body.get("message"))
-                        && "EMBED_CHAT".equals(body.get("intentHint"))));
-        verify(chatEventMapper, times(2)).insert(any());
+                        && "EMBED_CHAT".equals(body.get("intentHint"))
+                        && "EMBED".equals(body.get("entryType"))), eq(output));
+        verify(chatEventMapper).insert(argThat(event ->
+                "MESSAGE".equals(event.getEventType())
+                        && "user".equals(event.getRole())
+                        && "查订单".equals(event.getContent())));
+    }
+
+    @Test
+    void streamsEmbedInteractionSubmitThroughRuntimeProxy() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        PlatformEmbedTokenProperties tokenProperties = new PlatformEmbedTokenProperties();
+        tokenProperties.setSecret("test-embed-token-secret");
+        PlatformEmbedTokenService tokenService = new PlatformEmbedTokenService(objectMapper, tokenProperties);
+        PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
+        PlatformEmbedStreamRelay embedStreamRelay = mock(PlatformEmbedStreamRelay.class);
+        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+                tokenService,
+                sessionService,
+                mock(PlatformEmbedChatEventService.class),
+                mock(CapabilityProxyClient.class),
+                mock(RuntimeProxyClient.class),
+                embedStreamRelay,
+                mock(PlatformPageActionEventMapper.class));
+        String token = embedToken(tokenService);
+        PlatformEmbedSessionEntity session = activeSession();
+        when(sessionService.requireActiveSession(eq("embed-1"), any())).thenReturn(session);
+
+        ResponseEntity<StreamingResponseBody> response = controller.streamSubmitInteraction(
+                "embed-1",
+                "spv_1",
+                "Bearer " + token,
+                new PlatformEmbedPublicController.EmbedInteractionSubmitRequest(
+                        "confirm", Map.of("confirm", true)));
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        response.getBody().writeTo(output);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(embedStreamRelay).streamMessage(eq(session), argThat(body ->
+                "spv_1".equals(body.get("interactionId"))
+                        && "EMBED_INTERACTION_RESUME".equals(body.get("intentHint"))
+                        && "EMBED".equals(body.get("entryType"))), eq(output));
     }
 
     @Test
@@ -432,6 +465,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class),
                 mock(RuntimeProxyClient.class),
+                mock(PlatformEmbedStreamRelay.class),
                 pageActionEventMapper);
         String token = embedToken(tokenService);
         PlatformEmbedSessionEntity session = activeSession();
@@ -475,6 +509,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class),
                 mock(RuntimeProxyClient.class),
+                mock(PlatformEmbedStreamRelay.class),
                 pageActionEventMapper);
         String token = embedToken(tokenService);
         PlatformEmbedSessionEntity session = activeSession();

@@ -60,15 +60,7 @@ public class ControlRuntimePublicController {
 
     @PostMapping(value = "/api/runtime/agents/execute/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseEntity<StreamingResponseBody> executeAgentStream(@RequestBody Map<String, Object> body) {
-        if (runtimeAgentStreamProxy == null) {
-            throw new IllegalStateException("Runtime Agent stream proxy is not configured");
-        }
-        StreamingResponseBody stream = outputStream -> runtimeAgentStreamProxy.stream(body, outputStream);
-        return ResponseEntity.ok()
-                .cacheControl(CacheControl.noCache())
-                .header("X-Accel-Buffering", "no")
-                .contentType(MediaType.TEXT_EVENT_STREAM)
-                .body(stream);
+        return streamDebugProxy(RuntimeAgentStreamProxy.AGENT_EXECUTE_STREAM, body);
     }
 
     @DeleteMapping("/api/runtime/agents/sessions/{sessionId}")
@@ -526,6 +518,25 @@ public class ControlRuntimePublicController {
         return runtimeProxyClient.cancelRuntimeDebugSession(sessionId);
     }
 
+    @PostMapping(value = "/api/runtime/debug-sessions/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<StreamingResponseBody> createRuntimeDebugSessionStream(
+            @RequestBody Map<String, Object> body) {
+        return streamDebugProxy(RuntimeAgentStreamProxy.DEBUG_SESSION_STREAM, body);
+    }
+
+    @PostMapping(value = "/api/runtime/debug-sessions/{sessionId}/submit/stream",
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<StreamingResponseBody> submitRuntimeDebugSessionStream(
+            @PathVariable String sessionId,
+            @RequestBody Map<String, Object> body) {
+        if (runtimeAgentStreamProxy == null) {
+            throw new IllegalStateException("Runtime stream proxy is not configured");
+        }
+        StreamingResponseBody stream = outputStream ->
+                runtimeAgentStreamProxy.streamDebugSubmit(sessionId, body, outputStream);
+        return streamResponse(stream);
+    }
+
     @GetMapping("/api/runtime/interactions/human-approvals")
     public ResponseEntity<Object> listHumanApprovals(@RequestParam(required = false) String agentId,
                                                      @RequestParam(required = false) String userId,
@@ -591,5 +602,21 @@ public class ControlRuntimePublicController {
             return true;
         }
         return !"PRIVATE".equalsIgnoreCase(String.valueOf(visibility).trim());
+    }
+
+    private ResponseEntity<StreamingResponseBody> streamDebugProxy(String path, Map<String, Object> body) {
+        if (runtimeAgentStreamProxy == null) {
+            throw new IllegalStateException("Runtime stream proxy is not configured");
+        }
+        StreamingResponseBody stream = outputStream -> runtimeAgentStreamProxy.stream(path, body, outputStream);
+        return streamResponse(stream);
+    }
+
+    private ResponseEntity<StreamingResponseBody> streamResponse(StreamingResponseBody stream) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noCache().noTransform())
+                .header("X-Accel-Buffering", "no")
+                .contentType(MediaType.TEXT_EVENT_STREAM)
+                .body(stream);
     }
 }
