@@ -5,20 +5,17 @@ import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
 import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectMapper;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistryCredentialMapper;
+import com.enterprise.ai.capability.aicoding.AiCodingAccessKeys;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.security.SecureRandom;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class CapabilityProjectOnboardingInternalService {
-
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final ScanProjectMapper scanProjectMapper;
     private final RegistryCredentialMapper registryCredentialMapper;
@@ -36,7 +33,7 @@ public class CapabilityProjectOnboardingInternalService {
         boolean enabled = Boolean.TRUE.equals(enabledValue);
         String accessKey = requestedAccessKey == null ? "" : requestedAccessKey.trim();
         if (enabled && !StringUtils.hasText(accessKey)) {
-            accessKey = generateAiCodingAccessKey();
+            accessKey = AiCodingAccessKeys.generate();
         }
         scanProjectMapper.update(null, Wrappers.<ScanProjectEntity>lambdaUpdate()
                 .eq(ScanProjectEntity::getId, projectId)
@@ -92,9 +89,4 @@ public class CapabilityProjectOnboardingInternalService {
         return body;
     }
 
-    private String generateAiCodingAccessKey() {
-        byte[] bytes = new byte[24];
-        SECURE_RANDOM.nextBytes(bytes);
-        return "aic_" + HexFormat.of().formatHex(bytes);
-    }
 }

@@ -31,6 +31,7 @@ import com.enterprise.ai.agent.registry.RegistryContracts.ProjectRegisterRequest
 import com.enterprise.ai.agent.registry.RegistryContracts.RegistryProjectResponse;
 import com.enterprise.ai.agent.registry.RegistryContracts.SdkCapabilityDescriptionSettings;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
+import com.enterprise.ai.capability.aicoding.AiCodingAccessKeys;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -72,6 +73,8 @@ public class CapabilityRegistryService {
         if (project == null) {
             project = new ScanProjectEntity();
             project.setCreateTime(LocalDateTime.now());
+            project.setAiCodingAccessKey(AiCodingAccessKeys.generate());
+            project.setAiCodingAccessEnabled(true);
         }
         project.setName(request.name());
         project.setProjectCode(projectCode);

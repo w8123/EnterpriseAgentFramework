@@ -21,6 +21,7 @@ import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistryCredentialMapper;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
+import com.enterprise.ai.capability.aicoding.AiCodingAccessKeys;
 import com.enterprise.ai.capability.internal.CapabilityToolExecutionService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,11 +31,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.net.URI;
-import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -44,8 +43,6 @@ import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class CapabilityScanProjectCatalogService {
-
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final ScanProjectMapper scanProjectMapper;
     private final ScanProjectToolMapper scanProjectToolMapper;
@@ -109,7 +106,7 @@ public class CapabilityScanProjectCatalogService {
         entity.setAuthApiKeyIn(null);
         entity.setAuthApiKeyName(null);
         entity.setAuthApiKeyValue(null);
-        entity.setAiCodingAccessKey(generateAiCodingAccessKey());
+        entity.setAiCodingAccessKey(AiCodingAccessKeys.generate());
         entity.setAiCodingAccessEnabled(true);
         scanProjectMapper.insert(entity);
         return entity;
@@ -1149,12 +1146,6 @@ public class CapabilityScanProjectCatalogService {
 
     private String trimToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
-    }
-
-    private String generateAiCodingAccessKey() {
-        byte[] bytes = new byte[24];
-        SECURE_RANDOM.nextBytes(bytes);
-        return "aic_" + HexFormat.of().formatHex(bytes);
     }
 
     private String stableKey(ScanProjectToolEntity tool) {

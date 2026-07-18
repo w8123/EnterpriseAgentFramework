@@ -38,6 +38,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -102,6 +103,9 @@ class CapabilityRegistryServiceTest {
         assertEquals("orders-api", project.getProjectCode());
         assertEquals("REGISTERED", project.getProjectKind());
         assertEquals("auto", project.getScanType());
+        assertEquals(true, project.getAiCodingAccessEnabled());
+        assertNotNull(project.getAiCodingAccessKey());
+        assertTrue(project.getAiCodingAccessKey().matches("aic_[0-9a-f]{48}"));
         verify(registrySecurityService).upsertCredential(42L, "orders-api", "app-key", "app-secret");
         verify(registrySecurityService).updateEmbedPolicy(
                 "orders-api",
