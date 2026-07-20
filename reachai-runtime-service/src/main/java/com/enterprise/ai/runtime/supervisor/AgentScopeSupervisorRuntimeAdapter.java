@@ -12,6 +12,10 @@ import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
+import com.enterprise.ai.runtime.execution.RuntimeInteractionSessionEntity;
+import com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService;
+import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
 import com.enterprise.ai.runtime.supervisor.SupervisorExecutionTraceService.TraceHandle;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionMapper;
@@ -46,7 +50,9 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -71,6 +77,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
     private final RuntimeWorkflowDefinitionMapper workflowMapper;
     private final RuntimeWorkflowVersionMapper workflowVersionMapper;
     private final RuntimeGraphSpecExecutor graphSpecExecutor;
+    private final RuntimeWorkflowInteractionSessionService interactionSessionService;
     private final RuntimeChatMemoryStore memoryStore;
     private final SupervisorToolPolicyService policyService;
     private final SupervisorExecutionTraceService traceService;
@@ -82,7 +89,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         RuntimeAgentConfigVersionEntity config = request.config();
         Map<String, Object> input = request.input() == null ? Map.of() : request.input();
         RuntimeAgentExecutionCancellation cancellation = request.cancellation();
-        TraceHandle trace = traceService.begin(agent, config, request.workflowTools(), input);
+        TraceHandle trace = traceService.beginOrResume(agent, config, request.workflowTools(), input,
+                resolveTrustedIdentity(request));
         RunState state = new RunState(request, trace);
         try {
             cancellation.throwIfCancelled();
@@ -216,6 +224,165 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             state.terminateActivePhases("failed", message);
             return finish(state, false, "SUPERVISOR_EXECUTION_FAILED", message, Map.of("exception", message));
         }
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public SupervisorResult continueAfterWorkflowInteraction(Map<String, Object> continuation,
+                                                             Map<String, Object> workflowResult,
+                                                             SupervisorRequest request) {
+        Map<String, Object> cont = continuation == null ? Map.of() : continuation;
+        Map<String, Object> wf = workflowResult == null ? Map.of() : workflowResult;
+        Map<String, Object> requestInput = request.input() == null ? Map.of() : request.input();
+        String traceId = firstText(textObj(cont.get("traceId")), textObj(requestInput.get("traceId")));
+        if (!StringUtils.hasText(traceId)) {
+            throw new IllegalStateException("Supervisor continuation requires the original traceId");
+        }
+        String waitingTool = firstText(textObj(cont.get("waitingToolName")), textObj(cont.get("toolName")));
+        List<String> allCompleted = new ArrayList<>(stringList(cont.get("completedWorkflowToolNames")));
+        if (StringUtils.hasText(waitingTool) && !allCompleted.contains(waitingTool)) {
+            allCompleted.add(waitingTool);
+        }
+        String answer = firstText(textObj(wf.get("answer")), "Workflow completed");
+        String workflowCode = firstText(textObj(wf.get("code")), "RUNTIME_GRAPH_EXECUTED");
+        boolean workflowOk = !Boolean.FALSE.equals(wf.get("success"))
+                && !"FAILED".equalsIgnoreCase(textObj(wf.get("status")))
+                && !"CANCELLED".equalsIgnoreCase(textObj(wf.get("status")));
+
+        if (!workflowOk) {
+            return finishContinuationTrace(request, traceId, false, workflowCode, answer, Map.of(
+                    "continuationConsumed", true,
+                    "continuationMode", "WORKFLOW_FAILED",
+                    "waitingToolName", waitingTool == null ? "" : waitingTool,
+                    "completedWorkflowToolNames", allCompleted));
+        }
+        if (isLastPlannedWorkflowStep(cont, allCompleted, request.workflowTools())) {
+            memoryStore.append(
+                    firstText(textObj(requestInput.get("sessionId")), textObj(cont.get("sessionId")),
+                            UUID.randomUUID().toString().replace("-", "").substring(0, 16)),
+                    firstText(textObj(requestInput.get("message")), textObj(asMap(cont.get("originalInput")).get("message")), ""),
+                    answer);
+            return finishContinuationTrace(request, traceId, true, "SUPERVISOR_COMPLETED", answer, Map.of(
+                    "continuationConsumed", true,
+                    "continuationMode", "LAST_WORKFLOW_STEP",
+                    "waitingToolName", waitingTool == null ? "" : waitingTool,
+                    "completedWorkflowToolNames", allCompleted,
+                    "workflowCode", workflowCode));
+        }
+
+        Map<String, Object> resumeInput = new LinkedHashMap<>();
+        Object original = cont.get("originalInput");
+        if (original instanceof Map<?, ?> rawOriginal) {
+            resumeInput.putAll((Map<String, Object>) rawOriginal);
+        }
+        resumeInput.putAll(requestInput);
+        resumeInput.put("traceId", traceId);
+        resumeInput.put("__resumeExistingTrace", true);
+        resumeInput.put("__supervisorContinuation", cont);
+        resumeInput.put("__blockedWorkflowTools", allCompleted);
+        resumeInput.put("message",
+                "Continue the saved supervisor plan after Workflow tool '"
+                        + (waitingTool == null ? "" : waitingTool)
+                        + "' completed successfully. Result: " + answer
+                        + ". Do not re-call completed Workflow tools: " + allCompleted
+                        + ". Do not record a new plan unless a remaining unfinished step requires revision. "
+                        + "Call the next unfinished Workflow tool or produce the final answer.");
+        return execute(new SupervisorRequest(
+                request.agent(),
+                request.config(),
+                request.workflowTools(),
+                resumeInput,
+                request.approvalGrant(),
+                request.eventSink(),
+                request.cancellation(),
+                request.identity()));
+    }
+
+    private SupervisorResult finishContinuationTrace(SupervisorRequest request,
+                                                     String traceId,
+                                                     boolean success,
+                                                     String code,
+                                                     String answer,
+                                                     Map<String, Object> extraMetadata) {
+        TraceHandle handle = traceService.resume(traceId);
+        if (handle == null) {
+            Map<String, Object> seed = new LinkedHashMap<>(request.input() == null ? Map.of() : request.input());
+            seed.put("traceId", traceId);
+            handle = traceService.begin(request.agent(), request.config(), request.workflowTools(), seed,
+                    resolveTrustedIdentity(request));
+        }
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("runtimeType", "AGENTSCOPE");
+        metadata.put("agentConfigVersionId", request.config().getId());
+        metadata.put("agentConfigVersion", request.config().getVersionNo());
+        metadata.put("sourceType", "AGENT_SUPERVISOR_CONTINUATION");
+        metadata.put("sessionId", textObj(request.input() == null ? null : request.input().get("sessionId")));
+        if (extraMetadata != null) {
+            metadata.putAll(extraMetadata);
+        }
+        traceService.finish(handle, success, code, answer, metadata, resolveTrustedIdentity(request));
+        return new SupervisorResult(success, code, answer, handle.traceId(), List.of(), metadata, null);
+    }
+
+    private boolean isLastPlannedWorkflowStep(Map<String, Object> continuation,
+                                              List<String> allCompleted,
+                                              List<RuntimeAgentWorkflowToolEntity> workflowTools) {
+        Set<String> toolNames = new LinkedHashSet<>();
+        if (workflowTools != null) {
+            for (RuntimeAgentWorkflowToolEntity tool : workflowTools) {
+                if (tool != null && StringUtils.hasText(tool.getToolName())) {
+                    toolNames.add(tool.getToolName().trim());
+                }
+            }
+        }
+        Map<String, Object> plan = asMap(continuation.get("recordedPlan"));
+        Set<String> planned = new LinkedHashSet<>();
+        Object steps = plan.get("steps");
+        if (steps instanceof List<?> list) {
+            for (Object step : list) {
+                String stepText = step == null ? "" : String.valueOf(step).toLowerCase(Locale.ROOT);
+                for (String name : toolNames) {
+                    if (stepText.contains(name.toLowerCase(Locale.ROOT))) {
+                        planned.add(name);
+                    }
+                }
+            }
+        }
+        if (planned.isEmpty()) {
+            // Single-workflow / unstructured plan: finishing the waiting tool completes the run.
+            return true;
+        }
+        return allCompleted.containsAll(planned);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> asMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return new LinkedHashMap<>((Map<String, Object>) map);
+        }
+        return new LinkedHashMap<>();
+    }
+
+    private List<String> stringList(Object value) {
+        if (!(value instanceof List<?> list) || list.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<String> out = new ArrayList<>();
+        for (Object item : list) {
+            String text = textObj(item);
+            if (StringUtils.hasText(text)) {
+                out.add(text);
+            }
+        }
+        return out;
+    }
+
+    private String textObj(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() || "null".equalsIgnoreCase(text) ? null : text;
     }
 
     private AgentTool planTool(RunState state) {
@@ -482,7 +649,13 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                                     Map<String, Object> modelMetadata) {
         if (state.confirmationPending()) {
             success = false;
-            code = "SUPERVISOR_CONFIRMATION_REQUIRED";
+            if ("WORKFLOW_INTERACTION".equals(state.pendingInteractionKind)
+                    || (state.pendingInteractionId != null
+                    && state.pendingInteractionId.startsWith(WorkflowInteractionCodes.ID_PREFIX))) {
+                code = WorkflowInteractionCodes.WAITING;
+            } else {
+                code = "SUPERVISOR_CONFIRMATION_REQUIRED";
+            }
             answer = state.pendingReason;
         }
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -521,7 +694,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             copyIfPresent(metadata, modelMetadata, "reasoningLength");
             copyIfPresent(metadata, modelMetadata, "answerPhase");
         }
-        traceService.finish(state.trace, success, code, answer, metadata);
+        traceService.finish(state.trace, success, code, answer, metadata, resolveTrustedIdentity(state.request));
         return new SupervisorResult(success, code, answer, state.trace.traceId(),
                 List.copyOf(state.steps), metadata, state.pendingUiRequest);
     }
@@ -541,6 +714,59 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
     private String firstText(String... values) {
         for (String value : values) if (StringUtils.hasText(value)) return value.trim();
         return null;
+    }
+
+    /**
+     * Resolve trusted identity for credential/ACL decisions.
+     * Project always comes from the resolved {@link RuntimeAgentView}.
+     * User trust comes only from the explicit {@link SupervisorRequest#identity()} set by
+     * Control/Runtime entrypoints after server-side authentication — never from request.input(),
+     * metadata, GraphSpec context, or model tool args.
+     */
+    private WorkflowExecutionIdentity resolveTrustedIdentity(SupervisorRequest request) {
+        RuntimeAgentView agent = request.agent();
+        Long projectId = agent == null ? null : agent.projectId();
+        String projectCode = agent == null ? null : agent.projectCode();
+        WorkflowExecutionIdentity provided = request.identity();
+        if (provided == null) {
+            return WorkflowExecutionIdentity.fromAgent(projectId, projectCode);
+        }
+        if (provided.source() == WorkflowExecutionIdentity.Source.EMBED_SESSION
+                && provided.userTrusted()
+                && StringUtils.hasText(provided.userId())) {
+            return WorkflowExecutionIdentity.fromEmbedSession(projectId, projectCode, provided.userId());
+        }
+        if (provided.source() == WorkflowExecutionIdentity.Source.AGENT
+                && provided.userTrusted()
+                && StringUtils.hasText(provided.userId())) {
+            return WorkflowExecutionIdentity.fromAgent(projectId, projectCode, provided.userId());
+        }
+        // Debug/Composition/untrusted callers keep project binding from Agent when available.
+        if (provided.source() == WorkflowExecutionIdentity.Source.COMPOSITION_UNTRUSTED) {
+            return WorkflowExecutionIdentity.untrustedComposition();
+        }
+        if (provided.source() == WorkflowExecutionIdentity.Source.DEBUG_UNTRUSTED) {
+            return WorkflowExecutionIdentity.untrustedDebug();
+        }
+        return WorkflowExecutionIdentity.fromAgent(projectId, projectCode);
+    }
+
+    private Map<String, Object> sanitizeModelArgs(Map<String, Object> args) {
+        if (args == null || args.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> safe = new LinkedHashMap<>(args);
+        safe.remove("projectId");
+        safe.remove("projectCode");
+        safe.remove("userId");
+        safe.remove("externalUserId");
+        safe.remove("globalUserId");
+        safe.remove(RuntimeGraphSpecExecutor.TRUSTED_IDENTITY_CONTEXT_KEY);
+        return safe;
+    }
+
+    private String textValue(Object value) {
+        return value == null ? null : String.valueOf(value).trim();
     }
 
     private record WorkflowTarget(RuntimeWorkflowDefinitionEntity workflow,
@@ -571,6 +797,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private final String userMessage;
         private volatile int failureAtPlanNo = -1;
         private volatile String pendingInteractionId;
+        private volatile String pendingInteractionKind;
         private volatile String pendingReason;
         private volatile Object pendingUiRequest;
         /** DIRECT | PLANNED | WORKFLOW — 不得把 implicit audit 算作主动规划。 */
@@ -578,6 +805,9 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private volatile boolean implicitDirectDecision = false;
         /** true = Runtime forced PUBLIC_FINAL，而非模型主动 begin_final_answer。 */
         private volatile boolean forcedFinalAnswer = false;
+        private volatile Map<String, Object> lastRecordedPlan;
+        private final Set<String> completedWorkflowToolNames = ConcurrentHashMap.newKeySet();
+        private final Set<String> blockedWorkflowToolNames = ConcurrentHashMap.newKeySet();
 
         private RunState(SupervisorRequest request, TraceHandle trace) {
             this.request = request;
@@ -593,12 +823,70 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             for (RuntimeAgentWorkflowToolEntity tool : request.workflowTools()) {
                 targets.add(resolveTarget(tool));
             }
+            seedContinuation(request.input());
             // 每个 RunState 只注册一次：请求取消时扇出到所有活动 Workflow
             request.cancellation().onCancel(() -> {
                 for (RuntimeGraphSpecExecutionCancellation workflowCancel : activeWorkflowCancellations) {
                     workflowCancel.cancel();
                 }
             });
+        }
+
+        @SuppressWarnings("unchecked")
+        private void seedContinuation(Map<String, Object> input) {
+            if (input == null || input.isEmpty()) {
+                return;
+            }
+            Object blocked = input.get("__blockedWorkflowTools");
+            if (blocked instanceof List<?> list) {
+                for (Object item : list) {
+                    String name = text(item);
+                    if (StringUtils.hasText(name)) {
+                        blockedWorkflowToolNames.add(name);
+                        completedWorkflowToolNames.add(name);
+                    }
+                }
+            }
+            Object rawContinuation = input.get("__supervisorContinuation");
+            if (!(rawContinuation instanceof Map<?, ?> raw)) {
+                return;
+            }
+            Map<String, Object> continuation = new LinkedHashMap<>((Map<String, Object>) raw);
+            Object planNo = continuation.get("planNo");
+            if (planNo instanceof Number number && number.intValue() > 0) {
+                planCount.set(number.intValue());
+            }
+            Object recorded = continuation.get("recordedPlan");
+            if (recorded instanceof Map<?, ?> planMap) {
+                lastRecordedPlan = Map.copyOf((Map<String, Object>) planMap);
+                if (planCount.get() == 0) {
+                    Object nestedPlanNo = planMap.get("planNo");
+                    if (nestedPlanNo instanceof Number number && number.intValue() > 0) {
+                        planCount.set(number.intValue());
+                    } else {
+                        planCount.set(1);
+                    }
+                }
+                decisionMode = "PLANNED";
+            }
+            Object completed = continuation.get("completedWorkflowToolNames");
+            if (completed instanceof List<?> list) {
+                for (Object item : list) {
+                    String name = text(item);
+                    if (StringUtils.hasText(name)) {
+                        completedWorkflowToolNames.add(name);
+                        blockedWorkflowToolNames.add(name);
+                    }
+                }
+            }
+            String waiting = text(continuation.get("waitingToolName"));
+            if (!StringUtils.hasText(waiting)) {
+                waiting = text(continuation.get("toolName"));
+            }
+            if (StringUtils.hasText(waiting)) {
+                completedWorkflowToolNames.add(waiting);
+                blockedWorkflowToolNames.add(waiting);
+            }
         }
 
         private List<WorkflowTarget> targets() { return List.copyOf(targets); }
@@ -635,12 +923,13 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             normalized.put("planNo", planNo);
             normalized.put("kind", planNo == 1 ? "PLAN" : "REPLAN");
             decisionMode = planNo == 1 ? "PLANNED" : decisionMode;
+            lastRecordedPlan = Map.copyOf(normalized);
             String stepId = (planNo == 1 ? "plan-" : "replan-") + planNo;
             String title = planNo == 1 ? "规划执行路径" : "重规划执行路径";
             String safeDetail = safePlanDetail(normalized.get("summary"));
             emitPhase(stepId, planNo == 1 ? "plan" : "replan", "completed", "agentscope_tool",
                     title, safeDetail);
-            // Trace 保留完整规划；公开阶段事件仅安全摘要
+            // Trace 与公开阶段事件均只保留安全规划摘要。
             traceService.plan(trace, request.agent(), request.config(), request.input(), planNo, normalized);
             return ToolResultBlock.text("Plan recorded. Continue with the permitted Workflow tools or answer directly.");
         }
@@ -750,6 +1039,12 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 return Mono.just(ToolResultBlock.error(
                         "A Workflow tool is waiting for user confirmation; do not call another tool"));
             }
+            String toolName = tool == null ? null : tool.getToolName();
+            if (StringUtils.hasText(toolName)
+                    && (blockedWorkflowToolNames.contains(toolName) || completedWorkflowToolNames.contains(toolName))) {
+                return Mono.just(ToolResultBlock.error(
+                        "Workflow tool already completed in this run; do not re-execute: " + toolName));
+            }
             if (planCount.get() == 0) {
                 return Mono.just(ToolResultBlock.error("Call record_supervisor_plan before any Workflow tool"));
             }
@@ -777,6 +1072,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         StringUtils.hasText(reason) && reason.length() <= 120 ? reason : decision.decision());
                 if (decision.confirmationRequired()) {
                     pendingInteractionId = decision.interactionId();
+                    pendingInteractionKind = "APPROVAL";
                     pendingReason = decision.reason();
                     pendingUiRequest = decision.uiRequest();
                     return Mono.just(ToolResultBlock.error(
@@ -830,9 +1126,29 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     throw new RuntimeAgentExecutionCancellation.CancellationSignal();
                 }
                 long started = System.nanoTime();
+                WorkflowExecutionIdentity identity = resolveTrustedIdentity(request);
                 Map<String, Object> workflowInput = new LinkedHashMap<>(request.input());
-                workflowInput.putAll(args);
-                workflowInput.put("params", args);
+                Map<String, Object> safeArgs = sanitizeModelArgs(args);
+                workflowInput.putAll(safeArgs);
+                // Re-assert trusted session fields; model args must never control credential/ACL identity.
+                if (identity.projectId() != null) {
+                    workflowInput.put("projectId", identity.projectId());
+                } else {
+                    workflowInput.remove("projectId");
+                }
+                if (StringUtils.hasText(identity.projectCode())) {
+                    workflowInput.put("projectCode", identity.projectCode());
+                } else {
+                    workflowInput.remove("projectCode");
+                }
+                if (identity.canResolveUserAcl()) {
+                    workflowInput.put("userId", identity.userId());
+                    workflowInput.put("externalUserId", identity.userId());
+                } else {
+                    workflowInput.remove("userId");
+                    workflowInput.remove("externalUserId");
+                }
+                workflowInput.put("params", safeArgs);
                 workflowInput.put("supervisorTraceId", trace.traceId());
                 workflowInput.put("agentConfigVersionId", request.config().getId());
                 workflowInput.put("pageBridgeTimeoutMs", request.config().getPageBridgeTimeoutMs());
@@ -851,7 +1167,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         target.version().getGraphSpecSnapshotJson(),
                         workflowInput,
                         RuntimeGraphSpecExecutionEventSink.NOOP,
-                        workflowCancel);
+                        workflowCancel,
+                        identity);
                 request.cancellation().throwIfCancelled();
                 if ("RUNTIME_GRAPH_CANCELLED".equals(result.code()) || workflowCancel.isCancelled()) {
                     emitPhase(workflowStepId, "workflow", "cancelled", "workflow_runtime",
@@ -859,10 +1176,31 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     throw new RuntimeAgentExecutionCancellation.CancellationSignal();
                 }
                 long elapsed = (System.nanoTime() - started) / 1_000_000L;
+                if (result.isWaitingUser()) {
+                    RuntimeInteractionSessionEntity session = persistWorkflowInteractionWait(
+                            tool, target, workflowInput, result);
+                    pendingInteractionId = session.getId();
+                    pendingInteractionKind = "WORKFLOW_INTERACTION";
+                    pendingReason = firstText(result.answer(), "Workflow is waiting for user input");
+                    pendingUiRequest = result.uiRequest() != null ? result.uiRequest() : sessionServiceUi(session);
+                    Map<String, Object> payload = workflowPayload(callNo, tool, target, args, result);
+                    payload.put("waiting", true);
+                    payload.put("interactionId", session.getId());
+                    payload.put("uiRequest", pendingUiRequest);
+                    traceService.workflow(trace, request.agent(), request.config(), request.input(), tool.getToolName(),
+                            target.workflow().getId(), target.version().getId(), target.version().getVersion(), args,
+                            false, result.code(), result.answer(), elapsed, payload, identity);
+                    emitPhase(workflowStepId, "workflow", "waiting", "workflow_runtime",
+                            "等待用户交互", "等待交互：" + tool.getToolName());
+                    // 不标记 failureAtPlanNo，避免 Supervisor 把等待当成 Workflow 失败并重规划
+                    return ToolResultBlock.text(
+                            "Workflow is waiting for user interaction. Stop and return the uiRequest. interactionId="
+                                    + session.getId());
+                }
                 Map<String, Object> payload = workflowPayload(callNo, tool, target, args, result);
                 traceService.workflow(trace, request.agent(), request.config(), request.input(), tool.getToolName(),
                         target.workflow().getId(), target.version().getId(), target.version().getVersion(), args,
-                        result.success(), result.code(), result.answer(), elapsed, payload);
+                        result.success(), result.code(), result.answer(), elapsed, payload, identity);
                 // 公开阶段事件仅安全摘要，禁止塞入 args/answer/workflowSteps
                 emitPhase(workflowStepId, "workflow",
                         result.success() ? "completed" : "failed",
@@ -871,13 +1209,105 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         result.success()
                                 ? ("已完成：" + tool.getToolName())
                                 : ("失败：" + firstText(result.code(), tool.getToolName())));
-                if (!result.success()) failureAtPlanNo = planCount.get();
+                if (!result.success()) {
+                    failureAtPlanNo = planCount.get();
+                } else if (StringUtils.hasText(tool.getToolName())) {
+                    completedWorkflowToolNames.add(tool.getToolName());
+                }
                 return result.success()
                         ? ToolResultBlock.text(json(payload))
                         : ToolResultBlock.error(json(payload));
             } finally {
                 activeWorkflowCancellations.remove(workflowCancel);
             }
+        }
+
+        private RuntimeInteractionSessionEntity persistWorkflowInteractionWait(
+                RuntimeAgentWorkflowToolEntity tool,
+                WorkflowTarget target,
+                Map<String, Object> workflowInput,
+                RuntimeGraphSpecExecutionResult result) {
+            String interactionId = firstText(result.interactionId(),
+                    WorkflowInteractionCodes.ID_PREFIX + UUID.randomUUID().toString().replace("-", ""));
+            Object uiRequest = result.uiRequest();
+            Integer ttl = 3600;
+            if (uiRequest instanceof Map<?, ?> map && map.get("ttlSeconds") instanceof Number number) {
+                ttl = number.intValue();
+            }
+            Map<String, Object> continuation = new LinkedHashMap<>();
+            continuation.put("agentId", request.agent().id());
+            continuation.put("agentConfigVersionId", request.config().getId());
+            continuation.put("toolName", tool.getToolName());
+            continuation.put("waitingToolName", tool.getToolName());
+            continuation.put("workflowId", target.workflow().getId());
+            continuation.put("workflowVersionId", target.version().getId());
+            continuation.put("originalInput", request.input());
+            continuation.put("runId", firstText(text(workflowInput.get("runId")), trace.traceId()));
+            continuation.put("traceId", trace.traceId());
+            continuation.put("planNo", planCount.get());
+            continuation.put("completedWorkflowToolNames", List.copyOf(completedWorkflowToolNames));
+            if (lastRecordedPlan != null) {
+                continuation.put("recordedPlan", lastRecordedPlan);
+            }
+            continuation.put("appId", firstText(text(request.input().get("appId")), text(request.input().get("projectCode"))));
+            continuation.put("tenantId", text(request.input().get("tenantId")));
+            continuation.put("sessionId", sessionId());
+            continuation.put("userId", userId());
+            // Prefer executor live context; never persist only workflowInput + metadata.
+            Map<String, Object> state = new LinkedHashMap<>(
+                    result.contextSnapshot() == null || result.contextSnapshot().isEmpty()
+                            ? workflowInput
+                            : result.contextSnapshot());
+            if (result.metadata() != null) {
+                // Keep interaction metadata keys without overwriting nodeOutput / lastOutput.
+                for (Map.Entry<String, Object> entry : result.metadata().entrySet()) {
+                    if ("uiRequest".equals(entry.getKey())
+                            || "interactionId".equals(entry.getKey())
+                            || "interactionType".equals(entry.getKey())
+                            || "validationErrors".equals(entry.getKey())
+                            || "nodeId".equals(entry.getKey())
+                            || "nodeType".equals(entry.getKey())) {
+                        state.putIfAbsent(entry.getKey(), entry.getValue());
+                    }
+                }
+            }
+            state.put(WorkflowInteractionCodes.PENDING_INTERACTION_ID_KEY, interactionId);
+            state.put(WorkflowInteractionCodes.PENDING_INTERACTION_NODE_KEY, result.nodeId());
+            state.remove("submittedPayload");
+            state.remove(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
+            String appId = firstText(text(request.input().get("appId")), text(request.input().get("projectCode")));
+            String tenantId = text(request.input().get("tenantId"));
+            String ownerSessionId = sessionId();
+            String ownerUserId = userId();
+            if (!StringUtils.hasText(appId) || !StringUtils.hasText(ownerSessionId) || !StringUtils.hasText(ownerUserId)) {
+                throw new IllegalStateException(
+                        "Workflow interaction session requires appId/sessionId/userId ownership before WAITING_USER");
+            }
+            return interactionSessionService.createWaitingSession(
+                    new RuntimeWorkflowInteractionSessionService.CreateRequest(
+                            interactionId,
+                            "WORKFLOW",
+                            firstText(text(workflowInput.get("runId")), trace.traceId()),
+                            trace.traceId(),
+                            target.workflow().getId(),
+                            target.version().getId(),
+                            null,
+                            target.version().getGraphSpecSnapshotJson(),
+                            result.nodeId(),
+                            result.metadata() == null ? "COLLECT_INPUT"
+                                    : firstText(text(result.metadata().get("interactionType")), "COLLECT_INPUT"),
+                            state,
+                            uiRequest,
+                            continuation,
+                            appId,
+                            tenantId,
+                            ownerSessionId,
+                            ownerUserId,
+                            ttl));
+        }
+
+        private Object sessionServiceUi(RuntimeInteractionSessionEntity session) {
+            return interactionSessionService.readMap(session.getUiRequestJson());
         }
 
         private boolean isCancellation(Throwable ex) {
@@ -921,7 +1351,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             Map<String, Object> payload = workflowPayload(callNo, tool, target, args, result);
             traceService.workflow(trace, request.agent(), request.config(), request.input(), tool.getToolName(),
                     target.workflow().getId(), target.version().getId(), target.version().getVersion(), args,
-                    false, code, message, elapsed, payload);
+                    false, code, message, elapsed, payload, resolveTrustedIdentity(request));
             emitPhase("workflow-" + callNo, "workflow", "failed", "workflow_runtime",
                     "调用 Workflow", "失败：" + firstText(code, tool.getToolName()));
             failureAtPlanNo = planCount.get();
@@ -945,7 +1375,14 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             payload.put("code", result.code());
             payload.put("answer", result.answer());
             payload.put("workflowSteps", result.steps());
-            payload.put("metadata", result.metadata());
+            Map<String, Object> metadata = result.metadata() == null
+                    ? Map.of()
+                    : new LinkedHashMap<>(result.metadata());
+            payload.put("metadata", metadata);
+            Object nodeTraces = metadata.get("workflowNodeTraces");
+            if (nodeTraces != null) {
+                payload.put("workflowNodeTraces", nodeTraces);
+            }
             return payload;
         }
 

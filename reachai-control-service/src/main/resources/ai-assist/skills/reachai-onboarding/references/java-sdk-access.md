@@ -195,15 +195,68 @@ SecurityWebFilterChain reachAiEmbedProxySecurity(ServerHttpSecurity http) {
 - ReachAI Control application-level CORS for `/api/embed/**` is controlled by `reachai.embed.cors.enabled` and defaults to `false`. Keep it disabled behind a gateway that owns CORS headers; enable and restrict allowed origins only for direct browser-to-ReachAI deployments.
 - In Nginx or a BFF, apply the same auth bypass and CORS de-duplication rule at the real authentication/proxy boundary.
 
-### Gateway checklist
+### Gateway checklist (6 items)
 
-For Spring Cloud Gateway + WebFlux + OAuth2 Resource Server, verify these five items before marking the embed gateway work complete:
+For Spring Cloud Gateway + WebFlux + OAuth2 Resource Server, verify these six items before marking the embed gateway work complete. Keep YAML patches under a complete `spring.cloud` / `spring.security` parent context; do not paste orphan fragment keys that break the hierarchy.
 
-1. The token broker path, usually `/api/reachai/embed-token`, stays behind the business login and exchanges the current user for a short-lived ReachAI embed token.
-2. `/api/reachai/embed/**` or the chosen proxy path rewrites to ReachAI `/api/embed/**` and forwards `Authorization: Bearer <embedToken>` intact.
-3. Header-cleaning filters such as `IgnoreUrlsRemoveJwtFilter`, `RemoveJwtFilter`, or `RemoveRequestHeader=Authorization` do not clear `Authorization` on the embed proxy path.
-4. A high-priority WebFlux security chain matches the embed proxy path and does not enable the business `oauth2ResourceServer()` parser on that chain.
-5. Gateway and ReachAI CORS headers are de-duplicated so the browser exposes the real 401/500 response body.
+1. API/Embed route forwarding: token broker path (usually `/api/reachai/embed-token`) stays behind business login and exchanges the current user for a short-lived ReachAI embed token; `/api/reachai/embed/**` rewrites to ReachAI `/api/embed/**` and forwards `Authorization: Bearer <embedToken>` intact.
+2. Registry callback route: if `reachai.project.base-url` points at a gateway, route `/reachai/registry/**` to the Starter service and preserve `X-ReachAI-App-Key`, `X-ReachAI-Timestamp`, `X-ReachAI-Nonce`, and `X-ReachAI-Signature`.
+3. CORS and OPTIONS: when both gateway and ReachAI write CORS headers, dedupe with `DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST` so browsers expose real 401/500 bodies.
+4. Independent high-priority `SecurityWebFilterChain` for `/api/reachai/embed/**` that does not enable business `oauth2ResourceServer()` on that matcher (`permitAll()` alone is not enough).
+5. `IgnoreUrlsRemoveJwtFilter` / `RemoveJwtFilter` / `RemoveRequestHeader=Authorization` / `mutate().header("Authorization", "")` must not clear Authorization on `/api/reachai/embed/**`.
+6. Embed/AI Coding auth boundary: keep `/api/reachai/embed-token` on business login; keep `/api/reachai/embed/**` anonymous to business JWT while preserving the ReachAI embed token; do not put `aiCodingKey` or registry secrets into browser code or URLs.
+
+Machine-readable checklist ids used by onboarding manifests:
+
+| id | required | verificationHint | failureImpact |
+| --- | --- | --- | --- |
+| `embed-route-forwarding` | true | Probe token broker + embed proxy rewrite | Chat cannot authenticate or call embed APIs |
+| `registry-callback-route` | true | ReachAI can POST `/reachai/registry/capabilities/sync` | API Management SDK sync fails |
+| `cors-options` | true | Browser Network shows real status, not `0 Unknown Error` | Failures hidden as CORS/status 0 |
+| `security-webfilter-chain` | true | Dedicated WebFlux chain without oauth2ResourceServer for embed | Embed Bearer rejected as business JWT |
+| `ignore-urls-remove-jwt` | true | Authorization header reaches ReachAI unchanged | Embed token stripped before proxy |
+| `embed-aicoding-auth-boundary` | true | Token broker uses business login; chat uses embed token; AI Coding uses header key | Secret leakage or auth mix-up |
+
+### Windows Maven, tests, and secrets
+
+Maven discovery order on Windows (do not hardcode a machine-specific Maven path in product docs):
+
+```powershell
+$mvnCmd = if (Test-Path .\mvnw.cmd) {
+  (Resolve-Path .\mvnw.cmd).Path
+} elseif (Get-Command mvn -ErrorAction SilentlyContinue) {
+  (Get-Command mvn).Source
+} elseif (
+  $env:MAVEN_HOME -and
+  (Test-Path (Join-Path $env:MAVEN_HOME 'bin\mvn.cmd'))
+) {
+  Join-Path $env:MAVEN_HOME 'bin\mvn.cmd'
+} else {
+  throw 'Maven not found. Add Maven to PATH, set MAVEN_HOME, or provide mvnw.cmd.'
+}
+
+& $mvnCmd -version
+```
+
+- ReachAI platform modules require JDK 17.
+- When printing Maven command source or local repository location, never echo secret values.
+- Parent POM may set `skipTests=true`. To run tests explicitly:
+
+```powershell
+& $mvnCmd -pl <module> -am `
+  "-DskipTests=false" `
+  "-Dmaven.test.skip=false" `
+  "-Dsurefire.skipTests=false" `
+  "-Dsurefire.failIfNoSpecifiedTests=false" `
+  "-Dtest=SomeTest" `
+  test
+```
+
+- In PowerShell, quote full `-Dtest=...` arguments.
+- Process-scoped env vars are visible only to the current process and its children. User-scoped vars updated after Cursor/Terminal started usually require restarting Cursor or opening a new process. Machine-scoped vars are not required.
+- Secret checks may report only presence/absence and source scope; never print secret values.
+- If you keep `.reachai-local.env`, add it to the business project `.gitignore`, load without echoing values, and never put Registry App Secret into frontend bundles, browser code, manifests, URLs, logs, or test snapshots.
+- For Chinese JSON request bodies on Windows, write a UTF-8 file and use `curl.exe --data-binary "@request.json"`. Do not pipe Chinese text through PowerShell's default encoding into native programs.
 
 ### Local dev topology
 

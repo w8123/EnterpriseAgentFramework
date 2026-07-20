@@ -1,7 +1,10 @@
 import { ElMessage } from 'element-plus'
 import type { ComputedRef, Ref } from 'vue'
+import type { AgentGraphNodeTypeDescriptor } from '@/types/agent'
 import type { CanvasEdge, CanvasNode, CanvasSnapshot } from '@/types/studio'
 import { normalizeCanvasEdgeHandles } from '@/utils/studio'
+import { loopOwnerByBodyNodeId } from '@/utils/studioLoop'
+import { resolveStudioNodeCreation } from '@/utils/studioNodeRegistry'
 
 const TRANSIENT_NODE_CLASSES = [
   'run-current',
@@ -13,6 +16,7 @@ const TRANSIENT_NODE_CLASSES = [
 
 const DECORATED_NODE_CLASSES = [
   'workflow-node-collapsed',
+  'loop-body-member',
   ...TRANSIENT_NODE_CLASSES,
 ] as const
 
@@ -65,8 +69,10 @@ export function isDynamicCondition(condition?: string) {
 }
 
 export function connectionCondition(source?: CanvasNode | null, sourceHandle?: string) {
+  // FOREACH v1: LOOP has a single linear outgoing edge.
+  if (source?.data.kind === 'loop') return 'always'
   if (!sourceHandle) return 'always'
-  if (['condition', 'classifier', 'approval', 'loop'].includes(source?.data.kind || '')) {
+  if (['condition', 'classifier', 'approval'].includes(source?.data.kind || '')) {
     const normalized = sourceHandle.trim()
     if (!normalized) return 'always'
     return normalized === 'else' || normalized === 'default' ? 'else' : `route:${normalized}`
@@ -124,6 +130,8 @@ export interface UseWorkflowStudioCanvasActionsDeps {
   propertyDetailOpen: Ref<boolean>
   fitView: (options?: { padding?: number; duration?: number }) => Promise<boolean> | void
   nextTick: (fn?: () => void) => Promise<void>
+  nodeTypes: Ref<AgentGraphNodeTypeDescriptor[]>
+  graphNodeTypeCapabilitiesLoaded: Ref<boolean>
 }
 
 export function useWorkflowStudioCanvasActions({
@@ -150,6 +158,8 @@ export function useWorkflowStudioCanvasActions({
   propertyDetailOpen,
   fitView,
   nextTick,
+  nodeTypes,
+  graphNodeTypeCapabilitiesLoaded,
 }: UseWorkflowStudioCanvasActionsDeps) {
   function edgeKey(source?: string, target?: string) {
     return `${source || ''}->${target || ''}`
@@ -190,7 +200,7 @@ export function useWorkflowStudioCanvasActions({
     } else if (workflowExecutionPath.value.length && workflowExecutionSourceNodeIds.value.has(edge.source)) {
       classes.push('edge-route-miss')
     }
-    if ((source?.data.kind === 'condition' || source?.data.kind === 'classifier' || source?.data.kind === 'approval' || source?.data.kind === 'loop') && route) {
+    if ((source?.data.kind === 'condition' || source?.data.kind === 'classifier' || source?.data.kind === 'approval') && route) {
       const expected = condition.toLowerCase().startsWith('route:')
         ? condition.slice('route:'.length).trim()
         : condition === 'else' || condition === 'default'
@@ -233,9 +243,15 @@ export function useWorkflowStudioCanvasActions({
     if (node.data.collapsed) classes.push('workflow-node-collapsed')
     if (currentDebugNodeId.value === node.id) classes.push('run-current')
     if (trace) classes.push(`run-${trace.status}`)
+    const loopOwner = loopOwnerByBodyNodeId(nodes.value).get(node.id)
+    if (loopOwner) classes.push('loop-body-member')
+    const nextData = { ...node.data }
+    if (loopOwner) nextData.loopOwnerId = loopOwner
+    else delete nextData.loopOwnerId
     return {
       ...node,
       class: classes.length ? classes : undefined,
+      data: nextData,
     }
   }
 
@@ -291,6 +307,15 @@ export function useWorkflowStudioCanvasActions({
   function pasteCopiedNode() {
     if (studioReadOnly.value) return
     if (!copiedNode.value) return
+    const decision = resolveStudioNodeCreation(
+      copiedNode.value.data.kind,
+      nodeTypes.value,
+      graphNodeTypeCapabilitiesLoaded.value,
+    )
+    if (!decision.allowed) {
+      ElMessage.warning(decision.reason || '当前节点类型不可新增')
+      return
+    }
     const copy = cloneCanvasNode(copiedNode.value)
     const id = `${copy.data.kind}-${Date.now()}`
     copy.id = id
@@ -333,7 +358,29 @@ export function useWorkflowStudioCanvasActions({
       return
     }
     const id = selectedNode.value.id
-    nodes.value = nodes.value.filter((node) => node.id !== id)
+    nodes.value = nodes.value
+      .filter((node) => node.id !== id)
+      .map((node) => {
+        if (node.data.kind !== 'loop' || !node.data.loopConfig) return node
+        const loop = node.data.loopConfig
+        const bodyNodeIds = (loop.bodyNodeIds || []).filter((bodyId) => bodyId !== id)
+        const bodyEntry = loop.bodyEntry === id ? (bodyNodeIds[0] || '') : loop.bodyEntry
+        const bodyExit = loop.bodyExit === id
+          ? (bodyNodeIds.includes(loop.bodyExit) ? loop.bodyExit : (bodyNodeIds[bodyNodeIds.length - 1] || bodyEntry || ''))
+          : loop.bodyExit
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            loopConfig: {
+              ...loop,
+              bodyNodeIds,
+              bodyEntry,
+              bodyExit,
+            },
+          },
+        }
+      })
     edges.value = edges.value.filter((edge) => edge.source !== id && edge.target !== id)
     selectedNodeId.value = null
     selectedEdgeId.value = null

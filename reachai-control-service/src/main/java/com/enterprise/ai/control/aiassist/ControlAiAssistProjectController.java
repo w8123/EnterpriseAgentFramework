@@ -35,6 +35,10 @@ public class ControlAiAssistProjectController {
     private final CapabilityProjectOnboardingClient capabilityClient;
 
     static List<SdkArtifact> sdkArtifacts() {
+        return sdkArtifacts(null);
+    }
+
+    static List<SdkArtifact> sdkArtifacts(String baseUrl) {
         return List.of(
                 new SdkArtifact(
                         "maven",
@@ -47,7 +51,16 @@ public class ControlAiAssistProjectController {
                         "corporate-maven-or-local-install",
                         List.of(),
                         "mvn -pl reachai-spring-boot2-starter -am install -DskipTests",
-                        "Resolve from the corporate Maven repository, a published ReachAI Maven repository, or local Maven install. The ReachAI platform baseUrl is not a Maven repository."),
+                        "Resolve from the corporate Maven repository, a published ReachAI Maven repository, or local Maven install. The ReachAI platform baseUrl is not a Maven repository.",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null),
                 new SdkArtifact(
                         "maven",
                         "java",
@@ -59,19 +72,57 @@ public class ControlAiAssistProjectController {
                         "corporate-maven-or-local-install",
                         List.of(),
                         "mvn -pl reachai-spring-boot2-starter -am install -DskipTests",
-                        "Install the starter into the local Maven repository when no published repository is configured."),
-                new SdkArtifact(
-                        "npm",
-                        "browser",
-                        "@reachai/embed-chat@1.0.0-SNAPSHOT",
+                        "Install the starter into the local Maven repository when no published repository is configured.",
                         null,
                         null,
-                        "@reachai/embed-chat",
-                        "1.0.0-SNAPSHOT",
-                        "npm-or-local-sdk-build",
-                        List.of(),
-                        "cd ai-admin-front && npm run build:sdk",
-                        "Use the published npm package when available, or the local SDK build artifact produced by the ReachAI frontend package."));
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null),
+                ControlEmbedChatArtifactSupport.npmArtifact(baseUrl));
+    }
+
+    static List<GatewayChecklistItem> gatewayChecklist() {
+        return List.of(
+                new GatewayChecklistItem(
+                        "embed-route-forwarding",
+                        "Token broker stays behind business login; /api/reachai/embed/** rewrites to ReachAI /api/embed/** and forwards Authorization: Bearer <embedToken>.",
+                        true,
+                        "Probe token broker + embed proxy rewrite",
+                        "Chat cannot authenticate or call embed APIs"),
+                new GatewayChecklistItem(
+                        "registry-callback-route",
+                        "Route /reachai/registry/** to the Starter service and preserve X-ReachAI-* signature headers.",
+                        true,
+                        "ReachAI can POST /reachai/registry/capabilities/sync",
+                        "API Management SDK sync fails"),
+                new GatewayChecklistItem(
+                        "cors-options",
+                        "When gateway and ReachAI both write CORS headers, dedupe with DedupeResponseHeader RETAIN_FIRST.",
+                        true,
+                        "Browser Network shows real status, not 0 Unknown Error",
+                        "Failures hidden as CORS/status 0"),
+                new GatewayChecklistItem(
+                        "security-webfilter-chain",
+                        "Independent high-priority SecurityWebFilterChain for /api/reachai/embed/** without business oauth2ResourceServer.",
+                        true,
+                        "Dedicated WebFlux chain without oauth2ResourceServer for embed",
+                        "Embed Bearer rejected as business JWT"),
+                new GatewayChecklistItem(
+                        "ignore-urls-remove-jwt",
+                        "IgnoreUrlsRemoveJwtFilter / RemoveJwtFilter / RemoveRequestHeader=Authorization must not clear Authorization on /api/reachai/embed/**.",
+                        true,
+                        "Authorization header reaches ReachAI unchanged",
+                        "Embed token stripped before proxy"),
+                new GatewayChecklistItem(
+                        "embed-aicoding-auth-boundary",
+                        "Keep /api/reachai/embed-token on business login; keep /api/reachai/embed/** anonymous to business JWT; AI Coding key only in headers.",
+                        true,
+                        "Token broker uses business login; chat uses embed token; AI Coding uses header key",
+                        "Secret leakage or auth mix-up"));
     }
 
     static Map<String, ResponseShape> responseShapes() {
@@ -112,9 +163,26 @@ public class ControlAiAssistProjectController {
                 Map.of(
                         "project", "project",
                         "sdkArtifacts", "sdkArtifacts",
+                        "gatewayChecklist", "gatewayChecklist",
                         "responseShapes", "responseShapes",
                         "agentProvisioning", "agentProvisioning"),
-                "Manifest responses are top-level JSON contracts for AI coding tools."));
+                "Manifest responses are top-level JSON contracts for AI coding tools. "
+                        + "gatewayChecklist is a top-level object list, not a ResponseShape."));
+        shapes.put("workflowToolAttach", new ResponseShape(
+                "bare-json",
+                Map.of(
+                        "request.workflowId", "workflowId",
+                        "request.agentKeySlug", "agentKeySlug",
+                        "request.agentId", "agentId (internal id only; mutually exclusive with agentKeySlug)",
+                        "request.modelInstanceId", "modelInstanceId",
+                        "success.schema", "workflow-tool-attachment.v1",
+                        "error.schema", "ai-coding-error.v1"),
+                "Generic attach: POST /api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach. "
+                        + "Default workflowType on create is CHAT; Page Assistant must send PAGE_ASSISTANT. "
+                        + "Compatibility endpoint /api/workflows/{id}/page-assistant/attach-tool rejects CHAT with WORKFLOW_TYPE_NOT_SUPPORTED. "
+                        + "Stable error codes: WORKFLOW_NOT_FOUND, WORKFLOW_PROJECT_MISSING, WORKFLOW_PROJECT_MISMATCH, "
+                        + "WORKFLOW_NOT_ACTIVE, WORKFLOW_TYPE_NOT_SUPPORTED, AGENT_NOT_FOUND, AGENT_PROJECT_MISMATCH, "
+                        + "MODEL_INSTANCE_NOT_ACTIVE, NO_ACTIVE_LLM, RUNTIME_DEPENDENCY_UNAVAILABLE, ATTACHMENT_PUBLISH_FAILED."));
         return shapes;
     }
 
@@ -388,8 +456,9 @@ public class ControlAiAssistProjectController {
                                 projectManifest.baseUrl(),
                                 projectManifest.contextPath(),
                                 projectManifest.environment())),
-                sdkArtifacts(),
+                sdkArtifacts(baseUrl),
                 responseShapes(),
+                gatewayChecklist(),
                 new PlatformEndpoints(
                         baseUrl + "/api/ai-assist/skills/" + ONBOARDING_SKILL_NAME + "/latest.zip",
                         projectApiRoot + "/onboarding-manifest",
@@ -505,7 +574,7 @@ public class ControlAiAssistProjectController {
                         baseUrl + "/api/agents",
                         baseUrl + "/api/agents/{agentId}/config-versions",
                         baseUrl + "/api/agents/{agentId}/config-versions/draft",
-                        baseUrl + "/api/workflows/{workflowId}/page-assistant/attach-tool",
+                        baseUrl + "/api/ai-coding/projects/" + project.id() + "/agent-supervisor/workflow-tools/attach",
                         baseUrl + "/api/runtime/agents/execute"),
                 new WorkflowAiCodingManifest(
                         baseUrl + "/api/ai-assist/skills/" + WORKFLOW_AI_CODING_SKILL_NAME + "/latest.zip",
@@ -520,12 +589,16 @@ public class ControlAiAssistProjectController {
                         List.of(
                                 "Download and install the workflow-ai-coding skill before editing graphs from AI tools.",
                                 "All Workflow AI Coding endpoints require project aiCodingKey via header X-ReachAI-AiCoding-Key; manage the key in project detail.",
+                                "Generic Workflow create defaults to workflowType=CHAT; Page Assistant must send workflowType=PAGE_ASSISTANT explicitly.",
+                                "Use availableModels/availableTools from /context; never invent modelInstanceId or tool ids.",
+                                "Attach via agent-supervisor/workflow-tools/attach (CHAT and PAGE_ASSISTANT). page-assistant/attach-tool rejects CHAT.",
                                 "Read /context before patch; use workflow.updatedAt as baseRevision when saving.",
                                 "After the first valid workflow draft is saved, call /publish once to create the initial ACTIVE workflow version.")),
                 List.of(
                         "Provision or reuse one project-level page copilot Agent entry.",
                         "Store every executable graph as a runtime_workflow and publish an ACTIVE version before attachment.",
-                        "Attach published Workflows to the Agent Supervisor Workflow-as-Tool allow-list.",
+                        "Attach published Workflows via the generic agent-supervisor workflow-tools attach endpoint using agentKeySlug.",
+                        "Page Assistant compatibility endpoint accepts PAGE_ASSISTANT only.",
                         "Publish a new Agent config version after changing its tool catalog.",
                         "Use only the published Agent config Workflow-as-Tool catalog for runtime selection."));
     }
@@ -636,41 +709,23 @@ public class ControlAiAssistProjectController {
     }
 
     private SdkAccessCheckResponse sdkAccessCheck(Map<String, Object> project) {
-        boolean credentialConfigured = booleanValue(project.get("registryCredentialConfigured"));
-        AiCodingAccessManifest aiCodingAccess = toAiCodingAccess(mapValue(project.get("aiCodingAccess")));
-        SdkAccessCheckItem sdkSyncCallbackCheck = sdkSyncCallbackCheck(project);
-        List<SdkAccessCheckItem> checks = List.of(
-                new SdkAccessCheckItem(
-                        "PROJECT",
-                        "项目识别",
-                        "PASS",
-                        "已读取项目 " + stringValue(project.get("projectCode")),
-                        null),
-                new SdkAccessCheckItem(
-                        "REGISTRY_CREDENTIAL",
-                        "注册凭据",
-                        credentialConfigured ? "PASS" : "WARN",
-                        credentialConfigured ? "已配置 active registry credential" : "尚未配置 active registry credential",
-                        null),
-                new SdkAccessCheckItem(
-                        "AI_CODING_ACCESS",
-                        "AI Coding 接入",
-                        aiCodingAccess.enabled() ? "PASS" : "WARN",
-                        aiCodingAccess.enabled() ? "已启用 AI Coding 接入" : "AI Coding 接入未启用",
-                        null),
-                sdkSyncCallbackCheck);
-        String overall = checks.stream().anyMatch(check -> "FAIL".equals(check.status()))
-                ? "FAIL"
-                : checks.stream().anyMatch(check -> "WARN".equals(check.status())) ? "WARN" : "PASS";
-        return new SdkAccessCheckResponse(
-                longValue(project.get("id")),
-                stringValue(project.get("projectCode")),
-                overall,
-                List.of(
-                        new SdkAccessReadiness("CODE_READY", "代码接入", overall, "SDK onboarding route is available"),
-                        new SdkAccessReadiness("RUNTIME_READY", "Runtime 就绪", overall, "Runtime readiness requires SDK instance heartbeat"),
-                        new SdkAccessReadiness("E2E_READY", "端到端", overall, "Verify embed/token broker flow; API calls are optional after API Management manual SDK sync")),
-                checks);
+        Long projectId = longValue(project.get("id"));
+        Map<String, Object> readinessFacts = Map.of();
+        try {
+            if (projectId != null) {
+                readinessFacts = capabilityClient.getReadinessFacts(projectId);
+            }
+        } catch (Exception ignored) {
+            readinessFacts = Map.of("instanceExists", false, "online", false);
+        }
+        boolean artifactAvailable = ControlEmbedChatArtifactSupport.integritySha256() != null;
+        return ControlSdkAccessReadinessCalculator.calculate(
+                project,
+                readinessFacts == null ? Map.of() : readinessFacts,
+                artifactAvailable,
+                artifactAvailable
+                        ? ControlEmbedChatArtifactSupport.downloadUrl("")
+                        : null);
     }
 
     static SdkAccessCheckItem sdkSyncCallbackCheck(Map<String, Object> project) {
@@ -700,10 +755,11 @@ public class ControlAiAssistProjectController {
         return new SdkAccessCheckItem(
                 "SDK_SYNC_CALLBACK",
                 "SDK 同步回调",
-                "PASS",
-                loopback
-                        ? "已计算同步回调目标；当前为回环地址，仅适用于 ReachAI 与业务系统同机或共享网络命名空间"
-                        : "已计算同步回调目标；实际可达性和业务鉴权/CSRF需由 API 管理手动同步验证",
+                "WARN",
+                "CONFIGURED_NOT_PROBED: "
+                        + (loopback
+                        ? "已推导同步回调目标（回环地址），未主动探测可达性"
+                        : "已推导同步回调目标，未主动探测可达性/鉴权"),
                 targetUrl);
     }
 
@@ -811,11 +867,21 @@ public class ControlAiAssistProjectController {
             SdkManifest sdk,
             List<SdkArtifact> sdkArtifacts,
             Map<String, ResponseShape> responseShapes,
+            List<GatewayChecklistItem> gatewayChecklist,
             PlatformEndpoints endpoints,
             EmbedManifest embed,
             AgentProvisioningManifest agentProvisioning,
             AgentSupervisorManifest agentSupervisor,
             SecurityGuidance security
+    ) {
+    }
+
+    public record GatewayChecklistItem(
+            String id,
+            String description,
+            boolean required,
+            String verificationHint,
+            String failureImpact
     ) {
     }
 
@@ -1078,7 +1144,16 @@ public class ControlAiAssistProjectController {
                               String sourcePolicy,
                               List<String> repositoryUrls,
                               String localInstallCommand,
-                              String notes) {
+                              String notes,
+                              String format,
+                              String downloadUrl,
+                              String integritySha256,
+                              String installCommand,
+                              String fallbackPolicy,
+                              List<String> requiredFiles,
+                              String artifactPathWithinSkill,
+                              String installWorkingDirectory,
+                              String installCommandTemplate) {
     }
 
     public record ResponseShape(String wrapper, Map<String, String> fields, String notes) {

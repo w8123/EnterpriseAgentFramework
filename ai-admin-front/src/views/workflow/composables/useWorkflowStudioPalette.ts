@@ -1,4 +1,4 @@
-﻿import { computed } from 'vue'
+import { computed } from 'vue'
 import type { Ref } from 'vue'
 import type { Component } from 'vue'
 import { Briefcase, Coin, Collection, Connection, Document, Finished, Files, Link, MagicStick, Operation, SetUp, Switch, Tools } from '@element-plus/icons-vue'
@@ -102,10 +102,12 @@ export function useWorkflowStudioPalette(deps: UseWorkflowStudioPaletteDeps) {
         )
         .map((item) => {
           const capability = graphNodeCompositionByKind.value[item.kind]
+          const baseMeta = capability?.type || item.meta
+          const meta = capability?.maturity === 'BETA' ? `${baseMeta} · Beta` : baseMeta
           return {
             kind: item.kind,
             label: item.label,
-            meta: capability?.type || item.meta,
+            meta,
             icon: nodeIconMap[item.kind],
             hint: item.hint,
           }

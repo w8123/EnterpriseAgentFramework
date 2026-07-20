@@ -1,5 +1,6 @@
 package com.enterprise.ai.runtime.debug;
 
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
@@ -13,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -22,11 +24,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -103,6 +108,7 @@ class RuntimeExecutableDebugSessionServiceTest {
     void submitContinuesWaitingSessionFromCurrentNode() {
         RuntimeExecutableDebugSessionEntity existing = waitingSessionEntity();
         when(mapper.selectById("session-1")).thenReturn(existing);
+        when(mapper.update(any(), any())).thenReturn(1);
         RuntimeWorkflowDebugService.DebugRunResult run = new RuntimeWorkflowDebugService.DebugRunResult(
                 "run-1",
                 "trace-1",
@@ -131,11 +137,96 @@ class RuntimeExecutableDebugSessionServiceTest {
                 ArgumentCaptor.forClass(RuntimeWorkflowDebugService.DebugRunRequest.class);
         verify(workflowDebugService).debugRun(requestCaptor.capture(), any(), any());
         assertEquals("confirm", requestCaptor.getValue().debugOptions().get("entryNodeId"));
-        assertEquals(Map.of("action", "submit", "values", Map.of("approved", true)),
-                requestCaptor.getValue().debugOptions().get("submittedPayload"));
-        verify(mapper).updateById(existing);
+        assertNull(requestCaptor.getValue().debugOptions().get("submittedPayload"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> resume = (Map<String, Object>) requestCaptor.getValue().inputParams()
+                .get("__interactionResume");
+        assertEquals("confirm", resume.get("nodeId"));
+        assertEquals("submit", resume.get("action"));
+        assertEquals(Map.of("approved", true), resume.get("values"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<UpdateWrapper<RuntimeExecutableDebugSessionEntity>> updateCaptor =
+                ArgumentCaptor.forClass(UpdateWrapper.class);
+        verify(mapper, atLeastOnce()).update(any(), updateCaptor.capture());
+        String sqlSegment = String.valueOf(updateCaptor.getAllValues().get(0).getSqlSegment());
+        assertTrue(sqlSegment.contains("WAITING") || sqlSegment.toLowerCase().contains("status"),
+                "CAS must constrain status=WAITING revision: " + sqlSegment);
+        verify(mapper, atLeastOnce()).updateById(existing);
         assertEquals("SUCCESS", view.status());
         assertEquals("{approved=true}", view.answer());
+    }
+
+    @Test
+    void concurrentSubmitOnlyOneCallsDebugRun() throws Exception {
+        RuntimeExecutableDebugSessionEntity existing = waitingSessionEntity();
+        when(mapper.selectById("session-1")).thenReturn(existing);
+        AtomicInteger casWins = new AtomicInteger();
+        when(mapper.update(any(), any())).thenAnswer(invocation -> casWins.getAndIncrement() == 0 ? 1 : 0);
+        CountDownLatch started = new CountDownLatch(2);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger debugRuns = new AtomicInteger();
+        RuntimeWorkflowDebugService.DebugRunResult run = new RuntimeWorkflowDebugService.DebugRunResult(
+                "run-1", "trace-1", null, "WORKFLOW", true, "SUCCESS", "done", "confirm",
+                List.of(), null, List.of(), Map.of("lastOutput", "done"), null, null);
+        when(workflowDebugService.debugRun(any(), any(), any())).thenAnswer(invocation -> {
+            debugRuns.incrementAndGet();
+            started.countDown();
+            assertTrue(release.await(3, TimeUnit.SECONDS));
+            return run;
+        });
+
+        CompletableFuture<Object> first = CompletableFuture.supplyAsync(() -> {
+            try {
+                return service.submit("session-1", new RuntimeExecutableDebugSessionService.SubmitRequest(
+                        "submit", Map.of("approved", true), null, "wfi_debug1", "idem-a"));
+            } catch (RuntimeException ex) {
+                return ex;
+            }
+        });
+        // second starts after first CAS claimed RESUMING
+        Thread.sleep(50);
+        when(mapper.selectById("session-1")).thenAnswer(invocation -> {
+            RuntimeExecutableDebugSessionEntity latest = waitingSessionEntity();
+            if (casWins.get() > 0) {
+                latest.setStatus("RESUMING");
+                latest.setRevision(1);
+                latest.setIdempotencyKey("idem-a");
+                latest.setSubmittedPayloadJson(
+                        "{\"action\":\"submit\",\"values\":{\"approved\":true},\"interactionId\":\"wfi_debug1\",\"nodeId\":\"confirm\"}");
+            }
+            return latest;
+        });
+        CompletableFuture<Object> second = CompletableFuture.supplyAsync(() -> {
+            try {
+                return service.submit("session-1", new RuntimeExecutableDebugSessionService.SubmitRequest(
+                        "submit", Map.of("approved", true), null, "wfi_debug1", "idem-b"));
+            } catch (RuntimeException ex) {
+                return ex;
+            }
+        });
+        release.countDown();
+        Object firstResult = first.get(5, TimeUnit.SECONDS);
+        Object secondResult = second.get(5, TimeUnit.SECONDS);
+        assertEquals(1, debugRuns.get(), "downstream debugRun must execute exactly once");
+        assertTrue(firstResult instanceof RuntimeExecutableDebugSessionService.SessionView
+                        || secondResult instanceof RuntimeExecutableDebugSessionService.SessionView);
+        assertTrue(firstResult instanceof RuntimeException || secondResult instanceof RuntimeException
+                        || firstResult instanceof RuntimeExecutableDebugSessionService.SessionView);
+    }
+
+    @Test
+    void sameIdempotencyKeyDifferentPayloadConflicts() {
+        RuntimeExecutableDebugSessionEntity existing = waitingSessionEntity();
+        existing.setIdempotencyKey("idem-1");
+        existing.setSubmittedPayloadJson(
+                "{\"action\":\"submit\",\"values\":{\"approved\":true},\"interactionId\":\"wfi_debug1\",\"nodeId\":\"confirm\"}");
+        when(mapper.selectById("session-1")).thenReturn(existing);
+
+        assertThrows(IllegalStateException.class, () -> service.submit(
+                "session-1",
+                new RuntimeExecutableDebugSessionService.SubmitRequest(
+                        "submit", Map.of("approved", false), null, "wfi_debug1", "idem-1")));
+        verify(workflowDebugService, never()).debugRun(any(), any(), any());
     }
 
     @Test
@@ -420,12 +511,14 @@ class RuntimeExecutableDebugSessionServiceTest {
         existing.setTraceId("trace-1");
         existing.setTargetType("WORKFLOW_DRAFT");
         existing.setStatus("WAITING");
+        existing.setRevision(0);
         existing.setCurrentNodeId("confirm");
         existing.setDraftDefinitionJson("{\"graphSpecJson\":\"{\\\"entry\\\":\\\"confirm\\\",\\\"nodes\\\":[{\\\"id\\\":\\\"confirm\\\",\\\"type\\\":\\\"INTERACTION\\\"}]}\"}");
         existing.setDebugOptionsJson("{}");
         existing.setStateJson("{\"input\":\"hello\"}");
         existing.setMessagesJson("[]");
         existing.setStepsJson("[]");
+        existing.setUiRequestJson("{\"component\":\"confirm\",\"interactionId\":\"wfi_debug1\",\"nodeId\":\"confirm\"}");
         return existing;
     }
 }

@@ -40,4 +40,13 @@ public class RetrievalTestRequest {
     private String traceId;
 
     private String userId;
+
+    /**
+     * Optional ACL file ids for Workflow/internal retrieval. When present, vector/keyword hits
+     * are constrained to these files. Does not mutate KnowledgeBase persisted config.
+     */
+    private List<String> accessibleFileIds;
+
+    /** Optional Milvus filter expression built from accessibleFileIds. */
+    private String fileIdFilterExpression;
 }

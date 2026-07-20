@@ -1,5 +1,6 @@
 package com.enterprise.ai.control.runtime;
 
+import com.enterprise.ai.control.client.runtime.RuntimeAgentExecutionInternalClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,6 +16,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -24,6 +26,8 @@ import java.util.regex.Pattern;
 public class RuntimeAgentStreamProxy {
 
     public static final String AGENT_EXECUTE_STREAM = "/api/runtime/agents/execute/stream";
+    public static final String AGENT_EXECUTE_TRUSTED_STREAM =
+            RuntimeAgentExecutionInternalClient.EXECUTE_STREAM_PATH;
     public static final String DEBUG_SESSION_STREAM = "/api/runtime/debug-sessions/stream";
 
     private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(10);
@@ -32,6 +36,7 @@ public class RuntimeAgentStreamProxy {
 
     private static final Set<String> EXACT_ALLOWED_PATHS = Set.of(
             AGENT_EXECUTE_STREAM,
+            AGENT_EXECUTE_TRUSTED_STREAM,
             DEBUG_SESSION_STREAM);
 
     private final ObjectMapper objectMapper;
@@ -61,6 +66,50 @@ public class RuntimeAgentStreamProxy {
                                    OutputStream outputStream,
                                    SseStreamRelay.FrameHandler handler) throws IOException {
         stream(AGENT_EXECUTE_STREAM, body, outputStream, handler);
+    }
+
+    /**
+     * HMAC-authenticated internal Agent SSE using pre-serialized body bytes that were signed.
+     * Signatures and identity headers are never written into the downstream SSE body.
+     */
+    public void streamTrustedAgentExecute(byte[] signedBodyBytes,
+                                          Map<String, String> signedHeaders,
+                                          OutputStream outputStream,
+                                          SseStreamRelay.FrameHandler handler) throws IOException {
+        byte[] payload = signedBodyBytes == null ? new byte[0] : signedBodyBytes;
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(runtimeServiceUrl + AGENT_EXECUTE_TRUSTED_STREAM))
+                .timeout(REQUEST_TIMEOUT)
+                .header("Content-Type", "application/json")
+                .header("Accept", "text/event-stream");
+        if (signedHeaders != null) {
+            for (Map.Entry<String, String> entry : signedHeaders.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) {
+                    builder.header(entry.getKey(), entry.getValue());
+                }
+            }
+        }
+        HttpRequest request = builder
+                .POST(HttpRequest.BodyPublishers.ofByteArray(payload))
+                .build();
+        try {
+            HttpResponse<InputStream> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofInputStream());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                String responseBody;
+                try (InputStream input = response.body()) {
+                    responseBody = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+                }
+                writeProxyError(outputStream, response.statusCode(), responseBody);
+                return;
+            }
+            try (InputStream input = response.body()) {
+                relayUpstream(input, outputStream, handler);
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Runtime trusted stream interrupted", ex);
+        }
     }
 
     public void stream(String path, Map<String, Object> body, OutputStream outputStream) throws IOException {

@@ -47,6 +47,19 @@
 
 新增 Workflow Studio 节点、AI 编辑能力或 Runtime 行为时，必须把可执行语义写入 Workflow `GraphSpec`。
 
+### Workflow 第一阶段节点与变量契约
+
+- 节点“可执行/可开放”必须以 `RuntimeGraphSpecExecutor.handledNodeTypes()` 为 Runtime 真相，再由 `RuntimeWorkflowNodeCapabilityRegistry` 决定 Studio/发布/AI 编排开关；禁止只靠 UI 或枚举凑数。AI Draft `systemPrompt` / `nodeTypes` 也必须同源，禁止硬编码第二份 forbidden 列表。
+- 业务输出别名统一写入 `var.<alias>`；保留 `input/message/params/sys/nodeOutput/lastOutput/previousOutput`；裸别名仅作只读兼容解析，不双写两套真相。`VARIABLE_ASSIGN` GraphSpec 保存原生 JSON 类型。
+- `RetryPolicy` 必须同时受 `retryable()`、失败分类与 HTTP 幂等约束；`ErrorPolicy` 只在重试耗尽后消费一次。
+- Knowledge 检索只走 Knowledge owning service 的 `POST /internal/knowledge/retrieval/query`（hits only），并由 `KnowledgeRetrievalCore` 承载正式生产检索；Runtime Internal API 不得构造 `RetrievalTestRequest` 或调用 `retrievalTest` 命名入口。`searchMode`/`rerankEnabled` 为 request override，不改 KB 持久化配置；Workflow GraphSpec/AI Draft 不得写入 `directReturnEnabled`/`directReturnThreshold`。
+- HTTP 凭据 canonical 类型：`BEARER` / `BASIC` / `API_KEY_HEADER` / `API_KEY_QUERY` / `CUSTOM_HEADERS`；scope fail-closed；仅 2xx 成功；credentialed 跨 origin redirect 拒绝；HTTPS→HTTP 拒绝。Egress 校验与连接 pin 必须共用同一组 DNS 解析结果（每 hop 只解析一次）；普通节点不得覆盖 Host/Content-Length/Transfer-Encoding/Connection/Proxy-Authorization。
+- 可信执行身份：`WorkflowExecutionIdentity` 仅由受控 factory 构造（无公共 `@JsonCreator` / 不可由外部 JSON 设置 trust 布尔）。`SupervisorRequest.identity` 显式携带身份；Supervisor 不得从 `request.input`/metadata/模型 args 构造可信用户。Control→Runtime 使用 HMAC-SHA256 内部服务认证（canonical 含 method/path/caller/source/userId/timestamp/nonce/**BODY_SHA256**；恒定时间验签；JDBC nonce 仅清理过期条目，满容 fail-closed 拒绝新 nonce，绝不为腾容量删除有效 nonce；`nonceTtlSeconds >= 2 * skewSeconds`；缺密钥 fail-closed；actuator `INTERNAL_AUTH_NOT_CONFIGURED`）。RunOps/`runtime_run.userId`/ToolCallLog 审计主体必须来自可信身份，禁止从业务 body 提升。公开 `/api/runtime/agents/execute(+stream)`：有平台 Bearer 则经签名 internal 传 `AGENT` 身份，否则 `userTrusted=false`。Embed sync/stream 必须从已验签 claims 经签名 internal 传 `EMBED_SESSION`。Debug/Composition 保持 untrusted。`projectId`/`projectCode` 冲突 fail-closed。
+- Trace 持久化边界：按数据来源构造 `TraceSafeSummary` allowlist（statusCode/hitCount/attempt/latency 等）；`inputSummary` 只存 inputType/messageLength/hasMessage 与非敏感 id，永不存用户原文；禁止内容猜测与固定 marker 特判；plan/replan 只存工具名与步骤数；HTTP 非 2xx raw body 可留内存供 ErrorPolicy，不得落库。Replay 若安全策略禁止原文，必须显式 `messageOverride`，不得从脱敏摘要伪造输入。
+- Retry 默认 fail-closed：仅显式 transient（HTTP 408/429/5xx、timeout/connect，或 metadata `retryableFailure=true`）可重试；`*_REQUIRED` / `*_DENIED` / `*_UNAVAILABLE` / 配置与权限错误不可重试。
+- Agent/Embed 对外不推送 Workflow node delta，但对内必须持久化已脱敏的 `workflowNodeTraces`。
+- `INTERACTION` 保持 BETA 关闭，直到 Agent/Embed/RunOps Live E2E 完成；当前记为 CODE_READY / E2E_PENDING。第一阶段 5 类节点整体：CODE_READY / E2E_PENDING / PRODUCTION_PENDING。
+
 ## Capability 与 Skill 命名
 
 产品和文档默认使用 `Capability / 能力`。

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.enterprise.ai.common.dto.ApiResult;
 import com.enterprise.ai.control.client.capability.CapabilityProxyClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
+import com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -43,6 +44,7 @@ public class PlatformEmbedPublicController {
     private final PlatformEmbedChatEventService chatEventService;
     private final CapabilityProxyClient capabilityProxyClient;
     private final RuntimeProxyClient runtimeProxyClient;
+    private final RuntimeTrustedAgentExecutionGateway trustedExecutionGateway;
     private final PlatformEmbedStreamRelay embedStreamRelay;
     private final PlatformPageActionEventMapper pageActionEventMapper;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -193,6 +195,9 @@ public class PlatformEmbedPublicController {
             runtimeBody.put("uiSubmit", Map.of(
                     "action", firstText(request == null ? null : request.action(), "confirm"),
                     "values", request == null || request.values() == null ? Map.of() : request.values()));
+            if (request != null && StringUtils.hasText(request.idempotencyKey())) {
+                runtimeBody.put("idempotencyKey", request.idempotencyKey().trim());
+            }
             runtimeBody.put("intentHint", "EMBED_INTERACTION_RESUME");
             runtimeBody.put("entryType", "EMBED");
             StreamingResponseBody stream = outputStream ->
@@ -221,6 +226,9 @@ public class PlatformEmbedPublicController {
             runtimeBody.put("uiSubmit", Map.of(
                     "action", firstText(request == null ? null : request.action(), "confirm"),
                     "values", request == null || request.values() == null ? Map.of() : request.values()));
+            if (request != null && StringUtils.hasText(request.idempotencyKey())) {
+                runtimeBody.put("idempotencyKey", request.idempotencyKey().trim());
+            }
             runtimeBody.put("intentHint", "EMBED_INTERACTION_RESUME");
             return ResponseEntity.ok(ApiResult.ok(executeRuntimeMessage(session, runtimeBody)));
         } catch (PlatformEmbedTokenException ex) {
@@ -323,19 +331,24 @@ public class PlatformEmbedPublicController {
 
     private Map<String, Object> runtimeContext(PlatformEmbedSessionEntity session,
                                                PlatformEmbedTokenClaims claims) {
+        // Ownership is derived only from verified token/session claims — never from request body.
         Map<String, Object> runtimeBody = new LinkedHashMap<>();
         runtimeBody.put("agentId", session.getAgentId());
         runtimeBody.put("sessionId", session.getSessionId());
         runtimeBody.put("userId", claims.getExternalUserId());
         runtimeBody.put("projectCode", session.getProjectCode());
+        putIfText(runtimeBody, "appId", firstText(session.getAppId(), claims.getAppId(), session.getProjectCode()));
+        putIfText(runtimeBody, "tenantId", firstText(session.getTenantId(), claims.getTenantId()));
+        putIfText(runtimeBody, "externalUserId", firstText(session.getExternalUserId(), claims.getExternalUserId()));
+        putIfText(runtimeBody, "globalUserId", session.getGlobalUserId());
         runtimeBody.put("pageKey", session.getPageKey());
         runtimeBody.put("route", session.getRoute());
         runtimeBody.put("roles", claims.getRoles() == null ? List.of() : claims.getRoles());
         Map<String, Object> metadata = new LinkedHashMap<>();
-        putIfText(metadata, "tenantId", session.getTenantId());
-        putIfText(metadata, "appId", session.getAppId());
+        putIfText(metadata, "tenantId", firstText(session.getTenantId(), claims.getTenantId()));
+        putIfText(metadata, "appId", firstText(session.getAppId(), claims.getAppId(), session.getProjectCode()));
         putIfText(metadata, "projectCode", session.getProjectCode());
-        putIfText(metadata, "externalUserId", session.getExternalUserId());
+        putIfText(metadata, "externalUserId", firstText(session.getExternalUserId(), claims.getExternalUserId()));
         putIfText(metadata, "globalUserId", session.getGlobalUserId());
         putIfText(metadata, "pageInstanceId", session.getPageInstanceId());
         putIfText(metadata, "origin", session.getOrigin());
@@ -347,9 +360,34 @@ public class PlatformEmbedPublicController {
 
     private EmbedChatMessageResponse executeRuntimeMessage(PlatformEmbedSessionEntity session,
                                                             Map<String, Object> runtimeBody) {
-        ResponseEntity<Map<String, Object>> runtimeResponse = runtimeProxyClient.executeAgent(runtimeBody);
+        // Identity comes only from verified Embed token/session claims — never from chat body.
+        String trustedUserId = firstText(session.getExternalUserId(), session.getGlobalUserId());
+        ResponseEntity<Map<String, Object>> runtimeResponse;
+        if (StringUtils.hasText(trustedUserId) && trustedExecutionGateway != null) {
+            runtimeResponse = trustedExecutionGateway.executeTrusted(
+                    runtimeBody, "EMBED_SESSION", trustedUserId.trim());
+        } else {
+            // Fail closed: without verified user, use public execute (userTrusted=false).
+            runtimeResponse = runtimeProxyClient.executeAgent(runtimeBody);
+        }
+        if (runtimeResponse.getStatusCode().value() == 403) {
+            throw new IllegalStateException("interaction does not belong to the current session/user");
+        }
+        if (runtimeResponse.getStatusCode().value() == 409) {
+            throw new IllegalArgumentException("interaction submit conflict");
+        }
+        if (runtimeResponse.getStatusCode().value() == 410) {
+            throw new IllegalArgumentException("interaction session expired");
+        }
         if (!runtimeResponse.getStatusCode().is2xxSuccessful() || runtimeResponse.getBody() == null) {
-            throw new IllegalStateException("runtime agent execution failed");
+            Map<String, Object> err = runtimeResponse.getBody() == null ? Map.of() : runtimeResponse.getBody();
+            String code = text(err.get("code"));
+            if (!StringUtils.hasText(code) && err.get("metadata") instanceof Map<?, ?> meta) {
+                code = text(meta.get("code"));
+            }
+            throw new IllegalStateException(StringUtils.hasText(code)
+                    ? ("runtime agent execution failed: " + code)
+                    : "runtime agent execution failed");
         }
         Map<String, Object> body = runtimeResponse.getBody();
         Map<String, Object> metadata = mapValue(body.get("metadata"));
@@ -562,6 +600,16 @@ public class PlatformEmbedPublicController {
         return StringUtils.hasText(primary) ? primary : fallback;
     }
 
+    private String firstText(String primary, String secondary, String fallback) {
+        if (StringUtils.hasText(primary)) {
+            return primary;
+        }
+        if (StringUtils.hasText(secondary)) {
+            return secondary;
+        }
+        return fallback;
+    }
+
     private ResponseEntity<StreamingResponseBody> streamResponse(StreamingResponseBody stream) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noCache())
@@ -600,7 +648,12 @@ public class PlatformEmbedPublicController {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record EmbedInteractionSubmitRequest(String action, Map<String, Object> values) {
+    public record EmbedInteractionSubmitRequest(String action,
+                                                Map<String, Object> values,
+                                                String idempotencyKey) {
+        public EmbedInteractionSubmitRequest(String action, Map<String, Object> values) {
+            this(action, values, null);
+        }
     }
 
     public record EmbedChatMessageResponse(

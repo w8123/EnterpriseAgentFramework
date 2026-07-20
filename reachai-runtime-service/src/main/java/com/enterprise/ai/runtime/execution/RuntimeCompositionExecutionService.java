@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.execution;
 
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
+import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -41,7 +42,8 @@ public class RuntimeCompositionExecutionService {
         }
 
         RuntimeGraphSpecExecutionResult result =
-                graphSpecExecutor.execute(graphSpecJson, normalizeRequest(request));
+                graphSpecExecutor.execute(graphSpecJson, normalizeRequest(request),
+                        WorkflowExecutionIdentity.untrustedComposition());
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("success", result.success());
         body.put("code", result.code());

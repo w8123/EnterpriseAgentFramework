@@ -1,14 +1,23 @@
 import { copyFile, mkdir, readdir, writeFile } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { basename, dirname, resolve } from 'node:path'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const outDir = resolve(root, 'dist-sdk', 'embed-chat')
-const typesSource = resolve(root, 'src', 'sdk', 'embed-chat.d.ts')
 const sharedAssetsDir = resolve(root, 'src', 'conversation', 'assets')
 
 await mkdir(outDir, { recursive: true })
-await copyFile(typesSource, resolve(outDir, 'index.d.ts'))
+
+// Generate self-contained index.d.ts from real SDK TypeScript sources (not a hand-copied contract).
+const gen = spawnSync(process.execPath, [resolve(root, 'scripts', 'generate-embed-chat-dts.mjs')], {
+  cwd: root,
+  encoding: 'utf8',
+})
+if (gen.status !== 0) {
+  throw new Error(`generate-embed-chat-dts failed:\n${gen.stdout || ''}\n${gen.stderr || ''}`)
+}
+process.stdout.write(gen.stdout || '')
 
 // 确保共享 WebP 始终随 SDK 分发（即使 Vite 哈希文件名不同）
 for (const name of await readdir(sharedAssetsDir)) {

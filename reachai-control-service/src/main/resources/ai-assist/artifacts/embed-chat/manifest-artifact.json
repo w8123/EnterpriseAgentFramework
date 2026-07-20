@@ -1,0 +1,25 @@
+{
+  "schema": "reachai.embed-chat.artifact.v1",
+  "packageName": "@reachai/embed-chat",
+  "version": "1.0.0-SNAPSHOT",
+  "format": "npm-tarball",
+  "filename": "reachai-embed-chat-1.0.0-SNAPSHOT.tgz",
+  "integritySha256": "718656a71f4e194b1d3e81121db9df61ec186ddb1d3fafdf52b364d398278aa3",
+  "downloadUrlTemplate": "/api/ai-assist/artifacts/embed-chat/{version}.tgz",
+  "artifactPathWithinSkill": "reachai-onboarding/artifacts/reachai-embed-chat-1.0.0-SNAPSHOT.tgz",
+  "installWorkingDirectory": "business-frontend-package-root",
+  "installCommand": "npm install \"{skillExtractDir}/reachai-onboarding/artifacts/reachai-embed-chat-1.0.0-SNAPSHOT.tgz\"",
+  "installCommandTemplate": "npm install \"{skillExtractDir}/reachai-onboarding/artifacts/reachai-embed-chat-1.0.0-SNAPSHOT.tgz\"",
+  "fallbackPolicy": "skill-zip-tarball",
+  "requiredFiles": [
+    "package.json",
+    "index.mjs",
+    "index.cjs",
+    "index.d.ts",
+    "reachai-chat-embed.umd.js",
+    "style.css",
+    "agent-prism.webp",
+    "conversation-atmosphere.webp"
+  ],
+  "rebuiltBy": "ai-admin-front/scripts/pack-embed-chat.mjs"
+}

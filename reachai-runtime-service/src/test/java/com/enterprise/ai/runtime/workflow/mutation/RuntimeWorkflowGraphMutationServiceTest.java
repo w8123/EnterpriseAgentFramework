@@ -12,6 +12,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RuntimeWorkflowGraphMutationServiceTest {
 
@@ -90,6 +91,56 @@ class RuntimeWorkflowGraphMutationServiceTest {
         assertEquals("e-start-answer", edge.getId());
         assertEquals("tool", edge.getTo());
         assertEquals("ok", edge.getCondition());
+    }
+
+    @Test
+    void rejectsAddAndUpdateForNonAuthorableNodesButAllowsDelete() {
+        GraphSpec.Node interaction = GraphSpec.Node.builder()
+                .id("ask")
+                .type("INTERACTION")
+                .name("Ask")
+                .build();
+        GraphSpec source = GraphSpec.builder()
+                .code("test")
+                .name("Test")
+                .node(interaction)
+                .entry("ask")
+                .finishNode("ask")
+                .build();
+
+        IllegalArgumentException addRejected = assertThrows(IllegalArgumentException.class, () ->
+                service.mutate(graph(), List.of(new MutationOperation(
+                        MutationOperation.Op.ADD_NODE, interaction, null, null, null, null, null, null))));
+        assertTrue(addRejected.getMessage().contains("WORKFLOW_NODE_NOT_AUTHORABLE"));
+
+        IllegalArgumentException updateRejected = assertThrows(IllegalArgumentException.class, () ->
+                service.mutate(source, List.of(new MutationOperation(
+                        MutationOperation.Op.UPDATE_NODE,
+                        null,
+                        "ask",
+                        Map.of("name", "changed"),
+                        null,
+                        null,
+                        null,
+                        null))));
+        assertTrue(updateRejected.getMessage().contains("WORKFLOW_NODE_NOT_AUTHORABLE"));
+
+        IllegalArgumentException typeRejected = assertThrows(IllegalArgumentException.class, () ->
+                service.mutate(graph(), List.of(new MutationOperation(
+                        MutationOperation.Op.UPDATE_NODE,
+                        null,
+                        "answer",
+                        Map.of("type", "CODE"),
+                        null,
+                        null,
+                        null,
+                        null))));
+        assertTrue(typeRejected.getMessage().contains("WORKFLOW_NODE_NOT_AUTHORABLE"));
+
+        MutationResult deleted = service.mutate(source, List.of(new MutationOperation(
+                MutationOperation.Op.DELETE_NODE, null, "ask", null, null, null, null, null)));
+        assertEquals(List.of(), deleted.graphSpec().getNodes());
+        assertEquals(List.of("ask"), deleted.changedNodes());
     }
 
     private GraphSpec graph() {

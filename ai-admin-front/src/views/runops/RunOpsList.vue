@@ -67,6 +67,7 @@
           <el-option label="运行中" value="RUNNING" />
           <el-option label="成功" value="SUCCESS" />
           <el-option label="失败" value="FAILED" />
+          <el-option label="等待用户交互" value="WAITING_USER" />
           <el-option label="等待审批" value="WAITING_APPROVAL" />
           <el-option label="已取消" value="CANCELLED" />
           <el-option label="超时" value="TIMEOUT" />
@@ -361,6 +362,7 @@
                     </div>
                   </el-tooltip>
                 </template>
+                <span v-else-if="row.status === 'WAITING_USER'" class="result-waiting">等待用户交互</span>
                 <span v-else-if="row.status === 'WAITING_APPROVAL'" class="result-waiting">等待审批</span>
                 <span v-else class="muted">{{ statusLabel(row.status) }}</span>
               </template>
@@ -509,7 +511,8 @@ const advancedFilterCount = computed(() => {
 const kpis = computed(() => {
   const total = filteredRuns.value.length
   const failed = filteredRuns.value.filter((run) => ['FAILED', 'TIMEOUT'].includes(run.status)).length
-  const waiting = filteredRuns.value.filter((run) => run.status === 'WAITING_APPROVAL').length
+  const waiting = filteredRuns.value.filter((run) =>
+    run.status === 'WAITING_APPROVAL' || run.status === 'WAITING_USER').length
   const avgLatency = total
     ? Math.round(filteredRuns.value.reduce((sum, run) => sum + (run.latencyMs ?? 0), 0) / total)
     : 0
@@ -651,6 +654,7 @@ function statusLabel(status: RunStatus) {
     RUNNING: '运行中',
     SUCCESS: '成功',
     FAILED: '失败',
+    WAITING_USER: '等待用户交互',
     WAITING_APPROVAL: '等待审批',
     CANCELLED: '已取消',
     TIMEOUT: '超时',
@@ -661,7 +665,7 @@ function statusLabel(status: RunStatus) {
 function statusTagType(status?: string) {
   if (status === 'SUCCESS') return 'success'
   if (status === 'RUNNING') return 'primary'
-  if (status === 'WAITING_APPROVAL') return 'warning'
+  if (status === 'WAITING_APPROVAL' || status === 'WAITING_USER') return 'warning'
   if (status === 'CANCELLED') return 'info'
   return 'danger'
 }

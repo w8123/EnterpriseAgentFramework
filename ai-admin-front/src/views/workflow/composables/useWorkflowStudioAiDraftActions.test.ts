@@ -6,6 +6,7 @@ import {
   isDraftCanvasEmpty,
   useWorkflowStudioAiDraftActions,
 } from './useWorkflowStudioAiDraftActions'
+import { useWorkflowStudioPanelValidation } from './useWorkflowStudioPanelValidation'
 import type { WorkflowDraftEditResult } from '@/types/workflow'
 
 function succeededPreview(overrides: Partial<WorkflowDraftEditResult> = {}): WorkflowDraftEditResult {
@@ -146,6 +147,20 @@ describe('useWorkflowStudioAiDraftActions', () => {
     await pending
     expect(elMessage.success).toHaveBeenCalledWith('AI 编排预览已生成')
     expect(elMessage.error).not.toHaveBeenCalled()
+  })
+
+  it('treats a Vue DOM event as a submit trigger instead of an instruction override', async () => {
+    const { deps, aiEditInstruction } = createDeps()
+    editWorkflowDraft.mockResolvedValue({ data: succeededPreview() })
+    const actions = useWorkflowStudioAiDraftActions(deps as any)
+
+    await actions.runAiAuthoring(new MouseEvent('click'))
+
+    expect(editWorkflowDraft).toHaveBeenCalledWith(expect.objectContaining({
+      instruction: '创建一个地铁问答工作流',
+    }))
+    expect(aiEditInstruction.value).toBe('')
+    expect(elMessage.success).toHaveBeenCalledWith('AI 编排预览已生成')
   })
 
   it('shows error message for FAILED results and blocks apply', async () => {
@@ -305,5 +320,23 @@ describe('useWorkflowStudioAiDraftActions', () => {
     expect(occupied.deps.autoLayoutWorkflowCanvas).not.toHaveBeenCalled()
     expect(occupied.deps.fitCanvas).toHaveBeenCalled()
     expect(elMessage.success).toHaveBeenCalledWith('AI 编排方案已应用到 Workflow 草稿')
+  })
+
+  it('blocks applying an AI preview through the real panel validation gate until fixed', async () => {
+    const validation = useWorkflowStudioPanelValidation()
+    const { deps } = createDeps({
+      ensurePanelValidationClear: validation.ensurePanelValidationClear,
+    })
+    editWorkflowDraft.mockResolvedValue({ data: succeededPreview() })
+    const actions = useWorkflowStudioAiDraftActions(deps as any)
+    await actions.runAiAuthoring()
+
+    validation.setPanelValidation('assign_1', { valid: false, message: 'JSON 无效' })
+    expect(await actions.applyAiEditPreview()).toBe(false)
+    expect(deps.applyCanvasFromStudio).not.toHaveBeenCalled()
+
+    validation.setPanelValidation('assign_1', { valid: true })
+    expect(await actions.applyAiEditPreview()).toBe(true)
+    expect(deps.applyCanvasFromStudio).toHaveBeenCalledTimes(1)
   })
 })

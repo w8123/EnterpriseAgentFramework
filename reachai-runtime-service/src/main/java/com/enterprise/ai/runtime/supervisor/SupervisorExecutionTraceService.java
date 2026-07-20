@@ -6,6 +6,10 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
 import com.enterprise.ai.runtime.runops.RuntimeGuardDecisionLogEntity;
 import com.enterprise.ai.runtime.runops.RuntimeGuardDecisionLogMapper;
 import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
+import com.enterprise.ai.runtime.execution.trace.WorkflowTraceSanitizer;
+import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.trace.RuntimeTraceSpanEntity;
 import com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper;
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogEntity;
@@ -14,8 +18,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,12 +44,20 @@ public class SupervisorExecutionTraceService {
                              RuntimeAgentConfigVersionEntity config,
                              List<RuntimeAgentWorkflowToolEntity> workflowTools,
                              Map<String, Object> input) {
+        return begin(agent, config, workflowTools, input, null);
+    }
+
+    public TraceHandle begin(RuntimeAgentView agent,
+                             RuntimeAgentConfigVersionEntity config,
+                             List<RuntimeAgentWorkflowToolEntity> workflowTools,
+                             Map<String, Object> input,
+                             WorkflowExecutionIdentity identity) {
         String traceId = firstText(input.get("traceId"), id(32));
         String spanId = id(16);
         LocalDateTime now = LocalDateTime.now();
         RuntimeTraceSpanEntity root = baseSpan(traceId, spanId, null, "SUPERVISOR", agent, config, input);
         root.setStatus("RUNNING");
-        root.setInputSummary(limit(text(input.get("message")), 2000));
+        root.setInputSummary(json(WorkflowTraceSanitizer.sanitizeInputSummary(input)));
         root.setMetadataJson(json(Map.of(
                 "agentConfigVersionId", config.getId(),
                 "agentConfigVersion", config.getVersionNo(),
@@ -51,8 +66,64 @@ public class SupervisorExecutionTraceService {
         root.setStartedAt(now);
         root.setCreatedAt(now);
         safe(() -> spanMapper.insert(root), "insert Supervisor root span");
-        runLifecycleService.beginAgent(traceId, spanId, now, agent, config, workflowTools, input);
+        runLifecycleService.beginAgent(traceId, spanId, now, agent, config, workflowTools, input, identity);
         return new TraceHandle(traceId, spanId, root.getId(), now);
+    }
+
+    /**
+     * Continues an existing Supervisor root span/run for the same traceId after WAITING_USER.
+     * Returns null when no reusable root exists (caller should {@link #begin}).
+     */
+    public TraceHandle resume(String traceId) {
+        if (!StringUtils.hasText(traceId)) {
+            return null;
+        }
+        String id = traceId.trim();
+        RuntimeTraceSpanEntity root = spanMapper.selectOne(Wrappers.<RuntimeTraceSpanEntity>lambdaQuery()
+                .eq(RuntimeTraceSpanEntity::getTraceId, id)
+                .eq(RuntimeTraceSpanEntity::getSpanType, "SUPERVISOR")
+                .isNull(RuntimeTraceSpanEntity::getParentSpanId)
+                .orderByAsc(RuntimeTraceSpanEntity::getId)
+                .last("LIMIT 1"));
+        if (root == null) {
+            return null;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        root.setStatus("RUNNING");
+        root.setEndedAt(null);
+        root.setErrorCode(null);
+        root.setErrorMessage(null);
+        safe(() -> spanMapper.updateById(root), "resume Supervisor root span");
+        runLifecycleService.resumeAgent(id);
+        LocalDateTime startedAt = root.getStartedAt() == null ? now : root.getStartedAt();
+        return new TraceHandle(id, root.getSpanId(), root.getId(), startedAt);
+    }
+
+    public TraceHandle beginOrResume(RuntimeAgentView agent,
+                                     RuntimeAgentConfigVersionEntity config,
+                                     List<RuntimeAgentWorkflowToolEntity> workflowTools,
+                                     Map<String, Object> input) {
+        return beginOrResume(agent, config, workflowTools, input, null);
+    }
+
+    public TraceHandle beginOrResume(RuntimeAgentView agent,
+                                     RuntimeAgentConfigVersionEntity config,
+                                     List<RuntimeAgentWorkflowToolEntity> workflowTools,
+                                     Map<String, Object> input,
+                                     WorkflowExecutionIdentity identity) {
+        String resumeTraceId = firstText(input == null ? null : input.get("traceId"));
+        Object continuation = input == null ? null : input.get("__supervisorContinuation");
+        if (continuation instanceof Map<?, ?> map) {
+            resumeTraceId = firstText(map.get("traceId"), resumeTraceId);
+        }
+        if (Boolean.TRUE.equals(input == null ? null : input.get("__resumeExistingTrace"))
+                && StringUtils.hasText(resumeTraceId)) {
+            TraceHandle resumed = resume(resumeTraceId);
+            if (resumed != null) {
+                return resumed;
+            }
+        }
+        return begin(agent, config, workflowTools, input, identity);
     }
 
     public void plan(TraceHandle trace,
@@ -64,11 +135,12 @@ public class SupervisorExecutionTraceService {
         LocalDateTime now = LocalDateTime.now();
         RuntimeTraceSpanEntity span = baseSpan(trace.traceId(), id(16), trace.rootSpanId(),
                 planNo == 1 ? "PLAN" : "REPLAN", agent, config, input);
+        Map<String, Object> safePlan = WorkflowTraceSanitizer.sanitizePlanSummary(planNo, plan);
         span.setNodeId("supervisor-plan-" + planNo);
         span.setStatus("SUCCESS");
-        span.setInputSummary(limit(text(input.get("message")), 2000));
-        span.setOutputSummary(limit(json(plan), 4000));
-        span.setMetadataJson(json(Map.of("planNo", planNo, "plan", plan)));
+        span.setInputSummary(json(WorkflowTraceSanitizer.sanitizeInputSummary(input)));
+        span.setOutputSummary(limit(json(safePlan), 4000));
+        span.setMetadataJson(json(safePlan));
         span.setLatencyMs(0);
         span.setStartedAt(now);
         span.setEndedAt(now);
@@ -90,52 +162,82 @@ public class SupervisorExecutionTraceService {
                          String answer,
                          long elapsedMs,
                          Map<String, Object> resultMetadata) {
+        workflow(trace, agent, config, input, toolName, workflowId, workflowVersionId, workflowVersion,
+                args, success, code, answer, elapsedMs, resultMetadata, null);
+    }
+
+    public void workflow(TraceHandle trace,
+                         RuntimeAgentView agent,
+                         RuntimeAgentConfigVersionEntity config,
+                         Map<String, Object> input,
+                         String toolName,
+                         String workflowId,
+                         Long workflowVersionId,
+                         String workflowVersion,
+                         Map<String, Object> args,
+                         boolean success,
+                         String code,
+                         String answer,
+                         long elapsedMs,
+                         Map<String, Object> resultMetadata,
+                         WorkflowExecutionIdentity identity) {
         LocalDateTime endedAt = LocalDateTime.now();
         RuntimeTraceSpanEntity span = baseSpan(trace.traceId(), id(16), trace.rootSpanId(),
                 "WORKFLOW_TOOL", agent, config, input);
+        boolean waiting = WorkflowInteractionCodes.WAITING.equals(code)
+                || "WAITING_USER".equalsIgnoreCase(code)
+                || "RUNTIME_INTERACTION_WAITING".equals(code);
+        Map<String, Object> safeResult = WorkflowTraceSanitizer.sanitizeWorkflowResult(resultMetadata);
+        Map<String, Object> safeArgs = WorkflowTraceSanitizer.sanitizeArgs(args);
+        String safeAnswer = WorkflowTraceSanitizer.sanitizeAnswer(answer);
         span.setToolName(toolName);
         span.setNodeId(workflowId);
-        span.setStatus(success ? "SUCCESS" : "FAILED");
-        span.setInputSummary(limit(json(args), 4000));
-        span.setOutputSummary(limit(answer, 4000));
+        span.setStatus(waiting ? "WAITING_USER" : (success ? "SUCCESS" : "FAILED"));
+        span.setInputSummary(limit(json(safeArgs), 4000));
+        span.setOutputSummary(limit(safeAnswer, 4000));
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("workflowId", workflowId);
         metadata.put("workflowVersionId", workflowVersionId);
         metadata.put("workflowVersion", workflowVersion);
-        if (resultMetadata != null) metadata.put("workflowResult", resultMetadata);
+        metadata.put("workflowResult", safeResult);
         span.setMetadataJson(json(metadata));
-        span.setErrorCode(success ? null : code);
-        span.setErrorMessage(success ? null : limit(answer, 2000));
+        span.setErrorCode(success || waiting ? null : code);
+        span.setErrorMessage(success || waiting ? null : limit(safeAnswer, 2000));
         span.setLatencyMs(toInt(elapsedMs));
         span.setStartedAt(endedAt.minus(elapsedMs, ChronoUnit.MILLIS));
-        span.setEndedAt(endedAt);
+        span.setEndedAt(waiting ? null : endedAt);
         span.setCreatedAt(endedAt);
         safe(() -> spanMapper.insert(span), "insert Workflow tool span");
         recordWorkflowNodeSpans(trace, span, agent, config, input, workflowId,
-                workflowVersionId, workflowVersion, success, code, resultMetadata, endedAt);
+                workflowVersionId, workflowVersion, success, code, safeResult, endedAt);
 
         RuntimeToolCallLogEntity logEntity = new RuntimeToolCallLogEntity();
         logEntity.setTraceId(trace.traceId());
         logEntity.setSessionId(text(input.get("sessionId")));
-        logEntity.setUserId(firstText(input.get("userId"), input.get("externalUserId")));
+        logEntity.setUserId(identity != null && identity.userTrusted() ? identity.userId() : null);
         logEntity.setAgentName(agent.name());
         logEntity.setIntentType(text(input.get("intentHint")));
         logEntity.setProjectId(agent.projectId());
-        logEntity.setProjectCode(firstText(input.get("projectCode"), agent.projectCode()));
+        logEntity.setProjectCode(firstText(agent.projectCode(), input.get("projectCode")));
         logEntity.setEnvironment(firstText(input.get("environment"), "DEV"));
         logEntity.setTenantId(text(input.get("tenantId")));
-        logEntity.setAppId(firstText(input.get("appId"), input.get("projectCode"), agent.projectCode()));
-        logEntity.setExternalUserId(text(input.get("externalUserId")));
-        logEntity.setGlobalUserId(text(input.get("globalUserId")));
+        logEntity.setAppId(firstText(input.get("appId"), agent.projectCode(), input.get("projectCode")));
+        logEntity.setExternalUserId(identity != null && identity.userTrusted() ? identity.userId() : null);
+        logEntity.setGlobalUserId(identity != null && identity.userTrusted() ? identity.userId() : null);
         logEntity.setPageInstanceId(text(input.get("pageInstanceId")));
         logEntity.setOrigin(text(input.get("origin")));
         logEntity.setToolName(toolName);
-        logEntity.setArgsJson(json(args));
-        logEntity.setResultSummary(limit(answer, 4000));
+        logEntity.setArgsJson(json(safeArgs));
+        logEntity.setResultSummary(limit(safeAnswer, 4000));
         logEntity.setSuccess(success);
-        logEntity.setErrorCode(success ? null : code);
+        logEntity.setErrorCode(success || waiting ? null : code);
         logEntity.setElapsedMs(toInt(elapsedMs));
-        logEntity.setRetrievalTraceJson(json(metadata));
+        // Never persist full workflow payload / retrieval content.
+        logEntity.setRetrievalTraceJson(json(Map.of(
+                "workflowId", workflowId,
+                "workflowVersionId", workflowVersionId,
+                "code", firstText(code, ""),
+                "summary", safeResult)));
         logEntity.setCreateTime(endedAt);
         safe(() -> toolLogMapper.insert(logEntity), "insert Workflow tool log");
     }
@@ -157,28 +259,37 @@ public class SupervisorExecutionTraceService {
         entity.setTargetKind("WORKFLOW_TOOL");
         entity.setTargetName(targetName);
         entity.setDecision(decision);
-        entity.setReason(reason);
-        entity.setMetadataJson(json(metadata));
+        entity.setReason(WorkflowTraceSanitizer.sanitizeAnswer(reason));
+        entity.setMetadataJson(json(WorkflowTraceSanitizer.sanitizeGuardMetadata(metadata)));
         entity.setCreatedAt(LocalDateTime.now());
         safe(() -> guardLogMapper.insert(entity), "insert Supervisor policy decision");
     }
 
     public void finish(TraceHandle trace, boolean success, String code, String answer, Map<String, Object> metadata) {
+        finish(trace, success, code, answer, metadata, null);
+    }
+
+    public void finish(TraceHandle trace, boolean success, String code, String answer,
+                       Map<String, Object> metadata, WorkflowExecutionIdentity identity) {
         LocalDateTime ended = LocalDateTime.now();
+        String resolved = status(success, code);
+        boolean waiting = "WAITING_USER".equals(resolved) || "WAITING_APPROVAL".equals(resolved);
+        String safeAnswer = WorkflowTraceSanitizer.sanitizeAnswer(answer);
+        Map<String, Object> safeMetadata = WorkflowTraceSanitizer.sanitizeFinishMetadata(metadata);
         if (trace.rootId() != null) {
             RuntimeTraceSpanEntity root = spanMapper.selectById(trace.rootId());
             if (root != null) {
-                root.setStatus(status(success, code));
-                root.setOutputSummary(limit(answer, 4000));
-                root.setErrorCode(success ? null : code);
-                root.setErrorMessage(success ? null : limit(answer, 2000));
-                root.setMetadataJson(json(metadata));
-                root.setLatencyMs(toInt(ChronoUnit.MILLIS.between(trace.startedAt(), ended)));
-                root.setEndedAt(ended);
+                root.setStatus(resolved);
+                root.setOutputSummary(limit(safeAnswer, 4000));
+                root.setErrorCode(success || waiting ? null : code);
+                root.setErrorMessage(success || waiting ? null : limit(safeAnswer, 2000));
+                root.setMetadataJson(json(safeMetadata));
+                root.setLatencyMs(waiting ? null : toInt(ChronoUnit.MILLIS.between(trace.startedAt(), ended)));
+                root.setEndedAt(waiting ? null : ended);
                 safe(() -> spanMapper.updateById(root), "finish Supervisor root span");
             }
         }
-        runLifecycleService.finishAgent(trace.traceId(), success, code, answer, metadata, ended);
+        runLifecycleService.finishAgent(trace.traceId(), success, code, safeAnswer, safeMetadata, ended, identity);
     }
 
     @SuppressWarnings("unchecked")
@@ -194,29 +305,48 @@ public class SupervisorExecutionTraceService {
                                          String workflowCode,
                                          Map<String, Object> resultMetadata,
                                          LocalDateTime endedAt) {
-        Object rawSteps = resultMetadata == null ? null : resultMetadata.get("workflowSteps");
-        if (!(rawSteps instanceof List<?> steps) || steps.isEmpty()) return;
-        for (int index = 0; index < steps.size(); index++) {
-            Object rawStep = steps.get(index);
-            if (!(rawStep instanceof Map<?, ?> raw)) continue;
-            Map<String, Object> step = new LinkedHashMap<>((Map<String, Object>) raw);
-            String nodeId = firstText(step.get("nodeId"), step.get("detail"));
+        Object rawTraces = resultMetadata == null ? null : resultMetadata.get("workflowNodeTraces");
+        if (!(rawTraces instanceof List<?> traces) || traces.isEmpty()) {
+            return;
+        }
+        for (Object rawTrace : traces) {
+            if (!(rawTrace instanceof Map<?, ?> raw)) {
+                continue;
+            }
+            Map<String, Object> nodeTrace = WorkflowTraceSanitizer.sanitizeNodeTrace(raw);
+            if (nodeTrace.isEmpty()) {
+                continue;
+            }
+            String nodeId = firstText(nodeTrace.get("nodeId"));
             RuntimeTraceSpanEntity child = baseSpan(trace.traceId(), id(16), workflowSpan.getSpanId(),
                     "WORKFLOW_NODE", agent, config, input);
             child.setRuntimeType("LANGGRAPH4J");
             child.setNodeId(nodeId);
-            boolean failed = !workflowSuccess && index == steps.size() - 1;
-            child.setStatus(failed ? "FAILED" : "SUCCESS");
+            String status = firstText(nodeTrace.get("status"), workflowSuccess ? "SUCCESS" : "FAILED");
+            child.setStatus(status);
             Map<String, Object> childMetadata = new LinkedHashMap<>();
             childMetadata.put("workflowId", workflowId);
             childMetadata.put("workflowVersionId", workflowVersionId);
             childMetadata.put("workflowVersion", workflowVersion);
-            childMetadata.put("step", step);
+            putIfPresent(childMetadata, "nodeType", nodeTrace.get("nodeType"));
+            putIfPresent(childMetadata, "attempt", nodeTrace.get("attempt"));
+            putIfPresent(childMetadata, "maxAttempts", nodeTrace.get("maxAttempts"));
+            putIfPresent(childMetadata, "errorPolicy", nodeTrace.get("errorPolicy"));
+            putIfPresent(childMetadata, "failureCode", nodeTrace.get("failureCode"));
+            putIfPresent(childMetadata, "fallbackNodeId", nodeTrace.get("fallbackNodeId"));
+            putIfPresent(childMetadata, "traceSummary", nodeTrace.get("traceSummary"));
+            putIfPresent(childMetadata, "interactionId", nodeTrace.get("interactionId"));
             child.setMetadataJson(json(childMetadata));
-            child.setErrorCode(failed ? workflowCode : null);
-            child.setLatencyMs(0);
-            child.setStartedAt(endedAt);
-            child.setEndedAt(endedAt);
+            child.setErrorCode(firstText(nodeTrace.get("failureCode"),
+                    "FAILED".equalsIgnoreCase(status) ? workflowCode : null));
+            child.setLatencyMs(toInt(longValue(nodeTrace.get("latencyMs"), 0L)));
+            LocalDateTime started = epochMillisToLocalDateTime(nodeTrace.get("startedAt"), endedAt);
+            child.setStartedAt(started);
+            if ("WAITING_USER".equalsIgnoreCase(status)) {
+                child.setEndedAt(null);
+            } else {
+                child.setEndedAt(epochMillisToLocalDateTime(nodeTrace.get("endedAt"), endedAt));
+            }
             child.setCreatedAt(endedAt);
             safe(() -> spanMapper.insert(child), "insert Workflow node span");
         }
@@ -241,8 +371,10 @@ public class SupervisorExecutionTraceService {
         entity.setProjectCode(firstText(input.get("projectCode"), agent.projectCode()));
         entity.setTenantId(text(input.get("tenantId")));
         entity.setAppId(firstText(input.get("appId"), input.get("projectCode"), agent.projectCode()));
-        entity.setExternalUserId(text(input.get("externalUserId")));
-        entity.setGlobalUserId(text(input.get("globalUserId")));
+        // This shared builder receives caller-controlled maps. Audit identity is only written
+        // explicitly by persistence paths that receive WorkflowExecutionIdentity.
+        entity.setExternalUserId(null);
+        entity.setGlobalUserId(null);
         entity.setPageInstanceId(text(input.get("pageInstanceId")));
         return entity;
     }
@@ -250,6 +382,7 @@ public class SupervisorExecutionTraceService {
     private String status(boolean success, String code) {
         if (success) return "SUCCESS";
         if ("SUPERVISOR_CONFIRMATION_REQUIRED".equalsIgnoreCase(code)) return "WAITING_APPROVAL";
+        if ("RUNTIME_GRAPH_INTERACTION_WAITING".equalsIgnoreCase(code)) return "WAITING_USER";
         if (code != null && code.toUpperCase().contains("TIMEOUT")) return "TIMEOUT";
         if (code != null && code.toUpperCase().contains("CANCEL")) return "CANCELLED";
         return "FAILED";
@@ -293,6 +426,34 @@ public class SupervisorExecutionTraceService {
 
     private String limit(String value, int max) {
         return value == null || value.length() <= max ? value : value.substring(0, max);
+    }
+
+    private void putIfPresent(Map<String, Object> target, String key, Object value) {
+        if (value != null) {
+            target.put(key, value);
+        }
+    }
+
+    private long longValue(Object value, long defaultValue) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value).trim());
+        } catch (Exception ex) {
+            return defaultValue;
+        }
+    }
+
+    private LocalDateTime epochMillisToLocalDateTime(Object value, LocalDateTime fallback) {
+        long millis = longValue(value, -1L);
+        if (millis < 0L) {
+            return fallback;
+        }
+        return LocalDateTime.ofInstant(Instant.ofEpochMilli(millis), ZoneId.systemDefault());
     }
 
     public record TraceHandle(String traceId, String rootSpanId, Long rootId, LocalDateTime startedAt) {

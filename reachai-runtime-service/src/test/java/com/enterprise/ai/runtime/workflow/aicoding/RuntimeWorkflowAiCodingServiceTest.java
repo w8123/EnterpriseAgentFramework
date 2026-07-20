@@ -10,6 +10,8 @@ import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationServic
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowRevisionConflictException;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionService;
+import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
+import com.enterprise.ai.runtime.client.model.RuntimeModelCatalogClient;
 import com.enterprise.ai.runtime.workflow.layout.RuntimeWorkflowCanvasLayoutService;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -43,6 +45,8 @@ class RuntimeWorkflowAiCodingServiceTest {
     private RuntimeWorkflowDebugService debugService;
     private RuntimeWorkflowVersionService versionService;
     private RuntimeRunOpsQueryService runOpsQueryService;
+    private RuntimeModelCatalogClient modelCatalogClient;
+    private RuntimeCapabilityCatalogClient capabilityCatalogClient;
     private RuntimeWorkflowAiCodingService service;
 
     @BeforeEach
@@ -52,6 +56,8 @@ class RuntimeWorkflowAiCodingServiceTest {
         debugService = mock(RuntimeWorkflowDebugService.class);
         versionService = mock(RuntimeWorkflowVersionService.class);
         runOpsQueryService = mock(RuntimeRunOpsQueryService.class);
+        modelCatalogClient = mock(RuntimeModelCatalogClient.class);
+        capabilityCatalogClient = mock(RuntimeCapabilityCatalogClient.class);
         ObjectMapper objectMapper = new ObjectMapper();
         service = new RuntimeWorkflowAiCodingService(
                 workflowService,
@@ -61,11 +67,18 @@ class RuntimeWorkflowAiCodingServiceTest {
                 runOpsQueryService,
                 objectMapper,
                 new RuntimeWorkflowCanvasLayoutService(objectMapper),
-                new RuntimeWorkflowGraphMutationService(objectMapper));
+                new RuntimeWorkflowGraphMutationService(objectMapper),
+                modelCatalogClient,
+                capabilityCatalogClient);
         when(validationService.validate(any(RuntimeWorkflowDefinitionEntity.class)))
                 .thenReturn(RuntimeWorkflowReleaseValidationResult.builder().build());
         when(validationService.validateProposed(any(RuntimeWorkflowDefinitionEntity.class), any(GraphSpec.class)))
                 .thenReturn(RuntimeWorkflowReleaseValidationResult.builder().build());
+        when(modelCatalogClient.listActiveLlms()).thenReturn(List.of(
+                Map.of("id", "model-active", "displayName", "Active LLM", "modelType", "LLM", "status", "ACTIVE",
+                        "provider", "openai", "modelName", "gpt")));
+        when(capabilityCatalogClient.listProjectTools(12L)).thenReturn(List.of(
+                Map.of("toolId", 11L, "keySlug", "orders_query", "displayName", "orders_query", "status", "ACTIVE")));
     }
 
     @Test
@@ -100,7 +113,65 @@ class RuntimeWorkflowAiCodingServiceTest {
         assertEquals(true, context.validation().valid());
         assertEquals(2, context.canvas().get("layoutVersion"));
         assertEquals(Set.of("start", "answer", "end"), canvasNodeIds(context.canvas()));
+        assertEquals(1, context.availableModels().size());
+        assertEquals("model-active", ((Map<?, ?>) context.availableModels().get(0)).get("id"));
+        assertEquals(1, context.availableTools().size());
         verify(workflowService).create(any(RuntimeWorkflowDefinitionEntity.class));
+    }
+
+    @Test
+    void createDefaultsWorkflowTypeToChat() {
+        when(workflowService.create(any(RuntimeWorkflowDefinitionEntity.class))).thenAnswer(inv -> {
+            RuntimeWorkflowDefinitionEntity entity = inv.getArgument(0);
+            entity.setId("wf-chat-1");
+            entity.setUpdatedAt(LocalDateTime.of(2026, 7, 1, 9, 0));
+            return entity;
+        });
+
+        RuntimeWorkflowAiCodingService.ContextView context = service.createWorkflow(
+                new RuntimeWorkflowAiCodingService.CreateRequest(
+                        "Chat Flow",
+                        "chat-flow",
+                        12L,
+                        "orders",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null));
+
+        assertEquals("CHAT", context.workflow().workflowType());
+    }
+
+    @Test
+    void contextAddsWarningWhenModelCatalogUnavailable() {
+        RuntimeWorkflowDefinitionEntity workflow = workflow("wf-ai-1");
+        when(workflowService.findById("wf-ai-1")).thenReturn(Optional.of(workflow));
+        when(modelCatalogClient.listActiveLlms()).thenThrow(new RuntimeException("model down"));
+
+        RuntimeWorkflowAiCodingService.ContextView context = service.context("wf-ai-1");
+
+        assertTrue(context.availableModels().isEmpty());
+        assertTrue(context.warnings().stream().anyMatch(item ->
+                item instanceof RuntimeWorkflowAiCodingService.WarningView view
+                        && "MODEL_CATALOG_UNAVAILABLE".equals(view.code())));
+    }
+
+    @Test
+    void contextAddsWarningWhenCapabilityCatalogUnavailable() {
+        RuntimeWorkflowDefinitionEntity workflow = workflow("wf-ai-1");
+        when(workflowService.findById("wf-ai-1")).thenReturn(Optional.of(workflow));
+        when(capabilityCatalogClient.listProjectTools(12L)).thenThrow(new RuntimeException("capability down"));
+
+        RuntimeWorkflowAiCodingService.ContextView context = service.context("wf-ai-1");
+
+        assertTrue(context.availableTools().isEmpty());
+        assertTrue(context.warnings().stream().anyMatch(item ->
+                item instanceof RuntimeWorkflowAiCodingService.WarningView view
+                        && "CAPABILITY_CATALOG_UNAVAILABLE".equals(view.code())));
     }
 
     @Test

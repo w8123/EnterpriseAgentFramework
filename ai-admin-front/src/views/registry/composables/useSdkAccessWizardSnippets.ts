@@ -216,12 +216,23 @@ createEafChat({
       '- bridge 内部可有 FAILED/CANCELLED/TIMEOUT 等状态；回传 Embed API 时当前 DTO 的 error 是字符串，status 推荐 SUCCESS 或平台可接受的字符串',
       '- 页面助手 bridge 结构化 error 需在 API 边界映射为字符串，不要直接把对象写入 Embed PageActionResultRequest.error',
     ].join('\n')
+    const npmArtifact = deps.aiOnboardingManifest.value?.sdkArtifacts?.find(
+      (item) => item?.type === 'npm' || item?.packageName === '@reachai/embed-chat',
+    )
     const dependencyResolutionBlock = [
-      '- ReachAI 平台地址、Skill 包地址和 manifest 地址只用于读取接入资料、回传进度和自检；它们不是 Maven 仓库、npm registry 或 SDK 文件服务器。',
+      '- ReachAI 平台地址、Skill 包地址和 manifest 地址只用于读取接入资料、回传进度和自检；Maven 仍走公司仓库或本地 install。',
       '- 禁止把 ReachAI 平台 baseUrl 配成 Maven repository，禁止请求 /repository/**、/maven/**、/repository/maven/**、/api/embed/sdk 或 /npm/** 这类猜测路径。',
       '- Java 依赖必须来自业务仓库已有的公司 Maven 仓库、已发布的 ReachAI Maven 仓库，或先在 ReachAI 仓库执行 mvn -pl reachai-spring-boot2-starter -am install -DskipTests 后使用本地 Maven 仓库。',
       '- 如果 reachai-capability-sdk 或 reachai-spring-boot2-starter 无法解析，请停止并报告需要安装/发布 Maven 产物，不要虚构下载 URL。',
-      '- 前端 SDK 包优先使用 @reachai/embed-chat；也可在 ReachAI 前端包执行 npm run build:sdk 取得本地构建产物。不要从 ReachAI 平台猜测 /api/embed/sdk 或 /npm/**。',
+      npmArtifact
+        ? [
+            `- 前端 SDK tarball 契约（来自 manifest.sdkArtifacts）：packageName=${npmArtifact.packageName || '@reachai/embed-chat'}；version=${npmArtifact.version || ''}；downloadUrl=${npmArtifact.downloadUrl || ''}；integritySha256=${npmArtifact.integritySha256 || ''}；fallbackPolicy=${npmArtifact.fallbackPolicy || 'skill-zip-tarball'}。`,
+            `- installWorkingDirectory=${npmArtifact.installWorkingDirectory || 'business-frontend-package-root'}（必须在业务前端 package.json 所在目录执行安装）。`,
+            `- artifactPathWithinSkill=${npmArtifact.artifactPathWithinSkill || 'reachai-onboarding/artifacts/reachai-embed-chat-1.0.0-SNAPSHOT.tgz'}。`,
+            `- installCommand / installCommandTemplate=${npmArtifact.installCommandTemplate || npmArtifact.installCommand || 'npm install "{skillExtractDir}/reachai-onboarding/artifacts/reachai-embed-chat-1.0.0-SNAPSHOT.tgz"'}；将 {skillExtractDir} 替换为 Skill zip 解压根目录的绝对路径（Skill 可在业务仓库外）。`,
+            '- 不要把固定 ./artifacts 相对路径当唯一安装方式，也不要把 ReachAI 前端仓库的 npm run build:sdk 当作业务侧安装兜底。',
+          ].join('\n')
+        : '- 前端 SDK 包必须使用 onboarding-manifest.sdkArtifacts 中 @reachai/embed-chat 的 tarball 契约（packageName/version/downloadUrl/integritySha256/installCommand/fallbackPolicy）；不要猜测 /api/embed/sdk 或 /npm/**，也不要把 ReachAI 前端 npm run build:sdk 当作业务侧安装兜底。',
     ].join('\n')
     const annotationBoundaryBlock = [
       'ReachAI 注解边界：',

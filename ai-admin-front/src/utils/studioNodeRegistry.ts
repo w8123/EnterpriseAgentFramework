@@ -286,17 +286,105 @@ export function studioNodeRetryable(kind: CanvasNodeKind) {
   return STUDIO_NODE_REGISTRY[kind].retryable === true
 }
 
+export type StudioNodeCreationDecision = {
+  allowed: boolean
+  reason: string
+}
+
+/**
+ * Unified Studio create guard for palette, paste, helpers and shortcuts.
+ * Fail-closed: only runtimeExecutable && studioEnabled catalog entries may be newly created.
+ * Boundary kinds start/end are canvas-managed and are not creatable through this guard.
+ */
+export function resolveStudioNodeCreation(
+  kind: string | null | undefined,
+  descriptors: AgentGraphNodeTypeDescriptor[],
+  capabilityLoaded: boolean,
+): StudioNodeCreationDecision {
+  const normalized = String(kind || '').trim() as CanvasNodeKind
+  if (!normalized) {
+    return { allowed: false, reason: '节点类型为空，禁止新增' }
+  }
+  if (normalized === 'start' || normalized === 'end') {
+    return { allowed: false, reason: '开始和结束节点由画布统一管理，不能通过复制或模板新增' }
+  }
+  if (!capabilityLoaded || !descriptors?.length) {
+    return { allowed: false, reason: '节点能力目录未加载，暂不可新增节点' }
+  }
+  const capability = studioNodeCapabilityMap(descriptors)[normalized]
+  if (!capability) {
+    return { allowed: false, reason: `未知节点类型，禁止新增：${normalized}` }
+  }
+  if (capability.runtimeExecutable === true && capability.studioEnabled === true) {
+    return { allowed: true, reason: '' }
+  }
+  const reason = String(capability.unavailableReason || '').trim()
+    || `节点类型未对 Studio 开放：${capability.type || normalized}`
+  return { allowed: false, reason }
+}
+
+export function canCreateStudioNodeKind(
+  kind: string | null | undefined,
+  descriptors: AgentGraphNodeTypeDescriptor[],
+  capabilityLoaded: boolean,
+) {
+  return resolveStudioNodeCreation(kind, descriptors, capabilityLoaded).allowed
+}
+
+/**
+ * Fail-closed capability check for features that require multiple Studio-creatable kinds.
+ * Returns the first blocked dependency reason from the unified node capability catalog.
+ */
+export function resolveStudioNodeSetCreation(
+  requiredKinds: ReadonlyArray<string | null | undefined>,
+  descriptors: AgentGraphNodeTypeDescriptor[],
+  capabilityLoaded: boolean,
+): StudioNodeCreationDecision {
+  if (!capabilityLoaded || !descriptors?.length) {
+    return { allowed: false, reason: '节点能力目录未加载，暂不可新增节点' }
+  }
+  for (const kind of requiredKinds) {
+    const decision = resolveStudioNodeCreation(kind, descriptors, capabilityLoaded)
+    if (!decision.allowed) {
+      return decision
+    }
+  }
+  return { allowed: true, reason: '' }
+}
+
+/** Kinds required by the current INTERACTION-based API query template. */
+export const API_QUERY_TEMPLATE_REQUIRED_KINDS = ['interaction', 'pageAction', 'tool'] as const
+
+export function resolveApiQueryTemplateCapability(
+  descriptors: AgentGraphNodeTypeDescriptor[],
+  capabilityLoaded: boolean,
+): StudioNodeCreationDecision {
+  return resolveStudioNodeSetCreation(
+    [...API_QUERY_TEMPLATE_REQUIRED_KINDS],
+    descriptors,
+    capabilityLoaded,
+  )
+}
+
+/**
+ * Studio palette openness is fail-closed:
+ * only runtimeExecutable && studioEnabled catalog entries are addable.
+ * Boundary kinds start/end remain available for canvas rendering.
+ * Catalog unloaded/empty/failed must NOT enable the full local registry.
+ */
 export function enabledStudioNodeKinds(
   descriptors: AgentGraphNodeTypeDescriptor[],
   capabilityLoaded: boolean,
 ) {
-  const builtIn = new Set<CanvasNodeKind>(['start', 'end', 'pageAction'])
-  if (!capabilityLoaded || descriptors.length === 0) {
-    return new Set(Object.keys(STUDIO_NODE_REGISTRY) as CanvasNodeKind[])
+  const enabled = new Set<CanvasNodeKind>(['start', 'end'])
+  if (!capabilityLoaded || !descriptors?.length) {
+    return enabled
   }
-  const enabled = new Set<CanvasNodeKind>(builtIn)
   const knownKinds = new Set(Object.keys(STUDIO_NODE_REGISTRY))
   for (const item of descriptors) {
+    if (item.runtimeExecutable !== true || item.studioEnabled !== true) {
+      continue
+    }
     const kind = item.canvasKind
     if (knownKinds.has(kind)) {
       enabled.add(kind as CanvasNodeKind)

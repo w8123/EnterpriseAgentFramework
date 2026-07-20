@@ -26,7 +26,7 @@ class RuntimeRunOpsReplayServiceTest {
     private final RuntimeRunOpsReplayService service = new RuntimeRunOpsReplayService(queryService, executionService);
 
     @Test
-    void replayUsesRootInputAndExactPublishedConfigWithoutSnapshotSwitch() {
+    void replayUsesMessageOverrideAndExactPublishedConfigWithoutSnapshotSwitch() {
         assertEquals(
                 List.of("messageOverride", "sessionId", "userId", "roles"),
                 java.util.Arrays.stream(RuntimeRunOpsReplayService.ReplayRequest.class.getRecordComponents())
@@ -42,12 +42,12 @@ class RuntimeRunOpsReplayServiceTest {
         RuntimeRunOpsReplayService.ReplayResult result = service.replay(
                 "trace-1",
                 new RuntimeRunOpsReplayService.ReplayRequest(
-                        null, "session-replay", "user-replay", List.of("operator")));
+                        "替代输入", "session-replay", "user-replay", List.of("operator")));
 
         assertEquals("trace-replay", result.replayTraceId());
         assertEquals(11L, result.agentConfigVersionId());
         assertEquals(3, result.agentConfigVersion());
-        assertEquals("查询班组信息", result.message());
+        assertEquals("替代输入", result.message());
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> requestCaptor = ArgumentCaptor.forClass(Map.class);
@@ -56,7 +56,7 @@ class RuntimeRunOpsReplayServiceTest {
         Map<String, Object> request = requestCaptor.getValue();
         assertEquals("REPLAY", request.get("entryType"));
         assertEquals("trace-1", request.get("replayOfTraceId"));
-        assertEquals("查询班组信息", request.get("message"));
+        assertEquals("替代输入", request.get("message"));
         assertEquals(List.of("operator"), request.get("roles"));
         assertFalse(request.containsKey("useSnapshot"));
         Map<?, ?> metadata = (Map<?, ?>) request.get("metadata");
@@ -67,14 +67,14 @@ class RuntimeRunOpsReplayServiceTest {
     }
 
     @Test
-    void replayRequiresRuntimeRunInputOrMessageOverride() {
-        when(queryService.detail("trace-1")).thenReturn(detail(null, 11L));
+    void replayRequiresMessageOverrideBecauseRuntimeRunInputIsSanitized() {
+        when(queryService.detail("trace-1")).thenReturn(detail("{\"inputType\":\"message\"}", 11L));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.replay("trace-1", new RuntimeRunOpsReplayService.ReplayRequest(
                         null, null, null, List.of())));
 
-        assertEquals("Unable to restore replay input from runtime_run; provide messageOverride", ex.getMessage());
+        assertEquals("Replay input is not persisted; provide messageOverride to replay this run", ex.getMessage());
     }
 
     @Test

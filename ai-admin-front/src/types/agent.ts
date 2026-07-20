@@ -282,6 +282,8 @@ export interface WorkflowDraftEditResult {
   authoringId?: string | null
 }
 
+export type WorkflowNodeMaturity = 'STABLE' | 'BETA' | 'PLANNED'
+
 export interface AgentGraphNodeTypeDescriptor {
   type: AgentGraphNode['type']
   canvasKind: string
@@ -289,6 +291,18 @@ export interface AgentGraphNodeTypeDescriptor {
   family: 'LLM' | 'TOOL' | 'FLOW' | string
   retryable: boolean
   aliases: string[]
+  /** Product maturity from unified node capability registry. */
+  maturity?: WorkflowNodeMaturity
+  /** Whether Runtime currently has a real handler. */
+  runtimeExecutable?: boolean
+  /** Whether the node may be published. */
+  publishable?: boolean
+  /** Whether Studio may add the node from the palette. */
+  studioEnabled?: boolean
+  /** Whether web AI authoring / shared mutation may add or update the node. */
+  aiAuthoringEnabled?: boolean
+  /** Explicit reason when the node is closed for product openness. */
+  unavailableReason?: string | null
 }
 
 /**

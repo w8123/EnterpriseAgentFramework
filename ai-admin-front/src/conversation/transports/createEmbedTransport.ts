@@ -3,6 +3,7 @@ import type { ConversationEventEnvelope } from '../core/conversationEvents'
 import { createEvent } from '../core/conversationEvents'
 import type { ConversationTurnInput } from '../core/conversationTypes'
 import { parseSseStream, isAbortError } from '../core/parseSseStream'
+import { createAttemptIdempotencyKey } from '../core/buildInteractionIdempotencyKey'
 import { canFallbackFromStreamFailure } from '../core/streamFallbackPolicy'
 import type { ConversationTransport } from './transportTypes'
 
@@ -228,13 +229,19 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
     interactionId: string,
     action: string,
     values: Record<string, unknown>,
+    idempotencyKey: string,
     signal?: AbortSignal,
   ): AsyncIterable<ConversationEventEnvelope> {
     const jsonPath = options.interactionSubmitPath?.(sessionId, interactionId)
       || `/chat/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(interactionId)}/submit`
     const response = await authorizedFetch(resolveUrl(jsonPath), {
       method: 'POST',
-      body: JSON.stringify({ action, values, context: options.getContext?.() }),
+      body: JSON.stringify({
+        action,
+        values,
+        idempotencyKey,
+        context: options.getContext?.(),
+      }),
     }, signal)
 
     if (!response.ok) {
@@ -256,8 +263,11 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
     const sessionId = options.getSessionId()
     if (!sessionId) throw new Error('No embed session')
 
+    // One attempt key per user click; reuse across stream → JSON fallback / network retry.
+    const idempotencyKey = createAttemptIdempotencyKey('embed', interactionId)
+
     if (!preferStream) {
-      yield* resumeInteractionJson(sessionId, interactionId, action, values, signal)
+      yield* resumeInteractionJson(sessionId, interactionId, action, values, idempotencyKey, signal)
       return
     }
 
@@ -269,7 +279,12 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
       const response = await authorizedFetch(resolveUrl(streamPath), {
         method: 'POST',
         headers: { Accept: 'text/event-stream' },
-        body: JSON.stringify({ action, values, context: options.getContext?.() }),
+        body: JSON.stringify({
+          action,
+          values,
+          idempotencyKey,
+          context: options.getContext?.(),
+        }),
       }, signal)
 
       const contentType = response.headers.get('content-type') || ''
@@ -285,7 +300,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
         bytesOrEventsConsumed: false,
         aborted: signal?.aborted,
       })) {
-        yield* resumeInteractionJson(sessionId, interactionId, action, values, signal)
+        yield* resumeInteractionJson(sessionId, interactionId, action, values, idempotencyKey, signal)
         return
       }
 
@@ -301,7 +316,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
         aborted: signal?.aborted,
         error,
       })) {
-        yield* resumeInteractionJson(sessionId, interactionId, action, values, signal)
+        yield* resumeInteractionJson(sessionId, interactionId, action, values, idempotencyKey, signal)
         return
       }
       throw error

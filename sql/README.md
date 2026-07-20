@@ -140,6 +140,48 @@ RunOps replay 使用来源运行记录的历史 Agent 配置和固定 Workflow �
 
 全新环境直接使用当前 `sql/initV2.sql`。
 
+## Upgrade: 20260719 Runtime internal auth nonce
+
+已有开发/测试库执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260719-runtime-internal-auth-nonce.sql
+```
+
+影响：
+
+1. 新增 `runtime_internal_auth_nonce`：Control→Runtime HMAC 内部认证 nonce 防重放表（多实例共享）。
+2. Control/Runtime 需配置同一 `REACHAI_INTERNAL_SERVICE_SECRET`；缺配置时内部 trusted execute fail-closed。
+
+验证：
+
+```sql
+DESC runtime_internal_auth_nonce;
+SHOW INDEX FROM runtime_internal_auth_nonce;
+```
+
+## Upgrade: 20260718 Workflow INTERACTION resume
+
+已有开发/测试库执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260718-workflow-interaction-resume.sql
+```
+
+影响：
+
+1. `runtime_run` / `runtime_trace_span` 状态注释增加 `WAITING_USER`（用户交互等待）；`WAITING_APPROVAL` 仍专用于 Supervisor 策略确认/真审批。
+2. `runtime_interaction_session` 升级为 GraphSpec-native Workflow 交互会话：增加 `source_type`、`workflow_id`、`workflow_version_id`、`graph_spec_snapshot_json`、`revision`、`idempotency_key`、所有权字段与 continuation。
+3. `composition_qualified_name` 改为可空；历史 composition 行保留，`source_type` 回填为 `COMPOSITION`。新 Workflow 暂停必须持久化 snapshot，恢复不得读取最新 Workflow。
+
+验证：
+
+```sql
+DESC runtime_interaction_session;
+SHOW INDEX FROM runtime_interaction_session;
+SHOW FULL COLUMNS FROM runtime_run LIKE 'status';
+```
+
 ## Upgrade: 20260709 AI Coding access default
 
 Run `sql/upgrade-20260709-ai-coding-access-default.sql` on existing development or test databases that already have `capability_scan_project` rows. It adds missing AI Coding access columns and backfills generated `aic_...` keys with `ai_coding_access_enabled = 1` only for rows that previously had no key.

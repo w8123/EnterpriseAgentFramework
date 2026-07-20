@@ -3,6 +3,9 @@ package com.enterprise.ai.runtime.internal;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogEntity;
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
+import com.enterprise.ai.runtime.execution.trace.WorkflowTraceSanitizer;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
@@ -14,11 +17,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.context.annotation.Profile;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
+@Profile({"dev", "test", "local"})
 @RequestMapping("/internal/runtime/tool-call-logs")
 @RequiredArgsConstructor
 public class RuntimeToolCallLogInternalController {
@@ -26,6 +31,7 @@ public class RuntimeToolCallLogInternalController {
     private static final String DEMO_USER_ID = "demo:skill-mining";
 
     private final RuntimeToolCallLogMapper mapper;
+    private final ObjectMapper objectMapper;
 
     @GetMapping("/by-tool")
     public ResponseEntity<List<ToolCallLogRecord>> listByTool(@RequestParam String toolName,
@@ -75,8 +81,8 @@ public class RuntimeToolCallLogInternalController {
             entity.setAgentName(request.agentName());
             entity.setIntentType(request.intentType());
             entity.setToolName(request.toolName());
-            entity.setArgsJson(request.argsJson());
-            entity.setResultSummary(request.resultSummary());
+            entity.setArgsJson(sanitizeArgsJson(request.argsJson()));
+            entity.setResultSummary(WorkflowTraceSanitizer.sanitizeAnswer(request.resultSummary()));
             entity.setSuccess(request.success());
             entity.setErrorCode(request.errorCode());
             entity.setElapsedMs(request.elapsedMs());
@@ -105,6 +111,16 @@ public class RuntimeToolCallLogInternalController {
                 entity.getTokenCost(),
                 entity.getCreateTime()
         );
+    }
+
+    private String sanitizeArgsJson(String argsJson) {
+        try {
+            return objectMapper.writeValueAsString(WorkflowTraceSanitizer.sanitizeArgs(
+                    objectMapper.readValue(argsJson == null ? "{}" : argsJson,
+                            new TypeReference<java.util.Map<String, Object>>() { })));
+        } catch (Exception ignored) {
+            return "{}";
+        }
     }
 
     public record ToolCallLogRecord(

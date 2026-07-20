@@ -66,7 +66,7 @@ class SupervisorWorkflowCancellationTest {
 
         assertFalse(result.success());
         assertEquals("SUPERVISOR_CANCELLED", result.code());
-        verify(graphExecutor, never()).execute(any(), any(), any(), any());
+        verify(graphExecutor, never()).execute(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -76,7 +76,7 @@ class SupervisorWorkflowCancellationTest {
         RuntimeAgentExecutionCancellation cancellation = new RuntimeAgentExecutionCancellation();
         CountDownLatch inWorkflow = new CountDownLatch(1);
         AtomicInteger graphCalls = new AtomicInteger();
-        when(graphExecutor.execute(any(), any(), any(), any())).thenAnswer(invocation -> {
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
             graphCalls.incrementAndGet();
             RuntimeGraphSpecExecutionCancellation workflowCancel = invocation.getArgument(3);
             inWorkflow.countDown();
@@ -121,7 +121,7 @@ class SupervisorWorkflowCancellationTest {
         CountDownLatch bothStarted = new CountDownLatch(2);
         List<RuntimeGraphSpecExecutionCancellation> captured =
                 Collections.synchronizedList(new ArrayList<>());
-        when(graphExecutor.execute(any(), any(), any(), any())).thenAnswer(invocation -> {
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
             RuntimeGraphSpecExecutionCancellation workflowCancel = invocation.getArgument(3);
             captured.add(workflowCancel);
             bothStarted.countDown();
@@ -152,7 +152,7 @@ class SupervisorWorkflowCancellationTest {
     void cancelAfterSuccessfulWorkflowIsIdempotent() {
         RuntimeAgentWorkflowToolEntity tool = tool("wf-1", "query_team");
         stubWorkflow(tool);
-        when(graphExecutor.execute(any(), any(), any(), any())).thenReturn(
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(
                 new RuntimeGraphSpecExecutionResult(true, "OK", "done", null, null, List.of(), Map.of()));
         RuntimeAgentExecutionCancellation cancellation = new RuntimeAgentExecutionCancellation();
         AgentScopeSupervisorRuntimeAdapter adapter = adapter(modelForPlanAndToolThenAnswer());
@@ -259,12 +259,17 @@ class SupervisorWorkflowCancellationTest {
 
     private AgentScopeSupervisorRuntimeAdapter adapterWithMemory(RuntimeModelServiceClient modelClient,
                                                                  RuntimeChatMemoryStore memory) {
-        when(traceService.begin(any(), any(), any(), any())).thenReturn(
-                new SupervisorExecutionTraceService.TraceHandle("trace-1", "span-1", 1L, LocalDateTime.now()));
+        SupervisorExecutionTraceService.TraceHandle handle =
+                new SupervisorExecutionTraceService.TraceHandle("trace-1", "span-1", 1L, LocalDateTime.now());
+        when(traceService.begin(any(), any(), any(), any())).thenReturn(handle);
+        when(traceService.begin(any(), any(), any(), any(), any())).thenReturn(handle);
+        when(traceService.beginOrResume(any(), any(), any(), any())).thenReturn(handle);
+        when(traceService.beginOrResume(any(), any(), any(), any(), any())).thenReturn(handle);
         SupervisorToolPolicyService policy = new SupervisorToolPolicyService(
                 traceService, mock(SupervisorApprovalInteractionService.class), objectMapper);
         return new AgentScopeSupervisorRuntimeAdapter(
                 modelClient, null, workflowMapper, versionMapper, graphExecutor,
+                mock(com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService.class),
                 memory, policy, traceService, objectMapper);
     }
 

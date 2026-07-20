@@ -180,8 +180,25 @@ class RuntimeWorkflowCompatibilityControllerTest {
         ResponseEntity<?> response = controller.graphNodeTypes();
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        List<?> body = (List<?>) response.getBody();
+        @SuppressWarnings("unchecked")
+        List<com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityDescriptor> body =
+                (List<com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityDescriptor>) response.getBody();
         assertEquals(false, body == null || body.isEmpty());
+        assertEquals(21, body.size());
+        com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityDescriptor llm = body.stream()
+                .filter(item -> "LLM".equals(item.type()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("llm", llm.canvasKind());
+        assertEquals("action", llm.canvasCategory());
+        assertEquals("LLM", llm.family());
+        assertEquals(true, llm.retryable());
+        assertEquals(false, llm.aliases().isEmpty());
+        assertEquals(com.enterprise.ai.runtime.workflow.node.WorkflowNodeMaturity.STABLE, llm.maturity());
+        assertEquals(true, llm.runtimeExecutable());
+        assertEquals(true, llm.publishable());
+        assertEquals(true, llm.studioEnabled());
+        assertEquals(true, llm.aiAuthoringEnabled());
     }
 
     @Test

@@ -142,8 +142,6 @@ export interface KnowledgeNodeConfig {
   similarityThreshold?: number
   searchMode: string
   rerankEnabled: boolean
-  directReturnEnabled?: boolean
-  directReturnThreshold?: number
 }
 
 export interface HttpNodeConfig {
@@ -155,6 +153,7 @@ export interface HttpNodeConfig {
   body: string
   timeoutMs: number
   credentialRef?: string
+  retryAllowNonIdempotent?: boolean
 }
 
 export interface ParameterNodeConfig {
@@ -284,9 +283,22 @@ export interface HumanApprovalNodeConfig {
 }
 
 export interface LoopNodeConfig {
-  loopKey: string
+  /** v1 only supports FOREACH (bounded serial). */
+  mode?: 'FOREACH'
+  collection: string
+  itemAlias: string
+  indexAlias: string
+  outputAlias: string
+  bodyOutput: string
   maxIterations: number
+  bodyEntry: string
+  bodyExit: string
+  bodyNodeIds: string[]
+  /** @deprecated legacy field; migrated to collection */
   itemExpression?: string
+  /** @deprecated unused in FOREACH v1 */
+  loopKey?: string
+  /** @deprecated WHILE/break not supported in v1 */
   breakCondition?: string
 }
 
@@ -359,11 +371,13 @@ export interface CanvasNodeData {
   aggregateConfig?: VariableAggregateNodeConfig
   approvalConfig?: HumanApprovalNodeConfig
   loopConfig?: LoopNodeConfig
+  /** Runtime decoration only: id of LOOP that owns this body node. */
+  loopOwnerId?: string
   knowledgeWriteConfig?: KnowledgeWriteNodeConfig
   documentExtractConfig?: DocumentExtractNodeConfig
   mcpConfig?: McpNodeConfig
   toolConfig?: ToolNodeConfig
-  assignments?: Record<string, string>
+  assignments?: Record<string, unknown>
   template?: string
   writeToAnswer?: boolean
 }

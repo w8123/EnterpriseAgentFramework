@@ -745,12 +745,20 @@ CALL add_col_if_absent('capability_tool_definition', 'draft', 'TINYINT(1) NOT NU
 -- 五、Runtime 根运行事实与执行子事件
 -- ============================================================================
 
+CREATE TABLE IF NOT EXISTS `runtime_internal_auth_nonce` (
+    `nonce`      VARCHAR(128) NOT NULL                COMMENT 'Control→Runtime HMAC nonce',
+    `caller`     VARCHAR(96)  NOT NULL                COMMENT '调用方服务 ID',
+    `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '写入时间',
+    PRIMARY KEY (`nonce`),
+    KEY `idx_runtime_internal_auth_nonce_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime internal service auth nonce anti-replay store';
+
 CREATE TABLE IF NOT EXISTS `runtime_run` (
     `id`                      BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
     `trace_id`                VARCHAR(64)   NOT NULL                COMMENT '一次外部入口执行的全局唯一 Trace ID',
     `run_type`                VARCHAR(32)   NOT NULL                COMMENT '根运行类型：AGENT / WORKFLOW',
     `entry_type`              VARCHAR(32)   NOT NULL                COMMENT '入口：DEBUG / EMBED / GATEWAY / API / EVAL / REPLAY / WORKFLOW_STUDIO / A2A',
-    `status`                  VARCHAR(24)   NOT NULL DEFAULT 'RUNNING' COMMENT 'RUNNING / SUCCESS / FAILED / WAITING_APPROVAL / CANCELLED / TIMEOUT',
+    `status`                  VARCHAR(24)   NOT NULL DEFAULT 'RUNNING' COMMENT 'RUNNING / SUCCESS / FAILED / WAITING_USER / WAITING_APPROVAL / CANCELLED / TIMEOUT',
     `project_id`              BIGINT        DEFAULT NULL            COMMENT '所属项目 ID',
     `project_code`            VARCHAR(96)   DEFAULT NULL            COMMENT '所属项目编码',
     `tenant_id`               VARCHAR(96)   DEFAULT NULL            COMMENT '租户',
@@ -852,7 +860,7 @@ CREATE TABLE IF NOT EXISTS `runtime_trace_span` (
     `external_user_id`  VARCHAR(128) DEFAULT NULL            COMMENT '业务系统内用户 ID',
     `global_user_id`    VARCHAR(128) DEFAULT NULL            COMMENT '跨系统稳定用户 ID',
     `page_instance_id`  VARCHAR(128) DEFAULT NULL            COMMENT '业务前端页面实例 ID',
-    `status`            VARCHAR(16)  NOT NULL DEFAULT 'SUCCESS' COMMENT 'RUNNING / SUCCESS / FAILED / ERROR / WAITING_APPROVAL',
+    `status`            VARCHAR(16)  NOT NULL DEFAULT 'SUCCESS' COMMENT 'RUNNING / SUCCESS / FAILED / ERROR / WAITING_USER / WAITING_APPROVAL',
     `input_summary`     MEDIUMTEXT   DEFAULT NULL            COMMENT '输入摘要',
     `output_summary`    MEDIUMTEXT   DEFAULT NULL            COMMENT '输出摘要',
     `metadata_json`     MEDIUMTEXT   DEFAULT NULL            COMMENT '结构化元数据 JSON',
@@ -2441,28 +2449,44 @@ CREATE TABLE IF NOT EXISTS `capability_interaction_definition` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Interaction definition assets';
 
 CREATE TABLE IF NOT EXISTS `runtime_interaction_session` (
-    `id`                         VARCHAR(64)  NOT NULL,
-    `run_id`                     VARCHAR(64)  DEFAULT NULL,
-    `composition_qualified_name` VARCHAR(256) NOT NULL,
-    `node_id`                    VARCHAR(128) NOT NULL,
-    `interaction_type`           VARCHAR(32)  NOT NULL,
-    `status`                     VARCHAR(32)  NOT NULL DEFAULT 'WAITING_USER',
-    `state_json`                 MEDIUMTEXT   DEFAULT NULL,
-    `ui_request_json`            MEDIUMTEXT   DEFAULT NULL,
-    `submitted_payload_json`     MEDIUMTEXT   DEFAULT NULL,
+    `id`                         VARCHAR(64)  NOT NULL COMMENT 'interactionId（wfi_ 前缀）',
+    `source_type`                VARCHAR(32)  NOT NULL DEFAULT 'WORKFLOW' COMMENT 'WORKFLOW / COMPOSITION / DEBUG',
+    `run_id`                     VARCHAR(64)  DEFAULT NULL COMMENT '关联 runtime_run / 调试 runId',
+    `trace_id`                   VARCHAR(64)  DEFAULT NULL COMMENT '关联 root traceId',
+    `workflow_id`                VARCHAR(64)  DEFAULT NULL COMMENT 'Workflow ID',
+    `workflow_version_id`        BIGINT       DEFAULT NULL COMMENT '已发布 Workflow 版本 ID',
+    `composition_qualified_name` VARCHAR(256) DEFAULT NULL COMMENT '历史 composition 兼容字段；GraphSpec-native 可为空',
+    `graph_spec_snapshot_json`   MEDIUMTEXT   DEFAULT NULL COMMENT '暂停时 GraphSpec 快照，恢复不得读最新版',
+    `node_id`                    VARCHAR(128) NOT NULL COMMENT '当前等待的 INTERACTION 节点',
+    `interaction_type`           VARCHAR(32)  NOT NULL COMMENT 'COLLECT_INPUT / USER_CHOICE / CONFIRM_ACTION / PRESENT_OUTPUT / CUSTOM',
+    `status`                     VARCHAR(32)  NOT NULL DEFAULT 'WAITING_USER' COMMENT 'WAITING_USER / RESUMING / COMPLETED / CANCELLED / EXPIRED / FAILED',
+    `revision`                   INT          NOT NULL DEFAULT 0 COMMENT '乐观锁版本',
+    `idempotency_key`            VARCHAR(128) DEFAULT NULL COMMENT '最近一次成功提交的幂等键',
+    `state_json`                 MEDIUMTEXT   DEFAULT NULL COMMENT '运行时上下文快照',
+    `ui_request_json`            MEDIUMTEXT   DEFAULT NULL COMMENT 'canonical uiRequest',
+    `submitted_payload_json`     MEDIUMTEXT   DEFAULT NULL COMMENT '最近一次提交（已脱敏策略由服务层保证）',
+    `result_json`                MEDIUMTEXT   DEFAULT NULL COMMENT '恢复结果摘要',
+    `continuation_json`          MEDIUMTEXT   DEFAULT NULL COMMENT 'Supervisor 续跑信息',
+    `app_id`                     VARCHAR(96)  DEFAULT NULL,
+    `tenant_id`                  VARCHAR(96)  DEFAULT NULL,
+    `session_id`                 VARCHAR(128) DEFAULT NULL COMMENT 'chat / embed session',
+    `user_id`                    VARCHAR(128) DEFAULT NULL,
     `create_time`                DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `update_time`                DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `expires_at`                 DATETIME     DEFAULT NULL,
     PRIMARY KEY (`id`),
     KEY `idx_interaction_session_run` (`run_id`),
-    KEY `idx_interaction_session_status` (`status`, `expires_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Interaction runtime sessions';
+    KEY `idx_interaction_session_trace` (`trace_id`),
+    KEY `idx_interaction_session_status` (`status`, `expires_at`),
+    KEY `idx_interaction_session_owner` (`session_id`, `app_id`, `status`),
+    KEY `idx_interaction_session_idem` (`id`, `idempotency_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow GraphSpec-native interaction sessions';
 
 CREATE TABLE IF NOT EXISTS `runtime_interaction_event` (
     `id`           BIGINT       NOT NULL AUTO_INCREMENT,
-    `session_id`   VARCHAR(64)  NOT NULL,
-    `event_type`   VARCHAR(32)  NOT NULL,
-    `payload_json` MEDIUMTEXT   DEFAULT NULL,
+    `session_id`   VARCHAR(64)  NOT NULL COMMENT 'runtime_interaction_session.id',
+    `event_type`   VARCHAR(32)  NOT NULL COMMENT 'CREATED / REQUESTED / SUBMITTED / RESUMED / COMPLETED / CANCELLED / EXPIRED / FAILED',
+    `payload_json` MEDIUMTEXT   DEFAULT NULL COMMENT '脱敏后事件载荷，禁止 secret/token 原文',
     `operator_id`  VARCHAR(128) DEFAULT NULL,
     `create_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
@@ -2475,6 +2499,10 @@ CREATE TABLE IF NOT EXISTS `runtime_executable_debug_session` (
     `trace_id`              VARCHAR(128) DEFAULT NULL,
     `target_type`           VARCHAR(64)  NOT NULL DEFAULT 'AGENT_DRAFT',
     `status`                VARCHAR(32)  NOT NULL DEFAULT 'RUNNING',
+    `revision`              INT          NOT NULL DEFAULT 0 COMMENT '乐观锁版本，Debug submit CAS',
+    `idempotency_key`       VARCHAR(128) DEFAULT NULL COMMENT '最近一次成功提交的幂等键',
+    `submitted_payload_json` MEDIUMTEXT  DEFAULT NULL COMMENT '规范化提交载荷，用于幂等比较',
+    `result_json`           MEDIUMTEXT   DEFAULT NULL COMMENT '最近一次 submit 结果摘要',
     `current_node_id`       VARCHAR(128) DEFAULT NULL,
     `draft_definition_json` MEDIUMTEXT   DEFAULT NULL,
     `debug_options_json`    MEDIUMTEXT   DEFAULT NULL,
@@ -2487,7 +2515,8 @@ CREATE TABLE IF NOT EXISTS `runtime_executable_debug_session` (
     `expires_at`            DATETIME     DEFAULT NULL,
     PRIMARY KEY (`id`),
     KEY `idx_executable_debug_session_trace` (`trace_id`),
-    KEY `idx_executable_debug_session_status` (`status`, `expires_at`)
+    KEY `idx_executable_debug_session_status` (`status`, `expires_at`),
+    KEY `idx_executable_debug_session_idem` (`id`, `idempotency_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Executable debug sessions for Studio and runtime workbench';
 
 INSERT INTO `capability_module`

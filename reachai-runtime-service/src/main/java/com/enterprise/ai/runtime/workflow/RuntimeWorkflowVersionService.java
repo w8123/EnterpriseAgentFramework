@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.workflow;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.enterprise.ai.agent.graph.GraphSpec;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -102,6 +103,22 @@ public class RuntimeWorkflowVersionService {
         if (target == null || !workflowId.equals(target.getWorkflowId())) {
             throw new IllegalArgumentException("workflow version not found: " + versionId);
         }
+        RuntimeWorkflowDefinitionEntity workflow = workflowService.findById(workflowId)
+                .orElseThrow(() -> new IllegalArgumentException("workflow not found: " + workflowId));
+        // Validate historical snapshot against CURRENT publish policy before any DB writes.
+        RuntimeWorkflowReleaseValidationResult.Builder report = RuntimeWorkflowReleaseValidationResult.builder();
+        GraphSpec graph = validationService.readGraph(target.getGraphSpecSnapshotJson(), report);
+        if (graph == null) {
+            RuntimeWorkflowReleaseValidationResult invalid = report.build();
+            String code = invalid.errors().isEmpty() ? "GRAPH_SPEC_INVALID" : invalid.errors().get(0).code();
+            throw new IllegalArgumentException("workflow rollback validation failed: " + code);
+        }
+        RuntimeWorkflowReleaseValidationResult validation = validationService.validateProposed(workflow, graph);
+        if (!validation.valid()) {
+            String code = validation.errors().isEmpty() ? "UNKNOWN" : validation.errors().get(0).code();
+            throw new IllegalArgumentException("workflow rollback validation failed: " + code);
+        }
+
         retireActiveVersions(workflowId);
         target.setStatus("ACTIVE");
         target.setRolloutPercent(100);

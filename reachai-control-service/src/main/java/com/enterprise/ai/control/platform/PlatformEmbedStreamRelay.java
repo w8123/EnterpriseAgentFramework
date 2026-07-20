@@ -1,5 +1,6 @@
 package com.enterprise.ai.control.platform;
 
+import com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway;
 import com.enterprise.ai.control.runtime.RuntimeAgentStreamProxy;
 import com.enterprise.ai.control.runtime.SseStreamRelay;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -23,12 +24,24 @@ public class PlatformEmbedStreamRelay {
     };
 
     private final RuntimeAgentStreamProxy runtimeStreamProxy;
+    private final RuntimeTrustedAgentExecutionGateway trustedExecutionGateway;
     private final PlatformEmbedChatEventService chatEventService;
     private final ObjectMapper objectMapper;
 
     public void streamMessage(PlatformEmbedSessionEntity session,
                               Map<String, Object> runtimeBody,
                               OutputStream outputStream) throws IOException {
+        String trustedUserId = firstText(session.getExternalUserId(), session.getGlobalUserId());
+        if (StringUtils.hasText(trustedUserId) && trustedExecutionGateway != null) {
+            trustedExecutionGateway.streamTrusted(
+                    runtimeBody,
+                    "EMBED_SESSION",
+                    trustedUserId.trim(),
+                    outputStream,
+                    (eventName, data, downstream) -> relayRuntimeEvent(session, eventName, data, downstream));
+            return;
+        }
+        // Fail closed without verified Embed claims userId: public stream stays userTrusted=false.
         runtimeStreamProxy.streamAgentExecute(runtimeBody, outputStream, (eventName, data, downstream) -> {
             relayRuntimeEvent(session, eventName, data, downstream);
         });
@@ -130,6 +143,9 @@ public class PlatformEmbedStreamRelay {
     }
 
     private String firstText(String primary, String fallback) {
-        return StringUtils.hasText(primary) ? primary : fallback;
+        if (StringUtils.hasText(primary)) {
+            return primary.trim();
+        }
+        return StringUtils.hasText(fallback) ? fallback.trim() : null;
     }
 }

@@ -223,6 +223,12 @@ class ControlProxyClientContractTest {
                 "/api/workflows/{id}/page-assistant/attach-tool");
         assertEquals(ResponseEntity.class, attachPageAssistantWorkflowTool.getReturnType());
 
+        Method attachAgentSupervisorWorkflowTool = RuntimeProxyClient.class
+                .getMethod("attachAgentSupervisorWorkflowTool", Long.class, Map.class);
+        assertMapping(attachAgentSupervisorWorkflowTool, RequestMethod.POST,
+                "/internal/runtime/projects/{projectId}/agent-supervisor/workflow-tools/attach");
+        assertEquals(ResponseEntity.class, attachAgentSupervisorWorkflowTool.getReturnType());
+
         Method listWorkflowCredentials = RuntimeProxyClient.class
                 .getMethod("listWorkflowCredentials", Long.class, String.class);
         assertMapping(listWorkflowCredentials, RequestMethod.GET, "/api/agent/workflow-credentials");

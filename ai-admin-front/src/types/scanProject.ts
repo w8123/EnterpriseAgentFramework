@@ -461,6 +461,26 @@ export interface SdkArtifact {
   repositoryUrls: string[]
   localInstallCommand?: string | null
   notes?: string | null
+  format?: string | null
+  downloadUrl?: string | null
+  integritySha256?: string | null
+  installCommand?: string | null
+  fallbackPolicy?: string | null
+  requiredFiles?: string[] | null
+  /** Path of the tarball inside the extracted onboarding skill zip, e.g. reachai-onboarding/artifacts/...tgz */
+  artifactPathWithinSkill?: string | null
+  /** Where to run install: business frontend directory that contains package.json */
+  installWorkingDirectory?: string | null
+  /** npm install template; replace {skillExtractDir} with absolute skill extract root */
+  installCommandTemplate?: string | null
+}
+
+export interface GatewayChecklistItem {
+  id: string
+  description: string
+  required: boolean
+  verificationHint: string
+  failureImpact: string
 }
 
 export interface ResponseShape {
@@ -506,6 +526,8 @@ export interface AiOnboardingManifest {
   }
   sdkArtifacts?: SdkArtifact[]
   responseShapes?: Record<string, ResponseShape>
+  /** Top-level machine checklist; not a ResponseShape comma string */
+  gatewayChecklist?: GatewayChecklistItem[]
   endpoints: {
     skillPackageUrl: string
     manifestUrl: string
@@ -582,6 +604,7 @@ export interface AiCodingGatewayManifest {
   }
   sdkArtifacts?: SdkArtifact[]
   responseShapes?: Record<string, ResponseShape>
+  gatewayChecklist?: GatewayChecklistItem[]
   endpoints: {
     manifestUrl: string
     contextCandidatesUrl: string

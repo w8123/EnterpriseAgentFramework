@@ -195,7 +195,10 @@ class RuntimeGraphSpecExecutorTest {
                 {
                   "entry":"form",
                   "nodes":[
-                    {"id":"form","type":"INTERACTION"},
+                    {"id":"form","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[
+                      {"key":"approved","type":"boolean","required":true},
+                      {"key":"user","type":"object","required":true}
+                    ]}},
                     {"id":"extract","type":"PARAMETER_EXTRACT","config":{
                       "extractMode":"expression",
                       "fields":[
@@ -213,12 +216,287 @@ class RuntimeGraphSpecExecutorTest {
                   ]
                 }
                 """, Map.of(
-                "submittedPayload", Map.of(
-                        "approved", true,
-                        "user", Map.of("id", "u-1"))));
+                "__interactionResume", Map.of(
+                        "interactionId", "wfi_test1",
+                        "nodeId", "form",
+                        "action", "submit",
+                        "values", Map.of(
+                                "approved", true,
+                                "user", Map.of("id", "u-1")))));
 
         assertEquals(true, result.success());
         assertEquals("true:u-1", result.answer());
+    }
+
+    @Test
+    void interactionWithoutPayloadSuspendsWithUiRequest() {
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entry":"form",
+                  "nodes":[{"id":"form","type":"INTERACTION","config":{
+                    "interactionType":"COLLECT_INPUT",
+                    "title":"查询条件",
+                    "fields":[{"key":"q","label":"关键词","type":"string","required":true}]
+                  }}]
+                }
+                """, Map.of("traceId", "t1", "runId", "r1"));
+
+        assertEquals(false, result.success());
+        assertTrue(result.isWaitingUser());
+        assertEquals("SUSPENDED", result.executionStatus());
+        assertTrue(result.interactionId() != null && result.interactionId().startsWith("wfi_"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ui = (Map<String, Object>) result.uiRequest();
+        assertEquals("form", ui.get("component"));
+        assertEquals("COLLECT_INPUT", ui.get("type"));
+        assertEquals("form", ui.get("nodeId"));
+        assertEquals(result.interactionId(), ui.get("interactionId"));
+    }
+
+    @Test
+    void interactionRejectsMismatchedResumeNode() {
+        RuntimeGraphSpecExecutionResult waiting = executor.execute("""
+                {"entry":"a","nodes":[
+                  {"id":"a","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"x","required":true}]}},
+                  {"id":"b","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"y","required":true}]}}
+                ],"edges":[{"from":"a","to":"b"}]}
+                """, Map.of());
+        assertTrue(waiting.isWaitingUser());
+
+        RuntimeGraphSpecExecutionResult resumed = executor.executeFromNode("""
+                {"entry":"a","nodes":[
+                  {"id":"a","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"x","required":true}]}},
+                  {"id":"b","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"y","required":true}]}}
+                ],"edges":[{"from":"a","to":"b"}]}
+                """, Map.of(
+                "__pendingInteractionId", waiting.interactionId(),
+                "__pendingInteractionNodeId", "a",
+                "__interactionResume", Map.of(
+                        "interactionId", waiting.interactionId(),
+                        "nodeId", "b",
+                        "action", "submit",
+                        "values", Map.of("x", "1"))), "a");
+        assertTrue(resumed.isWaitingUser());
+        assertEquals(waiting.interactionId(), resumed.interactionId());
+    }
+
+    @Test
+    void collectInputRequiredValidationKeepsWaiting() {
+        RuntimeGraphSpecExecutionResult waiting = executor.execute("""
+                {"entry":"form","nodes":[{"id":"form","type":"INTERACTION","config":{
+                  "interactionType":"COLLECT_INPUT",
+                  "fields":[{"key":"q","required":true,"type":"string"}]
+                }}]}
+                """, Map.of());
+        RuntimeGraphSpecExecutionResult resumed = executor.executeFromNode("""
+                {"entry":"form","nodes":[{"id":"form","type":"INTERACTION","config":{
+                  "interactionType":"COLLECT_INPUT",
+                  "fields":[{"key":"q","required":true,"type":"string"}]
+                }}]}
+                """, Map.of(
+                "__pendingInteractionId", waiting.interactionId(),
+                "__pendingInteractionNodeId", "form",
+                "__interactionResume", Map.of(
+                        "interactionId", waiting.interactionId(),
+                        "nodeId", "form",
+                        "action", "submit",
+                        "values", Map.of())), "form");
+        assertTrue(resumed.isWaitingUser());
+        assertEquals(waiting.interactionId(), resumed.interactionId());
+    }
+
+    @Test
+    void userChoiceRejectsUndeclaredOption() {
+        String graph = """
+                {"entry":"choice","nodes":[{"id":"choice","type":"INTERACTION","config":{
+                  "interactionType":"USER_CHOICE",
+                  "options":[{"value":"a","label":"A"},{"value":"b","label":"B"}]
+                }}]}
+                """;
+        RuntimeGraphSpecExecutionResult waiting = executor.execute(graph, Map.of());
+        RuntimeGraphSpecExecutionResult resumed = executor.executeFromNode(graph, Map.of(
+                "__pendingInteractionId", waiting.interactionId(),
+                "__pendingInteractionNodeId", "choice",
+                "__interactionResume", Map.of(
+                        "interactionId", waiting.interactionId(),
+                        "nodeId", "choice",
+                        "action", "submit",
+                        "values", Map.of("selected", "z"))), "choice");
+        assertTrue(resumed.isWaitingUser());
+    }
+
+    @Test
+    void confirmActionRoutesAndRejectDoesNotFollowAlwaysEdge() {
+        String graph = """
+                {
+                  "entry":"confirm",
+                  "nodes":[
+                    {"id":"confirm","type":"INTERACTION","config":{"interactionType":"CONFIRM_ACTION"}},
+                    {"id":"write","type":"TOOL","ref":{"qualifiedName":"system.echo"},"config":{}},
+                    {"id":"done","type":"ANSWER","config":{"template":"ok"}}
+                  ],
+                  "edges":[
+                    {"from":"confirm","to":"write","condition":"always"},
+                    {"from":"write","to":"done"}
+                  ]
+                }
+                """;
+        RuntimeGraphSpecExecutionResult waiting = executor.execute(graph, Map.of());
+        RuntimeGraphSpecExecutionResult rejected = executor.executeFromNode(graph, Map.of(
+                "__pendingInteractionId", waiting.interactionId(),
+                "__pendingInteractionNodeId", "confirm",
+                "__interactionResume", Map.of(
+                        "interactionId", waiting.interactionId(),
+                        "nodeId", "confirm",
+                        "action", "reject",
+                        "values", Map.of())), "confirm");
+        assertEquals(true, rejected.success());
+        assertEquals(0, capabilityClient.requests.size());
+    }
+
+    @Test
+    void presentOutputIsNonBlocking() {
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entry":"show",
+                  "nodes":[
+                    {"id":"show","type":"INTERACTION","config":{
+                      "interactionType":"PRESENT_OUTPUT",
+                      "component":"table",
+                      "dataExpression":"lastOutput"
+                    }},
+                    {"id":"answer","type":"ANSWER","config":{"template":"done:{{ lastOutput }}"}}
+                  ],
+                  "edges":[{"from":"show","to":"answer"}]
+                }
+                """, Map.of("lastOutput", List.of(Map.of("id", 1))));
+        assertEquals(true, result.success());
+        assertTrue(result.answer().contains("done:"));
+        assertTrue(result.uiRequest() instanceof Map<?, ?>);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> behavior = (Map<String, Object>) ((Map<?, ?>) result.uiRequest()).get("behavior");
+        assertEquals(false, behavior.get("blocking"));
+    }
+
+    @Test
+    void sequentialInteractionsDoNotReuseStalePayload() {
+        String graph = """
+                {
+                  "entry":"a",
+                  "nodes":[
+                    {"id":"a","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"x","required":true}]}},
+                    {"id":"b","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"y","required":true}]}},
+                    {"id":"answer","type":"ANSWER","config":{"template":"{{ x }}:{{ y }}"}}
+                  ],
+                  "edges":[{"from":"a","to":"b"},{"from":"b","to":"answer"}]
+                }
+                """;
+        RuntimeGraphSpecExecutionResult firstWait = executor.execute(graph, Map.of());
+        assertTrue(firstWait.isWaitingUser());
+        RuntimeGraphSpecExecutionResult secondWait = executor.executeFromNode(graph, Map.of(
+                "__pendingInteractionId", firstWait.interactionId(),
+                "__pendingInteractionNodeId", "a",
+                "__interactionResume", Map.of(
+                        "interactionId", firstWait.interactionId(),
+                        "nodeId", "a",
+                        "action", "submit",
+                        "values", Map.of("x", "1"))), "a");
+        assertTrue(secondWait.isWaitingUser());
+        assertEquals("b", secondWait.nodeId());
+        assertTrue(!firstWait.interactionId().equals(secondWait.interactionId()));
+
+        // stale global submittedPayload must not auto-complete second interaction
+        RuntimeGraphSpecExecutionResult stillWaiting = executor.executeFromNode(graph, Map.of(
+                "__pendingInteractionId", secondWait.interactionId(),
+                "__pendingInteractionNodeId", "b",
+                "submittedPayload", Map.of("x", "1"),
+                "x", "1"), "b");
+        assertTrue(stillWaiting.isWaitingUser());
+        assertEquals(secondWait.interactionId(), stillWaiting.interactionId());
+    }
+
+    @Test
+    void resumeDoesNotReExecutePriorToolSideEffect() {
+        String graph = """
+                {
+                  "entry":"tool",
+                  "nodes":[
+                    {"id":"tool","type":"TOOL","ref":{"qualifiedName":"system.echo"},"config":{"inputMapping":{"message":"hi"}}},
+                    {"id":"form","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"q","required":true}]}},
+                    {"id":"answer","type":"ANSWER","config":{"template":"tool={{ lastOutput }} q={{ q }}"}}
+                  ],
+                  "edges":[{"from":"tool","to":"form"},{"from":"form","to":"answer"}]
+                }
+                """;
+        RuntimeGraphSpecExecutionResult waiting = executor.execute(graph, Map.of());
+        assertTrue(waiting.isWaitingUser());
+        assertEquals(1, capabilityClient.requests.size());
+        assertFalse(waiting.contextSnapshot().isEmpty(), "pause must return live executor contextSnapshot");
+        assertTrue(waiting.contextSnapshot().containsKey("nodeOutput")
+                        || waiting.contextSnapshot().containsKey("lastOutput"),
+                "snapshot must keep TOOL output: " + waiting.contextSnapshot().keySet());
+
+        Map<String, Object> resumeContext = new java.util.LinkedHashMap<>(waiting.contextSnapshot());
+        resumeContext.put("__pendingInteractionId", waiting.interactionId());
+        resumeContext.put("__pendingInteractionNodeId", "form");
+        resumeContext.put("__interactionResume", Map.of(
+                "interactionId", waiting.interactionId(),
+                "nodeId", "form",
+                "action", "submit",
+                "values", Map.of("q", "ok")));
+        RuntimeGraphSpecExecutionResult done = executor.executeFromNode(graph, resumeContext, "form");
+        assertEquals(true, done.success());
+        assertTrue(String.valueOf(done.answer()).contains("q=ok"));
+        assertEquals(1, capabilityClient.requests.size(), "TOOL must not re-run after resume");
+    }
+
+    @Test
+    void waitingContextSnapshotKeepsAccumulatedStateAcrossTwoInteractions() {
+        String graph = """
+                {
+                  "entry":"a",
+                  "nodes":[
+                    {"id":"a","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"x","required":true}]}},
+                    {"id":"mid","type":"PARAMETER_EXTRACT","config":{
+                      "extractMode":"expression",
+                      "fields":[{"name":"x","source":"lastOutput.x","required":true}]
+                    }},
+                    {"id":"b","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"y","required":true}]}},
+                    {"id":"final","type":"ANSWER","config":{"template":"{{ x }}:{{ y }}"}}
+                  ],
+                  "edges":[
+                    {"from":"a","to":"mid"},
+                    {"from":"mid","to":"b"},
+                    {"from":"b","to":"final"}
+                  ]
+                }
+                """;
+        RuntimeGraphSpecExecutionResult first = executor.execute(graph, Map.of("seed", 1));
+        assertTrue(first.isWaitingUser());
+        assertTrue(first.contextSnapshot().containsKey("seed"));
+
+        Map<String, Object> afterA = new java.util.LinkedHashMap<>(first.contextSnapshot());
+        afterA.put("__interactionResume", Map.of(
+                "interactionId", first.interactionId(),
+                "nodeId", "a",
+                "action", "submit",
+                "values", Map.of("x", "1")));
+        RuntimeGraphSpecExecutionResult second = executor.executeFromNode(graph, afterA, "a");
+        assertTrue(second.isWaitingUser());
+        assertEquals("b", second.nodeId());
+        assertTrue(second.contextSnapshot().containsKey("x")
+                        || String.valueOf(second.contextSnapshot().get("lastOutput")).contains("1"),
+                "second wait must accumulate first interaction output");
+
+        Map<String, Object> afterB = new java.util.LinkedHashMap<>(second.contextSnapshot());
+        afterB.put("__interactionResume", Map.of(
+                "interactionId", second.interactionId(),
+                "nodeId", "b",
+                "action", "submit",
+                "values", Map.of("y", "2")));
+        RuntimeGraphSpecExecutionResult done = executor.executeFromNode(graph, afterB, "b");
+        assertEquals(true, done.success());
+        assertEquals("1:2", done.answer());
     }
 
     @Test
@@ -727,6 +1005,16 @@ class RuntimeGraphSpecExecutorTest {
 
         @Override
         public Map<String, Object> getProjectById(Long projectId) {
+            return Map.of();
+        }
+
+        @Override
+        public java.util.List<Map<String, Object>> listProjectTools(Long projectId) {
+            return java.util.List.of();
+        }
+
+        @Override
+        public Map<String, Object> projectReadinessFacts(Long projectId) {
             return Map.of();
         }
 

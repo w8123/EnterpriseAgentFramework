@@ -1,0 +1,205 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ref } from 'vue'
+import type { AgentGraphNodeTypeDescriptor } from '@/types/agent'
+import type { ProjectToolInfo } from '@/types/scanProject'
+import { useWorkflowStudioApiQueryTemplate } from './useWorkflowStudioApiQueryTemplate'
+
+const elMessage = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  warning: vi.fn(),
+  info: vi.fn(),
+}))
+
+const getScanProjectTools = vi.hoisted(() => vi.fn())
+const routeQuery = vi.hoisted(() => ({
+  intent: 'api-query-template',
+  scanToolId: '12',
+  projectApiTool: 'demo.search',
+  projectApiName: 'demo search',
+}))
+
+vi.mock('element-plus', () => ({
+  ElMessage: elMessage,
+}))
+
+vi.mock('@/api/scanProject', () => ({
+  getScanProjectTools,
+}))
+
+vi.mock('vue-router', () => ({
+  useRoute: () => ({
+    query: routeQuery,
+  }),
+}))
+
+function descriptor(
+  partial: Partial<AgentGraphNodeTypeDescriptor> & Pick<AgentGraphNodeTypeDescriptor, 'type' | 'canvasKind'>,
+): AgentGraphNodeTypeDescriptor {
+  return {
+    canvasCategory: 'flow',
+    family: 'FLOW',
+    retryable: false,
+    aliases: [],
+    maturity: 'STABLE',
+    runtimeExecutable: true,
+    publishable: true,
+    studioEnabled: true,
+    aiAuthoringEnabled: true,
+    unavailableReason: null,
+    ...partial,
+  }
+}
+
+function currentCatalog(openInteraction = false): AgentGraphNodeTypeDescriptor[] {
+  return [
+    descriptor({ type: 'TOOL', canvasKind: 'tool' }),
+    descriptor({
+      type: 'PAGE_ACTION',
+      canvasKind: 'pageAction',
+      maturity: 'BETA',
+    }),
+    descriptor({
+      type: 'INTERACTION',
+      canvasKind: 'interaction',
+      maturity: 'BETA',
+      runtimeExecutable: true,
+      publishable: false,
+      studioEnabled: openInteraction,
+      aiAuthoringEnabled: openInteraction,
+      unavailableReason: openInteraction
+        ? null
+        : 'Workflow interaction pause/resume closure is not complete',
+    }),
+  ]
+}
+
+function selectableTool(): ProjectToolInfo {
+  return {
+    scanToolId: 12,
+    name: 'demo.search',
+    description: 'demo',
+    parameters: [],
+    source: 'scanner',
+    enabled: true,
+    agentVisible: true,
+    lightweightEnabled: true,
+    globalToolDefinitionId: 99,
+    globalToolName: 'demo.search',
+    toolLinkStatus: 'LINKED',
+    httpMethod: 'GET',
+    endpointPath: '/api/demo/search',
+    projectId: 7,
+    projectCode: 'demo',
+  }
+}
+
+function createTemplate(overrides: Record<string, unknown> = {}) {
+  const nodes = ref([])
+  const edges = ref([])
+  const selectedNodeId = ref<string | null>(null)
+  const selectedEdgeId = ref<string | null>(null)
+  const propertyPanelCollapsed = ref(true)
+  const markCanvasDirty = vi.fn()
+  const syncJsonFromCanvas = vi.fn()
+  const nodeTypes = ref(currentCatalog(false))
+  const graphNodeTypeCapabilitiesLoaded = ref(true)
+  const studio = ref({
+    workflowId: 'wf-1',
+    projectId: 7,
+    projectCode: 'demo',
+    name: 'Demo',
+    keySlug: 'demo',
+    graphSpecJson: '{}',
+    canvasJson: '{}',
+  } as any)
+  const deps = {
+    studio,
+    nodes,
+    edges,
+    selectedNodeId,
+    selectedEdgeId,
+    propertyPanelCollapsed,
+    decorateWorkflowNode: (node: any) => node,
+    decorateWorkflowEdge: (edge: any) => edge,
+    markCanvasDirty,
+    syncJsonFromCanvas,
+    nodeTypes,
+    graphNodeTypeCapabilitiesLoaded,
+    ...overrides,
+  }
+  const api = useWorkflowStudioApiQueryTemplate(deps as any)
+  return {
+    api,
+    nodes,
+    edges,
+    selectedNodeId,
+    selectedEdgeId,
+    propertyPanelCollapsed,
+    markCanvasDirty,
+    syncJsonFromCanvas,
+    nodeTypes,
+    graphNodeTypeCapabilitiesLoaded,
+    studio,
+  }
+}
+
+describe('useWorkflowStudioApiQueryTemplate capability guard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    routeQuery.intent = 'api-query-template'
+    routeQuery.scanToolId = '12'
+    getScanProjectTools.mockResolvedValue({ data: [selectableTool()] })
+  })
+
+  it('blocks open/apply/generate when INTERACTION is not studio-enabled', async () => {
+    const ctx = createTemplate()
+    expect(ctx.api.apiQueryTemplateAvailable.value).toBe(false)
+
+    ctx.api.openApiQueryTemplateDialog()
+    expect(ctx.api.apiQueryTemplateOpen.value).toBe(false)
+    expect(getScanProjectTools).not.toHaveBeenCalled()
+    expect(elMessage.warning).toHaveBeenCalled()
+
+    elMessage.warning.mockClear()
+    ctx.api.applyProjectApiRouteContext()
+    expect(ctx.api.apiQueryTemplateOpen.value).toBe(false)
+    expect(getScanProjectTools).not.toHaveBeenCalled()
+    // Bootstrap path must stay quiet when template capability is closed.
+    expect(elMessage.warning).not.toHaveBeenCalled()
+
+    const beforeNodes = ctx.nodes.value.length
+    const beforeEdges = ctx.edges.value.length
+    ctx.api.generateApiQueryTemplate(selectableTool())
+    expect(ctx.nodes.value).toHaveLength(beforeNodes)
+    expect(ctx.edges.value).toHaveLength(beforeEdges)
+    expect(ctx.selectedNodeId.value).toBeNull()
+    expect(ctx.selectedEdgeId.value).toBeNull()
+    expect(ctx.propertyPanelCollapsed.value).toBe(true)
+    expect(ctx.markCanvasDirty).not.toHaveBeenCalled()
+    expect(ctx.syncJsonFromCanvas).not.toHaveBeenCalled()
+  })
+
+  it('allows generate when synthetic catalog opens all required kinds', () => {
+    const ctx = createTemplate()
+    ctx.nodeTypes.value = currentCatalog(true)
+    expect(ctx.api.apiQueryTemplateAvailable.value).toBe(true)
+
+    ctx.api.openApiQueryTemplateDialog()
+    expect(ctx.api.apiQueryTemplateOpen.value).toBe(true)
+
+    ctx.api.generateApiQueryTemplate(selectableTool())
+    expect(ctx.nodes.value).toHaveLength(4)
+    expect(ctx.nodes.value.map((node: any) => node.data.kind)).toEqual([
+      'interaction',
+      'pageAction',
+      'tool',
+      'interaction',
+    ])
+    expect(ctx.edges.value).toHaveLength(3)
+    expect(ctx.markCanvasDirty).toHaveBeenCalledTimes(1)
+    expect(ctx.syncJsonFromCanvas).toHaveBeenCalledTimes(1)
+    expect(ctx.api.apiQueryTemplateOpen.value).toBe(false)
+    expect(elMessage.success).toHaveBeenCalled()
+  })
+})

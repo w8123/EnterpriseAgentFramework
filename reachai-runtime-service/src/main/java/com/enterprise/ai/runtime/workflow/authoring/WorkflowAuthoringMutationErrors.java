@@ -78,6 +78,10 @@ final class WorkflowAuthoringMutationErrors {
         if (normalized.contains("cannot change node id") || normalized.contains("cannot change edge id")) {
             return "IDENTITY_IMMUTABLE";
         }
+        if (normalized.contains("workflow_node_not_authorable")
+                || normalized.contains("not enabled for ai authoring")) {
+            return "WORKFLOW_NODE_NOT_AUTHORABLE";
+        }
         return "MUTATION_INVALID";
     }
 }

@@ -115,7 +115,13 @@ Returns workflow metadata, `graphSpec`, `canvas`, release validation, node type 
 
 Use `workflow.updatedAt` as patch and publish `baseRevision`.
 
-When building LLM nodes, pick `modelInstanceId` from `availableModels[].id`. When building TOOL/CAPABILITY nodes, pick tool names from `availableTools[].name` or `qualifiedName`. If `availableModels` is empty, ask the human operator to configure model instances first; do not invent ids. `availableModels` lists ACTIVE registry instances; it is not a live credential probe, so provider auth errors during `/run` mean the operator should fix credentials or choose another listed model.
+When building LLM nodes, pick `modelInstanceId` from `availableModels[].id` only. When building TOOL/CAPABILITY nodes, pick tools from `availableTools[]` (`toolId` / `keySlug` / `displayName`). Never invent internal ids. If either array is empty and `warnings` contains `MODEL_CATALOG_UNAVAILABLE`, `CAPABILITY_CATALOG_UNAVAILABLE`, `NO_ACTIVE_LLM`, or `NO_PROJECT_TOOLS`, fix the dependency/warning first; empty+warning means “unavailable or missing”, not “safe to guess”.
+
+Generic Workflow create defaults to `workflowType=CHAT`. Page Assistant onboarding must send `"workflowType":"PAGE_ASSISTANT"` explicitly. Attach CHAT or PAGE_ASSISTANT with:
+
+`POST /api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach`
+
+Body uses `workflowId` plus optional `agentKeySlug` (preferred) or internal `agentId` (mutually exclusive). Prefer omitting agent identifiers so the project default page-copilot keySlug is used. Compatibility endpoint `/api/workflows/{id}/page-assistant/attach-tool` accepts PAGE_ASSISTANT only and returns `ai-coding-error.v1` with `WORKFLOW_TYPE_NOT_SUPPORTED` for CHAT.
 
 ### Validate
 

@@ -10,6 +10,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -56,6 +57,28 @@ class ControlAiAssistProjectControllerTest {
                 response.getBody().sdkArtifacts().get(0).sourcePolicy());
         assertEquals("@reachai/embed-chat@1.0.0-SNAPSHOT",
                 response.getBody().sdkArtifacts().get(2).coordinates());
+        assertEquals("platform-artifact-tarball",
+                response.getBody().sdkArtifacts().get(2).sourcePolicy());
+        assertEquals("npm-tarball", response.getBody().sdkArtifacts().get(2).format());
+        assertTrue(response.getBody().sdkArtifacts().get(2).downloadUrl()
+                .endsWith("/api/ai-assist/artifacts/embed-chat/1.0.0-SNAPSHOT.tgz"));
+        assertNotNull(response.getBody().sdkArtifacts().get(2).integritySha256());
+        assertEquals(64, response.getBody().sdkArtifacts().get(2).integritySha256().length());
+        assertTrue(response.getBody().sdkArtifacts().get(2).installCommand()
+                .contains("reachai-embed-chat-1.0.0-SNAPSHOT.tgz"));
+        assertEquals("@reachai/embed-chat", response.getBody().sdkArtifacts().get(2).packageName());
+        assertEquals("reachai-onboarding/artifacts/reachai-embed-chat-1.0.0-SNAPSHOT.tgz",
+                response.getBody().sdkArtifacts().get(2).artifactPathWithinSkill());
+        assertEquals("business-frontend-package-root",
+                response.getBody().sdkArtifacts().get(2).installWorkingDirectory());
+        assertTrue(response.getBody().sdkArtifacts().get(2).installCommandTemplate()
+                .contains("{skillExtractDir}"));
+        assertEquals("skill-zip-tarball", response.getBody().sdkArtifacts().get(2).fallbackPolicy());
+        assertEquals(6, response.getBody().gatewayChecklist().size());
+        assertEquals("embed-route-forwarding", response.getBody().gatewayChecklist().get(0).id());
+        assertTrue(response.getBody().gatewayChecklist().get(0).required());
+        assertTrue(response.getBody().agentSupervisor().endpoints().workflowToolAttachUrlTemplate()
+                .contains("/agent-supervisor/workflow-tools/attach"));
         assertEquals("ApiResult", response.getBody().responseShapes().get("embed").wrapper());
         assertEquals("data.token", response.getBody().responseShapes().get("embed").fields().get("token"));
         assertEquals("bare-json", response.getBody().responseShapes().get("agentProvisioning").wrapper());
@@ -127,6 +150,9 @@ class ControlAiAssistProjectControllerTest {
                 "registryCredentialConfigured", true,
                 "aiCodingAccess", Map.of("enabled", true, "accessKey", "aic_test")
         ));
+        when(client.getReadinessFacts(7L)).thenReturn(Map.of(
+                "instanceExists", false,
+                "online", false));
 
         ResponseEntity<ControlAiAssistProjectController.AiAccessCheckRunResponse> response =
                 controller.runAccessSessionChecks(7L, "sdk-access-7", Map.of("args", Map.of()));
@@ -135,7 +161,18 @@ class ControlAiAssistProjectControllerTest {
         assertNotNull(response.getBody());
         assertEquals(7L, response.getBody().checkResult().projectId());
         assertEquals("orders", response.getBody().checkResult().projectCode());
-        assertEquals("PASS", response.getBody().checkResult().overallStatus());
+        assertEquals("FAIL", response.getBody().checkResult().overallStatus());
+        assertEquals("PASS", response.getBody().checkResult().readiness().stream()
+                .filter(item -> "CODE_READY".equals(item.key())).findFirst().orElseThrow().status());
+        assertEquals("FAIL", response.getBody().checkResult().readiness().stream()
+                .filter(item -> "RUNTIME_READY".equals(item.key())).findFirst().orElseThrow().status());
+        assertEquals("PENDING", response.getBody().checkResult().readiness().stream()
+                .filter(item -> "E2E_READY".equals(item.key())).findFirst().orElseThrow().status());
+        assertEquals("WARN", response.getBody().checkResult().checks().stream()
+                .filter(check -> "SDK_SYNC_CALLBACK".equals(check.key()))
+                .findFirst()
+                .orElseThrow()
+                .status());
         assertEquals(
                 "https://orders.example.com/orders-api/reachai/registry/capabilities/sync",
                 response.getBody().checkResult().checks().stream()
@@ -143,7 +180,7 @@ class ControlAiAssistProjectControllerTest {
                         .findFirst()
                         .orElseThrow()
                         .evidence());
-        assertEquals("PASS", response.getBody().session().status());
+        assertEquals("FAIL", response.getBody().session().status());
     }
 
     @Test

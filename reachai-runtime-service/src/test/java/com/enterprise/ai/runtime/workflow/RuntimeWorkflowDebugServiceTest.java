@@ -192,5 +192,15 @@ class RuntimeWorkflowDebugServiceTest {
             return Map.of();
         }
 
+        @Override
+        public java.util.List<Map<String, Object>> listProjectTools(Long projectId) {
+            return java.util.List.of();
+        }
+
+        @Override
+        public Map<String, Object> projectReadinessFacts(Long projectId) {
+            return Map.of();
+        }
+
     }
 }

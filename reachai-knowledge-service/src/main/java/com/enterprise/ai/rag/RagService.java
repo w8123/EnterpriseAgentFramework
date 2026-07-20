@@ -12,4 +12,9 @@ public interface RagService {
      * 执行 RAG 流程：embedding → 多库检索 → 权限过滤 → TopK合并 → Prompt构建 → LLM生成
      */
     RagResponse query(RagRequest request);
+
+    /**
+     * Retrieval-only path for Workflow Runtime: hits without LLM answer generation.
+     */
+    RagResponse retrieve(RagRequest request);
 }

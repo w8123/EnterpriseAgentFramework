@@ -25,6 +25,7 @@ import {
   StreamFallbackForbiddenError,
 } from '../core/streamFallbackPolicy'
 import type { ConversationSnapshot, ConversationTurnInput } from '../core/conversationTypes'
+import { buildDebugInteractionIdempotencyKey } from '../core/buildInteractionIdempotencyKey'
 import type { ConversationTransport } from './transportTypes'
 
 export const WORKFLOW_INITIAL_INPUT_ID = 'local:workflow-initial-input'
@@ -245,10 +246,19 @@ export function createWorkflowDraftTransport(
       if (!existingSessionId) {
         throw new Error('Workflow interaction resume requires an active debug session')
       }
+      const action = input.uiSubmit?.action || 'submit'
+      const values = (input.uiSubmit?.values || input.values || {}) as Record<string, unknown>
+      const idempotencyKey = buildDebugInteractionIdempotencyKey(
+        String(input.interactionId),
+        action,
+        values,
+      )
       yield* runTurn('submit', {
-        action: input.uiSubmit?.action || 'submit',
-        values: input.uiSubmit?.values || input.values,
+        action,
+        values,
         message: input.message,
+        interactionId: input.interactionId,
+        idempotencyKey,
       }, existingSessionId, signal)
       return
     }

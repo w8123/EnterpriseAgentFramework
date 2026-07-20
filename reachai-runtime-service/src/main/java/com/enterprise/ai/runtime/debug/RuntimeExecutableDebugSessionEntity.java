@@ -21,6 +21,14 @@ public class RuntimeExecutableDebugSessionEntity {
 
     private String status;
 
+    private Integer revision;
+
+    private String idempotencyKey;
+
+    private String submittedPayloadJson;
+
+    private String resultJson;
+
     private String currentNodeId;
 
     private String draftDefinitionJson;

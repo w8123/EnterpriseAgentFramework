@@ -13,9 +13,19 @@ public class RuntimeInteractionSessionEntity {
     @TableId
     private String id;
 
+    private String sourceType;
+
     private String runId;
 
+    private String traceId;
+
+    private String workflowId;
+
+    private Long workflowVersionId;
+
     private String compositionQualifiedName;
+
+    private String graphSpecSnapshotJson;
 
     private String nodeId;
 
@@ -23,11 +33,27 @@ public class RuntimeInteractionSessionEntity {
 
     private String status;
 
+    private Integer revision;
+
+    private String idempotencyKey;
+
     private String stateJson;
 
     private String uiRequestJson;
 
     private String submittedPayloadJson;
+
+    private String resultJson;
+
+    private String continuationJson;
+
+    private String appId;
+
+    private String tenantId;
+
+    private String sessionId;
+
+    private String userId;
 
     private LocalDateTime createTime;
 

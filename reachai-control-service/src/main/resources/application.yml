@@ -54,6 +54,9 @@ services:
     url: ${KNOWLEDGE_SERVICE_URL:http://localhost:18602}
 
 reachai:
+  internal:
+    # Shared with Runtime. Required for trusted Agent/Embed execute (sync + SSE). Fail-closed when blank.
+    service-secret: ${REACHAI_INTERNAL_SERVICE_SECRET:}
   embed:
     cors:
       enabled: ${REACHAI_EMBED_CORS_ENABLED:false}

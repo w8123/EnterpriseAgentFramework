@@ -1,13 +1,19 @@
 import { ElMessage } from 'element-plus'
-import { reactive, ref, type Ref } from 'vue'
+import { computed, reactive, ref, type Ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { getScanProjectTools } from '@/api/scanProject'
+import type { AgentGraphNodeTypeDescriptor } from '@/types/agent'
 import type { ProjectToolInfo } from '@/types/scanProject'
 import type { ToolParameter } from '@/types/tool'
 import type { CanvasEdge, CanvasNode, CanvasNodeKind, StudioFieldSchema } from '@/types/studio'
 import type { WorkflowStudioState } from '@/types/workflow'
 import { createWorkflowCanvasNode } from '@/utils/workflowStudio'
 import { interactionOutputPorts } from '@/utils/studio'
+import {
+  API_QUERY_TEMPLATE_REQUIRED_KINDS,
+  resolveStudioNodeCreation,
+  resolveStudioNodeSetCreation,
+} from '@/utils/studioNodeRegistry'
 import {
   filterProjectApiTools,
   isProjectApiToolSelectable,
@@ -28,6 +34,8 @@ export interface UseWorkflowStudioApiQueryTemplateDeps {
   decorateWorkflowEdge: (edge: CanvasEdge) => CanvasEdge
   markCanvasDirty: () => void
   syncJsonFromCanvas: () => void
+  nodeTypes: Ref<AgentGraphNodeTypeDescriptor[]>
+  graphNodeTypeCapabilitiesLoaded: Ref<boolean>
 }
 
 function queryString(value: unknown) {
@@ -224,6 +232,27 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     pageSize: 10,
   })
 
+  const apiQueryTemplateCapability = computed(() => resolveStudioNodeSetCreation(
+    API_QUERY_TEMPLATE_REQUIRED_KINDS,
+    deps.nodeTypes.value,
+    deps.graphNodeTypeCapabilitiesLoaded.value,
+  ))
+  const apiQueryTemplateAvailable = computed(() => apiQueryTemplateCapability.value.allowed)
+  const apiQueryTemplateUnavailableReason = computed(() => {
+    if (apiQueryTemplateCapability.value.allowed) return ''
+    return apiQueryTemplateCapability.value.reason
+      || '当前节点能力目录未开放 API 查询模板所需节点'
+  })
+
+  function ensureApiQueryTemplateCapability(options: { notify?: boolean } = {}) {
+    const decision = apiQueryTemplateCapability.value
+    if (decision.allowed) return true
+    if (options.notify !== false) {
+      ElMessage.warning(decision.reason || '当前节点能力目录未开放 API 查询模板所需节点')
+    }
+    return false
+  }
+
   function routeProjectApiContext() {
     if (queryString(route.query.intent) !== 'api-query-template') return null
     const id = Number(queryString(route.query.scanToolId))
@@ -247,6 +276,11 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
   }
 
   async function loadApiQueryTemplateTools() {
+    if (!ensureApiQueryTemplateCapability({ notify: false })) {
+      apiQueryTemplateTools.value = []
+      apiQueryTemplateTotal.value = 0
+      return
+    }
     const projectId = deps.studio.value?.projectId
     if (!projectId) {
       apiQueryTemplateTools.value = []
@@ -272,6 +306,10 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
   }
 
   function openApiQueryTemplateDialog() {
+    if (!ensureApiQueryTemplateCapability()) {
+      apiQueryTemplateOpen.value = false
+      return
+    }
     apiQueryTemplateOpen.value = true
     apiQueryTemplateActionKey.value = apiQueryTemplateActionKey.value || 'page.search.applyFilters'
     apiQueryTemplateFilters.page = 1
@@ -279,6 +317,7 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
   }
 
   function reloadApiQueryTemplateTools() {
+    if (!ensureApiQueryTemplateCapability()) return
     apiQueryTemplateFilters.page = 1
     void loadApiQueryTemplateTools()
   }
@@ -286,6 +325,10 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
   function applyProjectApiRouteContext() {
     const context = routeProjectApiContext()
     if (!context) return
+    // Fail-closed and quiet on bootstrap: do not open a dead dialog or spam warnings.
+    if (!ensureApiQueryTemplateCapability({ notify: false })) {
+      return
+    }
     apiQueryTemplateRouteToolId.value = context.id
     apiQueryTemplateFilters.keyword = context.keyword
     apiQueryTemplateFilters.toolLinkStatus = 'LINKED'
@@ -304,8 +347,24 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     return projectApiToolStatusLabel(tool)
   }
 
+  function ensureCanCreateStudioNode(kind: CanvasNodeKind) {
+    const decision = resolveStudioNodeCreation(
+      kind,
+      deps.nodeTypes.value,
+      deps.graphNodeTypeCapabilitiesLoaded.value,
+    )
+    if (!decision.allowed) {
+      ElMessage.warning(decision.reason || '当前节点类型不可新增')
+      return false
+    }
+    return true
+  }
+
   function addWorkflowStudioNode(kind: CanvasNodeKind, position: { x: number; y: number }, select = true) {
     if (!deps.studio.value) throw new Error('Workflow 未加载')
+    if (!ensureCanCreateStudioNode(kind)) {
+      throw new Error(`studio node kind is not creatable: ${kind}`)
+    }
     const node = deps.decorateWorkflowNode(createWorkflowCanvasNode(kind, position, deps.studio.value))
     deps.nodes.value.push(node)
     if (select) {
@@ -328,9 +387,13 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
 
   function generateApiQueryTemplate(tool: ProjectToolInfo) {
     if (!deps.studio.value) return
+    if (!ensureApiQueryTemplateCapability()) return
     if (!apiQueryTemplateSelectable(tool)) {
       ElMessage.warning('该接口还不能生成查询流程，请先完成 Tool 关联并开启 Workflow 可见。')
       return
+    }
+    for (const kind of API_QUERY_TEMPLATE_REQUIRED_KINDS) {
+      if (!ensureCanCreateStudioNode(kind)) return
     }
     const toolRef = projectApiToolRef(tool)
     const qualifiedName = projectApiToolQualifiedName(tool, deps.studio.value.projectCode)
@@ -457,6 +520,8 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     apiQueryTemplateTotal,
     apiQueryTemplateActionKey,
     apiQueryTemplateFilters,
+    apiQueryTemplateAvailable,
+    apiQueryTemplateUnavailableReason,
     openApiQueryTemplateDialog,
     reloadApiQueryTemplateTools,
     loadApiQueryTemplateTools,

@@ -31,6 +31,23 @@ Internal APIs are not public frontend APIs. The frontend enters through `reachai
 | `GET /internal/capability/embed/credentials` | `reachai-capability-service` | `reachai-control-service` | Control lists Capability-owned embed credential policies for platform management routes. | No |
 | `PUT /internal/capability/embed/credentials/{id}/policy` | `reachai-capability-service` | `reachai-control-service` | Control updates Capability-owned embed credential policy state. | No |
 | `POST /internal/capability/embed/token/exchange/verify` | `reachai-capability-service` | `reachai-control-service` | Control verifies embed token exchange through Capability-owned credential policy rules. | No |
+| `GET /internal/capability/projects/by-id/{projectId}/tools` | `reachai-capability-service` | `reachai-runtime-service`, `reachai-control-service` | Runtime AI Coding context and Control diagnostics list project-scoped enabled tools without cross-service table reads. | No |
+| `GET /internal/capability/projects/by-id/{projectId}/readiness-facts` | `reachai-capability-service` | `reachai-control-service` | Control aggregates CODE/RUNTIME readiness using Capability-owned instance heartbeat facts without reading Capability tables directly. | No |
+| `POST /internal/runtime/projects/{projectId}/agent-supervisor/workflow-tools/attach` | `reachai-runtime-service` | `reachai-control-service` | Control AI Coding generic Workflow-as-Tool attach delegates to Runtime-owned Agent config publish logic. | No |
+| `POST /internal/runtime/agents/execute` | `reachai-runtime-service` | `reachai-control-service` | Control executes Agents with HMAC-SHA256 authenticated identity + body integrity (`X-ReachAI-Internal-*`: caller, timestamp, nonce, identity source/userId, body SHA-256, signature). Canonical string (ai-common `InternalServiceHmac`): `METHOD\nPATH\nCALLER\nIDENTITY_SOURCE\nIDENTITY_USER_ID\nTIMESTAMP\nNONCE\nBODY_SHA256`. Control signs the exact serialized HTTP body bytes; Runtime verifies the same raw bytes via a size-capped cached-body wrapper. Also verifies caller allowlist, clock skew, constant-time signature, and JDBC nonce anti-replay (`runtime_internal_auth_nonce`; only expired nonces may be deleted; at capacity fail-closed). Shared secret: `REACHAI_INTERNAL_SERVICE_SECRET` (Control/Runtime must match; blank → fail-closed; readiness reports `INTERNAL_AUTH_NOT_CONFIGURED`). Path name alone is never attestation. Public `/api/runtime/agents/execute` must not accept client trust flags; body `userId` is never trusted for Knowledge ACL / credentials / RunOps audit `userId`. | No |
+| `POST /internal/runtime/agents/execute/stream` | `reachai-runtime-service` | `reachai-control-service` | Same HMAC + body-digest auth as sync execute. SSE path must call `RuntimeAgentExecutionService.execute(..., WorkflowExecutionIdentity)`. Control Agent stream (Bearer) and Embed stream (claims userId) use this entry; public Runtime stream stays untrusted. Signatures/identity/body digests must never be written into logs, Trace, or downstream SSE. | No |
+
+Model catalog (not under the three guarded prefixes, documented for Runtime AI Coding):
+
+| Contract | Owner service | Consumers | Purpose | Frontend callable |
+| --- | --- | --- | --- | --- |
+| `GET /internal/model/instances` | `reachai-model-service` | `reachai-runtime-service` | Runtime AI Coding context lists ACTIVE LLM model instances without reading model tables. | No |
+
+Knowledge retrieval (Workflow Runtime I/O; not under the three guarded prefixes, documented for service boundary):
+
+| Contract | Owner service | Consumers | Purpose | Frontend callable |
+| --- | --- | --- | --- | --- |
+| `POST /internal/knowledge/retrieval/query` | `reachai-knowledge-service` | `reachai-runtime-service` | Runtime `KNOWLEDGE_RETRIEVAL` nodes retrieve structured hits without reading `knowledge_*` tables or embedding Knowledge service beans. Request: `query`, `knowledgeBaseCodes`, `userId`, `topK`, `similarityThreshold`, `searchMode`(`vector|keyword|hybrid`), `rerankEnabled`. Reuses Knowledge production retrieval (`retrievalTest` path) with request-level searchMode/rerank override and file ACL filtering. Returns `{query,hits,hitCount}` only; does not generate LLM answers. Status: CODE_READY / E2E_PENDING. | No |
 
 ## Guard
 

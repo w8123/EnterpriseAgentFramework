@@ -76,6 +76,8 @@ Agent 与 Workflow 已解耦：
 - Workflow（`runtime_workflow`）：`GraphSpec`、`canvas_json`、版本与发布。
 - Workflow Studio：可视化画布、交互式节点、会话式调试台、AI 生成/局部修改、SDK 图展示、发布校验、Runtime 执行与 Trace/RunOps 复盘。
 - Workflow-as-Tool（`runtime_agent_workflow_tool`）：某个 Agent 配置版本允许 Supervisor 选择的 Workflow 工具白名单和契约覆盖。
+- Workflow `INTERACTION`：Runtime 已具备 GraphSpec-native 暂停/恢复、canonical uiRequest、`WAITING_USER` RunOps 语义与 Debug/Agent/Embed 提交契约；详见 `docs/architecture/workflow-interaction-runtime.md`。Registry 仅在生产 Live E2E 全部门槛通过后开放（当前仍 `publishable/studio/aiAuthoring=false`，状态 CODE_READY / E2E_PENDING）。
+- Workflow 节点能力（安全范围已冻结）：`VARIABLE_ASSIGN` / `TEMPLATE` / `VARIABLE_AGGREGATOR`（STABLE）；`KNOWLEDGE_RETRIEVAL` / `HTTP_REQUEST` / `LOOP`（BETA open，Browser/Live/LOOP E2E PENDING）；`INTERACTION` 关闭。安全五项见 `SECURITY-BACKLOG.md`（不再扩张）。`LOOP` v1=有界串行 FOREACH（平面 GraphSpec + bodyNodeIds）。Control→Runtime：HMAC + `BODY_SHA256`；nonce 满容 fail-closed；审计 `userId` 仅来自 `WorkflowExecutionIdentity`。
 
 当前 Agent 主执行链路是：`Agent` -> ACTIVE Agent 配置版本 -> AgentScope Java `2.0.0` 正式版 Supervisor -> PLAN / Workflow-as-Tool / 有限 REPLAN -> 汇总回答。执行 API 统一使用 `agentId`。事实查询优先 API/数据 Workflow；只有用户明确要求打开、跳转、在页面查询或操作时才允许页面动作。跨路由页面动作必须在同一 embed session 内完成 `NAVIGATE -> TARGET_READY -> PAGE_ACTION`。
 

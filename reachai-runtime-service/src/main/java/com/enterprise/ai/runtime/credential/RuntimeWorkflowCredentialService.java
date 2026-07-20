@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.credential;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,7 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,16 +29,20 @@ public class RuntimeWorkflowCredentialService {
     private final ObjectMapper objectMapper;
 
     public List<RuntimeWorkflowCredentialView> list(Long projectId, String projectCode) {
+        boolean hasProject = projectId != null || StringUtils.hasText(projectCode);
         return mapper.selectList(Wrappers.<RuntimeWorkflowCredentialEntity>lambdaQuery()
                         .eq(RuntimeWorkflowCredentialEntity::getStatus, "ACTIVE")
-                        .and(projectId != null || StringUtils.hasText(projectCode), q -> {
-                            if (projectId != null) {
-                                q.eq(RuntimeWorkflowCredentialEntity::getProjectId, projectId).or()
-                                        .eq(RuntimeWorkflowCredentialEntity::getScope, "GLOBAL");
-                            }
-                            if (StringUtils.hasText(projectCode)) {
-                                q.eq(RuntimeWorkflowCredentialEntity::getProjectCode, projectCode.trim()).or()
-                                        .eq(RuntimeWorkflowCredentialEntity::getScope, "GLOBAL");
+                        .and(q -> {
+                            q.eq(RuntimeWorkflowCredentialEntity::getScope, "GLOBAL");
+                            if (hasProject) {
+                                if (projectId != null) {
+                                    q.or(w -> w.eq(RuntimeWorkflowCredentialEntity::getScope, "PROJECT")
+                                            .eq(RuntimeWorkflowCredentialEntity::getProjectId, projectId));
+                                }
+                                if (StringUtils.hasText(projectCode)) {
+                                    q.or(w -> w.eq(RuntimeWorkflowCredentialEntity::getScope, "PROJECT")
+                                            .eq(RuntimeWorkflowCredentialEntity::getProjectCode, projectCode.trim()));
+                                }
                             }
                         })
                         .orderByAsc(RuntimeWorkflowCredentialEntity::getName))
@@ -82,31 +88,52 @@ public class RuntimeWorkflowCredentialService {
         mapper.updateById(entity);
     }
 
-    public Optional<RuntimeWorkflowCredentialRuntime> resolve(String credentialRef, Long projectId, String projectCode) {
+    /**
+     * Fail-closed resolve: load by credentialRef + ACTIVE, then authorize by trusted identity.
+     * PROJECT credentials require a trusted project identity; conflicting id/code pairs are denied.
+     */
+    public Optional<RuntimeWorkflowCredentialRuntime> resolve(String credentialRef, WorkflowExecutionIdentity identity) {
         if (!StringUtils.hasText(credentialRef)) {
             return Optional.empty();
         }
         RuntimeWorkflowCredentialEntity entity = mapper.selectOne(Wrappers.<RuntimeWorkflowCredentialEntity>lambdaQuery()
                 .eq(RuntimeWorkflowCredentialEntity::getCredentialRef, credentialRef.trim())
                 .eq(RuntimeWorkflowCredentialEntity::getStatus, "ACTIVE")
-                .and(projectId != null || StringUtils.hasText(projectCode), q -> {
-                    q.eq(RuntimeWorkflowCredentialEntity::getScope, "GLOBAL");
-                    if (projectId != null) {
-                        q.or().eq(RuntimeWorkflowCredentialEntity::getProjectId, projectId);
-                    }
-                    if (StringUtils.hasText(projectCode)) {
-                        q.or().eq(RuntimeWorkflowCredentialEntity::getProjectCode, projectCode.trim());
-                    }
-                })
                 .last("LIMIT 1"));
-        if (entity == null) {
+        if (entity == null || !isAuthorized(entity, identity)) {
             return Optional.empty();
         }
+        String canonicalType = WorkflowCredentialTypes.normalizeType(entity.getType());
+        Map<String, Object> secret = WorkflowCredentialTypes.validateAndNormalizeSecret(
+                canonicalType, readSecret(entity));
         return Optional.of(new RuntimeWorkflowCredentialRuntime(
                 entity.getCredentialRef(),
                 entity.getName(),
-                entity.getType(),
-                readSecret(entity)));
+                canonicalType,
+                secret));
+    }
+
+    /** @deprecated Prefer {@link #resolve(String, WorkflowExecutionIdentity)}. */
+    @Deprecated
+    public Optional<RuntimeWorkflowCredentialRuntime> resolve(String credentialRef, Long projectId, String projectCode) {
+        WorkflowExecutionIdentity identity = projectId != null || StringUtils.hasText(projectCode)
+                ? WorkflowExecutionIdentity.fromAgent(projectId, projectCode)
+                : WorkflowExecutionIdentity.untrustedDebug();
+        return resolve(credentialRef, identity);
+    }
+
+    private boolean isAuthorized(RuntimeWorkflowCredentialEntity entity, WorkflowExecutionIdentity identity) {
+        String scope = entity.getScope() == null ? "PROJECT" : entity.getScope().trim().toUpperCase(Locale.ROOT);
+        if ("GLOBAL".equals(scope)) {
+            return true;
+        }
+        if (!"PROJECT".equals(scope)) {
+            return false;
+        }
+        WorkflowExecutionIdentity trusted = identity == null
+                ? WorkflowExecutionIdentity.untrustedDebug()
+                : identity;
+        return trusted.authorizeProjectCredential(entity.getProjectId(), entity.getProjectCode());
     }
 
     private void fill(RuntimeWorkflowCredentialEntity entity,
@@ -119,22 +146,38 @@ public class RuntimeWorkflowCredentialService {
             entity.setCredentialRef(request.credentialRef().trim());
         }
         entity.setName(required(request.name(), "name"));
-        entity.setType(required(request.type(), "type").toUpperCase());
+        String canonicalType = WorkflowCredentialTypes.normalizeType(request.type());
+        entity.setType(canonicalType);
         entity.setProjectId(request.projectId());
         entity.setProjectCode(trimToNull(request.projectCode()));
-        entity.setScope(StringUtils.hasText(request.scope()) ? request.scope().trim().toUpperCase() : "PROJECT");
-        entity.setStatus(StringUtils.hasText(request.status()) ? request.status().trim().toUpperCase() : "ACTIVE");
+        String scope = StringUtils.hasText(request.scope()) ? request.scope().trim().toUpperCase(Locale.ROOT) : "PROJECT";
+        if (!"GLOBAL".equals(scope) && !"PROJECT".equals(scope)) {
+            throw new IllegalArgumentException("Credential scope must be GLOBAL or PROJECT");
+        }
+        if ("PROJECT".equals(scope) && request.projectId() == null && !StringUtils.hasText(request.projectCode())) {
+            throw new IllegalArgumentException("PROJECT credential requires projectId or projectCode");
+        }
+        entity.setScope(scope);
+        entity.setStatus(StringUtils.hasText(request.status()) ? request.status().trim().toUpperCase(Locale.ROOT) : "ACTIVE");
         if (!preserveEmptySecret || request.secret() != null) {
-            entity.setSecretJson(cipher.encrypt(toJson(request.secret() == null ? Map.of() : request.secret())));
+            Map<String, Object> normalized = WorkflowCredentialTypes.validateAndNormalizeSecret(
+                    canonicalType, request.secret());
+            entity.setSecretJson(cipher.encrypt(toJson(normalized)));
         }
     }
 
     private RuntimeWorkflowCredentialView toView(RuntimeWorkflowCredentialEntity entity) {
+        String type = entity.getType();
+        try {
+            type = WorkflowCredentialTypes.normalizeType(entity.getType());
+        } catch (Exception ignored) {
+            // keep stored value for disabled/legacy rows in list views
+        }
         return new RuntimeWorkflowCredentialView(
                 entity.getId(),
                 entity.getCredentialRef(),
                 entity.getName(),
-                entity.getType(),
+                type,
                 entity.getProjectId(),
                 entity.getProjectCode(),
                 entity.getScope(),
@@ -177,7 +220,7 @@ public class RuntimeWorkflowCredentialService {
 
     private String toJson(Map<String, Object> value) {
         try {
-            return objectMapper.writeValueAsString(value);
+            return objectMapper.writeValueAsString(value == null ? Map.of() : value);
         } catch (Exception ex) {
             throw new IllegalArgumentException("Invalid credential secret", ex);
         }

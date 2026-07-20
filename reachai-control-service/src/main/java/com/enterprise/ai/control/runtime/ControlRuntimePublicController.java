@@ -2,10 +2,15 @@ package com.enterprise.ai.control.runtime;
 
 import com.enterprise.ai.control.aiassist.ControlAiCodingAccessGuard;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
+import com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway;
+import com.enterprise.ai.control.identity.PlatformBearerAuthService;
+import com.enterprise.ai.control.identity.PlatformUserEntity;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @RestController
 public class ControlRuntimePublicController {
@@ -29,38 +35,56 @@ public class ControlRuntimePublicController {
     private final RuntimeProxyClient runtimeProxyClient;
     private final ControlAiCodingAccessGuard aiCodingAccessGuard;
     private final RuntimeAgentStreamProxy runtimeAgentStreamProxy;
+    private final RuntimeTrustedAgentExecutionGateway trustedExecutionGateway;
+    private final PlatformBearerAuthService bearerAuthService;
 
     ControlRuntimePublicController(RuntimeProxyClient runtimeProxyClient) {
-        this(runtimeProxyClient, null, null);
+        this(runtimeProxyClient, null, null, null, null);
     }
 
     public ControlRuntimePublicController(RuntimeProxyClient runtimeProxyClient,
                                           ControlAiCodingAccessGuard aiCodingAccessGuard) {
-        this(runtimeProxyClient, aiCodingAccessGuard, null);
+        this(runtimeProxyClient, aiCodingAccessGuard, null, null, null);
+    }
+
+    public ControlRuntimePublicController(RuntimeProxyClient runtimeProxyClient,
+                                          ControlAiCodingAccessGuard aiCodingAccessGuard,
+                                          RuntimeAgentStreamProxy runtimeAgentStreamProxy) {
+        this(runtimeProxyClient, aiCodingAccessGuard, runtimeAgentStreamProxy, null, null);
     }
 
     @Autowired
     public ControlRuntimePublicController(RuntimeProxyClient runtimeProxyClient,
                                           ControlAiCodingAccessGuard aiCodingAccessGuard,
-                                          RuntimeAgentStreamProxy runtimeAgentStreamProxy) {
+                                          RuntimeAgentStreamProxy runtimeAgentStreamProxy,
+                                          RuntimeTrustedAgentExecutionGateway trustedExecutionGateway,
+                                          PlatformBearerAuthService bearerAuthService) {
         this.runtimeProxyClient = runtimeProxyClient;
         this.aiCodingAccessGuard = aiCodingAccessGuard;
         this.runtimeAgentStreamProxy = runtimeAgentStreamProxy;
+        this.trustedExecutionGateway = trustedExecutionGateway;
+        this.bearerAuthService = bearerAuthService;
     }
 
     @PostMapping("/api/runtime/agents/execute")
-    public ResponseEntity<Map<String, Object>> executeAgent(@RequestBody Map<String, Object> body) {
-        return runtimeProxyClient.executeAgent(body);
+    public ResponseEntity<Map<String, Object>> executeAgent(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody Map<String, Object> body) {
+        return executeAgentWithServerIdentity(authorization, body, false);
     }
 
     @PostMapping("/api/runtime/agents/execute/detailed")
-    public ResponseEntity<Map<String, Object>> executeAgentDetailed(@RequestBody Map<String, Object> body) {
-        return runtimeProxyClient.executeAgentDetailed(body);
+    public ResponseEntity<Map<String, Object>> executeAgentDetailed(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody Map<String, Object> body) {
+        return executeAgentWithServerIdentity(authorization, body, true);
     }
 
     @PostMapping(value = "/api/runtime/agents/execute/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public ResponseEntity<StreamingResponseBody> executeAgentStream(@RequestBody Map<String, Object> body) {
-        return streamDebugProxy(RuntimeAgentStreamProxy.AGENT_EXECUTE_STREAM, body);
+    public ResponseEntity<StreamingResponseBody> executeAgentStream(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody Map<String, Object> body) {
+        return executeAgentStreamWithServerIdentity(authorization, body);
     }
 
     @DeleteMapping("/api/runtime/agents/sessions/{sessionId}")
@@ -494,6 +518,14 @@ public class ControlRuntimePublicController {
     @PostMapping("/api/runtime/interactions/{sessionId}/resume")
     public ResponseEntity<Object> resumeRuntimeInteraction(@PathVariable String sessionId,
                                                            @RequestBody Map<String, Object> body) {
+        // Workflow wfi_ sessions must use authenticated Embed/Agent paths, not this compatibility proxy.
+        if (sessionId != null && sessionId.trim().startsWith("wfi_")) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "success", false,
+                    "code", "RUNTIME_INTERACTION_FORBIDDEN",
+                    "answer", "Workflow interactions cannot be resumed via the public compatibility endpoint",
+                    "interactionId", sessionId.trim()));
+        }
         return runtimeProxyClient.resumeRuntimeInteraction(sessionId, body);
     }
 
@@ -602,6 +634,65 @@ public class ControlRuntimePublicController {
             return true;
         }
         return !"PRIVATE".equalsIgnoreCase(String.valueOf(visibility).trim());
+    }
+
+    /**
+     * Prefer server-attested platform login identity via internal Runtime contract.
+     * Without a real Bearer session, forward to public Runtime execute with userTrusted=false
+     * (body userId is business data only and never becomes ACL identity).
+     */
+    private ResponseEntity<Map<String, Object>> executeAgentWithServerIdentity(
+            String authorization,
+            Map<String, Object> body,
+            boolean detailed) {
+        Map<String, Object> safeBody = body == null ? new LinkedHashMap<>() : new LinkedHashMap<>(body);
+        // Never accept client-injected trust envelopes on the public surface.
+        safeBody.remove("__workflowExecutionIdentity");
+        safeBody.remove("trustedIdentity");
+        safeBody.remove("_trustedUserId");
+
+        Optional<PlatformUserEntity> user = bearerAuthService == null
+                ? Optional.empty()
+                : bearerAuthService.resolveBearerUser(authorization);
+        if (user.isPresent() && trustedExecutionGateway != null) {
+            String trustedUserId = String.valueOf(user.get().getId());
+            ResponseEntity<Map<String, Object>> trusted =
+                    trustedExecutionGateway.executeTrusted(safeBody, "AGENT", trustedUserId);
+            if (!detailed) {
+                return trusted;
+            }
+            // Detailed public route historically hit /execute/detailed; when identity is trusted,
+            // reuse the same result envelope (steps may be absent — acceptable fail-closed tradeoff).
+            return trusted;
+        }
+        if (detailed) {
+            return runtimeProxyClient.executeAgentDetailed(safeBody);
+        }
+        return runtimeProxyClient.executeAgent(safeBody);
+    }
+
+    private ResponseEntity<StreamingResponseBody> executeAgentStreamWithServerIdentity(
+            String authorization,
+            Map<String, Object> body) {
+        if (runtimeAgentStreamProxy == null) {
+            throw new IllegalStateException("Runtime stream proxy is not configured");
+        }
+        Map<String, Object> safeBody = body == null ? new LinkedHashMap<>() : new LinkedHashMap<>(body);
+        safeBody.remove("__workflowExecutionIdentity");
+        safeBody.remove("trustedIdentity");
+        safeBody.remove("_trustedUserId");
+        Optional<PlatformUserEntity> user = bearerAuthService == null
+                ? Optional.empty()
+                : bearerAuthService.resolveBearerUser(authorization);
+        StreamingResponseBody stream;
+        if (user.isPresent() && trustedExecutionGateway != null) {
+            String trustedUserId = String.valueOf(user.get().getId());
+            stream = outputStream -> trustedExecutionGateway.streamTrusted(
+                    safeBody, "AGENT", trustedUserId, outputStream, SseStreamRelay.passthrough());
+        } else {
+            stream = outputStream -> runtimeAgentStreamProxy.stream(safeBody, outputStream);
+        }
+        return streamResponse(stream);
     }
 
     private ResponseEntity<StreamingResponseBody> streamDebugProxy(String path, Map<String, Object> body) {

@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.internal;
 
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogEntity;
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -30,7 +31,8 @@ class RuntimeToolCallLogInternalControllerTest {
         row.setCreateTime(LocalDateTime.of(2026, 7, 1, 10, 0));
         when(mapper.selectList(any())).thenReturn(List.of(row));
 
-        RuntimeToolCallLogInternalController controller = new RuntimeToolCallLogInternalController(mapper);
+        RuntimeToolCallLogInternalController controller =
+                new RuntimeToolCallLogInternalController(mapper, new ObjectMapper());
 
         ResponseEntity<List<RuntimeToolCallLogInternalController.ToolCallLogRecord>> response =
                 controller.listByTool("order_form", 7);

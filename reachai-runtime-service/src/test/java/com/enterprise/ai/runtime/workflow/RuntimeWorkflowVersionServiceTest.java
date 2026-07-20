@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -82,6 +83,16 @@ class RuntimeWorkflowVersionServiceTest {
                 });
         when(validationService.validate(any(RuntimeWorkflowDefinitionEntity.class)))
                 .thenReturn(RuntimeWorkflowReleaseValidationResult.builder().build());
+        when(validationService.validateProposed(any(RuntimeWorkflowDefinitionEntity.class), any()))
+                .thenReturn(RuntimeWorkflowReleaseValidationResult.builder().build());
+        when(validationService.readGraph(anyString(), any(RuntimeWorkflowReleaseValidationResult.Builder.class)))
+                .thenAnswer(inv -> {
+                    String json = inv.getArgument(0);
+                    RuntimeWorkflowReleaseValidationResult.Builder report = inv.getArgument(1);
+                    return new RuntimeWorkflowReleaseValidationService(
+                            mock(RuntimeControlCatalogClient.class), new ObjectMapper())
+                            .readGraph(json, report);
+                });
 
         service = new RuntimeWorkflowVersionService(versionMapper, workflowService, validationService, new ObjectMapper());
     }
@@ -190,6 +201,99 @@ class RuntimeWorkflowVersionServiceTest {
                         "ACTIVE".equals(update.getStatus())
                                 && v1.getGraphSpecSnapshotJson().equals(update.getGraphSpecJson())
                                 && v1.getCanvasSnapshotJson().equals(update.getCanvasJson())));
+        verify(validationService).validateProposed(any(RuntimeWorkflowDefinitionEntity.class), any());
+    }
+
+    @Test
+    void rollbackRejectsHistoricalInteractionSnapshotBeforeAnyWrite() {
+        RuntimeWorkflowVersionService actualService = realValidationService();
+        RuntimeWorkflowVersionEntity historical = historicalVersion("""
+                {"nodes":[{"id":"ask","type":"INTERACTION"}],"entry":"ask","finish":["ask"]}
+                """);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> actualService.rollback("wf-1", historical.getId(), "carol"));
+
+        assertTrue(error.getMessage().contains("workflow rollback validation failed: GRAPH_NODE_NOT_PUBLISHABLE"));
+        verify(versionMapper, never()).updateById(any(RuntimeWorkflowVersionEntity.class));
+        verify(versionMapper, never()).insert(any(RuntimeWorkflowVersionEntity.class));
+        verify(workflowService, never()).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class));
+    }
+
+    @Test
+    void rollbackRejectsHistoricalCodeSnapshotBeforeAnyWrite() {
+        RuntimeWorkflowVersionService actualService = realValidationService();
+        RuntimeWorkflowVersionEntity historical = historicalVersion("""
+                {"nodes":[{"id":"code","type":"CODE"}],"entry":"code","finish":["code"]}
+                """);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> actualService.rollback("wf-1", historical.getId(), "carol"));
+
+        assertTrue(error.getMessage().contains("workflow rollback validation failed: GRAPH_NODE_RUNTIME_UNSUPPORTED"));
+        verify(versionMapper, never()).updateById(any(RuntimeWorkflowVersionEntity.class));
+        verify(workflowService, never()).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class));
+    }
+
+    @Test
+    void rollbackRejectsPageActionWithoutCatalogBeforeAnyWrite() {
+        RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
+        when(catalogClient.getPageAction("demo", "orders", "open")).thenReturn(null);
+        RuntimeWorkflowVersionService actualService = new RuntimeWorkflowVersionService(
+                versionMapper, workflowService,
+                new RuntimeWorkflowReleaseValidationService(catalogClient, new ObjectMapper()),
+                new ObjectMapper());
+        RuntimeWorkflowDefinitionEntity workflow = workflowService.findById("wf-1").orElseThrow();
+        workflow.setProjectCode("demo");
+        RuntimeWorkflowVersionEntity historical = historicalVersion("""
+                {"nodes":[{"id":"open","type":"PAGE_ACTION","config":{"projectCode":"demo","pageKey":"orders","actionKey":"open"}}],"entry":"open","finish":["open"]}
+                """);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> actualService.rollback("wf-1", historical.getId(), "carol"));
+
+        assertTrue(error.getMessage().contains("workflow rollback validation failed:"));
+        verify(versionMapper, never()).updateById(any(RuntimeWorkflowVersionEntity.class));
+        verify(workflowService, never()).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class));
+    }
+
+    @Test
+    void rollbackAllowsStableHistoricalSnapshot() {
+        RuntimeWorkflowVersionService actualService = realValidationService();
+        RuntimeWorkflowVersionEntity active = historicalVersion(
+                "{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entry\":\"answer\",\"finish\":[\"answer\"]}");
+        active.setStatus("ACTIVE");
+        active.setVersion("v-active");
+        RuntimeWorkflowVersionEntity historical = historicalVersion(
+                "{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entry\":\"answer\",\"finish\":[\"answer\"]}");
+        historical.setVersion("v-stable");
+
+        RuntimeWorkflowVersionEntity rolled = actualService.rollback("wf-1", historical.getId(), "carol");
+
+        assertEquals("ACTIVE", rolled.getStatus());
+        assertEquals("RETIRED", active.getStatus());
+        verify(workflowService).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class));
+    }
+
+    private RuntimeWorkflowVersionService realValidationService() {
+        return new RuntimeWorkflowVersionService(
+                versionMapper,
+                workflowService,
+                new RuntimeWorkflowReleaseValidationService(mock(RuntimeControlCatalogClient.class), new ObjectMapper()),
+                new ObjectMapper());
+    }
+
+    private RuntimeWorkflowVersionEntity historicalVersion(String graphSpecJson) {
+        RuntimeWorkflowVersionEntity entity = new RuntimeWorkflowVersionEntity();
+        entity.setId(ids.getAndIncrement());
+        entity.setWorkflowId("wf-1");
+        entity.setVersion("v-hist-" + entity.getId());
+        entity.setStatus("RETIRED");
+        entity.setRolloutPercent(100);
+        entity.setGraphSpecSnapshotJson(graphSpecJson);
+        entity.setCanvasSnapshotJson("{\"nodes\":[]}");
+        store.add(entity);
+        return entity;
     }
 
     private RuntimeWorkflowDefinitionEntity workflow() {

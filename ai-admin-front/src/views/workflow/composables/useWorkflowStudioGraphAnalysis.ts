@@ -119,13 +119,15 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
         continue
       }
       if (node.data.outputAlias) {
+        const alias = node.data.outputAlias
+        const varPath = alias.startsWith('var.') ? alias : `var.${alias}`
         vars.push({
-          name: node.data.outputAlias,
+          name: varPath,
           source: node.data.label || node.id,
           nodeId: node.id,
           label: `${node.data.label || node.id} · 输出`,
-          group: '节点输出',
-          description: `业务别名：${node.data.outputAlias}`,
+          group: '业务变量',
+          description: `规范路径：${varPath}`,
         })
       }
       vars.push({
@@ -237,8 +239,18 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
       if (node.data.kind === 'approval' && !node.data.approvalConfig?.prompt) {
         items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 没有确认内容` })
       }
-      if (node.data.kind === 'loop' && (node.data.loopConfig?.maxIterations || 0) < 1) {
-        items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 循环次数必须大于 0` })
+      if (node.data.kind === 'loop') {
+        const loop = node.data.loopConfig
+        const max = loop?.maxIterations
+        if (max != null && (!Number.isFinite(max) || max < 1 || max > 1000)) {
+          items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} maxIterations 必须在 1–1000` })
+        }
+        if (!loop?.collection?.trim()) {
+          items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 未配置集合表达式` })
+        }
+        if (!(loop?.bodyNodeIds || []).length || !loop?.bodyEntry || !loop?.bodyExit) {
+          items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 需配置循环体入口/出口与成员` })
+        }
       }
       if (node.data.kind === 'knowledgeWrite' && !node.data.knowledgeWriteConfig?.knowledgeBaseCode) {
         items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 未选择写入知识库` })

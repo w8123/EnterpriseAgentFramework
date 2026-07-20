@@ -58,14 +58,78 @@ class ControlAiCodingProjectControllerTest {
                 response.getBody().endpoints().pageAssistantManifestUrl());
         assertEquals("com.enterprise.ai:reachai-spring-boot2-starter:1.0.0-SNAPSHOT",
                 response.getBody().sdkArtifacts().get(1).coordinates());
-        assertEquals("npm-or-local-sdk-build",
+        assertEquals("platform-artifact-tarball",
                 response.getBody().sdkArtifacts().get(2).sourcePolicy());
+        assertNotNull(response.getBody().sdkArtifacts().get(2).integritySha256());
+        assertTrue(response.getBody().sdkArtifacts().get(2).installCommand()
+                .contains("reachai-embed-chat-1.0.0-SNAPSHOT.tgz"));
+        assertEquals("business-frontend-package-root",
+                response.getBody().sdkArtifacts().get(2).installWorkingDirectory());
+        assertEquals(6, response.getBody().gatewayChecklist().size());
         assertEquals("ApiResult", response.getBody().responseShapes().get("embed").wrapper());
         assertEquals("data.answer", response.getBody().responseShapes().get("embed").fields().get("answer"));
         assertEquals("bare-json", response.getBody().responseShapes().get("aiAccessSessions").wrapper());
         assertEquals("sessionId", response.getBody().responseShapes().get("aiAccessSessions").fields().get("sessionId"));
+        assertFalse(response.getBody().responseShapes().containsKey("gatewayChecklist"));
         assertFalse(response.toString().contains("aic_secret"));
         verify(client).getOnboardingProjectById(7L);
+    }
+
+    @Test
+    void attachForwardsRuntimeAiCodingErrorBodyInsteadOfEmptyNotFound() {
+        CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
+        RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
+        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient,
+                mock(ControlModelCatalogClient.class));
+        when(client.getOnboardingProjectById(7L)).thenReturn(Map.of("id", 7L, "projectCode", "orders"));
+        feign.Request feignRequest = feign.Request.create(
+                feign.Request.HttpMethod.POST,
+                "/internal/runtime/projects/7/agent-supervisor/workflow-tools/attach",
+                Map.of(),
+                null,
+                java.nio.charset.StandardCharsets.UTF_8,
+                null);
+        byte[] body = """
+                {"schema":"ai-coding-error.v1","code":"WORKFLOW_NOT_FOUND","message":"workflow not found: missing","details":{},"requestId":"abc123"}
+                """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        when(runtimeClient.attachAgentSupervisorWorkflowTool(org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.anyMap()))
+                .thenThrow(new feign.FeignException.NotFound("not found", feignRequest, body, Map.of()));
+
+        ResponseEntity<Object> response = controller.attachAgentSupervisorWorkflowTool(7L, Map.of("workflowId", "missing"));
+
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> error = (Map<String, Object>) response.getBody();
+        assertEquals("ai-coding-error.v1", error.get("schema"));
+        assertEquals("WORKFLOW_NOT_FOUND", error.get("code"));
+    }
+
+    @Test
+    void attachDistinguishesCapabilityProjectNotFoundFromRuntimeWorkflowNotFound() {
+        CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
+        RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
+        ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient,
+                mock(ControlModelCatalogClient.class));
+        feign.Request feignRequest = feign.Request.create(
+                feign.Request.HttpMethod.GET,
+                "/internal/capability/projects/by-id/99",
+                Map.of(),
+                null,
+                java.nio.charset.StandardCharsets.UTF_8,
+                null);
+        when(client.getOnboardingProjectById(99L))
+                .thenThrow(new feign.FeignException.NotFound("missing project", feignRequest, null, Map.of()));
+
+        ResponseEntity<Object> response = controller.attachAgentSupervisorWorkflowTool(99L, Map.of("workflowId", "wf-1"));
+
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> error = (Map<String, Object>) response.getBody();
+        assertEquals("ai-coding-error.v1", error.get("schema"));
+        assertEquals("CAPABILITY_PROJECT_NOT_FOUND", error.get("code"));
+        verify(runtimeClient, never()).attachAgentSupervisorWorkflowTool(
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyMap());
     }
 
     @Test
@@ -125,6 +189,9 @@ class ControlAiCodingProjectControllerTest {
                         "status", "PASS",
                         "message", "starter wired"
                 ));
+        when(client.getReadinessFacts(7L)).thenReturn(Map.of(
+                "instanceExists", false,
+                "online", false));
         ResponseEntity<ControlAiAssistProjectController.AiAccessCheckRunResponse> checks =
                 controller.runAccessSessionChecks(7L, "sdk-access-7", Map.of());
 
@@ -133,7 +200,13 @@ class ControlAiCodingProjectControllerTest {
         assertEquals("sdk-access-7", latest.getBody().sessionId());
         assertEquals("PASS", report.getBody().status());
         assertEquals(1, report.getBody().completedSteps());
-        assertEquals("PASS", checks.getBody().checkResult().overallStatus());
+        assertEquals("FAIL", checks.getBody().checkResult().overallStatus());
+        assertEquals("PASS", checks.getBody().checkResult().readiness().stream()
+                .filter(item -> "CODE_READY".equals(item.key())).findFirst().orElseThrow().status());
+        assertEquals("FAIL", checks.getBody().checkResult().readiness().stream()
+                .filter(item -> "RUNTIME_READY".equals(item.key())).findFirst().orElseThrow().status());
+        assertEquals("PENDING", checks.getBody().checkResult().readiness().stream()
+                .filter(item -> "E2E_READY".equals(item.key())).findFirst().orElseThrow().status());
         assertEquals(
                 "https://orders.example.com/orders-api/reachai/registry/capabilities/sync",
                 checks.getBody().checkResult().checks().stream()

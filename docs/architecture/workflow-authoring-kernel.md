@@ -38,8 +38,20 @@ AI Coding / CLI（X-ReachAI-AiCoding-Key） -> canvas projection
 - 检查 edge、entry、finish 引用；
 - 删除节点时同步清理关联边和 entry / finish；
 - 输出候选 GraphSpec、changedNodes、changedEdges 和摘要。
+- `ADD_NODE` / 修改 type 的 `UPDATE_NODE` 必须命中统一节点能力目录中 `aiAuthoringEnabled=true` 的类型；已有不可编排节点禁止更新配置，但允许 `DELETE_NODE` 清理旧草稿。拒绝时映射为结构化错误码 `WORKFLOW_NODE_NOT_AUTHORABLE`。
 
 支持的操作为 `ADD_NODE`、`UPDATE_NODE`、`DELETE_NODE`、`ADD_EDGE`、`UPDATE_EDGE`、`DELETE_EDGE`、`SET_ENTRY`、`SET_FINISH`。
+
+### 节点能力目录与开放策略
+
+Studio、发布校验和网页 AI 编排共同消费 `RuntimeWorkflowNodeCapabilityRegistry`：
+
+- `STABLE` / `BETA` / `PLANNED` 描述产品成熟度，而不是前端本地白名单。
+- `runtimeExecutable` 来自 `RuntimeGraphSpecExecutor` 的真实 Handler 集合。
+- 网页 AI 编排的 prompt `nodeTypes` 只包含 `aiAuthoringEnabled=true` 的目录；发布校验区分 unknown、runtime unsupported、not publishable 与 BETA warning。
+- 第一阶段已开放 AI 编排的节点包括：既有 STABLE 核心节点，以及 `VARIABLE_ASSIGN` / `TEMPLATE` / `VARIABLE_AGGREGATOR`（STABLE）与 `KNOWLEDGE_RETRIEVAL` / `HTTP_REQUEST`（BETA）。`INTERACTION` 仍保持 `aiAuthoringEnabled=false`（E2E_PENDING）。
+- AI Draft `systemPrompt` 的 authorable/closed 列表必须来自 Registry，禁止硬编码 “Knowledge/HTTP forbidden”。HTTP draft 走独立 `normalizeHttpConfig`；Knowledge draft 过滤空 codes 且不暴露 Workflow `directReturn*`。状态：CODE_READY / E2E_PENDING / PRODUCTION_PENDING。
+- 外部 AI Coding 暂未作为本阶段验收范围，但仍受共享 mutation 内核约束。
 
 ### AgentScope Authoring Tools
 
@@ -106,3 +118,16 @@ OpenCode、Codex、Cursor 等属于外部客户端或代码上下文提供者，
 - `/api/workflows/{workflowId}/ai-coding/patch`：外部结构化 patch 入口；直接调用统一修改内核。
 
 兼容路由可以保留，但不得再复制 canvas-first 修改规则。
+
+## LOOP v1（FOREACH）表达
+
+采用**平面 GraphSpec + LOOP 拥有的循环体节点集**，不引入嵌套 body GraphSpec：
+
+- 主图边：`... → LOOP → ...`（线性 always）
+- 循环体：`bodyEntry` / `bodyExit` / `bodyNodeIds` + 体内部边（必须是 DAG）
+- Runtime：`RuntimeGraphSpecExecutor.executeLoop` 在迭代上下文副本上串行执行 body，收集 `bodyOutput` 写入 `var.<outputAlias>`
+- Release：体边不计入主图 cycle；禁止外部跳入、body 逃逸、嵌套 LOOP、body 内 INTERACTION/HUMAN_APPROVAL
+- Studio：`LoopConfigPanel` 编辑 FOREACH 字段；循环体节点仍在同一画布上可视编辑
+- AI：仅当 Registry 开放 LOOP 时出现在 authoring catalog；不得生成任意 back-edge
+
+后续节点顺序（本轮不实现）：PARALLEL → SUB_WORKFLOW → DOCUMENT_EXTRACT → MCP_CALL → CODE → KNOWLEDGE_WRITE。

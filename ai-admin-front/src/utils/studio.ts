@@ -68,20 +68,27 @@ function canvasToGraphSpec(base: AgentForm, snapshot: CanvasSnapshot): AgentGrap
     .filter((node) => node.data.kind !== 'start' && node.data.kind !== 'end')
     .map((node) => canvasNodeToGraphNode(node, base))
 
+  const nodesById = new Map(snapshot.nodes.map((node) => [node.id, node]))
   const graphEdges: AgentGraphSpec['edges'] = snapshot.edges
-    .map((edge) => ({
-      id: edge.id,
-      from: graphEndpoint(edge.source),
-      to: graphEndpoint(edge.target),
-      condition: edge.condition || edge.label || 'always',
-      sourceHandle: edge.sourceHandle,
-      targetHandle: edge.targetHandle,
-      priority: edge.priority,
-      layout: {
-        label: edge.label || edge.condition || 'always',
-        style: edge.type || 'smoothstep',
-      },
-    }))
+    .map((edge) => {
+      const sourceKind = nodesById.get(edge.source)?.data?.kind
+      const condition = sourceKind === 'loop'
+        ? 'always'
+        : (edge.condition || edge.label || 'always')
+      return {
+        id: edge.id,
+        from: graphEndpoint(edge.source),
+        to: graphEndpoint(edge.target),
+        condition,
+        sourceHandle: sourceKind === 'loop' ? undefined : edge.sourceHandle,
+        targetHandle: edge.targetHandle,
+        priority: edge.priority,
+        layout: {
+          label: condition,
+          style: edge.type || 'smoothstep',
+        },
+      }
+    })
     .filter((edge) => edge.from !== 'END' && edge.to !== 'START')
 
   const firstNode = graphNodes[0]?.id || ''
@@ -285,7 +292,8 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): AgentGraphNod
       config: {
         ...common,
         template: node.data.template || '',
-        writeToAnswer: node.data.writeToAnswer ?? true,
+        // TEMPLATE is an intermediate transform node; ANSWER owns final user response.
+        writeToAnswer: false,
       },
     }
   }
@@ -375,7 +383,7 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): AgentGraphNod
     }
   }
   if (node.data.kind === 'loop') {
-    const loop = node.data.loopConfig || defaultLoopConfig()
+    const loop = normalizeLoopConfig(node.data.loopConfig || defaultLoopConfig())
     return {
       id: node.id,
       type: 'LOOP',
@@ -383,10 +391,16 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): AgentGraphNod
       ...graphNodeChrome(node),
       config: {
         ...common,
-        loopKey: loop.loopKey,
+        mode: 'FOREACH',
+        collection: loop.collection,
+        itemAlias: loop.itemAlias,
+        indexAlias: loop.indexAlias,
+        outputAlias: loop.outputAlias,
+        bodyOutput: loop.bodyOutput,
         maxIterations: loop.maxIterations,
-        itemExpression: loop.itemExpression,
-        breakCondition: loop.breakCondition,
+        bodyEntry: loop.bodyEntry,
+        bodyExit: loop.bodyExit,
+        bodyNodeIds: loop.bodyNodeIds,
         loopConfig: loop,
       },
     }
@@ -497,8 +511,6 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): AgentGraphNod
       similarityThreshold: knowledge.similarityThreshold,
       searchMode: knowledge.searchMode || 'hybrid',
       rerankEnabled: knowledge.rerankEnabled ?? true,
-      directReturnEnabled: knowledge.directReturnEnabled ?? false,
-      directReturnThreshold: knowledge.directReturnThreshold,
       knowledgeConfig: knowledge,
     },
   }
@@ -869,14 +881,23 @@ function graphConfigToNodeData(
     }
   }
   if (kind === 'loop') {
+    const nested = (config.loopConfig && typeof config.loopConfig === 'object'
+      ? config.loopConfig
+      : {}) as Record<string, unknown>
     return {
       ...common,
-      loopConfig: {
-        loopKey: stringValue(config.loopKey) || 'loop',
-        maxIterations: numberValue(config.maxIterations, 3),
-        itemExpression: stringValue(config.itemExpression),
-        breakCondition: stringValue(config.breakCondition),
-      },
+      loopConfig: normalizeLoopConfig({
+        mode: 'FOREACH',
+        collection: stringValue(config.collection || nested.collection || config.itemExpression || nested.itemExpression),
+        itemAlias: stringValue(config.itemAlias || nested.itemAlias) || 'item',
+        indexAlias: stringValue(config.indexAlias || nested.indexAlias) || 'index',
+        outputAlias: stringValue(config.outputAlias || nested.outputAlias || config.loopKey || nested.loopKey) || 'loop_results',
+        bodyOutput: stringValue(config.bodyOutput || nested.bodyOutput) || 'lastOutput',
+        maxIterations: numberValue(config.maxIterations ?? nested.maxIterations, 100),
+        bodyEntry: stringValue(config.bodyEntry || nested.bodyEntry),
+        bodyExit: stringValue(config.bodyExit || nested.bodyExit),
+        bodyNodeIds: arrayValue(config.bodyNodeIds || nested.bodyNodeIds),
+      }),
     }
   }
   if (kind === 'knowledgeWrite') {
@@ -936,14 +957,18 @@ function graphConfigToNodeData(
         similarityThreshold: numberValue(config.similarityThreshold, 0),
         searchMode: stringValue(config.searchMode) || 'hybrid',
         rerankEnabled: config.rerankEnabled !== false,
-        directReturnEnabled: config.directReturnEnabled === true,
-        directReturnThreshold: numberValue(config.directReturnThreshold, 0),
       } satisfies KnowledgeNodeConfig,
+    }
+  }
+  if (kind === 'variable') {
+    return {
+      ...common,
+      assignments: jsonValueRecord(config.assignments),
     }
   }
   return {
     ...common,
-    assignments: stringRecord(config.assignments),
+    assignments: jsonValueRecord(config.assignments),
     template: stringValue(config.template),
     writeToAnswer: config.writeToAnswer !== false,
   }
@@ -1050,8 +1075,6 @@ function defaultKnowledgeConfig(): KnowledgeNodeConfig {
     similarityThreshold: 0.5,
     searchMode: 'hybrid',
     rerankEnabled: true,
-    directReturnEnabled: false,
-    directReturnThreshold: 0.85,
   }
 }
 
@@ -1185,10 +1208,42 @@ function defaultApprovalConfig(): HumanApprovalNodeConfig {
 
 function defaultLoopConfig(): LoopNodeConfig {
   return {
-    loopKey: 'loop',
-    maxIterations: 3,
-    itemExpression: '',
-    breakCondition: '',
+    mode: 'FOREACH',
+    collection: '',
+    itemAlias: 'item',
+    indexAlias: 'index',
+    outputAlias: 'loop_results',
+    bodyOutput: 'lastOutput',
+    maxIterations: 100,
+    bodyEntry: '',
+    bodyExit: '',
+    bodyNodeIds: [],
+  }
+}
+
+function normalizeLoopConfig(raw: Partial<LoopNodeConfig> | undefined): LoopNodeConfig {
+  const collection = stringValue(raw?.collection || raw?.itemExpression) || ''
+  const bodyEntry = stringValue(raw?.bodyEntry)
+  const bodyExit = stringValue(raw?.bodyExit) || bodyEntry
+  const bodyNodeIds = Array.from(new Set([
+    ...arrayValue(raw?.bodyNodeIds),
+    ...(bodyEntry ? [bodyEntry] : []),
+    ...(bodyExit ? [bodyExit] : []),
+  ].filter(Boolean)))
+  let maxIterations = numberValue(raw?.maxIterations, 100)
+  if (maxIterations < 1) maxIterations = 100
+  if (maxIterations > 1000) maxIterations = 1000
+  return {
+    mode: 'FOREACH',
+    collection,
+    itemAlias: stringValue(raw?.itemAlias) || 'item',
+    indexAlias: stringValue(raw?.indexAlias) || 'index',
+    outputAlias: stringValue(raw?.outputAlias || raw?.loopKey) || 'loop_results',
+    bodyOutput: stringValue(raw?.bodyOutput) || 'lastOutput',
+    maxIterations,
+    bodyEntry,
+    bodyExit,
+    bodyNodeIds,
   }
 }
 
@@ -1322,7 +1377,7 @@ function emptyCanvas(): CanvasSnapshot {
   }
 }
 
-const CANVAS_BRANCH_SOURCE_NODE_KINDS = new Set<CanvasNodeKind>(['classifier', 'condition', 'approval', 'loop'])
+const CANVAS_BRANCH_SOURCE_NODE_KINDS = new Set<CanvasNodeKind>(['classifier', 'condition', 'approval'])
 
 export function normalizeCanvasEdgeHandles(
   edge: CanvasEdge,
@@ -1371,7 +1426,8 @@ function isValidBranchSourceHandle(node: CanvasNode, handle: string): boolean {
     return ['approved', 'rejected', 'timeout'].includes(handle)
   }
   if (node.data.kind === 'loop') {
-    return ['continue', 'done'].includes(handle)
+    // FOREACH v1 is linear: one success outgoing edge (always), no continue/done routes.
+    return false
   }
   return false
 }
@@ -1546,10 +1602,7 @@ function defaultPorts(kind: CanvasNodeKind, direction: 'input' | 'output', alias
     ]
   }
   if (kind === 'loop') {
-    return [
-      { id: 'continue', name: 'continue', type: 'boolean' },
-      { id: 'done', name: 'done', type: 'boolean' },
-    ]
+    return [{ id: 'output', name: 'output', type: 'array' }]
   }
   if (kind === 'condition' || kind === 'classifier') {
     if (kind === 'classifier') {
@@ -1747,6 +1800,17 @@ function stringRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const out: Record<string, string> = {}
   for (const [key, raw] of Object.entries(value)) out[key] = String(raw)
+  return out
+}
+
+/** Preserve native JSON types for VARIABLE_ASSIGN save/reopen. */
+function jsonValueRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, unknown> = {}
+  for (const [key, raw] of Object.entries(value)) {
+    if (!key) continue
+    out[key] = raw
+  }
   return out
 }
 

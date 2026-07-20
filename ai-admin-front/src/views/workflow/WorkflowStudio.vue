@@ -42,9 +42,21 @@
           <span>{{ saveBadgeText }}</span>
         </span>
         <el-button :icon="VideoPlay" :loading="debugLoading" @click="handleDebug">调试</el-button>
-        <el-button :icon="Link" :disabled="studioReadOnly" @click="openApiQueryTemplateDialog">
-          API 查询模板
-        </el-button>
+        <el-tooltip
+          :disabled="apiQueryTemplateAvailable"
+          :content="apiQueryTemplateUnavailableReason || '当前节点能力目录未开放 API 查询模板所需节点'"
+          placement="bottom"
+        >
+          <span class="api-query-template-trigger">
+            <el-button
+              :icon="Link"
+              :disabled="studioReadOnly || !apiQueryTemplateAvailable"
+              @click="openApiQueryTemplateDialog"
+            >
+              API 查询模板
+            </el-button>
+          </span>
+        </el-tooltip>
         <el-button :icon="CircleCheck" :loading="validating" @click="validateRuntime()">校验</el-button>
         <el-dropdown trigger="click" @command="handleHeaderCommand">
           <el-button :icon="MoreFilled">更多</el-button>
@@ -572,32 +584,15 @@
           <template #node-loop="nodeProps">
             <div class="studio-node loop-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
               <Handle type="target" :position="Position.Left" />
+              <Handle type="source" :position="Position.Right" />
               <div class="node-icon"><el-icon><RefreshRight /></el-icon></div>
               <div class="node-head">
                 <span class="node-kind">循环</span>
-                <span class="node-state">{{ nodeProps.data.loopConfig?.maxIterations || 3 }} 次</span>
+                <span class="node-state">{{ nodeProps.data.loopConfig?.maxIterations || 100 }} 次</span>
               </div>
               <div class="node-label">{{ nodeProps.data.label || nodeProps.id }}</div>
-              <div class="node-desc">键：{{ nodeProps.data.loopConfig?.loopKey || 'loop' }}</div>
-              <div class="classifier-routes">
-                <div
-                  v-for="route in loopRouteRows()"
-                  :key="route.id"
-                  class="classifier-route-row"
-                >
-                  <div class="classifier-route-copy">
-                    <strong>{{ route.label }}</strong>
-                    <span>{{ route.meta }}</span>
-                  </div>
-                  <Handle
-                    type="source"
-                    :id="route.handleId"
-                    :position="Position.Right"
-                    class="classifier-route-handle"
-                  />
-                </div>
-              </div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.outputs, '分支') }}</div>
+              <div class="node-desc">{{ loopNodeSummary(nodeProps.data.loopConfig) }}</div>
+              <div class="node-port-row">{{ portSummary(nodeProps.data.outputs, '输出') }}</div>
               <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
                 <span class="runtime-dot"></span>
                 <span>{{ nodeRunLabel(nodeProps.id) }}</span>
@@ -719,7 +714,7 @@
               resize="none"
               :autosize="{ minRows: 2, maxRows: 4 }"
               placeholder="描述你想创建、修改或修复的 Workflow，AI 会结合当前画布理解意图"
-              @keydown.enter.exact.prevent="runAiAuthoring"
+              @keydown.enter.exact.prevent="runAiAuthoring()"
             />
             <div class="ai-edit-toolbar">
               <div class="ai-edit-toolbar-left">
@@ -777,7 +772,7 @@
                     :loading="aiEditLoading"
                     :disabled="!aiEditInstruction.trim()"
                     aria-label="生成编排方案"
-                    @click="runAiAuthoring"
+                    @click="runAiAuthoring()"
                   />
                 </el-tooltip>
               </div>
@@ -1323,6 +1318,8 @@
         <NodeConfigPanel
           v-else-if="propertyDetailSection === 'node'"
           :data="selectedNode.data"
+          :node-id="selectedNode.id"
+          :canvas-nodes="nodes"
           :model-options="modelOptions"
           :knowledge-options="knowledgeOptions"
           :tool-options="availableTools"
@@ -1334,6 +1331,7 @@
           :project-code="studio?.projectCode || null"
           @credential-created="handleCredentialCreated"
           @create-call-node="handleCreateInteractionCallNode"
+          @validation-change="handlePanelValidationChange"
         />
 
         <el-form v-else-if="propertyDetailSection === 'debug'" label-width="100px" size="small">
@@ -1935,7 +1933,7 @@
                 size="small"
                 type="primary"
                 text
-                :disabled="!apiQueryTemplateSelectable(row)"
+                :disabled="!apiQueryTemplateAvailable || !apiQueryTemplateSelectable(row)"
                 @click="generateApiQueryTemplate(row)"
               >
                 生成流程
@@ -2135,6 +2133,7 @@ import {
   workflowCanvasToSaveRequest,
   workflowStudioToCanvas,
 } from '@/utils/workflowStudio'
+import { resolveStudioNodeCreation } from '@/utils/studioNodeRegistry'
 import { runMatchesCurrentWorkflow } from '@/utils/workflowRunOps'
 import LlmModelIcon from '@/components/icons/LlmModelIcon.vue'
 import SendIcon from '@/components/icons/SendIcon.vue'
@@ -2150,6 +2149,7 @@ import { useWorkflowStudioDebugSession } from '@/views/workflow/composables/useW
 import { useWorkflowStudioSessionLifecycle } from '@/views/workflow/composables/useWorkflowStudioSessionLifecycle'
 import { useWorkflowStudioCanvasSearch } from '@/views/workflow/composables/useWorkflowStudioCanvasSearch'
 import { useWorkflowStudioPersistence } from '@/views/workflow/composables/useWorkflowStudioPersistence'
+import { useWorkflowStudioPanelValidation } from '@/views/workflow/composables/useWorkflowStudioPanelValidation'
 import { useWorkflowStudioRelease } from '@/views/workflow/composables/useWorkflowStudioRelease'
 import {
   useWorkflowStudioCanvasActions,
@@ -2543,7 +2543,24 @@ const {
   setCenter,
 }, nextTick)
 
-const { resetWorkflowSessionState, clearWorkflowDocumentState } = useWorkflowStudioSessionLifecycle({
+const {
+  hasPanelValidationErrors,
+  setPanelValidation,
+  clearPanelValidation,
+  prunePanelValidation,
+  firstPanelValidationMessage,
+} = useWorkflowStudioPanelValidation()
+
+function ensurePanelValidationClear() {
+  if (!hasPanelValidationErrors.value) return true
+  ElMessage.error(firstPanelValidationMessage() || '节点配置存在未修正错误，请先修复后再保存/发布/应用')
+  return false
+}
+
+const {
+  resetWorkflowSessionState: resetWorkflowSessionStateBase,
+  clearWorkflowDocumentState: clearWorkflowDocumentStateBase,
+} = useWorkflowStudioSessionLifecycle({
   closeCanvasSearch,
   selectedNodeId,
   selectedEdgeId,
@@ -2570,6 +2587,16 @@ const { resetWorkflowSessionState, clearWorkflowDocumentState } = useWorkflowStu
   resetHistorySnapshot: () => resetHistorySnapshot(),
   forgetDebugSession,
 })
+
+function resetWorkflowSessionState() {
+  clearPanelValidation()
+  resetWorkflowSessionStateBase()
+}
+
+function clearWorkflowDocumentState() {
+  clearPanelValidation()
+  clearWorkflowDocumentStateBase()
+}
 
 const selectedNodeTrace = computed(() =>
   selectedNodeId.value ? nodeTraceStates.value[selectedNodeId.value] || null : null,
@@ -2614,12 +2641,7 @@ function sourceRouteOptions(source?: CanvasNode | null) {
       { value: 'route:timeout', label: '超时' },
     ]
   }
-  if (source?.data.kind === 'loop') {
-    return [
-      { value: 'route:continue', label: '继续' },
-      { value: 'route:done', label: '结束' },
-    ]
-  }
+  // LOOP FOREACH v1: single always outgoing edge; no continue/done routes.
   return []
 }
 
@@ -2944,6 +2966,8 @@ const {
   propertyDetailOpen,
   fitView,
   nextTick,
+  nodeTypes,
+  graphNodeTypeCapabilitiesLoaded,
 })
 
 const {
@@ -2990,6 +3014,7 @@ const {
 })
 
 function applyCanvasFromStudio(state: WorkflowStudioState) {
+  clearPanelValidation()
   const snapshot = workflowStudioToCanvas(state)
   nodes.value = (snapshot.nodes || []).map(decorateWorkflowNode)
   edges.value = (snapshot.edges || []).map(decorateWorkflowEdge)
@@ -3009,6 +3034,14 @@ function syncJsonFromCanvas() {
   graphSpecJson.value = formatJson(saveRequest.graphSpecJson)
   canvasJson.value = formatJson(saveRequest.canvasJson || '{"nodes":[],"edges":[]}')
   validation.value = null
+}
+
+function handlePanelValidationChange(payload: { nodeId?: string; valid: boolean; message?: string }) {
+  if (!payload?.nodeId) return
+  setPanelValidation(payload.nodeId, {
+    valid: !!payload.valid,
+    message: payload.message,
+  })
 }
 
 const {
@@ -3035,6 +3068,7 @@ const {
   resetHistorySnapshot: () => resetHistorySnapshot(),
   loadCredentialOptions,
   clearWorkflowDocumentState,
+  ensurePanelValidationClear,
 })
 
 async function handleSaveStudio() {
@@ -3243,6 +3277,7 @@ const {
   applyCanvasFromStudio,
   autoLayoutWorkflowCanvas,
   fitCanvas: handleFitView,
+  ensurePanelValidationClear,
 })
 
 const {
@@ -3252,6 +3287,8 @@ const {
   apiQueryTemplateTotal,
   apiQueryTemplateActionKey,
   apiQueryTemplateFilters,
+  apiQueryTemplateAvailable,
+  apiQueryTemplateUnavailableReason,
   openApiQueryTemplateDialog,
   reloadApiQueryTemplateTools,
   loadApiQueryTemplateTools,
@@ -3271,6 +3308,8 @@ const {
   decorateWorkflowEdge,
   markCanvasDirty,
   syncJsonFromCanvas,
+  nodeTypes,
+  graphNodeTypeCapabilitiesLoaded,
 })
 
 const {
@@ -3296,6 +3335,7 @@ const {
   validateCurrentDraft: () => validateRuntime({ silent: true }),
   saveStudio,
   loadStudio,
+  ensurePanelValidationClear,
 })
 
 function handlePublishDialogBeforeClose(done: () => void) {
@@ -3408,6 +3448,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  clearPanelValidation()
   window.removeEventListener('resize', updateViewportWidth)
   window.removeEventListener('keydown', handleStudioShortcut)
   disposeDebugConversation()
@@ -3416,6 +3457,11 @@ onUnmounted(() => {
 watch(debugOpen, (open) => {
   if (!open) disposeDebugConversation()
 })
+
+watch(
+  () => nodes.value.map((node) => node.id).sort().join('\u0000'),
+  () => prunePanelValidation(nodes.value.map((node) => node.id)),
+)
 
 watch(
   () => [
@@ -3570,6 +3616,11 @@ function insertNodeTemplate(type: string, position?: { x: number; y: number }) {
     return
   }
   const kind = normalizeCanvasKind(type)
+  const decision = resolveStudioNodeCreation(kind, nodeTypes.value, graphNodeTypeCapabilitiesLoaded.value)
+  if (!decision.allowed) {
+    ElMessage.warning(decision.reason || '当前节点类型不可新增')
+    return
+  }
   const node = createWorkflowCanvasNode(kind, position || {
     x: 180 + nodes.value.length * 32,
     y: 160 + nodes.value.length * 18,
@@ -3986,11 +4037,19 @@ function approvalRouteRows() {
   ]
 }
 
-function loopRouteRows() {
-  return [
-    { id: 'continue', handleId: 'continue', label: '继续', meta: '进入下一轮' },
-    { id: 'done', handleId: 'done', label: '结束', meta: '循环完成' },
-  ]
+function loopNodeSummary(loopConfig?: {
+  collection?: string
+  outputAlias?: string
+  maxIterations?: number
+  bodyNodeIds?: string[]
+} | null) {
+  const collection = loopConfig?.collection?.trim() || '未配置集合'
+  const outputAlias = loopConfig?.outputAlias?.trim() || 'loop_results'
+  const maxIterations = loopConfig?.maxIterations && loopConfig.maxIterations > 0
+    ? loopConfig.maxIterations
+    : 100
+  const bodyCount = Array.isArray(loopConfig?.bodyNodeIds) ? loopConfig.bodyNodeIds.length : 0
+  return `${collection} → var.${outputAlias} · max ${maxIterations} · body ${bodyCount}`
 }
 
 function classifierRouteRows(data: CanvasNode['data']) {
@@ -6974,6 +7033,25 @@ function formatDebugResult(value: unknown) {
   --node-color: #0284c7;
   --node-soft: rgba(2, 132, 199, 0.1);
   --node-line: rgba(2, 132, 199, 0.24);
+}
+
+.studio-canvas :deep(.vue-flow__node.loop-body-member .studio-node) {
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(2, 132, 199, 0.45);
+}
+
+.studio-canvas :deep(.vue-flow__node.loop-body-member .studio-node)::after {
+  content: 'LOOP body';
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: #0369a1;
+  background: rgba(2, 132, 199, 0.12);
+  pointer-events: none;
 }
 
 .studio-page .knowledge-write-node {

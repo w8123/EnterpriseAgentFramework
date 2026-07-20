@@ -7,6 +7,8 @@ import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelCha
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatRequest.ChatMessage;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatResult;
 import com.enterprise.ai.runtime.workflow.layout.RuntimeWorkflowCanvasLayoutService;
+import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityDescriptor;
+import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityRegistry;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -14,7 +16,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -26,9 +28,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class RuntimeWorkflowDraftGenerationService {
 
     private static final String PROVIDER = "LLM_DRAFT";
@@ -40,6 +42,33 @@ public class RuntimeWorkflowDraftGenerationService {
     private final RuntimeWorkflowCanvasLayoutService canvasLayoutService;
     private final RuntimeWorkflowDraftCandidateValidationService candidateValidationService;
     private final RuntimeWorkflowDraftRepairService repairService;
+    private final RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry;
+
+    public RuntimeWorkflowDraftGenerationService(ObjectMapper objectMapper,
+                                                 RuntimeModelServiceClient modelServiceClient,
+                                                 RuntimeWorkflowCanvasLayoutService canvasLayoutService,
+                                                 RuntimeWorkflowDraftCandidateValidationService candidateValidationService,
+                                                 RuntimeWorkflowDraftRepairService repairService) {
+        this(objectMapper, modelServiceClient, canvasLayoutService, candidateValidationService, repairService,
+                new RuntimeWorkflowNodeCapabilityRegistry());
+    }
+
+    @Autowired
+    public RuntimeWorkflowDraftGenerationService(ObjectMapper objectMapper,
+                                                 RuntimeModelServiceClient modelServiceClient,
+                                                 RuntimeWorkflowCanvasLayoutService canvasLayoutService,
+                                                 RuntimeWorkflowDraftCandidateValidationService candidateValidationService,
+                                                 RuntimeWorkflowDraftRepairService repairService,
+                                                 RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry) {
+        this.objectMapper = objectMapper;
+        this.modelServiceClient = modelServiceClient;
+        this.canvasLayoutService = canvasLayoutService;
+        this.candidateValidationService = candidateValidationService;
+        this.repairService = repairService;
+        this.nodeCapabilityRegistry = nodeCapabilityRegistry == null
+                ? new RuntimeWorkflowNodeCapabilityRegistry()
+                : nodeCapabilityRegistry;
+    }
 
     public String provider() {
         return PROVIDER;
@@ -185,6 +214,16 @@ public class RuntimeWorkflowDraftGenerationService {
                 validationErrors.add("unsupported node kind: " + rawKind + " (" + id + ")");
                 continue;
             }
+            if (!nodeCapabilityRegistry.isAiAuthoringEnabled(type.type())) {
+                String reason = nodeCapabilityRegistry.find(type.type())
+                        .map(item -> StringUtils.hasText(item.unavailableReason())
+                                ? item.unavailableReason()
+                                : "not enabled for AI authoring")
+                        .orElse("not enabled for AI authoring");
+                validationErrors.add("WORKFLOW_NODE_NOT_AUTHORABLE: unsupported authoring node kind: "
+                        + type.type() + " (" + id + ") - " + reason);
+                continue;
+            }
 
             Map<String, Object> config = mutableMap(raw.config());
             config.put("configVersion", 2);
@@ -201,10 +240,12 @@ public class RuntimeWorkflowDraftGenerationService {
                 normalizeApprovalConfig(config);
             } else if (type == AgentGraphNodeType.KNOWLEDGE_RETRIEVAL) {
                 normalizeKnowledgeConfig(config, request, resources, warnings, placeholders, id, firstText(raw.label(), id));
+            } else if (type == AgentGraphNodeType.HTTP_REQUEST) {
+                normalizeHttpConfig(config, warnings, placeholders, id, firstText(raw.label(), id));
             } else if (type == AgentGraphNodeType.PAGE_ACTION) {
                 normalizePageActionConfig(config, request, resources, warnings, placeholders, id, firstText(raw.label(), id),
                         usedPageActions, pageActionNodeIndex++, validationErrors);
-            } else if (type.isToolLike() || type == AgentGraphNodeType.HTTP_REQUEST || type == AgentGraphNodeType.MCP_CALL) {
+            } else if (type.isToolLike() || type == AgentGraphNodeType.MCP_CALL) {
                 normalizeCapabilityConfig(config, type, request, resources, warnings, placeholders, id, firstText(raw.label(), id));
             }
 
@@ -555,19 +596,99 @@ public class RuntimeWorkflowDraftGenerationService {
                                           List<RuntimeWorkflowDraftPlaceholderView> placeholders,
                                           String nodeId,
                                           String label) {
-        String ref = firstText(text(config.get("ref")), text(config.get("name")), firstString(arrayValue(config.get("knowledgeBaseCodes"))));
-        RuntimeWorkflowDraftResourceView resource = resource(ref, resources);
-        if (resource == null && StringUtils.hasText(ref)) {
+        List<String> rawCodes = new ArrayList<>();
+        Object codesValue = config.get("knowledgeBaseCodes");
+        if (codesValue instanceof List<?> list) {
+            for (Object item : list) {
+                String code = text(item);
+                if (StringUtils.hasText(code)) {
+                    rawCodes.add(code.trim());
+                }
+            }
+        }
+        String ref = firstText(text(config.get("ref")), text(config.get("name")),
+                rawCodes.isEmpty() ? null : rawCodes.get(0));
+        if (rawCodes.isEmpty() && StringUtils.hasText(ref)) {
+            rawCodes.add(ref.trim());
+        }
+        LinkedHashSet<String> resolvedCodes = new LinkedHashSet<>();
+        for (String code : rawCodes) {
+            RuntimeWorkflowDraftResourceView matched = resource(code, resources);
+            if (matched != null) {
+                String resolved = firstText(matched.getName(), matched.getQualifiedName(), code);
+                if (StringUtils.hasText(resolved)) {
+                    resolvedCodes.add(resolved.trim());
+                }
+            } else {
+                resolvedCodes.add(code);
+            }
+        }
+        if (resolvedCodes.isEmpty()) {
+            markPlaceholder(config, warnings, placeholders, nodeId, "knowledge", label,
+                    "请配置至少一个 knowledgeBaseCode");
+        } else if (StringUtils.hasText(ref) && resource(ref, resources) == null) {
             markPlaceholder(config, warnings, placeholders, nodeId, "knowledge", label, "未找到知识库：" + ref);
         }
-        config.put("knowledgeBaseCodes", resource == null ? List.of(ref) : List.of(resource.getName()));
+        config.put("knowledgeBaseCodes", new ArrayList<>(resolvedCodes));
         config.put("query", firstText(text(config.get("query")), "input"));
         config.put("topK", integer(config.get("topK"), 5));
         config.put("similarityThreshold", doubleOr(config.get("similarityThreshold"), 0.5D));
-        config.put("searchMode", firstText(text(config.get("searchMode")), "hybrid"));
+        String searchMode = firstText(text(config.get("searchMode")), "hybrid").toLowerCase(Locale.ROOT);
+        if (!Set.of("vector", "keyword", "hybrid").contains(searchMode)) {
+            searchMode = "hybrid";
+        }
+        config.put("searchMode", searchMode);
         config.put("rerankEnabled", config.get("rerankEnabled") == null || bool(config.get("rerankEnabled")));
-        config.put("directReturnEnabled", bool(config.get("directReturnEnabled")));
-        config.put("directReturnThreshold", doubleOr(config.get("directReturnThreshold"), 0.85D));
+        // Workflow node no longer exposes directReturn*; KnowledgeBase admin may still keep those fields.
+        config.remove("directReturnEnabled");
+        config.remove("directReturnThreshold");
+    }
+
+    private void normalizeHttpConfig(Map<String, Object> config,
+                                     List<String> warnings,
+                                     List<RuntimeWorkflowDraftPlaceholderView> placeholders,
+                                     String nodeId,
+                                     String label) {
+        String method = firstText(text(config.get("method")), "GET").toUpperCase(Locale.ROOT);
+        if (!Set.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS").contains(method)) {
+            method = "GET";
+        }
+        config.put("method", method);
+        String url = text(config.get("url"));
+        config.put("url", firstText(url, ""));
+        config.put("headers", mutableStringMap(config.get("headers")));
+        config.put("queryParams", mutableStringMap(config.get("queryParams")));
+        String bodyType = firstText(text(config.get("bodyType")), "none").toLowerCase(Locale.ROOT);
+        if (!Set.of("none", "json", "text").contains(bodyType)) {
+            bodyType = "none";
+        }
+        config.put("bodyType", bodyType);
+        config.put("body", firstText(text(config.get("body")), ""));
+        config.put("timeoutMs", integer(config.get("timeoutMs"), 30_000));
+        config.put("credentialRef", firstText(text(config.get("credentialRef")), ""));
+        if (config.get("retryAllowNonIdempotent") != null) {
+            config.put("retryAllowNonIdempotent", bool(config.get("retryAllowNonIdempotent")));
+        }
+        config.put("outputAlias", firstText(text(config.get("outputAlias")), "http_out"));
+        // Never inherit Tool/Capability binding fields.
+        config.remove("ref");
+        config.remove("qualifiedName");
+        config.remove("definitionId");
+        config.remove("inputMapping");
+        if (!StringUtils.hasText(url)) {
+            markPlaceholder(config, warnings, placeholders, nodeId, "http", label, "请配置 HTTP URL");
+        }
+    }
+
+    private Map<String, Object> mutableStringMap(Object raw) {
+        Map<String, Object> source = mutableMap(raw);
+        Map<String, Object> out = new LinkedHashMap<>();
+        source.forEach((key, value) -> {
+            if (StringUtils.hasText(key) && value != null) {
+                out.put(key, String.valueOf(value));
+            }
+        });
+        return out;
     }
 
     private void normalizeCapabilityConfig(Map<String, Object> config,
@@ -866,7 +987,7 @@ public class RuntimeWorkflowDraftGenerationService {
     }
 
     private java.util.Optional<GraphSpec.CapabilityRef> capabilityRef(DraftNode node) {
-        if (!"TOOL".equals(node.type()) && !"CAPABILITY".equals(node.type()) && !"MCP_CALL".equals(node.type()) && !"HTTP_REQUEST".equals(node.type())) {
+        if (!"TOOL".equals(node.type()) && !"CAPABILITY".equals(node.type()) && !"MCP_CALL".equals(node.type())) {
             return java.util.Optional.empty();
         }
         Map<String, Object> config = mutableMap(node.config());
@@ -1000,15 +1121,15 @@ public class RuntimeWorkflowDraftGenerationService {
     }
 
     private Map<String, Object> knowledgeConfig(Map<String, Object> config) {
-        return new LinkedHashMap<>(Map.of(
-                "knowledgeBaseCodes", arrayValue(config.get("knowledgeBaseCodes")),
-                "query", firstText(text(config.get("query")), "input"),
-                "topK", integer(config.get("topK"), 5),
-                "similarityThreshold", doubleOr(config.get("similarityThreshold"), 0.5D),
-                "searchMode", firstText(text(config.get("searchMode")), "hybrid"),
-                "rerankEnabled", config.get("rerankEnabled") == null || bool(config.get("rerankEnabled")),
-                "directReturnEnabled", bool(config.get("directReturnEnabled")),
-                "directReturnThreshold", doubleOr(config.get("directReturnThreshold"), 0.85D)));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("knowledgeBaseCodes", arrayValue(config.get("knowledgeBaseCodes")));
+        out.put("query", firstText(text(config.get("query")), "input"));
+        out.put("topK", integer(config.get("topK"), 5));
+        out.put("similarityThreshold", doubleOr(config.get("similarityThreshold"), 0.5D));
+        out.put("searchMode", firstText(text(config.get("searchMode")), "hybrid"));
+        out.put("rerankEnabled", config.get("rerankEnabled") == null || bool(config.get("rerankEnabled")));
+        // Workflow GraphSpec must never carry Chat-style directReturn* knobs.
+        return out;
     }
 
     private Map<String, Object> pageActionConfig(Map<String, Object> config, String label) {
@@ -1035,11 +1156,20 @@ public class RuntimeWorkflowDraftGenerationService {
                     "mode", firstText(text(config.get("aggregateMode")), "object"),
                     "items", config.getOrDefault("items", List.of()),
                     "template", firstText(text(config.get("template")), "")));
-            case "loop" -> out.put("loopConfig", Map.of(
-                    "loopKey", firstText(text(config.get("loopKey")), "loop"),
-                    "maxIterations", integer(config.get("maxIterations"), 3),
-                    "itemExpression", firstText(text(config.get("itemExpression")), ""),
-                    "breakCondition", firstText(text(config.get("breakCondition")), "")));
+            case "loop" -> {
+                Object bodyIds = config.get("bodyNodeIds");
+                out.put("loopConfig", Map.of(
+                        "mode", "FOREACH",
+                        "collection", firstText(text(config.get("collection")), text(config.get("itemExpression")), ""),
+                        "itemAlias", firstText(text(config.get("itemAlias")), "item"),
+                        "indexAlias", firstText(text(config.get("indexAlias")), "index"),
+                        "outputAlias", firstText(text(config.get("outputAlias")), text(config.get("loopKey")), "loop_results"),
+                        "bodyOutput", firstText(text(config.get("bodyOutput")), "lastOutput"),
+                        "maxIterations", integer(config.get("maxIterations"), 100),
+                        "bodyEntry", firstText(text(config.get("bodyEntry")), ""),
+                        "bodyExit", firstText(text(config.get("bodyExit")), text(config.get("bodyEntry")), ""),
+                        "bodyNodeIds", bodyIds instanceof List<?> list ? list : List.of()));
+            }
             case "code" -> out.put("codeConfig", Map.of(
                     "language", "expression",
                     "code", firstText(text(config.get("code")), ""),
@@ -1510,17 +1640,30 @@ public class RuntimeWorkflowDraftGenerationService {
     }
 
     private String systemPrompt(RuntimeWorkflowDraftGenerationRequest request) {
+        List<RuntimeWorkflowNodeCapabilityDescriptor> authorable = nodeCapabilityRegistry.aiAuthoringCatalog();
+        String authorableKinds = authorable.stream()
+                .map(RuntimeWorkflowNodeCapabilityDescriptor::canvasKind)
+                .collect(Collectors.joining("|"));
+        String authorableTypes = authorable.stream()
+                .map(RuntimeWorkflowNodeCapabilityDescriptor::type)
+                .collect(Collectors.joining(", "));
+        String closedTypes = nodeCapabilityRegistry.allCatalog().stream()
+                .filter(item -> !item.aiAuthoringEnabled())
+                .map(RuntimeWorkflowNodeCapabilityDescriptor::type)
+                .collect(Collectors.joining(", "));
         StringBuilder prompt = new StringBuilder("""
                 You are Workflow Studio's workflow draft generator. Return only strict JSON.
                 Generate a complete workflow draft from the user's requirement.
                 Use only node kinds listed in nodeTypes. Use only supplied tools/capabilities/knowledgeBases/pageActions when binding real resources.
+                Authorable nodeTypes (must match user prompt nodeTypes exactly): %s.
                 For pageAction nodes, always set config.ref to the exact actionKey from pageActions.
                 If a business step has no matching resource, still generate the node and mark it as a placeholder by setting config.needsConfiguration=true and config.placeholderReason.
                 Do not output start/end nodes. Use START and END only as edge endpoints.
+                Never invent node kinds outside nodeTypes. Closed / non-authorable types are forbidden: %s.
                 Required JSON shape:
-                {"summary":"short summary","nodes":[{"id":"stable_snake_case","kind":"userInput|llm|tool|skill|knowledge|pageAction|classifier|condition|answer|approval|parameter|http|code|aggregate|loop|template|variable|mcp","label":"display name","description":"what it does","config":{},"inputs":[],"outputs":[]}],"edges":[{"id":"optional","from":"START or node id","to":"node id or END","condition":"always|approved|rejected|route:key|success|error","sourceHandle":"optional","targetHandle":"optional"}],"warnings":[]}
+                {"summary":"short summary","nodes":[{"id":"stable_snake_case","kind":"%s","label":"display name","description":"what it does","config":{},"inputs":[],"outputs":[]}],"edges":[{"id":"optional","from":"START or node id","to":"node id or END","condition":"always|approved|rejected|route:key|success|error","sourceHandle":"optional","targetHandle":"optional"}],"warnings":[]}
                 inputs and outputs must be arrays of port objects like {"id":"portId","name":"portName","type":"any"}, never bare strings.
-                """);
+                """.formatted(authorableTypes, closedTypes, authorableKinds));
         if (isPageAssistantDraft(request)) {
             prompt.append("""
 
@@ -1536,7 +1679,8 @@ public class RuntimeWorkflowDraftGenerationService {
                     - When setFilters is available in a query branch, add one LLM extract node before it with outputAlias=extracted_filters, outputFormat=json, structuredOutput=true.
                     - setFilters pageAction config.args must map each inputSchema field to extracted_filters.<fieldName>; never leave args empty when setFilters is selected.
                     - search/readTable/reset/getPageState pageAction nodes usually use empty args unless the action schema requires parameters.
-                    - For confirmRequired or operational actions (openRowAction/delete/submit/approve), route branch should use INTERACTION confirm_action before PAGE_ACTION when requirement/safetyNotes says so.
+                    - Do not emit INTERACTION/HUMAN_APPROVAL nodes.
+                    - For confirmRequired or operational actions, emit PAGE_ACTION with config.confirm=true. Page Bridge performs pre-execution confirmation before the action runs; if the user rejects, the action must not execute. ANSWER only reports success, rejection, cancellation or failure afterwards — never request confirmation after PAGE_ACTION has already run.
                     - answer node must use a fixed Chinese status sentence, not {{ lastOutput }}, when the flow ends after page actions.
                     - Bind each pageAction config.ref to the exact actionKey from pageActions.
 
@@ -1552,11 +1696,11 @@ public class RuntimeWorkflowDraftGenerationService {
                     route:page_state_intent -> PAGE_ACTION(getPageState) -> ANSWER
                     route:else -> ANSWER(请说明要查询、重置还是读取页面状态)
 
-                    Few-shot C (INTENT_ROUTER with confirm before operational action):
+                    Few-shot C (INTENT_ROUTER with confirmRequired operational action):
                     selectedActionKeys: readTable, openRowAction(confirmRequired=true)
                     USER_INPUT -> INTENT_CLASSIFIER(strategy=HYBRID)
                     route:read_table_intent -> PAGE_ACTION(readTable) -> ANSWER
-                    route:row_action_intent -> INTERACTION(confirm_action) -> PAGE_ACTION(openRowAction) -> ANSWER
+                    route:row_action_intent -> PAGE_ACTION(openRowAction, confirm=true; Page Bridge confirms before execution) -> ANSWER(status only)
                     route:else -> ANSWER
                     """);
         }
@@ -1571,7 +1715,7 @@ public class RuntimeWorkflowDraftGenerationService {
         payload.put("draftScenario", request.getDraftScenario());
         payload.put("requirement", request.getRequirement());
         payload.put("modelInstanceId", request.getModelInstanceId());
-        payload.put("nodeTypes", AgentGraphNodeType.catalog());
+        payload.put("nodeTypes", nodeCapabilityRegistry.aiAuthoringCatalog());
         payload.put("tools", request.getTools() == null ? List.of() : request.getTools());
         payload.put("capabilities", request.getCapabilities() == null ? List.of() : request.getCapabilities());
         payload.put("knowledgeBases", request.getKnowledgeBases() == null ? List.of() : request.getKnowledgeBases());
@@ -1848,7 +1992,9 @@ public class RuntimeWorkflowDraftGenerationService {
             Map<String, Object> metadata = mutableMap(resource.getMetadata());
             String actionKey = actionResourceKey(resource);
             if (bool(metadata.get("confirmRequired"))) {
-                notes.add(actionKey + " 为需确认动作：route 分支中先 INTERACTION(confirm_action)，再 PAGE_ACTION(" + actionKey + ")。");
+                notes.add(actionKey + " 为需确认动作：route 分支生成 PAGE_ACTION(" + actionKey
+                        + ") 且 config.confirm=true；Page Bridge 在动作执行前确认，用户拒绝则不执行；"
+                        + "ANSWER 仅报告成功/拒绝/失败，不要生成 INTERACTION，也不要在动作后再要求确认。");
             }
         }
         return notes;

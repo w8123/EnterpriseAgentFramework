@@ -32,10 +32,16 @@ public class RuntimeRunOpsReplayService {
         if (source.agentConfigVersionId() == null) {
             throw new IllegalArgumentException("Replay source has no published Agent config version: " + originalTraceId);
         }
+        if ("WAITING_USER".equalsIgnoreCase(source.status())) {
+            throw new IllegalArgumentException(
+                    "Cannot replay a run waiting for user interaction; provide substitute input via a new related run: "
+                            + originalTraceId);
+        }
 
-        String message = firstText(request == null ? null : request.messageOverride(), source.inputSummary());
+        String message = request == null ? null : text(request.messageOverride());
         if (!StringUtils.hasText(message)) {
-            throw new IllegalArgumentException("Unable to restore replay input from runtime_run; provide messageOverride");
+            throw new IllegalArgumentException(
+                    "Replay input is not persisted; provide messageOverride to replay this run");
         }
         String sessionId = firstText(request == null ? null : request.sessionId(), replaySessionId());
         String userId = firstText(request == null ? null : request.userId(), source.userId(), "runops-replay");

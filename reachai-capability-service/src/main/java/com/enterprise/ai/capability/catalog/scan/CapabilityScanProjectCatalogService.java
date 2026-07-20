@@ -18,6 +18,8 @@ import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinition
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocEntity;
 import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper;
+import com.enterprise.ai.agent.registry.ProjectInstanceEntity;
+import com.enterprise.ai.agent.registry.ProjectInstanceMapper;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistryCredentialMapper;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
@@ -54,6 +56,7 @@ public class CapabilityScanProjectCatalogService {
     private final CapabilityToolExecutionService toolExecutionService;
     private final ToolDefinitionMapper toolDefinitionMapper;
     private final CapabilityScannerClient scannerClient;
+    private final ProjectInstanceMapper projectInstanceMapper;
     private final ObjectMapper objectMapper;
 
     public List<ScanProjectEntity> list() {
@@ -186,6 +189,27 @@ public class CapabilityScanProjectCatalogService {
         return entity;
     }
 
+    public Map<String, Object> readinessFacts(Long projectId) {
+        ScanProjectEntity project = get(projectId);
+        ProjectInstanceEntity latest = latestInstance(projectId);
+        boolean instanceExists = latest != null;
+        boolean online = CapabilityProjectInstanceOnlineSupport.isOnline(latest);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("schema", "capability.project-readiness-facts.v1");
+        body.put("projectId", project.getId());
+        body.put("projectCode", project.getProjectCode());
+        body.put("instanceExists", instanceExists);
+        body.put("latestInstanceId", latest == null ? null : latest.getInstanceId());
+        body.put("latestInstanceStatus", CapabilityProjectInstanceOnlineSupport.statusOrNull(latest));
+        body.put("lastHeartbeatAt", latest == null || latest.getLastHeartbeatAt() == null
+                ? null
+                : latest.getLastHeartbeatAt().toString());
+        body.put("online", online);
+        body.put("heartbeatOnlineThresholdMinutes", CapabilityProjectInstanceOnlineSupport.HEARTBEAT_ONLINE_MINUTES);
+        body.put("instanceCount", instanceExists ? 1 : 0);
+        return body;
+    }
+
     public SdkAccessCheckResponse sdkAccessCheck(Long projectId) {
         ScanProjectEntity entity = get(projectId);
         RegistryCredentialEntity credential = primaryCredential(entity.getProjectCode());
@@ -193,6 +217,10 @@ public class CapabilityScanProjectCatalogService {
         boolean aiCodingEnabled = Boolean.TRUE.equals(entity.getAiCodingAccessEnabled())
                 && StringUtils.hasText(entity.getAiCodingAccessKey());
         SdkAccessCheckItem sdkSyncCallbackCheck = sdkSyncCallbackCheck(entity);
+        Map<String, Object> facts = readinessFacts(projectId);
+        boolean instanceExists = Boolean.TRUE.equals(facts.get("instanceExists"));
+        boolean online = Boolean.TRUE.equals(facts.get("online"));
+        String lastHeartbeatAt = facts.get("lastHeartbeatAt") == null ? null : String.valueOf(facts.get("lastHeartbeatAt"));
         List<SdkAccessCheckItem> checks = List.of(
                 new SdkAccessCheckItem(
                         "PROJECT",
@@ -212,19 +240,45 @@ public class CapabilityScanProjectCatalogService {
                         aiCodingEnabled ? "PASS" : "WARN",
                         aiCodingEnabled ? "已启用 AI Coding 接入" : "AI Coding 接入未启用",
                         null),
-                sdkSyncCallbackCheck);
+                sdkSyncCallbackCheck,
+                new SdkAccessCheckItem(
+                        "INSTANCE_HEARTBEAT",
+                        "业务实例心跳",
+                        online ? "PASS" : (instanceExists ? "WARN" : "FAIL"),
+                        online
+                                ? "Latest project instance is ONLINE with a fresh heartbeat"
+                                : (instanceExists
+                                ? "Project instance exists but is not ONLINE with a fresh heartbeat; start/restart the business service"
+                                : "No project instance registered; start the business service with ReachAI starter"),
+                        lastHeartbeatAt));
+        String codeReady = aiCodingEnabled && credentialConfigured ? "PASS" : "WARN";
+        String runtimeReady = online ? "PASS" : (instanceExists ? "WARN" : "FAIL");
+        String e2eReady = "PENDING";
         String overall = checks.stream().anyMatch(check -> "FAIL".equals(check.status()))
                 ? "FAIL"
-                : checks.stream().anyMatch(check -> "WARN".equals(check.status())) ? "WARN" : "PASS";
+                : "WARN";
         return new SdkAccessCheckResponse(
                 entity.getId(),
                 entity.getProjectCode(),
                 overall,
                 List.of(
-                        new SdkAccessReadiness("CODE_READY", "代码接入", overall, "SDK onboarding route is available"),
-                        new SdkAccessReadiness("RUNTIME_READY", "Runtime 就绪", overall, "Runtime readiness requires SDK instance heartbeat"),
-                        new SdkAccessReadiness("E2E_READY", "端到端", overall, "Verify embed/token broker flow; API calls are optional after API Management manual SDK sync")),
+                        new SdkAccessReadiness("CODE_READY", "代码接入", codeReady,
+                                "Manifest/config contracts for coding; independent from runtime heartbeat"),
+                        new SdkAccessReadiness("RUNTIME_READY", "Runtime 就绪", runtimeReady,
+                                online
+                                        ? "Business instance is ONLINE with a fresh heartbeat"
+                                        : "Business service is not ONLINE with a fresh heartbeat; start it and wait for heartbeat"),
+                        new SdkAccessReadiness("E2E_READY", "端到端", e2eReady,
+                                "No explicit E2E evidence yet; do not treat configured callback URL as PASS")),
                 checks);
+    }
+
+    private ProjectInstanceEntity latestInstance(Long projectId) {
+        return projectInstanceMapper.selectOne(
+                Wrappers.<ProjectInstanceEntity>lambdaQuery()
+                        .eq(ProjectInstanceEntity::getProjectId, projectId)
+                        .orderByDesc(ProjectInstanceEntity::getLastHeartbeatAt)
+                        .last("LIMIT 1"));
     }
 
     @Transactional
@@ -807,13 +861,14 @@ public class CapabilityScanProjectCatalogService {
                 + normalizeContextPath(project.getContextPath())
                 + "/reachai/registry/capabilities/sync";
         boolean loopback = isLoopbackUrl(targetUrl);
-        String message = loopback
-                ? "已计算同步回调目标；当前为回环地址，仅适用于 ReachAI 与业务系统同机或共享网络命名空间"
-                : "已计算同步回调目标；实际可达性和业务鉴权/CSRF需由 API 管理手动同步验证";
+        String message = "CONFIGURED_NOT_PROBED: "
+                + (loopback
+                ? "已推导同步回调目标（回环地址），未主动探测可达性"
+                : "已推导同步回调目标，未主动探测可达性/鉴权");
         return new SdkAccessCheckItem(
                 "SDK_SYNC_CALLBACK",
                 "SDK 同步回调",
-                "PASS",
+                "WARN",
                 message,
                 targetUrl);
     }

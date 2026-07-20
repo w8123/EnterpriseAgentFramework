@@ -1,6 +1,9 @@
 package com.enterprise.ai.control.runtime;
 
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
+import com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway;
+import com.enterprise.ai.control.identity.PlatformBearerAuthService;
+import com.enterprise.ai.control.identity.PlatformUserEntity;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,11 +17,16 @@ import java.lang.reflect.Method;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,11 +34,12 @@ class ControlRuntimePublicControllerTest {
 
     @Test
     void keepsPublicRuntimeRouteShapeOnControlService() throws Exception {
-        Method executeAgent = ControlRuntimePublicController.class.getDeclaredMethod("executeAgent", Map.class);
+        Method executeAgent = ControlRuntimePublicController.class
+                .getDeclaredMethod("executeAgent", String.class, Map.class);
         Method executeAgentDetailed = ControlRuntimePublicController.class
-                .getDeclaredMethod("executeAgentDetailed", Map.class);
+                .getDeclaredMethod("executeAgentDetailed", String.class, Map.class);
         Method executeAgentStream = ControlRuntimePublicController.class
-                .getDeclaredMethod("executeAgentStream", Map.class);
+                .getDeclaredMethod("executeAgentStream", String.class, Map.class);
         Method clearAgentSession = ControlRuntimePublicController.class
                 .getDeclaredMethod("clearAgentSession", String.class);
         Method routeEvaluation = ControlRuntimePublicController.class.getDeclaredMethod("routeEvaluation", int.class);
@@ -307,7 +316,7 @@ class ControlRuntimePublicControllerTest {
                 .body(Map.of("traceId", "trace-1", "status", "RUNNING"));
         when(runtimeProxyClient.executeAgent(request)).thenReturn(delegated);
 
-        ResponseEntity<Map<String, Object>> response = controller.executeAgent(request);
+        ResponseEntity<Map<String, Object>> response = controller.executeAgent(null, request);
 
         assertEquals(delegated, response);
         verify(runtimeProxyClient).executeAgent(request);
@@ -322,7 +331,7 @@ class ControlRuntimePublicControllerTest {
                 .body(Map.of("code", "RUNTIME_AGENT_EXECUTION_PENDING"));
         when(runtimeProxyClient.executeAgentDetailed(request)).thenReturn(delegated);
 
-        ResponseEntity<Map<String, Object>> response = controller.executeAgentDetailed(request);
+        ResponseEntity<Map<String, Object>> response = controller.executeAgentDetailed(null, request);
 
         assertEquals(delegated, response);
         verify(runtimeProxyClient).executeAgentDetailed(request);
@@ -469,13 +478,57 @@ class ControlRuntimePublicControllerTest {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
 
         ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> response =
-                controller.executeAgentStream(request);
+                controller.executeAgentStream(null, request);
         response.getBody().writeTo(output);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("no-cache, no-transform", response.getHeaders().getCacheControl());
         assertEquals("no", response.getHeaders().getFirst("X-Accel-Buffering"));
-        verify(streamProxy).stream(RuntimeAgentStreamProxy.AGENT_EXECUTE_STREAM, request, output);
+        // Without Bearer, stream stays on the public untrusted Runtime path.
+        verify(streamProxy).stream(request, output);
+    }
+
+    @Test
+    void agentSyncWithBearerUsesSignedTrustedGateway() {
+        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
+        RuntimeTrustedAgentExecutionGateway gateway = mock(RuntimeTrustedAgentExecutionGateway.class);
+        PlatformBearerAuthService bearerAuthService = mock(PlatformBearerAuthService.class);
+        PlatformUserEntity user = new PlatformUserEntity();
+        user.setId(42L);
+        user.setStatus("ACTIVE");
+        when(bearerAuthService.resolveBearerUser("Bearer tok")).thenReturn(Optional.of(user));
+        when(gateway.executeTrusted(any(), eq("AGENT"), eq("42")))
+                .thenReturn(ResponseEntity.ok(Map.of("success", true, "answer", "ok")));
+        ControlRuntimePublicController controller = new ControlRuntimePublicController(
+                runtimeProxyClient, null, null, gateway, bearerAuthService);
+
+        ResponseEntity<Map<String, Object>> response = controller.executeAgent(
+                "Bearer tok", Map.of("agentId", "a1", "message", "hi", "userId", "attacker"));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(gateway).executeTrusted(any(), eq("AGENT"), eq("42"));
+        verify(runtimeProxyClient, never()).executeAgent(any());
+    }
+
+    @Test
+    void agentStreamWithBearerUsesSignedInternalStream() throws Exception {
+        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
+        RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
+        RuntimeTrustedAgentExecutionGateway gateway = mock(RuntimeTrustedAgentExecutionGateway.class);
+        PlatformBearerAuthService bearerAuthService = mock(PlatformBearerAuthService.class);
+        PlatformUserEntity user = new PlatformUserEntity();
+        user.setId(42L);
+        user.setStatus("ACTIVE");
+        when(bearerAuthService.resolveBearerUser("Bearer tok")).thenReturn(Optional.of(user));
+        ControlRuntimePublicController controller = new ControlRuntimePublicController(
+                runtimeProxyClient, null, streamProxy, gateway, bearerAuthService);
+        Map<String, Object> request = Map.of("agentId", "a1", "message", "hello");
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        controller.executeAgentStream("Bearer tok", request).getBody().writeTo(output);
+
+        verify(gateway).streamTrusted(eq(request), eq("AGENT"), eq("42"), eq(output), any());
+        verify(streamProxy, never()).stream(any(Map.class), any());
     }
 
     @Test
@@ -852,6 +905,22 @@ class ControlRuntimePublicControllerTest {
         verify(runtimeProxyClient).executeRuntimeTool("system.echo", request);
         verify(runtimeProxyClient).executeRuntimeComposition("system.flow", request);
         verify(runtimeProxyClient).resumeRuntimeInteraction("session-1", request);
+    }
+
+    @Test
+    void rejectsWorkflowInteractionResumeOnCompatibilityEndpoint() {
+        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
+        ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);
+        Map<String, Object> request = Map.of("values", Map.of("q", "x"));
+
+        ResponseEntity<Object> response = controller.resumeRuntimeInteraction("wfi_abc123", request);
+
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
+        assertTrue(response.getBody() instanceof Map<?, ?>);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> body = (Map<String, Object>) response.getBody();
+        assertEquals("RUNTIME_INTERACTION_FORBIDDEN", body.get("code"));
+        verify(runtimeProxyClient, never()).resumeRuntimeInteraction(any(), any());
     }
 
     @Test

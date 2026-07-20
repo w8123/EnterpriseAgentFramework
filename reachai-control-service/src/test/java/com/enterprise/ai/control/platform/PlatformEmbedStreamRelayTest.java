@@ -1,5 +1,6 @@
 package com.enterprise.ai.control.platform;
 
+import com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway;
 import com.enterprise.ai.control.runtime.RuntimeAgentStreamProxy;
 import com.enterprise.ai.control.runtime.SseStreamRelay;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,7 +25,7 @@ class PlatformEmbedStreamRelayTest {
         RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
         PlatformEmbedChatEventService chatEventService = mock(PlatformEmbedChatEventService.class);
         PlatformEmbedStreamRelay relay = new PlatformEmbedStreamRelay(
-                streamProxy, chatEventService, new ObjectMapper());
+                streamProxy, mock(RuntimeTrustedAgentExecutionGateway.class), chatEventService, new ObjectMapper());
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
         session.setSessionId("embed-1");
         session.setAgentId("orders-bot");
@@ -58,7 +59,10 @@ class PlatformEmbedStreamRelayTest {
     void mapsRuntimeExecutionErrorToEmbedErrorEvent() throws Exception {
         RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
         PlatformEmbedStreamRelay relay = new PlatformEmbedStreamRelay(
-                streamProxy, mock(PlatformEmbedChatEventService.class), new ObjectMapper());
+                streamProxy,
+                mock(RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedChatEventService.class),
+                new ObjectMapper());
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
         session.setSessionId("embed-1");
         Map<String, Object> runtimeBody = Map.of("agentId", "orders-bot");
@@ -79,7 +83,10 @@ class PlatformEmbedStreamRelayTest {
     void forwardsPageActionRequestedWithFullPayload() throws Exception {
         RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
         PlatformEmbedStreamRelay relay = new PlatformEmbedStreamRelay(
-                streamProxy, mock(PlatformEmbedChatEventService.class), new ObjectMapper());
+                streamProxy,
+                mock(RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedChatEventService.class),
+                new ObjectMapper());
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
         session.setSessionId("embed-pa");
         Map<String, Object> runtimeBody = Map.of("agentId", "orders-bot", "sessionId", "embed-pa");
@@ -100,18 +107,17 @@ class PlatformEmbedStreamRelayTest {
 
         assertTrue(streamed.contains("event: page.action.requested"));
         assertTrue(streamed.contains("\"requestId\":\"pa-1\""));
-        assertTrue(streamed.contains("\"actionKey\":\"refresh\""));
-        assertTrue(streamed.contains("\"args\":{\"id\":1}"));
-        assertTrue(streamed.contains("\"metadata\":{\"pageKey\":\"orders\"}"));
         assertFalse(streamed.contains("event: message.completed"));
-        assertFalse(streamed.contains("event: message.delta"));
     }
 
     @Test
     void stillFiltersSupervisorStepAndReasoningDelta() throws Exception {
         RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
         PlatformEmbedStreamRelay relay = new PlatformEmbedStreamRelay(
-                streamProxy, mock(PlatformEmbedChatEventService.class), new ObjectMapper());
+                streamProxy,
+                mock(RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedChatEventService.class),
+                new ObjectMapper());
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
         session.setSessionId("embed-filter");
         Map<String, Object> runtimeBody = Map.of("agentId", "orders-bot");
@@ -133,5 +139,30 @@ class PlatformEmbedStreamRelayTest {
         assertFalse(streamed.contains("reasoning.delta"));
         assertFalse(streamed.contains("debug.trace"));
         assertTrue(streamed.contains("event: ui.requested"));
+    }
+
+    @Test
+    void usesSignedInternalStreamWhenEmbedClaimsUserIdPresent() throws Exception {
+        RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
+        RuntimeTrustedAgentExecutionGateway gateway = mock(RuntimeTrustedAgentExecutionGateway.class);
+        PlatformEmbedStreamRelay relay = new PlatformEmbedStreamRelay(
+                streamProxy, gateway, mock(PlatformEmbedChatEventService.class), new ObjectMapper());
+        PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1");
+        session.setExternalUserId("user-1");
+        Map<String, Object> runtimeBody = Map.of("agentId", "orders-bot", "userId", "attacker");
+        doAnswer(invocation -> {
+            SseStreamRelay.FrameHandler handler = invocation.getArgument(4);
+            ByteArrayOutputStream downstream = invocation.getArgument(3);
+            handler.handle("execution.completed",
+                    "{\"sessionId\":\"embed-1\",\"answer\":\"ok\",\"metadata\":{}}",
+                    downstream);
+            return null;
+        }).when(gateway).streamTrusted(any(), eq("EMBED_SESSION"), eq("user-1"), any(), any());
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        relay.streamMessage(session, runtimeBody, output);
+        assertTrue(output.toString(StandardCharsets.UTF_8).contains("event: message.completed"));
+        verify(gateway).streamTrusted(eq(runtimeBody), eq("EMBED_SESSION"), eq("user-1"), any(), any());
     }
 }

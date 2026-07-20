@@ -22,12 +22,26 @@ services:
     url: ${KNOWLEDGE_SERVICE_URL:http://localhost:18602}
 
 reachai:
+  internal:
+    # Shared with Control. Required for /internal/runtime/agents/execute(+stream). Fail-closed when blank.
+    service-secret: ${REACHAI_INTERNAL_SERVICE_SECRET:}
+    auth:
+      skew-seconds: ${REACHAI_INTERNAL_AUTH_SKEW_SECONDS:300}
+      # Must be >= 2 * skew-seconds so future-skew timestamps stay anti-replayable for the full window.
+      nonce-ttl-seconds: ${REACHAI_INTERNAL_AUTH_NONCE_TTL_SECONDS:600}
+      nonce-max-entries: ${REACHAI_INTERNAL_AUTH_NONCE_MAX_ENTRIES:100000}
+      max-body-bytes: ${REACHAI_INTERNAL_AUTH_MAX_BODY_BYTES:1048576}
   runtime:
     agent-stream:
       # SSE transport heartbeat（comment）。浏览器断开后最迟约 1 个 interval + 调度误差内触发上游取消。
       heartbeat-interval-ms: ${AGENT_STREAM_HEARTBEAT_INTERVAL_MS:8000}
     debug-stream:
       heartbeat-interval-ms: ${DEBUG_STREAM_HEARTBEAT_INTERVAL_MS:8000}
+    http:
+      egress:
+        allow-private-networks: ${RUNTIME_HTTP_EGRESS_ALLOW_PRIVATE:false}
+        host-allowlist: ${RUNTIME_HTTP_EGRESS_HOST_ALLOWLIST:}
+        max-redirects: ${RUNTIME_HTTP_EGRESS_MAX_REDIRECTS:3}
 
 management:
   endpoints:

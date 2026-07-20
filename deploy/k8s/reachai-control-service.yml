@@ -47,6 +47,11 @@ spec:
               value: http://reachai-model-service:18601
             - name: KNOWLEDGE_SERVICE_URL
               value: http://reachai-knowledge-service:18602
+            - name: REACHAI_INTERNAL_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: reachai-internal-service-secret
           resources:
             requests:
               memory: "512Mi"

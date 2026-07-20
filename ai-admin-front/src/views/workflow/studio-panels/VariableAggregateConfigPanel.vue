@@ -13,7 +13,20 @@
     </div>
     <div v-for="(item, index) in config.items" :key="index" class="aggregate-row">
       <el-input v-model="item.name" placeholder="名称" />
-      <el-input v-model="item.source" placeholder="来源表达式，如 lastOutput / params.id" />
+      <el-select
+        v-model="item.source"
+        filterable
+        allow-create
+        default-first-option
+        placeholder="来源，如 var.result / nodeOutput.n1 / input"
+      >
+        <el-option
+          v-for="option in normalizedVariableOptions"
+          :key="option"
+          :label="option"
+          :value="option"
+        />
+      </el-select>
       <el-button text type="danger" @click="config.items.splice(index, 1)">删除</el-button>
     </div>
   </div>
@@ -21,10 +34,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { CanvasNodeData, VariableAggregateNodeConfig } from '@/types/studio'
+import type { CanvasNodeData, StudioVariableOption, VariableAggregateNodeConfig } from '@/types/studio'
 
 const props = defineProps<{
   data: CanvasNodeData
+  variableOptions?: Array<string | StudioVariableOption>
 }>()
 
 const config = computed<VariableAggregateNodeConfig>(() => {
@@ -34,6 +48,11 @@ const config = computed<VariableAggregateNodeConfig>(() => {
     template: '',
   }
   return props.data.aggregateConfig
+})
+
+const normalizedVariableOptions = computed(() => {
+  const options = props.variableOptions || []
+  return options.map((item) => (typeof item === 'string' ? item : item.value)).filter(Boolean)
 })
 
 function addItem() {

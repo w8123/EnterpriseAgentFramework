@@ -1,8 +1,10 @@
 package com.enterprise.ai.runtime.debug;
 
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.enterprise.ai.runtime.api.SseHeartbeatSupport;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
+import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -105,6 +107,7 @@ public class RuntimeExecutableDebugSessionService {
         entity.setTraceId(firstText(run.traceId(), runId));
         entity.setTargetType(firstText(request.targetType(), "WORKFLOW_DRAFT"));
         entity.setStatus(normalizeStatus(run.status()));
+        entity.setRevision(0);
         entity.setCurrentNodeId(run.currentNodeId());
         entity.setDraftDefinitionJson(writeJson(request.draftDefinition()));
         entity.setDebugOptionsJson(writeJson(options));
@@ -134,11 +137,30 @@ public class RuntimeExecutableDebugSessionService {
                               RuntimeGraphSpecExecutionCancellation cancellation) {
         RuntimeExecutableDebugSessionEntity entity = requireSession(sessionId);
         String status = normalizeStatus(entity.getStatus());
+        Map<String, Object> submitted = request == null || request.values() == null
+                ? new LinkedHashMap<>()
+                : new LinkedHashMap<>(request.values());
+        String idempotencyKey = request == null ? null : request.idempotencyKey();
+        String submittedCanonical = writeJson(canonicalSubmitPayload(
+                firstText(request == null ? null : request.action(), "submit"),
+                submitted,
+                request == null ? null : request.interactionId(),
+                entity.getCurrentNodeId()));
+
         if (!"WAITING".equalsIgnoreCase(status)) {
+            if (StringUtils.hasText(idempotencyKey)
+                    && idempotencyKey.equals(entity.getIdempotencyKey())
+                    && submittedCanonical.equals(entity.getSubmittedPayloadJson())) {
+                return toView(entity);
+            }
+            if (StringUtils.hasText(idempotencyKey)
+                    && idempotencyKey.equals(entity.getIdempotencyKey())
+                    && !submittedCanonical.equals(nullToEmpty(entity.getSubmittedPayloadJson()))) {
+                throw new IllegalStateException("duplicate debug submit with different payload: " + sessionId);
+            }
             throw new IllegalArgumentException("debug session is not waiting: " + sessionId);
         }
         String action = firstText(request == null ? null : request.action(), "submit");
-        // 交互取消：结束 WAITING，不继续执行下游节点
         if ("cancel".equalsIgnoreCase(action)) {
             return cancel(sessionId);
         }
@@ -146,20 +168,65 @@ public class RuntimeExecutableDebugSessionService {
             throw new IllegalArgumentException("debug session has no waiting node: " + sessionId);
         }
 
+        Map<String, Object> currentUi = readMap(entity.getUiRequestJson());
+        String waitingInteractionId = text(currentUi.get("interactionId"));
+        String requestInteractionId = request == null ? null : text(request.interactionId());
+        if (StringUtils.hasText(waitingInteractionId)
+                && StringUtils.hasText(requestInteractionId)
+                && !waitingInteractionId.equals(requestInteractionId)) {
+            throw new IllegalArgumentException(
+                    "interactionId does not match waiting interaction: " + requestInteractionId);
+        }
+        if (!StringUtils.hasText(requestInteractionId) && StringUtils.hasText(waitingInteractionId)) {
+            requestInteractionId = waitingInteractionId;
+        }
+
+        if (StringUtils.hasText(idempotencyKey)
+                && idempotencyKey.equals(entity.getIdempotencyKey())
+                && submittedCanonical.equals(entity.getSubmittedPayloadJson())) {
+            return toView(entity);
+        }
+        if (StringUtils.hasText(idempotencyKey)
+                && idempotencyKey.equals(entity.getIdempotencyKey())
+                && StringUtils.hasText(entity.getSubmittedPayloadJson())
+                && !submittedCanonical.equals(entity.getSubmittedPayloadJson())) {
+            throw new IllegalStateException("duplicate debug submit with different payload: " + sessionId);
+        }
+
+        // Atomic CAS: WAITING + revision -> RESUMING
+        if (!claimDebugResuming(entity, idempotencyKey, submittedCanonical)) {
+            RuntimeExecutableDebugSessionEntity latest = requireSession(sessionId);
+            if (StringUtils.hasText(idempotencyKey)
+                    && idempotencyKey.equals(latest.getIdempotencyKey())
+                    && submittedCanonical.equals(latest.getSubmittedPayloadJson())) {
+                return toView(latest);
+            }
+            if ("RESUMING".equalsIgnoreCase(normalizeStatus(latest.getStatus()))) {
+                throw new IllegalStateException("debug submit in progress: " + sessionId);
+            }
+            throw new IllegalStateException("concurrent debug submit rejected: " + sessionId);
+        }
+
         Map<String, Object> draft = readMap(entity.getDraftDefinitionJson());
         Map<String, Object> state = readMap(entity.getStateJson());
-        Map<String, Object> submitted = request == null || request.values() == null
-                ? new LinkedHashMap<>()
-                : new LinkedHashMap<>(request.values());
-        Map<String, Object> submittedPayload = Map.of(
-                "action", firstText(request == null ? null : request.action(), "submit"),
-                "values", submitted);
+        Map<String, Object> resume = new LinkedHashMap<>();
+        resume.put("interactionId", firstText(requestInteractionId, waitingInteractionId));
+        resume.put("nodeId", entity.getCurrentNodeId());
+        resume.put("action", action);
+        resume.put("values", submitted);
+        if (StringUtils.hasText(idempotencyKey)) {
+            resume.put("idempotencyKey", idempotencyKey);
+        }
         Map<String, Object> params = new LinkedHashMap<>(asMap(state.get(REQUEST_PARAMS)));
         params.putAll(submitted);
         state.put(REQUEST_PARAMS, params);
         state.put("params", params);
-        state.put("submittedPayload", submittedPayload);
-        state.put("values", submittedPayload);
+        state.put(WorkflowInteractionCodes.RESUME_CONTEXT_KEY, resume);
+        state.put(WorkflowInteractionCodes.PENDING_INTERACTION_ID_KEY,
+                firstText(requestInteractionId, waitingInteractionId));
+        state.put(WorkflowInteractionCodes.PENDING_INTERACTION_NODE_KEY, entity.getCurrentNodeId());
+        // 禁止全局 submittedPayload 泄漏到后续 INTERACTION
+        state.remove("submittedPayload");
         if (request != null && StringUtils.hasText(request.message())) {
             state.put("message", request.message());
             state.put("input", request.message());
@@ -170,14 +237,21 @@ public class RuntimeExecutableDebugSessionService {
         options.put("runId", entity.getRunId());
         options.put("traceId", entity.getTraceId());
         options.put("sessionId", entity.getId());
-        options.put("submittedPayload", submittedPayload);
+        options.remove("submittedPayload");
+        options.remove("submitLock");
 
-        RuntimeWorkflowDebugService.DebugRunResult run = workflowDebugService.debugRun(debugRunRequest(
-                entity.getTargetType(),
-                draft,
-                request == null ? "" : nullToEmpty(request.message()),
-                state,
-                options), eventSink, cancellation);
+        RuntimeWorkflowDebugService.DebugRunResult run;
+        try {
+            run = workflowDebugService.debugRun(debugRunRequest(
+                    entity.getTargetType(),
+                    draft,
+                    request == null ? "" : nullToEmpty(request.message()),
+                    state,
+                    options), eventSink, cancellation);
+        } catch (RuntimeException ex) {
+            rollbackDebugWaiting(entity);
+            throw ex;
+        }
 
         List<MessageView> messages = readMessages(entity.getMessagesJson());
         messages.add(message("user", submitMessage(request, submitted), entity.getCurrentNodeId(), entity.getTraceId(), null));
@@ -185,12 +259,27 @@ public class RuntimeExecutableDebugSessionService {
         List<RuntimeWorkflowDebugService.DebugStepResult> steps = readSteps(entity.getStepsJson());
         steps.addAll(run.steps() == null ? List.of() : run.steps());
 
-        entity.setStatus(normalizeStatus(run.status()));
+        // 校验失败仍 WAITING：保留原 interactionId / currentNodeId
+        String nextStatus = normalizeStatus(run.status());
+        entity.setStatus(nextStatus);
         entity.setCurrentNodeId(run.currentNodeId());
-        entity.setStateJson(writeJson(run.finalState()));
+        Map<String, Object> finalState = run.finalState() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(run.finalState());
+        finalState.remove("submittedPayload");
+        finalState.remove(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
+        entity.setStateJson(writeJson(finalState));
         entity.setMessagesJson(writeJson(messages));
         entity.setStepsJson(writeJson(steps));
         entity.setUiRequestJson(writeJson(run.uiRequest()));
+        entity.setDebugOptionsJson(writeJson(options));
+        entity.setResultJson(writeJson(Map.of(
+                "code", firstText(run.errorCode(), nextStatus),
+                "answer", nullToEmpty(run.answer()),
+                "status", nextStatus)));
+        if (StringUtils.hasText(idempotencyKey)) {
+            entity.setIdempotencyKey(idempotencyKey);
+        }
+        entity.setSubmittedPayloadJson(submittedCanonical);
+        entity.setRevision((entity.getRevision() == null ? 0 : entity.getRevision()) + 1);
         entity.setUpdateTime(LocalDateTime.now());
         mapper.updateById(entity);
         return toView(entity);
@@ -623,6 +712,61 @@ public class RuntimeExecutableDebugSessionService {
         return entity;
     }
 
+    private boolean claimDebugResuming(RuntimeExecutableDebugSessionEntity entity,
+                                       String idempotencyKey,
+                                       String submittedCanonical) {
+        RuntimeExecutableDebugSessionEntity latest = requireSession(entity.getId());
+        int revision = latest.getRevision() == null ? 0 : latest.getRevision();
+        UpdateWrapper<RuntimeExecutableDebugSessionEntity> update = new UpdateWrapper<>();
+        update.eq("id", latest.getId())
+                .eq("status", "WAITING")
+                .eq("revision", revision)
+                .set("status", "RESUMING")
+                .set("revision", revision + 1)
+                .set("update_time", LocalDateTime.now());
+        if (StringUtils.hasText(idempotencyKey)) {
+            update.set("idempotency_key", idempotencyKey);
+        }
+        if (StringUtils.hasText(submittedCanonical)) {
+            update.set("submitted_payload_json", submittedCanonical);
+        }
+        int rows = mapper.update(null, update);
+        if (rows != 1) {
+            return false;
+        }
+        entity.setStatus("RESUMING");
+        entity.setRevision(revision + 1);
+        if (StringUtils.hasText(idempotencyKey)) {
+            entity.setIdempotencyKey(idempotencyKey);
+        }
+        entity.setSubmittedPayloadJson(submittedCanonical);
+        return true;
+    }
+
+    private void rollbackDebugWaiting(RuntimeExecutableDebugSessionEntity entity) {
+        UpdateWrapper<RuntimeExecutableDebugSessionEntity> update = new UpdateWrapper<>();
+        update.eq("id", entity.getId())
+                .eq("status", "RESUMING")
+                .set("status", "WAITING")
+                .set("revision", (entity.getRevision() == null ? 0 : entity.getRevision()) + 1)
+                .set("idempotency_key", null)
+                .set("update_time", LocalDateTime.now());
+        mapper.update(null, update);
+        entity.setStatus("WAITING");
+    }
+
+    private Map<String, Object> canonicalSubmitPayload(String action,
+                                                       Map<String, Object> values,
+                                                       String interactionId,
+                                                       String nodeId) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", firstText(action, "submit"));
+        payload.put("values", values == null ? Map.of() : values);
+        payload.put("interactionId", nullToEmpty(interactionId));
+        payload.put("nodeId", nullToEmpty(nodeId));
+        return payload;
+    }
+
     private MessageView message(String role, String content, String nodeId, String traceId, Object uiRequest) {
         return new MessageView(
                 UUID.randomUUID().toString(),
@@ -748,7 +892,12 @@ public class RuntimeExecutableDebugSessionService {
 
     public record SubmitRequest(String action,
                                 Map<String, Object> values,
-                                String message) {
+                                String message,
+                                String interactionId,
+                                String idempotencyKey) {
+        public SubmitRequest(String action, Map<String, Object> values, String message) {
+            this(action, values, message, null, null);
+        }
     }
 
     public record MessageView(String id,

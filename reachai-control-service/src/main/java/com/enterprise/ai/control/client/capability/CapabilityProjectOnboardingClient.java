@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 
+import java.util.List;
 import java.util.Map;
 
 @FeignClient(name = "reachai-capability-project-onboarding", url = "${services.capability-service.url:http://localhost:18605}")
@@ -21,4 +22,10 @@ public interface CapabilityProjectOnboardingClient {
     Map<String, Object> updateAiCodingAccess(
             @PathVariable("projectId") Long projectId,
             @RequestBody ControlAiAssistProjectController.AiCodingAccessUpdateRequest request);
+
+    @GetMapping("/internal/capability/projects/by-id/{projectId}/readiness-facts")
+    Map<String, Object> getReadinessFacts(@PathVariable("projectId") Long projectId);
+
+    @GetMapping("/internal/capability/projects/by-id/{projectId}/tools")
+    List<Map<String, Object>> listProjectTools(@PathVariable("projectId") Long projectId);
 }

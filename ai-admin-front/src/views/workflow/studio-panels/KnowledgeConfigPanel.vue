@@ -25,17 +25,17 @@
     <el-form-item label="重排">
       <el-switch v-model="config.rerankEnabled" />
     </el-form-item>
-    <el-form-item label="直接返回">
-      <el-switch v-model="config.directReturnEnabled" />
-    </el-form-item>
-    <el-form-item label="直出阈值">
-      <el-slider v-model="config.directReturnThreshold" :min="0" :max="1" :step="0.01" show-input />
-    </el-form-item>
+    <el-alert
+      title="本节点只返回检索 hits，不生成 LLM 答案；directReturn 不适用于 Workflow 节点。"
+      type="info"
+      :closable="false"
+      show-icon
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import type { CanvasNodeData, KnowledgeNodeConfig } from '@/types/studio'
 import type { KnowledgeBase } from '@/types/knowledge'
 
@@ -52,9 +52,27 @@ const config = computed<KnowledgeNodeConfig>(() => {
     similarityThreshold: 0.5,
     searchMode: 'hybrid',
     rerankEnabled: true,
-    directReturnEnabled: false,
-    directReturnThreshold: 0.85,
   }
-  return props.data.knowledgeConfig
+  const cfg = props.data.knowledgeConfig as KnowledgeNodeConfig & {
+    directReturnEnabled?: boolean
+    directReturnThreshold?: number
+  }
+  delete cfg.directReturnEnabled
+  delete cfg.directReturnThreshold
+  return cfg
 })
+
+watch(
+  () => props.data.knowledgeConfig,
+  (value) => {
+    if (!value) return
+    const cfg = value as KnowledgeNodeConfig & {
+      directReturnEnabled?: boolean
+      directReturnThreshold?: number
+    }
+    delete cfg.directReturnEnabled
+    delete cfg.directReturnThreshold
+  },
+  { deep: true },
+)
 </script>

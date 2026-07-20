@@ -1,0 +1,2 @@
+SLF4J(E): A service provider failed to instantiate:
+org.slf4j.spi.SLF4JServiceProvider: Provider org.slf4j.reload4j.Reload4jServiceProvider could not be instantiated

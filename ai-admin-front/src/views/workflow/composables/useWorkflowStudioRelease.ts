@@ -29,6 +29,7 @@ export interface UseWorkflowStudioReleaseDeps {
   validateCurrentDraft: () => Promise<WorkflowRuntimeValidationResult | null>
   saveStudio: () => Promise<WorkflowStudioState | null>
   loadStudio: () => Promise<WorkflowStudioState | null>
+  ensurePanelValidationClear?: () => boolean
 }
 
 export function useWorkflowStudioRelease({
@@ -49,6 +50,7 @@ export function useWorkflowStudioRelease({
   validateCurrentDraft,
   saveStudio,
   loadStudio,
+  ensurePanelValidationClear,
 }: UseWorkflowStudioReleaseDeps) {
   const publishWarnings: ComputedRef<string[]> = computed(() => {
     const warnings: string[] = []
@@ -87,6 +89,9 @@ export function useWorkflowStudioRelease({
   async function publishWorkflow() {
     if (studioReadOnly.value) {
       ElMessage.info('代码托管 Workflow 当前为只读草稿，请修改后重启同步。')
+      return
+    }
+    if (ensurePanelValidationClear && !ensurePanelValidationClear()) {
       return
     }
     publishDialogOpen.value = true

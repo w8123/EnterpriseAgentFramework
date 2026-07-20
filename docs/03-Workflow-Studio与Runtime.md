@@ -65,7 +65,79 @@ Workflow Studio 是唯一的画布编辑器：
 - AI 生成使用 `POST /api/workflows/studio/generate-draft`。
 - AI 编排使用 `POST /api/workflows/studio/edit-draft`：AgentScope Authoring Adapter 通过受约束工具修改内存候选，确定性内核负责 mutation / validation；仅 `status=SUCCEEDED` 可应用到草稿。
 
-新增节点或 Runtime 行为必须把可执行语义写入 Workflow `GraphSpec`，不能只扩展前端画布。Workflow 仍可独立调试、发布、回滚和回放；被 Agent 使用时，它是 Supervisor 的受控工具，而不是静态入口路由。
+### 节点能力目录
+
+`RuntimeWorkflowNodeCapabilityRegistry` 是 Workflow 节点产品开放策略的统一事实源；`RuntimeGraphSpecExecutor.handledNodeTypes()` 是 Runtime 真实可执行 Handler 集合。`GET /api/workflows/graph-node-types`、Studio Palette、发布校验和网页 AI 编排共同消费该目录，不再各自维护一份“可见/可生成/可发布”列表。
+
+成熟度含义：
+
+- `STABLE`：Runtime 可执行，且允许 Studio 新增、网页 AI 编排与发布。
+- `BETA`：Runtime 可执行并允许开放使用，但可能带结构化 warning（例如 `PAGE_ACTION` 的 `GRAPH_NODE_BETA`）；个别 BETA 节点（如 `INTERACTION`）可因闭环未完成而禁止 Studio/AI/发布。
+- `PLANNED`：协议身份已声明，但 Runtime Handler 尚未实现；禁止 Studio 新增、AI 编排和发布。
+
+外部 AI Coding 本阶段不作为验收范围；共享 mutation 内核仍会拒绝不可编排节点。新增节点或 Runtime 行为必须把可执行语义写入 Workflow `GraphSpec`，不能只扩展前端画布。Workflow 仍可独立调试、发布、回滚和回放；被 Agent 使用时，它是 Supervisor 的受控工具，而不是静态入口路由。
+
+当前受控开放节点约 **15** 个（`studioEnabled/publishable/aiAuthoring=true` 且 Runtime 有真实 Handler）：
+
+| 成熟度 | 节点 |
+| --- | --- |
+| STABLE | `USER_INPUT`、`INTENT_CLASSIFIER`、`IF_ELSE`、`PARAMETER_EXTRACT`、`LLM`、`TOOL`、`CAPABILITY`、`ANSWER`、`VARIABLE_ASSIGN`、`TEMPLATE`、`VARIABLE_AGGREGATOR` |
+| BETA（开放） | `PAGE_ACTION`、`KNOWLEDGE_RETRIEVAL`、`HTTP_REQUEST`、`LOOP`（FOREACH v1；Browser/Live E2E 仍 PENDING） |
+| BETA（关闭） | `INTERACTION` — Runtime Handler 已具备（CODE_READY），待 Agent/Embed/RunOps Live E2E 后才开放（E2E_PENDING） |
+
+第一阶段 5 类节点 + LOOP v1 状态：
+
+- **SECURITY_SCOPE_CLOSED**：五项安全边界已收口；扩展项见 `docs/ai-memory/SECURITY-BACKLOG.md`
+- **CODE_READY + AUTOMATED_TESTS_PASSED**：KR/HTTP/LOOP 自动化门槛已过
+- **BROWSER/LIVE_E2E_PENDING / LOOP_E2E_PENDING**：浏览器 Studio、真实知识库、外部 HTTP、Agent/Embed、LOOP Live 未在本轮执行（本地服务端口未就绪时记 NOT RUN）
+- **PRODUCTION_PENDING**：不得报告 Production Ready
+
+`LOOP` v1 契约（平面 GraphSpec + 受控循环体）：
+
+- 仅 `FOREACH` 有界串行；默认 `maxIterations=100`，硬上限 `1000`
+- `collection` / `itemAlias` / `indexAlias` / `outputAlias` / `bodyOutput` / `bodyEntry` / `bodyExit` / `bodyNodeIds`
+- 循环体边不进入主图任意环检测；禁止外部跳入、body 逃逸、嵌套 LOOP、body 内 INTERACTION/HUMAN_APPROVAL
+- Trace 仅保留 collectionSize/completedIterations/index/status，禁止 item 原文
+
+AI Draft 的 `nodeTypes` 与 system prompt 均以 `RuntimeWorkflowNodeCapabilityRegistry.aiAuthoringCatalog()` 为唯一事实源。
+
+可信身份与内部调用：
+
+- Control→Runtime 可信执行必须使用 HMAC-SHA256 + `BODY_SHA256`（`REACHAI_INTERNAL_SERVICE_SECRET`，K8s `reachai-internal-service-secret`）保护 sync/SSE；nonce 仅清理过期，满容 fail-closed。
+- Agent：Bearer 合法 → `AGENT` + 平台 userId；无/无效 Bearer → `userTrusted=false`；RunOps 审计 userId 同理。
+- Embed：仅已验签 claims userId → `EMBED_SESSION`；body attacker userId 永远无效。
+- 公开 Runtime stream / body 中的 `source`/`userId`/`trustedIdentity` 全部不可信。
+
+变量与输出契约：
+
+- `input` / `message`：入口输入，运行中只读
+- `params` / `sys` / `nodeOutput.<nodeId>`：保留命名空间
+- `var.<alias>`：`outputAlias` 与 `VARIABLE_ASSIGN` 的规范业务命名空间（由 Runtime 统一写入）
+- `lastOutput` / `previousOutput`：Runtime 便利字段，不作为设计期主入口
+- 模板缺失变量渲染为空字符串（与 ANSWER/LLM 一致）
+- `VARIABLE_ASSIGN` 保存原生 JSON 类型（number/boolean/object/array/null/表达式字符串），Save/reopen 不得全部 `String(value)`
+
+节点失败策略（`GraphSpec.ErrorPolicy`）由执行器公共边界消费：`TERMINATE` / `CONTINUE`（使用 `defaultOutput`）/ `FALLBACK`（跳转 `fallbackNodeId`，禁止自环与不可控循环）。`RetryPolicy` 仅在 `AgentGraphNodeType.retryable()==true`、失败可分类为 retryable、且非 WAITING_USER/CANCELLED/配置类错误时生效；`HTTP_REQUEST` 默认仅幂等方法（GET/HEAD/OPTIONS）可重试，非幂等方法需显式 `retryAllowNonIdempotent=true`。
+
+HTTP 契约：
+
+- 成功状态：仅 HTTP 200–299；4xx/5xx → `success=false`，供 Retry/ErrorPolicy 消费
+- Canonical 凭据类型：`BEARER`、`BASIC`、`API_KEY_HEADER`、`API_KEY_QUERY`、`CUSTOM_HEADERS`（历史别名仅在单一 normalize 层转换）
+- Scope fail-closed：PROJECT 凭据在缺少 `projectId/projectCode` 时拒绝；list 无项目身份时仅返回 GLOBAL
+- Redirect：credentialed 请求禁止跨 origin；HTTPS→HTTP 降级拒绝；同 origin 仍重新做 egress 校验
+- Trace：只保留无 query 的 safe URL、status、duration、bytes、contentType、redirectCount；不落 secret / bodyPreview
+
+Knowledge 契约：
+
+- Runtime 仅调用 `POST /internal/knowledge/retrieval/query`（hits only，不生成 LLM 答案）
+- `searchMode`=`vector|keyword|hybrid` 与 `rerankEnabled` 作为 request override 进入生产 `retrievalTest` 路径，不修改 KnowledgeBase 持久化配置
+- 用户文件 ACL 过滤生效；Workflow 节点不再暴露 `directReturnEnabled/directReturnThreshold`（KnowledgeBase 管理域同名配置不受影响）
+
+Trace 边界：
+
+- Studio Debug 可继续推送受控 node 事件
+- Agent/Embed 公开 SSE **不**推送内部 node delta
+- 内部始终收集 `workflowNodeTraces` 并持久化为 RunOps `WORKFLOW_NODE` Span（含真实 latency / attempt / errorPolicy / 安全 traceSummary）
 
 ## Page Bridge 跨路由协议
 

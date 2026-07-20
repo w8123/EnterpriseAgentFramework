@@ -17,6 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -87,13 +88,13 @@ public class RuntimePublicController {
 
     @PostMapping("/api/runtime/agents/execute")
     public ResponseEntity<Map<String, Object>> executeAgent(@RequestBody(required = false) Map<String, Object> body) {
-        return ResponseEntity.ok(agentExecutionService.execute(body, false));
+        return responseForAgentResult(agentExecutionService.execute(body, false));
     }
 
     @PostMapping("/api/runtime/agents/execute/detailed")
     public ResponseEntity<Map<String, Object>> executeAgentDetailed(
             @RequestBody(required = false) Map<String, Object> body) {
-        return ResponseEntity.ok(agentExecutionService.execute(body, true));
+        return responseForAgentResult(agentExecutionService.execute(body, true));
     }
 
     @PostMapping(value = "/api/runtime/agents/execute/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -255,12 +256,25 @@ public class RuntimePublicController {
                 return;
             }
             Object answer = result.get("answer");
+            boolean waiting = isInteractionWaiting(result);
             boolean contentAlreadyStreamed = isContentStreamed(result);
-            if (!contentAlreadyStreamed && answer != null && !String.valueOf(answer).isEmpty()) {
+            if (!waiting && !contentAlreadyStreamed && answer != null && !String.valueOf(answer).isEmpty()) {
                 sendEvent(emitter, "message.delta", Map.of("text", String.valueOf(answer)), cancellation);
             }
             if (result.get("uiRequest") != null) {
                 sendEvent(emitter, "ui.requested", result.get("uiRequest"), cancellation);
+            }
+            if (waiting) {
+                Map<String, Object> waitingPayload = new LinkedHashMap<>();
+                waitingPayload.put("status", "WAITING_USER");
+                Object metadata = result.get("metadata");
+                if (metadata instanceof Map<?, ?> map && map.get("interactionId") != null) {
+                    waitingPayload.put("interactionId", map.get("interactionId"));
+                }
+                if (result.get("uiRequest") != null) {
+                    waitingPayload.put("uiRequest", result.get("uiRequest"));
+                }
+                sendEvent(emitter, "turn.waiting", waitingPayload, cancellation);
             }
             sendEvent(emitter, "execution.completed", result, cancellation);
             if (!cancellation.isCancelled()) {
@@ -285,12 +299,89 @@ public class RuntimePublicController {
         }
     }
 
+    static ResponseEntity<Map<String, Object>> responseForAgentResult(Map<String, Object> result) {
+        if (result == null) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "code", "AGENT_EXECUTION_FAILED"));
+        }
+        String code = agentResultCode(result);
+        if ("RUNTIME_INTERACTION_FORBIDDEN".equals(code)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(result);
+        }
+        if ("RUNTIME_INTERACTION_CONFLICT".equals(code)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(result);
+        }
+        if ("RUNTIME_INTERACTION_EXPIRED".equals(code)) {
+            return ResponseEntity.status(HttpStatus.GONE).body(result);
+        }
+        if ("RUNTIME_INTERACTION_NOT_FOUND".equals(code)
+                || "RUNTIME_INTERACTION_SESSION_REQUIRED".equals(code)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(result);
+        }
+        if ("RUNTIME_INTERACTION_CANCELLED".equals(code)
+                || "RUNTIME_INTERACTION_NOT_WAITING".equals(code)
+                || "RUNTIME_INTERACTION_GRAPH_MISSING".equals(code)
+                || "RUNTIME_INTERACTION_TRACE_MISSING".equals(code)
+                || "RUNTIME_INTERACTION_CONTINUATION_INVALID".equals(code)) {
+            return ResponseEntity.badRequest().body(result);
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    static String agentResultCode(Map<String, Object> result) {
+        if (result == null) {
+            return null;
+        }
+        Object direct = result.get("code");
+        if (direct != null && String.valueOf(direct).startsWith("RUNTIME_INTERACTION_")) {
+            return String.valueOf(direct);
+        }
+        Object metadata = result.get("metadata");
+        if (metadata instanceof Map<?, ?> map && map.get("code") != null) {
+            return String.valueOf(map.get("code"));
+        }
+        return direct == null ? null : String.valueOf(direct);
+    }
+
     static boolean isExecutionFailure(Map<String, Object> result) {
         if (result == null) {
             return true;
         }
+        if (isInteractionWaiting(result)) {
+            return false;
+        }
         Object success = result.get("success");
         return Boolean.FALSE.equals(success) || "false".equalsIgnoreCase(String.valueOf(success));
+    }
+
+    static boolean isInteractionWaiting(Map<String, Object> result) {
+        if (result == null) {
+            return false;
+        }
+        if (result.get("uiRequest") != null) {
+            Object metadata = result.get("metadata");
+            if (metadata instanceof Map<?, ?> map) {
+                if (Boolean.TRUE.equals(map.get("interactionPending"))) {
+                    return true;
+                }
+                String code = String.valueOf(map.get("code"));
+                if ("RUNTIME_GRAPH_INTERACTION_WAITING".equals(code)
+                        || "SUPERVISOR_CONFIRMATION_REQUIRED".equals(code)) {
+                    return true;
+                }
+            }
+        }
+        Object metadata = result.get("metadata");
+        if (metadata instanceof Map<?, ?> map) {
+            if (Boolean.TRUE.equals(map.get("interactionPending"))) {
+                return true;
+            }
+            String code = String.valueOf(map.get("code"));
+            return "RUNTIME_GRAPH_INTERACTION_WAITING".equals(code)
+                    || "SUPERVISOR_CONFIRMATION_REQUIRED".equals(code);
+        }
+        return false;
     }
 
     static boolean isSupervisorCancelled(Map<String, Object> result) {

@@ -39,12 +39,29 @@ const sdkAccessWizardSnippetsSource = readFileSync(
 const sdkAccessWorkbenchSource = `${sdkAccessWizardSource}\n${sdkAccessWizardSnippetsSource}`
 const scanProjectApiSource = readFileSync(join(process.cwd(), 'src/api/scanProject.ts'), 'utf8')
 const scanProjectTypesSource = readFileSync(join(process.cwd(), 'src/types/scanProject.ts'), 'utf8')
-const pageAssistantRegistrySource = execFileSync('rg', ['--files', 'src/views/registry'], {
-  encoding: 'utf8',
-})
-  .split(/\r?\n/)
-  .filter((path) => /\.(?:ts|vue)$/.test(path))
-  .map((path) => readFileSync(join(process.cwd(), path), 'utf8'))
+function listRegistrySources() {
+  try {
+    return execFileSync('rg', ['--files', 'src/views/registry'], { encoding: 'utf8' })
+      .split(/\r?\n/)
+      .filter((path) => /\.(?:ts|vue)$/.test(path))
+      .map((path) => join(process.cwd(), path))
+  } catch {
+    const { readdirSync, statSync } = require('node:fs')
+    const collected = []
+    const walk = (dir) => {
+      for (const name of readdirSync(dir)) {
+        const full = join(dir, name)
+        if (statSync(full).isDirectory()) walk(full)
+        else if (/\.(?:ts|vue)$/.test(name)) collected.push(full)
+      }
+    }
+    walk(join(process.cwd(), 'src/views/registry'))
+    return collected
+  }
+}
+
+const pageAssistantRegistrySource = listRegistrySources()
+  .map((path) => readFileSync(path, 'utf8'))
   .join('\n')
 const pageAssistantSkillSource = readFileSync(
   join(
@@ -544,12 +561,45 @@ assert.match(sdkAccessWorkbenchSource, /运行时浏览器不得调用 provision
 assert.match(sdkAccessWorkbenchSource, /浏览器运行时代码不得 fetch \/api\/ai-coding\/projects\/\*\*/)
 assert.match(sdkAccessWorkbenchSource, /@ReachOutput\s*只用于返回 DTO 字段/)
 assert.match(sdkAccessWorkbenchSource, /CODE_READY[\s\S]*RUNTIME_READY[\s\S]*E2E_READY/)
-assert.match(sdkAccessWorkbenchSource, /网关接入必查 5 项/)
+assert.match(sdkAccessWorkbenchSource, /网关接入必查 6 项/)
 assert.match(sdkAccessWorkbenchSource, /前端 :9200[\s\S]*网关 :8080[\s\S]*ReachAI :18603/)
 assert.match(onboardingSkillSource, /`?@ReachOutput`?\s+is field-only/)
 assert.match(onboardingSkillSource, /CODE_READY[\s\S]*RUNTIME_READY[\s\S]*E2E_READY/)
 assert.match(onboardingJavaSdkAccessSource, /Gateway checklist/)
 assert.match(onboardingJavaSdkAccessSource, /Local dev topology/)
+
+// Embed SDK tarball contract from manifest.sdkArtifacts (no business-side build:sdk fallback).
+assert.match(
+  sdkAccessWorkbenchSource,
+  /manifest\.sdkArtifacts|packageName=\$\{npmArtifact\.packageName/,
+  'SdkAccessWizard prompt must read npm artifact fields from manifest.sdkArtifacts',
+)
+assert.match(sdkAccessWorkbenchSource, /integritySha256/)
+assert.match(sdkAccessWorkbenchSource, /downloadUrl/)
+assert.match(sdkAccessWorkbenchSource, /installWorkingDirectory/)
+assert.match(sdkAccessWorkbenchSource, /artifactPathWithinSkill/)
+assert.match(sdkAccessWorkbenchSource, /installCommandTemplate|installCommand/)
+assert.match(sdkAccessWorkbenchSource, /fallbackPolicy/)
+assert.match(scanProjectTypesSource, /integritySha256\?:/)
+assert.match(scanProjectTypesSource, /installWorkingDirectory\?:/)
+assert.match(scanProjectTypesSource, /artifactPathWithinSkill\?:/)
+assert.match(scanProjectTypesSource, /export interface GatewayChecklistItem/)
+assert.match(scanProjectTypesSource, /gatewayChecklist\?:/)
+assert.doesNotMatch(
+  sdkAccessWorkbenchSource,
+  /平台不是 SDK 文件服务器/,
+  'SdkAccessWizard must not keep the old "platform is not an SDK file server" wording',
+)
+assert.doesNotMatch(
+  sdkAccessWorkbenchSource,
+  /也可在 ReachAI 前端包执行 npm run build:sdk|去 ReachAI 前端.*build:sdk/,
+  'SdkAccessWizard must not recommend business-side build:sdk fallback',
+)
+assert.match(
+  onboardingSkillSource,
+  /artifactPathWithinSkill|installWorkingDirectory|installCommandTemplate/,
+  'Onboarding skill must document skill-zip absolute tarball install semantics',
+)
 
 assert.doesNotMatch(
   sdkAccessWorkbenchSource,

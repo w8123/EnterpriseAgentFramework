@@ -1,9 +1,12 @@
 package com.enterprise.ai.runtime.workflow.mutation;
 
+import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
+import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityDescriptor;
+import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityRegistry;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -21,13 +24,26 @@ import java.util.Map;
  * the same semantic mutation rules while keeping their own transport and authorization boundaries.</p>
  */
 @Service
-@RequiredArgsConstructor
 public class RuntimeWorkflowGraphMutationService {
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
     private final ObjectMapper objectMapper;
+    private final RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry;
+
+    public RuntimeWorkflowGraphMutationService(ObjectMapper objectMapper) {
+        this(objectMapper, new RuntimeWorkflowNodeCapabilityRegistry());
+    }
+
+    @Autowired
+    public RuntimeWorkflowGraphMutationService(ObjectMapper objectMapper,
+                                               RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry) {
+        this.objectMapper = objectMapper;
+        this.nodeCapabilityRegistry = nodeCapabilityRegistry == null
+                ? new RuntimeWorkflowNodeCapabilityRegistry()
+                : nodeCapabilityRegistry;
+    }
 
     public MutationResult mutate(GraphSpec source, List<MutationOperation> operations) {
         if (source == null) {
@@ -75,6 +91,7 @@ public class RuntimeWorkflowGraphMutationService {
         if (findNode(graph, nodeId) != null) {
             throw new IllegalArgumentException("duplicate graph node id: " + nodeId);
         }
+        requireAiAuthorableType(node.getType(), "ADD_NODE");
         GraphSpec.Node candidate = deepCopy(node, GraphSpec.Node.class);
         candidate.setId(nodeId);
         List<GraphSpec.Node> nodes = mutableNodes(graph);
@@ -92,12 +109,18 @@ public class RuntimeWorkflowGraphMutationService {
         if (current == null) {
             throw new IllegalArgumentException("graph node not found: " + id);
         }
+        if (!nodeCapabilityRegistry.isAiAuthoringEnabled(current.getType())) {
+            throw notAuthorable(current.getType(), "UPDATE_NODE");
+        }
         Map<String, Object> actualPatch = mutableMap(patch);
         String patchedId = text(actualPatch.get("id"));
         if (StringUtils.hasText(patchedId) && !id.equals(patchedId)) {
             throw new IllegalArgumentException("UPDATE_NODE cannot change node id from " + id + " to " + patchedId);
         }
         actualPatch.remove("id");
+        if (actualPatch.containsKey("type")) {
+            requireAiAuthorableType(text(actualPatch.get("type")), "UPDATE_NODE");
+        }
         Map<String, Object> merged = mutableMap(current);
         deepMerge(merged, actualPatch);
         merged.put("id", id);
@@ -111,6 +134,24 @@ public class RuntimeWorkflowGraphMutationService {
         }
         graph.setNodes(nodes);
         accumulator.changedNode(id);
+    }
+
+    private void requireAiAuthorableType(String rawType, String operation) {
+        if (!nodeCapabilityRegistry.isAiAuthoringEnabled(rawType)) {
+            throw notAuthorable(rawType, operation);
+        }
+    }
+
+    private IllegalArgumentException notAuthorable(String rawType, String operation) {
+        String normalized = AgentGraphNodeType.normalize(rawType);
+        RuntimeWorkflowNodeCapabilityDescriptor capability = nodeCapabilityRegistry.find(normalized).orElse(null);
+        String reason = capability == null || !StringUtils.hasText(capability.unavailableReason())
+                ? "node type is not enabled for AI authoring"
+                : capability.unavailableReason();
+        String typeLabel = StringUtils.hasText(normalized) ? normalized : String.valueOf(rawType);
+        return new IllegalArgumentException(
+                "WORKFLOW_NODE_NOT_AUTHORABLE: " + operation + " rejected for node type " + typeLabel
+                        + " (" + reason + ")");
     }
 
     private void deleteNode(GraphSpec graph,

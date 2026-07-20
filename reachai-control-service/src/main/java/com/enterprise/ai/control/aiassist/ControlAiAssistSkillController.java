@@ -46,6 +46,9 @@ public class ControlAiAssistSkillController {
             "scripts/verify-reachai-access.py"
     );
 
+    private static final String EMBED_CHAT_ARTIFACT_ZIP_PATH =
+            ControlEmbedChatArtifactSupport.SKILL_RELATIVE_PATH;
+
     private static final List<String> PAGE_ASSISTANT_SKILL_FILES = List.of(
             "SKILL.md",
             "references/page-action-contract.md",
@@ -171,6 +174,11 @@ public class ControlAiAssistSkillController {
                 try (var input = resource.getInputStream()) {
                     input.transferTo(zip);
                 }
+                zip.closeEntry();
+            }
+            if (SKILL_NAME.equals(skillName)) {
+                zip.putNextEntry(new ZipEntry(skillName + "/" + EMBED_CHAT_ARTIFACT_ZIP_PATH));
+                zip.write(ControlEmbedChatArtifactSupport.loadTarballBytes());
                 zip.closeEntry();
             }
         }

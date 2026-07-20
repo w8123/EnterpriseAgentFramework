@@ -6,6 +6,7 @@ export type RunStatus =
   | 'RUNNING'
   | 'SUCCESS'
   | 'FAILED'
+  | 'WAITING_USER'
   | 'WAITING_APPROVAL'
   | 'CANCELLED'
   | 'TIMEOUT'

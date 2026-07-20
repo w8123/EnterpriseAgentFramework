@@ -10,6 +10,8 @@ import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinition
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionParameter;
 import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper;
+import com.enterprise.ai.agent.registry.ProjectInstanceEntity;
+import com.enterprise.ai.agent.registry.ProjectInstanceMapper;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistryCredentialMapper;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
@@ -17,6 +19,7 @@ import com.enterprise.ai.capability.internal.CapabilityToolExecutionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -44,6 +47,7 @@ class CapabilityScanProjectCatalogServiceTest {
             mock(CapabilityScanProjectBlockerService.class);
     private final CapabilityToolExecutionService toolExecutionService = mock(CapabilityToolExecutionService.class);
     private final CapabilityScannerClient scannerClient = mock(CapabilityScannerClient.class);
+    private final ProjectInstanceMapper projectInstanceMapper = mock(ProjectInstanceMapper.class);
     private final CapabilityScanProjectCatalogService service =
             new CapabilityScanProjectCatalogService(
                     scanProjectMapper,
@@ -56,6 +60,7 @@ class CapabilityScanProjectCatalogServiceTest {
                     toolExecutionService,
                     toolDefinitionMapper,
                     scannerClient,
+                    projectInstanceMapper,
                     new ObjectMapper());
 
     @Test
@@ -85,6 +90,7 @@ class CapabilityScanProjectCatalogServiceTest {
         credential.setStatus("ACTIVE");
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
         when(registryCredentialMapper.selectOne(any())).thenReturn(credential);
+        when(projectInstanceMapper.selectOne(any())).thenReturn(null);
 
         CapabilityScanProjectCatalogService.SdkAccessCheckResponse response = service.sdkAccessCheck(7L);
 
@@ -93,7 +99,81 @@ class CapabilityScanProjectCatalogServiceTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals("http://localhost:8080/orders-api/reachai/registry/capabilities/sync", callback.evidence());
+        assertEquals("WARN", callback.status());
+        assertTrue(callback.message().contains("CONFIGURED_NOT_PROBED"));
         assertTrue(callback.message().contains("回环地址"));
+        assertEquals("FAIL", response.readiness().stream()
+                .filter(item -> "RUNTIME_READY".equals(item.key()))
+                .findFirst()
+                .orElseThrow()
+                .status());
+        assertEquals("PENDING", response.readiness().stream()
+                .filter(item -> "E2E_READY".equals(item.key()))
+                .findFirst()
+                .orElseThrow()
+                .status());
+    }
+
+    @Test
+    void readinessFactsAndRuntimeReadyRequireOnlineStatusWithFreshHeartbeat() {
+        ScanProjectEntity project = seededProject();
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        when(registryCredentialMapper.selectOne(any())).thenReturn(activeCredential());
+
+        when(projectInstanceMapper.selectOne(any())).thenReturn(instance("ONLINE", LocalDateTime.now().minusMinutes(1)));
+        Map<String, Object> onlineFacts = service.readinessFacts(7L);
+        assertEquals(true, onlineFacts.get("online"));
+        assertEquals("PASS", runtimeReady(service.sdkAccessCheck(7L)));
+
+        when(projectInstanceMapper.selectOne(any())).thenReturn(instance("ONLINE", LocalDateTime.now().minusMinutes(10)));
+        assertEquals(false, service.readinessFacts(7L).get("online"));
+        assertEquals("WARN", runtimeReady(service.sdkAccessCheck(7L)));
+
+        when(projectInstanceMapper.selectOne(any())).thenReturn(instance("OFFLINE", LocalDateTime.now().minusMinutes(1)));
+        assertEquals(false, service.readinessFacts(7L).get("online"));
+        assertEquals("WARN", runtimeReady(service.sdkAccessCheck(7L)));
+
+        when(projectInstanceMapper.selectOne(any())).thenReturn(instance("DISABLED", LocalDateTime.now().minusMinutes(1)));
+        assertEquals(false, service.readinessFacts(7L).get("online"));
+        assertEquals("WARN", runtimeReady(service.sdkAccessCheck(7L)));
+
+        when(projectInstanceMapper.selectOne(any())).thenReturn(null);
+        assertEquals(false, service.readinessFacts(7L).get("online"));
+        assertEquals("FAIL", runtimeReady(service.sdkAccessCheck(7L)));
+    }
+
+    private ScanProjectEntity seededProject() {
+        ScanProjectEntity project = new ScanProjectEntity();
+        project.setId(7L);
+        project.setProjectCode("orders");
+        project.setBaseUrl("http://localhost:8080/");
+        project.setContextPath("/orders-api");
+        project.setAiCodingAccessEnabled(true);
+        project.setAiCodingAccessKey("aic_demo");
+        return project;
+    }
+
+    private RegistryCredentialEntity activeCredential() {
+        RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setProjectCode("orders");
+        credential.setStatus("ACTIVE");
+        return credential;
+    }
+
+    private ProjectInstanceEntity instance(String status, LocalDateTime heartbeatAt) {
+        ProjectInstanceEntity entity = new ProjectInstanceEntity();
+        entity.setInstanceId("inst-1");
+        entity.setStatus(status);
+        entity.setLastHeartbeatAt(heartbeatAt);
+        return entity;
+    }
+
+    private String runtimeReady(CapabilityScanProjectCatalogService.SdkAccessCheckResponse response) {
+        return response.readiness().stream()
+                .filter(item -> "RUNTIME_READY".equals(item.key()))
+                .findFirst()
+                .orElseThrow()
+                .status();
     }
 
     @Test

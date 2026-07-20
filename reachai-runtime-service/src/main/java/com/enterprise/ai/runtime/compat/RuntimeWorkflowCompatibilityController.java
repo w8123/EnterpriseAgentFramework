@@ -1,6 +1,5 @@
 package com.enterprise.ai.runtime.compat;
 
-import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
@@ -15,8 +14,10 @@ import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftEditView;
 import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftGenerationRequest;
 import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftGenerationService;
 import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftGenerationView;
-import lombok.RequiredArgsConstructor;
+import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityDescriptor;
+import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityRegistry;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,7 +32,6 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequiredArgsConstructor
 public class RuntimeWorkflowCompatibilityController {
 
     private final RuntimeWorkflowDefinitionService workflowDefinitionService;
@@ -40,6 +40,36 @@ public class RuntimeWorkflowCompatibilityController {
     private final RuntimeWorkflowDebugService debugService;
     private final RuntimeWorkflowDraftGenerationService draftGenerationService;
     private final RuntimeWorkflowDraftEditService draftEditService;
+    private final RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry;
+
+    public RuntimeWorkflowCompatibilityController(RuntimeWorkflowDefinitionService workflowDefinitionService,
+                                                  RuntimeWorkflowReleaseValidationService validationService,
+                                                  RuntimeWorkflowStudioService studioService,
+                                                  RuntimeWorkflowDebugService debugService,
+                                                  RuntimeWorkflowDraftGenerationService draftGenerationService,
+                                                  RuntimeWorkflowDraftEditService draftEditService) {
+        this(workflowDefinitionService, validationService, studioService, debugService,
+                draftGenerationService, draftEditService, new RuntimeWorkflowNodeCapabilityRegistry());
+    }
+
+    @Autowired
+    public RuntimeWorkflowCompatibilityController(RuntimeWorkflowDefinitionService workflowDefinitionService,
+                                                  RuntimeWorkflowReleaseValidationService validationService,
+                                                  RuntimeWorkflowStudioService studioService,
+                                                  RuntimeWorkflowDebugService debugService,
+                                                  RuntimeWorkflowDraftGenerationService draftGenerationService,
+                                                  RuntimeWorkflowDraftEditService draftEditService,
+                                                  RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry) {
+        this.workflowDefinitionService = workflowDefinitionService;
+        this.validationService = validationService;
+        this.studioService = studioService;
+        this.debugService = debugService;
+        this.draftGenerationService = draftGenerationService;
+        this.draftEditService = draftEditService;
+        this.nodeCapabilityRegistry = nodeCapabilityRegistry == null
+                ? new RuntimeWorkflowNodeCapabilityRegistry()
+                : nodeCapabilityRegistry;
+    }
 
     @GetMapping("/api/workflows")
     public ResponseEntity<List<RuntimeWorkflowDefinitionEntity>> list(
@@ -77,8 +107,8 @@ public class RuntimeWorkflowCompatibilityController {
     }
 
     @GetMapping("/api/workflows/graph-node-types")
-    public ResponseEntity<List<AgentGraphNodeType.Descriptor>> graphNodeTypes() {
-        return ResponseEntity.ok(AgentGraphNodeType.catalog());
+    public ResponseEntity<List<RuntimeWorkflowNodeCapabilityDescriptor>> graphNodeTypes() {
+        return ResponseEntity.ok(nodeCapabilityRegistry.allCatalog());
     }
 
     @PostMapping("/api/workflows/runtime-validation")

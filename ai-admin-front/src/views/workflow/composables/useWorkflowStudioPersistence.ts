@@ -35,6 +35,7 @@ export interface UseWorkflowStudioPersistenceDeps {
     shouldApply?: () => boolean,
   ) => Promise<void>
   clearWorkflowDocumentState: () => void
+  ensurePanelValidationClear?: () => boolean
 }
 
 export function useWorkflowStudioPersistence({
@@ -57,6 +58,7 @@ export function useWorkflowStudioPersistence({
   resetHistorySnapshot,
   loadCredentialOptions,
   clearWorkflowDocumentState,
+  ensurePanelValidationClear,
 }: UseWorkflowStudioPersistenceDeps) {
   let loadSequence = 0
   let saveSequence = 0
@@ -140,6 +142,9 @@ export function useWorkflowStudioPersistence({
   async function saveStudio(): Promise<WorkflowStudioState | null> {
     if (studioReadOnly.value) {
       ElMessage.info('代码托管 Workflow 当前为只读草稿，请修改后重启同步。')
+      return null
+    }
+    if (ensurePanelValidationClear && !ensurePanelValidationClear()) {
       return null
     }
     const requestedWorkflowId = workflowId.value

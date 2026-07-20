@@ -56,6 +56,62 @@ live smoke 检查：
 & "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-model-service -am test
 ```
 
+Workflow 第一阶段节点能力（变量/转换/Knowledge/HTTP）目标测试（不可再遗漏 Draft/Credential/Supervisor）：
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Java\jdk-17'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+& 'D:\software\apache-maven-3.9.9\bin\mvn.cmd' `
+  -pl reachai-runtime-service -am `
+  '-Dtest=RuntimeGraphSpecExecutorTest,RuntimeGraphSpecExecutorHandlerConformanceTest,RuntimeGraphSpecPhase1NodesTest,RuntimeGraphSpecRetryDeterminismTest,RuntimeWorkflowNodeCapabilityRegistryTest,RuntimeWorkflowReleaseValidationServiceTest,RuntimeWorkflowDraftGenerationServiceTest,RuntimeWorkflowGraphMutationServiceTest,RuntimeWorkflowCredentialServiceTest,RuntimeWorkflowDebugServiceTest,AgentScopeSupervisorRuntimeAdapterTest,WorkflowHttpClientTest,WorkflowExecutionIdentityTest,WorkflowTraceSanitizerPersistenceTest,WorkflowVariableNamespacesTest' `
+  '-Dsurefire.failIfNoSpecifiedTests=false' `
+  test
+& 'D:\software\apache-maven-3.9.9\bin\mvn.cmd' -pl reachai-runtime-service -am test
+& 'D:\software\apache-maven-3.9.9\bin\mvn.cmd' `
+  -pl reachai-knowledge-service -am `
+  '-Dtest=KnowledgeRetrievalCoreBehaviorTest,KnowledgeRetrievalInternalControllerTest' `
+  '-Dsurefire.failIfNoSpecifiedTests=false' `
+  test
+& 'D:\software\apache-maven-3.9.9\bin\mvn.cmd' -pl reachai-knowledge-service -am test
+```
+
+安全门槛最低证据（缺任一不得 reopen Knowledge/HTTP BETA；Browser/Live E2E 未跑仍记 PENDING；真实 MySQL 多实例 nonce 未跑记 `JDBC_MYSQL_PENDING` 并保持关闭）：
+
+- `InternalAuthNonceStoreTest` / `JdbcInternalAuthNonceStoreTest`（maxEntries=1 立即重放失败；满容拒绝新 nonce 且旧 nonce 不可重放；过期后可复用；TTL/skew 校验；H2 并发成功数=1；双 store 共享库）
+- `InternalServiceHmacTest` / `InternalServiceTransportContractTest`（BODY_SHA256 绑定最终字节；篡改 body/header → 失败；中文/空 body；真实 signer↔verifier）
+- `InternalServiceAuthFilterMockMvcTest` / `InternalAgentStreamAuthMockMvcTest`（sync/SSE：无签/错签/过期/重放/篡改 body|digest|source|userId → 401 且不调用 ExecutionService）
+- `TracePersistenceBoundaryTest`（Debug/finishAgent/finishWorkflow/WAITING_USER marker 不落库）
+- `RuntimeRunLifecycleServiceTest` / `SupervisorExecutionTraceAuditIdentityTest`（signed userId=42 vs body attacker；无 identity 不写审计 userId；Embed claims）
+- `ControlRuntimePublicControllerTest` / `PlatformEmbedPublicControllerTest` / `PlatformEmbedStreamRelayTest`
+- `WorkflowHttpClientTest` / `WorkflowExecutionIdentityTest` / `WorkflowTrustedIdentityEntryTest`
+- `WorkflowTraceSanitizerPersistenceTest` / Knowledge retrieval 行为测试
+- Deploy：`deploy/k8s/secrets.yml.example` + Control/Runtime Deployment 注入同一 Secret；actuator `INTERNAL_AUTH_NOT_CONFIGURED`
+- 前端 `useWorkflowStudioPanelValidation.test.ts` + persistence/release/AI tests
+
+第五轮全量门槛命令：
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Java\jdk-17'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+mvn -pl reachai-control-service,reachai-runtime-service,reachai-knowledge-service -am test
+Set-Location ai-admin-front
+npm run test:workflow
+npm run check:workflow-layout
+npm run check:studio-canvas
+npm run build
+git diff --check
+```
+
+前端：
+
+```powershell
+Set-Location ai-admin-front
+npm run test:workflow
+npm run check:workflow-layout
+npm run check:studio-canvas
+npm run build
+```
+
 如果只需要编译，把 `test` 换成 `compile`，或加 `-DskipTests compile`。
 
 旧 `ai-agent-service` module 已删除，不再提供 legacy fallback 编译入口。

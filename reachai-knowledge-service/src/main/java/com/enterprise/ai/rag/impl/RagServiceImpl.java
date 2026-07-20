@@ -41,29 +41,45 @@ public class RagServiceImpl implements RagService {
 
     @Override
     public RagResponse query(RagRequest request) {
+        RetrievalBundle bundle = retrieveInternal(request);
+        RagResponse response = new RagResponse();
+        response.setReferences(bundle.hits());
+        if (bundle.hits().isEmpty()) {
+            response.setAnswer(bundle.emptyReason() != null
+                    ? bundle.emptyReason()
+                    : "未找到与您问题相关的知识库内容。");
+            return response;
+        }
+        String prompt = promptBuilder.build(request.getQuestion(), bundle.hits());
+        String answer = llmService.chat(prompt, resolveAnswerModelInstanceId(bundle.hits(), bundle.kbByCode()));
+        response.setAnswer(answer);
+        return response;
+    }
+
+    @Override
+    public RagResponse retrieve(RagRequest request) {
+        RetrievalBundle bundle = retrieveInternal(request);
+        RagResponse response = new RagResponse();
+        response.setReferences(bundle.hits());
+        response.setAnswer(null);
+        return response;
+    }
+
+    private RetrievalBundle retrieveInternal(RagRequest request) {
         int topK = request.getTopK() != null ? request.getTopK() : defaultTopK;
         float threshold = request.getScoreThreshold() != null ? request.getScoreThreshold() : defaultScoreThreshold;
 
-        // 1. 获取用户权限
         List<String> fileIds = permissionService.getAccessibleFileIds(request.getUserId());
         if (fileIds == null || fileIds.isEmpty()) {
             log.warn("用户 {} 无任何文件权限", request.getUserId());
-            RagResponse resp = new RagResponse();
-            resp.setAnswer("您当前没有可访问的知识库内容。");
-            resp.setReferences(Collections.emptyList());
-            return resp;
+            return new RetrievalBundle(Collections.emptyList(), Map.of(), "您当前没有可访问的知识库内容。");
         }
         String filter = permissionService.buildMilvusFilter(fileIds);
 
-        // 2. Embedding
-
-
-        // 3. 确定要检索的知识库
         List<KnowledgeBase> knowledgeBases = knowledgeService.resolveKnowledgeBases(request.getKnowledgeBaseCodes());
         Map<String, KnowledgeBase> kbByCode = knowledgeBases.stream()
                 .collect(Collectors.toMap(KnowledgeBase::getCode, kb -> kb, (a, b) -> a));
 
-        // 4. 多库并行检索 + 权限过滤
         List<SimilarItem> allResults = new ArrayList<>();
         for (KnowledgeBase kb : knowledgeBases) {
             List<Float> queryVector = embeddingService.embed(requireEmbeddingModelInstanceId(kb), request.getQuestion());
@@ -90,25 +106,17 @@ public class RagServiceImpl implements RagService {
             }
         }
 
-        // 5. TopK 合并（按分数降序）
         allResults.sort(Comparator.comparingDouble(SimilarItem::getScore).reversed());
         List<SimilarItem> topResults = allResults.stream().limit(topK).collect(Collectors.toList());
-
-        // 6. 补充文件名
         knowledgeService.enrichFileName(topResults);
+        return new RetrievalBundle(topResults, kbByCode, null);
+    }
 
-        // 7. Prompt 构建 + LLM 调用
-        RagResponse response = new RagResponse();
-        if (topResults.isEmpty()) {
-            response.setAnswer("未找到与您问题相关的知识库内容。");
-        } else {
-            String prompt = promptBuilder.build(request.getQuestion(), topResults);
-            String answer = llmService.chat(prompt, resolveAnswerModelInstanceId(topResults, kbByCode));
-            response.setAnswer(answer);
-        }
-        response.setReferences(topResults);
-
-        return response;
+    private record RetrievalBundle(
+            List<SimilarItem> hits,
+            Map<String, KnowledgeBase> kbByCode,
+            String emptyReason
+    ) {
     }
 
     private String requireEmbeddingModelInstanceId(KnowledgeBase kb) {

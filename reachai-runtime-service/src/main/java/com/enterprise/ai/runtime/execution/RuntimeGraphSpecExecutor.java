@@ -6,13 +6,26 @@ import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClien
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.PageBridgeExecutionRequest;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.PageBridgeExecutionResponse;
+import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient;
+import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient.KnowledgeHit;
+import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient.KnowledgeRetrievalData;
+import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient.KnowledgeRetrievalRequest;
+import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient.KnowledgeRetrievalResult;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatData;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatRequest;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatRequest.ChatMessage;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatResult;
+import com.enterprise.ai.runtime.execution.context.WorkflowOutputAliasWriter;
+import com.enterprise.ai.runtime.execution.context.WorkflowVariableNamespaces;
+import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient;
+import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient.HttpExecutionRequest;
+import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient.HttpExecutionResult;
+import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
+import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionNodeHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -24,6 +37,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -43,12 +57,13 @@ import java.util.regex.Pattern;
  * </ul>
  */
 @Service
-@RequiredArgsConstructor
 public class RuntimeGraphSpecExecutor {
 
     private static final Pattern TEMPLATE_TOKEN = Pattern.compile("\\{\\{\\s*([A-Za-z0-9_.-]+)\\s*}}");
-    private static final int MAX_LINEAR_STEPS = 20;
+    private static final int MAX_LINEAR_STEPS = 64;
     private static final int DEFAULT_PAGE_BRIDGE_TIMEOUT_MS = 30_000;
+    private static final int MAX_RETRY_ATTEMPTS = 5;
+    private static final long MAX_RETRY_BACKOFF_MS = 10_000L;
     private static final Set<String> EXECUTABLE_NODE_TYPES = Set.of(
             "USER_INPUT",
             "INTENT_CLASSIFIER",
@@ -59,34 +74,100 @@ public class RuntimeGraphSpecExecutor {
             "CAPABILITY",
             "PAGE_ACTION",
             "INTERACTION",
-            "PARAMETER_EXTRACT");
+            "PARAMETER_EXTRACT",
+            "VARIABLE_ASSIGN",
+            "TEMPLATE",
+            "VARIABLE_AGGREGATOR",
+            "KNOWLEDGE_RETRIEVAL",
+            "HTTP_REQUEST",
+            "LOOP");
 
     private final ObjectMapper objectMapper;
     private final RuntimeModelServiceClient modelServiceClient;
     private final RuntimeCapabilityCatalogClient capabilityClient;
     private final RuntimeControlCatalogClient controlClient;
+    private final RuntimeKnowledgeRetrievalClient knowledgeClient;
+    private final WorkflowHttpClient httpClient;
+
+    public RuntimeGraphSpecExecutor(ObjectMapper objectMapper,
+                                    RuntimeModelServiceClient modelServiceClient,
+                                    RuntimeCapabilityCatalogClient capabilityClient,
+                                    RuntimeControlCatalogClient controlClient) {
+        this(objectMapper, modelServiceClient, capabilityClient, controlClient, null, null);
+    }
+
+    @Autowired
+    public RuntimeGraphSpecExecutor(ObjectMapper objectMapper,
+                                    RuntimeModelServiceClient modelServiceClient,
+                                    RuntimeCapabilityCatalogClient capabilityClient,
+                                    RuntimeControlCatalogClient controlClient,
+                                    @Autowired(required = false) RuntimeKnowledgeRetrievalClient knowledgeClient,
+                                    @Autowired(required = false) WorkflowHttpClient httpClient) {
+        this.objectMapper = objectMapper;
+        this.modelServiceClient = modelServiceClient;
+        this.capabilityClient = capabilityClient;
+        this.controlClient = controlClient;
+        this.knowledgeClient = knowledgeClient;
+        this.httpClient = httpClient;
+    }
+
+    /**
+     * Immutable set of node types that currently have a real Runtime handler.
+     * Product openness (Studio / publish / AI authoring) is decided by the node capability registry.
+     */
+    public static Set<String> handledNodeTypes() {
+        return EXECUTABLE_NODE_TYPES;
+    }
+
+    /**
+     * Alias of {@link #handledNodeTypes()} for callers that prefer "supported" naming.
+     */
+    public static Set<String> supportedNodeTypes() {
+        return handledNodeTypes();
+    }
 
     public static boolean supportsNodeType(String rawType) {
         return EXECUTABLE_NODE_TYPES.contains(AgentGraphNodeType.normalize(rawType));
     }
 
+    public static final String TRUSTED_IDENTITY_CONTEXT_KEY = "__workflowExecutionIdentity";
+
     public RuntimeGraphSpecExecutionResult execute(String graphSpecJson, Map<String, Object> request) {
         return execute(graphSpecJson, request, null,
-                RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none());
+                RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none(),
+                WorkflowExecutionIdentity.untrustedDebug());
+    }
+
+    public RuntimeGraphSpecExecutionResult execute(String graphSpecJson,
+                                                   Map<String, Object> request,
+                                                   WorkflowExecutionIdentity identity) {
+        return execute(graphSpecJson, request, null,
+                RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none(),
+                identity);
     }
 
     public RuntimeGraphSpecExecutionResult execute(String graphSpecJson,
                                                    Map<String, Object> request,
                                                    RuntimeGraphSpecExecutionEventSink sink,
                                                    RuntimeGraphSpecExecutionCancellation cancellation) {
-        return execute(graphSpecJson, request, null, sink, cancellation);
+        return execute(graphSpecJson, request, null, sink, cancellation,
+                WorkflowExecutionIdentity.untrustedDebug());
+    }
+
+    public RuntimeGraphSpecExecutionResult execute(String graphSpecJson,
+                                                   Map<String, Object> request,
+                                                   RuntimeGraphSpecExecutionEventSink sink,
+                                                   RuntimeGraphSpecExecutionCancellation cancellation,
+                                                   WorkflowExecutionIdentity identity) {
+        return execute(graphSpecJson, request, null, sink, cancellation, identity);
     }
 
     public RuntimeGraphSpecExecutionResult executeFromNode(String graphSpecJson,
                                                            Map<String, Object> request,
                                                            String entryNodeId) {
         return execute(graphSpecJson, request, entryNodeId,
-                RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none());
+                RuntimeGraphSpecExecutionEventSink.NOOP, RuntimeGraphSpecExecutionCancellation.none(),
+                WorkflowExecutionIdentity.untrustedDebug());
     }
 
     public RuntimeGraphSpecExecutionResult executeFromNode(String graphSpecJson,
@@ -94,14 +175,25 @@ public class RuntimeGraphSpecExecutor {
                                                            String entryNodeId,
                                                            RuntimeGraphSpecExecutionEventSink sink,
                                                            RuntimeGraphSpecExecutionCancellation cancellation) {
-        return execute(graphSpecJson, request, entryNodeId, sink, cancellation);
+        return execute(graphSpecJson, request, entryNodeId, sink, cancellation,
+                WorkflowExecutionIdentity.untrustedDebug());
+    }
+
+    public RuntimeGraphSpecExecutionResult executeFromNode(String graphSpecJson,
+                                                           Map<String, Object> request,
+                                                           String entryNodeId,
+                                                           RuntimeGraphSpecExecutionEventSink sink,
+                                                           RuntimeGraphSpecExecutionCancellation cancellation,
+                                                           WorkflowExecutionIdentity identity) {
+        return execute(graphSpecJson, request, entryNodeId, sink, cancellation, identity);
     }
 
     private RuntimeGraphSpecExecutionResult execute(String graphSpecJson,
                                                     Map<String, Object> request,
                                                     String entryOverride,
                                                     RuntimeGraphSpecExecutionEventSink sink,
-                                                    RuntimeGraphSpecExecutionCancellation cancellation) {
+                                                    RuntimeGraphSpecExecutionCancellation cancellation,
+                                                    WorkflowExecutionIdentity identity) {
         RuntimeGraphSpecExecutionEventSink eventSink = sink == null
                 ? RuntimeGraphSpecExecutionEventSink.NOOP : sink;
         RuntimeGraphSpecExecutionCancellation cancel = cancellation == null
@@ -132,89 +224,173 @@ public class RuntimeGraphSpecExecutor {
         }
 
         Map<String, Object> context = initialContext(request == null ? Map.of() : request);
+        // Trusted identity is never taken from business maps / model args.
+        context.remove(TRUSTED_IDENTITY_CONTEXT_KEY);
+        context.put(TRUSTED_IDENTITY_CONTEXT_KEY,
+                identity == null ? WorkflowExecutionIdentity.untrustedDebug() : identity);
         List<Map<String, Object>> steps = new ArrayList<>();
+        List<Map<String, Object>> nodeTraces = new ArrayList<>();
         String currentNodeId = entry;
         RuntimeGraphSpecExecutionResult lastResult = null;
         for (int index = 0; index < MAX_LINEAR_STEPS && StringUtils.hasText(currentNodeId); index++) {
             if (cancel.isCancelled()) {
                 eventSink.onExecutionCancelled(Map.of("currentNodeId", currentNodeId));
-                return withSteps(failure("RUNTIME_GRAPH_CANCELLED", "Workflow execution cancelled",
-                        currentNodeId, null), steps);
+                return withLiveContext(withSteps(failure("RUNTIME_GRAPH_CANCELLED", "Workflow execution cancelled",
+                        currentNodeId, null), steps, nodeTraces), context);
             }
             GraphSpec.Node node = nodesById.get(currentNodeId);
             if (node == null) {
-                return withSteps(failure("RUNTIME_GRAPH_NEXT_NODE_INVALID",
+                return withLiveContext(withSteps(failure("RUNTIME_GRAPH_NEXT_NODE_INVALID",
                         "GraphSpec next node does not exist: " + currentNodeId,
                         currentNodeId,
-                        null), steps);
+                        null), steps, nodeTraces), context);
             }
             String nodeType = AgentGraphNodeType.normalize(node.getType());
             String nodeName = firstText(node.getName(), node.getId());
             long nodeStartedAt = System.currentTimeMillis();
             eventSink.onNodeStarted(node.getId(), nodeType, nodeName, safeNodePayload(node, nodeType, null));
-            RuntimeGraphSpecExecutionResult nodeResult = executeNode(node, context, graph, eventSink, cancel);
-            long elapsedMs = System.currentTimeMillis() - nodeStartedAt;
+            RuntimeGraphSpecExecutionResult nodeResult = executeNodeWithPolicies(
+                    node, context, graph, eventSink, cancel, nodesById);
+            long nodeEndedAt = System.currentTimeMillis();
+            long elapsedMs = Math.max(0L, nodeEndedAt - nodeStartedAt);
             steps.addAll(nodeResult.steps());
+            nodeTraces.add(buildInternalNodeTrace(node, nodeType, nodeResult, nodeStartedAt, nodeEndedAt, elapsedMs));
             // Cooperative cancellation：停止后续节点与可取消资源；不回滚当前节点已发生的外部副作用。
             // 节点内同步调用返回后也会把取消映射为 RUNTIME_GRAPH_CANCELLED，禁止落入 onNodeFailed。
             if (cancel.isCancelled() || "RUNTIME_GRAPH_CANCELLED".equals(nodeResult.code())) {
                 eventSink.onExecutionCancelled(Map.of(
                         "currentNodeId", node.getId(),
                         "code", "RUNTIME_GRAPH_CANCELLED"));
-                return withSteps(failure("RUNTIME_GRAPH_CANCELLED", "Workflow execution cancelled",
-                        node.getId(), nodeType), steps);
+                return withLiveContext(withSteps(failure("RUNTIME_GRAPH_CANCELLED", "Workflow execution cancelled",
+                        node.getId(), nodeType), steps, nodeTraces), context);
             }
             if (!nodeResult.success()) {
-                if ("RUNTIME_GRAPH_INTERACTION_WAITING".equals(nodeResult.code())) {
+                if (nodeResult.isWaitingUser()
+                        || WorkflowInteractionCodes.WAITING.equals(nodeResult.code())) {
                     Map<String, Object> waitingPayload = safeNodePayload(node, nodeType, elapsedMs);
                     waitingPayload.put("status", "WAITING");
+                    if (nodeResult.interactionId() != null) {
+                        waitingPayload.put("interactionId", nodeResult.interactionId());
+                    }
+                    if (nodeResult.uiRequest() != null) {
+                        waitingPayload.put("uiRequest", nodeResult.uiRequest());
+                    }
+                    if (nodeResult.metadata() != null) {
+                        Object validationErrors = nodeResult.metadata().get("validationErrors");
+                        if (validationErrors != null) {
+                            waitingPayload.put("validationErrors", validationErrors);
+                        }
+                        putAttemptObservability(waitingPayload, nodeResult);
+                    }
                     eventSink.onNodeWaiting(node.getId(), nodeType, nodeName, waitingPayload);
                 } else {
                     Map<String, Object> failedPayload = safeNodePayload(node, nodeType, elapsedMs);
                     failedPayload.put("status", "FAILED");
                     failedPayload.put("code", nodeResult.code());
                     failedPayload.put("summary", safeSummary(nodeResult.answer()));
+                    putAttemptObservability(failedPayload, nodeResult);
                     eventSink.onNodeFailed(node.getId(), nodeType, nodeName, failedPayload);
                 }
-                return withSteps(nodeResult, steps);
+                // Persist the live executor context (TOOL/PARAMETER_EXTRACT outputs, vars, pending ids).
+                return withLiveContext(withSteps(nodeResult, steps, nodeTraces), context);
             }
             Map<String, Object> completedPayload = safeNodePayload(node, nodeType, elapsedMs);
             completedPayload.put("status", "SUCCESS");
             completedPayload.put("summary", safeSummary(nodeResult.answer()));
+            putAttemptObservability(completedPayload, nodeResult);
+            if (nodeResult.uiRequest() != null) {
+                completedPayload.put("uiRequest", nodeResult.uiRequest());
+            }
+            String forcedNext = forcedNextNodeId(nodeResult);
             String nextPreview = null;
             NextNodeResolution next = null;
-            if (!"ANSWER".equals(nodeResult.nodeType())) {
+            if (StringUtils.hasText(forcedNext)) {
+                next = NextNodeResolution.node(forcedNext);
+                nextPreview = forcedNext;
+            } else if (!"ANSWER".equals(nodeResult.nodeType())) {
                 next = resolveNextNode(graph, node.getId(), nodeResult);
+                // INTERACTION confirm/reject/cancel 不得回落到 always 边执行受保护下游
+                if ("INTERACTION".equals(nodeResult.nodeType())
+                        && isStrictInteractionRoute(resultRoute(nodeResult))
+                        && !hasExactRouteEdge(graph, node.getId(), resultRoute(nodeResult))) {
+                    next = NextNodeResolution.unmatched();
+                }
                 nextPreview = next.nodeId();
             }
             if (StringUtils.hasText(nextPreview)) {
                 completedPayload.put("nextNodeId", nextPreview);
             }
             eventSink.onNodeCompleted(node.getId(), nodeType, nodeName, completedPayload);
-            lastResult = withSteps(nodeResult, steps);
+            lastResult = withSteps(nodeResult, steps, nodeTraces);
             rememberNodeOutput(context, node, nodeResult);
-            if ("ANSWER".equals(nodeResult.nodeType())) {
-                return lastResult;
+            if (nodeResult.uiRequest() != null
+                    && nodeResult.metadata() != null
+                    && Boolean.TRUE.equals(nodeResult.metadata().get("displayOnly"))) {
+                context.put("__lastDisplayUiRequest", nodeResult.uiRequest());
+            }
+            if ("ANSWER".equals(nodeResult.nodeType()) && !StringUtils.hasText(forcedNext)) {
+                return withLiveContext(withDisplayUiRequest(lastResult, context), context);
             }
             String route = resultRoute(nodeResult);
-            if (StringUtils.hasText(route) && next != null && !next.matched()) {
-                return withSteps(failure(
+            if (!StringUtils.hasText(forcedNext) && StringUtils.hasText(route) && next != null && !next.matched()) {
+                if ("INTERACTION".equals(nodeResult.nodeType())
+                        && ("reject".equalsIgnoreCase(route) || "cancel".equalsIgnoreCase(route))) {
+                    // 拒绝/取消且无显式 route 边：安全停止，不继续下游
+                    return withLiveContext(lastResult, context);
+                }
+                return withLiveContext(withSteps(failure(
                         "RUNTIME_GRAPH_ROUTE_UNRESOLVED",
                         nodeResult.nodeType() + " route has no matching outgoing edge: " + route,
                         node.getId(),
-                        nodeResult.nodeType()), steps);
+                        nodeResult.nodeType()), steps, nodeTraces), context);
             }
             currentNodeId = next == null ? null : next.nodeId();
         }
         if (StringUtils.hasText(currentNodeId)) {
-            return withSteps(failure("RUNTIME_GRAPH_STEP_LIMIT_EXCEEDED",
+            return withLiveContext(withSteps(failure("RUNTIME_GRAPH_STEP_LIMIT_EXCEEDED",
                     "Runtime GraphSpec linear execution exceeded step limit: " + MAX_LINEAR_STEPS,
                     currentNodeId,
-                    null), steps);
+                    null), steps, nodeTraces), context);
         }
         return lastResult == null
-                ? withSteps(failure("RUNTIME_GRAPH_ENTRY_MISSING", "GraphSpec entry is required", null, null), steps)
-                : lastResult;
+                ? withLiveContext(withSteps(failure("RUNTIME_GRAPH_ENTRY_MISSING", "GraphSpec entry is required", null, null), steps, nodeTraces), context)
+                : withLiveContext(withDisplayUiRequest(lastResult, context), context);
+    }
+
+    private RuntimeGraphSpecExecutionResult withDisplayUiRequest(RuntimeGraphSpecExecutionResult result,
+                                                                 Map<String, Object> context) {
+        if (result == null || context == null || context.get("__lastDisplayUiRequest") == null) {
+            return result;
+        }
+        if (result.uiRequest() != null) {
+            return result;
+        }
+        Map<String, Object> metadata = result.metadata() == null
+                ? new LinkedHashMap<>()
+                : new LinkedHashMap<>(result.metadata());
+        metadata.putIfAbsent("uiRequest", context.get("__lastDisplayUiRequest"));
+        metadata.putIfAbsent("displayOnly", true);
+        return new RuntimeGraphSpecExecutionResult(
+                result.success(),
+                result.code(),
+                result.answer(),
+                result.nodeId(),
+                result.nodeType(),
+                result.steps(),
+                metadata,
+                result.contextSnapshot());
+    }
+
+    /**
+     * Attach the live executor context as an internal resume snapshot.
+     * Must not be copied into public API / SSE / uiRequest payloads by callers.
+     */
+    private RuntimeGraphSpecExecutionResult withLiveContext(RuntimeGraphSpecExecutionResult result,
+                                                            Map<String, Object> context) {
+        if (result == null) {
+            return null;
+        }
+        return result.withContextSnapshot(context == null ? Map.of() : context);
     }
 
     private Map<String, Object> safeNodePayload(GraphSpec.Node node, String nodeType, Long elapsedMs) {
@@ -236,6 +412,272 @@ public class RuntimeGraphSpecExecutor {
         return trimmed.length() <= 240 ? trimmed : trimmed.substring(0, 240);
     }
 
+    private RuntimeGraphSpecExecutionResult executeNodeWithPolicies(GraphSpec.Node node,
+                                                                    Map<String, Object> context,
+                                                                    GraphSpec graph,
+                                                                    RuntimeGraphSpecExecutionEventSink eventSink,
+                                                                    RuntimeGraphSpecExecutionCancellation cancel,
+                                                                    Map<String, GraphSpec.Node> nodesById) {
+        String nodeType = AgentGraphNodeType.normalize(node.getType());
+        GraphSpec.RetryPolicy retry = node.getRetry();
+        boolean retryEnabled = retry != null && Boolean.TRUE.equals(retry.getEnabled());
+        int maxAttempts = 1;
+        if (retryEnabled) {
+            int configured = retry.getMaxAttempts() == null ? 1 : retry.getMaxAttempts();
+            maxAttempts = Math.max(1, Math.min(MAX_RETRY_ATTEMPTS, configured));
+        }
+        long backoffMs = retry == null || retry.getBackoffMs() == null
+                ? 0L
+                : Math.max(0L, Math.min(MAX_RETRY_BACKOFF_MS, retry.getBackoffMs()));
+        RuntimeGraphSpecExecutionResult last = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            if (cancel.isCancelled()) {
+                return cancelled(node.getId(), nodeType);
+            }
+            if (attempt > 1) {
+                if (!allowsRetry(node, nodeType, last)) {
+                    break;
+                }
+                if (backoffMs > 0) {
+                    try {
+                        Thread.sleep(backoffMs);
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        return cancelled(node.getId(), nodeType);
+                    }
+                }
+                if (cancel.isCancelled()) {
+                    return cancelled(node.getId(), nodeType);
+                }
+            }
+            last = executeNode(node, context, graph, eventSink, cancel);
+            last = withAttemptMetadata(last, attempt, maxAttempts, attempt > 1 ? "retry" : "initial");
+            if (last.success()
+                    || last.isWaitingUser()
+                    || WorkflowInteractionCodes.WAITING.equals(last.code())
+                    || "RUNTIME_GRAPH_CANCELLED".equals(last.code())) {
+                return last;
+            }
+            if (attempt < maxAttempts && !allowsRetry(node, nodeType, last)) {
+                break;
+            }
+        }
+        return applyErrorPolicy(node, nodeType, last, nodesById, context);
+    }
+
+    private boolean allowsRetry(GraphSpec.Node node, String nodeType) {
+        return allowsRetry(node, nodeType, null);
+    }
+
+    private boolean allowsRetry(GraphSpec.Node node, String nodeType, RuntimeGraphSpecExecutionResult failure) {
+        GraphSpec.RetryPolicy retry = node.getRetry();
+        if (retry == null || !Boolean.TRUE.equals(retry.getEnabled())) {
+            return false;
+        }
+        if (failure != null) {
+            if (failure.success()
+                    || failure.isWaitingUser()
+                    || WorkflowInteractionCodes.WAITING.equals(failure.code())
+                    || "RUNTIME_GRAPH_CANCELLED".equals(failure.code())) {
+                return false;
+            }
+            if (!isRetryableFailure(nodeType, failure)) {
+                return false;
+            }
+        }
+        Optional<AgentGraphNodeType> type = AgentGraphNodeType.find(nodeType);
+        if (type.isEmpty() || !type.get().retryable()) {
+            return false;
+        }
+        if ("HTTP_REQUEST".equals(nodeType)) {
+            Map<String, Object> config = httpConfig(node);
+            String method = firstText(text(config.get("method")), "GET");
+            boolean allowNonIdempotent = Boolean.TRUE.equals(config.get("retryAllowNonIdempotent"));
+            if (httpClient != null && !httpClient.isIdempotentMethod(method) && !allowNonIdempotent) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isRetryableFailure(String nodeType, RuntimeGraphSpecExecutionResult failure) {
+        if (failure == null || !StringUtils.hasText(failure.code())) {
+            return false;
+        }
+        String code = failure.code();
+        if (code.startsWith("RUNTIME_HTTP_EGRESS_")
+                || "RUNTIME_HTTP_CREDENTIAL_DENIED".equals(code)
+                || "RUNTIME_HTTP_CREDENTIAL_INVALID".equals(code)
+                || "RUNTIME_HTTP_CREDENTIAL_TYPE_UNSUPPORTED".equals(code)
+                || "RUNTIME_HTTP_URL_REQUIRED".equals(code)
+                || "RUNTIME_HTTP_URL_INVALID".equals(code)
+                || "RUNTIME_HTTP_METHOD_UNSUPPORTED".equals(code)
+                || "RUNTIME_HTTP_REDIRECT_CREDENTIAL_DENIED".equals(code)
+                || "RUNTIME_HTTP_REDIRECT_DOWNGRADE_DENIED".equals(code)
+                || "RUNTIME_GRAPH_NODE_UNSUPPORTED".equals(code)
+                || code.contains("CONFIG")
+                || code.contains("VALIDATION")) {
+            return false;
+        }
+        // Explicit non-retryable configuration / identity / dependency failures.
+        if (code.contains("REQUIRED")
+                || code.contains("DENIED")
+                || code.contains("UNSUPPORTED")
+                || code.contains("UNAVAILABLE")
+                || code.contains("INVALID")
+                || code.contains("PROTECTED")
+                || "RUNTIME_KNOWLEDGE_USER_IDENTITY_REQUIRED".equals(code)
+                || "RUNTIME_MODEL_REQUIRED".equals(code)
+                || "RUNTIME_TOOL_REF_REQUIRED".equals(code)
+                || code.startsWith("RUNTIME_KNOWLEDGE_") && code.endsWith("_REQUIRED")
+                || code.endsWith("_CLIENT_UNAVAILABLE")
+                || code.contains("PERMISSION")
+                || code.contains("ACL")) {
+            return false;
+        }
+        Object retryableFlag = failure.metadata() == null ? null : failure.metadata().get("retryableFailure");
+        if (Boolean.TRUE.equals(retryableFlag)) {
+            return true;
+        }
+        if ("HTTP_REQUEST".equals(nodeType)) {
+            if (code.startsWith("RUNTIME_HTTP_STATUS_")) {
+                try {
+                    int status = Integer.parseInt(code.substring("RUNTIME_HTTP_STATUS_".length()));
+                    return httpClient != null && httpClient.isRetryableStatus(status);
+                } catch (NumberFormatException ignored) {
+                    return false;
+                }
+            }
+            return "RUNTIME_HTTP_TIMEOUT".equals(code) || "RUNTIME_HTTP_CONNECT_FAILED".equals(code);
+        }
+        // Default fail-closed: only explicitly marked transient failures are retryable.
+        return false;
+    }
+
+    private RuntimeGraphSpecExecutionResult applyErrorPolicy(GraphSpec.Node node,
+                                                             String nodeType,
+                                                             RuntimeGraphSpecExecutionResult failed,
+                                                             Map<String, GraphSpec.Node> nodesById,
+                                                             Map<String, Object> context) {
+        GraphSpec.ErrorPolicy policy = node.getErrorPolicy();
+        String strategy = policy == null
+                ? "TERMINATE"
+                : firstText(text(policy.getStrategy()), "TERMINATE").toUpperCase(Locale.ROOT);
+        RuntimeGraphSpecExecutionResult base = failed == null
+                ? failure("RUNTIME_GRAPH_NODE_FAILED", "Node execution failed", node.getId(), nodeType)
+                : failed;
+        if ("CONTINUE".equals(strategy)) {
+            Object defaultOutput = policy == null ? null : policy.getDefaultOutput();
+            String answer = defaultOutput == null ? "" : String.valueOf(defaultOutput);
+            Map<String, Object> metadata = new LinkedHashMap<>(base.metadata() == null ? Map.of() : base.metadata());
+            metadata.put("errorPolicyDecision", "CONTINUE");
+            metadata.put("structuredOutput", defaultOutput == null ? Map.of() : defaultOutput);
+            metadata.put("recoveredFromCode", base.code());
+            return new RuntimeGraphSpecExecutionResult(
+                    true,
+                    "RUNTIME_GRAPH_ERROR_CONTINUED",
+                    answer,
+                    node.getId(),
+                    nodeType,
+                    base.steps(),
+                    metadata,
+                    base.contextSnapshot());
+        }
+        if ("FALLBACK".equals(strategy)) {
+            String fallbackNodeId = policy == null ? null : text(policy.getFallbackNodeId());
+            if (!StringUtils.hasText(fallbackNodeId) || !nodesById.containsKey(fallbackNodeId)) {
+                return withPolicyDecision(base, "FALLBACK_INVALID",
+                        "RUNTIME_GRAPH_FALLBACK_INVALID",
+                        "ErrorPolicy FALLBACK target is missing or invalid");
+            }
+            if (fallbackNodeId.equals(node.getId())) {
+                return withPolicyDecision(base, "FALLBACK_SELF",
+                        "RUNTIME_GRAPH_FALLBACK_SELF",
+                        "ErrorPolicy FALLBACK must not point to the same node");
+            }
+            @SuppressWarnings("unchecked")
+            List<String> trail = context.get("__fallbackTrail") instanceof List<?> list
+                    ? new ArrayList<>((List<String>) list)
+                    : new ArrayList<>();
+            String hop = node.getId() + "->" + fallbackNodeId;
+            if (trail.contains(hop) || trail.size() >= 8) {
+                return withPolicyDecision(base, "FALLBACK_CYCLE",
+                        "RUNTIME_GRAPH_FALLBACK_CYCLE",
+                        "ErrorPolicy FALLBACK cycle detected");
+            }
+            trail.add(hop);
+            context.put("__fallbackTrail", trail);
+            Map<String, Object> metadata = new LinkedHashMap<>(base.metadata() == null ? Map.of() : base.metadata());
+            metadata.put("errorPolicyDecision", "FALLBACK");
+            metadata.put("forceNextNodeId", fallbackNodeId);
+            metadata.put("fallbackNodeId", fallbackNodeId);
+            metadata.put("recoveredFromCode", base.code());
+            metadata.put("structuredOutput", policy.getDefaultOutput() == null
+                    ? Map.of("fallback", true, "fromNodeId", node.getId())
+                    : policy.getDefaultOutput());
+            String answer = policy.getDefaultOutput() == null
+                    ? firstText(base.answer(), "fallback:" + fallbackNodeId)
+                    : String.valueOf(policy.getDefaultOutput());
+            return new RuntimeGraphSpecExecutionResult(
+                    true,
+                    "RUNTIME_GRAPH_ERROR_FALLBACK",
+                    answer,
+                    node.getId(),
+                    nodeType,
+                    base.steps(),
+                    metadata,
+                    base.contextSnapshot());
+        }
+        return withPolicyDecision(base, "TERMINATE", base.code(), base.answer());
+    }
+
+    private RuntimeGraphSpecExecutionResult withPolicyDecision(RuntimeGraphSpecExecutionResult base,
+                                                               String decision,
+                                                               String code,
+                                                               String answer) {
+        Map<String, Object> metadata = new LinkedHashMap<>(base.metadata() == null ? Map.of() : base.metadata());
+        metadata.put("errorPolicyDecision", decision);
+        return new RuntimeGraphSpecExecutionResult(
+                base.success(),
+                code,
+                answer,
+                base.nodeId(),
+                base.nodeType(),
+                base.steps(),
+                metadata,
+                base.contextSnapshot());
+    }
+
+    private RuntimeGraphSpecExecutionResult withAttemptMetadata(RuntimeGraphSpecExecutionResult result,
+                                                                int attempt,
+                                                                int maxAttempts,
+                                                                String reason) {
+        Map<String, Object> metadata = new LinkedHashMap<>(result.metadata() == null ? Map.of() : result.metadata());
+        metadata.put("attempt", attempt);
+        metadata.put("attemptCount", attempt);
+        metadata.put("maxAttempts", maxAttempts);
+        metadata.put("attemptReason", reason);
+        return result.withMetadata(metadata);
+    }
+
+    private void putAttemptObservability(Map<String, Object> payload, RuntimeGraphSpecExecutionResult result) {
+        if (result == null || result.metadata() == null || payload == null) {
+            return;
+        }
+        putIfPresent(payload, "attempt", result.metadata().get("attempt"));
+        putIfPresent(payload, "attemptCount", result.metadata().get("attemptCount"));
+        putIfPresent(payload, "maxAttempts", result.metadata().get("maxAttempts"));
+        putIfPresent(payload, "errorPolicyDecision", result.metadata().get("errorPolicyDecision"));
+        putIfPresent(payload, "traceSummary", result.metadata().get("traceSummary"));
+    }
+
+    private String forcedNextNodeId(RuntimeGraphSpecExecutionResult result) {
+        if (result == null || result.metadata() == null) {
+            return null;
+        }
+        return text(result.metadata().get("forceNextNodeId"));
+    }
+
     private RuntimeGraphSpecExecutionResult executeNode(GraphSpec.Node node,
                                                         Map<String, Object> context,
                                                         GraphSpec graph,
@@ -255,6 +697,12 @@ public class RuntimeGraphSpecExecutor {
             case "TOOL", "CAPABILITY" -> executeTool(node, nodeType, context, cancel);
             case "PAGE_ACTION" -> executePageAction(node, context, cancel);
             case "INTERACTION" -> executeInteraction(node, context);
+            case "VARIABLE_ASSIGN" -> executeVariableAssign(node, context);
+            case "TEMPLATE" -> executeTemplate(node, context);
+            case "VARIABLE_AGGREGATOR" -> executeVariableAggregator(node, context);
+            case "KNOWLEDGE_RETRIEVAL" -> executeKnowledgeRetrieval(node, context, cancel);
+            case "HTTP_REQUEST" -> executeHttpRequest(node, context, cancel);
+            case "LOOP" -> executeLoop(node, context, graph, eventSink, cancel);
             default -> failure("RUNTIME_GRAPH_NODE_UNSUPPORTED",
                     "Runtime GraphSpec node type is not executable yet: " + nodeType,
                     node.getId(),
@@ -262,8 +710,751 @@ public class RuntimeGraphSpecExecutor {
         };
     }
 
+    public static final int LOOP_DEFAULT_MAX_ITERATIONS = 100;
+    public static final int LOOP_HARD_MAX_ITERATIONS = 1000;
+
+    private RuntimeGraphSpecExecutionResult executeLoop(GraphSpec.Node node,
+                                                        Map<String, Object> context,
+                                                        GraphSpec graph,
+                                                        RuntimeGraphSpecExecutionEventSink eventSink,
+                                                        RuntimeGraphSpecExecutionCancellation cancel) {
+        Map<String, GraphSpec.Node> nodesById = new LinkedHashMap<>();
+        if (graph != null && graph.getNodes() != null) {
+            for (GraphSpec.Node graphNode : graph.getNodes()) {
+                if (graphNode != null && StringUtils.hasText(graphNode.getId())) {
+                    nodesById.put(graphNode.getId().trim(), graphNode);
+                }
+            }
+        }
+        Map<String, Object> config = loopConfigOf(node);
+        String mode = firstText(text(config.get("mode")), "FOREACH");
+        if (!"FOREACH".equalsIgnoreCase(mode)) {
+            return failure("RUNTIME_GRAPH_LOOP_MODE_UNSUPPORTED",
+                    "LOOP v1 only supports FOREACH mode",
+                    node.getId(),
+                    "LOOP");
+        }
+        String collectionExpr = firstText(text(config.get("collection")), text(config.get("itemExpression")));
+        String itemAlias = firstText(text(config.get("itemAlias")), "item");
+        String indexAlias = firstText(text(config.get("indexAlias")), "index");
+        String outputAlias = firstText(text(config.get("outputAlias")), text(config.get("loopKey")), "loop_results");
+        String bodyOutputExpr = firstText(text(config.get("bodyOutput")), "lastOutput");
+        String bodyEntry = text(config.get("bodyEntry"));
+        String bodyExit = firstText(text(config.get("bodyExit")), bodyEntry);
+        Integer maxIterations = parseLoopMaxIterations(config.get("maxIterations"));
+        if (maxIterations == null) {
+            return failure("RUNTIME_GRAPH_LOOP_MAX_ITERATIONS_INVALID",
+                    "LOOP maxIterations must be between 1 and " + LOOP_HARD_MAX_ITERATIONS
+                            + " (missing defaults to " + LOOP_DEFAULT_MAX_ITERATIONS + ")",
+                    node.getId(),
+                    "LOOP");
+        }
+        Set<String> bodyNodeIds = loopBodyNodeIds(config, bodyEntry, bodyExit);
+        if (!StringUtils.hasText(collectionExpr)) {
+            return failure("RUNTIME_GRAPH_LOOP_COLLECTION_REQUIRED",
+                    "LOOP requires collection expression",
+                    node.getId(),
+                    "LOOP");
+        }
+        if (!WorkflowVariableNamespaces.isValidAlias(itemAlias)
+                || WorkflowVariableNamespaces.isReservedAlias(itemAlias)
+                || !WorkflowVariableNamespaces.isValidAlias(indexAlias)
+                || WorkflowVariableNamespaces.isReservedAlias(indexAlias)
+                || !WorkflowVariableNamespaces.isValidAlias(outputAlias)
+                || WorkflowVariableNamespaces.isReservedAlias(outputAlias)) {
+            return failure("RUNTIME_GRAPH_LOOP_ALIAS_INVALID",
+                    "LOOP itemAlias/indexAlias/outputAlias must be valid non-reserved aliases",
+                    node.getId(),
+                    "LOOP");
+        }
+        if (!StringUtils.hasText(bodyEntry) || !nodesById.containsKey(bodyEntry)
+                || !StringUtils.hasText(bodyExit) || !nodesById.containsKey(bodyExit)
+                || bodyNodeIds.isEmpty()
+                || !bodyNodeIds.contains(bodyEntry)
+                || !bodyNodeIds.contains(bodyExit)) {
+            return failure("RUNTIME_GRAPH_LOOP_BODY_INVALID",
+                    "LOOP requires bodyEntry/bodyExit inside bodyNodeIds",
+                    node.getId(),
+                    "LOOP");
+        }
+        for (String bodyId : bodyNodeIds) {
+            GraphSpec.Node bodyNode = nodesById.get(bodyId);
+            if (bodyNode == null) {
+                return failure("RUNTIME_GRAPH_LOOP_BODY_INVALID",
+                        "LOOP body node missing: " + bodyId,
+                        node.getId(),
+                        "LOOP");
+            }
+            String bodyType = AgentGraphNodeType.normalize(bodyNode.getType());
+            if ("LOOP".equals(bodyType)) {
+                return failure("RUNTIME_GRAPH_LOOP_NESTED",
+                        "LOOP nesting is not supported in v1",
+                        node.getId(),
+                        "LOOP");
+            }
+            if ("INTERACTION".equals(bodyType) || "HUMAN_APPROVAL".equals(bodyType)) {
+                return failure("RUNTIME_GRAPH_LOOP_BODY_FORBIDDEN",
+                        "LOOP body cannot include " + bodyType,
+                        node.getId(),
+                        "LOOP");
+            }
+        }
+        Object collectionValue = resolveContextValue(collectionExpr, context);
+        if (collectionValue == null) {
+            return failure("RUNTIME_GRAPH_LOOP_COLLECTION_NULL",
+                    "LOOP collection resolved to null",
+                    node.getId(),
+                    "LOOP");
+        }
+        List<?> items;
+        if (collectionValue instanceof List<?> list) {
+            items = list;
+        } else if (collectionValue.getClass().isArray()) {
+            int len = java.lang.reflect.Array.getLength(collectionValue);
+            List<Object> converted = new ArrayList<>(len);
+            for (int i = 0; i < len; i++) {
+                converted.add(java.lang.reflect.Array.get(collectionValue, i));
+            }
+            items = converted;
+        } else {
+            return failure("RUNTIME_GRAPH_LOOP_COLLECTION_TYPE",
+                    "LOOP collection must resolve to an array/list",
+                    node.getId(),
+                    "LOOP");
+        }
+        if (items.size() > maxIterations) {
+            return failure("RUNTIME_GRAPH_LOOP_MAX_ITERATIONS",
+                    "LOOP collection size " + items.size() + " exceeds maxIterations " + maxIterations,
+                    node.getId(),
+                    "LOOP");
+        }
+        List<Object> collected = new ArrayList<>();
+        List<Map<String, Object>> iterationSummaries = new ArrayList<>();
+        List<Map<String, Object>> bodySteps = new ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            if (cancel.isCancelled()) {
+                return cancelled(node.getId(), "LOOP");
+            }
+            Map<String, Object> iterContext = copyExecutionContext(context);
+            WorkflowOutputAliasWriter.writeAlias(iterContext, itemAlias, items.get(i));
+            WorkflowOutputAliasWriter.writeAlias(iterContext, indexAlias, i);
+            RuntimeGraphSpecExecutionResult bodyResult = executeLoopBody(
+                    graph, nodesById, bodyNodeIds, bodyEntry, bodyExit, iterContext, eventSink, cancel);
+            bodySteps.addAll(bodyResult.steps());
+            Map<String, Object> iterSummary = new LinkedHashMap<>();
+            iterSummary.put("index", i);
+            iterSummary.put("status", bodyResult.success() ? "SUCCESS" : bodyResult.code());
+            iterationSummaries.add(iterSummary);
+            if (cancel.isCancelled() || "RUNTIME_GRAPH_CANCELLED".equals(bodyResult.code())) {
+                return cancelled(node.getId(), "LOOP");
+            }
+            if (!bodyResult.success()) {
+                Map<String, Object> metadata = nodeMetadata(node, "LOOP");
+                metadata.put("traceSummary", loopTraceSummary(items.size(), maxIterations, i, iterationSummaries));
+                metadata.put("failureIterationIndex", i);
+                return new RuntimeGraphSpecExecutionResult(
+                        false,
+                        firstText(bodyResult.code(), "RUNTIME_GRAPH_LOOP_BODY_FAILED"),
+                        firstText(bodyResult.answer(), "LOOP body failed at iteration " + i),
+                        node.getId(),
+                        "LOOP",
+                        bodySteps,
+                        metadata);
+            }
+            Object piece = resolveContextValue(bodyOutputExpr, iterContext);
+            if (piece == null && bodyResult.metadata() != null) {
+                piece = bodyResult.metadata().get("structuredOutput");
+            }
+            if (piece == null) {
+                piece = bodyResult.answer();
+            }
+            collected.add(piece);
+        }
+        WorkflowOutputAliasWriter.writeAlias(context, outputAlias, collected);
+        Map<String, Object> structured = new LinkedHashMap<>();
+        structured.put("results", collected);
+        structured.put("collectionSize", items.size());
+        structured.put("completedIterations", collected.size());
+        Map<String, Object> metadata = nodeMetadata(node, "LOOP");
+        metadata.put("structuredOutput", collected);
+        metadata.put("traceSummary", loopTraceSummary(items.size(), maxIterations, collected.size(), iterationSummaries));
+        return new RuntimeGraphSpecExecutionResult(
+                true,
+                "RUNTIME_GRAPH_EXECUTED",
+                String.valueOf(collected.size()),
+                node.getId(),
+                "LOOP",
+                bodySteps.isEmpty() ? List.of(step("execute-node", node.getId())) : bodySteps,
+                metadata);
+    }
+
+    private RuntimeGraphSpecExecutionResult executeLoopBody(GraphSpec graph,
+                                                            Map<String, GraphSpec.Node> nodesById,
+                                                            Set<String> bodyNodeIds,
+                                                            String bodyEntry,
+                                                            String bodyExit,
+                                                            Map<String, Object> context,
+                                                            RuntimeGraphSpecExecutionEventSink eventSink,
+                                                            RuntimeGraphSpecExecutionCancellation cancel) {
+        List<Map<String, Object>> steps = new ArrayList<>();
+        String current = bodyEntry;
+        RuntimeGraphSpecExecutionResult last = null;
+        for (int guard = 0; guard < MAX_LINEAR_STEPS && StringUtils.hasText(current); guard++) {
+            if (cancel.isCancelled()) {
+                return cancelled(current, "LOOP");
+            }
+            if (!bodyNodeIds.contains(current)) {
+                return failure("RUNTIME_GRAPH_LOOP_BODY_ESCAPE",
+                        "LOOP body attempted to leave bodyNodeIds at " + current,
+                        current,
+                        null);
+            }
+            GraphSpec.Node bodyNode = nodesById.get(current);
+            if (bodyNode == null) {
+                return failure("RUNTIME_GRAPH_NEXT_NODE_INVALID",
+                        "LOOP body node missing: " + current, current, null);
+            }
+            String nodeType = AgentGraphNodeType.normalize(bodyNode.getType());
+            RuntimeGraphSpecExecutionResult nodeResult = executeNodeWithPolicies(
+                    bodyNode, context, graph, eventSink, cancel, nodesById);
+            steps.addAll(nodeResult.steps());
+            rememberNodeOutput(context, bodyNode, nodeResult);
+            if (cancel.isCancelled() || "RUNTIME_GRAPH_CANCELLED".equals(nodeResult.code())) {
+                return withSteps(cancelled(bodyNode.getId(), nodeType), steps, List.of());
+            }
+            if (!nodeResult.success()) {
+                return withSteps(nodeResult, steps, List.of());
+            }
+            last = nodeResult;
+            if (bodyExit.equals(bodyNode.getId())) {
+                return withSteps(nodeResult, steps, List.of());
+            }
+            NextNodeResolution next = resolveNextNode(graph, bodyNode.getId(), nodeResult);
+            if (next == null || !StringUtils.hasText(next.nodeId())) {
+                return withSteps(failure("RUNTIME_GRAPH_LOOP_BODY_EXIT",
+                        "LOOP body ended before bodyExit: " + bodyExit,
+                        bodyNode.getId(),
+                        nodeType), steps, List.of());
+            }
+            if (!bodyNodeIds.contains(next.nodeId())) {
+                return withSteps(failure("RUNTIME_GRAPH_LOOP_BODY_ESCAPE",
+                        "LOOP body edge escapes bodyNodeIds: " + next.nodeId(),
+                        bodyNode.getId(),
+                        nodeType), steps, List.of());
+            }
+            current = next.nodeId();
+        }
+        return last == null
+                ? failure("RUNTIME_GRAPH_LOOP_BODY_INVALID", "LOOP body did not execute", bodyEntry, null)
+                : withSteps(last, steps, List.of());
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> copyExecutionContext(Map<String, Object> source) {
+        Map<String, Object> copy = new LinkedHashMap<>();
+        if (source == null) {
+            return copy;
+        }
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            Object value = entry.getValue();
+            if (value instanceof Map<?, ?> map) {
+                Map<String, Object> nested = new LinkedHashMap<>();
+                map.forEach((k, v) -> nested.put(String.valueOf(k), v));
+                copy.put(entry.getKey(), nested);
+            } else if (value instanceof List<?> list) {
+                copy.put(entry.getKey(), new ArrayList<>(list));
+            } else {
+                copy.put(entry.getKey(), value);
+            }
+        }
+        return copy;
+    }
+
+    private Map<String, Object> loopConfigOf(GraphSpec.Node node) {
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        Map<String, Object> nested = mapValue(config.get("loopConfig"));
+        if (nested == null || nested.isEmpty()) {
+            return config;
+        }
+        Map<String, Object> merged = new LinkedHashMap<>(nested);
+        for (Map.Entry<String, Object> entry : config.entrySet()) {
+            if (!"loopConfig".equals(entry.getKey())) {
+                merged.putIfAbsent(entry.getKey(), entry.getValue());
+            }
+        }
+        return merged;
+    }
+
+    private static Set<String> loopBodyNodeIds(Map<String, Object> config, String bodyEntry, String bodyExit) {
+        Set<String> ids = new LinkedHashSet<>();
+        Object raw = config.get("bodyNodeIds");
+        if (raw instanceof List<?> list) {
+            for (Object item : list) {
+                if (item != null && StringUtils.hasText(String.valueOf(item))) {
+                    ids.add(String.valueOf(item).trim());
+                }
+            }
+        }
+        if (StringUtils.hasText(bodyEntry)) {
+            ids.add(bodyEntry.trim());
+        }
+        if (StringUtils.hasText(bodyExit)) {
+            ids.add(bodyExit.trim());
+        }
+        return ids;
+    }
+
+    /**
+     * Missing / blank → default 100. Present but non-numeric, &lt;1 or &gt;hard max → null (fail-closed).
+     */
+    public static Integer parseLoopMaxIterations(Object raw) {
+        if (raw == null) {
+            return LOOP_DEFAULT_MAX_ITERATIONS;
+        }
+        if (raw instanceof String text && !StringUtils.hasText(text)) {
+            return LOOP_DEFAULT_MAX_ITERATIONS;
+        }
+        int value;
+        if (raw instanceof Number number) {
+            if (raw instanceof Double || raw instanceof Float) {
+                double d = number.doubleValue();
+                if (!Double.isFinite(d) || Math.floor(d) != d) {
+                    return null;
+                }
+            }
+            value = number.intValue();
+        } else {
+            try {
+                value = Integer.parseInt(String.valueOf(raw).trim());
+            } catch (NumberFormatException ex) {
+                return null;
+            }
+        }
+        if (value < 1 || value > LOOP_HARD_MAX_ITERATIONS) {
+            return null;
+        }
+        return value;
+    }
+
+    private static Map<String, Object> loopTraceSummary(int collectionSize,
+                                                        int maxIterations,
+                                                        int completedOrFailedIndex,
+                                                        List<Map<String, Object>> iterations) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("collectionSize", collectionSize);
+        summary.put("configuredMaxIterations", maxIterations);
+        summary.put("completedIterations", Math.min(completedOrFailedIndex, collectionSize));
+        summary.put("iterationCount", iterations == null ? 0 : iterations.size());
+        // Never include item values — only index/status.
+        summary.put("iterations", iterations == null ? List.of() : iterations);
+        return summary;
+    }
+
     private RuntimeGraphSpecExecutionResult cancelled(String nodeId, String nodeType) {
         return failure("RUNTIME_GRAPH_CANCELLED", "Workflow execution cancelled", nodeId, nodeType);
+    }
+
+    private RuntimeGraphSpecExecutionResult executeVariableAssign(GraphSpec.Node node, Map<String, Object> context) {
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        Map<String, Object> assignments = mapValue(config.get("assignments"));
+        if (assignments == null || assignments.isEmpty()) {
+            return failure("RUNTIME_GRAPH_ASSIGNMENTS_REQUIRED",
+                    "VARIABLE_ASSIGN requires non-empty assignments",
+                    node.getId(),
+                    "VARIABLE_ASSIGN");
+        }
+        Map<String, Object> resolved = new LinkedHashMap<>();
+        Map<String, String> normalizedTargets = new LinkedHashMap<>();
+        try {
+            for (Map.Entry<String, Object> entry : assignments.entrySet()) {
+                String normalized = WorkflowVariableNamespaces.normalizeBusinessWriteTarget(entry.getKey());
+                Object value = renderInputValue(entry.getValue(), context);
+                resolved.put(normalized, value);
+                normalizedTargets.put(entry.getKey(), normalized);
+            }
+            for (Map.Entry<String, Object> entry : resolved.entrySet()) {
+                WorkflowOutputAliasWriter.writeBusinessPath(context, entry.getKey(), entry.getValue());
+            }
+        } catch (IllegalArgumentException ex) {
+            return failure("RUNTIME_GRAPH_ASSIGNMENT_INVALID",
+                    "VARIABLE_ASSIGN failed for node " + node.getId() + ": " + ex.getMessage(),
+                    node.getId(),
+                    "VARIABLE_ASSIGN");
+        }
+        Map<String, Object> structured = new LinkedHashMap<>();
+        structured.put("assignments", resolved);
+        structured.put("targets", normalizedTargets);
+        Map<String, Object> metadata = nodeMetadata(node, "VARIABLE_ASSIGN");
+        metadata.put("structuredOutput", structured);
+        metadata.put("traceSummary", Map.of("assignmentCount", resolved.size()));
+        String answer;
+        try {
+            answer = objectMapper.writeValueAsString(structured);
+        } catch (Exception ex) {
+            answer = String.valueOf(structured);
+        }
+        return new RuntimeGraphSpecExecutionResult(
+                true,
+                "RUNTIME_GRAPH_EXECUTED",
+                answer,
+                node.getId(),
+                "VARIABLE_ASSIGN",
+                List.of(step("execute-node", node.getId())),
+                metadata);
+    }
+
+    private RuntimeGraphSpecExecutionResult executeTemplate(GraphSpec.Node node, Map<String, Object> context) {
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        String template = firstText(text(config.get("template")), text(config.get("content")));
+        if (!StringUtils.hasText(template)) {
+            return failure("RUNTIME_GRAPH_TEMPLATE_REQUIRED",
+                    "TEMPLATE requires template",
+                    node.getId(),
+                    "TEMPLATE");
+        }
+        // Missing variables render as empty string — same contract as ANSWER/LLM templates.
+        String rendered = firstText(renderTemplate(template, context), "");
+        Map<String, Object> metadata = nodeMetadata(node, "TEMPLATE");
+        metadata.put("structuredOutput", rendered);
+        metadata.put("traceSummary", Map.of("length", rendered.length()));
+        return new RuntimeGraphSpecExecutionResult(
+                true,
+                "RUNTIME_GRAPH_EXECUTED",
+                rendered,
+                node.getId(),
+                "TEMPLATE",
+                List.of(step("execute-node", node.getId())),
+                metadata);
+    }
+
+    private RuntimeGraphSpecExecutionResult executeVariableAggregator(GraphSpec.Node node,
+                                                                      Map<String, Object> context) {
+        Map<String, Object> config = aggregateConfig(node);
+        String mode = firstText(text(config.get("aggregateMode")), text(config.get("mode")), "object")
+                .toLowerCase(Locale.ROOT);
+        Object rawItems = config.get("items");
+        if (!(rawItems instanceof List<?> items) || items.isEmpty()) {
+            return failure("RUNTIME_GRAPH_AGGREGATE_ITEMS_REQUIRED",
+                    "VARIABLE_AGGREGATOR requires items",
+                    node.getId(),
+                    "VARIABLE_AGGREGATOR");
+        }
+        List<Map<String, Object>> normalizedItems = new ArrayList<>();
+        for (Object raw : items) {
+            Map<String, Object> item = mapValue(raw);
+            if (item == null) {
+                continue;
+            }
+            String name = firstText(text(item.get("name")), "value");
+            String source = firstText(text(item.get("source")), "lastOutput");
+            Object value = renderInputValue(source, context);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("name", name);
+            row.put("source", source);
+            row.put("value", value);
+            normalizedItems.add(row);
+        }
+        Object structured;
+        String answer;
+        switch (mode) {
+            case "array" -> {
+                List<Object> values = normalizedItems.stream().map(item -> item.get("value")).toList();
+                structured = values;
+                try {
+                    answer = objectMapper.writeValueAsString(values);
+                } catch (Exception ex) {
+                    answer = String.valueOf(values);
+                }
+            }
+            case "text" -> {
+                String template = firstText(text(config.get("template")), "");
+                if (!StringUtils.hasText(template)) {
+                    StringBuilder builder = new StringBuilder();
+                    for (Map<String, Object> item : normalizedItems) {
+                        if (!builder.isEmpty()) {
+                            builder.append('\n');
+                        }
+                        builder.append(item.get("value") == null ? "" : item.get("value"));
+                    }
+                    answer = builder.toString();
+                } else {
+                    Map<String, Object> local = new LinkedHashMap<>(context);
+                    for (Map<String, Object> item : normalizedItems) {
+                        local.put(String.valueOf(item.get("name")), item.get("value"));
+                    }
+                    answer = firstText(renderTemplate(template, local), "");
+                }
+                structured = answer;
+            }
+            default -> {
+                Map<String, Object> object = new LinkedHashMap<>();
+                for (Map<String, Object> item : normalizedItems) {
+                    object.put(String.valueOf(item.get("name")), item.get("value"));
+                }
+                structured = object;
+                try {
+                    answer = objectMapper.writeValueAsString(object);
+                } catch (Exception ex) {
+                    answer = String.valueOf(object);
+                }
+            }
+        }
+        Map<String, Object> metadata = nodeMetadata(node, "VARIABLE_AGGREGATOR");
+        metadata.put("structuredOutput", structured);
+        metadata.put("aggregateMode", mode);
+        metadata.put("traceSummary", Map.of("mode", mode, "itemCount", normalizedItems.size()));
+        return new RuntimeGraphSpecExecutionResult(
+                true,
+                "RUNTIME_GRAPH_EXECUTED",
+                answer,
+                node.getId(),
+                "VARIABLE_AGGREGATOR",
+                List.of(step("execute-node", node.getId())),
+                metadata);
+    }
+
+    private Map<String, Object> aggregateConfig(GraphSpec.Node node) {
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        Map<String, Object> nested = mapValue(config.get("aggregateConfig"));
+        if (nested == null || nested.isEmpty()) {
+            return config;
+        }
+        Map<String, Object> merged = new LinkedHashMap<>(nested);
+        config.forEach((key, value) -> {
+            if (!"aggregateConfig".equals(key)) {
+                merged.put(key, value);
+            }
+        });
+        return merged;
+    }
+
+    private RuntimeGraphSpecExecutionResult executeKnowledgeRetrieval(GraphSpec.Node node,
+                                                                      Map<String, Object> context,
+                                                                      RuntimeGraphSpecExecutionCancellation cancel) {
+        if (knowledgeClient == null) {
+            return failure("RUNTIME_KNOWLEDGE_CLIENT_UNAVAILABLE",
+                    "Knowledge retrieval client is unavailable",
+                    node.getId(),
+                    "KNOWLEDGE_RETRIEVAL");
+        }
+        Map<String, Object> config = knowledgeConfig(node);
+        List<String> codes = stringList(config.get("knowledgeBaseCodes"));
+        if (codes.isEmpty()) {
+            return failure("RUNTIME_KNOWLEDGE_BASE_REQUIRED",
+                    "KNOWLEDGE_RETRIEVAL requires knowledgeBaseCodes",
+                    node.getId(),
+                    "KNOWLEDGE_RETRIEVAL");
+        }
+        String queryExpression = firstText(text(config.get("query")), "input");
+        String query = classifierInput(queryExpression, context);
+        if (!StringUtils.hasText(query)) {
+            return failure("RUNTIME_KNOWLEDGE_QUERY_REQUIRED",
+                    "KNOWLEDGE_RETRIEVAL query resolved to empty",
+                    node.getId(),
+                    "KNOWLEDGE_RETRIEVAL");
+        }
+        if (cancel.isCancelled()) {
+            return cancelled(node.getId(), "KNOWLEDGE_RETRIEVAL");
+        }
+        int topK = Math.max(1, Math.min(20, intValue(config.get("topK"), 5)));
+        Float threshold = config.get("similarityThreshold") == null
+                ? null
+                : (float) doubleValue(config.get("similarityThreshold"), 0.5D);
+        WorkflowExecutionIdentity identity = resolveTrustedIdentity(context);
+        if (!identity.canResolveUserAcl()) {
+            return failure("RUNTIME_KNOWLEDGE_USER_IDENTITY_REQUIRED",
+                    "KNOWLEDGE_RETRIEVAL requires a trusted user identity for ACL",
+                    node.getId(),
+                    "KNOWLEDGE_RETRIEVAL");
+        }
+        try {
+            KnowledgeRetrievalResult result = knowledgeClient.retrieve(KnowledgeRetrievalRequest.builder()
+                    .query(query)
+                    .knowledgeBaseCodes(codes)
+                    .userId(identity.userId())
+                    .topK(topK)
+                    .similarityThreshold(threshold)
+                    .searchMode(text(config.get("searchMode")))
+                    .rerankEnabled(config.get("rerankEnabled") instanceof Boolean bool ? bool : null)
+                    .build());
+            if (cancel.isCancelled()) {
+                return cancelled(node.getId(), "KNOWLEDGE_RETRIEVAL");
+            }
+            if (result == null || (result.getCode() != 0 && result.getCode() != 200)) {
+                return failure("RUNTIME_KNOWLEDGE_FAILED",
+                        result == null ? "Knowledge service returned empty response"
+                                : firstText(result.getMessage(), "Knowledge retrieval failed"),
+                        node.getId(),
+                        "KNOWLEDGE_RETRIEVAL");
+            }
+            KnowledgeRetrievalData data = result.getData();
+            List<KnowledgeHit> hits = data == null || data.getHits() == null ? List.of() : data.getHits();
+            Map<String, Object> structured = new LinkedHashMap<>();
+            structured.put("query", query);
+            structured.put("hits", hits);
+            structured.put("hitCount", hits.size());
+            Map<String, Object> metadata = nodeMetadata(node, "KNOWLEDGE_RETRIEVAL");
+            metadata.put("structuredOutput", structured);
+            Map<String, Object> knowledgeTrace = new LinkedHashMap<>();
+            knowledgeTrace.put("queryLength", query.length());
+            knowledgeTrace.put("hitCount", hits.size());
+            knowledgeTrace.put("topK", topK);
+            knowledgeTrace.put("searchMode", firstText(text(config.get("searchMode")), "hybrid"));
+            knowledgeTrace.put("rerankApplied", Boolean.TRUE.equals(config.get("rerankEnabled")));
+            metadata.put("traceSummary", knowledgeTrace);
+            String answer;
+            try {
+                answer = objectMapper.writeValueAsString(structured);
+            } catch (Exception ex) {
+                answer = "hitCount=" + hits.size();
+            }
+            return new RuntimeGraphSpecExecutionResult(
+                    true,
+                    "RUNTIME_GRAPH_EXECUTED",
+                    answer,
+                    node.getId(),
+                    "KNOWLEDGE_RETRIEVAL",
+                    List.of(step("execute-node", node.getId())),
+                    metadata);
+        } catch (Exception ex) {
+            if (cancel.isCancelled()) {
+                return cancelled(node.getId(), "KNOWLEDGE_RETRIEVAL");
+            }
+            return failure("RUNTIME_KNOWLEDGE_FAILED",
+                    "KNOWLEDGE_RETRIEVAL failed: " + ex.getMessage(),
+                    node.getId(),
+                    "KNOWLEDGE_RETRIEVAL");
+        }
+    }
+
+    private Map<String, Object> knowledgeConfig(GraphSpec.Node node) {
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        Map<String, Object> nested = mapValue(config.get("knowledgeConfig"));
+        if (nested == null || nested.isEmpty()) {
+            return config;
+        }
+        Map<String, Object> merged = new LinkedHashMap<>(nested);
+        config.forEach((key, value) -> {
+            if (!"knowledgeConfig".equals(key)) {
+                merged.put(key, value);
+            }
+        });
+        return merged;
+    }
+
+    private RuntimeGraphSpecExecutionResult executeHttpRequest(GraphSpec.Node node,
+                                                               Map<String, Object> context,
+                                                               RuntimeGraphSpecExecutionCancellation cancel) {
+        if (httpClient == null) {
+            return failure("RUNTIME_HTTP_CLIENT_UNAVAILABLE",
+                    "HTTP client is unavailable",
+                    node.getId(),
+                    "HTTP_REQUEST");
+        }
+        Map<String, Object> config = httpConfig(node);
+        String method = firstText(text(config.get("method")), "GET");
+        String urlTemplate = text(config.get("url"));
+        if (!StringUtils.hasText(urlTemplate)) {
+            return failure("RUNTIME_HTTP_URL_REQUIRED",
+                    "HTTP_REQUEST requires url",
+                    node.getId(),
+                    "HTTP_REQUEST");
+        }
+        String url = firstText(renderTemplate(urlTemplate, context), urlTemplate);
+        Map<String, String> queryParams = renderStringMap(mapValue(config.get("queryParams")), context);
+        Map<String, String> headers = renderStringMap(mapValue(config.get("headers")), context);
+        String bodyType = firstText(text(config.get("bodyType")), "none");
+        String body = text(config.get("body"));
+        if (StringUtils.hasText(body) && body.contains("{{")) {
+            body = renderTemplate(body, context);
+        }
+        if (cancel.isCancelled()) {
+            return cancelled(node.getId(), "HTTP_REQUEST");
+        }
+        WorkflowExecutionIdentity identity = resolveTrustedIdentity(context);
+        HttpExecutionResult result = httpClient.execute(new HttpExecutionRequest(
+                method,
+                url,
+                queryParams,
+                headers,
+                bodyType,
+                body,
+                intValue(config.get("timeoutMs"), WorkflowHttpClient.DEFAULT_TIMEOUT_MS),
+                text(config.get("credentialRef")),
+                identity));
+        if (cancel.isCancelled()) {
+            return cancelled(node.getId(), "HTTP_REQUEST");
+        }
+        Map<String, Object> metadata = nodeMetadata(node, "HTTP_REQUEST");
+        metadata.put("traceSummary", result.traceSummary());
+        metadata.put("retryableFailure", result.retryableFailure());
+        if (!result.success()) {
+            metadata.put("structuredOutput", result.structuredOutput());
+            return new RuntimeGraphSpecExecutionResult(
+                    false,
+                    result.code(),
+                    result.body(),
+                    node.getId(),
+                    "HTTP_REQUEST",
+                    List.of(step("execute-node", node.getId())),
+                    metadata);
+        }
+        Map<String, Object> structured = result.structuredOutput();
+        metadata.put("structuredOutput", structured);
+        String answer;
+        try {
+            answer = objectMapper.writeValueAsString(structured);
+        } catch (Exception ex) {
+            answer = "statusCode=" + result.statusCode();
+        }
+        return new RuntimeGraphSpecExecutionResult(
+                true,
+                "RUNTIME_GRAPH_EXECUTED",
+                answer,
+                node.getId(),
+                "HTTP_REQUEST",
+                List.of(step("execute-node", node.getId())),
+                metadata);
+    }
+
+    private Map<String, Object> httpConfig(GraphSpec.Node node) {
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        Map<String, Object> nested = mapValue(config.get("httpConfig"));
+        if (nested == null || nested.isEmpty()) {
+            return config;
+        }
+        Map<String, Object> merged = new LinkedHashMap<>(nested);
+        config.forEach((key, value) -> {
+            if (!"httpConfig".equals(key)) {
+                merged.put(key, value);
+            }
+        });
+        return merged;
+    }
+
+    private Map<String, String> renderStringMap(Map<String, Object> source, Map<String, Object> context) {
+        Map<String, String> rendered = new LinkedHashMap<>();
+        if (source == null) {
+            return rendered;
+        }
+        source.forEach((key, value) -> {
+            if (!StringUtils.hasText(key)) {
+                return;
+            }
+            Object resolved = renderInputValue(value, context);
+            rendered.put(key, resolved == null ? "" : String.valueOf(resolved));
+        });
+        return rendered;
+    }
+
+    private List<String> stringList(Object value) {
+        if (value instanceof List<?> items) {
+            return items.stream().map(this::text).filter(StringUtils::hasText).toList();
+        }
+        if (value instanceof String raw && StringUtils.hasText(raw)) {
+            return List.of(raw.trim());
+        }
+        return List.of();
     }
 
     private RuntimeGraphSpecExecutionResult executeUserInput(GraphSpec.Node node, Map<String, Object> context) {
@@ -482,6 +1673,9 @@ public class RuntimeGraphSpecExecutor {
             }
         }
 
+        // Publish extracted fields into live context so later ANSWER/INTERACTION templates
+        // can read {{ field }} even after lastOutput is overwritten by a subsequent node.
+        extracted.forEach(context::put);
         String answer;
         try {
             answer = objectMapper.writeValueAsString(extracted);
@@ -751,6 +1945,14 @@ public class RuntimeGraphSpecExecutor {
         if (value == null && ("query".equals(path) || "userInput".equals(path))) {
             value = firstPresent(context.get("input"), context.get("message"));
         }
+        // Compatibility: bare business alias may resolve through var.<alias> without dual-write.
+        if (value == null && StringUtils.hasText(path) && !path.contains(".")
+                && !WorkflowVariableNamespaces.isReservedRoot(path)) {
+            value = context.get(WorkflowVariableNamespaces.VAR_ROOT + "." + path);
+            if (value == null && context.get(WorkflowVariableNamespaces.VAR_ROOT) instanceof Map<?, ?> vars) {
+                value = vars.get(path);
+            }
+        }
         if (value == null && path.contains(".")) {
             Object current = context;
             for (String part : path.split("\\.")) {
@@ -931,18 +2133,20 @@ public class RuntimeGraphSpecExecutor {
         Matcher matcher = TEMPLATE_TOKEN.matcher(template);
         StringBuffer rendered = new StringBuffer();
         while (matcher.find()) {
-            matcher.appendReplacement(rendered, Matcher.quoteReplacement(resolveToken(matcher.group(1), request)));
+            String replacement = resolveToken(matcher.group(1), request);
+            matcher.appendReplacement(rendered, Matcher.quoteReplacement(replacement == null ? "" : replacement));
         }
         matcher.appendTail(rendered);
         return rendered.toString();
     }
 
     private String resolveToken(String token, Map<String, Object> request) {
-        return switch (token) {
+        String resolved = switch (token) {
             case "input", "message", "userInput", "query", "lastOutput", "previousOutput" ->
-                    firstText(text(request.get(token)), text(request.get("message")), text(request.get("input")), "");
-            default -> firstText(text(resolveContextValue(token, request)), "");
+                    firstText(text(request.get(token)), text(request.get("message")), text(request.get("input")));
+            default -> text(resolveContextValue(token, request));
         };
+        return resolved == null ? "" : resolved;
     }
 
     private RuntimeGraphSpecExecutionResult executeLlm(GraphSpec.Node node,
@@ -1061,28 +2265,7 @@ public class RuntimeGraphSpecExecutor {
     }
 
     private RuntimeGraphSpecExecutionResult executeInteraction(GraphSpec.Node node, Map<String, Object> context) {
-        Map<String, Object> submittedPayload = mapValue(firstPresent(context.get("submittedPayload"),
-                firstPresent(context.get("values"), context.get("payload"))));
-        if (submittedPayload == null || submittedPayload.isEmpty()) {
-            return failure("RUNTIME_GRAPH_INTERACTION_WAITING",
-                    "Interaction node is waiting for submitted payload: " + node.getId(),
-                    node.getId(),
-                    "INTERACTION");
-        }
-        context.put("submittedPayload", submittedPayload);
-        context.put("values", submittedPayload);
-        context.putAll(submittedPayload);
-        Map<String, Object> metadata = nodeMetadata(node, "INTERACTION");
-        metadata.put("submittedPayload", submittedPayload);
-        metadata.put("structuredOutput", submittedPayload);
-        return new RuntimeGraphSpecExecutionResult(
-                true,
-                "RUNTIME_GRAPH_EXECUTED",
-                String.valueOf(submittedPayload),
-                node.getId(),
-                "INTERACTION",
-                List.of(step("execute-node", node.getId())),
-                metadata);
+        return WorkflowInteractionNodeHandler.execute(node, context);
     }
 
     private RuntimeGraphSpecExecutionResult executeTool(GraphSpec.Node node,
@@ -1284,10 +2467,16 @@ public class RuntimeGraphSpecExecutor {
         return context.get(root) instanceof Map<?, ?>
                 || candidate.startsWith("params.")
                 || candidate.startsWith("nodeOutput.")
+                || candidate.startsWith("var.")
+                || candidate.startsWith("sys.")
                 || "input".equals(candidate)
                 || "message".equals(candidate)
                 || "lastOutput".equals(candidate)
-                || "previousOutput".equals(candidate);
+                || "previousOutput".equals(candidate)
+                || (StringUtils.hasText(root)
+                && !WorkflowVariableNamespaces.isReservedRoot(root)
+                && (context.containsKey(WorkflowVariableNamespaces.VAR_ROOT + "." + candidate)
+                || context.get(WorkflowVariableNamespaces.VAR_ROOT) instanceof Map<?, ?>));
     }
 
     private String resolveQualifiedName(GraphSpec.Node node) {
@@ -1369,7 +2558,8 @@ public class RuntimeGraphSpecExecutor {
         Matcher matcher = TEMPLATE_TOKEN.matcher(template);
         StringBuffer rendered = new StringBuffer();
         while (matcher.find()) {
-            matcher.appendReplacement(rendered, Matcher.quoteReplacement(resolveToken(matcher.group(1), request)));
+            String replacement = resolveToken(matcher.group(1), request);
+            matcher.appendReplacement(rendered, Matcher.quoteReplacement(replacement == null ? "" : replacement));
         }
         matcher.appendTail(rendered);
         return rendered.toString();
@@ -1402,6 +2592,17 @@ public class RuntimeGraphSpecExecutor {
         context.putIfAbsent("message", input);
         context.putIfAbsent("lastOutput", input);
         context.putIfAbsent("previousOutput", input);
+        context.putIfAbsent(WorkflowVariableNamespaces.VAR_ROOT, new LinkedHashMap<String, Object>());
+        if (!(context.get(WorkflowVariableNamespaces.SYS_ROOT) instanceof Map<?, ?>)) {
+            Map<String, Object> sys = new LinkedHashMap<>();
+            putIfPresent(sys, "userId", firstPresent(request.get("userId"), request.get("externalUserId")));
+            putIfPresent(sys, "tenantId", request.get("tenantId"));
+            putIfPresent(sys, "roles", request.get("roles"));
+            putIfPresent(sys, "projectCode", request.get("projectCode"));
+            putIfPresent(sys, "projectId", request.get("projectId"));
+            putIfPresent(sys, "sessionId", request.get("sessionId"));
+            context.put(WorkflowVariableNamespaces.SYS_ROOT, sys);
+        }
         return context;
     }
 
@@ -1418,12 +2619,30 @@ public class RuntimeGraphSpecExecutor {
                 : new LinkedHashMap<>(existingNodeOutputs);
         nodeOutputs.put(node.getId(), output);
         context.put("nodeOutput", nodeOutputs);
+        String outputAlias = nodeOutputAlias(node);
+        if (StringUtils.hasText(outputAlias)
+                && WorkflowVariableNamespaces.isValidAlias(outputAlias)
+                && !WorkflowVariableNamespaces.isReservedAlias(outputAlias)) {
+            WorkflowOutputAliasWriter.writeAlias(context, outputAlias, output);
+        }
         if ("INTENT_CLASSIFIER".equals(nodeType) || "IF_ELSE".equals(nodeType)) {
             return;
         }
         Object previousOutput = context.get("lastOutput");
         rememberOutputPath(context, "previousOutput", previousOutput);
         rememberOutputPath(context, "lastOutput", output);
+    }
+
+    private String nodeOutputAlias(GraphSpec.Node node) {
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        return firstText(
+                text(config.get("outputAlias")),
+                text(mapValue(config.get("userInputConfig")) == null
+                        ? null : mapValue(config.get("userInputConfig")).get("outputAlias")),
+                text(mapValue(config.get("interactionConfig")) == null
+                        ? null : mapValue(config.get("interactionConfig")).get("outputAlias")),
+                text(mapValue(config.get("pageActionConfig")) == null
+                        ? null : mapValue(config.get("pageActionConfig")).get("outputAlias")));
     }
 
     private Object structuredOutput(RuntimeGraphSpecExecutionResult result, String answer) {
@@ -1492,6 +2711,40 @@ public class RuntimeGraphSpecExecutor {
                 : text(firstPresent(nodeResult.metadata().get("route"), nodeResult.metadata().get("lastRoute")));
     }
 
+    private static boolean isStrictInteractionRoute(String route) {
+        if (!StringUtils.hasText(route)) {
+            return false;
+        }
+        String normalized = route.trim().toLowerCase(Locale.ROOT);
+        return "confirm".equals(normalized)
+                || "reject".equals(normalized)
+                || "cancel".equals(normalized)
+                || "approve".equals(normalized)
+                || "deny".equals(normalized);
+    }
+
+    private boolean hasExactRouteEdge(GraphSpec graph, String nodeId, String route) {
+        if (graph.getEdges() == null || !StringUtils.hasText(route)) {
+            return false;
+        }
+        for (GraphSpec.Edge edge : graph.getEdges()) {
+            if (edge == null || !nodeId.equals(text(edge.getFrom()))) {
+                continue;
+            }
+            String condition = text(edge.getCondition());
+            if (!StringUtils.hasText(condition)) {
+                continue;
+            }
+            String expectedRoute = condition.regionMatches(true, 0, "route:", 0, "route:".length())
+                    ? condition.substring("route:".length()).trim()
+                    : condition;
+            if (route.equalsIgnoreCase(expectedRoute)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private int edgeMatchRank(GraphSpec.Edge edge, String route) {
         String condition = text(edge.getCondition());
         boolean unconditional = !StringUtils.hasText(condition)
@@ -1527,7 +2780,12 @@ public class RuntimeGraphSpecExecutor {
     }
 
     private RuntimeGraphSpecExecutionResult withSteps(RuntimeGraphSpecExecutionResult result,
-                                                      List<Map<String, Object>> steps) {
+                                                      List<Map<String, Object>> steps,
+                                                      List<Map<String, Object>> nodeTraces) {
+        Map<String, Object> metadata = result.metadata() == null
+                ? new LinkedHashMap<>()
+                : new LinkedHashMap<>(result.metadata());
+        metadata.put("workflowNodeTraces", List.copyOf(nodeTraces == null ? List.of() : nodeTraces));
         return new RuntimeGraphSpecExecutionResult(
                 result.success(),
                 result.code(),
@@ -1535,13 +2793,117 @@ public class RuntimeGraphSpecExecutor {
                 result.nodeId(),
                 result.nodeType(),
                 List.copyOf(steps),
-                result.metadata());
+                metadata,
+                result.contextSnapshot());
+    }
+
+    private Map<String, Object> buildInternalNodeTrace(GraphSpec.Node node,
+                                                       String nodeType,
+                                                       RuntimeGraphSpecExecutionResult nodeResult,
+                                                       long startedAtMs,
+                                                       long endedAtMs,
+                                                       long latencyMs) {
+        Map<String, Object> trace = new LinkedHashMap<>();
+        trace.put("nodeId", node.getId());
+        trace.put("nodeType", nodeType);
+        String status;
+        if (nodeResult.isWaitingUser() || WorkflowInteractionCodes.WAITING.equals(nodeResult.code())) {
+            status = "WAITING_USER";
+        } else if ("RUNTIME_GRAPH_CANCELLED".equals(nodeResult.code())) {
+            status = "CANCELLED";
+        } else if (nodeResult.success()) {
+            status = "SUCCESS";
+        } else {
+            status = "FAILED";
+        }
+        trace.put("status", status);
+        trace.put("startedAt", startedAtMs);
+        if (!"WAITING_USER".equals(status)) {
+            trace.put("endedAt", endedAtMs);
+        }
+        trace.put("latencyMs", latencyMs);
+        if (nodeResult.metadata() != null) {
+            putIfPresent(trace, "attempt", nodeResult.metadata().get("attempt"));
+            putIfPresent(trace, "maxAttempts", nodeResult.metadata().get("maxAttempts"));
+            putIfPresent(trace, "errorPolicy", nodeResult.metadata().get("errorPolicyDecision"));
+            putIfPresent(trace, "fallbackNodeId", nodeResult.metadata().get("fallbackNodeId"));
+            Object summary = nodeResult.metadata().get("traceSummary");
+            if (summary instanceof Map<?, ?> map) {
+                trace.put("traceSummary", new LinkedHashMap<>((Map<String, Object>) map));
+            } else if (summary != null) {
+                trace.put("traceSummary", summary);
+            }
+        }
+        if (!nodeResult.success()) {
+            putIfPresent(trace, "failureCode", nodeResult.code());
+        }
+        if (nodeResult.interactionId() != null) {
+            trace.put("interactionId", nodeResult.interactionId());
+        }
+        if (nodeResult.uiRequest() != null) {
+            trace.put("uiRequest", nodeResult.uiRequest());
+        }
+        return trace;
     }
 
     private void putIfPresent(Map<String, Object> metadata, String key, Object value) {
         if (value != null) {
             metadata.put(key, value);
         }
+    }
+
+    private WorkflowExecutionIdentity resolveTrustedIdentity(Map<String, Object> context) {
+        if (context == null) {
+            return WorkflowExecutionIdentity.untrustedDebug();
+        }
+        Object raw = context.get(TRUSTED_IDENTITY_CONTEXT_KEY);
+        if (raw instanceof WorkflowExecutionIdentity identity) {
+            return identity;
+        }
+        // Runtime-owned session snapshots may rehydrate identity as a Map; trust flags are
+        // recomputed from source only (never from client-supplied projectTrusted/userTrusted).
+        if (raw instanceof Map<?, ?> map) {
+            return WorkflowExecutionIdentity.restoreFromContextMap(map);
+        }
+        return WorkflowExecutionIdentity.untrustedDebug();
+    }
+
+    private Long resolveProjectId(Map<String, Object> context) {
+        // Non-security convenience only (e.g. PAGE_ACTION display). Credentials/ACL must use trusted identity.
+        Object direct = context.get("projectId");
+        if (direct instanceof Number number) {
+            return number.longValue();
+        }
+        Object sys = context.get("sys");
+        if (sys instanceof Map<?, ?> sysMap) {
+            Object nested = sysMap.get("projectId");
+            if (nested instanceof Number number) {
+                return number.longValue();
+            }
+            if (nested != null) {
+                try {
+                    return Long.parseLong(String.valueOf(nested).trim());
+                } catch (NumberFormatException ignored) {
+                    // fall through
+                }
+            }
+        }
+        return null;
+    }
+
+    private String resolveProjectCode(Map<String, Object> context) {
+        String direct = text(context.get("projectCode"));
+        if (StringUtils.hasText(direct)) {
+            return direct;
+        }
+        Object sys = context.get("sys");
+        if (sys instanceof Map<?, ?> sysMap) {
+            String nested = text(sysMap.get("projectCode"));
+            if (StringUtils.hasText(nested)) {
+                return nested;
+            }
+        }
+        return null;
     }
 
     @SuppressWarnings("unchecked")

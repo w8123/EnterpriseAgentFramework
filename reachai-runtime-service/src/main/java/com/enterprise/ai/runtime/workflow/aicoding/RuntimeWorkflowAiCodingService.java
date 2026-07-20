@@ -12,6 +12,8 @@ import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationServic
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionService;
 import com.enterprise.ai.runtime.workflow.layout.RuntimeWorkflowCanvasLayoutService;
+import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
+import com.enterprise.ai.runtime.client.model.RuntimeModelCatalogClient;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService.MutationOperation;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService.MutationResult;
@@ -23,6 +25,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +46,8 @@ public class RuntimeWorkflowAiCodingService {
     private final ObjectMapper objectMapper;
     private final RuntimeWorkflowCanvasLayoutService canvasLayoutService;
     private final RuntimeWorkflowGraphMutationService graphMutationService;
+    private final RuntimeModelCatalogClient modelCatalogClient;
+    private final RuntimeCapabilityCatalogClient capabilityCatalogClient;
 
     public ContextView createWorkflow(CreateRequest request) {
         if (request == null) {
@@ -54,7 +59,7 @@ public class RuntimeWorkflowAiCodingService {
         entity.setProjectId(request.projectId());
         entity.setProjectCode(request.projectCode());
         entity.setDescription(request.description());
-        entity.setWorkflowType(defaultText(request.workflowType(), "PAGE_ASSISTANT"));
+        entity.setWorkflowType(defaultText(request.workflowType(), "CHAT"));
         entity.setRuntimeType(defaultText(request.runtimeType(), "LANGGRAPH4J"));
         entity.setDefaultModelInstanceId(request.defaultModelInstanceId());
         entity.setManagedBy("AI_CODING");
@@ -238,6 +243,9 @@ public class RuntimeWorkflowAiCodingService {
     private ContextView contextFromWorkflow(RuntimeWorkflowDefinitionEntity workflow) {
         GraphSpec graphSpec = readGraph(workflow.getGraphSpecJson());
         RuntimeWorkflowReleaseValidationResult validation = validationService.validate(workflow);
+        List<WarningView> warnings = new ArrayList<>();
+        List<Object> models = loadAvailableModels(warnings);
+        List<Object> tools = loadAvailableTools(workflow, warnings);
         return new ContextView(
                 snapshot(workflow),
                 graphSpec,
@@ -245,10 +253,83 @@ public class RuntimeWorkflowAiCodingService {
                 validationView(workflow.getId(), "CURRENT", validation),
                 AgentGraphNodeType.catalog(),
                 runtimeHints(workflow),
-                Map.of(),
-                List.of(),
-                List.of(),
-                List.of());
+                pageAssistantContext(workflow, graphSpec),
+                models,
+                tools,
+                warnings.stream().map(warning -> (Object) warning).toList());
+    }
+
+    private List<Object> loadAvailableModels(List<WarningView> warnings) {
+        try {
+            List<Map<String, Object>> models = modelCatalogClient.listActiveLlms();
+            if (models.isEmpty()) {
+                warnings.add(new WarningView(
+                        "NO_ACTIVE_LLM",
+                        "No ACTIVE LLM model instances were found in Model Center.",
+                        "model-service",
+                        false));
+            }
+            return List.copyOf(models);
+        } catch (Exception ex) {
+            warnings.add(new WarningView(
+                    "MODEL_CATALOG_UNAVAILABLE",
+                    "Model catalog is unavailable: " + ex.getMessage(),
+                    "model-service",
+                    true));
+            return List.of();
+        }
+    }
+
+    private List<Object> loadAvailableTools(RuntimeWorkflowDefinitionEntity workflow, List<WarningView> warnings) {
+        if (workflow.getProjectId() == null) {
+            warnings.add(new WarningView(
+                    "NO_PROJECT_TOOLS",
+                    "Workflow has no projectId; project tools cannot be listed.",
+                    "capability-service",
+                    false));
+            return List.of();
+        }
+        try {
+            List<Map<String, Object>> tools = capabilityCatalogClient.listProjectTools(workflow.getProjectId());
+            if (tools == null || tools.isEmpty()) {
+                warnings.add(new WarningView(
+                        "NO_PROJECT_TOOLS",
+                        "No enabled tools were found for projectId=" + workflow.getProjectId(),
+                        "capability-service",
+                        false));
+                return List.of();
+            }
+            return List.copyOf(tools);
+        } catch (Exception ex) {
+            warnings.add(new WarningView(
+                    "CAPABILITY_CATALOG_UNAVAILABLE",
+                    "Capability tool catalog is unavailable: " + ex.getMessage(),
+                    "capability-service",
+                    true));
+            return List.of();
+        }
+    }
+
+    private Map<String, Object> pageAssistantContext(RuntimeWorkflowDefinitionEntity workflow, GraphSpec graphSpec) {
+        Map<String, Object> context = new LinkedHashMap<>();
+        context.put("workflowId", workflow.getId());
+        context.put("projectId", workflow.getProjectId());
+        context.put("projectCode", workflow.getProjectCode());
+        context.put("workflowType", workflow.getWorkflowType());
+        Map<String, Object> extra = readMap(workflow.getExtraJson());
+        if (extra.containsKey("pageKey")) {
+            context.put("pageKey", extra.get("pageKey"));
+        }
+        if (extra.containsKey("routePattern")) {
+            context.put("routePattern", extra.get("routePattern"));
+        }
+        if (extra.containsKey("actionKeys")) {
+            context.put("actionKeys", extra.get("actionKeys"));
+        }
+        if ("PAGE_ASSISTANT".equalsIgnoreCase(String.valueOf(workflow.getWorkflowType()))) {
+            context.put("graphEntry", graphSpec == null ? null : graphSpec.getEntry());
+        }
+        return context;
     }
 
     private RuntimeWorkflowDefinitionEntity requireWorkflow(String workflowId) {
@@ -446,7 +527,10 @@ public class RuntimeWorkflowAiCodingService {
                               Map<String, Object> pageAssistantContext,
                               List<Object> availableModels,
                               List<Object> availableTools,
-                              List<String> warnings) {
+                              List<Object> warnings) {
+    }
+
+    public record WarningView(String code, String message, String source, boolean retryable) {
     }
 
     public record WorkflowSnapshot(String id,

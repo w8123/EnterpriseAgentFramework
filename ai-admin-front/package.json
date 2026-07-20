@@ -19,6 +19,8 @@
     "check:scan-project-detail-ui": "node scripts/check-scan-project-detail-ui.mjs",
     "check:model-center-v2-ui": "node scripts/check-model-center-v2-ui.mjs",
     "build:sdk": "vite build --config vite.sdk.config.ts && node scripts/write-embed-chat-package.mjs",
+    "build:sdk:pack": "npm run build:sdk && node scripts/pack-embed-chat.mjs",
+    "verify:sdk-pack": "node scripts/verify-embed-chat-tarball.mjs",
     "test:conversation": "vitest run --config vitest.conversation.config.ts",
     "test:conversation:watch": "vitest --config vitest.conversation.config.ts",
     "test:sdk": "vitest run --config vitest.sdk.config.ts",

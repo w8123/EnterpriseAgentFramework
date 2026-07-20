@@ -48,5 +48,16 @@ class RuntimeCapabilityCatalogClientContractTest {
                 projectByIdMapping.value());
         assertEquals(Map.class, getProjectById.getReturnType());
 
+        Method listProjectTools = RuntimeCapabilityCatalogClient.class.getMethod("listProjectTools", Long.class);
+        GetMapping toolsMapping = listProjectTools.getAnnotation(GetMapping.class);
+        assertArrayEquals(new String[] {"/internal/capability/projects/by-id/{projectId}/tools"},
+                toolsMapping.value());
+        assertEquals(List.class, listProjectTools.getReturnType());
+
+        Method readinessFacts = RuntimeCapabilityCatalogClient.class.getMethod("projectReadinessFacts", Long.class);
+        GetMapping readinessMapping = readinessFacts.getAnnotation(GetMapping.class);
+        assertArrayEquals(new String[] {"/internal/capability/projects/by-id/{projectId}/readiness-facts"},
+                readinessMapping.value());
+        assertEquals(Map.class, readinessFacts.getReturnType());
     }
 }

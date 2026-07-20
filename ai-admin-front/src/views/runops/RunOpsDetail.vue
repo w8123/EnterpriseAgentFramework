@@ -580,6 +580,7 @@ function statusLabel(status: RunStatus) {
     RUNNING: '运行中',
     SUCCESS: '成功',
     FAILED: '失败',
+    WAITING_USER: '等待用户交互',
     WAITING_APPROVAL: '等待审批',
     CANCELLED: '已取消',
     TIMEOUT: '超时',
@@ -590,7 +591,7 @@ function statusLabel(status: RunStatus) {
 function statusTagType(status?: string) {
   if (status === 'SUCCESS') return 'success'
   if (status === 'RUNNING') return 'primary'
-  if (status === 'WAITING' || status === 'WAITING_APPROVAL') return 'warning'
+  if (status === 'WAITING' || status === 'WAITING_APPROVAL' || status === 'WAITING_USER') return 'warning'
   if (status === 'CANCELLED') return 'info'
   return 'danger'
 }

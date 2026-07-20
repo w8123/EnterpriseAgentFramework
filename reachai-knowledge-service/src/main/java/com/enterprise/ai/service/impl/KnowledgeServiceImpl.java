@@ -22,6 +22,7 @@ import com.enterprise.ai.repository.KnowledgeBaseRepository;
 import com.enterprise.ai.repository.KnowledgeHitLogRepository;
 import com.enterprise.ai.repository.KnowledgeQuestionRepository;
 import com.enterprise.ai.repository.KnowledgeTagRepository;
+import com.enterprise.ai.retrieval.KnowledgeRetrievalEngine;
 import com.enterprise.ai.service.KnowledgeService;
 import com.enterprise.ai.vector.VectorSearchRequest;
 import com.enterprise.ai.vector.VectorSearchResult;
@@ -32,6 +33,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.*;
@@ -41,7 +43,7 @@ import java.util.stream.IntStream;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class KnowledgeServiceImpl implements KnowledgeService {
+public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrievalEngine {
 
     private final KnowledgeBaseRepository knowledgeBaseRepository;
     private final FileInfoRepository fileInfoRepository;
@@ -562,6 +564,14 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Override
     public RetrievalTestResponse retrievalTest(RetrievalTestRequest request) {
+        return execute(request);
+    }
+
+    /**
+     * Production retrieval engine shared by admin retrievalTest and {@link com.enterprise.ai.retrieval.KnowledgeRetrievalCore}.
+     */
+    @Override
+    public RetrievalTestResponse execute(RetrievalTestRequest request) {
         long start = System.currentTimeMillis();
         int topK = request.getTopK() != null ? request.getTopK() : defaultTopK;
         float threshold = request.getScoreThreshold() != null ? request.getScoreThreshold() : defaultScoreThreshold;
@@ -574,13 +584,15 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             try {
                 if (!"keyword".equals(searchMode)) {
                     List<Float> queryVector = embeddingService.embed(requireEmbeddingModelInstanceId(kb), request.getQuery());
-                    List<VectorSearchResult> results = vectorService.search(
-                            VectorSearchRequest.builder()
-                                    .collectionName(kb.getCode())
-                                    .queryVector(queryVector)
-                                    .topK(topK)
-                                    .outputFields(List.of("id", "file_id", "content"))
-                                    .build());
+                    VectorSearchRequest.VectorSearchRequestBuilder searchBuilder = VectorSearchRequest.builder()
+                            .collectionName(kb.getCode())
+                            .queryVector(queryVector)
+                            .topK(topK)
+                            .outputFields(List.of("id", "file_id", "content"));
+                    if (StringUtils.hasText(request.getFileIdFilterExpression())) {
+                        searchBuilder.filterExpression(request.getFileIdFilterExpression());
+                    }
+                    List<VectorSearchResult> results = vectorService.search(searchBuilder.build());
 
                     for (VectorSearchResult sr : results) {
                         if (sr.getScore() >= threshold) {
@@ -604,7 +616,14 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                     }
                 }
                 if (!"vector".equals(searchMode)) {
+                    Set<String> allowedFiles = request.getAccessibleFileIds() == null
+                            ? null
+                            : new HashSet<>(request.getAccessibleFileIds());
                     for (Chunk chunk : keywordSearch(kb.getId(), request.getQuery(), topK * 3)) {
+                        if (allowedFiles != null
+                                && (chunk.getFileId() == null || !allowedFiles.contains(String.valueOf(chunk.getFileId())))) {
+                            continue;
+                        }
                         float keywordScore = keywordScore(request.getQuery(), chunk.getContent());
                         if (keywordScore >= threshold) {
                             RetrievalTestResponse.RetrievalItem item = buildRetrievalItem(kb, chunk);
@@ -635,7 +654,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             }
         }
         allItems = new ArrayList<>(merged.values());
-        applyModelRerank(request.getQuery(), kbMap, allItems);
+        applyModelRerank(request.getQuery(), kbMap, allItems, request.getRerankEnabled());
         for (RetrievalTestResponse.RetrievalItem item : allItems) {
             KnowledgeBase kb = kbMap.get(item.getKnowledgeBaseCode());
             float vectorWeight = request.getVectorWeight() != null ? request.getVectorWeight()
@@ -1166,8 +1185,14 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
     }
 
-    private void applyModelRerank(String query, Map<String, KnowledgeBase> kbMap, List<RetrievalTestResponse.RetrievalItem> items) {
+    private void applyModelRerank(String query,
+                                  Map<String, KnowledgeBase> kbMap,
+                                  List<RetrievalTestResponse.RetrievalItem> items,
+                                  Boolean requestRerankEnabled) {
         if (items == null || items.isEmpty()) {
+            return;
+        }
+        if (Boolean.FALSE.equals(requestRerankEnabled)) {
             return;
         }
         Map<String, List<RetrievalTestResponse.RetrievalItem>> byKb = items.stream()
@@ -1175,7 +1200,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 .collect(Collectors.groupingBy(RetrievalTestResponse.RetrievalItem::getKnowledgeBaseCode));
         byKb.forEach((kbCode, group) -> {
             KnowledgeBase kb = kbMap.get(kbCode);
-            if (kb == null || !Boolean.TRUE.equals(kb.getRerankEnabled()) || kb.getRerankModelInstanceId() == null || kb.getRerankModelInstanceId().isBlank()) {
+            boolean enabled = requestRerankEnabled != null
+                    ? Boolean.TRUE.equals(requestRerankEnabled)
+                    : kb != null && Boolean.TRUE.equals(kb.getRerankEnabled());
+            if (kb == null || !enabled || kb.getRerankModelInstanceId() == null || kb.getRerankModelInstanceId().isBlank()) {
                 return;
             }
             try {

@@ -191,6 +191,11 @@ public interface RuntimeProxyClient {
     ResponseEntity<Object> attachPageAssistantWorkflowTool(@PathVariable("id") String id,
                                                            @RequestBody Map<String, Object> body);
 
+    @RequestMapping(method = RequestMethod.POST,
+            path = "/internal/runtime/projects/{projectId}/agent-supervisor/workflow-tools/attach")
+    ResponseEntity<Object> attachAgentSupervisorWorkflowTool(@PathVariable("projectId") Long projectId,
+                                                             @RequestBody Map<String, Object> body);
+
     @RequestMapping(method = RequestMethod.GET, path = "/api/agent/workflow-credentials")
     ResponseEntity<Object> listWorkflowCredentials(@RequestParam(value = "projectId", required = false) Long projectId,
                                                    @RequestParam(value = "projectCode", required = false) String projectCode);

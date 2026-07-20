@@ -91,7 +91,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         stubWorkflow(ownerTool);
         AtomicInteger active = new AtomicInteger();
         AtomicInteger maxActive = new AtomicInteger();
-        when(graphExecutor.execute(any(), any(), any(), any())).thenAnswer(invocation -> {
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
             int current = active.incrementAndGet();
             maxActive.accumulateAndGet(current, Math::max);
             Thread.sleep(150);
@@ -130,7 +130,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         stubWorkflow(secondPageAction);
         AtomicInteger active = new AtomicInteger();
         AtomicInteger maxActive = new AtomicInteger();
-        when(graphExecutor.execute(any(), any(), any(), any())).thenAnswer(invocation -> {
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
             int current = active.incrementAndGet();
             maxActive.accumulateAndGet(current, Math::max);
             Thread.sleep(120);
@@ -162,7 +162,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         RuntimeAgentWorkflowToolEntity tool = tool("wf-team", "query_team");
         stubWorkflow(tool);
         AtomicInteger execution = new AtomicInteger();
-        when(graphExecutor.execute(any(), any(), any(), any())).thenAnswer(invocation -> execution.incrementAndGet() == 1
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> execution.incrementAndGet() == 1
                 ? new RuntimeGraphSpecExecutionResult(false, "UPSTREAM_FAILED", "第一次失败",
                 null, null, List.of(), Map.of())
                 : success("第二次成功"));
@@ -192,7 +192,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         RuntimeAgentWorkflowToolEntity tool = tool("wf-model", "classify_intent");
         stubWorkflow(tool, "published-model", "newer-draft-model");
         List<Map<String, Object>> workflowInputs = new ArrayList<>();
-        when(graphExecutor.execute(any(), any(), any(), any())).thenAnswer(invocation -> {
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
             workflowInputs.add(invocation.getArgument(1));
             return success("classified");
         });
@@ -214,8 +214,12 @@ class AgentScopeSupervisorRuntimeAdapterTest {
     }
 
     private AgentScopeSupervisorRuntimeAdapter adapter(RuntimeModelServiceClient modelClient) {
-        when(traceService.begin(any(), any(), any(), any())).thenReturn(
-                new SupervisorExecutionTraceService.TraceHandle("trace-1", "span-1", 1L, LocalDateTime.now()));
+        SupervisorExecutionTraceService.TraceHandle handle =
+                new SupervisorExecutionTraceService.TraceHandle("trace-1", "span-1", 1L, LocalDateTime.now());
+        when(traceService.begin(any(), any(), any(), any())).thenReturn(handle);
+        when(traceService.begin(any(), any(), any(), any(), any())).thenReturn(handle);
+        when(traceService.beginOrResume(any(), any(), any(), any())).thenReturn(handle);
+        when(traceService.beginOrResume(any(), any(), any(), any(), any())).thenReturn(handle);
         SupervisorToolPolicyService policy = new SupervisorToolPolicyService(
                 traceService, mock(SupervisorApprovalInteractionService.class), objectMapper);
         return new AgentScopeSupervisorRuntimeAdapter(
@@ -224,6 +228,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 workflowMapper,
                 versionMapper,
                 graphExecutor,
+                mock(com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService.class),
                 new RuntimeChatMemoryStore(20),
                 policy,
                 traceService,

@@ -2,8 +2,13 @@ package com.enterprise.ai.runtime.workflow;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
+import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityDescriptor;
+import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityRegistry;
+import com.enterprise.ai.runtime.workflow.node.WorkflowNodeMaturity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -146,6 +151,118 @@ class RuntimeWorkflowReleaseValidationServiceTest {
         assertFalse(result.valid());
         assertTrue(hasError(result, "GRAPH_NODE_RUNTIME_UNSUPPORTED"));
         assertFalse(hasError(result, "GRAPH_NODE_TYPE_UNSUPPORTED"));
+        assertFalse(hasError(result, "GRAPH_NODE_NOT_PUBLISHABLE"));
+    }
+
+    @Test
+    void interactionNodeFailsPublishingAsNotPublishableWhileRegistryClosed() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {
+                  "nodes":[{"id":"ask","type":"INTERACTION","config":{"mode":"confirm_action"}}],
+                  "edges":[],
+                  "entry":"ask",
+                  "finish":["ask"]
+                }
+                """);
+
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+
+        assertFalse(result.valid());
+        assertTrue(hasError(result, "GRAPH_NODE_NOT_PUBLISHABLE"));
+        assertFalse(hasError(result, "GRAPH_NODE_RUNTIME_UNSUPPORTED"));
+        assertFalse(hasError(result, "GRAPH_NODE_TYPE_UNSUPPORTED"));
+    }
+
+    @Test
+    void interactionCollectInputValidatesFieldsWhenPublishable() {
+        RuntimeWorkflowReleaseValidationService service = openInteractionService();
+        RuntimeWorkflowDefinitionEntity missingFields = workflow("""
+                {
+                  "nodes":[{"id":"ask","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT"}}],
+                  "edges":[{"from":"ask","to":"END","condition":"always"}],
+                  "entry":"ask",
+                  "finish":["ask"]
+                }
+                """);
+        RuntimeWorkflowDefinitionEntity valid = workflow("""
+                {
+                  "nodes":[{"id":"ask","type":"INTERACTION","config":{
+                    "interactionType":"COLLECT_INPUT",
+                    "fields":[{"key":"q","type":"string","required":true}]
+                  }}],
+                  "edges":[{"from":"ask","to":"END","condition":"always"}],
+                  "entry":"ask",
+                  "finish":["ask"]
+                }
+                """);
+
+        assertTrue(hasError(service.validate(missingFields), "GRAPH_INTERACTION_FIELDS_REQUIRED"));
+        assertTrue(service.validate(valid).valid());
+    }
+
+    @Test
+    void interactionConfirmRequiresConfirmRouteAndRejectsUnsafeAlwaysFallback() {
+        RuntimeWorkflowReleaseValidationService service = openInteractionService();
+        RuntimeWorkflowDefinitionEntity unsafe = workflow("""
+                {
+                  "nodes":[
+                    {"id":"ask","type":"INTERACTION","config":{"interactionType":"CONFIRM_ACTION"}},
+                    {"id":"write","type":"ANSWER","config":{"template":"done"}}
+                  ],
+                  "edges":[{"from":"ask","to":"write","condition":"always"}],
+                  "entry":"ask",
+                  "finish":["write"]
+                }
+                """);
+        RuntimeWorkflowDefinitionEntity valid = workflow("""
+                {
+                  "nodes":[
+                    {"id":"ask","type":"INTERACTION","config":{"interactionType":"CONFIRM_ACTION"}},
+                    {"id":"write","type":"ANSWER","config":{"template":"done"}}
+                  ],
+                  "edges":[
+                    {"from":"ask","to":"write","condition":"route:confirm"},
+                    {"from":"ask","to":"END","condition":"route:reject"}
+                  ],
+                  "entry":"ask",
+                  "finish":["write"]
+                }
+                """);
+
+        RuntimeWorkflowReleaseValidationResult unsafeResult = service.validate(unsafe);
+        assertTrue(hasError(unsafeResult, "GRAPH_INTERACTION_CONFIRM_ROUTE_MISSING")
+                || hasError(unsafeResult, "GRAPH_INTERACTION_REJECT_FALLBACK_UNSAFE"));
+        assertTrue(service.validate(valid).valid());
+    }
+
+    @Test
+    void interactionCustomAndReviewEditFailClosed() {
+        RuntimeWorkflowReleaseValidationService service = openInteractionService();
+        RuntimeWorkflowDefinitionEntity badCustom = workflow("""
+                {
+                  "nodes":[{"id":"ask","type":"INTERACTION","config":{
+                    "interactionType":"CUSTOM","rendererKey":"evil_html"
+                  }}],
+                  "edges":[],
+                  "entry":"ask",
+                  "finish":["ask"]
+                }
+                """);
+        RuntimeWorkflowDefinitionEntity reviewEdit = workflow("""
+                {
+                  "nodes":[{"id":"ask","type":"INTERACTION","config":{
+                    "interactionType":"REVIEW_EDIT",
+                    "fields":[{"key":"text","type":"string"}]
+                  }}],
+                  "edges":[],
+                  "entry":"ask",
+                  "finish":["ask"]
+                }
+                """);
+
+        assertTrue(hasError(service.validate(badCustom), "GRAPH_INTERACTION_CUSTOM_RENDERER_UNSUPPORTED"));
+        assertTrue(hasError(service.validate(reviewEdit), "GRAPH_INTERACTION_TYPE_UNSUPPORTED"));
     }
 
     @Test
@@ -436,6 +553,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
         RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
 
         assertTrue(result.valid());
+        assertTrue(hasWarning(result, "GRAPH_NODE_BETA"));
+        assertFalse(hasError(result, "GRAPH_NODE_NOT_PUBLISHABLE"));
     }
 
     @Test
@@ -459,8 +578,121 @@ class RuntimeWorkflowReleaseValidationServiceTest {
         assertTrue(hasError(result, "GRAPH_PAGE_ACTION_CATALOG_MISSING"));
     }
 
+    @Test
+    void phase1NodesValidConfigCanPublishIncludingKnowledgeHttp() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {
+                  "entry":"assign",
+                  "nodes":[
+                    {"id":"assign","type":"VARIABLE_ASSIGN","config":{"assignments":{"var.count":1,"var.flag":true}}},
+                    {"id":"tpl","type":"TEMPLATE","config":{"template":"hi {{ var.count }}","outputAlias":"tpl_out"}},
+                    {"id":"agg","type":"VARIABLE_AGGREGATOR","config":{"mode":"object","items":[{"name":"a","source":"var.count"}]}},
+                    {"id":"kb","type":"KNOWLEDGE_RETRIEVAL","config":{"knowledgeBaseCodes":["kb1"],"query":"input","searchMode":"hybrid"}},
+                    {"id":"http","type":"HTTP_REQUEST","config":{"method":"GET","url":"https://example.com/api"}},
+                    {"id":"answer","type":"ANSWER","config":{"template":"done"}}
+                  ],
+                  "edges":[
+                    {"from":"assign","to":"tpl","condition":"always"},
+                    {"from":"tpl","to":"agg","condition":"always"},
+                    {"from":"agg","to":"kb","condition":"always"},
+                    {"from":"kb","to":"http","condition":"always"},
+                    {"from":"http","to":"answer","condition":"always"}
+                  ]
+                }
+                """);
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+        assertTrue(result.valid(), () -> result.errors().toString());
+    }
+
+    @Test
+    void rejectsRetryOnNonRetryableNodeAndHttpNonIdempotentWithoutFlag() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity assignRetry = workflow("""
+                {"entry":"assign","nodes":[
+                  {"id":"assign","type":"VARIABLE_ASSIGN","retry":{"enabled":true,"maxAttempts":2},
+                   "config":{"assignments":{"var.x":"input"}}},
+                  {"id":"answer","type":"ANSWER","config":{"template":"x"}}
+                ],"edges":[{"from":"assign","to":"answer","condition":"always"}]}
+                """);
+        assertTrue(hasError(service.validate(assignRetry), "GRAPH_RETRY_NOT_ALLOWED"));
+
+        RuntimeWorkflowDefinitionEntity postRetry = workflow("""
+                {"entry":"http","nodes":[
+                  {"id":"http","type":"HTTP_REQUEST","retry":{"enabled":true,"maxAttempts":2},
+                   "config":{"method":"POST","url":"https://example.com","bodyType":"json","body":"{}"}},
+                  {"id":"answer","type":"ANSWER","config":{"template":"x"}}
+                ],"edges":[{"from":"http","to":"answer","condition":"always"}]}
+                """);
+        assertTrue(hasError(service.validate(postRetry), "GRAPH_HTTP_RETRY_NON_IDEMPOTENT"));
+    }
+
+    @Test
+    void rejectsAggregateDuplicateNameAndKnowledgeEmptyCodes() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity dup = workflow("""
+                {"entry":"agg","nodes":[
+                  {"id":"agg","type":"VARIABLE_AGGREGATOR","config":{"mode":"object",
+                    "items":[{"name":"a","source":"input"},{"name":"a","source":"input"}]}},
+                  {"id":"answer","type":"ANSWER","config":{"template":"x"}}
+                ],"edges":[{"from":"agg","to":"answer","condition":"always"}]}
+                """);
+        assertTrue(hasError(service.validate(dup), "GRAPH_AGGREGATE_ITEM_NAME_DUPLICATE"));
+
+        RuntimeWorkflowDefinitionEntity emptyKb = workflow("""
+                {"entry":"kb","nodes":[
+                  {"id":"kb","type":"KNOWLEDGE_RETRIEVAL","config":{"knowledgeBaseCodes":[],"query":"input"}},
+                  {"id":"answer","type":"ANSWER","config":{"template":"x"}}
+                ],"edges":[{"from":"kb","to":"answer","condition":"always"}]}
+                """);
+        assertTrue(hasError(service.validate(emptyKb), "GRAPH_KNOWLEDGE_BASE_REQUIRED"));
+    }
+
+    @Test
+    void rejectsFallbackSelfLoop() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {"entry":"http","nodes":[
+                  {"id":"http","type":"HTTP_REQUEST",
+                   "errorPolicy":{"strategy":"FALLBACK","fallbackNodeId":"http"},
+                   "config":{"method":"GET","url":"https://example.com"}},
+                  {"id":"answer","type":"ANSWER","config":{"template":"x"}}
+                ],"edges":[{"from":"http","to":"answer","condition":"always"}]}
+                """);
+        assertTrue(hasError(service.validate(workflow), "GRAPH_FALLBACK_SELF")
+                || hasError(service.validate(workflow), "GRAPH_ERROR_FALLBACK_SELF"));
+    }
+
     private RuntimeWorkflowReleaseValidationService service(RuntimeControlCatalogClient client) {
         return new RuntimeWorkflowReleaseValidationService(client, new ObjectMapper());
+    }
+
+    private RuntimeWorkflowReleaseValidationService openInteractionService() {
+        RuntimeWorkflowNodeCapabilityRegistry real = new RuntimeWorkflowNodeCapabilityRegistry();
+        RuntimeWorkflowNodeCapabilityRegistry registry = mock(RuntimeWorkflowNodeCapabilityRegistry.class);
+        RuntimeWorkflowNodeCapabilityDescriptor open = new RuntimeWorkflowNodeCapabilityDescriptor(
+                "INTERACTION",
+                "interaction",
+                "interaction",
+                "CONTROL",
+                false,
+                List.of(),
+                WorkflowNodeMaturity.BETA,
+                true,
+                true,
+                true,
+                true,
+                null);
+        when(registry.find(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+            Object arg = invocation.getArgument(0);
+            String type = arg == null ? "" : String.valueOf(arg);
+            if ("INTERACTION".equalsIgnoreCase(type.trim())) {
+                return java.util.Optional.of(open);
+            }
+            return real.find(type);
+        });
+        return new RuntimeWorkflowReleaseValidationService(
+                mock(RuntimeControlCatalogClient.class), new ObjectMapper(), registry);
     }
 
     private boolean hasError(RuntimeWorkflowReleaseValidationResult result, String code) {

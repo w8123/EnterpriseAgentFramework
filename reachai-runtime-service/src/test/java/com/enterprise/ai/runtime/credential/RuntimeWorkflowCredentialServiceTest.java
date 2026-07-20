@@ -109,6 +109,8 @@ class RuntimeWorkflowCredentialServiceTest {
         entity.setName("Orders API");
         entity.setType("API_KEY_HEADER");
         entity.setStatus("ACTIVE");
+        entity.setScope("PROJECT");
+        entity.setProjectCode("orders");
         entity.setSecretJson(cipher.encrypt("{\"headerName\":\"X-API-Key\",\"apiKey\":\"abc123\"}"));
         when(mapper.selectOne(org.mockito.ArgumentMatchers.<Wrapper<RuntimeWorkflowCredentialEntity>>any()))
                 .thenReturn(entity);
@@ -117,7 +119,51 @@ class RuntimeWorkflowCredentialServiceTest {
         var runtime = service.resolve("cred_orders", null, "orders");
 
         assertTrue(runtime.isPresent());
+        assertEquals("API_KEY_HEADER", runtime.get().type());
         assertEquals("X-API-Key", runtime.get().secret().get("headerName"));
         assertEquals("abc123", runtime.get().secret().get("apiKey"));
+    }
+
+    @Test
+    void resolveFailsClosedWhenProjectIdentityMissingForProjectScope() {
+        RuntimeWorkflowCredentialCipher cipher = new RuntimeWorkflowCredentialCipher("unit-test-secret");
+        RuntimeWorkflowCredentialMapper mapper = mock(RuntimeWorkflowCredentialMapper.class);
+        RuntimeWorkflowCredentialEntity entity = new RuntimeWorkflowCredentialEntity();
+        entity.setCredentialRef("cred_orders");
+        entity.setType("BEARER");
+        entity.setStatus("ACTIVE");
+        entity.setScope("PROJECT");
+        entity.setProjectCode("orders");
+        entity.setSecretJson(cipher.encrypt("{\"token\":\"secret-token-123\"}"));
+        when(mapper.selectOne(org.mockito.ArgumentMatchers.<Wrapper<RuntimeWorkflowCredentialEntity>>any()))
+                .thenReturn(entity);
+        RuntimeWorkflowCredentialService service = new RuntimeWorkflowCredentialService(mapper, cipher, new ObjectMapper());
+
+        assertTrue(service.resolve("cred_orders", null, null).isEmpty());
+        assertTrue(service.resolve("cred_orders", null, "other").isEmpty());
+        assertTrue(service.resolve("cred_orders", null, "orders").isPresent());
+    }
+
+    @Test
+    void createNormalizesCanonicalTypesAndRejectsInvalidSecretShape() {
+        RuntimeWorkflowCredentialMapper mapper = mock(RuntimeWorkflowCredentialMapper.class);
+        RuntimeWorkflowCredentialService service = new RuntimeWorkflowCredentialService(
+                mapper,
+                new RuntimeWorkflowCredentialCipher("unit-test-secret"),
+                new ObjectMapper());
+
+        RuntimeWorkflowCredentialView created = service.create(new RuntimeWorkflowCredentialRequest(
+                null, "Custom", "CUSTOM_HEADERS", null, null, "GLOBAL", null,
+                Map.of("headers", Map.of("X-Trace", "abc"))));
+        assertEquals("CUSTOM_HEADERS", created.type());
+
+        try {
+            service.create(new RuntimeWorkflowCredentialRequest(
+                    null, "Bad", "API_KEY_QUERY", null, null, "GLOBAL", null,
+                    Map.of("paramName", "key")));
+            assertTrue(false, "expected missing apiKey to fail");
+        } catch (IllegalArgumentException ex) {
+            assertTrue(ex.getMessage().contains("apiKey"));
+        }
     }
 }

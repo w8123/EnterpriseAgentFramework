@@ -65,6 +65,8 @@
         :is="panel"
         v-if="panel"
         :data="data"
+        :node-id="nodeId"
+        :canvas-nodes="canvasNodes"
         :model-options="modelOptions"
         :knowledge-options="knowledgeOptions"
         :variable-options="variableOptions"
@@ -77,6 +79,7 @@
         :composition-options="compositionOptions"
         @credential-created="$emit('credentialCreated', $event)"
         @create-call-node="$emit('createCallNode', $event)"
+        @validation-change="$emit('validationChange', $event)"
       />
       <div v-else class="node-specific-panel">
         <el-divider>节点配置</el-divider>
@@ -145,6 +148,8 @@ import AnswerConfigPanel from './AnswerConfigPanel.vue'
 import CodeConfigPanel from './CodeConfigPanel.vue'
 import IntentClassifierConfigPanel from './IntentClassifierConfigPanel.vue'
 import VariableAggregateConfigPanel from './VariableAggregateConfigPanel.vue'
+import VariableAssignConfigPanel from './VariableAssignConfigPanel.vue'
+import TemplateConfigPanel from './TemplateConfigPanel.vue'
 import ApprovalConfigPanel from './ApprovalConfigPanel.vue'
 import LoopConfigPanel from './LoopConfigPanel.vue'
 import KnowledgeWriteConfigPanel from './KnowledgeWriteConfigPanel.vue'
@@ -153,6 +158,8 @@ import McpConfigPanel from './McpConfigPanel.vue'
 
 const props = defineProps<{
   data: CanvasNodeData
+  nodeId?: string
+  canvasNodes?: import('@/types/studio').CanvasNode[]
   modelOptions: ModelInstance[]
   knowledgeOptions: KnowledgeBase[]
   toolOptions: ToolInfo[]
@@ -167,6 +174,7 @@ const props = defineProps<{
 defineEmits<{
   credentialCreated: [credential: WorkflowCredential]
   createCallNode: [request: InteractionCallNodeRequest]
+  validationChange: [payload: { nodeId?: string; valid: boolean; message?: string }]
 }>()
 
 const registry = {
@@ -182,6 +190,8 @@ const registry = {
   code: CodeConfigPanel,
   classifier: IntentClassifierConfigPanel,
   aggregate: VariableAggregateConfigPanel,
+  variable: VariableAssignConfigPanel,
+  template: TemplateConfigPanel,
   approval: ApprovalConfigPanel,
   loop: LoopConfigPanel,
   knowledgeWrite: KnowledgeWriteConfigPanel,

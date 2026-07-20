@@ -35,6 +35,7 @@ These rows remain in the ownership matrix because V2 still records their owner s
 | `runtime_agent_eval_dataset` | `reachai-runtime-service` | - | Runtime evaluation dataset |
 | `runtime_agent_eval_run` | `reachai-runtime-service` | - | Runtime evaluation run |
 | `runtime_run` | `reachai-runtime-service` | - | RunOps root execution fact used by lists, KPIs, diagnostics, and replay |
+| `runtime_internal_auth_nonce` | `reachai-runtime-service` | - | Control→Runtime HMAC nonce anti-replay store (multi-instance safe) |
 | `runtime_trace_span` | `reachai-runtime-service` | - | Runtime generic trace span child event |
 | `runtime_agent_workflow_credential` | `reachai-runtime-service` | - | Workflow credential vault metadata |
 | `runtime_agent` | `reachai-runtime-service` | - | Runtime agent catalog |

@@ -3,6 +3,8 @@ package com.enterprise.ai.control.aiassist;
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.client.model.ControlModelCatalogClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import feign.FeignException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +35,8 @@ import java.util.UUID;
 public class ControlAiCodingProjectController {
 
     private static final String AI_CODING_HEADER = "X-ReachAI-AiCoding-Key";
+    private static final ObjectMapper JSON = new ObjectMapper();
+
     private final CapabilityProjectOnboardingClient capabilityClient;
     private final RuntimeProxyClient runtimeClient;
     private final ControlModelCatalogClient modelCatalogClient;
@@ -59,8 +63,9 @@ public class ControlAiCodingProjectController {
                                     "Send the project AI Coding key in X-ReachAI-AiCoding-Key.",
                                     "Do not put aiCodingKey in query strings or generated browser runtime code.",
                                     "This manifest does not echo the raw project key.")),
-                    ControlAiAssistProjectController.sdkArtifacts(),
+                    ControlAiAssistProjectController.sdkArtifacts(baseUrl),
                     ControlAiAssistProjectController.responseShapes(),
+                    ControlAiAssistProjectController.gatewayChecklist(),
                     gatewayEndpoints(baseUrl, root, projectId),
                     contextCandidateSubmission(root),
                     capabilities(root, baseUrl, projectId)));
@@ -119,8 +124,9 @@ public class ControlAiCodingProjectController {
                                     projectManifest.baseUrl(),
                                     projectManifest.contextPath(),
                                     projectManifest.environment())),
-                    ControlAiAssistProjectController.sdkArtifacts(),
+                    ControlAiAssistProjectController.sdkArtifacts(baseUrl),
                     ControlAiAssistProjectController.responseShapes(),
+                    ControlAiAssistProjectController.gatewayChecklist(),
                     new ControlAiAssistProjectController.PlatformEndpoints(
                             baseUrl + "/api/ai-assist/skills/reachai-onboarding/latest.zip",
                             root + "/onboarding-manifest",
@@ -134,6 +140,32 @@ public class ControlAiCodingProjectController {
                             "Do not paste or write the registry app secret into AI chat context.")));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
+        }
+    }
+
+    @PostMapping("/agent-supervisor/workflow-tools/attach")
+    public ResponseEntity<Object> attachAgentSupervisorWorkflowTool(
+            @PathVariable Long projectId,
+            @RequestBody(required = false) Map<String, Object> body) {
+        try {
+            capabilityClient.getOnboardingProjectById(projectId);
+        } catch (FeignException.NotFound ex) {
+            return ResponseEntity.status(404).body(aiCodingError(
+                    "CAPABILITY_PROJECT_NOT_FOUND",
+                    "Capability project not found: " + projectId,
+                    Map.of("projectId", projectId)));
+        } catch (FeignException ex) {
+            return ResponseEntity.status(statusOrBadGateway(ex.status())).body(aiCodingError(
+                    "RUNTIME_DEPENDENCY_UNAVAILABLE",
+                    "Capability project lookup failed: " + ex.getMessage(),
+                    Map.of("projectId", projectId, "status", ex.status())));
+        }
+        try {
+            Map<String, Object> request = body == null ? Map.of() : body;
+            ResponseEntity<Object> response = runtimeClient.attachAgentSupervisorWorkflowTool(projectId, request);
+            return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+        } catch (FeignException ex) {
+            return forwardRuntimeAiCodingError(ex);
         }
     }
 
@@ -493,7 +525,7 @@ public class ControlAiCodingProjectController {
                         baseUrl + "/api/agents",
                         baseUrl + "/api/agents/{agentId}/config-versions",
                         baseUrl + "/api/agents/{agentId}/config-versions/draft",
-                        baseUrl + "/api/workflows/{workflowId}/page-assistant/attach-tool",
+                        baseUrl + "/api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach",
                         baseUrl + "/api/runtime/agents/execute"),
                 new ControlAiAssistProjectController.WorkflowAiCodingManifest(
                         baseUrl + "/api/ai-assist/skills/workflow-ai-coding/latest.zip",
@@ -507,11 +539,15 @@ public class ControlAiCodingProjectController {
                         baseUrl + "/api/workflows/{workflowId}/ai-coding/runs",
                         List.of(
                                 "Download and install the workflow-ai-coding skill before editing graphs from AI tools.",
+                                "Generic Workflow create defaults to workflowType=CHAT; Page Assistant must send workflowType=PAGE_ASSISTANT explicitly.",
+                                "Use availableModels/availableTools from /context; never invent modelInstanceId or tool ids.",
+                                "Attach CHAT/PAGE_ASSISTANT via agent-supervisor/workflow-tools/attach; page-assistant/attach-tool rejects CHAT.",
                                 "Read /context before patch; use workflow.updatedAt as baseRevision when saving.")),
                 List.of(
                         "Provision or reuse one project-level page copilot Agent entry.",
                         "Store every executable graph as a runtime_workflow and publish an ACTIVE version before attachment.",
-                        "Attach published Workflows to the Agent Supervisor Workflow-as-Tool allow-list.",
+                        "Attach published Workflows via POST /api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach using agentKeySlug (not internal agentId by default).",
+                        "Page Assistant compatibility endpoint /api/workflows/{id}/page-assistant/attach-tool accepts PAGE_ASSISTANT only.",
                         "Publish a new Agent config version after changing its tool catalog.",
                         "Use only the published Agent config Workflow-as-Tool catalog for runtime selection."));
     }
@@ -701,32 +737,21 @@ public class ControlAiCodingProjectController {
     }
 
     private ControlAiAssistProjectController.SdkAccessCheckResponse sdkAccessCheck(Map<String, Object> project) {
-        boolean credentialConfigured = booleanValue(project.get("registryCredentialConfigured"));
-        boolean aiCodingEnabled = aiCodingAccess(project).enabled();
-        ControlAiAssistProjectController.SdkAccessCheckItem sdkSyncCallbackCheck =
-                ControlAiAssistProjectController.sdkSyncCallbackCheck(project);
-        String overall = credentialConfigured
-                && aiCodingEnabled
-                && "PASS".equals(sdkSyncCallbackCheck.status()) ? "PASS" : "WARN";
-        return new ControlAiAssistProjectController.SdkAccessCheckResponse(
-                longValue(project.get("id")),
-                stringValue(project.get("projectCode")),
-                overall,
-                List.of(
-                        new ControlAiAssistProjectController.SdkAccessReadiness("CODE_READY", "Code", overall, "SDK onboarding route is available"),
-                        new ControlAiAssistProjectController.SdkAccessReadiness("RUNTIME_READY", "Runtime", overall, "Runtime readiness requires SDK instance heartbeat"),
-                        new ControlAiAssistProjectController.SdkAccessReadiness("E2E_READY", "E2E", overall, "Verify embed/token broker flow; API calls are optional after API Management manual SDK sync")),
-                List.of(
-                        new ControlAiAssistProjectController.SdkAccessCheckItem("PROJECT", "Project", "PASS", "Project loaded", null),
-                        new ControlAiAssistProjectController.SdkAccessCheckItem("REGISTRY_CREDENTIAL", "Registry credential",
-                                credentialConfigured ? "PASS" : "WARN",
-                                credentialConfigured ? "Active registry credential configured" : "Active registry credential is not configured",
-                                null),
-                        new ControlAiAssistProjectController.SdkAccessCheckItem("AI_CODING_ACCESS", "AI Coding access",
-                                aiCodingEnabled ? "PASS" : "WARN",
-                                aiCodingEnabled ? "AI Coding access enabled" : "AI Coding access is disabled",
-                                null),
-                        sdkSyncCallbackCheck));
+        Long projectId = longValue(project.get("id"));
+        Map<String, Object> readinessFacts = Map.of();
+        try {
+            if (projectId != null) {
+                readinessFacts = capabilityClient.getReadinessFacts(projectId);
+            }
+        } catch (Exception ignored) {
+            readinessFacts = Map.of("instanceExists", false, "online", false);
+        }
+        boolean artifactAvailable = ControlEmbedChatArtifactSupport.integritySha256() != null;
+        return ControlSdkAccessReadinessCalculator.calculate(
+                project,
+                readinessFacts == null ? Map.of() : readinessFacts,
+                artifactAvailable,
+                artifactAvailable ? ControlEmbedChatArtifactSupport.TARBALL_FILE_NAME : null);
     }
 
     private ControlAiAssistProjectController.PageAssistantCheckResponse pageAssistantCheck(Map<String, Object> project,
@@ -1081,11 +1106,53 @@ public class ControlAiCodingProjectController {
         }
     }
 
+    private ResponseEntity<Object> forwardRuntimeAiCodingError(FeignException ex) {
+        int status = statusOrBadGateway(ex.status());
+        Object parsed = parseJsonBody(ex.contentUTF8());
+        if (parsed instanceof Map<?, ?> map) {
+            Object schema = map.get("schema");
+            if ("ai-coding-error.v1".equals(schema) || map.containsKey("code")) {
+                return ResponseEntity.status(status).body(parsed);
+            }
+        }
+        return ResponseEntity.status(status).body(aiCodingError(
+                "RUNTIME_DEPENDENCY_UNAVAILABLE",
+                "Runtime attach failed: " + firstText(ex.getMessage(), "upstream error"),
+                Map.of("status", status)));
+    }
+
+    private static Object parseJsonBody(String content) {
+        if (!StringUtils.hasText(content)) {
+            return null;
+        }
+        try {
+            return JSON.readValue(content, new TypeReference<Map<String, Object>>() {
+            });
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static Map<String, Object> aiCodingError(String code, String message, Map<String, Object> details) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("schema", "ai-coding-error.v1");
+        body.put("code", code);
+        body.put("message", message);
+        body.put("details", details == null ? Map.of() : details);
+        body.put("requestId", UUID.randomUUID().toString().replace("-", "").substring(0, 12));
+        return body;
+    }
+
+    private static int statusOrBadGateway(int status) {
+        return status > 0 ? status : 502;
+    }
+
     public record AiCodingGatewayManifest(String schema,
                                           AiCodingProject project,
                                           AiCodingAuth auth,
                                           List<ControlAiAssistProjectController.SdkArtifact> sdkArtifacts,
                                           Map<String, ControlAiAssistProjectController.ResponseShape> responseShapes,
+                                          List<ControlAiAssistProjectController.GatewayChecklistItem> gatewayChecklist,
                                           AiCodingGatewayEndpoints endpoints,
                                           ContextCandidateSubmission contextCandidateSubmission,
                                           List<AiCodingCapability> capabilities) {

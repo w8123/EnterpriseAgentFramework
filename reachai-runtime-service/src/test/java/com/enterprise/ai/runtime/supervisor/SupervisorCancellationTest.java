@@ -102,8 +102,12 @@ class SupervisorCancellationTest {
 
     private AgentScopeSupervisorRuntimeAdapter adapter(RuntimeModelServiceClient modelClient) {
         SupervisorExecutionTraceService traceService = mock(SupervisorExecutionTraceService.class);
-        when(traceService.begin(any(), any(), any(), any())).thenReturn(
-                new SupervisorExecutionTraceService.TraceHandle("trace-1", "span-1", 1L, LocalDateTime.now()));
+        SupervisorExecutionTraceService.TraceHandle handle =
+                new SupervisorExecutionTraceService.TraceHandle("trace-1", "span-1", 1L, LocalDateTime.now());
+        when(traceService.begin(any(), any(), any(), any())).thenReturn(handle);
+        when(traceService.begin(any(), any(), any(), any(), any())).thenReturn(handle);
+        when(traceService.beginOrResume(any(), any(), any(), any())).thenReturn(handle);
+        when(traceService.beginOrResume(any(), any(), any(), any(), any())).thenReturn(handle);
         SupervisorToolPolicyService policy = new SupervisorToolPolicyService(
                 traceService, mock(SupervisorApprovalInteractionService.class), objectMapper);
         return new AgentScopeSupervisorRuntimeAdapter(
@@ -112,6 +116,7 @@ class SupervisorCancellationTest {
                 mock(RuntimeWorkflowDefinitionMapper.class),
                 mock(RuntimeWorkflowVersionMapper.class),
                 mock(RuntimeGraphSpecExecutor.class),
+                mock(com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService.class),
                 new RuntimeChatMemoryStore(20),
                 policy,
                 traceService,

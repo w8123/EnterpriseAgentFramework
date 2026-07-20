@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.runops;
 
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
+import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -24,7 +26,7 @@ import static org.mockito.Mockito.when;
 class RuntimeRunLifecycleServiceTest {
 
     @Test
-    void persistsDirectAnswerAgentRunWithoutToolEvents() {
+    void sanitizesDirectAnswerAndUntrustedUserBeforePersistingAgentRun() {
         LifecycleFixture fixture = fixture();
         LocalDateTime startedAt = LocalDateTime.of(2026, 7, 14, 9, 30, 0);
         Map<String, Object> input = new LinkedHashMap<>();
@@ -70,8 +72,8 @@ class RuntimeRunLifecycleServiceTest {
         assertEquals(91L, saved.getAgentConfigVersionId());
         assertEquals(4, saved.getAgentConfigVersion());
         assertEquals("session-final", saved.getSessionId());
-        assertEquals("user-final", saved.getUserId());
-        assertEquals("这是无需调用 Workflow 的直接回答", saved.getOutputSummary());
+        assertNull(saved.getUserId());
+        assertEquals("[omitted]", saved.getOutputSummary());
         assertEquals(1, saved.getPlanCount());
         assertEquals(0, saved.getReplanCount());
         assertEquals(0, saved.getWorkflowCallCount());
@@ -81,9 +83,54 @@ class RuntimeRunLifecycleServiceTest {
         assertEquals(20, saved.getTokenCost());
         assertEquals(1500, saved.getLatencyMs());
         assertNull(saved.getErrorCode());
-        assertTrue(saved.getSnapshotJson().contains("\"workflowTools\":[]"));
+        assertTrue(saved.getSnapshotJson().contains("\"workflowToolCount\":0"));
         verify(fixture.runMapper()).insert(saved);
         verify(fixture.runMapper()).updateById(saved);
+    }
+
+    @Test
+    void persistsTrustedIdentityUserIdAndIgnoresAttackerBodyUserId() {
+        LifecycleFixture fixture = fixture();
+        LocalDateTime startedAt = LocalDateTime.of(2026, 7, 19, 12, 0, 0);
+        WorkflowExecutionIdentity identity = WorkflowExecutionIdentity.fromAgent(7L, "orders", "42");
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("entryType", "AGENT");
+        input.put("userId", "attacker");
+        input.put("message", "spoof me");
+
+        fixture.service().beginAgent(
+                "trace-trusted",
+                "span-root",
+                startedAt,
+                agent(),
+                publishedConfig(),
+                List.of(),
+                input,
+                identity);
+
+        RuntimeRunEntity saved = fixture.saved().get();
+        assertEquals("42", saved.getUserId());
+        assertFalse(saved.getInputSummary() != null && saved.getInputSummary().contains("attacker"));
+        assertFalse(saved.getInputSummary() != null && saved.getInputSummary().contains("spoof me"));
+    }
+
+    @Test
+    void doesNotPersistUntrustedBodyUserIdWhenIdentityMissing() {
+        LifecycleFixture fixture = fixture();
+        LocalDateTime startedAt = LocalDateTime.of(2026, 7, 19, 12, 1, 0);
+        Map<String, Object> input = Map.of("entryType", "AGENT", "userId", "42", "message", "no bearer");
+
+        fixture.service().beginAgent(
+                "trace-untrusted",
+                "span-root",
+                startedAt,
+                agent(),
+                publishedConfig(),
+                List.of(),
+                input,
+                null);
+
+        assertNull(fixture.saved().get().getUserId());
     }
 
     @Test
@@ -110,12 +157,48 @@ class RuntimeRunLifecycleServiceTest {
 
         RuntimeRunEntity saved = fixture.saved().get();
         assertEquals("WAITING_APPROVAL", saved.getStatus());
-        assertEquals("SUPERVISOR_CONFIRMATION_REQUIRED", saved.getErrorCode());
-        assertEquals("需要人工确认后继续", saved.getErrorMessage());
+        // 等待态不得终结 root run；errorCode 清空，原因保留在 outputSummary
+        assertNull(saved.getErrorCode());
+        assertNull(saved.getErrorMessage());
+        assertEquals("[omitted]", saved.getOutputSummary());
         assertEquals(1, saved.getApprovalCount());
         assertEquals(0, saved.getWorkflowCallCount());
         assertEquals(0, saved.getToolCallCount());
-        assertNotNull(saved.getEndedAt());
+        assertNull(saved.getEndedAt());
+    }
+
+    @Test
+    void mapsWorkflowInteractionWaitingToWaitingUserWithoutEndingRun() {
+        LifecycleFixture fixture = fixture();
+        when(fixture.guardMapper().selectCount(any())).thenReturn(0L);
+        LocalDateTime startedAt = LocalDateTime.of(2026, 7, 18, 10, 0, 0);
+
+        fixture.service().beginWorkflow(
+                "trace-wfi",
+                "span-root",
+                "WORKFLOW_STUDIO",
+                "wf-1",
+                "demo-flow",
+                "Demo Flow",
+                "demo",
+                "LANGGRAPH4J",
+                "{\"entry\":\"form\"}",
+                Map.of("message", "start"));
+        fixture.service().finishWorkflow(
+                "trace-wfi",
+                false,
+                "RUNTIME_GRAPH_INTERACTION_WAITING",
+                "Interaction node is waiting for user input: form",
+                1,
+                Map.of("interactionId", "wfi_abc", "nodeCount", 1));
+
+        RuntimeRunEntity saved = fixture.saved().get();
+        assertEquals("WAITING_USER", saved.getStatus());
+        assertNull(saved.getEndedAt());
+        assertNull(saved.getErrorCode());
+        assertEquals("[omitted]", saved.getOutputSummary());
+        assertFalse(saved.getMetadataJson().contains("uiRequest"));
+        assertFalse(saved.getSnapshotJson().contains("\"entry\":\"form\""));
     }
 
     private LifecycleFixture fixture() {

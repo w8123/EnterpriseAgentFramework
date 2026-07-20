@@ -42,6 +42,7 @@ export interface UseWorkflowStudioAiDraftActionsDeps {
   applyCanvasFromStudio: (state: WorkflowStudioState) => void
   autoLayoutWorkflowCanvas: () => Promise<void>
   fitCanvas: () => Promise<void>
+  ensurePanelValidationClear?: () => boolean
 }
 
 function workflowEditOperationLabel(type: WorkflowDraftEditOperationType) {
@@ -180,8 +181,12 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
     }
   }
 
-  async function runAiAuthoring(instructionOverride?: string) {
-    const instruction = (instructionOverride ?? deps.aiEditInstruction.value).trim()
+  async function runAiAuthoring(instructionOverride?: string | Event) {
+    // Vue passes the native event when a handler is bound as @click="runAiAuthoring".
+    // Only an explicit string is a regeneration override; DOM events must use the
+    // current composer value.
+    const hasInstructionOverride = typeof instructionOverride === 'string'
+    const instruction = (hasInstructionOverride ? instructionOverride : deps.aiEditInstruction.value).trim()
     if (!instruction) {
       ElMessage.warning('请先描述要创建、修改或修复的 Workflow')
       return
@@ -198,7 +203,7 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
     lastAiAuthoringInstruction = instruction
     // A request has been accepted; keep its immutable value locally for regenerate,
     // while returning the visible composer to an empty state for the next instruction.
-    if (instructionOverride === undefined) {
+    if (!hasInstructionOverride) {
       deps.aiEditInstruction.value = ''
     }
 
@@ -294,6 +299,9 @@ export function useWorkflowStudioAiDraftActions(deps: UseWorkflowStudioAiDraftAc
   async function applyAiEditPreview() {
     if (deps.studioReadOnly.value) {
       ElMessage.info('代码托管 Workflow 当前为只读草稿，请修改后重启同步。')
+      return false
+    }
+    if (deps.ensurePanelValidationClear && !deps.ensurePanelValidationClear()) {
       return false
     }
     if (!deps.aiEditPreview.value) {
