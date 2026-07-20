@@ -8,6 +8,7 @@ const aiCodingFigmaStyle = readFileSync(join(process.cwd(), 'src/views/registry/
 const mainLayoutSource = readFileSync(join(process.cwd(), 'src/views/layout/MainLayout.vue'), 'utf8')
 const progressSource = readFileSync(join(process.cwd(), 'src/views/registry/composables/useSdkAccessWizardProgress.ts'), 'utf8')
 const snippetSource = readFileSync(join(process.cwd(), 'src/views/registry/composables/useSdkAccessWizardSnippets.ts'), 'utf8')
+const dataSource = readFileSync(join(process.cwd(), 'src/views/registry/composables/useSdkAccessWizardData.ts'), 'utf8')
 const uiStateSource = readFileSync(join(process.cwd(), 'src/views/registry/composables/useSdkAccessWizardUiState.ts'), 'utf8')
 const codeSnippetBlockSource = readFileSync(join(process.cwd(), 'src/components/common/CodeSnippetBlock.vue'), 'utf8')
 const skillRoot = join(process.cwd(), '..', 'reachai-control-service/src/main/resources/ai-assist/skills/reachai-onboarding')
@@ -70,6 +71,31 @@ assert.match(aiCodingPane, /将接入任务交给AI 编程工具/, 'AI Coding pa
 assert.doesNotMatch(aiCodingPane, /把 SDK 接入任务交给外部 AI 编程工具/, 'AI Coding pane should not use the old verbose heading')
 assert.doesNotMatch(aiCodingPane, /切换工具后复制同一套接入任务，AI 会按步骤向平台回传进度。/, 'AI Coding prompt card should not render the explanatory sentence')
 assert.doesNotMatch(aiCodingPane, /打开完整提示词/, 'AI Coding pane should not render the full prompt dialog button')
+assert.match(
+  aiCodingPane,
+  /:disabled="!aiOnboardingPromptReady"[\s\S]*?@click="copyAiOnboardingPrompt"/,
+  'AI Coding prompt copy must remain disabled until all prompt data is ready',
+)
+assert.match(
+  aiCodingPane,
+  /:model-value="aiOnboardingPromptPreview"/,
+  'AI Coding prompt preview must not expose a partially populated prompt while loading',
+)
+assert.match(
+  wizardSource,
+  /function copyAiOnboardingPrompt\(\)[\s\S]*?if \(!aiOnboardingPromptReady\.value\) return/,
+  'AI Coding prompt copy handler must guard against readiness races',
+)
+assert.match(
+  dataSource,
+  /manifest\?\.project\?\.id === projectId[\s\S]*?session\?\.projectId === projectId[\s\S]*?session\.sessionId\?\.trim\(\)/,
+  'AI Coding prompt readiness must require matching project, manifest, and access-session data',
+)
+assert.match(
+  dataSource,
+  /await Promise\.all\(\[[\s\S]*?loadAccessSession\(detail\.id\)[\s\S]*?loadAiOnboardingManifest\(detail\.id\)/,
+  'Access session and onboarding manifest should load in parallel',
+)
 
 assert.match(
   wizardSource,

@@ -935,4 +935,267 @@ describe('createEafChat facade', () => {
     expect(root.querySelector('.eaf-chat__brand')?.textContent).toBe('ReachAI')
     chat.destroy()
   })
+
+  function pendingFetchCalls() {
+    return (globalThis.fetch as any).mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes('/page-actions/pending'),
+    )
+  }
+
+  function mockEmptyPendingTransport(sessionId: string) {
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      const path = String(url)
+      if (path.includes('/chat/sessions') && !path.includes('/messages') && !path.includes('/page-actions')) {
+        return sessionResponse(sessionId)
+      }
+      if (path.includes('/messages/stream')) {
+        return sse([
+          'event: message.delta\ndata: {"text":"ok"}\n\n',
+          `event: message.completed\ndata: {"sessionId":"${sessionId}","answer":"ok","metadata":{}}\n\n`,
+        ])
+      }
+      if (path.includes('/page-actions/pending')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 })
+    })
+  }
+
+  function setDocumentVisibility(state: 'visible' | 'hidden') {
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => state,
+    })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+
+  it('does not poll pending without a session for 60 seconds', async () => {
+    const bridge = createEafPageBridge({ route: '/' })
+    bridge.registerAction('refresh', async () => ({ status: 'SUCCESS', data: {} }), { title: 'Refresh' })
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge,
+    })
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pendingFetchCalls()).toHaveLength(0)
+    chat.destroy()
+  })
+
+  it('does not poll pending without registered page actions even after session', async () => {
+    mockEmptyPendingTransport('sess-no-action')
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+    })
+    await chat.send('hello')
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pendingFetchCalls()).toHaveLength(0)
+    chat.destroy()
+  })
+
+  it('starts pending poll immediately after the first action is registered with a session', async () => {
+    mockEmptyPendingTransport('sess-first-action')
+    const bridge = createEafPageBridge({ route: '/' })
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge,
+    })
+    await chat.send('hello')
+    expect(pendingFetchCalls()).toHaveLength(0)
+
+    bridge.registerAction('refresh', async () => ({ status: 'SUCCESS', data: {} }), { title: 'Refresh' })
+    await vi.advanceTimersByTimeAsync(0)
+    for (let i = 0; i < 10; i += 1) await Promise.resolve()
+    expect(pendingFetchCalls().length).toBeGreaterThanOrEqual(1)
+    chat.destroy()
+  })
+
+  it('stops pending poll after the last action is unregistered', async () => {
+    mockEmptyPendingTransport('sess-unreg')
+    const bridge = createEafPageBridge({ route: '/' })
+    const unregister = bridge.registerAction('refresh', async () => ({ status: 'SUCCESS', data: {} }), { title: 'Refresh' })
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge,
+    })
+    await chat.send('hello')
+    await vi.advanceTimersByTimeAsync(0)
+    for (let i = 0; i < 10; i += 1) await Promise.resolve()
+    const beforeStop = pendingFetchCalls().length
+    expect(beforeStop).toBeGreaterThanOrEqual(1)
+
+    unregister()
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(pendingFetchCalls().length).toBe(beforeStop)
+    chat.destroy()
+  })
+
+  it('caps visible idle pending polls to at most 12 in 60 seconds', async () => {
+    mockEmptyPendingTransport('sess-cap')
+    const bridge = createEafPageBridge({ route: '/' })
+    bridge.registerAction('refresh', async () => ({ status: 'SUCCESS', data: {} }), { title: 'Refresh' })
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge,
+    })
+    await chat.send('hello')
+    await vi.advanceTimersByTimeAsync(60_000)
+    for (let i = 0; i < 20; i += 1) await Promise.resolve()
+    const count = pendingFetchCalls().length
+    expect(count).toBeGreaterThan(0)
+    expect(count).toBeLessThanOrEqual(12)
+    expect(count).toBeLessThan(120)
+    chat.destroy()
+  })
+
+  it('pauses pending polls while hidden and compensates on visible', async () => {
+    mockEmptyPendingTransport('sess-vis')
+    const bridge = createEafPageBridge({ route: '/' })
+    bridge.registerAction('refresh', async () => ({ status: 'SUCCESS', data: {} }), { title: 'Refresh' })
+    setDocumentVisibility('visible')
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge,
+    })
+    await chat.send('hello')
+    await vi.advanceTimersByTimeAsync(0)
+    for (let i = 0; i < 10; i += 1) await Promise.resolve()
+    const afterActive = pendingFetchCalls().length
+    expect(afterActive).toBeGreaterThanOrEqual(1)
+
+    setDocumentVisibility('hidden')
+    await vi.advanceTimersByTimeAsync(60_000)
+    for (let i = 0; i < 10; i += 1) await Promise.resolve()
+    expect(pendingFetchCalls().length).toBe(afterActive)
+
+    setDocumentVisibility('visible')
+    await vi.advanceTimersByTimeAsync(0)
+    for (let i = 0; i < 10; i += 1) await Promise.resolve()
+    expect(pendingFetchCalls().length).toBe(afterActive + 1)
+    setDocumentVisibility('visible')
+    chat.destroy()
+  })
+
+  it('backs off pending poll errors instead of retrying every 500ms', async () => {
+    const errors: string[] = []
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      const path = String(url)
+      if (path.includes('/chat/sessions') && !path.includes('/messages') && !path.includes('/page-actions')) {
+        return sessionResponse('sess-backoff')
+      }
+      if (path.includes('/messages/stream')) {
+        return sse([
+          'event: message.completed\ndata: {"sessionId":"sess-backoff","answer":"ok","metadata":{}}\n\n',
+        ])
+      }
+      if (path.includes('/page-actions/pending')) {
+        return new Response(JSON.stringify({ message: 'pending down' }), { status: 500 })
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 })
+    })
+    const bridge = createEafPageBridge({ route: '/' })
+    bridge.registerAction('refresh', async () => ({ status: 'SUCCESS', data: {} }), { title: 'Refresh' })
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge,
+      onError: (error) => errors.push(error.message),
+    })
+    await chat.send('hello')
+    await vi.advanceTimersByTimeAsync(60_000)
+    for (let i = 0; i < 20; i += 1) await Promise.resolve()
+    expect(pendingFetchCalls().length).toBeLessThanOrEqual(5)
+    expect(errors.filter((m) => m.includes('pending down') || m.includes('500')).length).toBeLessThanOrEqual(5)
+    chat.destroy()
+  })
+
+  it('never overlaps pending GETs and coalesces activity into one rerun', async () => {
+    let releasePending!: (value: Response) => void
+    let pendingStarts = 0
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      const path = String(url)
+      if (path.includes('/chat/sessions') && !path.includes('/messages') && !path.includes('/page-actions')) {
+        return sessionResponse('sess-overlap')
+      }
+      if (path.includes('/messages/stream')) {
+        return sse([
+          'event: message.completed\ndata: {"sessionId":"sess-overlap","answer":"ok","metadata":{}}\n\n',
+        ])
+      }
+      if (path.includes('/page-actions/pending')) {
+        pendingStarts += 1
+        return new Promise<Response>((resolve) => {
+          releasePending = resolve
+        })
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 })
+    })
+    const bridge = createEafPageBridge({ route: '/' })
+    bridge.registerAction('refresh', async () => ({ status: 'SUCCESS', data: {} }), { title: 'Refresh' })
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge,
+    })
+    await chat.send('hello')
+    await vi.advanceTimersByTimeAsync(0)
+    for (let i = 0; i < 15; i += 1) await Promise.resolve()
+    expect(pendingStarts).toBe(1)
+
+    chat.open()
+    chat.open()
+    setDocumentVisibility('hidden')
+    setDocumentVisibility('visible')
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(pendingStarts).toBe(1)
+
+    releasePending(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(0)
+    for (let i = 0; i < 15; i += 1) await Promise.resolve()
+    expect(pendingStarts).toBe(2)
+    chat.destroy()
+  })
+
+  it('destroy stops pending polls completely', async () => {
+    mockEmptyPendingTransport('sess-destroy-poll')
+    const bridge = createEafPageBridge({ route: '/' })
+    bridge.registerAction('refresh', async () => ({ status: 'SUCCESS', data: {} }), { title: 'Refresh' })
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge,
+    })
+    await chat.send('hello')
+    await vi.advanceTimersByTimeAsync(0)
+    for (let i = 0; i < 10; i += 1) await Promise.resolve()
+    const beforeDestroy = pendingFetchCalls().length
+    chat.destroy()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pendingFetchCalls().length).toBe(beforeDestroy)
+  })
 })

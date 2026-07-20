@@ -153,6 +153,14 @@ mysql -uroot -p < sql/upgrade-20260719-runtime-internal-auth-nonce.sql
 1. 新增 `runtime_internal_auth_nonce`：Control→Runtime HMAC 内部认证 nonce 防重放表（多实例共享）。
 2. Control/Runtime 需配置同一 `REACHAI_INTERNAL_SERVICE_SECRET`；缺配置时内部 trusted execute fail-closed。
 
+Windows 本地开发可生成并配置用户级共享 secret（脚本不会打印或写入仓库）：
+
+```powershell
+.\scripts\set-reachai-internal-service-secret.ps1
+```
+
+配置后必须重启 IntelliJ IDEA 以及 Control/Runtime 两个运行配置；已经启动的 JVM 不会读取到新环境变量。
+
 验证：
 
 ```sql

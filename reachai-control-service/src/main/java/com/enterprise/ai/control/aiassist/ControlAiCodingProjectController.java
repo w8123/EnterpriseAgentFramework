@@ -7,7 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import feign.FeignException;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -31,7 +31,6 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/ai-coding/projects/{projectId}")
-@RequiredArgsConstructor
 public class ControlAiCodingProjectController {
 
     private static final String AI_CODING_HEADER = "X-ReachAI-AiCoding-Key";
@@ -40,6 +39,24 @@ public class ControlAiCodingProjectController {
     private final CapabilityProjectOnboardingClient capabilityClient;
     private final RuntimeProxyClient runtimeClient;
     private final ControlModelCatalogClient modelCatalogClient;
+    private final ControlAiAccessSessionService aiAccessSessionService;
+
+    ControlAiCodingProjectController(CapabilityProjectOnboardingClient capabilityClient,
+                                     RuntimeProxyClient runtimeClient,
+                                     ControlModelCatalogClient modelCatalogClient) {
+        this(capabilityClient, runtimeClient, modelCatalogClient, null);
+    }
+
+    @Autowired
+    public ControlAiCodingProjectController(CapabilityProjectOnboardingClient capabilityClient,
+                                            RuntimeProxyClient runtimeClient,
+                                            ControlModelCatalogClient modelCatalogClient,
+                                            ControlAiAccessSessionService aiAccessSessionService) {
+        this.capabilityClient = capabilityClient;
+        this.runtimeClient = runtimeClient;
+        this.modelCatalogClient = modelCatalogClient;
+        this.aiAccessSessionService = aiAccessSessionService;
+    }
 
     @GetMapping("/manifest")
     public ResponseEntity<AiCodingGatewayManifest> manifest(@PathVariable Long projectId,
@@ -215,6 +232,10 @@ public class ControlAiCodingProjectController {
             @RequestParam(required = false) String toolName) {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
+            if (aiAccessSessionService != null) {
+                return ResponseEntity.ok(aiAccessSessionService.openSdkSession(
+                        projectId, stringValue(project.get("projectCode")), toolName, null));
+            }
             return ResponseEntity.ok(sdkSession(project, toolName, "OPEN", null, null, null));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
@@ -226,6 +247,10 @@ public class ControlAiCodingProjectController {
             @PathVariable Long projectId) {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
+            if (aiAccessSessionService != null) {
+                return ResponseEntity.ok(aiAccessSessionService.openSdkSession(
+                        projectId, stringValue(project.get("projectCode")), null, "sdk-access-" + projectId));
+            }
             return ResponseEntity.ok(sdkSession(project, null, "OPEN", "sdk-access-" + projectId, null, null));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
@@ -238,6 +263,15 @@ public class ControlAiCodingProjectController {
             @PathVariable String sessionId,
             @PathVariable String stepKey,
             @RequestBody(required = false) Map<String, ?> request) {
+        if (aiAccessSessionService != null) {
+            try {
+                Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
+                return ResponseEntity.ok(aiAccessSessionService.reportSdkStep(
+                        projectId, stringValue(project.get("projectCode")), sessionId, stepKey, request, "ai-coding"));
+            } catch (FeignException.NotFound ex) {
+                return ResponseEntity.notFound().build();
+            }
+        }
         return accessSessionWithReportedStep(projectId, sessionId, stepKey, request, "SDK_ACCESS");
     }
 
@@ -249,9 +283,13 @@ public class ControlAiCodingProjectController {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
             var check = sdkAccessCheck(project);
+            var session = aiAccessSessionService == null
+                    ? sdkSession(project, null, check.overallStatus(), sessionId, null, null)
+                    : aiAccessSessionService.applySdkCheckResult(
+                            projectId, stringValue(project.get("projectCode")), sessionId, check);
             return ResponseEntity.ok(new ControlAiAssistProjectController.AiAccessCheckRunResponse(
                     check,
-                    sdkSession(project, null, check.overallStatus(), sessionId, null, null)));
+                    session));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }

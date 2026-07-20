@@ -293,8 +293,15 @@
                   <div>
                     <h3>1. 复制给 AI 工具</h3>
                   </div>
-                  <button type="button" class="btn-copy-prompt" @click="copyText(aiOnboardingPrompt)">
-                    复制提示词
+                  <button
+                    type="button"
+                    class="btn-copy-prompt"
+                    :disabled="!aiOnboardingPromptReady"
+                    :aria-busy="aiOnboardingPromptLoading"
+                    :title="aiOnboardingPromptUnavailableReason"
+                    @click="copyAiOnboardingPrompt"
+                  >
+                    {{ aiOnboardingPromptLoading ? '参数加载中…' : aiOnboardingPromptReady ? '复制提示词' : '数据未就绪' }}
                   </button>
                 </div>
                 <div class="ai-tool-tabs" role="tablist" aria-label="AI 工具类型">
@@ -329,7 +336,7 @@
                 </div>
                 <el-input
                   class="ai-prompt-input ai-prompt-preview"
-                  :model-value="aiOnboardingPrompt"
+                  :model-value="aiOnboardingPromptPreview"
                   type="textarea"
                   :rows="14"
                   readonly
@@ -426,14 +433,22 @@
       </el-tabs>
       <el-input
         class="ai-prompt-input"
-        :model-value="aiOnboardingPrompt"
+        :model-value="aiOnboardingPromptPreview"
         type="textarea"
         :rows="20"
         readonly
       />
       <template #footer>
         <el-button @click="aiPromptDialogVisible = false">关闭</el-button>
-        <el-button type="primary" :icon="DocumentCopy" @click="copyText(aiOnboardingPrompt)">复制提示词</el-button>
+        <el-button
+          type="primary"
+          :icon="DocumentCopy"
+          :loading="aiOnboardingPromptLoading"
+          :disabled="!aiOnboardingPromptReady"
+          @click="copyAiOnboardingPrompt"
+        >
+          复制提示词
+        </el-button>
       </template>
     </AppDialog>
   </div>
@@ -499,6 +514,9 @@ const {
   aiCodingAccessEnabled,
   aiCodingAccessKey,
   aiCodingAccessDisplayKey,
+  aiOnboardingPromptLoading,
+  aiOnboardingPromptReady,
+  aiOnboardingPromptUnavailableReason,
   checkResult,
   isSdkBackedProject,
   onlineInstanceCount,
@@ -570,6 +588,17 @@ const {
 })
 
 const { copyText } = useSdkAccessWizardActions()
+
+const aiOnboardingPromptPreview = computed(() =>
+  aiOnboardingPromptReady.value
+    ? aiOnboardingPrompt.value
+    : aiOnboardingPromptUnavailableReason.value,
+)
+
+async function copyAiOnboardingPrompt() {
+  if (!aiOnboardingPromptReady.value) return
+  await copyText(aiOnboardingPrompt.value)
+}
 
 const statusLabel = sdkAccessCheckStatusLabel
 const accessStatusLabel = aiAccessStepStatusLabel

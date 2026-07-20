@@ -78,11 +78,13 @@ export function useSdkAccessWizardSnippets(deps: UseSdkAccessWizardSnippetsDeps)
       || manifest?.embed?.defaultAgentKeySlug
       || `${code}-page-copilot`
 
-    return `import { createEafChat } from '@reachai/embed-chat'
+    return `import { createEafChat, createEafPageBridge } from '@reachai/embed-chat'
 
 const pageInstanceId = sessionStorage.getItem('reachaiPageInstanceId') || crypto.randomUUID()
 sessionStorage.setItem('reachaiPageInstanceId', pageInstanceId)
 const pageKey = '<current-page-key>'
+const route = window.location.pathname || '/'
+const pageBridge = createEafPageBridge({ pageInstanceId, route })
 
 // Provisioning runs once during onboarding from AI tool / local shell / server-side integration.
 // Browser runtime must NOT call /api/ai-coding/projects/** onboarding/provisioning/session APIs or store project signing secrets in front-end config.
@@ -96,18 +98,19 @@ createEafChat({
   // apiBase: window.location.origin,
   // embedPathPrefix: '/api/reachai/embed',
   agentId: provisionedAgentKeySlug,
+  bridge: pageBridge,
   page: {
     pageKey,
     name: '<current-page-name>',
-    routePattern: window.location.pathname,
+    routePattern: route,
   },
   tokenProvider: async () => {
     const query = new URLSearchParams({
       projectCode: '${code}',
       agentId: provisionedAgentKeySlug,
       pageKey,
-      pageInstanceId,
-      route: window.location.pathname,
+      pageInstanceId: pageBridge.pageInstanceId,
+      route: pageBridge.route || route,
       origin: window.location.origin
     })
     const payload = await fetch('${deps.embedTokenPath.value || '/api/reachai/embed-token'}?' + query).then((res) => res.json())

@@ -355,7 +355,15 @@ SDK 接入项目的前端配置不再包含 `pageRegistry.appSecret`。项目级
 D:\work\qmssmp\qmssmp-ui\src\app\pages\team-build\depart-management\partial\reach-ai-chat
 ```
 
-当前班组前端已经在该 Angular 组件中实现了与 ReachAI 前端 SDK 等价的最小协议：创建嵌入式会话，轮询 pending page action，执行本地 handler，并回传 result。后续如果改成正式 npm SDK，只需要把这些协议调用替换为 `createEafPageBridge/createEafChat`，页面 handler 和验收流程不变。
+当前班组前端如果仍维护自定义 Angular 嵌入协议，应尽快改为官方 `@reachai/embed-chat` 薄封装（`createEafPageBridge` / `createEafChat`），并在 `ngOnDestroy` 中调用 `chat.destroy()`。页面 handler 与验收流程可保持不变。
+
+Page Action 事件路径约定：
+
+1. **SSE** `page.action.requested`：正常消息中的主事件路径。
+2. **completion** `metadata.pageActionQueue`：兼容/完成路径。
+3. **pending GET**：迟到补偿与会话恢复；官方 SDK **不再**永久每 500ms 轮询，而是按活跃窗口（约 5s 内最多 1s 一次）、可见空闲（最多 10s 一次）、页面 hidden 暂停与错误退避调度。
+
+不要在业务组件中再写 `schedulePoll(500)` / 永久 `setInterval` 查询 pending。若暂时无法迁移官方包，业务侧自定义实现也必须采用与官方 SDK 一致的自适应策略，并在组件销毁时停止全部 timer 与监听器。
 
 组件职责：
 
@@ -373,13 +381,15 @@ POST /api/embed/chat/sessions
 POST /api/embed/chat/sessions/{sessionId}/messages
 ```
 
-6. 接收 ReachAI 返回的 Page Action 请求。
+6. 优先通过消息 SSE / completion 接收 Page Action；pending 仅作迟到补偿。
 7. 执行当前页面注册的前端动作。
 8. 回传 Page Action 执行结果：
 
 ```http
 POST /api/embed/chat/sessions/{sessionId}/page-actions/{requestId}/result
 ```
+
+9. 组件卸载时调用 `destroy()`，停止 pending 调度。
 
 最小初始化代码示例：
 
@@ -561,7 +571,7 @@ Agent 的运行图需要能识别用户意图并输出页面动作请求。
 2. 在 ReachAI 项目详情中选择对应动作，点击“调试”。
 3. 输入参数 JSON 并发送调试请求。
 4. ReachAI 会为当前在线页面创建一条 `REQUESTED` 页面动作事件。
-5. 前端 SDK 轮询当前 session 的 pending page action，执行本地 handler，并通过既有 result 接口回传结果。
+5. 前端 SDK 通过自适应 pending 补偿查询（或 SSE/completion 主路径）拿到当前 session 的 page action，执行本地 handler，并通过既有 result 接口回传结果。官方 SDK 不会永久每 500ms 轮询。
 6. 调试弹窗会按 `requestId` 轮询页面动作事件，直接展示 `SUCCESS/FAILED/TIMEOUT`、错误信息和返回数据。
 7. 也可以在嵌入式会话、页面动作事件和聊天事件审计中查看执行结果或错误原因。
 
@@ -693,7 +703,7 @@ GET http://localhost:8080/api/v1/reachai/embed-token
 期望结果：
 
 1. 调试接口返回 `REQUESTED`，并显示当前页面实例 ID。
-2. 班组前端 SDK 轮询到 pending page action。
+2. 班组前端 SDK 通过 SSE/completion 或 pending 补偿拿到 page action（官方 SDK 非永久 500ms 轮询）。
 3. 前端执行 `qmssmp.teamArchive.search` handler，回填查询条件并刷新列表。
 4. 前端通过 result 接口回传执行结果。
 5. 调试弹窗最终展示 `SUCCESS`，并能看到返回数据；失败时展示 `FAILED` 或 `TIMEOUT` 以及错误信息。

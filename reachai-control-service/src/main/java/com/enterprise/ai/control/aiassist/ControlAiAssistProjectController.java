@@ -3,7 +3,7 @@ package com.enterprise.ai.control.aiassist;
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import feign.FeignException;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -25,7 +25,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/ai-assist/projects/{projectId}")
-@RequiredArgsConstructor
 public class ControlAiAssistProjectController {
 
     private static final String SECRET_ENV_NAME = "REACHAI_REGISTRY_APP_SECRET";
@@ -33,6 +32,18 @@ public class ControlAiAssistProjectController {
     private static final String ONBOARDING_SKILL_NAME = "reachai-onboarding";
 
     private final CapabilityProjectOnboardingClient capabilityClient;
+    private final ControlAiAccessSessionService aiAccessSessionService;
+
+    ControlAiAssistProjectController(CapabilityProjectOnboardingClient capabilityClient) {
+        this(capabilityClient, null);
+    }
+
+    @Autowired
+    public ControlAiAssistProjectController(CapabilityProjectOnboardingClient capabilityClient,
+                                            ControlAiAccessSessionService aiAccessSessionService) {
+        this.capabilityClient = capabilityClient;
+        this.aiAccessSessionService = aiAccessSessionService;
+    }
 
     static List<SdkArtifact> sdkArtifacts() {
         return sdkArtifacts(null);
@@ -217,6 +228,10 @@ public class ControlAiAssistProjectController {
             @RequestParam(required = false) String toolName) {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
+            if (aiAccessSessionService != null) {
+                return ResponseEntity.ok(aiAccessSessionService.openSdkSession(
+                        projectId, stringValue(project.get("projectCode")), toolName, null));
+            }
             return ResponseEntity.ok(sessionView(project, toolName, "OPEN", null));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
@@ -227,6 +242,10 @@ public class ControlAiAssistProjectController {
     public ResponseEntity<AiAccessSessionView> latestAccessSession(@PathVariable Long projectId) {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
+            if (aiAccessSessionService != null) {
+                return ResponseEntity.ok(aiAccessSessionService.openSdkSession(
+                        projectId, stringValue(project.get("projectCode")), null, "sdk-access-" + projectId));
+            }
             return ResponseEntity.ok(sessionView(project, null, "OPEN", null));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
@@ -241,7 +260,10 @@ public class ControlAiAssistProjectController {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
             SdkAccessCheckResponse checkResult = sdkAccessCheck(project);
-            AiAccessSessionView session = sessionView(project, null, checkResult.overallStatus(), sessionId);
+            AiAccessSessionView session = aiAccessSessionService == null
+                    ? sessionView(project, null, checkResult.overallStatus(), sessionId)
+                    : aiAccessSessionService.applySdkCheckResult(
+                            projectId, stringValue(project.get("projectCode")), sessionId, checkResult);
             return ResponseEntity.ok(new AiAccessCheckRunResponse(checkResult, session));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();

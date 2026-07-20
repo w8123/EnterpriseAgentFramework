@@ -18,6 +18,7 @@ import {
   type EafChatSessionPayload,
   type EafPageDescriptor,
 } from './embedSession'
+import { createPendingPageActionPollScheduler } from './pendingPageActionPollScheduler'
 
 export type {
   EafChatPageSessionPayload,
@@ -162,12 +163,12 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   const handledPageActions = new Set<string>()
   const inFlightPageActions = new Map<string, Promise<void>>()
   const emittedPageActionEventIds = new Set<string>()
-  let pendingPollInFlight = false
   let pageCatalogTimer: number | undefined
   let destroyed = false
   let chatApp: App | null = null
   let hostInstance: EmbedChatHostInstance | null = null
   let sendInFlight = false
+  let registeredActionCount = bridge.registeredActions.length
 
   /**
    * 公开事件发布幂等（按 requestId）：只调用 onEvent，不执行 Bridge。
@@ -245,7 +246,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   function emitPublicEvent(event: EafChatEvent) {
     if (event.type === 'page.action.requested') {
       // 独立 SSE：先 publish，再统一 dispatch（不依赖 completion metadata）
-      publishPageActionRequested(event.data, {
+      const published = publishPageActionRequested(event.data, {
         sessionId: event.sessionId,
         turnId: event.turnId,
       })
@@ -256,6 +257,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
           ? (event.data as Record<string, unknown>).metadata as Record<string, unknown> | undefined
           : undefined,
       )
+      if (published) pendingPollScheduler.notifyActivity()
       return
     }
     if (event.type === 'message.completed') {
@@ -267,6 +269,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       options.onEvent?.(event)
       // Bridge / result POST 可晚于 completed（与 SSE 共用 dispatch 去重）
       void processMessageCompletion(response).catch(reportError)
+      pendingPollScheduler.notifyActivity()
       return
     }
     options.onEvent?.(event)
@@ -300,6 +303,46 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       },
     })
   }
+
+  function reportError(error: unknown) {
+    const wrapped = { message: error instanceof Error ? error.message : String(error), cause: error }
+    options.onError?.(wrapped)
+  }
+
+  async function pollPendingPageActionsOnce() {
+    if (destroyed) return
+    const existingSessionId = hostInstance?.getExistingSessionId()
+    if (!existingSessionId) return
+    await pollPendingPageActions({
+      apiBase,
+      token,
+      sessionId: existingSessionId,
+      bridge,
+      handledPageActions,
+      pendingPageActions,
+      inFlightPageActions,
+      context,
+      // poll 自己已 dispatch；此处只 publish，禁止再走 emitPublicEvent→dispatch 递归
+      onEvent: (event) => {
+        if (event.type === 'page.action.requested') {
+          publishPageActionRequested(event.data, { sessionId: existingSessionId })
+        }
+      },
+      onError: reportError,
+      refreshToken: async () => {
+        await refreshTokenForCurrentSession()
+        return token
+      },
+    })
+  }
+
+  const pendingPollScheduler = createPendingPageActionPollScheduler({
+    getSessionId: () => hostInstance?.getExistingSessionId() || null,
+    hasRegisteredActions: () => bridge.registeredActions.length > 0,
+    isDestroyed: () => destroyed,
+    poll: pollPendingPageActionsOnce,
+    onError: reportError,
+  })
 
   const root = document.createElement('div')
   root.className = 'eaf-chat'
@@ -342,10 +385,12 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   })
   hostInstance = chatApp.mount(bodyEl) as EmbedChatHostInstance
 
-  const pendingPoller = window.setInterval(() => {
-    void pollPendingPageActionsLoop().catch(reportError)
-  }, 500)
-  const unregisterPageCatalogChange = bridge.onActionDefinitionsChange(() => schedulePageCatalogRegistration())
+  const unregisterPageCatalogChange = bridge.onActionDefinitionsChange(() => {
+    schedulePageCatalogRegistration()
+    const nextCount = bridge.registeredActions.length
+    pendingPollScheduler.notifyActionsChanged(registeredActionCount, nextCount)
+    registeredActionCount = nextCount
+  })
 
   schedulePageCatalogRegistration(0)
 
@@ -383,11 +428,13 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     if (!text || !hostInstance || destroyed) return {}
     if (sendInFlight) throw new Error('Another message is still in flight')
     sendInFlight = true
+    pendingPollScheduler.notifyActivity()
     try {
       // 会话由 EmbedChatHost / EmbedTransport 唯一创建；完成事件由 Host onPublicEvent 转发
       const response = await hostInstance.sendMessage(text)
       // 与 UI 路径共用 processMessageCompletion；requestId/in-flight 保证精确一次
       await processMessageCompletion(response)
+      pendingPollScheduler.notifyActivity()
       return response
     } catch (error) {
       if (isUnauthorized(error)) {
@@ -400,46 +447,13 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     }
   }
 
-  function reportError(error: unknown) {
-    const wrapped = { message: error instanceof Error ? error.message : String(error), cause: error }
-    options.onError?.(wrapped)
-  }
-
-  async function pollPendingPageActionsLoop() {
-    if (pendingPollInFlight || destroyed) return
-    const existingSessionId = hostInstance?.getExistingSessionId()
-    if (!existingSessionId) return
-    pendingPollInFlight = true
-    try {
-      await pollPendingPageActions({
-        apiBase,
-        token,
-        sessionId: existingSessionId,
-        bridge,
-        handledPageActions,
-        pendingPageActions,
-        inFlightPageActions,
-        context,
-        // poll 自己已 dispatch；此处只 publish，禁止再走 emitPublicEvent→dispatch 递归
-        onEvent: (event) => {
-          if (event.type === 'page.action.requested') {
-            publishPageActionRequested(event.data, { sessionId: existingSessionId })
-          }
-        },
-        onError: reportError,
-        refreshToken: async () => {
-          await refreshTokenForCurrentSession()
-          return token
-        },
-      })
-    } finally {
-      pendingPollInFlight = false
-    }
-  }
-
   toggleButton.addEventListener('click', () => {
+    const wasClosed = root.classList.contains('eaf-chat--closed')
     root.classList.toggle('eaf-chat--closed')
     syncOpenState()
+    if (wasClosed && !root.classList.contains('eaf-chat--closed')) {
+      pendingPollScheduler.notifyActivity()
+    }
   })
   syncOpenState()
 
@@ -451,14 +465,19 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     open() {
       root.classList.remove('eaf-chat--closed')
       syncOpenState()
+      pendingPollScheduler.notifyActivity()
     },
     close() {
       root.classList.add('eaf-chat--closed')
       syncOpenState()
     },
     toggle() {
+      const wasClosed = root.classList.contains('eaf-chat--closed')
       root.classList.toggle('eaf-chat--closed')
       syncOpenState()
+      if (wasClosed && !root.classList.contains('eaf-chat--closed')) {
+        pendingPollScheduler.notifyActivity()
+      }
     },
     send,
     registerPageCatalog,
@@ -468,9 +487,9 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     },
     destroy() {
       destroyed = true
+      pendingPollScheduler.destroy()
       unregisterPageCatalogChange()
       if (pageCatalogTimer) window.clearTimeout(pageCatalogTimer)
-      window.clearInterval(pendingPoller)
       hostInstance?.disposeHost()
       chatApp?.unmount()
       chatApp = null

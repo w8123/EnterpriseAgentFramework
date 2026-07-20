@@ -50,6 +50,35 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     aiCodingAccessEnabled.value && aiCodingAccessKey.value.trim() ? aiCodingAccessKey.value.trim() : '',
   )
 
+  const aiOnboardingPromptLoading = computed(() => loading.value || aiPromptLoading.value)
+
+  const aiOnboardingPromptReady = computed(() => {
+    const projectId = project.value?.id
+    const manifest = aiOnboardingManifest.value
+    const session = accessSession.value
+    if (!projectId || aiOnboardingPromptLoading.value) return false
+
+    return manifest?.project?.id === projectId
+      && session?.projectId === projectId
+      && Boolean(session.sessionId?.trim())
+  })
+
+  const aiOnboardingPromptUnavailableReason = computed(() => {
+    if (aiOnboardingPromptLoading.value) return '正在加载项目接入参数，请稍候…'
+    if (!project.value?.id) return '项目数据尚未加载，请刷新页面后重试。'
+    if (aiOnboardingManifest.value?.project?.id !== project.value.id) {
+      return '项目接入清单加载失败，请刷新页面后重试。'
+    }
+    const session = accessSession.value
+    if (
+      session?.projectId !== project.value.id
+      || !session?.sessionId?.trim()
+    ) {
+      return 'AI 接入会话加载失败，请刷新页面后重试。'
+    }
+    return ''
+  })
+
   const isSdkBackedProject = computed(() => {
     const kind = project.value?.projectKind || ''
     return kind === 'REGISTERED' || kind === 'HYBRID'
@@ -88,6 +117,10 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
 
   async function loadAll() {
     loading.value = true
+    aiOnboardingManifest.value = null
+    accessSession.value = null
+    aiCodingAccessEnabled.value = false
+    aiCodingAccessKey.value = ''
     try {
       const { data: projects } = await getScanProjects()
       const matched = projects.find((item) => item.projectCode === projectCode.value)
@@ -103,12 +136,14 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
       project.value = detail
       instances.value = instanceRows
       projectApiTools.value = toolRows || []
-      await loadAccessSession(detail.id)
-      await loadAiOnboardingManifest(detail.id).catch(() => {
-        aiOnboardingManifest.value = null
-        aiCodingAccessEnabled.value = false
-        aiCodingAccessKey.value = ''
-      })
+      await Promise.all([
+        loadAccessSession(detail.id),
+        loadAiOnboardingManifest(detail.id).catch(() => {
+          aiOnboardingManifest.value = null
+          aiCodingAccessEnabled.value = false
+          aiCodingAccessKey.value = ''
+        }),
+      ])
       if (!deps.selectedScanToolId.value) {
         deps.selectedScanToolId.value = callableProjectApiTools.value[0]?.scanToolId || projectApiTools.value[0]?.scanToolId || null
       }
@@ -183,6 +218,9 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     aiCodingAccessEnabled,
     aiCodingAccessKey,
     aiCodingAccessDisplayKey,
+    aiOnboardingPromptLoading,
+    aiOnboardingPromptReady,
+    aiOnboardingPromptUnavailableReason,
     checkResult,
     isSdkBackedProject,
     onlineInstanceCount,
