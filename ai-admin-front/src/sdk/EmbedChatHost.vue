@@ -1,18 +1,38 @@
 <template>
-  <ConversationView
-    class="eaf-chat__conversation"
-    chrome="inline"
-    density="compact"
-    surface="embed"
-    atmosphere
-    :snapshot="snapshot"
-    :placeholder="placeholder"
-    :resolve-status-hint="resolveEmbedStatusHint"
-    @send="onSend"
-    @stop="onStop"
-    @interaction-submit="onInteractionSubmit"
-    @interaction-cancel="onInteractionCancel"
-  />
+  <div class="eaf-chat-host">
+    <div
+      v-if="authState.status !== 'ready'"
+      class="eaf-chat-auth"
+      :class="`is-${authState.status}`"
+      :role="authState.status === 'error' ? 'alert' : 'status'"
+      aria-live="polite"
+    >
+      <span>{{ authState.message }}</span>
+      <button
+        v-if="authState.status === 'error'"
+        type="button"
+        @click="onAuthenticationRetry"
+      >
+        {{ locale === 'en-US' ? 'Retry' : '重试' }}
+      </button>
+    </div>
+    <ConversationView
+      class="eaf-chat__conversation"
+      chrome="inline"
+      density="compact"
+      surface="embed"
+      atmosphere
+      :snapshot="snapshot"
+      :placeholder="placeholder"
+      :force-composer-disabled="authState.status !== 'ready'"
+      :resolve-status-hint="resolveEmbedStatusHint"
+      @send="onSend"
+      @stop="onStop"
+      @retry="onConversationRetry"
+      @interaction-submit="onInteractionSubmit"
+      @interaction-cancel="onInteractionCancel"
+    />
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -30,6 +50,13 @@ import type { ConversationEventEnvelope } from '@/conversation/core/conversation
 import type { EafPageBridge } from './eafPageBridge'
 import { buildEafChatSessionPayload, type EafPageDescriptor } from './embedSession'
 import { extractEmbedPublicMetadata } from '@/conversation/core/adapters/adaptEmbedEvent'
+import type {
+  EafChatAuthState,
+  EafChatError,
+  EafChatTokenProvider,
+  EafChatTokenReason,
+  EafChatTokenValue,
+} from './eafChat'
 
 interface EmbedChatHostEvent {
   type: string
@@ -50,26 +77,45 @@ interface EmbedChatHostMessageResponse {
 
 const props = withDefaults(defineProps<{
   apiBase: string
-  tokenProvider: () => Promise<string> | string
+  tokenProvider: EafChatTokenProvider
+  tokenTimeoutMs?: number
   bridge: EafPageBridge
   page?: EafPageDescriptor
   context?: Record<string, unknown>
   placeholder?: string
+  locale?: string
   preferStream?: boolean
   onEvent?: (event: EmbedChatHostEvent) => void
-  onError?: (error: { message: string; cause?: unknown }) => void
+  onError?: (error: EafChatError) => void
+  onAuthStateChange?: (state: EafChatAuthState) => void
+  onTokenChanged?: (token: string) => void
+  onSessionChanged?: (sessionId: string) => void
   onUnauthorized?: () => Promise<string | void>
 }>(), {
   context: () => ({}),
   placeholder: '输入消息',
+  locale: 'zh-CN',
   preferStream: true,
+  tokenTimeoutMs: 10_000,
 })
 
 const snapshot = ref<ConversationSnapshot>(createEmptySnapshot())
+const authState = ref<EafChatAuthState>({
+  phase: 'token',
+  status: 'loading',
+  reason: 'initial',
+  attempt: 0,
+  message: props.locale === 'en-US' ? 'Connecting to ReachAI…' : '正在连接 ReachAI…',
+})
 let sessionId = ''
 let context: Record<string, unknown> = { ...props.context }
 let cachedToken = ''
+let cachedTokenExpiresAt = 0
 let disposed = false
+let tokenAttempt = 0
+let tokenRequest: Promise<string> | null = null
+let tokenAbortController: AbortController | null = null
+let lastSubmittedMessage = ''
 let pendingSend: {
   resolve: (value: EmbedChatHostMessageResponse) => void
   reject: (error: unknown) => void
@@ -77,34 +123,233 @@ let pendingSend: {
   armed: boolean
 } | null = null
 
-async function resolveToken(): Promise<string> {
-  const value = await props.tokenProvider()
-  cachedToken = String(value || '')
-  return cachedToken
+function updateAuthState(state: EafChatAuthState) {
+  authState.value = state
+  props.onAuthStateChange?.(state)
 }
 
-void resolveToken().catch(() => undefined)
+function tokenFromProviderValue(value: EafChatTokenValue | void): { token: string; expiresAt: number } {
+  const raw = typeof value === 'string' ? value : value?.token
+  const explicitExpiresAt = typeof value === 'object' && value
+    ? Number(value.expiresAt || 0)
+    : 0
+  const expiresIn = typeof value === 'object' && value
+    ? Number(value.expiresIn || 0)
+    : 0
+  return {
+    token: String(raw || '').trim(),
+    expiresAt: explicitExpiresAt > 0
+      ? explicitExpiresAt
+      : expiresIn > 0
+        ? Date.now() + expiresIn * 1000
+        : 0,
+  }
+}
+
+function tokenHttpStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object') return undefined
+  const value = (error as { httpStatus?: unknown; status?: unknown }).httpStatus
+    ?? (error as { status?: unknown }).status
+  const status = Number(value)
+  return Number.isFinite(status) && status > 0 ? status : undefined
+}
+
+function tokenError(
+  code: string,
+  message: string,
+  cause?: unknown,
+  httpStatus?: number,
+): Error & EafChatError {
+  const error = new Error(message) as Error & EafChatError
+  error.name = 'EafChatTokenError'
+  error.code = code
+  error.phase = 'token'
+  error.retryable = httpStatus !== 403
+  error.httpStatus = httpStatus
+  error.cause = cause
+  return error
+}
+
+function normalizeTokenError(error: unknown): Error & EafChatError {
+  if (error && typeof error === 'object' && (error as EafChatError).code) {
+    return error as Error & EafChatError
+  }
+  const status = tokenHttpStatus(error)
+  if (status === 401) {
+    return tokenError(
+      'TOKEN_PROVIDER_UNAUTHORIZED',
+      props.locale === 'en-US'
+        ? 'Authentication expired. Sign in again and retry.'
+        : '身份认证已失效，请重新登录后重试',
+      error,
+      status,
+    )
+  }
+  if (status != null && status >= 500) {
+    return tokenError(
+      'TOKEN_PROVIDER_UNAVAILABLE',
+      props.locale === 'en-US'
+        ? 'ReachAI is temporarily unavailable. Retry later.'
+        : 'ReachAI 暂时不可用，请稍后重试',
+      error,
+      status,
+    )
+  }
+  if (error instanceof TypeError) {
+    return tokenError(
+      'TOKEN_PROVIDER_NETWORK_ERROR',
+      props.locale === 'en-US'
+        ? 'Network connection failed. Check your network and retry.'
+        : '网络连接失败，请检查网络后重试',
+      error,
+      status,
+    )
+  }
+  return tokenError(
+    'TOKEN_PROVIDER_FAILED',
+    props.locale === 'en-US'
+      ? 'Unable to connect to ReachAI. Retry later.'
+      : '暂时无法连接 ReachAI，请稍后重试',
+    error,
+    status,
+  )
+}
+
+function safeAuthError(error: EafChatError): Omit<EafChatError, 'cause'> {
+  return {
+    message: error.message,
+    code: error.code,
+    phase: error.phase,
+    httpStatus: error.httpStatus,
+    retryable: error.retryable,
+  }
+}
+
+async function resolveToken(reason: EafChatTokenReason, force = false): Promise<string> {
+  if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
+  const expiring = cachedTokenExpiresAt > 0 && Date.now() + 30_000 >= cachedTokenExpiresAt
+  if (cachedToken && !force && !expiring) return cachedToken
+  if (tokenRequest) return tokenRequest
+
+  const requestReason: EafChatTokenReason = expiring && reason === 'send' ? 'expiring' : reason
+
+  const attempt = ++tokenAttempt
+  const controller = new AbortController()
+  tokenAbortController = controller
+  updateAuthState({
+    phase: 'token',
+    status: 'loading',
+    reason: requestReason,
+    attempt,
+    message: props.locale === 'en-US' ? 'Connecting to ReachAI…' : '正在连接 ReachAI…',
+  })
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+  const timeoutMs = Number.isFinite(props.tokenTimeoutMs) && props.tokenTimeoutMs > 0
+    ? props.tokenTimeoutMs
+    : 10_000
+  const providerContext = {
+    reason: requestReason,
+    signal: controller.signal,
+    attempt,
+    sessionId: sessionId || undefined,
+  }
+  const providerPromise = Promise.resolve().then(async () => {
+    if (reason === 'unauthorized' && props.onUnauthorized) {
+      const refreshed = await props.onUnauthorized()
+      if (refreshed) return refreshed
+    }
+    return props.tokenProvider(providerContext)
+  })
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      controller.abort()
+      reject(tokenError(
+        'TOKEN_PROVIDER_TIMEOUT',
+        props.locale === 'en-US'
+          ? 'Connection timed out. Retry.'
+          : '连接超时，请重试',
+      ))
+    }, timeoutMs)
+  })
+
+  tokenRequest = Promise.race([providerPromise, timeoutPromise])
+    .then((value) => {
+      if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
+      const next = tokenFromProviderValue(value)
+      if (!next.token) {
+        throw tokenError(
+          'TOKEN_PROVIDER_EMPTY',
+          props.locale === 'en-US'
+            ? 'Authentication token is unavailable. Retry.'
+            : '登录凭证不可用，请重试',
+        )
+      }
+      cachedToken = next.token
+      cachedTokenExpiresAt = next.expiresAt
+      props.onTokenChanged?.(next.token)
+      updateAuthState({
+        phase: 'token',
+        status: 'ready',
+        reason: requestReason,
+        attempt,
+      })
+      return next.token
+    })
+    .catch((error) => {
+      if (error instanceof DOMException && error.name === 'AbortError' && disposed) throw error
+      const normalized = normalizeTokenError(error)
+      cachedToken = ''
+      cachedTokenExpiresAt = 0
+      props.onTokenChanged?.('')
+      updateAuthState({
+        phase: 'token',
+        status: 'error',
+        reason: requestReason,
+        attempt,
+        message: normalized.message,
+        error: safeAuthError(normalized),
+      })
+      throw normalized
+    })
+    .finally(() => {
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle)
+      if (tokenAbortController === controller) tokenAbortController = null
+      tokenRequest = null
+    })
+
+  return tokenRequest
+}
+
+async function refreshToken(reason: EafChatTokenReason = 'unauthorized'): Promise<string> {
+  cachedToken = ''
+  cachedTokenExpiresAt = 0
+  props.onTokenChanged?.('')
+  return resolveToken(reason, true)
+}
+
+function retryAuthentication(): Promise<string> {
+  return refreshToken('retry')
+}
+
+function updateSessionId(nextSessionId: string | null | undefined) {
+  const next = String(nextSessionId || '')
+  const changed = next !== sessionId
+  sessionId = next
+  if (changed && next) props.onSessionChanged?.(next)
+}
 
 const transport = createEmbedTransport({
   apiBase: props.apiBase,
   tokenProvider: () => cachedToken,
   getSessionId: () => sessionId || undefined,
-  setSessionId: (id) => {
-    sessionId = id || ''
-  },
+  setSessionId: updateSessionId,
   getContext: () => context,
   createSessionPayload: () => ({
     ...buildEafChatSessionPayload(props.bridge, props.page),
   } as Record<string, unknown>),
   preferStream: props.preferStream,
-  onUnauthorized: async () => {
-    const next = await props.onUnauthorized?.()
-    if (typeof next === 'string' && next) {
-      cachedToken = next
-      return next
-    }
-    return resolveToken()
-  },
+  onUnauthorized: () => refreshToken('unauthorized'),
 })
 
 const transportWithEnsure = transport as typeof transport & {
@@ -116,9 +361,14 @@ const controller = createConversationController({
   onPublicEvent: forwardPublicEvent,
   onChange(state) {
     snapshot.value = state
-    if (state.sessionId) sessionId = state.sessionId
+    if (state.sessionId) updateSessionId(state.sessionId)
     settlePendingIfTerminal(state)
   },
+})
+
+// UI 已挂载后再异步获取 Token；失败保留可见入口并进入可重试状态。
+void resolveToken('initial').catch((error) => {
+  if (!disposed) reportError(error)
 })
 
 /**
@@ -264,7 +514,8 @@ async function sendMessage(message: string): Promise<EmbedChatHostMessageRespons
   if (pendingSend) {
     throw new Error('Another message is still in flight')
   }
-  await resolveToken()
+  lastSubmittedMessage = text
+  await resolveToken('send')
   return new Promise<EmbedChatHostMessageResponse>((resolve, reject) => {
     pendingSend = { resolve, reject, armed: false }
     void controller.send(text).catch((error) => {
@@ -290,7 +541,7 @@ function getExistingSessionId() {
 
 async function ensureHostSession(): Promise<string> {
   if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
-  await resolveToken()
+  await resolveToken('send')
   if (sessionId) return sessionId
   if (typeof transportWithEnsure.ensureSession === 'function') {
     return transportWithEnsure.ensureSession()
@@ -308,6 +559,19 @@ function resolveEmbedStatusHint(message: ConversationMessage) {
 
 function onSend(text: string) {
   void sendMessage(text).catch(reportError)
+}
+
+function onAuthenticationRetry() {
+  void retryAuthentication().catch(reportError)
+}
+
+function onConversationRetry() {
+  if (authState.value.status === 'error') {
+    onAuthenticationRetry()
+    return
+  }
+  if (!lastSubmittedMessage || pendingSend) return
+  void sendMessage(lastSubmittedMessage).catch(reportError)
 }
 
 function onStop() {
@@ -330,12 +594,26 @@ function onInteractionCancel(interactionId: string) {
 }
 
 function reportError(error: unknown) {
-  const wrapped = { message: error instanceof Error ? error.message : String(error), cause: error }
-  props.onError?.(wrapped)
+  const candidate = error && typeof error === 'object' ? error as EafChatError : undefined
+  const wrapped: EafChatError = {
+    message: candidate?.message || (error instanceof Error ? error.message : String(error)),
+    cause: candidate?.cause ?? error,
+    code: candidate?.code,
+    phase: candidate?.phase,
+    httpStatus: candidate?.httpStatus ?? tokenHttpStatus(error),
+    retryable: candidate?.retryable,
+  }
+  try {
+    props.onError?.(wrapped)
+  } catch {
+    // Consumer callbacks must not create an unhandled SDK rejection.
+  }
 }
 
 function disposeHost() {
   disposed = true
+  tokenAbortController?.abort()
+  tokenAbortController = null
   if (pendingSend) {
     const waiter = pendingSend
     pendingSend = null
@@ -350,6 +628,8 @@ onUnmounted(() => {
 
 defineExpose({
   sendMessage,
+  retryAuthentication,
+  refreshToken,
   setContext,
   getSessionId,
   getExistingSessionId,
@@ -359,6 +639,45 @@ defineExpose({
 </script>
 
 <style scoped>
+.eaf-chat-host {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.eaf-chat-auth {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 12px 0;
+  padding: 8px 10px;
+  border: 1px solid rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.22);
+  border-radius: 10px;
+  color: var(--reachai-chat-text-muted, #52605f);
+  background: var(--reachai-chat-glass-control, rgb(255 255 255 / 0.82));
+  font-size: 13px;
+}
+
+.eaf-chat-auth.is-error {
+  border-color: color-mix(in srgb, var(--reachai-chat-danger, #b42318) 28%, transparent);
+  color: var(--reachai-chat-danger, #b42318);
+}
+
+.eaf-chat-auth button {
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
 .eaf-chat__conversation {
   flex: 1;
   min-height: 0;

@@ -38,8 +38,9 @@ const emit = defineEmits<{
     width="860px"
     destroy-on-close
   >
-    <div class="ai-prompt-dialog">
+    <div class="ai-prompt-dialog ai-prompt-dialog--workflow">
       <el-alert
+        class="ai-prompt-dialog__intro"
         type="info"
         show-icon
         :closable="false"
@@ -113,7 +114,7 @@ const emit = defineEmits<{
         class="ai-prompt-editor"
         :model-value="workflowAiCodingPrompt"
         type="textarea"
-        :rows="22"
+        resize="none"
         readonly
       />
     </div>
@@ -125,3 +126,7 @@ const emit = defineEmits<{
     </template>
   </AppDialog>
 </template>
+
+<style scoped lang="scss">
+@use '../../styles/PageAssistantPromptDialog.scss';
+</style>

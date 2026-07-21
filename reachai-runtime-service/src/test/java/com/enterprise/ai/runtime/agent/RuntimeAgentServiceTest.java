@@ -94,6 +94,25 @@ class RuntimeAgentServiceTest {
     }
 
     @Test
+    void findByIdOrKeySlugRetainsDisplayConfigResolution() {
+        RuntimeAgentMapper mapper = mock(RuntimeAgentMapper.class);
+        RuntimeAgentConfigService configService = mock(RuntimeAgentConfigService.class);
+        RuntimeAgentEntity existing = entity("agent-1");
+        when(mapper.selectById("orders-agent")).thenReturn(null);
+        when(mapper.selectOne(any())).thenReturn(existing);
+        when(configService.resolveDisplayConfig("agent-1")).thenReturn(Optional.empty());
+        RuntimeAgentService service = new RuntimeAgentService(mapper, configService);
+
+        Optional<RuntimeAgentView> found = service.findByIdOrKeySlug("orders-agent");
+
+        assertTrue(found.isPresent());
+        assertEquals("agent-1", found.get().id());
+        verify(mapper).selectById("orders-agent");
+        verify(mapper).selectOne(any());
+        verify(configService).resolveDisplayConfig("agent-1");
+    }
+
+    @Test
     void listAppliesFiltersAndMapsResults() {
         RuntimeAgentMapper mapper = mock(RuntimeAgentMapper.class);
         when(mapper.selectList(any())).thenReturn(List.of(entity("agent-1")));

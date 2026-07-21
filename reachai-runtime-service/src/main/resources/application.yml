@@ -32,6 +32,11 @@ reachai:
       nonce-max-entries: ${REACHAI_INTERNAL_AUTH_NONCE_MAX_ENTRIES:100000}
       max-body-bytes: ${REACHAI_INTERNAL_AUTH_MAX_BODY_BYTES:1048576}
   runtime:
+    interaction-expiry:
+      enabled: ${RUNTIME_INTERACTION_EXPIRY_ENABLED:true}
+      fixed-delay-ms: ${RUNTIME_INTERACTION_EXPIRY_FIXED_DELAY_MS:5000}
+      initial-delay-ms: ${RUNTIME_INTERACTION_EXPIRY_INITIAL_DELAY_MS:5000}
+      batch-size: ${RUNTIME_INTERACTION_EXPIRY_BATCH_SIZE:100}
     agent-stream:
       # SSE transport heartbeat（comment）。浏览器断开后最迟约 1 个 interval + 调度误差内触发上游取消。
       heartbeat-interval-ms: ${AGENT_STREAM_HEARTBEAT_INTERVAL_MS:8000}

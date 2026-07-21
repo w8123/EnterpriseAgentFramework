@@ -167,6 +167,7 @@ class RuntimeAgentConfigServiceTest {
         activeWorkflowVersion.setGraphSpecSnapshotJson("{\"entry\":\"start\"}");
         when(versionMapper.listActive("wf-orders")).thenReturn(List.of(activeWorkflowVersion));
         when(versionMapper.selectById(42L)).thenReturn(activeWorkflowVersion);
+        when(versionMapper.selectBatchIds(any())).thenReturn(List.of(activeWorkflowVersion));
         RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
         workflow.setId("wf-orders");
         workflow.setKeySlug("orders-workflow");

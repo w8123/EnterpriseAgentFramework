@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -21,6 +22,13 @@ public class InternalPageActionCatalogController {
     public ResponseEntity<PageActionCatalogEntry> getPageAction(@PathVariable String projectCode,
                                                                 @PathVariable String pageKey,
                                                                 @PathVariable String actionKey) {
+        return lookup(projectCode, pageKey, actionKey);
+    }
+
+    @GetMapping("/lookup")
+    public ResponseEntity<PageActionCatalogEntry> lookup(@RequestParam String projectCode,
+                                                         @RequestParam String pageKey,
+                                                         @RequestParam String actionKey) {
         PlatformPageActionRegistryEntity row = mapper.selectOne(new LambdaQueryWrapper<PlatformPageActionRegistryEntity>()
                 .eq(PlatformPageActionRegistryEntity::getProjectCode, projectCode)
                 .eq(PlatformPageActionRegistryEntity::getPageKey, pageKey)

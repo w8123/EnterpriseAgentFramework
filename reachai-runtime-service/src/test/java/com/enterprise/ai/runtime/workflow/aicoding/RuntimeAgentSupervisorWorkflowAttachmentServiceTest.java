@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.workflow.aicoding;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigService;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentConfigVersionView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.WorkflowToolView;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.WorkflowToolRequest;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentMapper;
@@ -12,6 +13,7 @@ import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -50,19 +52,27 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
         when(configService.resolveActive("agent-1")).thenReturn(Optional.empty());
         AgentConfigVersionView draft = config(21L, 2, "DRAFT");
         AgentConfigVersionView active = config(21L, 2, "ACTIVE");
-        when(configService.ensureWorkflowToolInDraft("agent-1", "wf-chat", true)).thenReturn(draft);
+        when(configService.upsertWorkflowToolInDraft(eq("agent-1"), any())).thenReturn(draft);
         when(configService.publish("agent-1", 21L, "Cursor")).thenReturn(active);
 
         RuntimeAgentSupervisorWorkflowAttachmentService.AttachmentResult result = service.attach(
                 7L,
                 new RuntimeAgentSupervisorWorkflowAttachmentService.AttachRequest(
-                        "wf-chat", null, "orders-page-copilot", "model-1", "Cursor"));
+                        "wf-chat", null, "orders-page-copilot", "model-1", "Cursor",
+                        "disable_team", "停用班组", Map.of("type", "object"), null,
+                        "WRITE", "workflow:disable-team", false, 5));
 
         assertEquals("workflow-tool-attachment.v1", result.schema());
         assertEquals("CHAT", result.workflow().workflowType());
         assertEquals("chat_flow", result.toolName());
         assertTrue(result.created());
         assertFalse(result.reused());
+        ArgumentCaptor<WorkflowToolRequest> toolCaptor = ArgumentCaptor.forClass(WorkflowToolRequest.class);
+        verify(configService).upsertWorkflowToolInDraft(eq("agent-1"), toolCaptor.capture());
+        assertEquals("disable_team", toolCaptor.getValue().toolName());
+        assertEquals("WRITE", toolCaptor.getValue().riskLevel());
+        assertFalse(toolCaptor.getValue().readOnly());
+        assertTrue(toolCaptor.getValue().inputSchemaOverrideJson().contains("\"type\":\"object\""));
         verify(configService).publish("agent-1", 21L, "Cursor");
     }
 

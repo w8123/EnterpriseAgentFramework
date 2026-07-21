@@ -15,7 +15,7 @@ public class ReachAiHttpRegistryTransport implements ReachAiRegistryTransport {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private int connectTimeoutMs = 5000;
-    private int readTimeoutMs = 10000;
+    private int readTimeoutMs = 60000;
 
     @Override
     public String exchange(String method, String url, Map<String, String> headers, Object body) throws IOException {

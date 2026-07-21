@@ -304,7 +304,7 @@ Use a token provider that calls the business gateway token broker. Before adding
 // Do not call the provisioning API from browser runtime code or expose aiCodingKey.
 const provisionedAgentKeySlug = '<provisioned-agent-key-slug>'
 
-const tokenProvider = async () => {
+const tokenProvider = async (tokenContext) => {
   const query = new URLSearchParams({
     projectCode: 'demo-service',
     agentId: provisionedAgentKeySlug,
@@ -313,14 +313,19 @@ const tokenProvider = async () => {
     route: window.location.pathname,
     origin: window.location.origin,
   })
-  const response = await fetch('/api/reachai/embed-token?' + query)
+  const response = await fetch('/api/reachai/embed-token?' + query, {
+    signal: tokenContext?.signal,
+  })
+  if (!response.ok) {
+    throw Object.assign(new Error('embed token broker failed'), { status: response.status })
+  }
   const payload = await response.json()
   if (payload.code && payload.code !== 200 && payload.code !== 0) {
     throw new Error(payload.message || 'embed token broker failed')
   }
   const token = payload.data?.token || payload.token
   if (!token) throw new Error('ReachAI embed token missing')
-  return token
+  return { token, expiresIn: payload.data?.expiresIn || payload.expiresIn }
 }
 ```
 
@@ -329,10 +334,12 @@ The front end should pass `pageKey`, `pageInstanceId`, `route`, and `origin` so 
 When creating the global chat entry, pass the same page descriptor to the SDK so the chat session can resolve the page Workflow:
 
 ```ts
-createEafChat({
+void createEafChat({
   mount: '#reachai-chat',
   apiBase: 'http://localhost:18603',
   agentId: provisionedAgentKeySlug,
+  position: 'bottom-right',
+  initialOpen: false,
   tokenProvider,
   page: {
     pageKey: 'teamArchive.list',
@@ -340,6 +347,8 @@ createEafChat({
   },
 })
 ```
+
+`createEafChat()` mounts the shell before the initial Token Broker request completes. A pending, empty, rejected, timed-out, 401, 502, or network-failed provider must leave the launcher visible with a retryable error state. Only local configuration failures such as a missing mount may reject before the shell is available. Import `@reachai/embed-chat/style.css` once in the business front-end entry.
 
 `apiBase` can be the ReachAI platform origin. If the browser must use a gateway prefix, configure `embedPathPrefix`, for example `/api/reachai/embed`; current `@reachai/embed-chat` also treats `/api/embed` and `/api/reachai/embed` as full Embed API roots to avoid appending `/api/embed` twice. Keep token broker paths such as `/api/reachai/embed-token` separate from the Chat embed API root.
 
@@ -349,7 +358,7 @@ When caching embed tokens in the front end:
 - Compute the cache expiry from `expiresIn` and expire slightly early.
 - Do not impose a minimum cache time that can outlive a short token TTL.
 - If creating a session or sending a message returns `embed token is expired`, clear the cached token, call the broker again, and retry once.
-- Surface the real platform error body when a retry still fails; do not collapse every failure into a generic `Unknown Error`.
+- Preserve HTTP status and safe correlation metadata for `onError` diagnostics when a retry still fails; show a generic recoverable message to end users and never render raw response bodies or credentials.
 
 ## Access Session Progress Reporting
 

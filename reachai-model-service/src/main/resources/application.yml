@@ -12,6 +12,11 @@ spring:
 
 model:
   credential-secret: ${MODEL_CREDENTIAL_SECRET:dev-only-change-me-please-32-bytes}
+  # Process-local ACTIVE runtime cache. Invalidate on create/update/archive is local only;
+  # multi-instance disable/archive/credential changes are eventually consistent within this TTL
+  # (default 5s, hard-capped at 30s). No credentials are logged from the cache.
+  instance-runtime-cache:
+    ttl-ms: ${MODEL_INSTANCE_RUNTIME_CACHE_TTL_MS:5000}
 
 logging:
   level:

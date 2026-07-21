@@ -131,6 +131,10 @@ export function normalizeUiRequest(raw: unknown): UiRequestV1 | null {
   }
 
   const extension = asRecord(record.extension) || undefined
+  const schema = asRecord(record.schema)
+    || asRecord(record.renderSchema)
+    || asRecord(extension?.renderSchema)
+    || undefined
 
   return {
     schemaVersion: '1.0',
@@ -147,7 +151,7 @@ export function normalizeUiRequest(raw: unknown): UiRequestV1 | null {
     missing: Array.isArray(record.missing) ? record.missing.map(String) : undefined,
     summary: asRecord(record.summary) || undefined,
     data: record.data,
-    schema: asRecord(record.schema) || undefined,
+    schema,
     actions: normalizeActions(record.actions),
     datasources: asRecord(record.datasources) || undefined,
     behavior: asRecord(record.behavior) || undefined,

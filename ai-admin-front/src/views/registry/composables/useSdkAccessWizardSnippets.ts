@@ -79,6 +79,7 @@ export function useSdkAccessWizardSnippets(deps: UseSdkAccessWizardSnippetsDeps)
       || `${code}-page-copilot`
 
     return `import { createEafChat, createEafPageBridge } from '@reachai/embed-chat'
+import '@reachai/embed-chat/style.css'
 
 const pageInstanceId = sessionStorage.getItem('reachaiPageInstanceId') || crypto.randomUUID()
 sessionStorage.setItem('reachaiPageInstanceId', pageInstanceId)
@@ -91,20 +92,23 @@ const pageBridge = createEafPageBridge({ pageInstanceId, route })
 // Use only the provisioned bare JSON agent.keySlug below as agentId.
 const provisionedAgentKeySlug = '${expectedKeySlug}'
 
-createEafChat({
+void createEafChat({
   mount: '#reachai-chat',
   apiBase: '${platformUrl}',
   // If the browser must use a business gateway path instead of direct ReachAI:
   // apiBase: window.location.origin,
   // embedPathPrefix: '/api/reachai/embed',
   agentId: provisionedAgentKeySlug,
+  position: 'bottom-right',
+  initialOpen: false,
+  tokenTimeoutMs: 10000,
   bridge: pageBridge,
   page: {
     pageKey,
     name: '<current-page-name>',
     routePattern: route,
   },
-  tokenProvider: async () => {
+  tokenProvider: async (tokenContext) => {
     const query = new URLSearchParams({
       projectCode: '${code}',
       agentId: provisionedAgentKeySlug,
@@ -113,14 +117,23 @@ createEafChat({
       route: pageBridge.route || route,
       origin: window.location.origin
     })
-    const payload = await fetch('${deps.embedTokenPath.value || '/api/reachai/embed-token'}?' + query).then((res) => res.json())
+    const response = await fetch('${deps.embedTokenPath.value || '/api/reachai/embed-token'}?' + query, {
+      signal: tokenContext?.signal
+    })
+    if (!response.ok) {
+      throw Object.assign(new Error('embed token broker failed'), { status: response.status })
+    }
+    const payload = await response.json()
     if (payload.code && payload.code !== 200 && payload.code !== 0) {
       throw new Error(payload.message || 'embed token broker failed')
     }
     const token = payload.data?.token || payload.token
     if (!token) throw new Error('ReachAI embed token missing')
-    return token
+    return { token, expiresIn: payload.data?.expiresIn || payload.expiresIn }
   }
+}).catch((error) => {
+  // Token/network failures remain visible inside the mounted SDK; this catches local config/mount failures.
+  console.error('[ReachAI] chat initialization failed', error instanceof Error ? error.message : 'unknown error')
 })
 
 // apiBase can be the ReachAI platform origin. For a gateway prefix, set embedPathPrefix.

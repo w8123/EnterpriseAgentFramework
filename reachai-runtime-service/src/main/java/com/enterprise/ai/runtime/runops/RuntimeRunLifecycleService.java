@@ -6,11 +6,10 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
 import com.enterprise.ai.runtime.execution.trace.WorkflowTraceSanitizer;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
-import com.enterprise.ai.runtime.trace.RuntimeToolCallLogEntity;
-import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -26,9 +25,31 @@ import java.util.Map;
 public class RuntimeRunLifecycleService {
 
     private final RuntimeRunMapper runMapper;
-    private final RuntimeToolCallLogMapper toolCallLogMapper;
-    private final RuntimeGuardDecisionLogMapper guardDecisionLogMapper;
     private final ObjectMapper objectMapper;
+
+    /**
+     * Closes the durable root run when its pending interaction expires.
+     * The conditional update makes this idempotent and prevents a late scheduler from
+     * overwriting a run that has already resumed or completed.
+     */
+    public int expireWaitingInteraction(String traceId,
+                                        String interactionId,
+                                        LocalDateTime expiredAt) {
+        if (!StringUtils.hasText(traceId)) {
+            return 0;
+        }
+        LocalDateTime endedAt = expiredAt == null ? LocalDateTime.now() : expiredAt;
+        return runMapper.update(null, Wrappers.<RuntimeRunEntity>lambdaUpdate()
+                .eq(RuntimeRunEntity::getTraceId, traceId.trim())
+                .in(RuntimeRunEntity::getStatus, List.of("WAITING_USER", "WAITING_APPROVAL"))
+                .isNull(RuntimeRunEntity::getEndedAt)
+                .set(RuntimeRunEntity::getStatus, "TIMEOUT")
+                .set(RuntimeRunEntity::getOutputSummary, "Interaction expired before user response")
+                .set(RuntimeRunEntity::getErrorCode, "RUNTIME_INTERACTION_EXPIRED")
+                .set(RuntimeRunEntity::getErrorMessage, "Interaction expired: " + interactionId)
+                .set(RuntimeRunEntity::getEndedAt, endedAt)
+                .set(RuntimeRunEntity::getUpdatedAt, endedAt));
+    }
 
     public void beginAgent(String traceId,
                            String rootSpanId,
@@ -127,7 +148,7 @@ public class RuntimeRunLifecycleService {
                             String answer,
                             Map<String, Object> metadata,
                             LocalDateTime endedAt) {
-        finishAgent(traceId, success, code, answer, metadata, endedAt, null);
+        finishAgent(traceId, success, code, answer, metadata, endedAt, null, null, null);
     }
 
     public void finishAgent(String traceId,
@@ -137,36 +158,193 @@ public class RuntimeRunLifecycleService {
                             Map<String, Object> metadata,
                             LocalDateTime endedAt,
                             WorkflowExecutionIdentity identity) {
-        safe(() -> {
-            RuntimeRunEntity run = find(traceId);
-            if (run == null) {
-                log.warn("Cannot finish Agent run because runtime_run is missing: {}", traceId);
-                return;
-            }
+        finishAgent(traceId, success, code, answer, metadata, endedAt, identity, null, null);
+    }
+
+    public void finishAgent(String traceId,
+                            boolean success,
+                            String code,
+                            String answer,
+                            Map<String, Object> metadata,
+                            LocalDateTime endedAt,
+                            WorkflowExecutionIdentity identity,
+                            Integer latencyMs,
+                            LocalDateTime startedAtHint) {
+        if (!StringUtils.hasText(traceId)) {
+            return;
+        }
+        try {
             LocalDateTime ended = endedAt == null ? LocalDateTime.now() : endedAt;
             String resolvedStatus = status(success, code);
-            run.setStatus(resolvedStatus);
-            run.setSessionId(firstText(metadata == null ? null : metadata.get("sessionId"), run.getSessionId()));
-            applyTrustedUser(run, identity);
-            String safeAnswer = WorkflowTraceSanitizer.sanitizeAnswer(answer);
-            run.setOutputSummary(safeAnswer);
             boolean waiting = isWaitingStatus(resolvedStatus);
-            run.setErrorCode(success || waiting ? null : code);
-            run.setErrorMessage(success || waiting ? null : safeAnswer);
-            run.setLatencyMs(waiting ? null : toInt(ChronoUnit.MILLIS.between(run.getStartedAt(), ended)));
-            run.setTokenCost(totalTokens(metadata));
-            run.setPlanCount(intValue(metadata, "planCount"));
-            run.setReplanCount(intValue(metadata, "replanCount"));
-            run.setWorkflowCallCount(intValue(metadata, "workflowCallCount"));
-            run.setToolCallCount(countTools(traceId));
-            run.setGuardDenyCount(countGuardDecisions(traceId, "DENY"));
-            run.setApprovalCount(countGuardDecisions(traceId, "REQUIRE_CONFIRMATION"));
-            run.setMetadataJson(json(WorkflowTraceSanitizer.sanitizeRunMetadata(metadata)));
-            // WAITING_USER / WAITING_APPROVAL：root run 保持未终结
-            run.setEndedAt(waiting ? null : ended);
-            run.setUpdatedAt(ended);
-            runMapper.updateById(run);
-        }, "finish Agent run");
+            String safeAnswer = WorkflowTraceSanitizer.sanitizeAnswer(answer);
+            String sessionId = text(metadata == null ? null : metadata.get("sessionId"));
+            RuntimeRunFinishCounts counts = resolveFinishCounts(traceId, metadata);
+            Integer resolvedLatency = waiting
+                    ? null
+                    : (latencyMs != null
+                    ? latencyMs
+                    : (startedAtHint == null ? null : toInt(ChronoUnit.MILLIS.between(startedAtHint, ended))));
+            String trustedUserId = identity != null && identity.userTrusted() && StringUtils.hasText(identity.userId())
+                    ? identity.userId().trim()
+                    : null;
+            // token_cost is NOT NULL — never write null through LambdaUpdateWrapper.set.
+            int tokenCost = resolveTokenCost(metadata);
+            // Conditional update by traceId — no full-entity reload before finish.
+            int updated = runMapper.update(null, Wrappers.<RuntimeRunEntity>lambdaUpdate()
+                    .eq(RuntimeRunEntity::getTraceId, traceId.trim())
+                    .set(RuntimeRunEntity::getStatus, resolvedStatus)
+                    .set(StringUtils.hasText(sessionId), RuntimeRunEntity::getSessionId, sessionId)
+                    .set(RuntimeRunEntity::getUserId, trustedUserId)
+                    .set(RuntimeRunEntity::getExternalUserId, trustedUserId)
+                    .set(RuntimeRunEntity::getGlobalUserId, trustedUserId)
+                    .set(RuntimeRunEntity::getOutputSummary, safeAnswer)
+                    .set(RuntimeRunEntity::getErrorCode, success || waiting ? null : code)
+                    .set(RuntimeRunEntity::getErrorMessage, success || waiting ? null : safeAnswer)
+                    .set(RuntimeRunEntity::getLatencyMs, resolvedLatency)
+                    .set(RuntimeRunEntity::getTokenCost, tokenCost)
+                    .set(RuntimeRunEntity::getPlanCount, intValue(metadata, "planCount"))
+                    .set(RuntimeRunEntity::getReplanCount, intValue(metadata, "replanCount"))
+                    .set(RuntimeRunEntity::getWorkflowCallCount, intValue(metadata, "workflowCallCount"))
+                    .set(RuntimeRunEntity::getToolCallCount, counts.toolCallCountInt())
+                    .set(RuntimeRunEntity::getGuardDenyCount, counts.guardDenyCountInt())
+                    .set(RuntimeRunEntity::getApprovalCount, counts.approvalCountInt())
+                    .set(RuntimeRunEntity::getMetadataJson, json(WorkflowTraceSanitizer.sanitizeRunMetadata(metadata)))
+                    .set(RuntimeRunEntity::getEndedAt, waiting ? null : ended)
+                    .set(RuntimeRunEntity::getUpdatedAt, ended));
+            if (updated <= 0) {
+                log.warn("Cannot finish Agent run: no runtime_run row matched traceId={}", traceId);
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to finish Agent run for traceId={}: {}", traceId, ex.getMessage());
+        }
+    }
+
+    /**
+     * Safe non-negative token total for {@code runtime_run.token_cost} (NOT NULL).
+     * Prefers an explicit {@code tokenCost} integer; otherwise walks usage trees.
+     * Never returns null — missing usage becomes {@code 0}.
+     */
+    public static int resolveTokenCost(Map<String, Object> metadata) {
+        if (metadata != null) {
+            Object explicit = metadata.get("tokenCost");
+            if (explicit instanceof Number number) {
+                return Math.max(0, (int) Math.min(Integer.MAX_VALUE, number.longValue()));
+            }
+            if (explicit != null) {
+                try {
+                    return Math.max(0, Integer.parseInt(String.valueOf(explicit).trim()));
+                } catch (NumberFormatException ignored) {
+                    // fall through to tree walk
+                }
+            }
+            Integer preferred = preferCanonicalUsageTotal(metadata);
+            if (preferred != null) {
+                return preferred;
+            }
+        }
+        long total = tokenValueStatic(metadata);
+        return total <= 0 ? 0 : (int) Math.min(Integer.MAX_VALUE, total);
+    }
+
+    /**
+     * Prefer a single canonical usage total to avoid double-counting nested model round copies.
+     */
+    private static Integer preferCanonicalUsageTotal(Map<String, Object> metadata) {
+        Object model = metadata.get("model");
+        if (model instanceof Map<?, ?> modelMap) {
+            Integer fromModel = usageTotal(modelMap.get("_chat_usage"));
+            if (fromModel == null) {
+                fromModel = usageTotal(modelMap.get("usage"));
+            }
+            if (fromModel == null) {
+                fromModel = usageTotalFromBean(modelMap.get("_chat_usage"));
+            }
+            if (fromModel != null) {
+                return fromModel;
+            }
+        }
+        Integer top = usageTotal(metadata.get("usage"));
+        if (top != null) {
+            return top;
+        }
+        return null;
+    }
+
+    private static Integer usageTotal(Object usage) {
+        if (!(usage instanceof Map<?, ?> map)) {
+            return null;
+        }
+        Object total = firstPresent(map, "totalTokens", "total_tokens");
+        if (total instanceof Number number) {
+            return Math.max(0, (int) Math.min(Integer.MAX_VALUE, number.longValue()));
+        }
+        Object input = firstPresent(map, "inputTokens", "promptTokens", "prompt_tokens");
+        Object output = firstPresent(map, "outputTokens", "completionTokens", "completion_tokens");
+        if (input instanceof Number || output instanceof Number) {
+            long sum = 0L;
+            if (input instanceof Number number) {
+                sum += number.longValue();
+            }
+            if (output instanceof Number number) {
+                sum += number.longValue();
+            }
+            return (int) Math.min(Integer.MAX_VALUE, Math.max(0L, sum));
+        }
+        return null;
+    }
+
+    private static Integer usageTotalFromBean(Object usage) {
+        if (usage == null || usage instanceof Map<?, ?> || usage instanceof Iterable<?>) {
+            return null;
+        }
+        try {
+            Object total = readBeanNumber(usage, "getTotalTokens", "totalTokens");
+            if (total instanceof Number number) {
+                return Math.max(0, (int) Math.min(Integer.MAX_VALUE, number.longValue()));
+            }
+            Object input = readBeanNumber(usage, "getInputTokens", "getPromptTokens", "inputTokens", "promptTokens");
+            Object output = readBeanNumber(usage, "getOutputTokens", "getCompletionTokens", "outputTokens", "completionTokens");
+            if (input instanceof Number || output instanceof Number) {
+                long sum = 0L;
+                if (input instanceof Number number) {
+                    sum += number.longValue();
+                }
+                if (output instanceof Number number) {
+                    sum += number.longValue();
+                }
+                return (int) Math.min(Integer.MAX_VALUE, Math.max(0L, sum));
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        return null;
+    }
+
+    private static Object readBeanNumber(Object bean, String... accessors) {
+        for (String accessor : accessors) {
+            try {
+                if (accessor.startsWith("get")) {
+                    var method = bean.getClass().getMethod(accessor);
+                    Object value = method.invoke(bean);
+                    if (value instanceof Number) {
+                        return value;
+                    }
+                }
+            } catch (ReflectiveOperationException ignored) {
+                // try next
+            }
+        }
+        return null;
+    }
+
+    private static Object firstPresent(Map<?, ?> map, String... keys) {
+        for (String key : keys) {
+            if (map.containsKey(key) && map.get(key) != null) {
+                return map.get(key);
+            }
+        }
+        return null;
     }
 
     public void beginWorkflow(String traceId,
@@ -215,7 +393,7 @@ public class RuntimeRunLifecycleService {
             run.setErrorCode(success || waiting ? null : code);
             run.setErrorMessage(success || waiting ? null : safeAnswer);
             run.setLatencyMs(waiting ? null : toInt(ChronoUnit.MILLIS.between(run.getStartedAt(), ended)));
-            run.setTokenCost(totalTokens(metadata));
+            run.setTokenCost(resolveTokenCost(metadata));
             Map<String, Object> meta = new LinkedHashMap<>(
                     WorkflowTraceSanitizer.sanitizeRunMetadata(metadata));
             meta.putIfAbsent("nodeCount", nodeCount);
@@ -248,6 +426,7 @@ public class RuntimeRunLifecycleService {
         run.setToolCallCount(0);
         run.setGuardDenyCount(0);
         run.setApprovalCount(0);
+        run.setTokenCost(0);
         run.setStartedAt(now);
         run.setCreatedAt(now);
         run.setUpdatedAt(now);
@@ -275,8 +454,32 @@ public class RuntimeRunLifecycleService {
 
     private void insert(RuntimeRunEntity run, String action) {
         safe(() -> {
-            if (find(run.getTraceId()) == null) runMapper.insert(run);
+            try {
+                // Fresh request traceIds are unique; avoid unconditional find-before-insert.
+                runMapper.insert(run);
+            } catch (DuplicateKeyException duplicate) {
+                log.warn("Duplicate runtime_run for traceId={}, refusing silent overwrite", run.getTraceId());
+            }
         }, action);
+    }
+
+    /**
+     * Prefer trusted in-memory counters from Supervisor metadata when present; otherwise one aggregate query.
+     * Never runs three independent COUNT queries.
+     */
+    private RuntimeRunFinishCounts resolveFinishCounts(String traceId, Map<String, Object> metadata) {
+        boolean hasTool = metadata != null && metadata.containsKey("toolCallCount");
+        boolean hasDeny = metadata != null && metadata.containsKey("guardDenyCount");
+        boolean hasApproval = metadata != null && metadata.containsKey("approvalCount");
+        if (hasTool && hasDeny && hasApproval) {
+            RuntimeRunFinishCounts counts = new RuntimeRunFinishCounts();
+            counts.setToolCallCount((long) intValue(metadata, "toolCallCount"));
+            counts.setGuardDenyCount((long) intValue(metadata, "guardDenyCount"));
+            counts.setApprovalCount((long) intValue(metadata, "approvalCount"));
+            return counts;
+        }
+        RuntimeRunFinishCounts counts = runMapper.selectFinishCounts(traceId.trim());
+        return counts == null ? RuntimeRunFinishCounts.zeros() : counts;
     }
 
     @SuppressWarnings("unchecked")
@@ -322,25 +525,7 @@ public class RuntimeRunLifecycleService {
         catch (NumberFormatException ignored) { return 0; }
     }
 
-    private Integer countTools(String traceId) {
-        Long count = toolCallLogMapper.selectCount(Wrappers.<RuntimeToolCallLogEntity>lambdaQuery()
-                .eq(RuntimeToolCallLogEntity::getTraceId, traceId));
-        return toInt(count == null ? 0L : count);
-    }
-
-    private Integer countGuardDecisions(String traceId, String decision) {
-        Long count = guardDecisionLogMapper.selectCount(Wrappers.<RuntimeGuardDecisionLogEntity>lambdaQuery()
-                .eq(RuntimeGuardDecisionLogEntity::getTraceId, traceId)
-                .eq(RuntimeGuardDecisionLogEntity::getDecision, decision));
-        return toInt(count == null ? 0L : count);
-    }
-
-    private Integer totalTokens(Object value) {
-        long total = tokenValue(value);
-        return total <= 0 ? null : toInt(total);
-    }
-
-    private long tokenValue(Object value) {
+    private static long tokenValueStatic(Object value) {
         if (value instanceof Map<?, ?> map) {
             long directTokens = 0;
             long directTotal = 0;
@@ -350,23 +535,32 @@ public class RuntimeRunLifecycleService {
                 Object child = entry.getValue();
                 if (child instanceof Number number && isTokenKey(key)) {
                     String normalized = key.replace("_", "").toLowerCase();
-                    if (normalized.equals("totaltokens")) directTotal = Math.max(directTotal, number.longValue());
-                    else directTokens += number.longValue();
-                } else {
-                    nestedTokens += tokenValue(child);
+                    if (normalized.equals("totaltokens")) {
+                        directTotal = Math.max(directTotal, number.longValue());
+                    } else {
+                        directTokens += number.longValue();
+                    }
+                } else if (!"tokenCost".equals(key)
+                        && !"supervisor.modelRounds".equals(key)
+                        && !"modelRounds".equals(key)) {
+                    // Avoid double-counting an already resolved tokenCost scalar when walking trees.
+                    // Skip per-round token copies mirrored for observability.
+                    nestedTokens += tokenValueStatic(child);
                 }
             }
             return nestedTokens + (directTokens > 0 ? directTokens : directTotal);
         }
         if (value instanceof Iterable<?> iterable) {
             long sum = 0;
-            for (Object child : iterable) sum += tokenValue(child);
+            for (Object child : iterable) {
+                sum += tokenValueStatic(child);
+            }
             return sum;
         }
         return 0;
     }
 
-    private boolean isTokenKey(String key) {
+    private static boolean isTokenKey(String key) {
         String normalized = key.replace("_", "").toLowerCase();
         return normalized.equals("inputtokens") || normalized.equals("outputtokens")
                 || normalized.equals("prompttokens") || normalized.equals("completiontokens")

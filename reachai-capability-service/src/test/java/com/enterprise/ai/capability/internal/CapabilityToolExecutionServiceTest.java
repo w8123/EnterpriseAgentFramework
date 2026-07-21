@@ -121,6 +121,32 @@ class CapabilityToolExecutionServiceTest {
         assertEquals("s-1", claims.getSessionId());
     }
 
+    @Test
+    void signsSdkInvocationWithDeclaredCapabilityNameInsteadOfStorageName() {
+        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
+        RegistrySecurityService securityService = mock(RegistrySecurityService.class);
+        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("ok", true)));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, securityService);
+        ToolDefinitionEntity tool = tool("bzjs10:qmssmp.team.search", true);
+        tool.setName("bzjs10_qmssmp_team_search");
+        tool.setProjectCode("bzjs10");
+        tool.setSourceLocation("sdk:bzjs10:qmssmp.team.search");
+        when(mapper.selectOne(any())).thenReturn(tool);
+        RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setProjectCode("bzjs10");
+        credential.setAppKey("bzjs10");
+        credential.setAppSecret("secret");
+        when(securityService.findPrimaryActiveCredential("bzjs10")).thenReturn(Optional.of(credential));
+
+        service.execute("bzjs10:qmssmp.team.search", Map.of("input", Map.of("managerName", "张三")));
+
+        Map<?, ?> headers = (Map<?, ?>) invoker.invocation.metadata().get("headers");
+        String token = String.valueOf(headers.get(ReachAiInvocationToken.HEADER_NAME));
+        ReachAiInvocationClaims claims = ReachAiInvocationToken.verify(
+                "secret", token, "bzjs10", "qmssmp.team.search", System.currentTimeMillis());
+        assertEquals("qmssmp.team.search", claims.getCapabilityName());
+    }
+
     private ToolDefinitionEntity tool(String qualifiedName, boolean enabled) {
         ToolDefinitionEntity entity = new ToolDefinitionEntity();
         entity.setId(9L);

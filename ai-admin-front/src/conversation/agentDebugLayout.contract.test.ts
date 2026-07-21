@@ -35,4 +35,17 @@ describe('AgentDebug conversation pane width contract', () => {
     expect(src).not.toMatch(/\.thinking-card-shell\b/)
     expect(src).not.toMatch(/\.response-card-shell\b/)
   })
+
+  it('does not re-own conversation glass material or per-brand spectrum overrides', () => {
+    const src = readFileSync(
+      resolve(__dirname, '../views/agent/AgentDebug.vue'),
+      'utf8',
+    )
+    expect(src).not.toMatch(/data-brand='metro-green'/)
+    expect(src).not.toMatch(/data-brand='solar-gold'/)
+    expect(src).not.toMatch(/--reachai-chat-glass-composer/)
+    expect(src).not.toMatch(/backdrop-filter:\s*var\(--reachai-chat-glass-blur-composer\)/)
+    expect(src).toMatch(/class="chat-input"/)
+    expect(src).toMatch(/ConversationView/)
+  })
 })

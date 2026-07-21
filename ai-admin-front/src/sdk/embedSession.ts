@@ -1,6 +1,6 @@
 import type { EafPageBridge } from './eafPageBridge'
 
-const SDK_VERSION = '1.0.0'
+const SDK_VERSION = '1.0.0-SNAPSHOT'
 
 export interface EafPageDescriptor {
   pageKey: string

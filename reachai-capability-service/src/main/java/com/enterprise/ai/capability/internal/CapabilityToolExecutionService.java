@@ -155,7 +155,7 @@ public class CapabilityToolExecutionService {
         ReachAiInvocationClaims claims = ReachAiInvocationClaims.builder()
                 .projectCode(tool.getProjectCode())
                 .appKey(credential.getAppKey())
-                .capabilityName(tool.getName())
+                .capabilityName(invocationCapabilityName(tool))
                 .tenantId(text(context.get("tenantId")))
                 .externalUserId(text(context.get("externalUserId")))
                 .globalUserId(text(context.get("globalUserId")))
@@ -174,6 +174,18 @@ public class CapabilityToolExecutionService {
                 System.currentTimeMillis(), 60);
         metadata.put("headers", Map.of(ReachAiInvocationToken.HEADER_NAME, token));
         return metadata;
+    }
+
+    private String invocationCapabilityName(ToolDefinitionEntity tool) {
+        if (tool != null && StringUtils.hasText(tool.getProjectCode())
+                && StringUtils.hasText(tool.getSourceLocation())) {
+            String prefix = "sdk:" + tool.getProjectCode().trim() + ":";
+            String sourceLocation = tool.getSourceLocation().trim();
+            if (sourceLocation.startsWith(prefix) && sourceLocation.length() > prefix.length()) {
+                return sourceLocation.substring(prefix.length()).trim();
+            }
+        }
+        return tool == null ? null : tool.getName();
     }
 
     private String buildUrl(ScanProjectToolEntity tool) {

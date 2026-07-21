@@ -71,6 +71,7 @@ Prefer minimal, reviewable changes:
    - Use `@reachai/embed-chat` for browser embedding when available. Configure `apiBase` as the ReachAI platform origin by default; if the browser uses a gateway prefix, set `embedPathPrefix` such as `/api/reachai/embed`, or set `apiBase` directly to a recognized embed root such as `/api/reachai/embed`.
    - Configure `projectCode`, `agentId`, and a `tokenProvider` that calls the business gateway token broker. Use the already provisioned page copilot Agent `keySlug` for `agentId`.
    - Pass the same stable `pageKey`, `pageInstanceId`, `route`, and `origin` through token broker, `createEafChat({ page })`, and page actions.
+   - Import `@reachai/embed-chat/style.css`, mount one visible global launcher, and keep the SDK's visible-first Token state: Token Broker pending/failure must remain visible and retryable instead of being replaced by a business-side hidden failure.
    - Do not reuse the business login token for ReachAI chat session or message calls. Use the broker-returned short-lived embed token for `/api/reachai/embed/**`, `/api/embed/chat/sessions`, and message APIs.
    - Chat message calls must use `POST /api/embed/chat/sessions/{sessionId}/messages` or the `/messages/stream` variant with body `{ "message": "..." }`.
    - Do not send ReachAI chat requests as `{ "content": "..." }`, `{ "text": "..." }`, or `{ "question": "..." }`; map any business UI field to `message` at the ReachAI API boundary.

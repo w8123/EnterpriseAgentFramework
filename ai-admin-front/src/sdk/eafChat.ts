@@ -19,20 +19,66 @@ import {
   type EafPageDescriptor,
 } from './embedSession'
 import { createPendingPageActionPollScheduler } from './pendingPageActionPollScheduler'
+import {
+  EAF_CHAT_THEME_PRESETS,
+  resolveEafChatThemePrimary,
+  type EafChatThemePreset,
+} from './themePresets'
 
 export type {
   EafChatPageSessionPayload,
   EafChatSessionPayload,
   EafPageDescriptor,
+  EafChatThemePreset,
 }
 
-export { buildEafChatSessionPayload }
+export {
+  buildEafChatSessionPayload,
+  EAF_CHAT_THEME_PRESETS,
+  resolveEafChatThemePrimary,
+}
+
+export type EafChatTokenReason = 'initial' | 'send' | 'expiring' | 'unauthorized' | 'retry' | 'page-action'
+
+export interface EafChatTokenProviderContext {
+  reason: EafChatTokenReason
+  signal: AbortSignal
+  attempt: number
+  sessionId?: string
+}
+
+export interface EafChatTokenResult {
+  token: string
+  /** Unix epoch milliseconds. */
+  expiresAt?: number
+  /** Relative lifetime in seconds. */
+  expiresIn?: number
+}
+
+export type EafChatTokenValue = string | EafChatTokenResult
+export type EafChatTokenProvider = (
+  context?: EafChatTokenProviderContext,
+) => Promise<EafChatTokenValue> | EafChatTokenValue
+
+export type EafChatAuthStatus = 'loading' | 'ready' | 'error'
+
+export interface EafChatAuthState {
+  phase: 'token'
+  status: EafChatAuthStatus
+  reason: EafChatTokenReason
+  attempt: number
+  message?: string
+  error?: Omit<EafChatError, 'cause'>
+}
 
 export interface EafChatOptions {
   agentId: string
   mount: string | HTMLElement
-  tokenProvider: () => Promise<string> | string
+  tokenProvider: EafChatTokenProvider
+  /** 单次 tokenProvider 调用超时，默认 10000ms；仅影响等待，Provider 应响应 signal 主动取消请求。 */
+  tokenTimeoutMs?: number
   bridge?: EafPageBridge
+  /** @deprecated 浏览器不得保存 appSecret；页面目录注册应由业务后端或接入工具完成。 */
   pageRegistry?: EafPageRegistryOptions
   page?: EafPageDescriptor
   apiBase?: string
@@ -45,6 +91,7 @@ export interface EafChatOptions {
   context?: Record<string, unknown>
   onEvent?: (event: EafChatEvent) => void
   onError?: (error: EafChatError) => void
+  onStateChange?: (state: EafChatAuthState) => void
 }
 
 export interface EafChatClient {
@@ -54,6 +101,8 @@ export interface EafChatClient {
   close(): void
   toggle(): void
   send(message: string): Promise<EafChatMessageResponse>
+  /** 重新获取 Embed Token；不会自动重发上一条用户消息。 */
+  retry(): Promise<void>
   registerPageCatalog(): Promise<void>
   setContext(context: Record<string, unknown>): void
   destroy(): void
@@ -67,6 +116,12 @@ export interface EafPageRegistryOptions {
 }
 
 export interface EafChatTheme {
+  /**
+   * 官方 7 色预设（与管理端 data-brand 对齐）。
+   * 优先级：primaryColor 显式覆盖 > preset > 默认 tech-purple。
+   */
+  preset?: EafChatThemePreset
+  /** 显式品牌主色；存在时覆盖 preset */
   primaryColor?: string
   brandName?: string
 }
@@ -90,6 +145,10 @@ export interface EafChatEvent {
 export interface EafChatError {
   message: string
   cause?: unknown
+  code?: string
+  phase?: 'token' | 'session' | 'message' | 'page-action' | string
+  httpStatus?: number
+  retryable?: boolean
 }
 
 export interface EafChatMessageResponse {
@@ -105,46 +164,33 @@ export interface EafChatMessageResponse {
 
 type EmbedChatHostInstance = ComponentPublicInstance & {
   sendMessage: (message: string) => Promise<EafChatMessageResponse>
+  retryAuthentication: () => Promise<string>
+  refreshToken: (reason?: EafChatTokenReason) => Promise<string>
   setContext: (context: Record<string, unknown>) => void
   getSessionId: () => string | null
   getExistingSessionId: () => string | null
   disposeHost: () => void
 }
 
-/** theme.primaryColor 只覆盖品牌锚点，光谱由 Token 内 color-mix 派生 */
-function applyPrimaryTheme(root: HTMLElement, primaryColor: string) {
-  const color = String(primaryColor || '').trim()
-  if (!color) return
-  root.style.setProperty('--reachai-chat-primary', color)
-  root.style.setProperty('--reachai-chat-spectrum-anchor', color)
-  const rgb = parseCssColorToRgb(color)
-  if (rgb) {
-    root.style.setProperty('--reachai-chat-primary-rgb', `${rgb[0]} ${rgb[1]} ${rgb[2]}`)
+/** 只写入品牌锚点与 RGB；光谱 / 氛围由 conversation-tokens 内 color-mix 派生 */
+function applyChatTheme(
+  root: HTMLElement,
+  theme?: EafChatTheme,
+) {
+  const resolved = resolveEafChatThemePrimary({
+    preset: theme?.preset,
+    primaryColor: theme?.primaryColor,
+  })
+  root.style.setProperty('--reachai-chat-primary', resolved.primary)
+  root.style.setProperty('--reachai-chat-spectrum-anchor', resolved.primary)
+  root.style.setProperty('--reachai-chat-primary-rgb', resolved.rgb)
+  if (theme?.preset && theme.preset in EAF_CHAT_THEME_PRESETS) {
+    root.dataset.chatPreset = theme.preset
+  } else if (resolved.source === 'default') {
+    root.dataset.chatPreset = 'tech-purple'
+  } else {
+    delete root.dataset.chatPreset
   }
-}
-
-function parseCssColorToRgb(input: string): [number, number, number] | null {
-  const hex = input.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)
-  if (hex) {
-    const raw = hex[1]
-    if (raw.length === 3) {
-      return [
-        parseInt(raw[0] + raw[0], 16),
-        parseInt(raw[1] + raw[1], 16),
-        parseInt(raw[2] + raw[2], 16),
-      ]
-    }
-    return [
-      parseInt(raw.slice(0, 2), 16),
-      parseInt(raw.slice(2, 4), 16),
-      parseInt(raw.slice(4, 6), 16),
-    ]
-  }
-  const rgb = input.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i)
-  if (rgb) {
-    return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])]
-  }
-  return null
 }
 
 export async function createEafChat(options: EafChatOptions): Promise<EafChatClient> {
@@ -157,7 +203,8 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   const bridge = options.bridge || createEafPageBridge({ route: location.pathname })
   const apiBase = resolveEafChatEmbedApiRoot(options.apiBase, options.embedPathPrefix)
   const platformBase = resolveEafChatPlatformBase(options.apiBase)
-  let token = await options.tokenProvider()
+  const locale = options.locale || 'zh-CN'
+  let token = ''
   let context: Record<string, unknown> = { ...(options.context || {}) }
   const pendingPageActions = new Set<string>()
   const handledPageActions = new Set<string>()
@@ -352,35 +399,68 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   if (options.initialOpen === false) {
     root.classList.add('eaf-chat--closed')
   }
-  if (options.theme?.primaryColor) {
-    applyPrimaryTheme(root, options.theme.primaryColor)
-  }
+  applyChatTheme(root, options.theme)
   root.innerHTML = `
     <div class="eaf-chat__header">
       <div class="eaf-chat__brand">${escapeText(options.theme?.brandName || 'ReachAI')}</div>
-      <button class="eaf-chat__toggle" type="button" aria-expanded="${options.initialOpen === false ? 'false' : 'true'}">
-        ${options.initialOpen === false ? '+' : '-'}
-      </button>
+      <div class="eaf-chat__header-actions">
+        <span class="eaf-chat__connection-status" role="status" aria-live="polite">${locale === 'en-US' ? 'Connecting' : '正在连接'}</span>
+        <button class="eaf-chat__toggle" type="button" aria-expanded="${options.initialOpen === false ? 'false' : 'true'}">
+          ${options.initialOpen === false ? '+' : '-'}
+        </button>
+      </div>
     </div>
     <div class="eaf-chat__body"></div>
   `
   mount.appendChild(root)
   const toggleButton = root.querySelector<HTMLButtonElement>('.eaf-chat__toggle')!
+  const connectionStatus = root.querySelector<HTMLElement>('.eaf-chat__connection-status')!
   const bodyEl = root.querySelector<HTMLElement>('.eaf-chat__body')!
+
+  function handleAuthState(state: EafChatAuthState) {
+    root.dataset.authState = state.status
+    connectionStatus.hidden = state.status === 'ready'
+    connectionStatus.classList.toggle('is-error', state.status === 'error')
+    connectionStatus.textContent = state.status === 'loading'
+      ? (locale === 'en-US' ? 'Connecting' : '正在连接')
+      : state.status === 'error'
+        ? (locale === 'en-US' ? 'Connection failed' : '连接失败')
+        : ''
+    try {
+      options.onStateChange?.(state)
+    } catch (error) {
+      try {
+        options.onError?.({
+          message: 'ReachAI state callback failed',
+          cause: error,
+          code: 'STATE_CALLBACK_FAILED',
+          phase: 'token',
+          retryable: false,
+        })
+      } catch {
+        // Consumer callbacks must not break SDK authentication state.
+      }
+    }
+  }
 
   chatApp = createApp(EmbedChatHost, {
     apiBase,
-    tokenProvider: () => token,
+    tokenProvider: options.tokenProvider,
+    tokenTimeoutMs: options.tokenTimeoutMs,
     bridge,
     page: options.page,
     context,
-    placeholder: options.locale === 'zh-CN' ? '输入消息' : 'Type a message',
+    locale,
+    placeholder: locale === 'zh-CN' ? '输入消息' : 'Type a message',
     preferStream: options.stream !== false,
     onEvent: emitPublicEvent,
-    onError: (error: EafChatError) => reportError(error.cause ?? new Error(error.message)),
-    onUnauthorized: async () => {
-      token = await options.tokenProvider()
-      return token
+    onError: (error: EafChatError) => options.onError?.(error),
+    onAuthStateChange: handleAuthState,
+    onTokenChanged: (nextToken: string) => {
+      token = nextToken
+    },
+    onSessionChanged: () => {
+      pendingPollScheduler.notifyActivity()
     },
   })
   hostInstance = chatApp.mount(bodyEl) as EmbedChatHostInstance
@@ -420,7 +500,8 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   }
 
   async function refreshTokenForCurrentSession() {
-    token = await options.tokenProvider()
+    if (!hostInstance) throw new Error('Embed chat host is not ready')
+    token = await hostInstance.refreshToken('page-action')
   }
 
   async function send(message: string): Promise<EafChatMessageResponse> {
@@ -437,9 +518,6 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       pendingPollScheduler.notifyActivity()
       return response
     } catch (error) {
-      if (isUnauthorized(error)) {
-        await refreshTokenForCurrentSession()
-      }
       reportError(error)
       throw error
     } finally {
@@ -480,6 +558,10 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       }
     },
     send,
+    async retry() {
+      if (!hostInstance || destroyed) return
+      token = await hostInstance.retryAuthentication()
+    },
     registerPageCatalog,
     setContext(nextContext: Record<string, unknown>) {
       context = { ...context, ...(nextContext || {}) }
@@ -594,10 +676,6 @@ function requestError(message: string, status: number): Error & { status?: numbe
   const error = new Error(message) as Error & { status?: number }
   error.status = status
   return error
-}
-
-function isUnauthorized(error: unknown): boolean {
-  return Boolean(error && typeof error === 'object' && (error as { status?: number }).status === 401)
 }
 
 function escapeText(value: string) {

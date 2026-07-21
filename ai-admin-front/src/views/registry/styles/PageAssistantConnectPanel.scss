@@ -1,0 +1,303 @@
+// The SDK helper is rendered by Element Plus in a teleported popper under body.
+// Keep every rule namespaced here instead of relying on the wizard's scoped CSS.
+.sdk-template-popover.el-popper {
+  width: min(640px, calc(100vw - 32px)) !important;
+  max-width: calc(100vw - 32px);
+  overflow: visible;
+  border: 0 !important;
+  border-radius: 18px !important;
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  animation: sdk-template-pop-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
+  .template-box {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 0;
+  }
+
+  .inline-template {
+    margin: 0;
+    border: 0;
+  }
+
+  .template-modal {
+    position: relative;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    box-sizing: border-box;
+    width: 100%;
+    max-height: min(76vh, 680px);
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--brand-primary) 20%, var(--border-subtle));
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--brand-hover) 15%, transparent), transparent 36%),
+      radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--brand-primary) 11%, transparent), transparent 32%),
+      color-mix(in srgb, var(--surface-solid-overlay) 97%, transparent);
+    padding: 22px;
+    box-shadow: var(--shadow-overlay);
+  }
+
+  .template-modal-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    min-width: 0;
+    margin-bottom: 18px;
+  }
+
+  .template-title-block {
+    display: flex;
+    flex: 1 1 auto;
+    gap: 14px;
+    min-width: 0;
+
+    > div {
+      min-width: 0;
+    }
+
+    h3 {
+      margin: 0 0 6px;
+      color: var(--text-primary);
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 1.25;
+    }
+
+    p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+  }
+
+  .template-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    flex: 0 0 46px;
+    border: 1px solid color-mix(in srgb, var(--brand-primary) 24%, transparent);
+    border-radius: 14px;
+    background:
+      linear-gradient(145deg, color-mix(in srgb, var(--surface-solid-control) 88%, transparent), color-mix(in srgb, var(--brand-selected) 72%, transparent)),
+      radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.7), transparent 42%);
+    color: var(--brand-primary);
+    font-size: 22px;
+    box-shadow: 0 10px 22px color-mix(in srgb, var(--brand-primary) 13%, transparent);
+  }
+
+  .template-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+
+    span {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border: 1px solid color-mix(in srgb, var(--brand-primary) 24%, var(--border-subtle));
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--brand-selected) 62%, var(--surface-solid-control));
+      padding: 2px 10px;
+      color: var(--brand-active);
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+  }
+
+  .template-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+  }
+
+  .copy-template-button.el-button {
+    height: 40px;
+    border: 1px solid color-mix(in srgb, var(--brand-primary) 34%, transparent) !important;
+    border-radius: 11px;
+    background: linear-gradient(135deg, var(--brand-primary), var(--brand-hover)) !important;
+    padding: 0 16px;
+    color: #fff !important;
+    font-weight: 800;
+    box-shadow: 0 12px 26px color-mix(in srgb, var(--brand-primary) 25%, transparent) !important;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+
+    &:hover,
+    &:focus-visible {
+      color: #fff !important;
+      transform: translateY(-1px);
+      box-shadow: 0 16px 30px color-mix(in srgb, var(--brand-primary) 30%, transparent) !important;
+    }
+  }
+
+  .template-close-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    appearance: none;
+    border: 1px solid var(--border-subtle);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--surface-solid-control) 88%, transparent);
+    padding: 0;
+    color: var(--text-primary);
+    font: inherit;
+    cursor: pointer;
+    box-shadow: var(--inner-highlight);
+    transition: border-color 0.18s ease, color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+
+    &:hover {
+      border-color: color-mix(in srgb, var(--brand-primary) 36%, var(--border-subtle));
+      background: var(--surface-solid-control);
+      color: var(--brand-active);
+      transform: translateY(-1px);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--brand-hover);
+      outline-offset: 2px;
+    }
+  }
+
+  .template-code-shell {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--brand-primary) 22%, var(--border-subtle));
+    border-radius: 14px;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--surface-solid-control) 88%, transparent), color-mix(in srgb, var(--brand-selected) 46%, transparent));
+    padding: 8px;
+    box-shadow: var(--shadow-panel);
+  }
+
+  .template-code-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    min-height: 32px;
+    padding: 3px 10px 7px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.35;
+
+    span + span {
+      position: relative;
+      padding-left: 14px;
+
+      &::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 50%;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--brand-primary) 46%, transparent);
+        transform: translateY(-50%);
+      }
+    }
+  }
+
+  .template-code-shell pre {
+    box-sizing: border-box;
+    min-height: 180px;
+    max-height: min(44vh, 360px);
+    margin: 0;
+    overflow: auto;
+    border-radius: 10px;
+    background:
+      linear-gradient(135deg, rgba(15, 23, 42, 0.99), rgba(33, 29, 64, 0.98)),
+      radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--brand-primary) 18%, transparent), transparent 42%);
+    padding: 18px 20px;
+    color: #d9e6ff;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.72;
+    tab-size: 2;
+    white-space: pre;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+
+  .template-code-shell .code-function {
+    color: #65b8ff;
+  }
+
+  .template-code-shell .code-property {
+    color: #d9e6ff;
+  }
+
+  .template-code-shell .code-string {
+    color: #9ef07a;
+  }
+
+  .template-code-shell .code-keyword {
+    color: #8aa7ff;
+  }
+
+  .template-code-shell .code-comment {
+    color: #8b9ab4;
+  }
+
+  .template-code-shell .code-punctuation {
+    color: #ffbd6e;
+  }
+}
+
+@media (max-width: 680px) {
+  .sdk-template-popover.el-popper {
+    .template-modal {
+      max-height: calc(100vh - 32px);
+      padding: 16px;
+    }
+
+    .template-modal-head {
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .template-actions {
+      width: 100%;
+      justify-content: flex-end;
+    }
+
+    .template-code-shell pre {
+      max-height: 48vh;
+      padding: 14px 16px;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sdk-template-popover.el-popper {
+    animation: none;
+  }
+}
+
+@keyframes sdk-template-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

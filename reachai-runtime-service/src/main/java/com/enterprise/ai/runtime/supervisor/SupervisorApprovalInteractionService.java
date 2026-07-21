@@ -16,7 +16,9 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.StringJoiner;
 import java.util.UUID;
 
 @Service
@@ -54,16 +56,20 @@ public class SupervisorApprovalInteractionService {
         state.put("args", args == null ? Map.of() : args);
         state.put("input", input == null ? Map.of() : input);
 
+        Map<String, Object> displayArgs = displayArgs(args);
+
         Map<String, Object> uiRequest = new LinkedHashMap<>();
         uiRequest.put("type", "CONFIRM_ACTION");
         uiRequest.put("component", "confirm");
         uiRequest.put("interactionId", interactionId);
-        uiRequest.put("title", "确认执行 " + firstText(tool.getToolName(), "Workflow Tool"));
-        uiRequest.put("message", reason);
-        uiRequest.put("data", Map.of(
-                "toolName", firstText(tool.getToolName(), ""),
-                "permissionKey", firstText(tool.getPermissionKey(), ""),
-                "riskLevel", firstText(tool.getRiskLevel(), "WRITE")));
+        uiRequest.put("title", "确认执行：" + firstText(tool.getToolName(), "Workflow Tool"));
+        uiRequest.put("message", confirmationMessage(reason, displayArgs));
+        Map<String, Object> cardData = new LinkedHashMap<>();
+        cardData.put("toolName", firstText(tool.getToolName(), ""));
+        cardData.put("permissionKey", firstText(tool.getPermissionKey(), ""));
+        cardData.put("riskLevel", firstText(tool.getRiskLevel(), "WRITE"));
+        cardData.put("arguments", displayArgs);
+        uiRequest.put("data", cardData);
         uiRequest.put("actions", List.of(
                 Map.of("key", "reject", "label", "拒绝", "tone", "danger"),
                 Map.of("key", "confirm", "label", "确认执行", "tone", "primary")));
@@ -138,11 +144,14 @@ public class SupervisorApprovalInteractionService {
         row.setUpdatedAt(LocalDateTime.now());
         mapper.updateById(row);
 
+        Map<String, Object> originalInput = mapValue(state.get("input"));
+        if (StringUtils.hasText(row.getTraceId())) {
+            originalInput.put("traceId", row.getTraceId());
+        }
         if (!confirmed) {
-            return new ResumeDecision(false, true, row.getAgentId(), Map.of(), null,
+            return new ResumeDecision(false, true, row.getAgentId(), originalInput, null,
                     "用户已拒绝执行该 Workflow Tool");
         }
-        Map<String, Object> originalInput = mapValue(state.get("input"));
         if (StringUtils.hasText(submittedSessionId)) originalInput.put("sessionId", submittedSessionId);
         String permissionKey = text(state.get("permissionKey"));
         PolicyApprovalGrant grant = new PolicyApprovalGrant(
@@ -193,6 +202,40 @@ public class SupervisorApprovalInteractionService {
         } catch (Exception ex) {
             throw new IllegalArgumentException("Supervisor approval JSON serialization failed", ex);
         }
+    }
+
+    private Map<String, Object> displayArgs(Map<String, Object> args) {
+        if (args == null || args.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> display = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : args.entrySet()) {
+            if (display.size() >= 6 || !StringUtils.hasText(entry.getKey()) || entry.getValue() == null) {
+                continue;
+            }
+            String key = entry.getKey().trim();
+            String lower = key.toLowerCase(Locale.ROOT);
+            Object value = entry.getValue();
+            if (lower.contains("secret") || lower.contains("token") || lower.contains("password")
+                    || lower.contains("authorization") || lower.contains("credential")
+                    || lower.contains("apikey") || lower.contains("api_key") || lower.contains("cookie")) {
+                display.put(key, "[已隐藏]");
+            } else if (value instanceof String || value instanceof Number || value instanceof Boolean) {
+                String rendered = String.valueOf(value);
+                display.put(key, rendered.length() <= 100 ? value : rendered.substring(0, 100) + "…");
+            }
+        }
+        return display;
+    }
+
+    private String confirmationMessage(String reason, Map<String, Object> displayArgs) {
+        String base = firstText(reason, "该操作需要用户确认");
+        if (displayArgs == null || displayArgs.isEmpty()) {
+            return base;
+        }
+        StringJoiner joiner = new StringJoiner("，");
+        displayArgs.forEach((key, value) -> joiner.add(key + "=" + value));
+        return base + "。操作参数：" + joiner;
     }
 
     private String text(Map<String, Object> source, String key) {

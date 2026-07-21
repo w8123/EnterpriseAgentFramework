@@ -40,6 +40,28 @@ public class SupervisorExecutionTraceService {
     private final RuntimeRunLifecycleService runLifecycleService;
     private final ObjectMapper objectMapper;
 
+    /**
+     * Closes every still-waiting span plus the root RunOps row for an expired interaction.
+     * Called only after the interaction-session CAS succeeds, inside the same transaction.
+     */
+    public void expireWaitingInteraction(String traceId,
+                                         String interactionId,
+                                         LocalDateTime expiredAt) {
+        if (!StringUtils.hasText(traceId)) {
+            return;
+        }
+        LocalDateTime endedAt = expiredAt == null ? LocalDateTime.now() : expiredAt;
+        spanMapper.update(null, Wrappers.<RuntimeTraceSpanEntity>lambdaUpdate()
+                .eq(RuntimeTraceSpanEntity::getTraceId, traceId.trim())
+                .in(RuntimeTraceSpanEntity::getStatus, List.of("WAITING_USER", "WAITING_APPROVAL"))
+                .isNull(RuntimeTraceSpanEntity::getEndedAt)
+                .set(RuntimeTraceSpanEntity::getStatus, "TIMEOUT")
+                .set(RuntimeTraceSpanEntity::getErrorCode, "RUNTIME_INTERACTION_EXPIRED")
+                .set(RuntimeTraceSpanEntity::getErrorMessage, "Interaction expired: " + interactionId)
+                .set(RuntimeTraceSpanEntity::getEndedAt, endedAt));
+        runLifecycleService.expireWaitingInteraction(traceId, interactionId, endedAt);
+    }
+
     public TraceHandle begin(RuntimeAgentView agent,
                              RuntimeAgentConfigVersionEntity config,
                              List<RuntimeAgentWorkflowToolEntity> workflowTools,
@@ -275,21 +297,27 @@ public class SupervisorExecutionTraceService {
         String resolved = status(success, code);
         boolean waiting = "WAITING_USER".equals(resolved) || "WAITING_APPROVAL".equals(resolved);
         String safeAnswer = WorkflowTraceSanitizer.sanitizeAnswer(answer);
-        Map<String, Object> safeMetadata = WorkflowTraceSanitizer.sanitizeFinishMetadata(metadata);
+        // Compute tokenCost from the original metadata before allowlist sanitization strips usage trees.
+        int tokenCost = RuntimeRunLifecycleService.resolveTokenCost(metadata);
+        Map<String, Object> safeMetadata = new LinkedHashMap<>(
+                WorkflowTraceSanitizer.sanitizeFinishMetadata(metadata));
+        safeMetadata.put("tokenCost", tokenCost);
+        Integer latencyMs = waiting ? null : toInt(ChronoUnit.MILLIS.between(trace.startedAt(), ended));
         if (trace.rootId() != null) {
-            RuntimeTraceSpanEntity root = spanMapper.selectById(trace.rootId());
-            if (root != null) {
-                root.setStatus(resolved);
-                root.setOutputSummary(limit(safeAnswer, 4000));
-                root.setErrorCode(success || waiting ? null : code);
-                root.setErrorMessage(success || waiting ? null : limit(safeAnswer, 2000));
-                root.setMetadataJson(json(safeMetadata));
-                root.setLatencyMs(waiting ? null : toInt(ChronoUnit.MILLIS.between(trace.startedAt(), ended)));
-                root.setEndedAt(waiting ? null : ended);
-                safe(() -> spanMapper.updateById(root), "finish Supervisor root span");
-            }
+            // Direct conditional update — no selectById before finish.
+            safe(() -> spanMapper.update(null, Wrappers.<RuntimeTraceSpanEntity>lambdaUpdate()
+                    .eq(RuntimeTraceSpanEntity::getId, trace.rootId())
+                    .set(RuntimeTraceSpanEntity::getStatus, resolved)
+                    .set(RuntimeTraceSpanEntity::getOutputSummary, limit(safeAnswer, 4000))
+                    .set(RuntimeTraceSpanEntity::getErrorCode, success || waiting ? null : code)
+                    .set(RuntimeTraceSpanEntity::getErrorMessage, success || waiting ? null : limit(safeAnswer, 2000))
+                    .set(RuntimeTraceSpanEntity::getMetadataJson, json(safeMetadata))
+                    .set(RuntimeTraceSpanEntity::getLatencyMs, latencyMs)
+                    .set(RuntimeTraceSpanEntity::getEndedAt, waiting ? null : ended)),
+                    "finish Supervisor root span");
         }
-        runLifecycleService.finishAgent(trace.traceId(), success, code, safeAnswer, safeMetadata, ended, identity);
+        runLifecycleService.finishAgent(trace.traceId(), success, code, safeAnswer, safeMetadata, ended,
+                identity, latencyMs, trace.startedAt());
     }
 
     @SuppressWarnings("unchecked")

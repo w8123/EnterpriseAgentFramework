@@ -212,7 +212,7 @@ export interface InteractionNodeConfig {
   qualifiedName?: string
   binding?: InteractionBindingConfig
   title: string
-  component: 'FORM' | 'DETAIL' | 'TABLE' | 'CARD' | 'REPORT' | 'CUSTOM'
+  component: 'FORM' | 'DETAIL' | 'TABLE' | 'LIST_CARD' | 'CARD' | 'REPORT' | 'CUSTOM'
   fields: StudioFieldSchema[]
   dataExpression?: string
   outputAlias: string

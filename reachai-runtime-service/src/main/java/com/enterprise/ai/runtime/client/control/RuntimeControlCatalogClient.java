@@ -5,6 +5,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 import java.util.Map;
@@ -12,10 +13,10 @@ import java.util.Map;
 @FeignClient(name = "reachai-control-service", url = "${services.control-service.url:http://localhost:18603}")
 public interface RuntimeControlCatalogClient {
 
-    @GetMapping("/internal/control/page-actions/{projectCode}/{pageKey}/{actionKey}")
-    PageActionCatalogEntry getPageAction(@PathVariable("projectCode") String projectCode,
-                                         @PathVariable("pageKey") String pageKey,
-                                         @PathVariable("actionKey") String actionKey);
+    @GetMapping("/internal/control/page-actions/lookup")
+    PageActionCatalogEntry getPageAction(@RequestParam("projectCode") String projectCode,
+                                         @RequestParam("pageKey") String pageKey,
+                                         @RequestParam("actionKey") String actionKey);
 
     @PostMapping("/internal/control/page-bridge/execute")
     PageBridgeExecutionResponse executePageBridge(@RequestBody PageBridgeExecutionRequest request);

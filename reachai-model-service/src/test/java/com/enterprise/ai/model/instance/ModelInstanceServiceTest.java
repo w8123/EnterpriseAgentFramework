@@ -49,7 +49,8 @@ class ModelInstanceServiceTest {
         mapper = mock(ModelInstanceMapper.class);
         templateService = mock(ModelTemplateService.class);
         cipher = new CredentialCipher("unit-test-secret-for-model-center");
-        service = new ModelInstanceService(mapper, templateService, objectMapper, cipher);
+        service = new ModelInstanceService(mapper, templateService, objectMapper, cipher,
+                new ModelInstanceRuntimeCache(ModelInstanceRuntimeCache.DEFAULT_TTL_MS));
         when(mapper.selectCount(any())).thenReturn(0L);
     }
 

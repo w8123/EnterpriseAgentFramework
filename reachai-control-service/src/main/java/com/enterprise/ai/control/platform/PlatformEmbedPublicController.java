@@ -159,15 +159,25 @@ public class PlatformEmbedPublicController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody EmbedChatMessageRequest request) {
         try {
+            long controlStarted = System.nanoTime();
             PlatformEmbedTokenClaims claims = verifyBearer(authorization);
+            long sessionLookupStart = System.nanoTime();
             PlatformEmbedSessionEntity session = sessionService.requireActiveSession(sessionId, claims);
+            long sessionLookupMs = Math.max(0L, (System.nanoTime() - sessionLookupStart) / 1_000_000L);
             String message = request == null ? null : request.message();
             requireText(message, "message");
+            long userAuditStart = System.nanoTime();
             chatEventService.recordUserMessage(session, message);
+            long userMessageAuditMs = Math.max(0L, (System.nanoTime() - userAuditStart) / 1_000_000L);
             Map<String, Object> runtimeBody = runtimeContext(session, claims);
             runtimeBody.put("message", message);
             runtimeBody.put("intentHint", "EMBED_CHAT");
             runtimeBody.put("entryType", "EMBED");
+            Map<String, Object> controlTiming = new LinkedHashMap<>();
+            controlTiming.put("control.sessionLookupMs", sessionLookupMs);
+            controlTiming.put("control.userMessageAuditMs", userMessageAuditMs);
+            controlTiming.put("control.preRuntimeMs", Math.max(0L, (System.nanoTime() - controlStarted) / 1_000_000L));
+            runtimeBody.put("controlTiming", controlTiming);
             StreamingResponseBody stream = outputStream ->
                     embedStreamRelay.streamMessage(session, runtimeBody, outputStream);
             return streamResponse(stream);

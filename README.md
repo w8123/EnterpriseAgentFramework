@@ -30,8 +30,6 @@
 
 ## 产品截图
 
->
-
 | SDK 快速接入 | Workflow Studio / GraphSpec |
 | --- | --- |
 | <img src="docs/系统截图/SDK快速接入.png" alt="SDK 快速接入" width="420" /> | <img src="docs/系统截图/workflow编排.png" alt="Workflow Studio" width="420" /> |
@@ -407,3 +405,124 @@ npm run dev
 ## 一句话总结
 
 ReachAI 让企业已有系统快速拥有可控 AI：**Codex、Cursor 等 AI Coding 工具负责接入与工程实施，Graph 固化确定性执行，SDK 连接真实业务能力，临时 token 打通跨系统身份，网页智能体回到 OA/ERP/CRM 页面里完成工作。**
+
+## OpenAI Build Week 2026 Submission
+
+**Project:** ReachAI: Codex-to-Production for Enterprise Agents<br>
+**Track:** Developer Tools — agentic workflows and enterprise integration tooling<br>
+**License:** [MIT](LICENSE)<br>
+**Demo video:** [Watch the ReachAI OpenAI Build Week demo on YouTube](https://youtu.be/xZEB9oQWKug)
+
+### What ReachAI does
+
+ReachAI helps teams bring governed AI agents into existing Java enterprise systems. Instead of rebuilding an OA, ERP, CRM, MES, or internal operations system as a separate AI application, developers connect its real APIs, domain methods, user identity, permissions, and page actions to ReachAI.
+
+The resulting agent can understand a request, select one or more published Workflows, call a real business API or an explicitly registered page action, render structured results, require confirmation for writes, and record the complete execution in Trace and RunOps.
+
+### Existing project versus Build Week work
+
+ReachAI existed before OpenAI Build Week. The pre-existing project supplied the foundational Java services, administration UI, and early Capability, Agent, and Workflow concepts. This submission is specifically about the meaningful extensions built and proven during the July 13–21 submission period with Codex and GPT-5.6:
+
+- A Codex-oriented SDK onboarding workbench that exposes a project Manifest, an installable Skill, scoped engineering APIs, step-by-step evidence reporting, and layered `CODE_READY / RUNTIME_READY / E2E_READY` checks.
+- End-to-end onboarding of an existing Spring Boot business system through `reachai-spring-boot2-starter`, gateway routing, an Embed Token Broker, and the Chat Embed SDK.
+- A project Page Copilot Agent whose AgentScope Supervisor selects published Workflow-as-Tool targets according to user intent.
+- Two governed execution paths: direct business API capabilities and explicit page actions bound to the current page instance.
+- Generic `LIST_CARD` rendering, result counts, first-five display, and “expand remaining” behavior without business-specific card code.
+- Strong confirmation for write operations, followed by a second authorization and business-rule check in the business backend.
+- Version-pinned Agent and Workflow releases plus RunOps evidence for planning, workflow selection, node execution, tool calls, latency, and traceability.
+
+The submission does not claim that the entire repository was created during Build Week. The dated evidence below identifies the work completed inside the submission window.
+
+### How we used Codex and GPT-5.6
+
+GPT-5.6 was used in Codex as the build-time reasoning model for the core Build Week work. Codex operated directly against the real ReachAI and business-system repositories rather than generating a disconnected prototype.
+
+| Phase | How Codex and GPT-5.6 contributed |
+| --- | --- |
+| Repository understanding | Inspected the multi-module Maven topology, Vue application, runtime contracts, gateway security, SDK registration, page bridge, and existing business-system code before proposing changes. |
+| SDK onboarding | Implemented and validated Starter configuration, registry callbacks, gateway routes, Embed Token Broker behavior, frontend Chat Embed integration, and sessionized onboarding evidence. |
+| Agent and Workflow engineering | Created and refined deterministic `GraphSpec` workflows, attached published versions as Supervisor tools, validated release contracts, and kept page actions separate from direct API capabilities. |
+| Failure diagnosis | Traced identity, permission, token, streaming, page-action callback, workflow-selection, and interaction-resume failures across browser, gateway, control, runtime, and business-service boundaries. |
+| Live validation | Ran targeted tests and builds, exercised the real browser flow, checked stable demo data, and verified planning, tool calls, and latency in RunOps. |
+| Submission preparation | Helped structure the Devpost story, produce the under-three-minute bilingual demo, redact credentials, and document reproducible judge flows. |
+
+Codex accelerated repository navigation, cross-service reasoning, implementation, testing, and evidence collection. The human author retained the product decisions, accepted or rejected proposed changes, chose the demo scope, and verified the final behavior. ReachAI's runtime model remains configurable; the Build Week claim here concerns the real use of GPT-5.6 within Codex to build and validate this submission.
+
+### Key human product and engineering decisions
+
+- **Extend existing systems instead of replacing them.** ReachAI connects to the real Java application, business identity, permissions, and pages.
+- **Keep execution deterministic.** AI can help author and select a Workflow, but the published `GraphSpec` is the executable contract.
+- **Make page operation explicit.** The Supervisor prefers a page-action Workflow only when the user asks to operate the page; otherwise it can select a business API Workflow.
+- **Never bypass business authorization.** A zero-result API response caused by the current user's data visibility is treated as correct behavior, not something for the agent to work around.
+- **Require confirmation for writes.** The runtime presents a confirm/cancel interaction before invoking a write, and the business backend validates authorization and business state again.
+- **Use reusable presentation contracts.** Team results use the platform-level `LIST_CARD` protocol rather than a one-off team-management component.
+- **Publish and observe everything.** Agent configurations and Workflow versions are pinned, while RunOps and Trace retain evidence for audit, replay, and diagnosis.
+
+### Submission architecture
+
+```mermaid
+flowchart LR
+    codex["Codex + GPT-5.6"] --> onboarding["AI Coding onboarding"]
+    onboarding --> business["Existing Java business system"]
+    business --> starter["ReachAI Starter + Capability SDK"]
+    starter --> control["Control + Capability Catalog"]
+    embed["Embedded Page Copilot"] --> supervisor["AgentScope Supervisor"]
+    supervisor --> workflow["Published Workflow-as-Tool"]
+    workflow --> api["Business API capability"]
+    workflow --> action["Registered page action"]
+    api --> runops["Trace + RunOps"]
+    action --> runops
+```
+
+### Judge quick start
+
+**Validated platform:** Windows 11. The backend is Java 17 and the frontend is Vue 3; Docker-based infrastructure and the JVM services are also intended for Linux and macOS development environments.
+
+**Prerequisites:** Java 17+, Maven, Node.js 20 LTS, npm, Docker, Docker Compose, and a MySQL client.
+
+```bash
+# 1. Start MySQL, Redis, and Milvus
+docker compose -f deploy/docker-compose.infra.yml up -d
+
+# 2. Initialize the ReachAI database
+mysql -h localhost -u root -proot < sql/initV2.sql
+
+# 3. Build the backend
+mvn clean install -DskipTests
+
+# 4. Start the five services with the shared IDEA configuration
+#    "00 ReachAI Five Services"
+
+# 5. Start the administration frontend
+cd ai-admin-front
+npm install
+npm run dev
+```
+
+Open [http://localhost:5200](http://localhost:5200). Detailed service-by-service commands and environment variables are available in [快速开始](#快速开始).
+
+The demonstration uses a dedicated local team-management test project connected to ReachAI. Its records are synthetic fixtures used to make expected results stable. Business login credentials, App Secrets, Embed Tokens, and AI Coding Keys are intentionally not committed to this repository. If an interactive hosted judge environment is supplied, its temporary credentials belong only in the private Devpost testing instructions.
+
+### Demo prompts and expected behavior
+
+These are the stable flows used in the recorded demonstration:
+
+| Execution path | Prompt | Expected behavior |
+| --- | --- | --- |
+| Direct business API | `不要操作页面，直接调用业务接口查询建设一工班` | Returns zero visible records for the current identity, demonstrating that ReachAI preserves business data permissions. |
+| Page action | `请操作当前页面，查询成员为刘阳的班组` | The Supervisor selects the page-query Workflow; the page and generic list card both show two matching records. |
+| Combined page filters | `请操作当前页面，查询负责人为靳圣辉、成员包含刘阳的班组` | Structured manager and member filters produce two stable results. |
+| Expand generic results | `帮我在页面上查询负责人为靳圣辉的班组` | Nine results are found; the card shows five first and allows the remaining four to be expanded. |
+| Governed write | Use only a dedicated disposable enabled record with no unfinished period. | ReachAI resolves one record, presents confirm/cancel, and invokes the write only after confirmation; the backend checks permission and business state again. |
+
+### Dated Build Week evidence
+
+| Date | Commit | Evidence |
+| --- | --- | --- |
+| 2026-07-14 | `ec611994` | Reshaped Agent Supervisor, Workflow Studio, and the RunOps runtime path. |
+| 2026-07-17 | `93c0375e` | Upgraded the model center and unified conversation/streaming execution. |
+| 2026-07-18 | `995dc2f6` | Enabled AI Coding onboarding by default. |
+| 2026-07-20 | `f1b00ca0` | Hardened Workflow Runtime, interaction recovery, and internal-service security boundaries. |
+| 2026-07-21 | `1e8184b6` | Fixed interactive request invocation used by the governed conversation flow. |
+
+The required `/feedback` Codex Session ID for the primary build thread is submitted through the private Devpost form rather than committed to the public repository.

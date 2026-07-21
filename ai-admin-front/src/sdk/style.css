@@ -1,6 +1,7 @@
 /**
  * Embed SDK 外壳样式（Header / 定位 / 根容器）。
  * 消息、Composer、氛围背景由共享 Conversation 组件 + conversation-tokens 提供。
+ * 材质与调试台同属 ReachAI 玻璃对话系统；本文件只负责 Embed 壳层。
  */
 @import '../conversation/styles/conversation-tokens.css';
 
@@ -17,11 +18,19 @@
   max-width: 100%;
   max-height: 100%;
   overflow: hidden;
-  border: 1px solid rgb(115 133 172 / 0.22);
-  border-radius: 14px;
-  background: var(--reachai-chat-surface, #fff);
-  color: var(--reachai-chat-text, #14201f);
-  box-shadow: 0 16px 40px rgb(15 23 42 / 18%);
+  border: 1px solid var(--reachai-chat-glass-border-soft, rgb(115 133 172 / 0.18));
+  border-radius: 16px;
+  color: var(--reachai-chat-text, #1e293b);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.42), rgb(248 250 255 / 0.28)),
+    var(--reachai-chat-glass-composer, rgb(255 255 255 / 0.72));
+  box-shadow:
+    var(--reachai-chat-glass-highlight, inset 0 1px 0 rgb(255 255 255 / 0.74)),
+    0 28px 64px rgb(15 23 42 / 0.14),
+    0 10px 28px rgb(15 23 42 / 0.08),
+    0 0 0 1px rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.06);
+  -webkit-backdrop-filter: var(--reachai-chat-glass-blur, blur(24px) saturate(0.78));
+  backdrop-filter: var(--reachai-chat-glass-blur, blur(24px) saturate(0.78));
   font-family: var(--reachai-chat-font-family);
 }
 
@@ -54,38 +63,86 @@
 }
 
 .eaf-chat__header {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 44px;
+  min-height: 48px;
   padding: 10px 12px;
-  background: linear-gradient(
-    135deg,
-    var(--reachai-chat-primary-soft, #818cf8),
-    var(--reachai-chat-primary, #6366f1)
-  );
+  border-bottom: 1px solid rgb(255 255 255 / 0.28);
   color: var(--reachai-chat-primary-contrast, #fff);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--reachai-chat-primary-soft, #818cf8) 88%, transparent),
+      color-mix(in srgb, var(--reachai-chat-primary, #6366f1) 92%, transparent)
+    );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.34),
+    0 10px 24px rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.18);
+  -webkit-backdrop-filter: blur(18px) saturate(0.88);
+  backdrop-filter: blur(18px) saturate(0.88);
 }
 
 .eaf-chat__brand {
   overflow: hidden;
   font-size: 14px;
   font-weight: 650;
+  letter-spacing: 0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-shadow: 0 1px 0 rgb(15 23 42 / 0.12);
+}
+
+.eaf-chat__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.eaf-chat__connection-status {
+  max-width: 96px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid rgb(255 255 255 / 0.34);
+  border-radius: 999px;
+  color: rgb(255 255 255 / 0.92);
+  background: rgb(255 255 255 / 0.14);
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eaf-chat__connection-status.is-error {
+  border-color: rgb(255 255 255 / 0.58);
+  background: rgb(127 29 29 / 0.34);
 }
 
 .eaf-chat__toggle {
   width: 28px;
   height: 28px;
-  border: 1px solid rgb(255 255 255 / 55%);
-  border-radius: 6px;
-  background: rgb(255 255 255 / 16%);
+  border: 1px solid rgb(255 255 255 / 0.48);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.18);
   color: #fff;
   cursor: pointer;
   font: inherit;
   line-height: 1;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.eaf-chat__toggle:hover {
+  background: rgb(255 255 255 / 0.28);
+  border-color: rgb(255 255 255 / 0.62);
+}
+
+.eaf-chat__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--reachai-chat-glass-focus-ring);
 }
 
 .eaf-chat__body {
@@ -101,7 +158,7 @@
 }
 
 .eaf-chat--closed {
-  max-height: 44px;
+  max-height: 48px;
 }
 
 .eaf-chat .eaf-chat__conversation,
@@ -111,6 +168,28 @@
   height: 100%;
   border: none;
   border-radius: 0;
+  background: transparent;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .eaf-chat,
+  .reachai-chat-root {
+    background: var(--reachai-chat-glass-composer-fallback, rgb(255 255 255 / 0.94));
+  }
+
+  .eaf-chat__header {
+    background: linear-gradient(
+      135deg,
+      var(--reachai-chat-primary-soft, #818cf8),
+      var(--reachai-chat-primary, #6366f1)
+    );
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eaf-chat__toggle {
+    transition: none;
+  }
 }
 
 @media (max-width: 520px) {

@@ -1,8 +1,9 @@
 package com.enterprise.ai.runtime.execution.identity;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigService;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentService;
+import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContext;
+import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContextResolver;
+import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.chat.RuntimeChatMemoryStore;
 import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient;
@@ -31,7 +32,6 @@ import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -159,24 +159,21 @@ class WorkflowTrustedIdentityEntryTest {
     }
 
     private RuntimeAgentExecutionService executionService(SupervisorRuntimeAdapter supervisor) {
-        RuntimeAgentService agentService = mock(RuntimeAgentService.class);
-        RuntimeAgentConfigService configService = mock(RuntimeAgentConfigService.class);
-        RuntimeAgentView agent = new RuntimeAgentView(
+        RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
+        RuntimeAgentExecutionView agent = new RuntimeAgentExecutionView(
                 "demo-agent", 1L, "demo", "demo-agent", "Demo", null,
-                "PROJECT", null, true,
-                10L, 10L, 1, "ACTIVE", "AGENTSCOPE", 0, null, null);
-        when(agentService.findByIdOrKeySlug("demo-agent")).thenReturn(Optional.of(agent));
+                "PROJECT", null, true, 10L, null, null);
         RuntimeAgentConfigVersionEntity config = new RuntimeAgentConfigVersionEntity();
         config.setId(10L);
         config.setAgentId("demo-agent");
         config.setVersionNo(1);
         config.setRuntimeType("AGENTSCOPE");
         config.setStatus("ACTIVE");
-        when(configService.resolveActive("demo-agent")).thenReturn(Optional.of(config));
-        when(configService.resolveTools(any(), any())).thenReturn(List.of());
+        when(resolver.resolve("demo-agent")).thenReturn(java.util.Optional.of(
+                new RuntimeAgentExecutionContext(agent, config, List.of(), List.of(),
+                        new RuntimeAgentExecutionContext.ResolveTimings(0L, 0L, 0L, 0L, 0L))));
         return new RuntimeAgentExecutionService(
-                agentService,
-                configService,
+                resolver,
                 supervisor,
                 mock(SupervisorApprovalInteractionService.class),
                 mock(RuntimeInteractionResumeService.class),

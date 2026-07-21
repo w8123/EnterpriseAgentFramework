@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -47,6 +48,8 @@ class SupervisorWorkflowCancellationTest {
     private final RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
     private final RuntimeGraphSpecExecutor graphExecutor = mock(RuntimeGraphSpecExecutor.class);
     private final SupervisorExecutionTraceService traceService = mock(SupervisorExecutionTraceService.class);
+    private final Map<String, RuntimeWorkflowDefinitionEntity> workflowTargets = new LinkedHashMap<>();
+    private final Map<Long, RuntimeWorkflowVersionEntity> workflowVersions = new LinkedHashMap<>();
 
     @Test
     void cancelBeforeWorkflowDoesNotCallGraphExecutor() {
@@ -179,7 +182,7 @@ class SupervisorWorkflowCancellationTest {
                         "id", "p1", "type", "function",
                         "function", Map.of(
                                 "name", "record_supervisor_plan",
-                                "arguments", "{\"summary\":\"查\",\"steps\":[\"查询班组\"]}"))));
+                                "arguments", "{\"summary\":\"查\",\"steps\":[\"查询班组\"],\"workflowToolNames\":[\"query_team\"]}"))));
             }
             if (call == 2) {
                 return toolCalls(List.of(Map.of(
@@ -199,7 +202,7 @@ class SupervisorWorkflowCancellationTest {
                         "id", "p1", "type", "function",
                         "function", Map.of(
                                 "name", "record_supervisor_plan",
-                                "arguments", "{\"summary\":\"查\",\"steps\":[\"查询班组\"]}"))));
+                                "arguments", "{\"summary\":\"查\",\"steps\":[\"查询班组\"],\"workflowToolNames\":[\"query_team\"]}"))));
             }
             if (call == 2) {
                 return toolCalls(List.of(Map.of(
@@ -224,7 +227,7 @@ class SupervisorWorkflowCancellationTest {
                         "id", "p1", "type", "function",
                         "function", Map.of(
                                 "name", "record_supervisor_plan",
-                                "arguments", "{\"summary\":\"并行\",\"steps\":[\"班组\",\"负责人\"]}"))));
+                                "arguments", "{\"summary\":\"并行\",\"steps\":[\"班组\",\"负责人\"],\"workflowToolNames\":[\"query_team\",\"query_owner\"]}"))));
             }
             if (call == 2) {
                 return toolCalls(List.of(
@@ -290,6 +293,21 @@ class SupervisorWorkflowCancellationTest {
         version.setGraphSpecSnapshotJson("{\"entry\":\"a\",\"nodes\":[{\"id\":\"a\",\"type\":\"ANSWER\"}]}");
         when(workflowMapper.selectById(tool.getWorkflowId())).thenReturn(workflow);
         when(versionMapper.selectById(version.getId())).thenReturn(version);
+        workflowTargets.put(workflow.getId(), workflow);
+        workflowVersions.put(version.getId(), version);
+        when(workflowMapper.selectBatchIds(any())).thenAnswer(invocation -> {
+            List<?> ids = invocation.getArgument(0);
+            if (ids == null) return List.copyOf(workflowTargets.values());
+            return ids.stream().map(String::valueOf).map(workflowTargets::get)
+                    .filter(java.util.Objects::nonNull).toList();
+        });
+        when(versionMapper.selectBatchIds(any())).thenAnswer(invocation -> {
+            List<?> ids = invocation.getArgument(0);
+            if (ids == null) return List.copyOf(workflowVersions.values());
+            return ids.stream().filter(Number.class::isInstance).map(Number.class::cast)
+                    .map(Number::longValue).map(workflowVersions::get)
+                    .filter(java.util.Objects::nonNull).toList();
+        });
     }
 
     private RuntimeAgentWorkflowToolEntity tool(String workflowId, String toolName) {

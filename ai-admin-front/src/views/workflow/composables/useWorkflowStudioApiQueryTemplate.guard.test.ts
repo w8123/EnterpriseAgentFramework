@@ -197,6 +197,13 @@ describe('useWorkflowStudioApiQueryTemplate capability guard', () => {
       'interaction',
     ])
     expect(ctx.edges.value).toHaveLength(3)
+    const displayNode = ctx.nodes.value[3] as any
+    expect(displayNode.data.interactionConfig.component).toBe('LIST_CARD')
+    expect(displayNode.data.interactionConfig.renderSchema).toMatchObject({
+      version: '1.0',
+      initialVisibleCount: 5,
+      showCount: true,
+    })
     expect(ctx.markCanvasDirty).toHaveBeenCalledTimes(1)
     expect(ctx.syncJsonFromCanvas).toHaveBeenCalledTimes(1)
     expect(ctx.api.apiQueryTemplateOpen.value).toBe(false)

@@ -43,7 +43,7 @@ class InternalServiceAuthFilterMockMvcTest {
     @BeforeEach
     void setUp() {
         executionService = mock(RuntimeAgentExecutionService.class);
-        when(executionService.execute(any(), anyBoolean(), any(), any(), any()))
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any()))
                 .thenReturn(Map.of("success", true, "answer", "ok"));
         InternalServiceAuthProperties properties =
                 new InternalServiceAuthProperties(SECRET, 300, 600, 1000, 1_048_576);
@@ -62,7 +62,7 @@ class InternalServiceAuthFilterMockMvcTest {
         byte[] body = bodyBytes("AGENT", "42", "hi");
         mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isUnauthorized());
-        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
     }
 
     @Test
@@ -72,7 +72,7 @@ class InternalServiceAuthFilterMockMvcTest {
                 UUID.randomUUID().toString(), original);
         byte[] tampered = bodyBytes("AGENT", "42", "tampered-message");
         mockMvc.perform(signed(headers, tampered)).andExpect(status().isUnauthorized());
-        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
     }
 
     @Test
@@ -92,7 +92,7 @@ class InternalServiceAuthFilterMockMvcTest {
                 UUID.randomUUID().toString(), original);
         headers2.put(InternalServiceAuthHeaders.BODY_SHA256, "0".repeat(64));
         mockMvc.perform(signed(headers2, original)).andExpect(status().isUnauthorized());
-        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
     }
 
     @Test
@@ -116,7 +116,7 @@ class InternalServiceAuthFilterMockMvcTest {
     @Test
     void acceptsValidSignatureWithChineseUtf8Body() throws Exception {
         AtomicReference<WorkflowExecutionIdentity> captured = new AtomicReference<>();
-        when(executionService.execute(any(), anyBoolean(), any(), any(), any())).thenAnswer(inv -> {
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any())).thenAnswer(inv -> {
             captured.set(inv.getArgument(4));
             return Map.of("success", true, "answer", "ok");
         });
@@ -136,7 +136,7 @@ class InternalServiceAuthFilterMockMvcTest {
                 UUID.randomUUID().toString(), bodyBytes("AGENT", "42", "hi"));
         // signed for different body than sent
         mockMvc.perform(signed(headers, body)).andExpect(status().isUnauthorized());
-        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
     }
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder signed(

@@ -1,8 +1,8 @@
 package com.enterprise.ai.runtime.execution;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigService;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
-import com.enterprise.ai.runtime.agent.RuntimeAgentService;
+import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContext;
+import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContextResolver;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
 import com.enterprise.ai.runtime.chat.RuntimeChatMemoryStore;
@@ -26,8 +26,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class RuntimeAgentExecutionService {
 
-    private final RuntimeAgentService agentService;
-    private final RuntimeAgentConfigService configService;
+    private final RuntimeAgentExecutionContextResolver executionContextResolver;
     private final SupervisorRuntimeAdapter supervisorRuntime;
     private final SupervisorApprovalInteractionService approvalInteractionService;
     private final RuntimeInteractionResumeService interactionResumeService;
@@ -61,18 +60,37 @@ public class RuntimeAgentExecutionService {
                                        SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
                                        RuntimeAgentExecutionCancellation cancellation,
                                        WorkflowExecutionIdentity trustedIdentity) {
+        // Public / unauthenticated callers must never inject Control timings via body.
+        return execute(request, detailed, eventSink, cancellation, trustedIdentity, null);
+    }
+
+    /**
+     * @param trustedControlTiming Control observability timings extracted by the internal
+     *                             authenticated controller only. Never read from public body.
+     */
+    public Map<String, Object> execute(Map<String, Object> request,
+                                       boolean detailed,
+                                       SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
+                                       RuntimeAgentExecutionCancellation cancellation,
+                                       WorkflowExecutionIdentity trustedIdentity,
+                                       TrustedControlTiming trustedControlTiming) {
         Map<String, Object> body = normalizeContext(request);
+        // Discard any client/body controlTiming — trust only the explicit parameter.
+        body.remove("controlTiming");
         body.putIfAbsent("traceId", newTraceId());
         String interactionId = text(body.get("interactionId"));
+        Map<String, Object> response;
         if (StringUtils.hasText(interactionId)
                 && interactionId.startsWith(SupervisorApprovalInteractionService.INTERACTION_PREFIX)) {
-            return resumeSupervisorApproval(interactionId, body, detailed, eventSink, cancellation, trustedIdentity);
-        }
-        if (StringUtils.hasText(interactionId)
+            response = resumeSupervisorApproval(interactionId, body, detailed, eventSink, cancellation, trustedIdentity);
+        } else if (StringUtils.hasText(interactionId)
                 && interactionId.startsWith(WorkflowInteractionCodes.ID_PREFIX)) {
-            return resumeWorkflowInteraction(interactionId, body, detailed, eventSink, cancellation, trustedIdentity);
+            response = resumeWorkflowInteraction(interactionId, body, detailed, eventSink, cancellation, trustedIdentity);
+        } else {
+            response = executeResolved(body, detailed, null, eventSink, cancellation, trustedIdentity);
         }
-        return executeResolved(body, detailed, null, eventSink, cancellation, trustedIdentity);
+        mergeControlTiming(response, trustedControlTiming);
+        return response;
     }
 
     /**
@@ -87,20 +105,20 @@ public class RuntimeAgentExecutionService {
         body.put("traceId", firstText(text(body.get("traceId")), newTraceId()));
         body.put("agentId", agentId);
         body.putIfAbsent("entryType", "REPLAY");
-        Optional<RuntimeAgentView> agent = agentService.findByIdOrKeySlug(agentId);
-        if (agent.isEmpty()) {
+        Optional<RuntimeAgentExecutionContext> context =
+                executionContextResolver.resolvePublished(agentId, configVersionId);
+        if (context.isEmpty()) {
             return error("RUNTIME_AGENT_NOT_FOUND", "Agent not found: " + agentId,
                     null, body, detailed, List.of());
         }
-        Optional<RuntimeAgentConfigVersionEntity> selected = configService.find(configVersionId);
-        if (selected.isEmpty() || !agent.get().id().equals(selected.get().getAgentId())
-                || "DRAFT".equalsIgnoreCase(selected.get().getStatus())) {
+        RuntimeAgentExecutionContext resolved = context.get();
+        if (resolved.config() == null) {
             return error("RUNTIME_AGENT_CONFIG_NOT_PUBLISHED",
                     "Published Agent configuration not found: " + configVersionId,
-                    agent.get(), body, detailed, List.of());
+                    resolved.agentView(), body, detailed, List.of());
         }
-        return executeResolvedConfig(body, detailed, null, SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
-                RuntimeAgentExecutionCancellation.NOOP, agent.get(), selected.get(), true, null);
+        return executeResolvedContext(body, detailed, null, SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                RuntimeAgentExecutionCancellation.NOOP, resolved, true, null);
     }
 
     public void clearSession(String sessionId) {
@@ -230,19 +248,21 @@ public class RuntimeAgentExecutionService {
                 configVersionId = null;
             }
         }
-        Optional<RuntimeAgentView> agent = agentService.findByIdOrKeySlug(agentId);
-        if (agent.isEmpty() || configVersionId == null) {
+        if (configVersionId == null || !StringUtils.hasText(agentId)) {
             return error("RUNTIME_INTERACTION_CONTINUATION_INVALID",
                     "Workflow interaction continuation is missing Agent/config identity",
                     null, body, detailed, List.of());
         }
-        Optional<RuntimeAgentConfigVersionEntity> config = configService.find(configVersionId)
-                .filter(version -> agent.get().id().equals(version.getAgentId()));
-        if (config.isEmpty()) {
+        Optional<RuntimeAgentExecutionContext> context =
+                executionContextResolver.resolvePublished(agentId, configVersionId);
+        if (context.isEmpty() || context.get().config() == null) {
             return error("RUNTIME_INTERACTION_CONTINUATION_INVALID",
                     "Workflow interaction continuation Agent config version not found",
-                    agent.get(), body, detailed, List.of());
+                    context.map(RuntimeAgentExecutionContext::agentView).orElse(null), body, detailed, List.of());
         }
+        RuntimeAgentExecutionContext resolved = context.get();
+        RuntimeAgentView agent = resolved.agentView();
+        RuntimeAgentConfigVersionEntity config = resolved.config();
         Map<String, Object> supervisorInput = new LinkedHashMap<>();
         Object original = continuation.get("originalInput");
         if (original instanceof Map<?, ?> rawOriginal) {
@@ -250,14 +270,13 @@ public class RuntimeAgentExecutionService {
         }
         supervisorInput.putAll(body);
         supervisorInput.put("traceId", text(continuation.get("traceId")));
-        supervisorInput.put("agentId", agent.get().id());
-        List<RuntimeAgentWorkflowToolEntity> tools = configService.resolveTools(agent.get().id(), config.get());
+        supervisorInput.put("agentId", agent.id());
         SupervisorRuntimeAdapter.SupervisorResult continued = supervisorRuntime.continueAfterWorkflowInteraction(
                 continuation,
                 workflowResult,
                 new SupervisorRuntimeAdapter.SupervisorRequest(
-                        agent.get(), config.get(), tools, supervisorInput, null, eventSink, cancellation,
-                        trustedIdentity));
+                        agent, config, resolved.tools(), supervisorInput, null, eventSink, cancellation,
+                        trustedIdentity, resolved.resolvedTargets()));
         List<Map<String, Object>> steps = new ArrayList<>();
         steps.add(step("resume-workflow-interaction", text(workflowResult.get("interactionId"))));
         steps.add(step("continue-after-workflow", continued.code()));
@@ -277,13 +296,14 @@ public class RuntimeAgentExecutionService {
         }
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("code", continued.code());
-        metadata.put("agentId", agent.get().id());
-        metadata.put("agentConfigVersionId", config.get().getId());
+        metadata.put("agentId", agent.id());
+        metadata.put("agentConfigVersionId", config.getId());
         metadata.put("traceId", continued.traceId());
         metadata.put("runId", workflowResult.get("runId"));
         metadata.put("interactionId", workflowResult.get("interactionId"));
         metadata.put("interactionPending", false);
         metadata.put("continuationConsumed", true);
+        metadata.putAll(resolved.timingMetadata());
         if (continued.metadata() != null) {
             metadata.putAll(continued.metadata());
         }
@@ -303,9 +323,22 @@ public class RuntimeAgentExecutionService {
         try {
             SupervisorApprovalInteractionService.ResumeDecision decision =
                     approvalInteractionService.prepareResume(interactionId, submission);
+            Map<String, Object> originalInput = normalizeContext(decision.originalInput());
+            String traceId = firstText(
+                    text(originalInput.get("traceId")),
+                    text(submission.get("traceId")),
+                    newTraceId());
             if (decision.rejected()) {
-                runLifecycleService.rejectAgent(text(submission.get("traceId")), null, submission,
-                        "SUPERVISOR_ACTION_REJECTED", decision.message());
+                Map<String, Object> finishMetadata = new LinkedHashMap<>();
+                finishMetadata.put("code", "SUPERVISOR_ACTION_REJECTED");
+                finishMetadata.put("interactionId", interactionId);
+                finishMetadata.put("interactionPending", false);
+                putIfPresent(finishMetadata, "sessionId", firstText(
+                        text(submission.get("sessionId")),
+                        text(originalInput.get("sessionId"))));
+                runLifecycleService.resumeAgent(traceId);
+                runLifecycleService.finishAgent(traceId, false, "SUPERVISOR_ACTION_REJECTED",
+                        decision.message(), finishMetadata, null, trustedIdentity);
                 Map<String, Object> response = new LinkedHashMap<>();
                 response.put("success", true);
                 response.put("answer", decision.message());
@@ -313,14 +346,14 @@ public class RuntimeAgentExecutionService {
                 response.put("metadata", Map.of(
                         "code", "SUPERVISOR_ACTION_REJECTED",
                         "agentId", decision.agentId(),
-                        "traceId", text(submission.get("traceId")),
+                        "traceId", traceId,
                         "interactionId", interactionId,
                         "interactionPending", false));
                 return response;
             }
-            Map<String, Object> originalInput = normalizeContext(decision.originalInput());
             originalInput.put("agentId", decision.agentId());
-            originalInput.put("traceId", firstText(text(submission.get("traceId")), newTraceId()));
+            originalInput.put("traceId", traceId);
+            originalInput.put("__resumeExistingTrace", true);
             return executeResolved(originalInput, detailed, decision.grant(), eventSink, cancellation, trustedIdentity);
         } catch (IllegalArgumentException ex) {
             return error("SUPERVISOR_APPROVAL_INVALID", ex.getMessage(), null,
@@ -341,42 +374,34 @@ public class RuntimeAgentExecutionService {
             return error("RUNTIME_AGENT_REQUIRED", "agentId is required", null, body, detailed, List.of());
         }
 
-        Optional<RuntimeAgentView> agent = agentService.findByIdOrKeySlug(agentLookup);
-        if (agent.isEmpty()) {
+        Optional<RuntimeAgentExecutionContext> context = executionContextResolver.resolve(agentLookup);
+        if (context.isEmpty()) {
             return error("RUNTIME_AGENT_NOT_FOUND", "Agent not found: " + agentLookup,
                     null, body, detailed, List.of());
         }
-        RuntimeAgentView agentView = agent.get();
-        List<Map<String, Object>> bootstrap = new ArrayList<>();
-        bootstrap.add(step("resolve-agent", agentView.id()));
-        if (!Boolean.TRUE.equals(agentView.enabled())) {
-            return error("RUNTIME_AGENT_DISABLED", "Agent is disabled: " + agentView.keySlug(),
-                    agentView, body, detailed, bootstrap);
-        }
-
-        Optional<RuntimeAgentConfigVersionEntity> activeConfig = configService.resolveActive(agentView.id());
-        if (activeConfig.isEmpty()) {
-            return error("RUNTIME_AGENT_CONFIG_NOT_PUBLISHED",
-                    "Agent has no published Supervisor configuration: " + agentView.keySlug(),
-                    agentView, body, detailed, bootstrap);
-        }
-        return executeResolvedConfig(body, detailed, approvalGrant, eventSink, cancellation,
-                agentView, activeConfig.get(), false, trustedIdentity);
+        return executeResolvedContext(body, detailed, approvalGrant, eventSink, cancellation,
+                context.get(), false, trustedIdentity);
     }
 
-    private Map<String, Object> executeResolvedConfig(Map<String, Object> body,
-                                                      boolean detailed,
-                                                      SupervisorRuntimeAdapter.PolicyApprovalGrant approvalGrant,
-                                                      SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
-                                                      RuntimeAgentExecutionCancellation cancellation,
-                                                      RuntimeAgentView agentView,
-                                                      RuntimeAgentConfigVersionEntity config,
-                                                      boolean historicalReplay,
-                                                      WorkflowExecutionIdentity trustedIdentity) {
+    private Map<String, Object> executeResolvedContext(Map<String, Object> body,
+                                                       boolean detailed,
+                                                       SupervisorRuntimeAdapter.PolicyApprovalGrant approvalGrant,
+                                                       SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
+                                                       RuntimeAgentExecutionCancellation cancellation,
+                                                       RuntimeAgentExecutionContext context,
+                                                       boolean historicalReplay,
+                                                       WorkflowExecutionIdentity trustedIdentity) {
+        RuntimeAgentView agentView = context.agentView();
         List<Map<String, Object>> bootstrap = new ArrayList<>();
         bootstrap.add(step("resolve-agent", agentView.id()));
         if (!historicalReplay && !Boolean.TRUE.equals(agentView.enabled())) {
             return error("RUNTIME_AGENT_DISABLED", "Agent is disabled: " + agentView.keySlug(),
+                    agentView, body, detailed, bootstrap);
+        }
+        RuntimeAgentConfigVersionEntity config = context.config();
+        if (config == null) {
+            return error("RUNTIME_AGENT_CONFIG_NOT_PUBLISHED",
+                    "Agent has no published Supervisor configuration: " + agentView.keySlug(),
                     agentView, body, detailed, bootstrap);
         }
         bootstrap.add(step("resolve-agent-config", "v" + config.getVersionNo() + "#" + config.getId()));
@@ -385,11 +410,12 @@ public class RuntimeAgentExecutionService {
                     "Published Agent runtimeType must be AGENTSCOPE", agentView, body, detailed, bootstrap);
         }
 
-        List<RuntimeAgentWorkflowToolEntity> tools = configService.resolveTools(agentView.id(), config);
+        List<RuntimeAgentWorkflowToolEntity> tools = context.tools() == null ? List.of() : context.tools();
         bootstrap.add(step("resolve-workflow-tools", String.valueOf(tools.size())));
         SupervisorRuntimeAdapter.SupervisorResult result = supervisorRuntime.execute(
                 new SupervisorRuntimeAdapter.SupervisorRequest(
-                        agentView, config, tools, body, approvalGrant, eventSink, cancellation, trustedIdentity));
+                        agentView, config, tools, body, approvalGrant, eventSink, cancellation,
+                        trustedIdentity, context.resolvedTargets()));
         List<Map<String, Object>> steps = new ArrayList<>(bootstrap);
         if (result.steps() != null) steps.addAll(result.steps());
 
@@ -410,6 +436,7 @@ public class RuntimeAgentExecutionService {
         metadata.put("agentConfigVersion", config.getVersionNo());
         metadata.put("runtimeType", "AGENTSCOPE");
         metadata.put("traceId", result.traceId());
+        metadata.putAll(context.timingMetadata());
         if (result.metadata() != null) metadata.putAll(result.metadata());
         response.put("metadata", metadata);
         if (result.uiRequest() != null) response.put("uiRequest", result.uiRequest());
@@ -422,13 +449,42 @@ public class RuntimeAgentExecutionService {
         Map<String, Object> metadata = body.get("metadata") instanceof Map<?, ?> raw
                 ? new LinkedHashMap<>((Map<String, Object>) raw)
                 : new LinkedHashMap<>();
+        // Clients must not forge Control-owned timing fields via body or metadata.
+        body.remove("controlTiming");
+        stripForgedControlKeys(body);
+        stripForgedControlKeys(metadata);
         for (String key : List.of("tenantId", "appId", "externalUserId", "globalUserId",
                 "projectCode", "roles", "pageInstanceId", "origin", "entryType", "replayOfTraceId")) {
             if (!body.containsKey(key) && metadata.containsKey(key)) body.put(key, metadata.get(key));
             if (!metadata.containsKey(key) && body.containsKey(key)) metadata.put(key, body.get(key));
         }
-        if (!metadata.isEmpty()) body.put("metadata", metadata);
+        // Always replace metadata so stripped forged control.* keys cannot linger on the original map.
+        if (metadata.isEmpty()) {
+            body.remove("metadata");
+        } else {
+            body.put("metadata", metadata);
+        }
         return body;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void mergeControlTiming(Map<String, Object> response, TrustedControlTiming controlTiming) {
+        if (response == null || controlTiming == null || controlTiming.isEmpty()) {
+            return;
+        }
+        Object rawMeta = response.get("metadata");
+        Map<String, Object> metadata = rawMeta instanceof Map<?, ?> map
+                ? new LinkedHashMap<>((Map<String, Object>) map)
+                : new LinkedHashMap<>();
+        metadata.putAll(controlTiming.toMetadataEntries());
+        response.put("metadata", metadata);
+    }
+
+    private void stripForgedControlKeys(Map<String, Object> map) {
+        if (map == null || map.isEmpty()) {
+            return;
+        }
+        map.keySet().removeIf(key -> key != null && (key.startsWith("control.") || "controlTiming".equals(key)));
     }
 
     private Map<String, Object> error(String code,

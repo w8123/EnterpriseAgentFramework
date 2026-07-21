@@ -179,6 +179,7 @@
             <el-option label="表单" value="FORM" />
             <el-option label="详情" value="DETAIL" />
             <el-option label="列表" value="TABLE" />
+            <el-option label="列表卡片" value="LIST_CARD" />
             <el-option label="卡片" value="CARD" />
             <el-option label="报告" value="REPORT" />
             <el-option label="自定义" value="CUSTOM" />

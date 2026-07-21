@@ -72,6 +72,10 @@ prototypes/
 
 # ---- Local test and QA output ----
 output/
+.tmp-*
+.local-e2e-logs/
+*.err
+.codex-diagnose-*.mjs
 
 # ---- Root-level local design QA artifacts ----
 /agent-debug-*.png

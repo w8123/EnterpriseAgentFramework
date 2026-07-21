@@ -32,6 +32,7 @@ public class RuntimeInteractionResumeService {
     private final RuntimeCapabilityCatalogClient capabilityClient;
     private final RuntimeGraphSpecExecutor graphSpecExecutor;
     private final ObjectMapper objectMapper;
+    private final RuntimeInteractionExpiryProcessor expiryProcessor;
 
     public Map<String, Object> resume(String sessionId, Map<String, Object> request) {
         return resume(sessionId, request, null);
@@ -60,9 +61,11 @@ public class RuntimeInteractionResumeService {
                     "interaction does not belong to the current session/user", session.getId());
         }
 
-        if (session.getExpiresAt() != null && session.getExpiresAt().isBefore(LocalDateTime.now())) {
-            markStatus(session, EXPIRED, null, null, null);
-            sessionService.writeEvent(session.getId(), EXPIRED, Map.of("reason", "ttl"), ownershipUser(ownership));
+        if (session.getExpiresAt() != null && !session.getExpiresAt().isAfter(LocalDateTime.now())) {
+            if (!expiryProcessor.expireOne(session, LocalDateTime.now())) {
+                return failure("RUNTIME_INTERACTION_CONFLICT",
+                        "interaction session changed while expiry was being reconciled", session.getId());
+            }
             return failure("RUNTIME_INTERACTION_EXPIRED", "interaction session expired: " + session.getId(),
                     session.getId());
         }

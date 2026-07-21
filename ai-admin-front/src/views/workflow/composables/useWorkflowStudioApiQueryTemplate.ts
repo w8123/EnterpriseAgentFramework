@@ -485,7 +485,7 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
       interactionType: 'PRESENT_OUTPUT',
       binding: { sourceKind: 'NONE' },
       title: `${tool.name} 查询结果`,
-      component: 'TABLE',
+      component: 'LIST_CARD',
       fields: [],
       dataExpression: resultAlias,
       outputAlias: displayAlias,
@@ -494,6 +494,9 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
       },
       behavior: { acknowledge: false },
       renderSchema: {
+        version: '1.0',
+        initialVisibleCount: 5,
+        showCount: true,
         apiName: tool.name,
         endpointPath: tool.endpointPath || null,
         responseType: tool.responseType || null,

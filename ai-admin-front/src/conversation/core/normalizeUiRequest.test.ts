@@ -26,6 +26,21 @@ describe('normalizeUiRequest', () => {
     expect(a?.interactionId).toBe(b?.interactionId)
   })
 
+  it('promotes renderSchema into the canonical schema field', () => {
+    const topLevel = normalizeUiRequest({
+      component: 'LIST_CARD',
+      renderSchema: { titleField: 'name' },
+    })
+    const legacyExtension = normalizeUiRequest({
+      component: 'LIST_CARD',
+      extension: { renderSchema: { titleField: 'displayName' } },
+    })
+
+    expect(topLevel?.component).toBe('list_card')
+    expect(topLevel?.schema).toEqual({ titleField: 'name' })
+    expect(legacyExtension?.schema).toEqual({ titleField: 'displayName' })
+  })
+
   it('returns null for invalid raw', () => {
     expect(normalizeUiRequest(null)).toBeNull()
     expect(normalizeUiRequest('x')).toBeNull()

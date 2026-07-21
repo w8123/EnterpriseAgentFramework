@@ -403,7 +403,9 @@ const chat = await createEafChat({
   mount: '#reachai-chat',
   apiBase: reachAi.apiBase,
   agentId: reachAi.agentId,
-  tokenProvider: async () => {
+  position: 'bottom-right',
+  initialOpen: false,
+  tokenProvider: async (tokenContext) => {
     const query = new URLSearchParams({
       projectCode: reachAi.projectCode,
       agentId: reachAi.agentId,
@@ -411,12 +413,18 @@ const chat = await createEafChat({
       route: window.location.pathname,
       origin: window.location.origin
     });
-    const payload = await fetch(`${reachAi.tokenPath}?${query}`).then((res) => res.json());
+    const response = await fetch(`${reachAi.tokenPath}?${query}`, {
+      signal: tokenContext?.signal
+    });
+    if (!response.ok) {
+      throw Object.assign(new Error('ReachAI embed token broker failed'), { status: response.status });
+    }
+    const payload = await response.json();
     const token = payload.data?.token || payload.token;
     if (!token) {
       throw new Error('ReachAI embed token missing; check token broker principal.externalUserId');
     }
-    return token;
+    return { token, expiresIn: payload.data?.expiresIn || payload.expiresIn };
   },
   bridge: pageBridge,
   page: {

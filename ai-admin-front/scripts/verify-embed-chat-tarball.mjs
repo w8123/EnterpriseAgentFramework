@@ -348,6 +348,9 @@ bridge.destroy()
   if (!Array.isArray(payload.bridgeActions) || !payload.bridgeActions.includes('refresh')) {
     throw new Error(`bridgeActions missing refresh: ${JSON.stringify(payload.bridgeActions)}`)
   }
+  if (payload.sdkVersion !== pkg.version) {
+    throw new Error(`session sdkVersion ${payload.sdkVersion} does not match package version ${pkg.version}`)
+  }
 
   await readFile(resolve(pkgRoot, 'style.css'), 'utf8')
   if (!(pkg.exports || {})['./style.css']) {

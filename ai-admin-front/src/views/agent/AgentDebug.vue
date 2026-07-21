@@ -1189,21 +1189,7 @@ onBeforeUnmount(() => {
 
 <style scoped lang="scss">
 .agent-debug-page {
-  /* Shell 品牌光谱 → 共享 ReachAI Prism Token */
-  --reachai-chat-spectrum-anchor: var(--brand-primary);
-  --reachai-chat-spectrum-cool: color-mix(in oklab, var(--brand-primary) 12%, #58dcff);
-  --reachai-chat-spectrum-violet: color-mix(in oklab, var(--brand-primary) 18%, #9687ff);
-  --reachai-chat-spectrum-rose: color-mix(in oklab, var(--brand-primary) 12%, #f5a2d8);
-  --reachai-chat-spectrum-warm: color-mix(in oklab, var(--brand-primary) 10%, #ffc38b);
-  --reachai-chat-atmosphere-art-opacity: 1;
-  --reachai-chat-atmosphere-art-saturation: 1;
-  --reachai-chat-atmosphere-wash-top: rgb(245 248 255 / 0.58);
-  --reachai-chat-atmosphere-wash-bottom: rgb(238 244 255 / 0.32);
-  --reachai-chat-atmosphere-glow-primary: rgb(100 220 255 / 0.10);
-  --reachai-chat-atmosphere-glow-secondary: rgb(143 96 255 / 0.11);
-  --reachai-chat-atmosphere-bottom-tint: transparent;
-  --reachai-chat-atmosphere-theme-wash: linear-gradient(115deg, transparent, transparent);
-  /* 卡片阅读面 / 辉光强度走共享 conversation-tokens，禁止在此重新铺高饱和底色 */
+  /* Shell 只桥接品牌主色；光谱 / 氛围由共享 conversation-tokens 从 primary 派生 */
   --agent-spectrum-anchor: var(--reachai-chat-spectrum-anchor);
   --agent-spectrum-cool: var(--reachai-chat-spectrum-cool);
   --agent-spectrum-violet: var(--reachai-chat-spectrum-violet);
@@ -1232,58 +1218,6 @@ onBeforeUnmount(() => {
   gap: var(--layout-page-gap);
   overflow: hidden;
   padding: 0 var(--layout-content-inline) var(--layout-page-end);
-}
-
-:global(html[data-brand='metro-green']) .agent-debug-page {
-  /* 仅调光谱与氛围；正文阅读层保持共享中性玻璃 */
-  --reachai-chat-spectrum-anchor: color-mix(in oklab, var(--brand-primary) 62%, #67d7b5);
-  --reachai-chat-spectrum-cool: color-mix(in oklab, var(--brand-primary) 22%, #73d7cb);
-  --reachai-chat-spectrum-violet: color-mix(in oklab, var(--brand-primary) 24%, #9bcfc5);
-  --reachai-chat-spectrum-rose: color-mix(in oklab, var(--brand-primary) 14%, #acdcca);
-  --reachai-chat-spectrum-warm: color-mix(in oklab, var(--brand-primary) 12%, #ead9b1);
-  --reachai-chat-atmosphere-art-opacity: 0.56;
-  --reachai-chat-atmosphere-art-saturation: 0.03;
-  --reachai-chat-atmosphere-wash-top: rgb(246 252 250 / 0.86);
-  --reachai-chat-atmosphere-wash-bottom: rgb(231 248 241 / 0.68);
-  --reachai-chat-atmosphere-glow-primary: rgb(74 203 166 / 0.12);
-  --reachai-chat-atmosphere-glow-secondary: rgb(237 202 129 / 0.08);
-  --reachai-chat-atmosphere-bottom-tint: rgb(145 226 203 / 0.1);
-  --reachai-chat-atmosphere-theme-wash: linear-gradient(115deg, rgb(159 226 204 / 0.12), rgb(248 250 239 / 0.06) 50%, rgb(237 213 166 / 0.08));
-  --agent-spectrum-anchor: var(--reachai-chat-spectrum-anchor);
-  --agent-spectrum-cool: var(--reachai-chat-spectrum-cool);
-  --agent-spectrum-violet: var(--reachai-chat-spectrum-violet);
-  --agent-spectrum-rose: var(--reachai-chat-spectrum-rose);
-  --agent-spectrum-warm: var(--reachai-chat-spectrum-warm);
-  --agent-atmosphere-theme-wash: var(--reachai-chat-atmosphere-theme-wash);
-  --agent-atmosphere-wash-top: var(--reachai-chat-atmosphere-wash-top);
-  --agent-atmosphere-wash-bottom: var(--reachai-chat-atmosphere-wash-bottom);
-  --agent-atmosphere-bottom-tint: var(--reachai-chat-atmosphere-bottom-tint);
-}
-
-:global(html[data-brand='solar-gold']) .agent-debug-page {
-  /* 仅调光谱与氛围；正文阅读层保持共享中性玻璃 */
-  --reachai-chat-spectrum-anchor: color-mix(in oklab, var(--brand-primary) 60%, #f1b75c);
-  --reachai-chat-spectrum-cool: color-mix(in oklab, var(--brand-primary) 8%, #c8dde2);
-  --reachai-chat-spectrum-violet: color-mix(in oklab, var(--brand-primary) 10%, #d8c9c2);
-  --reachai-chat-spectrum-rose: color-mix(in oklab, var(--brand-primary) 10%, #efbda5);
-  --reachai-chat-spectrum-warm: color-mix(in oklab, var(--brand-primary) 12%, #f5d58c);
-  --reachai-chat-atmosphere-art-opacity: 0.52;
-  --reachai-chat-atmosphere-art-saturation: 0.02;
-  --reachai-chat-atmosphere-wash-top: rgb(255 252 245 / 0.88);
-  --reachai-chat-atmosphere-wash-bottom: rgb(252 242 220 / 0.7);
-  --reachai-chat-atmosphere-glow-primary: rgb(240 181 83 / 0.12);
-  --reachai-chat-atmosphere-glow-secondary: rgb(239 177 153 / 0.08);
-  --reachai-chat-atmosphere-bottom-tint: rgb(247 211 139 / 0.1);
-  --reachai-chat-atmosphere-theme-wash: linear-gradient(115deg, rgb(247 211 139 / 0.12), rgb(255 248 230 / 0.06) 48%, rgb(239 177 153 / 0.08));
-  --agent-spectrum-anchor: var(--reachai-chat-spectrum-anchor);
-  --agent-spectrum-cool: var(--reachai-chat-spectrum-cool);
-  --agent-spectrum-violet: var(--reachai-chat-spectrum-violet);
-  --agent-spectrum-rose: var(--reachai-chat-spectrum-rose);
-  --agent-spectrum-warm: var(--reachai-chat-spectrum-warm);
-  --agent-atmosphere-theme-wash: var(--reachai-chat-atmosphere-theme-wash);
-  --agent-atmosphere-wash-top: var(--reachai-chat-atmosphere-wash-top);
-  --agent-atmosphere-wash-bottom: var(--reachai-chat-atmosphere-wash-bottom);
-  --agent-atmosphere-bottom-tint: var(--reachai-chat-atmosphere-bottom-tint);
 }
 
 .agent-debug-header {
@@ -1713,16 +1647,10 @@ onBeforeUnmount(() => {
 }
 
 .chat-input {
+  /* 玻璃材质由 ConversationView :deep(.chat-input) 提供；此处只保留布局 */
   flex: 0 0 auto;
   margin: 0;
   padding: var(--reachai-chat-composer-padding, 12px 16px 14px);
-  border-top: 1px solid var(--reachai-chat-glass-border, rgb(255 255 255 / 0.72));
-  background: var(--reachai-chat-glass-composer);
-  box-shadow:
-    var(--reachai-chat-glass-highlight),
-    var(--reachai-chat-glass-shadow-composer);
-  -webkit-backdrop-filter: var(--reachai-chat-glass-blur-composer);
-  backdrop-filter: var(--reachai-chat-glass-blur-composer);
 }
 
 .input-composer {
@@ -1731,13 +1659,6 @@ onBeforeUnmount(() => {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  transition: box-shadow 160ms ease;
-
-  &:focus-within {
-    /* 焦点环落在外层 .chat-input（ConversationView :deep），内层不再叠白块 */
-    background: transparent;
-    box-shadow: none;
-  }
 
   :deep(.el-textarea__inner) {
     min-height: 56px !important;

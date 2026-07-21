@@ -40,22 +40,32 @@ public class ControlAiCodingProjectController {
     private final RuntimeProxyClient runtimeClient;
     private final ControlModelCatalogClient modelCatalogClient;
     private final ControlAiAccessSessionService aiAccessSessionService;
+    private final ControlPageAssistantCatalogService pageAssistantCatalogService;
 
     ControlAiCodingProjectController(CapabilityProjectOnboardingClient capabilityClient,
                                      RuntimeProxyClient runtimeClient,
                                      ControlModelCatalogClient modelCatalogClient) {
-        this(capabilityClient, runtimeClient, modelCatalogClient, null);
+        this(capabilityClient, runtimeClient, modelCatalogClient, null, null);
+    }
+
+    ControlAiCodingProjectController(CapabilityProjectOnboardingClient capabilityClient,
+                                     RuntimeProxyClient runtimeClient,
+                                     ControlModelCatalogClient modelCatalogClient,
+                                     ControlAiAccessSessionService aiAccessSessionService) {
+        this(capabilityClient, runtimeClient, modelCatalogClient, aiAccessSessionService, null);
     }
 
     @Autowired
     public ControlAiCodingProjectController(CapabilityProjectOnboardingClient capabilityClient,
                                             RuntimeProxyClient runtimeClient,
                                             ControlModelCatalogClient modelCatalogClient,
-                                            ControlAiAccessSessionService aiAccessSessionService) {
+                                            ControlAiAccessSessionService aiAccessSessionService,
+                                            ControlPageAssistantCatalogService pageAssistantCatalogService) {
         this.capabilityClient = capabilityClient;
         this.runtimeClient = runtimeClient;
         this.modelCatalogClient = modelCatalogClient;
         this.aiAccessSessionService = aiAccessSessionService;
+        this.pageAssistantCatalogService = pageAssistantCatalogService;
     }
 
     @GetMapping("/manifest")
@@ -104,6 +114,16 @@ public class ControlAiCodingProjectController {
             String root = baseUrl + "/api/ai-coding/projects/" + projectId + "/page-assistant";
             String sessionId = "page-assistant-" + projectId
                     + (StringUtils.hasText(pageKey) ? "-" + pageKey.trim() : "");
+            if (aiAccessSessionService != null) {
+                aiAccessSessionService.openPageAssistantSession(
+                        projectId,
+                        stringValue(project.get("projectCode")),
+                        toolName,
+                        sessionId,
+                        pageKey,
+                        routePattern,
+                        actionKeys);
+            }
             return ResponseEntity.ok(pageAssistantManifestBody(project, root, sessionId, pageKey, routePattern));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
@@ -301,15 +321,20 @@ public class ControlAiCodingProjectController {
             @RequestBody(required = false) ControlAiAssistProjectController.PageAssistantSessionRequest request) {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            return ResponseEntity.ok(pageAssistantSessionView(
-                    project,
+            if (aiAccessSessionService != null) {
+                return ResponseEntity.ok(aiAccessSessionService.openPageAssistantSession(
+                        projectId,
+                        stringValue(project.get("projectCode")),
+                        request == null ? null : request.toolName(),
+                        null,
+                        request == null ? null : request.pageKey(),
+                        request == null ? null : request.routePattern(),
+                        request == null ? List.of() : request.actionKeys()));
+            }
+            return ResponseEntity.ok(pageAssistantSessionView(project,
                     request == null ? null : request.toolName(),
                     request == null ? null : request.pageKey(),
-                    request == null ? null : request.routePattern(),
-                    "OPEN",
-                    null,
-                    null,
-                    null));
+                    request == null ? null : request.routePattern(), "OPEN", null, null, null));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }
@@ -321,6 +346,10 @@ public class ControlAiCodingProjectController {
             @RequestParam(required = false) String pageKey) {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
+            if (aiAccessSessionService != null) {
+                return ResponseEntity.ok(aiAccessSessionService.latestPageAssistantSession(
+                        projectId, stringValue(project.get("projectCode")), pageKey));
+            }
             return ResponseEntity.ok(pageAssistantSessionView(project, null, pageKey, null, "OPEN", null, null, null));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
@@ -333,6 +362,10 @@ public class ControlAiCodingProjectController {
             @RequestParam(required = false) String pageKey) {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
+            if (aiAccessSessionService != null) {
+                return ResponseEntity.ok(aiAccessSessionService.listPageAssistantSessions(
+                        projectId, stringValue(project.get("projectCode")), pageKey));
+            }
             var session = pageAssistantSessionView(project, null, pageKey, null, "OPEN", null, null, null);
             return ResponseEntity.ok(List.of(toPageAssistantSessionSummary(session, 0)));
         } catch (FeignException.NotFound ex) {
@@ -346,6 +379,20 @@ public class ControlAiCodingProjectController {
             @PathVariable String sessionId,
             @PathVariable String stepKey,
             @RequestBody(required = false) Map<String, ?> request) {
+        if (aiAccessSessionService != null) {
+            try {
+                Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
+                return ResponseEntity.ok(aiAccessSessionService.reportPageAssistantStep(
+                        projectId,
+                        stringValue(project.get("projectCode")),
+                        sessionId,
+                        stepKey,
+                        request,
+                        "ai-coding"));
+            } catch (FeignException.NotFound ex) {
+                return ResponseEntity.notFound().build();
+            }
+        }
         return accessSessionWithReportedStep(projectId, sessionId, stepKey, request, "PAGE_ASSISTANT");
     }
 
@@ -356,15 +403,18 @@ public class ControlAiCodingProjectController {
             @RequestBody(required = false) ControlAiAssistProjectController.PageAssistantTargetRequest request) {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            return ResponseEntity.ok(pageAssistantSessionView(
-                    project,
-                    null,
+            if (aiAccessSessionService != null) {
+                return ResponseEntity.ok(aiAccessSessionService.bindPageAssistantTarget(
+                        projectId,
+                        stringValue(project.get("projectCode")),
+                        sessionId,
+                        request == null ? null : request.pageKey(),
+                        request == null ? null : request.routePattern(),
+                        request == null ? List.of() : request.actionKeys()));
+            }
+            return ResponseEntity.ok(pageAssistantSessionView(project, null,
                     request == null ? null : request.pageKey(),
-                    request == null ? null : request.routePattern(),
-                    "OPEN",
-                    sessionId,
-                    null,
-                    null));
+                    request == null ? null : request.routePattern(), "OPEN", sessionId, null, null));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }
@@ -377,19 +427,28 @@ public class ControlAiCodingProjectController {
             @RequestBody(required = false) ControlAiAssistProjectController.PageAssistantCatalogSyncRequest request) {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            int actionCount = request == null || request.actions() == null ? 0 : request.actions().size();
-            var session = pageAssistantSessionView(project, null,
-                    request == null ? null : request.pageKey(),
-                    request == null ? null : request.routePattern(),
-                    "PASS",
-                    sessionId,
-                    null,
-                    null);
+            String projectCode = stringValue(project.get("projectCode"));
+            ControlPageAssistantCatalogService.CatalogRegistration registration =
+                    pageAssistantCatalogService == null ? null : pageAssistantCatalogService.register(projectCode, request);
+            List<String> actionKeys = registration == null
+                    ? request == null || request.actions() == null
+                            ? List.of()
+                            : request.actions().stream()
+                                    .map(ControlAiAssistProjectController.PageAssistantCatalogActionRequest::actionKey)
+                                    .toList()
+                    : registration.actionKeys();
+            var session = aiAccessSessionService == null
+                    ? pageAssistantSessionView(project, null,
+                            request == null ? null : request.pageKey(),
+                            request == null ? null : request.routePattern(),
+                            "PASS", sessionId, null, null)
+                    : aiAccessSessionService.applyPageAssistantCatalogSync(
+                            projectId, projectCode, sessionId, request, actionKeys);
             return ResponseEntity.ok(new ControlAiAssistProjectController.PageAssistantCatalogSyncResponse(
-                    stringValue(project.get("projectCode")),
-                    stringValue(project.get("projectCode")),
+                    projectCode,
+                    projectCode,
                     request == null ? null : request.pageKey(),
-                    actionCount,
+                    actionKeys.size(),
                     session));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
@@ -406,9 +465,19 @@ public class ControlAiCodingProjectController {
             String pageKey = stringValue(request == null ? null : request.get("pageKey"));
             String routePattern = stringValue(request == null ? null : request.get("routePattern"));
             var check = pageAssistantCheck(project, pageKey, routePattern);
+            var session = aiAccessSessionService == null
+                    ? pageAssistantSessionView(project, null, pageKey, routePattern,
+                            check.overallStatus(), sessionId, null, null)
+                    : aiAccessSessionService.bindPageAssistantTarget(
+                            projectId,
+                            stringValue(project.get("projectCode")),
+                            sessionId,
+                            pageKey,
+                            routePattern,
+                            List.of());
             return ResponseEntity.ok(new ControlAiAssistProjectController.PageAssistantCheckRunResponse(
                     check,
-                    pageAssistantSessionView(project, null, pageKey, routePattern, check.overallStatus(), sessionId, null, null)));
+                    session));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }
@@ -420,26 +489,40 @@ public class ControlAiCodingProjectController {
             @RequestBody(required = false) ControlAiAssistProjectController.PageAssistantPageRegisterRequest request) {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            var session = pageAssistantSessionView(project,
-                    request == null ? null : request.toolName(),
-                    request == null ? null : request.pageKey(),
-                    request == null ? null : request.routePattern(),
-                    "PASS",
-                    request == null ? null : request.sessionId(),
-                    null,
-                    null);
-            List<String> registeredActions = request == null || request.actions() == null
-                    ? List.of()
-                    : request.actions().stream().map(ControlAiAssistProjectController.PageAssistantCatalogActionRequest::actionKey).toList();
+            String projectCode = stringValue(project.get("projectCode"));
+            ControlPageAssistantCatalogService.CatalogRegistration registration =
+                    pageAssistantCatalogService == null ? null : pageAssistantCatalogService.register(projectCode, request);
+            List<String> registeredActions = registration == null
+                    ? request == null || request.actions() == null
+                            ? List.of()
+                            : request.actions().stream()
+                                    .map(ControlAiAssistProjectController.PageAssistantCatalogActionRequest::actionKey)
+                                    .toList()
+                    : registration.actionKeys();
+            String pageKey = registration == null ? request == null ? null : request.pageKey() : registration.pageKey();
+            String routePattern = registration == null
+                    ? request == null ? null : request.routePattern()
+                    : registration.routePattern();
+            var session = aiAccessSessionService == null
+                    ? pageAssistantSessionView(project,
+                            request == null ? null : request.toolName(),
+                            pageKey,
+                            routePattern,
+                            "PASS",
+                            request == null ? null : request.sessionId(),
+                            null,
+                            null)
+                    : aiAccessSessionService.applyPageAssistantRegistration(
+                            projectId, projectCode, request, registeredActions);
             return ResponseEntity.ok(new ControlAiAssistProjectController.PageAssistantPageRegisterResponse(
                     session,
-                    pageAssistantCheck(project, request == null ? null : request.pageKey(), request == null ? null : request.routePattern()),
+                    pageAssistantCheck(project, pageKey, routePattern),
                     new ControlAiAssistProjectController.RegisteredPage(
-                            stringValue(project.get("projectCode")),
-                            stringValue(project.get("projectCode")),
-                            request == null ? null : request.pageKey(),
-                            request == null ? null : request.pageName(),
-                            request == null ? null : request.routePattern(),
+                            projectCode,
+                            registration == null ? projectCode : registration.appId(),
+                            pageKey,
+                            registration == null ? request == null ? null : request.pageName() : registration.pageName(),
+                            routePattern,
                             request == null ? null : request.framework(),
                             request == null ? null : request.bridgeGlobal()),
                     registeredActions,
@@ -844,6 +927,21 @@ public class ControlAiCodingProjectController {
             String status) {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
+            if (aiAccessSessionService != null) {
+                Map<String, Object> report = new LinkedHashMap<>();
+                if (request != null) report.putAll(request);
+                report.put("status", "OPEN".equals(status) ? "TODO" : status);
+                report.putIfAbsent("message", "PASS".equals(status)
+                        ? "Workflow AI Coding draft reported."
+                        : "Workflow AI Coding draft reset.");
+                return ResponseEntity.ok(aiAccessSessionService.reportPageAssistantStep(
+                        projectId,
+                        stringValue(project.get("projectCode")),
+                        sessionId,
+                        "workflow-ai-coding-draft",
+                        report,
+                        "workflow-ai-coding"));
+            }
             return ResponseEntity.ok(pageAssistantSessionView(
                     project,
                     null,

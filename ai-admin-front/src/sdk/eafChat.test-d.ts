@@ -1,9 +1,15 @@
 import {
   buildEafChatSessionPayload,
+  createEafChat,
   createEafPageBridge,
   resolveEafChatEmbedApiRoot,
   resolveEafChatPlatformBase,
+  EAF_CHAT_THEME_PRESETS,
+  resolveEafChatThemePrimary,
   type EafChatOptions,
+  type EafChatAuthState,
+  type EafChatTokenProviderContext,
+  type EafChatThemePreset,
 } from './index'
 
 const bridge = createEafPageBridge({
@@ -30,10 +36,29 @@ const platformBase: string = resolveEafChatPlatformBase('https://gateway.example
 const splitGatewayOptions: EafChatOptions = {
   agentId: 'orders-page-copilot',
   mount: document.createElement('div'),
-  tokenProvider: () => 'token',
+  tokenTimeoutMs: 10_000,
+  tokenProvider: (context?: EafChatTokenProviderContext) => {
+    const signal: AbortSignal | undefined = context?.signal
+    void signal
+    return { token: 'token', expiresIn: 600 }
+  },
+  onStateChange: (state: EafChatAuthState) => {
+    const status: 'loading' | 'ready' | 'error' = state.status
+    void status
+  },
   apiBase: 'https://gateway.example.com',
   embedPathPrefix: '/api/reachai/embed',
+  theme: {
+    preset: 'metro-green',
+    brandName: 'ReachAI',
+  },
 }
+
+const preset: EafChatThemePreset = 'solar-gold'
+const resolved = resolveEafChatThemePrimary({ preset: 'metro-green' })
+const metroPrimary: string = EAF_CHAT_THEME_PRESETS['metro-green'].primary
+const chatPromise = createEafChat(splitGatewayOptions)
+void chatPromise.then((chat) => chat.retry())
 
 void pageKey
 void pageInstanceId
@@ -45,3 +70,7 @@ void proxyEmbedApiRoot
 void splitEmbedApiRoot
 void platformBase
 void splitGatewayOptions
+void preset
+void resolved
+void metroPrimary
+void chatPromise

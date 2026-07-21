@@ -3,6 +3,7 @@ package com.enterprise.ai.model.service;
 import com.enterprise.ai.common.exception.BizException;
 import com.enterprise.ai.model.instance.ModelInstanceEntity;
 import com.enterprise.ai.model.instance.ModelInstanceRuntime;
+import com.enterprise.ai.model.instance.ModelInstanceRuntimeCache;
 import com.enterprise.ai.model.instance.ModelInstanceService;
 import com.enterprise.ai.model.instance.ModelType;
 import com.enterprise.ai.model.runtime.OpenAiCompatibleRuntimeClient;
@@ -26,13 +27,15 @@ class ModelRoutingServiceTest {
 
     private ModelInstanceService modelInstanceService;
     private OpenAiCompatibleRuntimeClient client;
+    private ModelInstanceRuntimeCache runtimeCache;
     private ModelRoutingService routingService;
 
     @BeforeEach
     void setUp() {
         modelInstanceService = mock(ModelInstanceService.class);
         client = mock(OpenAiCompatibleRuntimeClient.class);
-        routingService = new ModelRoutingService(modelInstanceService, client);
+        runtimeCache = new ModelInstanceRuntimeCache(ModelInstanceRuntimeCache.DEFAULT_TTL_MS);
+        routingService = new ModelRoutingService(modelInstanceService, runtimeCache, client);
     }
 
     @Test
@@ -82,6 +85,30 @@ class ModelRoutingServiceTest {
 
         assertEquals("ok", actual.getContent());
         verify(client).chat(eq(runtime), any());
+    }
+
+    @Test
+    void reusesCachedRuntimeAfterFirstResolution() {
+        ModelInstanceRuntime runtime = stubRuntime("llm-1", ModelType.LLM);
+        when(client.chat(eq(runtime), any())).thenReturn(ChatResponse.builder().content("ok").build());
+        ChatRequest request = ChatRequest.builder()
+                .modelInstanceId("llm-1")
+                .messages(List.of(ChatRequest.ChatMessage.builder().role("user").content("hi").build()))
+                .build();
+
+        routingService.chat(request);
+        routingService.chat(request);
+
+        verify(modelInstanceService).getActiveEntity("llm-1");
+        verify(modelInstanceService).toRuntime(any(ModelInstanceEntity.class));
+        assertEquals(1L, runtimeCache.hitCount());
+    }
+
+    @Test
+    void runtimeCacheDefaultTtlIsShortAndHardCappedForMultiInstanceWindow() {
+        assertEquals(ModelInstanceRuntimeCache.DEFAULT_TTL_MS, runtimeCache.ttlMs());
+        assertEquals(ModelInstanceRuntimeCache.MAX_TTL_MS, ModelInstanceRuntimeCache.clampTtl(120_000L));
+        assertTrue(ModelInstanceRuntimeCache.DEFAULT_TTL_MS <= 5_000L);
     }
 
     private ModelInstanceRuntime stubRuntime(String id, ModelType type) {

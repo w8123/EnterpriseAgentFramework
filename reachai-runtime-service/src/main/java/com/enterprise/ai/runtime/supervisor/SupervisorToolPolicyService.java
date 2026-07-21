@@ -29,7 +29,7 @@ public class SupervisorToolPolicyService {
     private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
     };
     private static final Pattern EXPLICIT_PAGE_INTENT = Pattern.compile(
-            "(?i)(打开|跳转|进入|切换到|导航到|在.{0,20}(页面|界面)|页面上|界面上|"
+            "(?i)(打开|跳转|进入|切换到|导航到|在.{0,20}(页面|界面)|操作.{0,20}(页面|界面)|页面上|界面上|"
                     + "open\\s+(the\\s+)?page|navigate\\s+to|go\\s+to|on\\s+the\\s+page)");
 
     private final SupervisorExecutionTraceService traceService;
@@ -73,8 +73,8 @@ public class SupervisorToolPolicyService {
                 || "IRREVERSIBLE".equals(riskLevel)
                 || Boolean.TRUE.equals(policy.get("confirmPageActions")) && "PAGE_ACTION".equals(riskLevel);
         if (confirmationRequired && !approved(permissionKey, tool.getToolName(), args, approvalGrant)) {
-            String reason = "User confirmation is required before executing " + riskLevel
-                    + " Workflow tool " + firstText(tool.getToolName(), "");
+            String reason = "执行该 " + riskLevel + " 操作前需要用户确认："
+                    + firstText(tool.getToolName(), "Workflow Tool");
             ApprovalRequest approval = approvalService.create(trace, agent, config, tool, input, args, reason);
             PolicyDecision required = new PolicyDecision(
                     false, true, "REQUIRE_CONFIRMATION", reason, approval.interactionId(), approval.uiRequest());

@@ -65,6 +65,7 @@ class SupervisorApprovalInteractionServiceTest {
         assertFalse(resumed.rejected());
         assertEquals("update_team", resumed.grant().toolName());
         assertEquals(args, resumed.grant().approvedArgs());
+        assertEquals("trace-1", resumed.originalInput().get("traceId"));
         assertEquals("SUBMITTED", row.getStatus());
     }
 

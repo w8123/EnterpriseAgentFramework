@@ -1035,6 +1035,7 @@ public class CapabilityScanProjectCatalogService {
     private void applyScanToolToGlobalTool(ScanProjectEntity project,
                                            ScanProjectToolEntity scanTool,
                                            ToolDefinitionEntity globalTool) {
+        String sdkCapabilityName = sdkCapabilityName(project, scanTool);
         globalTool.setName(scanTool.getName());
         globalTool.setKind("TOOL");
         globalTool.setDescription(scanTool.getDescription());
@@ -1052,15 +1053,50 @@ public class CapabilityScanProjectCatalogService {
         globalTool.setProjectId(project.getId());
         globalTool.setProjectCode(project.getProjectCode());
         globalTool.setVisibility(StringUtils.hasText(project.getVisibility()) ? project.getVisibility() : "PRIVATE");
-        globalTool.setQualifiedName(project.getProjectCode() + ":" + scanTool.getName());
+        globalTool.setQualifiedName(project.getProjectCode() + ":"
+                + (sdkCapabilityName == null ? scanTool.getName() : sdkCapabilityName));
         globalTool.setModuleId(scanTool.getModuleId());
         globalTool.setEnabled(Boolean.TRUE.equals(scanTool.getEnabled()));
         globalTool.setAgentVisible(Boolean.TRUE.equals(scanTool.getAgentVisible()));
         globalTool.setLightweightEnabled(Boolean.TRUE.equals(scanTool.getLightweightEnabled()));
-        globalTool.setSideEffect("WRITE");
+        globalTool.setSideEffect(sdkCapabilityName == null
+                ? "WRITE"
+                : sdkSideEffect(scanTool.getCapabilityMetadataJson()));
         globalTool.setDraft(false);
         globalTool.setSkillKind(null);
         globalTool.setSpecJson(null);
+    }
+
+    private String sdkCapabilityName(ScanProjectEntity project, ScanProjectToolEntity scanTool) {
+        if (project == null || scanTool == null || !StringUtils.hasText(project.getProjectCode())
+                || !StringUtils.hasText(scanTool.getSourceLocation())) {
+            return null;
+        }
+        String prefix = "sdk:" + project.getProjectCode().trim() + ":";
+        String sourceLocation = scanTool.getSourceLocation().trim();
+        if (!sourceLocation.startsWith(prefix) || sourceLocation.length() <= prefix.length()) {
+            return null;
+        }
+        return sourceLocation.substring(prefix.length()).trim();
+    }
+
+    private String sdkSideEffect(String metadataJson) {
+        if (StringUtils.hasText(metadataJson)) {
+            try {
+                Object raw = objectMapper.readTree(metadataJson).path("sideEffect").textValue();
+                if (raw != null) {
+                    return switch (String.valueOf(raw).trim().toUpperCase(Locale.ROOT)) {
+                        case "READ", "READ_ONLY", "NONE" -> "READ_ONLY";
+                        case "IDEMPOTENT_WRITE" -> "IDEMPOTENT_WRITE";
+                        case "IRREVERSIBLE" -> "IRREVERSIBLE";
+                        default -> "WRITE";
+                    };
+                }
+            } catch (Exception ignored) {
+                // Invalid metadata stays fail-safe as WRITE.
+            }
+        }
+        return "WRITE";
     }
 
     private java.util.Optional<ScanProjectEntity> findByName(String name) {

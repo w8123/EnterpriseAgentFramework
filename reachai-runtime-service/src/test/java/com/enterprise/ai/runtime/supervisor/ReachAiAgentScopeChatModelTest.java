@@ -12,6 +12,7 @@ import com.enterprise.ai.runtime.client.model.RuntimeModelStreamHttpClient.ToolC
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
+import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.message.ToolUseBlock;
 import org.junit.jupiter.api.Test;
 
@@ -543,7 +544,8 @@ class ReachAiAgentScopeChatModelTest {
                 publicDeltas::add);
 
         var messages = List.of(Msg.builder().name("user").role(MsgRole.USER).textContent("q").build());
-        model.stream(messages, List.of(), null).collectList().block();
+        List<io.agentscope.core.model.ChatResponse> responses =
+                model.stream(messages, List.of(), null).collectList().block();
         assertTrue(publicDeltas.isEmpty(), "INTERNAL content must never batch-flush as public delta");
         assertFalse(model.didStreamContent());
         assertEquals(1, streamCalls.get());
@@ -602,7 +604,8 @@ class ReachAiAgentScopeChatModelTest {
                 phase);
 
         var messages = List.of(Msg.builder().name("user").role(MsgRole.USER).textContent("q").build());
-        model.stream(messages, List.of(), null).collectList().block();
+        List<io.agentscope.core.model.ChatResponse> responses =
+                model.stream(messages, List.of(), null).collectList().block();
 
         assertEquals(List.of("Hel", "lo"), publicDeltas);
         assertTrue(model.didStreamContent());
@@ -611,6 +614,14 @@ class ReachAiAgentScopeChatModelTest {
         assertEquals(Boolean.TRUE, model.safeStreamMetadata().get("tokenStreaming"));
         assertEquals("token_stream", model.safeStreamMetadata().get("streamMode"));
         assertFalse(publicDeltas.contains("secret-chain"));
+        List<TextBlock> textBlocks = responses.stream()
+                .flatMap(response -> response.getContent().stream())
+                .filter(TextBlock.class::isInstance)
+                .map(TextBlock.class::cast)
+                .toList();
+        assertEquals(1, textBlocks.size(), "stream deltas must not become AgentScope TextBlocks");
+        assertEquals("Hello", textBlocks.get(0).getText());
+        assertEquals("Hello", textBlocks.stream().map(TextBlock::getText).reduce("", String::concat));
         assertNotNull(completedAt.get());
         assertFalse(publicDeltaAts.isEmpty());
         assertTrue(publicDeltaAts.get(0) < completedAt.get(),

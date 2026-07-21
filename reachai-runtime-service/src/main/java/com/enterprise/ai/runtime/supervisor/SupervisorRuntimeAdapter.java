@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.supervisor;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
+import com.enterprise.ai.runtime.agent.RuntimeResolvedWorkflowTarget;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 
@@ -30,11 +31,24 @@ public interface SupervisorRuntimeAdapter {
                              PolicyApprovalGrant approvalGrant,
                              SupervisorEventSink eventSink,
                              RuntimeAgentExecutionCancellation cancellation,
-                             WorkflowExecutionIdentity identity) {
+                             WorkflowExecutionIdentity identity,
+                             List<RuntimeResolvedWorkflowTarget> resolvedTargets) {
 
         public SupervisorRequest {
             eventSink = eventSink == null ? SupervisorEventSink.NOOP : eventSink;
             cancellation = cancellation == null ? RuntimeAgentExecutionCancellation.NOOP : cancellation;
+            resolvedTargets = resolvedTargets == null ? List.of() : List.copyOf(resolvedTargets);
+        }
+
+        public SupervisorRequest(RuntimeAgentView agent,
+                                 RuntimeAgentConfigVersionEntity config,
+                                 List<RuntimeAgentWorkflowToolEntity> workflowTools,
+                                 Map<String, Object> input,
+                                 PolicyApprovalGrant approvalGrant,
+                                 SupervisorEventSink eventSink,
+                                 RuntimeAgentExecutionCancellation cancellation,
+                                 WorkflowExecutionIdentity identity) {
+            this(agent, config, workflowTools, input, approvalGrant, eventSink, cancellation, identity, List.of());
         }
 
         public SupervisorRequest(RuntimeAgentView agent,
@@ -44,7 +58,7 @@ public interface SupervisorRuntimeAdapter {
                                  PolicyApprovalGrant approvalGrant,
                                  SupervisorEventSink eventSink,
                                  RuntimeAgentExecutionCancellation cancellation) {
-            this(agent, config, workflowTools, input, approvalGrant, eventSink, cancellation, null);
+            this(agent, config, workflowTools, input, approvalGrant, eventSink, cancellation, null, List.of());
         }
 
         public SupervisorRequest(RuntimeAgentView agent,
@@ -54,7 +68,7 @@ public interface SupervisorRuntimeAdapter {
                                  PolicyApprovalGrant approvalGrant,
                                  SupervisorEventSink eventSink) {
             this(agent, config, workflowTools, input, approvalGrant, eventSink,
-                    RuntimeAgentExecutionCancellation.NOOP, null);
+                    RuntimeAgentExecutionCancellation.NOOP, null, List.of());
         }
 
         public SupervisorRequest(RuntimeAgentView agent,
@@ -63,7 +77,7 @@ public interface SupervisorRuntimeAdapter {
                                  Map<String, Object> input,
                                  PolicyApprovalGrant approvalGrant) {
             this(agent, config, workflowTools, input, approvalGrant, SupervisorEventSink.NOOP,
-                    RuntimeAgentExecutionCancellation.NOOP, null);
+                    RuntimeAgentExecutionCancellation.NOOP, null, List.of());
         }
 
         public SupervisorRequest(RuntimeAgentView agent,
@@ -71,7 +85,7 @@ public interface SupervisorRuntimeAdapter {
                                  List<RuntimeAgentWorkflowToolEntity> workflowTools,
                                  Map<String, Object> input) {
             this(agent, config, workflowTools, input, null, SupervisorEventSink.NOOP,
-                    RuntimeAgentExecutionCancellation.NOOP, null);
+                    RuntimeAgentExecutionCancellation.NOOP, null, List.of());
         }
     }
 

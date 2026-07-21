@@ -120,6 +120,7 @@ function pushUnique(chunk) {
 
 const pageBridge = parse(resolve(sdkDir, 'eafPageBridge.ts'))
 const embedSession = parse(resolve(sdkDir, 'embedSession.ts'))
+const themePresets = parse(resolve(sdkDir, 'themePresets.ts'))
 const eafChat = parse(resolve(sdkDir, 'eafChat.ts'))
 
 for (const chunk of extractTypes(pageBridge)) pushUnique(chunk)
@@ -127,6 +128,20 @@ for (const chunk of extractFunctions(pageBridge)) pushUnique(chunk)
 
 for (const chunk of extractTypes(embedSession)) pushUnique(chunk)
 for (const chunk of extractFunctions(embedSession)) pushUnique(chunk)
+
+for (const chunk of extractTypes(themePresets)) pushUnique(chunk)
+for (const chunk of extractFunctions(themePresets)) pushUnique(chunk)
+// Ambient const for preset table — keep shape stable for consumers.
+pushUnique(`export declare const EAF_CHAT_THEME_PRESETS: {
+  readonly 'tech-purple': { readonly primary: "#6366f1"; readonly rgb: "99 102 241"; };
+  readonly 'metro-green': { readonly primary: "#0b7a59"; readonly rgb: "11 122 89"; };
+  readonly 'aurora-cyan': { readonly primary: "#0891b2"; readonly rgb: "8 145 178"; };
+  readonly 'nebula-violet': { readonly primary: "#7c3aed"; readonly rgb: "124 58 237"; };
+  readonly 'coral-rose': { readonly primary: "#db2777"; readonly rgb: "219 39 119"; };
+  readonly 'solar-gold': { readonly primary: "#b45309"; readonly rgb: "180 83 9"; };
+  readonly 'deep-ocean': { readonly primary: "#1d4ed8"; readonly rgb: "29 78 216"; };
+};`)
+pushUnique('export declare const EAF_CHAT_DEFAULT_THEME_PRESET: EafChatThemePreset;')
 
 for (const chunk of extractTypes(eafChat)) pushUnique(chunk)
 for (const chunk of extractFunctions(eafChat, { skipNames: new Set(['buildEafChatSessionPayload']) })) {
@@ -154,6 +169,14 @@ const required = [
   'resolveEafChatEmbedApiRoot',
   'resolveEafChatPlatformBase',
   'createEafChat(',
+  'EafChatTokenProviderContext',
+  'EafChatAuthState',
+  'tokenTimeoutMs?: number',
+  'retry(): Promise<void>',
+  'EafChatThemePreset',
+  'resolveEafChatThemePrimary',
+  "preset?: EafChatThemePreset",
+  'EAF_CHAT_THEME_PRESETS',
 ]
 for (const token of required) {
   if (!body.includes(token)) {

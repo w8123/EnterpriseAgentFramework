@@ -610,6 +610,31 @@ class CapabilityScanProjectCatalogServiceTest {
     }
 
     @Test
+    void promotesSdkCapabilityWithDeclaredQualifiedNameAndReadRisk() {
+        ScanProjectEntity project = project();
+        ScanProjectToolEntity scanTool = tool(11L, "POST", "/reachai/capabilities/qmssmp.team.search/invoke",
+                "查询班组信息", null, null);
+        scanTool.setProjectId(7L);
+        scanTool.setName("orders_qmssmp_team_search");
+        scanTool.setSourceLocation("sdk:orders:qmssmp.team.search");
+        scanTool.setCapabilityMetadataJson("{\"sideEffect\":\"READ\"}");
+        AtomicReference<ToolDefinitionEntity> inserted = new AtomicReference<>();
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        when(scanProjectToolMapper.selectOne(any())).thenReturn(scanTool);
+        when(toolDefinitionMapper.insert(any())).thenAnswer(invocation -> {
+            ToolDefinitionEntity entity = invocation.getArgument(0);
+            entity.setId(502L);
+            inserted.set(entity);
+            return 1;
+        });
+
+        service.promoteTool(7L, 11L);
+
+        assertEquals("orders:qmssmp.team.search", inserted.get().getQualifiedName());
+        assertEquals("READ_ONLY", inserted.get().getSideEffect());
+    }
+
+    @Test
     void pushesScanProjectToolFieldsToLinkedGlobalTool() {
         ScanProjectEntity project = project();
         ScanProjectToolEntity scanTool = tool(11L, "POST", "/orders", "Create order", "AI", 501L);

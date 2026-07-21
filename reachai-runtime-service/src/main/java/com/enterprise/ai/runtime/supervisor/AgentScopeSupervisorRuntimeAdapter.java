@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.supervisor;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
+import com.enterprise.ai.runtime.agent.RuntimeResolvedWorkflowTarget;
 import com.enterprise.ai.runtime.chat.RuntimeChatMemoryMessage;
 import com.enterprise.ai.runtime.chat.RuntimeChatMemoryStore;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
@@ -52,7 +53,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -68,6 +68,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
     private static final Logger log = LoggerFactory.getLogger(AgentScopeSupervisorRuntimeAdapter.class);
     private static final String PLAN_TOOL = "record_supervisor_plan";
     private static final String FINAL_ANSWER_TOOL = "begin_final_answer";
+    private static final int CONTINUATION_SCHEMA_VERSION = 2;
     private static final String FINAL_PASS_INSTRUCTION =
             "Final answer phase is active. Produce the complete user-facing answer in plain text only. "
                     + "Do not call any tool. Do not reveal internal planning, tool arguments, or reasoning.";
@@ -89,9 +90,13 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         RuntimeAgentConfigVersionEntity config = request.config();
         Map<String, Object> input = request.input() == null ? Map.of() : request.input();
         RuntimeAgentExecutionCancellation cancellation = request.cancellation();
+        long traceBeginStart = System.nanoTime();
         TraceHandle trace = traceService.beginOrResume(agent, config, request.workflowTools(), input,
                 resolveTrustedIdentity(request));
-        RunState state = new RunState(request, trace);
+        long traceBeginMs = Math.max(0L, (System.nanoTime() - traceBeginStart) / 1_000_000L);
+        List<WorkflowTarget> resolvedTargets = resolveTargetsOnce(request);
+        RunState state = new RunState(request, trace, resolvedTargets);
+        state.traceBeginMs = traceBeginMs;
         try {
             cancellation.throwIfCancelled();
             Toolkit toolkit = new Toolkit(ToolkitConfig.builder()
@@ -99,9 +104,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     .build());
             toolkit.registerAgentTool(planTool(state));
             toolkit.registerAgentTool(finalAnswerTool(state));
-            for (RuntimeAgentWorkflowToolEntity tool : request.workflowTools()) {
-                WorkflowTarget target = resolveTarget(tool);
-                toolkit.registerAgentTool(workflowTool(state, tool, target));
+            for (WorkflowTarget target : state.targets()) {
+                toolkit.registerAgentTool(workflowTool(state, target.tool(), target));
             }
 
             SupervisorAnswerPhase answerPhase = state.answerPhase;
@@ -149,8 +153,12 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         .block(Duration.ofMillis(config.getTotalTimeoutMs()));
                 cancellation.throwIfCancelled();
                 String answer = response == null ? null : response.getTextContent();
+                boolean directTerminal = isDirectTerminalResponse(state, answer, model);
                 if (state.confirmationPending()) {
                     // interaction waiting：不强制最终回答阶段
+                } else if (directTerminal) {
+                    // 无 Workflow / 无 Plan 的 terminal 正文：一次模型请求即可，禁止 forcePublicFinalPass
+                    answer = acceptDirectTerminalAnswer(model, state, answer);
                 } else if (!model.didStreamContent()) {
                     // 模型未进入 PUBLIC_FINAL：不得公开 INTERNAL 文本；确定性补救一次 no-tool final pass
                     answer = forcePublicFinalPass(model, state, answer, cancellation);
@@ -166,10 +174,6 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     return finish(state, false, "SUPERVISOR_EMPTY_RESPONSE",
                             "Supervisor returned no final answer", null);
                 }
-                if (state.planCount.get() == 0 && state.workflowCallCount.get() == 0) {
-                    // 仅审计字段：不得伪装成 AgentScope 主动规划 / 实时 supervisor.step
-                    state.markDirectDecision();
-                }
                 if (!state.confirmationPending() && StringUtils.hasText(answer)) {
                     memoryStore.append(state.sessionId(), state.userMessage(), answer);
                 }
@@ -178,13 +182,20 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     responseMeta.putAll(response.getMetadata());
                 }
                 responseMeta.putAll(model.safeStreamMetadata());
+                responseMeta.putAll(model.safeRoundDiagnostics());
                 responseMeta.put("contentStreamed", model.didStreamContent());
                 responseMeta.put("answerPhase", answerPhase.get().name());
-                state.completePhase("final-answer", "final_answer",
-                        state.forcedFinalAnswer || model.usedSyncFallback()
-                                ? "runtime_fallback"
-                                : "agentscope_tool",
-                        "生成最终回答", "最终回答已生成");
+                responseMeta.put("modelRoundCount", model.modelRoundCount());
+                if (directTerminal) {
+                    responseMeta.put("decisionMode", "DIRECT");
+                    // DIRECT: no supervisor.step / forced final_answer phase event
+                } else {
+                    state.completePhase("final-answer", "final_answer",
+                            state.forcedFinalAnswer || model.usedSyncFallback()
+                                    ? "runtime_fallback"
+                                    : "agentscope_tool",
+                            "生成最终回答", "最终回答已生成");
+                }
                 answerPhase.markCompleted();
                 return finish(state, true, "SUPERVISOR_COMPLETED",
                         firstText(answer, ""), responseMeta);
@@ -238,11 +249,19 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         if (!StringUtils.hasText(traceId)) {
             throw new IllegalStateException("Supervisor continuation requires the original traceId");
         }
-        String waitingTool = firstText(textObj(cont.get("waitingToolName")), textObj(cont.get("toolName")));
-        List<String> allCompleted = new ArrayList<>(stringList(cont.get("completedWorkflowToolNames")));
-        if (StringUtils.hasText(waitingTool) && !allCompleted.contains(waitingTool)) {
-            allCompleted.add(waitingTool);
+        StructuredContinuation structured;
+        try {
+            structured = validateStructuredContinuation(cont, request.workflowTools());
+        } catch (IllegalArgumentException ex) {
+            return finishContinuationTrace(request, traceId, false,
+                    "RUNTIME_INTERACTION_CONTINUATION_INVALID",
+                    "Workflow interaction continuation is invalid",
+                    Map.of("continuationConsumed", true,
+                            "continuationMode", "INVALID",
+                            "validationError", ex.getMessage()));
         }
+        String waitingTool = structured.waitingToolName();
+        List<String> allCompleted = new ArrayList<>(structured.completedWorkflowToolNames());
         String answer = firstText(textObj(wf.get("answer")), "Workflow completed");
         String workflowCode = firstText(textObj(wf.get("code")), "RUNTIME_GRAPH_EXECUTED");
         boolean workflowOk = !Boolean.FALSE.equals(wf.get("success"))
@@ -253,10 +272,18 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             return finishContinuationTrace(request, traceId, false, workflowCode, answer, Map.of(
                     "continuationConsumed", true,
                     "continuationMode", "WORKFLOW_FAILED",
-                    "waitingToolName", waitingTool == null ? "" : waitingTool,
-                    "completedWorkflowToolNames", allCompleted));
+                     "waitingToolName", waitingTool == null ? "" : waitingTool,
+                     "completedWorkflowToolNames", allCompleted));
         }
-        if (isLastPlannedWorkflowStep(cont, allCompleted, request.workflowTools())) {
+        if (!allCompleted.contains(waitingTool)) {
+            allCompleted.add(waitingTool);
+        }
+        int nextCursor = structured.plannedWorkflowCursor() + 1;
+        while (nextCursor < structured.plannedWorkflowToolNames().size()
+                && allCompleted.contains(structured.plannedWorkflowToolNames().get(nextCursor))) {
+            nextCursor++;
+        }
+        if (nextCursor == structured.plannedWorkflowToolNames().size()) {
             memoryStore.append(
                     firstText(textObj(requestInput.get("sessionId")), textObj(cont.get("sessionId")),
                             UUID.randomUUID().toString().replace("-", "").substring(0, 16)),
@@ -267,9 +294,15 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     "continuationMode", "LAST_WORKFLOW_STEP",
                     "waitingToolName", waitingTool == null ? "" : waitingTool,
                     "completedWorkflowToolNames", allCompleted,
-                    "workflowCode", workflowCode));
+                     "workflowCode", workflowCode));
         }
 
+        Map<String, Object> nextContinuation = new LinkedHashMap<>(cont);
+        nextContinuation.put("plannedWorkflowCursor", nextCursor);
+        nextContinuation.put("completedWorkflowToolNames", List.copyOf(allCompleted));
+        nextContinuation.remove("waitingToolName");
+        nextContinuation.remove("toolName");
+        String nextToolName = structured.plannedWorkflowToolNames().get(nextCursor);
         Map<String, Object> resumeInput = new LinkedHashMap<>();
         Object original = cont.get("originalInput");
         if (original instanceof Map<?, ?> rawOriginal) {
@@ -278,15 +311,15 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         resumeInput.putAll(requestInput);
         resumeInput.put("traceId", traceId);
         resumeInput.put("__resumeExistingTrace", true);
-        resumeInput.put("__supervisorContinuation", cont);
+        resumeInput.put("__supervisorContinuation", nextContinuation);
         resumeInput.put("__blockedWorkflowTools", allCompleted);
         resumeInput.put("message",
                 "Continue the saved supervisor plan after Workflow tool '"
                         + (waitingTool == null ? "" : waitingTool)
                         + "' completed successfully. Result: " + answer
                         + ". Do not re-call completed Workflow tools: " + allCompleted
-                        + ". Do not record a new plan unless a remaining unfinished step requires revision. "
-                        + "Call the next unfinished Workflow tool or produce the final answer.");
+                        + ". Do not record a new plan. The next required Workflow tool is exactly '"
+                        + nextToolName + "'. Call it before producing the final answer.");
         return execute(new SupervisorRequest(
                 request.agent(),
                 request.config(),
@@ -295,7 +328,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 request.approvalGrant(),
                 request.eventSink(),
                 request.cancellation(),
-                request.identity()));
+                request.identity(),
+                request.resolvedTargets()));
     }
 
     private SupervisorResult finishContinuationTrace(SupervisorRequest request,
@@ -324,35 +358,69 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         return new SupervisorResult(success, code, answer, handle.traceId(), List.of(), metadata, null);
     }
 
-    private boolean isLastPlannedWorkflowStep(Map<String, Object> continuation,
-                                              List<String> allCompleted,
-                                              List<RuntimeAgentWorkflowToolEntity> workflowTools) {
-        Set<String> toolNames = new LinkedHashSet<>();
+    private StructuredContinuation validateStructuredContinuation(
+            Map<String, Object> continuation,
+            List<RuntimeAgentWorkflowToolEntity> workflowTools) {
+        Object rawVersion = continuation.get("continuationSchemaVersion");
+        if (!(rawVersion instanceof Number version) || version.intValue() != CONTINUATION_SCHEMA_VERSION) {
+            throw new IllegalArgumentException("unsupported continuation schema version");
+        }
+        List<String> planned = stringList(continuation.get("plannedWorkflowToolNames"));
+        if (planned.isEmpty()) {
+            throw new IllegalArgumentException("plannedWorkflowToolNames is required");
+        }
+        if (new LinkedHashSet<>(planned).size() != planned.size()) {
+            throw new IllegalArgumentException("planned Workflow tool names must be unique");
+        }
+        Set<String> allowed = new LinkedHashSet<>();
         if (workflowTools != null) {
             for (RuntimeAgentWorkflowToolEntity tool : workflowTools) {
                 if (tool != null && StringUtils.hasText(tool.getToolName())) {
-                    toolNames.add(tool.getToolName().trim());
+                    allowed.add(tool.getToolName().trim());
                 }
             }
         }
-        Map<String, Object> plan = asMap(continuation.get("recordedPlan"));
-        Set<String> planned = new LinkedHashSet<>();
-        Object steps = plan.get("steps");
-        if (steps instanceof List<?> list) {
-            for (Object step : list) {
-                String stepText = step == null ? "" : String.valueOf(step).toLowerCase(Locale.ROOT);
-                for (String name : toolNames) {
-                    if (stepText.contains(name.toLowerCase(Locale.ROOT))) {
-                        planned.add(name);
-                    }
-                }
+        if (!allowed.containsAll(planned)) {
+            throw new IllegalArgumentException("plan contains a Workflow tool outside the published allowlist");
+        }
+        Object rawCursor = continuation.get("plannedWorkflowCursor");
+        if (!(rawCursor instanceof Number cursorNumber)) {
+            throw new IllegalArgumentException("plannedWorkflowCursor is required");
+        }
+        int cursor = cursorNumber.intValue();
+        if (cursor < 0 || cursor >= planned.size()) {
+            throw new IllegalArgumentException("plannedWorkflowCursor is out of range");
+        }
+        String waitingTool = firstText(
+                textObj(continuation.get("waitingToolName")),
+                textObj(continuation.get("toolName")));
+        if (!planned.get(cursor).equals(waitingTool)) {
+            throw new IllegalArgumentException("waiting Workflow tool does not match the saved plan cursor");
+        }
+        Map<String, Object> recordedPlan = asMap(continuation.get("recordedPlan"));
+        if (!planned.equals(stringList(recordedPlan.get("workflowToolNames")))) {
+            throw new IllegalArgumentException("recorded plan does not match the structured Workflow order");
+        }
+        List<String> completed = stringList(continuation.get("completedWorkflowToolNames"));
+        Set<String> completedSet = new LinkedHashSet<>(completed);
+        if (completedSet.size() != completed.size() || !allowed.containsAll(completedSet)) {
+            throw new IllegalArgumentException("completed Workflow tools are invalid");
+        }
+        for (int index = 0; index < cursor; index++) {
+            if (!completedSet.contains(planned.get(index))) {
+                throw new IllegalArgumentException("saved plan prefix is incomplete");
             }
         }
-        if (planned.isEmpty()) {
-            // Single-workflow / unstructured plan: finishing the waiting tool completes the run.
-            return true;
+        if (completedSet.contains(waitingTool)) {
+            throw new IllegalArgumentException("waiting Workflow tool was already completed");
         }
-        return allCompleted.containsAll(planned);
+        return new StructuredContinuation(List.copyOf(planned), cursor, waitingTool, List.copyOf(completed));
+    }
+
+    private record StructuredContinuation(List<String> plannedWorkflowToolNames,
+                                          int plannedWorkflowCursor,
+                                          String waitingToolName,
+                                          List<String> completedWorkflowToolNames) {
     }
 
     @SuppressWarnings("unchecked")
@@ -398,8 +466,10 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                                 "summary", Map.of("type", "string", "description", "Concise intent and strategy"),
                                 "steps", Map.of("type", "array", "items", Map.of("type", "string"),
                                         "description", "Ordered executable plan steps"),
+                                "workflowToolNames", Map.of("type", "array", "items", Map.of("type", "string"),
+                                        "description", "Exact ordered Workflow tool names to execute; use only permitted names"),
                                 "reason", Map.of("type", "string", "description", "Why this plan or replan is needed")),
-                        "required", List.of("summary", "steps"),
+                        "required", List.of("summary", "steps", "workflowToolNames"),
                         "additionalProperties", false);
             }
             @Override public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
@@ -425,6 +495,10 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             }
             @Override public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
                 return Mono.fromCallable(() -> {
+                    String blockReason = state.finalAnswerBlockReason();
+                    if (blockReason != null) {
+                        return ToolResultBlock.error(blockReason);
+                    }
                     state.answerPhase.enterPublicFinal();
                     state.emitPhase("final-answer", "final_answer", "started", "agentscope_tool",
                             "生成最终回答", "正在生成安全的用户可见答案");
@@ -455,9 +529,47 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
     }
 
     /**
+     * Generic DIRECT terminal: assistant text with no Workflow tool use, no recorded plan,
+     * and no waiting interaction. Must not rely on keyword lists.
+     */
+    private boolean isDirectTerminalResponse(RunState state,
+                                             String answer,
+                                             ReachAiAgentScopeChatModel model) {
+        if (state.confirmationPending() || state.forcedFinalAnswer) {
+            return false;
+        }
+        if (state.planCount.get() != 0 || state.workflowCallCount.get() != 0) {
+            return false;
+        }
+        if (state.answerPhase.isPublicFinal()
+                || state.answerPhase.get() == SupervisorAnswerPhase.Phase.COMPLETED
+                || state.answerPhase.get() == SupervisorAnswerPhase.Phase.CANCELLED) {
+            return false;
+        }
+        if (model.didStreamContent()) {
+            // PUBLIC_FINAL already streamed tokens — not a buffered DIRECT path
+            return false;
+        }
+        return StringUtils.hasText(answer);
+    }
+
+    private String acceptDirectTerminalAnswer(ReachAiAgentScopeChatModel model,
+                                              RunState state,
+                                              String answer) {
+        state.markDirectDecision();
+        String text = answer == null ? "" : answer.trim();
+        if (StringUtils.hasText(text) && !state.request.cancellation().isCancelled()) {
+            // contentDeltaSink already maps to message.delta; do not emit twice
+            model.publishBufferedDirect(text);
+        }
+        return text;
+    }
+
+    /**
      * 模型未按约定进入 PUBLIC_FINAL 时的确定性补救：强制一次 no-tool 最终流式调用。
      * 不得公开 INTERNAL 文本，不得退回批量 flush。
      * CANCELLED 时 enterPublicFinal 失败则立即停止，绝不启动第二次模型请求。
+     * DIRECT terminal 路径禁止调用本方法。
      */
     private String forcePublicFinalPass(ReachAiAgentScopeChatModel model,
                                         RunState state,
@@ -559,19 +671,65 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         };
     }
 
-    private WorkflowTarget resolveTarget(RuntimeAgentWorkflowToolEntity tool) {
-        RuntimeWorkflowDefinitionEntity workflow = workflowMapper.selectById(tool.getWorkflowId());
-        if (workflow == null || !"ACTIVE".equalsIgnoreCase(workflow.getStatus())) {
-            throw new IllegalStateException("Configured Workflow tool is not ACTIVE: " + tool.getWorkflowId());
+    /**
+     * Prefer request-scoped pre-resolved targets from {@link com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContextResolver}.
+     * Fallback batch-resolves once when callers (tests / legacy) omit them — never N+1 per tool twice.
+     */
+    private List<WorkflowTarget> resolveTargetsOnce(SupervisorRequest request) {
+        List<RuntimeResolvedWorkflowTarget> preResolved = request.resolvedTargets();
+        if (preResolved != null && !preResolved.isEmpty()) {
+            List<WorkflowTarget> targets = new ArrayList<>(preResolved.size());
+            for (RuntimeResolvedWorkflowTarget item : preResolved) {
+                targets.add(new WorkflowTarget(item.tool(), item.workflow(), item.version()));
+            }
+            return List.copyOf(targets);
         }
-        RuntimeWorkflowVersionEntity pinned = tool.getWorkflowVersionId() == null
-                ? null : workflowVersionMapper.selectById(tool.getWorkflowVersionId());
-        if (pinned == null || !workflow.getId().equals(pinned.getWorkflowId())
-                || !StringUtils.hasText(pinned.getGraphSpecSnapshotJson())) {
-            throw new IllegalStateException("Configured Workflow tool has no executable pinned version: "
-                    + workflow.getId() + "#" + tool.getWorkflowVersionId());
+        List<RuntimeAgentWorkflowToolEntity> tools = request.workflowTools();
+        if (tools == null || tools.isEmpty()) {
+            return List.of();
         }
-        return new WorkflowTarget(workflow, pinned);
+        List<String> workflowIds = tools.stream()
+                .map(RuntimeAgentWorkflowToolEntity::getWorkflowId)
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .toList();
+        Map<String, RuntimeWorkflowDefinitionEntity> workflows = workflowIds.isEmpty()
+                ? Map.of()
+                : workflowMapper.selectBatchIds(workflowIds).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        RuntimeWorkflowDefinitionEntity::getId,
+                        w -> w,
+                        (a, b) -> a,
+                        LinkedHashMap::new));
+        List<Long> versionIds = tools.stream()
+                .map(RuntimeAgentWorkflowToolEntity::getWorkflowVersionId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, RuntimeWorkflowVersionEntity> versions = versionIds.isEmpty()
+                ? Map.of()
+                : workflowVersionMapper.selectBatchIds(versionIds).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        RuntimeWorkflowVersionEntity::getId,
+                        v -> v,
+                        (a, b) -> a,
+                        LinkedHashMap::new));
+        List<WorkflowTarget> targets = new ArrayList<>(tools.size());
+        for (RuntimeAgentWorkflowToolEntity tool : tools) {
+            RuntimeWorkflowDefinitionEntity workflow = workflows.get(tool.getWorkflowId());
+            if (workflow == null || !"ACTIVE".equalsIgnoreCase(workflow.getStatus())) {
+                throw new IllegalStateException("Configured Workflow tool is not ACTIVE: " + tool.getWorkflowId());
+            }
+            RuntimeWorkflowVersionEntity pinned = versions.get(tool.getWorkflowVersionId());
+            if (pinned == null || !workflow.getId().equals(pinned.getWorkflowId())
+                    || !StringUtils.hasText(pinned.getGraphSpecSnapshotJson())) {
+                throw new IllegalStateException("Configured Workflow tool has no executable pinned version: "
+                        + workflow.getId() + "#" + tool.getWorkflowVersionId());
+            }
+            targets.add(new WorkflowTarget(tool, workflow, pinned));
+        }
+        return List.copyOf(targets);
     }
 
     private List<Msg> messages(String sessionId, String userMessage) {
@@ -592,20 +750,30 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         StringBuilder prompt = new StringBuilder();
         prompt.append(config.getSystemPrompt()).append("\n\n")
                 .append("You are the ReachAI Supervisor runtime implemented with AgentScope Java 2.0.0 GA.\n")
-                .append("Understand the user's real intent, make a short plan, select only permitted Workflow tools, combine multiple results, and answer in the user's language.\n")
-                .append("Before any Workflow call, you MUST call record_supervisor_plan. The plan must have no more than ")
-                .append(config.getMaxPlanSteps()).append(" steps.\n")
+                .append("First decide whether any permitted Workflow tool is required to fulfill the user's request.\n")
+                .append("If no Workflow is needed (greetings, clarifications, general chat, or answers you can give from context alone): ")
+                .append("do NOT call record_supervisor_plan, do NOT call begin_final_answer, do NOT call any tool. ")
+                .append("Reply once with the final user-facing plain text only.\n")
+                .append("If one or more Workflow tools are needed: call record_supervisor_plan immediately before the first Workflow call. ")
+                .append("The plan must have no more than ")
+                .append(config.getMaxPlanSteps()).append(" steps. ")
+                .append("workflowToolNames must list the exact permitted Workflow tool names in execution order; every planned Workflow call must appear exactly once. ")
+                .append("record_supervisor_plan is only allowed when you are about to call a Workflow.\n")
                 .append("After a Workflow failure, call record_supervisor_plan again with a revised plan before another Workflow. At most ")
                 .append(config.getMaxReplans()).append(" replans and ")
                 .append(config.getMaxWorkflowCalls()).append(" Workflow calls are allowed.\n")
                 .append("Use page navigation or page actions ONLY when the user explicitly asks to open, jump, query on, or operate a page. A factual query must prefer an API/data Workflow and must not navigate.\n")
                 .append("Never invent Workflow results. If required arguments are missing, ask one concise clarification question.\n")
-                .append("When ready to answer the user, you MUST call begin_final_answer exactly once, then produce the final plain-text answer. ")
+                .append("After Workflow tools (or when a planned path needs a gated final answer), call begin_final_answer exactly once, then produce the final plain-text answer. ")
                 .append("Never reveal internal planning, tool arguments, or reasoning in the user-facing answer.\n")
                 .append("Permitted published Workflow tools:\n");
-        for (WorkflowTarget target : targets) {
-            prompt.append("- ").append(target.workflow().getKeySlug())
-                    .append(" @ ").append(target.version().getVersion()).append("\n");
+        if (targets == null || targets.isEmpty()) {
+            prompt.append("- (none)\n");
+        } else {
+            for (WorkflowTarget target : targets) {
+                prompt.append("- ").append(target.workflow().getKeySlug())
+                        .append(" @ ").append(target.version().getVersion()).append("\n");
+            }
         }
         return prompt.toString();
     }
@@ -657,6 +825,10 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 code = "SUPERVISOR_CONFIRMATION_REQUIRED";
             }
             answer = state.pendingReason;
+        } else if (success && state.hasUnfinishedPlannedWorkflows()) {
+            success = false;
+            code = "SUPERVISOR_PLAN_INCOMPLETE";
+            answer = "Supervisor stopped before all structured Workflow plan steps completed";
         }
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("runtimeType", "AGENTSCOPE");
@@ -674,9 +846,16 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         metadata.put("planCount", state.planCount.get());
         metadata.put("replanCount", Math.max(0, state.planCount.get() - 1));
         metadata.put("workflowCallCount", state.workflowCallCount.get());
+        metadata.put("plannedWorkflowToolNames", state.plannedWorkflowToolNamesSnapshot());
+        metadata.put("plannedWorkflowCursor", state.plannedWorkflowCursor.get());
+        // Trusted in-memory counters for RunOps finish — avoid remote aggregate COUNT when complete.
+        metadata.put("toolCallCount", state.workflowCallCount.get());
+        metadata.put("guardDenyCount", state.guardDenyCount.get());
+        metadata.put("approvalCount", state.approvalCount.get());
         metadata.put("decisionMode", state.decisionMode());
         metadata.put("workflowSelected", state.workflowCallCount.get() > 0);
         metadata.put("steps", List.copyOf(state.steps));
+        metadata.put("runtime.traceBeginMs", state.traceBeginMs);
         if (state.pendingInteractionId != null) {
             metadata.put("interactionId", state.pendingInteractionId);
             metadata.put("interactionPending", true);
@@ -693,10 +872,20 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             copyIfPresent(metadata, modelMetadata, "reasoningDeltaCount");
             copyIfPresent(metadata, modelMetadata, "reasoningLength");
             copyIfPresent(metadata, modelMetadata, "answerPhase");
+            copyIfPresent(metadata, modelMetadata, "modelRoundCount");
+            copyIfPresent(metadata, modelMetadata, "supervisor.modelRoundCount");
+            copyIfPresent(metadata, modelMetadata, "supervisor.modelRounds");
+            copyIfPresent(metadata, modelMetadata, "supervisor.firstPublicDeltaMs");
+            copyIfPresent(metadata, modelMetadata, "decisionMode");
         }
+        long finishAuditStart = System.nanoTime();
         traceService.finish(state.trace, success, code, answer, metadata, resolveTrustedIdentity(state.request));
+        metadata.put("supervisor.finishAuditMs", Math.max(0L, (System.nanoTime() - finishAuditStart) / 1_000_000L));
+        Object uiRequest = state.pendingUiRequest != null
+                ? state.pendingUiRequest
+                : (success ? state.displayUiRequest : null);
         return new SupervisorResult(success, code, answer, state.trace.traceId(),
-                List.copyOf(state.steps), metadata, state.pendingUiRequest);
+                List.copyOf(state.steps), metadata, uiRequest);
     }
 
     private static void copyIfPresent(Map<String, Object> target, Map<String, Object> source, String key) {
@@ -769,7 +958,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         return value == null ? null : String.valueOf(value).trim();
     }
 
-    private record WorkflowTarget(RuntimeWorkflowDefinitionEntity workflow,
+    private record WorkflowTarget(RuntimeAgentWorkflowToolEntity tool,
+                                  RuntimeWorkflowDefinitionEntity workflow,
                                   RuntimeWorkflowVersionEntity version) {
     }
 
@@ -782,6 +972,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private final SupervisorAnswerPhase answerPhase = new SupervisorAnswerPhase();
         private final AtomicInteger planCount = new AtomicInteger();
         private final AtomicInteger workflowCallCount = new AtomicInteger();
+        private final AtomicInteger guardDenyCount = new AtomicInteger();
+        private final AtomicInteger approvalCount = new AtomicInteger();
         private final AtomicInteger stepSequence = new AtomicInteger();
         private final List<Map<String, Object>> steps = Collections.synchronizedList(new ArrayList<>());
         private final List<WorkflowTarget> targets = new ArrayList<>();
@@ -800,6 +992,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private volatile String pendingInteractionKind;
         private volatile String pendingReason;
         private volatile Object pendingUiRequest;
+        /** Latest non-blocking Workflow presentation to surface with the final Agent response. */
+        private volatile Object displayUiRequest;
         /** DIRECT | PLANNED | WORKFLOW — 不得把 implicit audit 算作主动规划。 */
         private volatile String decisionMode = "DIRECT";
         private volatile boolean implicitDirectDecision = false;
@@ -808,8 +1002,13 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private volatile Map<String, Object> lastRecordedPlan;
         private final Set<String> completedWorkflowToolNames = ConcurrentHashMap.newKeySet();
         private final Set<String> blockedWorkflowToolNames = ConcurrentHashMap.newKeySet();
+        private final Set<String> inFlightWorkflowToolNames = ConcurrentHashMap.newKeySet();
+        private final Object structuredPlanLock = new Object();
+        private volatile List<String> plannedWorkflowToolNames = List.of();
+        private final AtomicInteger plannedWorkflowCursor = new AtomicInteger();
+        private volatile long traceBeginMs;
 
-        private RunState(SupervisorRequest request, TraceHandle trace) {
+        private RunState(SupervisorRequest request, TraceHandle trace, List<WorkflowTarget> resolvedTargets) {
             this.request = request;
             this.trace = trace;
             String requestedSessionId = text(request.input().get("sessionId"));
@@ -820,8 +1019,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     text(request.input().get("externalUserId")), "anonymous");
             this.userMessage = firstText(text(request.input().get("message")),
                     text(request.input().get("input")), "");
-            for (RuntimeAgentWorkflowToolEntity tool : request.workflowTools()) {
-                targets.add(resolveTarget(tool));
+            if (resolvedTargets != null && !resolvedTargets.isEmpty()) {
+                targets.addAll(resolvedTargets);
             }
             seedContinuation(request.input());
             // 每个 RunState 只注册一次：请求取消时扇出到所有活动 Workflow
@@ -869,6 +1068,14 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 }
                 decisionMode = "PLANNED";
             }
+            List<String> planned = stringList(continuation.get("plannedWorkflowToolNames"));
+            Object rawCursor = continuation.get("plannedWorkflowCursor");
+            if (!planned.isEmpty() && rawCursor instanceof Number cursor) {
+                synchronized (structuredPlanLock) {
+                    plannedWorkflowToolNames = List.copyOf(planned);
+                    plannedWorkflowCursor.set(cursor.intValue());
+                }
+            }
             Object completed = continuation.get("completedWorkflowToolNames");
             if (completed instanceof List<?> list) {
                 for (Object item : list) {
@@ -878,14 +1085,6 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         blockedWorkflowToolNames.add(name);
                     }
                 }
-            }
-            String waiting = text(continuation.get("waitingToolName"));
-            if (!StringUtils.hasText(waiting)) {
-                waiting = text(continuation.get("toolName"));
-            }
-            if (StringUtils.hasText(waiting)) {
-                completedWorkflowToolNames.add(waiting);
-                blockedWorkflowToolNames.add(waiting);
             }
         }
 
@@ -908,6 +1107,36 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         }
 
         private ToolResultBlock recordPlan(Map<String, Object> plan) {
+            if (!inFlightWorkflowToolNames.isEmpty()) {
+                return ToolResultBlock.error("Cannot replace the structured plan while a Workflow tool is running");
+            }
+            if (hasUnfinishedPlannedWorkflows() && failureAtPlanNo != planCount.get()) {
+                return ToolResultBlock.error("Continue the saved structured plan; replan is allowed only after a Workflow failure");
+            }
+            Object rawToolNames = plan == null ? null : plan.get("workflowToolNames");
+            List<String> workflowToolNames = stringList(rawToolNames);
+            int rawToolCount = rawToolNames instanceof List<?> list ? list.size() : 0;
+            if (workflowToolNames.isEmpty() || workflowToolNames.size() != rawToolCount) {
+                return ToolResultBlock.error("workflowToolNames must contain exact non-empty Workflow tool names");
+            }
+            if (new LinkedHashSet<>(workflowToolNames).size() != workflowToolNames.size()) {
+                return ToolResultBlock.error("workflowToolNames must not contain duplicates");
+            }
+            Set<String> permittedToolNames = new LinkedHashSet<>();
+            for (WorkflowTarget target : targets) {
+                if (target != null && target.tool() != null && StringUtils.hasText(target.tool().getToolName())) {
+                    permittedToolNames.add(target.tool().getToolName().trim());
+                }
+            }
+            if (!permittedToolNames.containsAll(workflowToolNames)) {
+                return ToolResultBlock.error("workflowToolNames contains a tool outside the permitted published allowlist");
+            }
+            if (workflowToolNames.stream().anyMatch(completedWorkflowToolNames::contains)) {
+                return ToolResultBlock.error("A revised plan must not include a Workflow tool already completed in this run");
+            }
+            if (workflowCallCount.get() + workflowToolNames.size() > request.config().getMaxWorkflowCalls()) {
+                return ToolResultBlock.error("Structured plan exceeds the remaining Workflow call limit");
+            }
             int planNo = planCount.incrementAndGet();
             if (planNo > request.config().getMaxReplans() + 1) {
                 planCount.decrementAndGet();
@@ -920,10 +1149,16 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 return ToolResultBlock.error("Plan must contain 1 to " + request.config().getMaxPlanSteps() + " steps");
             }
             Map<String, Object> normalized = plan == null ? Map.of() : new LinkedHashMap<>(plan);
+            normalized.put("workflowToolNames", List.copyOf(workflowToolNames));
             normalized.put("planNo", planNo);
             normalized.put("kind", planNo == 1 ? "PLAN" : "REPLAN");
             decisionMode = planNo == 1 ? "PLANNED" : decisionMode;
             lastRecordedPlan = Map.copyOf(normalized);
+            synchronized (structuredPlanLock) {
+                plannedWorkflowToolNames = List.copyOf(workflowToolNames);
+                plannedWorkflowCursor.set(0);
+            }
+            failureAtPlanNo = -1;
             String stepId = (planNo == 1 ? "plan-" : "replan-") + planNo;
             String title = planNo == 1 ? "规划执行路径" : "重规划执行路径";
             String safeDetail = safePlanDetail(normalized.get("summary"));
@@ -932,6 +1167,80 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             // Trace 与公开阶段事件均只保留安全规划摘要。
             traceService.plan(trace, request.agent(), request.config(), request.input(), planNo, normalized);
             return ToolResultBlock.text("Plan recorded. Continue with the permitted Workflow tools or answer directly.");
+        }
+
+        private boolean hasUnfinishedPlannedWorkflows() {
+            synchronized (structuredPlanLock) {
+                return !plannedWorkflowToolNames.isEmpty()
+                        && plannedWorkflowCursor.get() < plannedWorkflowToolNames.size();
+            }
+        }
+
+        private String finalAnswerBlockReason() {
+            synchronized (structuredPlanLock) {
+                int cursor = plannedWorkflowCursor.get();
+                if (plannedWorkflowToolNames.isEmpty() || cursor >= plannedWorkflowToolNames.size()) {
+                    return null;
+                }
+                return "Complete the remaining structured Workflow plan first; next required tool: "
+                        + plannedWorkflowToolNames.get(cursor);
+            }
+        }
+
+        private List<String> plannedWorkflowToolNamesSnapshot() {
+            synchronized (structuredPlanLock) {
+                return List.copyOf(plannedWorkflowToolNames);
+            }
+        }
+
+        private String reservePlannedWorkflow(String toolName) {
+            synchronized (structuredPlanLock) {
+                int cursor = plannedWorkflowCursor.get();
+                if (plannedWorkflowToolNames.isEmpty() || cursor >= plannedWorkflowToolNames.size()) {
+                    return "No remaining structured Workflow plan step permits: " + toolName;
+                }
+                int plannedIndex = plannedWorkflowToolNames.indexOf(toolName);
+                if (plannedIndex < 0) {
+                    return "Workflow tool is not present in the structured plan: " + toolName;
+                }
+                if (plannedIndex < cursor) {
+                    return "Workflow tool already completed in the structured plan: " + toolName;
+                }
+                for (int index = cursor; index < plannedIndex; index++) {
+                    String predecessor = plannedWorkflowToolNames.get(index);
+                    if (!completedWorkflowToolNames.contains(predecessor)
+                            && !inFlightWorkflowToolNames.contains(predecessor)) {
+                        return "Workflow tool is out of order; next required tool is: " + predecessor;
+                    }
+                }
+                if (!inFlightWorkflowToolNames.add(toolName)) {
+                    return "Workflow tool is already running: " + toolName;
+                }
+                return null;
+            }
+        }
+
+        private void releasePlannedWorkflow(String toolName) {
+            if (StringUtils.hasText(toolName)) {
+                inFlightWorkflowToolNames.remove(toolName);
+            }
+        }
+
+        private void completePlannedWorkflow(String toolName) {
+            synchronized (structuredPlanLock) {
+                int cursor = plannedWorkflowCursor.get();
+                int completedIndex = plannedWorkflowToolNames.indexOf(toolName);
+                if (completedIndex < cursor || completedIndex < 0) {
+                    throw new IllegalStateException("Workflow completion does not match the structured plan cursor");
+                }
+                completedWorkflowToolNames.add(toolName);
+                blockedWorkflowToolNames.add(toolName);
+                while (cursor < plannedWorkflowToolNames.size()
+                        && completedWorkflowToolNames.contains(plannedWorkflowToolNames.get(cursor))) {
+                    cursor++;
+                }
+                plannedWorkflowCursor.set(cursor);
+            }
         }
 
         /** 审计用 DIRECT 决策：不发 supervisor.step，不计入 planCount。 */
@@ -1056,6 +1365,11 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     trace, request.agent(), request.config(), tool, request.input(), safeArgs,
                     request.approvalGrant());
             if (!decision.allowed()) {
+                if (decision.confirmationRequired()) {
+                    approvalCount.incrementAndGet();
+                } else {
+                    guardDenyCount.incrementAndGet();
+                }
                 Map<String, Object> policyDetail = new LinkedHashMap<>();
                 policyDetail.put("toolName", tool.getToolName());
                 policyDetail.put("decision", decision.decision());
@@ -1080,9 +1394,14 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 }
                 return Mono.just(ToolResultBlock.error("Workflow policy denied: " + decision.reason()));
             }
+            String reservationError = reservePlannedWorkflow(toolName);
+            if (reservationError != null) {
+                return Mono.just(ToolResultBlock.error(reservationError));
+            }
             int callNo = workflowCallCount.incrementAndGet();
             if (callNo > request.config().getMaxWorkflowCalls()) {
                 workflowCallCount.decrementAndGet();
+                releasePlannedWorkflow(toolName);
                 return Mono.just(ToolResultBlock.error("Supervisor Workflow call limit exceeded"));
             }
             Mono<ToolResultBlock> execution = Mono.fromCallable(() -> runWorkflow(callNo, tool, target, safeArgs))
@@ -1109,7 +1428,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                             lock.unlock();
                         }
                     })
-                    .subscribeOn(Schedulers.boundedElastic());
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .doFinally(signal -> releasePlannedWorkflow(toolName));
         }
 
         private ToolResultBlock runWorkflow(int callNo,
@@ -1197,6 +1517,11 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                             "Workflow is waiting for user interaction. Stop and return the uiRequest. interactionId="
                                     + session.getId());
                 }
+                if (result.success() && result.uiRequest() != null) {
+                    // PRESENT_OUTPUT is non-blocking, so it must survive the Supervisor's final-answer
+                    // round instead of being treated like a pending interaction or dropped in tool metadata.
+                    displayUiRequest = result.uiRequest();
+                }
                 Map<String, Object> payload = workflowPayload(callNo, tool, target, args, result);
                 traceService.workflow(trace, request.agent(), request.config(), request.input(), tool.getToolName(),
                         target.workflow().getId(), target.version().getId(), target.version().getVersion(), args,
@@ -1212,13 +1537,16 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 if (!result.success()) {
                     failureAtPlanNo = planCount.get();
                 } else if (StringUtils.hasText(tool.getToolName())) {
-                    completedWorkflowToolNames.add(tool.getToolName());
+                    completePlannedWorkflow(tool.getToolName());
                 }
                 return result.success()
                         ? ToolResultBlock.text(json(payload))
                         : ToolResultBlock.error(json(payload));
             } finally {
                 activeWorkflowCancellations.remove(workflowCancel);
+                // Release before the tool result is handed back to AgentScope so an immediate
+                // bounded replan cannot race Reactor's downstream doFinally callback.
+                releasePlannedWorkflow(tool == null ? null : tool.getToolName());
             }
         }
 
@@ -1244,8 +1572,11 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             continuation.put("originalInput", request.input());
             continuation.put("runId", firstText(text(workflowInput.get("runId")), trace.traceId()));
             continuation.put("traceId", trace.traceId());
+            continuation.put("continuationSchemaVersion", CONTINUATION_SCHEMA_VERSION);
             continuation.put("planNo", planCount.get());
             continuation.put("completedWorkflowToolNames", List.copyOf(completedWorkflowToolNames));
+            continuation.put("plannedWorkflowToolNames", plannedWorkflowToolNamesSnapshot());
+            continuation.put("plannedWorkflowCursor", plannedWorkflowCursor.get());
             if (lastRecordedPlan != null) {
                 continuation.put("recordedPlan", lastRecordedPlan);
             }

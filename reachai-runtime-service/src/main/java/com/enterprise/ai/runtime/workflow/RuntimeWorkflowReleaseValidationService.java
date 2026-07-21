@@ -128,7 +128,10 @@ public class RuntimeWorkflowReleaseValidationService {
             boolean knownType = AgentGraphNodeType.supports(type);
             RuntimeWorkflowNodeCapabilityDescriptor capability = nodeCapabilityRegistry.find(type).orElse(null);
             boolean runtimeExecutable = capability != null && capability.runtimeExecutable();
-            boolean publishable = capability != null && capability.publishable();
+            // PRESENT_OUTPUT is display-only and never enters pause/resume. It can be published
+            // independently while blocking INTERACTION variants remain behind the production E2E gate.
+            boolean displayOnlyInteraction = "INTERACTION".equals(type) && isPresentOutputInteraction(node);
+            boolean publishable = capability != null && (capability.publishable() || displayOnlyInteraction);
             if (!knownType) {
                 report.error("GRAPH_NODE_TYPE_UNSUPPORTED", nodeId, "Unsupported graph node type: " + node.getType());
             } else if (!runtimeExecutable) {
@@ -152,6 +155,7 @@ public class RuntimeWorkflowReleaseValidationService {
                         case "KNOWLEDGE_RETRIEVAL" -> " depends on Knowledge service availability and ACL";
                         case "HTTP_REQUEST" -> " depends on egress policy, credentials and remote endpoint availability";
                         case "LOOP" -> " FOREACH v1 is bounded/serial; Browser/Live LOOP E2E is still PENDING";
+                        case "INTERACTION" -> " PRESENT_OUTPUT is display-only; blocking interaction variants remain closed";
                         default -> "";
                     };
                     report.warn("GRAPH_NODE_BETA", nodeId, "Node type " + type + " is BETA" + betaHint);
@@ -1084,6 +1088,16 @@ public class RuntimeWorkflowReleaseValidationService {
         }
     }
 
+    private boolean isPresentOutputInteraction(GraphSpec.Node node) {
+        Map<String, Object> config = interactionConfig(node);
+        Object rawType = firstPresent(config.get("interactionType"), config.get("mode"), config.get("type"));
+        if (rawType == null) {
+            return false;
+        }
+        String normalized = String.valueOf(rawType).trim().replace('-', '_').toUpperCase(Locale.ROOT);
+        return "PRESENT_OUTPUT".equals(normalized);
+    }
+
     private Map<String, Object> interactionConfig(GraphSpec.Node node) {
         Map<String, Object> config = node == null || node.getConfig() == null
                 ? new LinkedHashMap<>()
@@ -1198,8 +1212,11 @@ public class RuntimeWorkflowReleaseValidationService {
                                                   Map<String, Object> config,
                                                   RuntimeWorkflowReleaseValidationResult.Builder report) {
         String component = firstText(text(config.get("component")), text(config.get("renderer")), "detail")
-                .toLowerCase(Locale.ROOT);
-        if (!Set.of("detail", "card", "table", "summary_card", "output_card", "markdown").contains(component)) {
+                .toLowerCase(Locale.ROOT)
+                .replace('-', '_')
+                .replace(' ', '_');
+        if (!Set.of("detail", "card", "table", "list_card", "summary_card", "output_card", "markdown")
+                .contains(component)) {
             report.error("GRAPH_INTERACTION_PRESENT_RENDERER_UNSUPPORTED", node.getId(),
                     "PRESENT_OUTPUT renderer/component is not supported: " + component);
         }
@@ -1207,6 +1224,31 @@ public class RuntimeWorkflowReleaseValidationService {
         if (Boolean.TRUE.equals(blocking)) {
             report.error("GRAPH_INTERACTION_PRESENT_MUST_NOT_BLOCK", node.getId(),
                     "PRESENT_OUTPUT must be display-only (blocking=false)");
+        }
+        if ("list_card".equals(component)) {
+            validateListCardRenderSchema(node, config, report);
+        }
+    }
+
+    private void validateListCardRenderSchema(GraphSpec.Node node,
+                                              Map<String, Object> config,
+                                              RuntimeWorkflowReleaseValidationResult.Builder report) {
+        Map<String, Object> schema = mapValue(config.get("renderSchema"));
+        if (schema.isEmpty()) {
+            schema = mapValue(config.get("schema"));
+        }
+        Object initialVisibleCount = schema.get("initialVisibleCount");
+        if (initialVisibleCount != null) {
+            int count = intValue(initialVisibleCount, -1);
+            if (count < 1 || count > 50) {
+                report.error("GRAPH_INTERACTION_LIST_CARD_VISIBLE_COUNT_INVALID", node.getId(),
+                        "LIST_CARD initialVisibleCount must be between 1 and 50");
+            }
+        }
+        Object fields = schema.get("fields");
+        if (fields != null && !(fields instanceof List<?>)) {
+            report.error("GRAPH_INTERACTION_LIST_CARD_FIELDS_INVALID", node.getId(),
+                    "LIST_CARD fields must be an array");
         }
     }
 

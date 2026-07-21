@@ -129,6 +129,49 @@ describe('createEmbedTransport', () => {
     transport.dispose()
   })
 
+  it('refreshes the token once and recreates an expired session after a repeated 401', async () => {
+    ;(globalThis.fetch as any)
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { sessionId: 'emb-new' } }), { status: 200 }))
+      .mockResolvedValueOnce(sseResponse([
+        'event: message.delta\ndata: {"text":"Recovered"}\n\n',
+        'event: message.completed\ndata: {"answer":"Recovered"}\n\n',
+      ]))
+
+    let sessionId: string | undefined = 'emb-expired'
+    let token = 'tok-old'
+    const onUnauthorized = vi.fn(async () => {
+      token = 'tok-new'
+      return token
+    })
+    const transport = createEmbedTransport({
+      apiBase: 'http://localhost/api/embed',
+      tokenProvider: () => token,
+      getSessionId: () => sessionId,
+      setSessionId: (id) => { sessionId = id },
+      onUnauthorized,
+      fetchImpl: globalThis.fetch,
+    })
+
+    const types: string[] = []
+    for await (const event of transport.startTurn({ message: 'recover' })) {
+      types.push(event.type)
+    }
+
+    expect(onUnauthorized).toHaveBeenCalledTimes(1)
+    expect(sessionId).toBe('emb-new')
+    expect(types).toContain('turn.completed')
+    const urls = (globalThis.fetch as any).mock.calls.map((call: unknown[]) => String(call[0]))
+    expect(urls).toEqual([
+      'http://localhost/api/embed/chat/sessions/emb-expired/messages/stream',
+      'http://localhost/api/embed/chat/sessions/emb-expired/messages/stream',
+      'http://localhost/api/embed/chat/sessions',
+      'http://localhost/api/embed/chat/sessions/emb-new/messages/stream',
+    ])
+    transport.dispose()
+  })
+
   it('dedupes concurrent ensureSession into a single POST /chat/sessions', async () => {
     let resolveCreate: ((value: Response) => void) | undefined
     const createPromise = new Promise<Response>((resolve) => {

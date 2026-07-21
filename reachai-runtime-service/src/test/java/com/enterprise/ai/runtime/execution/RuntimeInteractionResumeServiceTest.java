@@ -36,17 +36,21 @@ class RuntimeInteractionResumeServiceTest {
             mock(RuntimeCapabilityCatalogClient.class),
             mock(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.class));
     private RuntimeWorkflowInteractionSessionService sessionService;
+    private RuntimeInteractionExpiryProcessor expiryProcessor;
     private RuntimeInteractionResumeService service;
 
     @BeforeEach
     void setUp() {
         sessionService = new RuntimeWorkflowInteractionSessionService(sessionMapper, eventMapper, objectMapper);
+        expiryProcessor = mock(RuntimeInteractionExpiryProcessor.class);
+        when(expiryProcessor.expireOne(any(), any())).thenReturn(true);
         service = new RuntimeInteractionResumeService(
                 sessionMapper,
                 sessionService,
                 mock(RuntimeCapabilityCatalogClient.class),
                 graphSpecExecutor,
-                objectMapper);
+                objectMapper,
+                expiryProcessor);
     }
 
     @Test

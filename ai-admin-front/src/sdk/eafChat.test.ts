@@ -19,6 +19,10 @@ function sessionResponse(sessionId = 'sess-1') {
   return new Response(JSON.stringify({ data: { sessionId } }), { status: 200 })
 }
 
+async function flushMicrotasks(count = 20) {
+  for (let index = 0; index < count; index += 1) await Promise.resolve()
+}
+
 describe('createEafChat facade', () => {
   const originalFetch = globalThis.fetch
   let mountEl: HTMLElement
@@ -34,6 +38,126 @@ describe('createEafChat facade', () => {
     vi.useRealTimers()
     mountEl.remove()
     globalThis.fetch = originalFetch
+  })
+
+  it('mounts the launcher before the initial tokenProvider settles', async () => {
+    let resolveToken: ((token: string) => void) | undefined
+    const tokenProvider = vi.fn(() => new Promise<string>((resolve) => {
+      resolveToken = resolve
+    }))
+
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider,
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+      position: 'bottom-right',
+      initialOpen: false,
+    })
+
+    await flushMicrotasks()
+    const root = mountEl.querySelector('.eaf-chat') as HTMLElement
+    const status = root.querySelector('.eaf-chat__connection-status') as HTMLElement
+    expect(root).toBeTruthy()
+    expect(root.dataset.authState).toBe('loading')
+    expect(status.hidden).toBe(false)
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+
+    resolveToken?.('tok')
+    await flushMicrotasks()
+    expect(root.dataset.authState).toBe('ready')
+    expect(status.hidden).toBe(true)
+    chat.destroy()
+  })
+
+  it.each([
+    ['empty token', () => '', 'TOKEN_PROVIDER_EMPTY'],
+    ['broker 401', () => Promise.reject(Object.assign(new Error('broker unauthorized'), { status: 401 })), 'TOKEN_PROVIDER_UNAUTHORIZED'],
+    ['broker 502', () => Promise.reject(Object.assign(new Error('bad gateway'), { status: 502 })), 'TOKEN_PROVIDER_UNAVAILABLE'],
+    ['network failure', () => Promise.reject(new TypeError('Failed to fetch')), 'TOKEN_PROVIDER_NETWORK_ERROR'],
+  ])('keeps the launcher visible and recovers after %s', async (_label, firstResult, expectedCode) => {
+    const errors: string[] = []
+    const provider = vi.fn()
+      .mockImplementationOnce(firstResult)
+      .mockResolvedValueOnce('tok-recovered')
+
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: provider,
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+      onError: (error) => errors.push(error.code || ''),
+    })
+    await flushMicrotasks()
+
+    const root = mountEl.querySelector('.eaf-chat') as HTMLElement
+    expect(root).toBeTruthy()
+    expect(root.dataset.authState).toBe('error')
+    expect(errors).toContain(expectedCode)
+    const retry = root.querySelector<HTMLButtonElement>('.eaf-chat-auth button')!
+    expect(retry).toBeTruthy()
+    retry.click()
+    await flushMicrotasks()
+
+    expect(provider).toHaveBeenCalledTimes(2)
+    expect(root.dataset.authState).toBe('ready')
+    expect(root.querySelector('.eaf-chat-auth')).toBeNull()
+    chat.destroy()
+  })
+
+  it('times out tokenProvider without hiding the launcher', async () => {
+    const errors: string[] = []
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => new Promise<string>(() => undefined),
+      tokenTimeoutMs: 100,
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+      onError: (error) => errors.push(error.code || ''),
+    })
+    await flushMicrotasks()
+
+    const root = mountEl.querySelector('.eaf-chat') as HTMLElement
+    expect(root.dataset.authState).toBe('loading')
+    await vi.advanceTimersByTimeAsync(101)
+    await flushMicrotasks()
+    expect(root.dataset.authState).toBe('error')
+    expect(errors).toContain('TOKEN_PROVIDER_TIMEOUT')
+    chat.destroy()
+  })
+
+  it('refreshes a near-expiry token before creating the first session', async () => {
+    ;(globalThis.fetch as any)
+      .mockResolvedValueOnce(sessionResponse('sess-expiring'))
+      .mockResolvedValueOnce(sse([
+        'event: message.delta\ndata: {"text":"ok"}\n\n',
+        'event: message.completed\ndata: {"sessionId":"sess-expiring","answer":"ok"}\n\n',
+      ]))
+    const reasons: string[] = []
+    const provider = vi.fn((context?: { reason?: string }) => {
+      reasons.push(context?.reason || '')
+      return reasons.length === 1
+        ? { token: 'tok-near-expiry', expiresIn: 10 }
+        : { token: 'tok-fresh', expiresIn: 600 }
+    })
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: provider,
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+    })
+    await flushMicrotasks()
+
+    await chat.send('hello')
+
+    expect(reasons).toEqual(['initial', 'expiring'])
+    const sessionInit = (globalThis.fetch as any).mock.calls[0][1] as RequestInit
+    expect((sessionInit.headers as Record<string, string>).Authorization).toBe('Bearer tok-fresh')
+    chat.destroy()
   })
 
   it('does not create session while idle for 2 seconds', async () => {
@@ -140,6 +264,43 @@ describe('createEafChat facade', () => {
     )
     expect(resultPosts).toHaveLength(1)
     sendSpy.mockRestore()
+    chat.destroy()
+  })
+
+  it('wires the visible conversation retry button to the failed UI message', async () => {
+    ;(globalThis.fetch as any)
+      .mockResolvedValueOnce(new Response(null, { status: 502 }))
+      .mockResolvedValueOnce(sessionResponse('sess-retry-ui'))
+      .mockResolvedValueOnce(sse([
+        'event: message.delta\ndata: {"text":"Recovered"}\n\n',
+        'event: message.completed\ndata: {"sessionId":"sess-retry-ui","answer":"Recovered"}\n\n',
+      ]))
+
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+    })
+    await flushMicrotasks()
+
+    const textarea = mountEl.querySelector('textarea') as HTMLTextAreaElement
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+    setter?.call(textarea, 'retry-me')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    const form = mountEl.querySelector('form.reachai-composer') as HTMLFormElement
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushMicrotasks(40)
+
+    const retry = mountEl.querySelector<HTMLButtonElement>('.reachai-conversation__error button')!
+    expect(retry).toBeTruthy()
+    retry.click()
+    await flushMicrotasks(50)
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3)
+    expect(mountEl.querySelector('.reachai-conversation__error')).toBeNull()
+    expect(mountEl.textContent).toContain('Recovered')
     chat.destroy()
   })
 
@@ -936,6 +1097,50 @@ describe('createEafChat facade', () => {
     chat.destroy()
   })
 
+  it('applies official theme.preset and lets primaryColor override it', async () => {
+    const presetChat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+      theme: { preset: 'metro-green', brandName: 'ReachAI' },
+    })
+    const presetRoot = mountEl.querySelector('.eaf-chat') as HTMLElement
+    expect(presetRoot.style.getPropertyValue('--reachai-chat-primary')).toBe('#0b7a59')
+    expect(presetRoot.style.getPropertyValue('--reachai-chat-primary-rgb')).toBe('11 122 89')
+    expect(presetRoot.dataset.chatPreset).toBe('metro-green')
+    presetChat.destroy()
+    mountEl.innerHTML = ''
+
+    const overrideChat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+      theme: { preset: 'metro-green', primaryColor: '#1d4ed8', brandName: 'ReachAI' },
+    })
+    const overrideRoot = mountEl.querySelector('.eaf-chat') as HTMLElement
+    expect(overrideRoot.style.getPropertyValue('--reachai-chat-primary')).toBe('#1d4ed8')
+    expect(overrideRoot.style.getPropertyValue('--reachai-chat-primary-rgb')).toBe('29 78 216')
+    overrideChat.destroy()
+  })
+
+  it('defaults to tech-purple when theme is omitted', async () => {
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+    })
+    const root = mountEl.querySelector('.eaf-chat') as HTMLElement
+    expect(root.style.getPropertyValue('--reachai-chat-primary')).toBe('#6366f1')
+    expect(root.dataset.chatPreset).toBe('tech-purple')
+    chat.destroy()
+  })
+
   function pendingFetchCalls() {
     return (globalThis.fetch as any).mock.calls.filter((c: unknown[]) =>
       String(c[0]).includes('/page-actions/pending'),
@@ -968,6 +1173,66 @@ describe('createEafChat facade', () => {
     })
     document.dispatchEvent(new Event('visibilitychange'))
   }
+
+  it('starts pending polling during the first UI turn as soon as its session exists', async () => {
+    const encoder = new TextEncoder()
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined
+    let streamCompleted = false
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      const path = String(url)
+      if (path.includes('/chat/sessions') && !path.includes('/messages') && !path.includes('/page-actions')) {
+        return sessionResponse('sess-first-ui-turn')
+      }
+      if (path.includes('/messages/stream')) {
+        return new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            streamController = controller
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+      }
+      if (path.includes('/page-actions/pending')) {
+        expect(streamCompleted).toBe(false)
+        return new Response(JSON.stringify({ data: [] }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 })
+    })
+
+    const bridge = createEafPageBridge({ route: '/' })
+    bridge.registerAction('refresh', async () => ({ status: 'SUCCESS', data: {} }), { title: 'Refresh' })
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge,
+    })
+    await flushMicrotasks()
+
+    const textarea = mountEl.querySelector('textarea') as HTMLTextAreaElement
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+    setter?.call(textarea, 'first UI turn')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushMicrotasks()
+    const form = mountEl.querySelector('form.reachai-composer') as HTMLFormElement
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+
+    await flushMicrotasks(40)
+    await vi.advanceTimersByTimeAsync(0)
+    await flushMicrotasks(20)
+    expect(pendingFetchCalls().length).toBeGreaterThanOrEqual(1)
+    expect(streamController).toBeTruthy()
+
+    streamCompleted = true
+    streamController?.enqueue(encoder.encode(
+      'event: message.completed\ndata: {"sessionId":"sess-first-ui-turn","answer":"ok","metadata":{}}\n\n',
+    ))
+    streamController?.close()
+    await flushMicrotasks(30)
+    chat.destroy()
+  })
 
   it('does not poll pending without a session for 60 seconds', async () => {
     const bridge = createEafPageBridge({ route: '/' })

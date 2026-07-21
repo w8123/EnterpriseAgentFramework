@@ -68,10 +68,13 @@ class SupervisorToolPolicyServiceTest {
                 trace, agent, config, tool, input("查询第一条有效班组信息"), Map.of(), null);
         SupervisorToolPolicyService.PolicyDecision allowed = service.evaluate(
                 trace, agent, config, tool, input("打开班组档案页面并查询第一条信息"), Map.of(), null);
+        SupervisorToolPolicyService.PolicyDecision operateCurrentPage = service.evaluate(
+                trace, agent, config, tool, input("请只操作当前班组档案页面，查询负责人为管理员的班组"), Map.of(), null);
 
         assertFalse(denied.allowed());
         assertEquals("DENY", denied.decision());
         assertTrue(allowed.allowed());
+        assertTrue(operateCurrentPage.allowed());
     }
 
     @Test

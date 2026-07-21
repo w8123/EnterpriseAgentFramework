@@ -80,13 +80,24 @@ public class PlatformEmbedSessionService {
         if (entity == null || !"ACTIVE".equals(entity.getStatus())) {
             throw new PlatformEmbedTokenException("embed chat session not found: " + sessionId);
         }
-        if (entity.getExpiresAt() != null && entity.getExpiresAt().isBefore(LocalDateTime.now())) {
-            throw new PlatformEmbedTokenException("embed chat session is expired");
-        }
         if (!Objects.equals(entity.getAgentId(), claims.getAgentId())
                 || !Objects.equals(entity.getProjectCode(), claims.getProjectCode())
                 || !Objects.equals(entity.getExternalUserId(), claims.getExternalUserId())) {
             throw new PlatformEmbedTokenException("embed chat session does not match embed token");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (entity.getExpiresAt() != null && entity.getExpiresAt().isBefore(now)) {
+            // A chat session may outlive one short-lived Embed token (for example while the
+            // user is reading a confirmation card). The token has already been verified;
+            // renew only the same bound user/project/agent session to the fresh token expiry.
+            LocalDateTime refreshedExpiry = LocalDateTime.ofInstant(
+                    Instant.ofEpochSecond(claims.getExpiresAt()), ZoneId.systemDefault());
+            if (!refreshedExpiry.isAfter(now)) {
+                throw new PlatformEmbedTokenException("embed chat session is expired");
+            }
+            entity.setExpiresAt(refreshedExpiry);
+            entity.setUpdatedAt(now);
+            mapper.updateById(entity);
         }
         return entity;
     }

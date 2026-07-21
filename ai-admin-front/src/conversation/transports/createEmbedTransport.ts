@@ -60,6 +60,12 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
     return response
   }
 
+  function httpError(message: string, status: number): Error & { status: number } {
+    const error = new Error(`${message}: HTTP ${status}`) as Error & { status: number }
+    error.status = status
+    return error
+  }
+
   /**
    * 会话唯一所有者入口：并发调用共享同一个 create Promise。
    */
@@ -77,7 +83,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
         }, signal)
 
         if (!response.ok) {
-          throw new Error(`Embed session create failed: HTTP ${response.status}`)
+          throw httpError('Embed session create failed', response.status)
         }
         const payload = await response.json().catch(() => ({})) as Record<string, unknown>
         const data = (payload.data && typeof payload.data === 'object' ? payload.data : payload) as Record<string, unknown>
@@ -91,6 +97,11 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
     }
 
     return ensureSessionPromise
+  }
+
+  async function recreateSession(signal?: AbortSignal): Promise<string> {
+    options.setSessionId(undefined)
+    return ensureSession(signal)
   }
 
   async function* streamFromResponse(
@@ -145,6 +156,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
     sessionId: string,
     input: ConversationTurnInput,
     signal?: AbortSignal,
+    allowSessionRecovery = true,
   ): AsyncIterable<ConversationEventEnvelope> {
     const path = options.messagesJsonPath?.(sessionId)
       || `/chat/sessions/${encodeURIComponent(sessionId)}/messages`
@@ -157,12 +169,59 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
         uiSubmit: input.uiSubmit,
       }),
     }, signal)
+    if (response.status === 401 && allowSessionRecovery) {
+      const nextSessionId = await recreateSession(signal)
+      yield* startTurnJson(nextSessionId, input, signal, false)
+      return
+    }
     if (!response.ok) {
-      throw new Error(`Embed message failed: HTTP ${response.status}`)
+      throw httpError('Embed message failed', response.status)
     }
     const payload = await response.json().catch(() => ({})) as Record<string, unknown>
     const data = (payload.data && typeof payload.data === 'object' ? payload.data : payload) as Record<string, unknown>
     yield* eventsFromJsonPayload(data, sessionId)
+  }
+
+  async function* startTurnStream(
+    sessionId: string,
+    input: ConversationTurnInput,
+    signal?: AbortSignal,
+    allowSessionRecovery = true,
+  ): AsyncIterable<ConversationEventEnvelope> {
+    const path = options.messagesPath?.(sessionId)
+      || `/chat/sessions/${encodeURIComponent(sessionId)}/messages/stream`
+    const response = await authorizedFetch(resolveUrl(path), {
+      method: 'POST',
+      headers: { Accept: 'text/event-stream' },
+      body: JSON.stringify({
+        message: input.message,
+        context: options.getContext?.(),
+        interactionId: input.interactionId,
+        uiSubmit: input.uiSubmit,
+      }),
+    }, signal)
+
+    if (response.status === 401 && allowSessionRecovery) {
+      const nextSessionId = await recreateSession(signal)
+      yield* startTurnStream(nextSessionId, input, signal, false)
+      return
+    }
+
+    const contentType = response.headers.get('content-type') || ''
+    if (!response.ok || !response.body || !contentType.includes('text/event-stream')) {
+      if (canFallbackFromStreamFailure({
+        status: response.status,
+        bytesOrEventsConsumed: false,
+        aborted: signal?.aborted,
+      })) {
+        yield* startTurnJson(sessionId, input, signal, allowSessionRecovery)
+        return
+      }
+      throw httpError('Embed stream failed', response.status)
+    }
+
+    yield createEvent('turn.started', {}, { sessionId })
+    yield* streamFromResponse(response, sessionId, signal)
   }
 
   async function* startTurn(
@@ -183,35 +242,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
         yield* startTurnJson(sessionId, input, controller.signal)
         return
       }
-
-      const path = options.messagesPath?.(sessionId)
-        || `/chat/sessions/${encodeURIComponent(sessionId)}/messages/stream`
-      const response = await authorizedFetch(resolveUrl(path), {
-        method: 'POST',
-        headers: { Accept: 'text/event-stream' },
-        body: JSON.stringify({
-          message: input.message,
-          context: options.getContext?.(),
-          interactionId: input.interactionId,
-          uiSubmit: input.uiSubmit,
-        }),
-      }, controller.signal)
-
-      const contentType = response.headers.get('content-type') || ''
-      if (!response.ok || !response.body || !contentType.includes('text/event-stream')) {
-        if (canFallbackFromStreamFailure({
-          status: response.status,
-          bytesOrEventsConsumed: false,
-          aborted: controller.signal.aborted,
-        })) {
-          yield* startTurnJson(sessionId, input, controller.signal)
-          return
-        }
-        throw new Error(`Embed stream failed: HTTP ${response.status}`)
-      }
-
-      yield createEvent('turn.started', {}, { sessionId })
-      yield* streamFromResponse(response, sessionId, controller.signal)
+      yield* startTurnStream(sessionId, input, controller.signal)
     } catch (error) {
       if (isAbortError(error) || controller.signal.aborted) {
         yield createEvent('turn.cancelled', {}, { sessionId: options.getSessionId() })
@@ -245,7 +276,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
     }, signal)
 
     if (!response.ok) {
-      throw new Error(`Embed interaction submit failed: HTTP ${response.status}`)
+      throw httpError('Embed interaction submit failed', response.status)
     }
 
     const payload = await response.json().catch(() => ({})) as Record<string, unknown>
@@ -304,7 +335,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
         return
       }
 
-      throw new Error(`Embed interaction stream failed: HTTP ${response.status}`)
+      throw httpError('Embed interaction stream failed', response.status)
     } catch (error) {
       if (isAbortError(error) || signal?.aborted) {
         yield createEvent('turn.cancelled', {}, { sessionId })

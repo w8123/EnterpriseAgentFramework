@@ -266,6 +266,45 @@ class RuntimeWorkflowReleaseValidationServiceTest {
     }
 
     @Test
+    void interactionPresentOutputPublishesWhileBlockingVariantsStayClosed() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity valid = workflow("""
+                {
+                  "nodes":[{"id":"show","type":"INTERACTION","config":{
+                    "interactionType":"PRESENT_OUTPUT",
+                    "component":"LIST_CARD",
+                    "dataExpression":"var.results",
+                    "renderSchema":{
+                      "titleField":"name",
+                      "initialVisibleCount":5,
+                      "fields":[{"key":"owner","label":"Owner"}]
+                    }
+                  }}],
+                  "edges":[{"from":"show","to":"END","condition":"always"}],
+                  "entry":"show",
+                  "finish":["show"]
+                }
+                """);
+        RuntimeWorkflowDefinitionEntity invalid = workflow("""
+                {
+                  "nodes":[{"id":"show","type":"INTERACTION","config":{
+                    "interactionType":"PRESENT_OUTPUT",
+                    "component":"list-card",
+                    "renderSchema":{"initialVisibleCount":0,"fields":{}}
+                  }}],
+                  "edges":[{"from":"show","to":"END","condition":"always"}],
+                  "entry":"show",
+                  "finish":["show"]
+                }
+                """);
+
+        assertTrue(service.validate(valid).valid(), () -> service.validate(valid).errors().toString());
+        RuntimeWorkflowReleaseValidationResult invalidResult = service.validate(invalid);
+        assertTrue(hasError(invalidResult, "GRAPH_INTERACTION_LIST_CARD_VISIBLE_COUNT_INVALID"));
+        assertTrue(hasError(invalidResult, "GRAPH_INTERACTION_LIST_CARD_FIELDS_INVALID"));
+    }
+
+    @Test
     void toolAndCapabilityNodesRequireExecutableReference() {
         RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
         RuntimeWorkflowDefinitionEntity workflow = workflow("""

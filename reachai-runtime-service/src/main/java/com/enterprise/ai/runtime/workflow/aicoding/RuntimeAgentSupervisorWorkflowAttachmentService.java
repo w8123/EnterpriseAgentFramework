@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigService;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentConfigDraftRequest;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentConfigVersionView;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.WorkflowToolRequest;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.WorkflowToolView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentMapper;
@@ -85,7 +86,8 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
         if (activeEntity.isPresent()) {
             List<WorkflowToolView> tools = agentConfigService.listTools(agent.getId(), activeEntity.get().getId());
             boolean alreadyAttached = tools.stream().anyMatch(tool -> workflow.getId().equals(tool.workflowId()));
-            if (alreadyAttached && modelMatches(activeEntity.get().getModelInstanceId(), modelInstanceId)) {
+            if (alreadyAttached && !hasToolOverrides(request)
+                    && modelMatches(activeEntity.get().getModelInstanceId(), modelInstanceId)) {
                 AgentConfigVersionView activeView = agentConfigService.list(agent.getId()).stream()
                         .filter(view -> Objects.equals(view.id(), activeEntity.get().getId()))
                         .findFirst()
@@ -111,8 +113,21 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                     null,
                     null,
                     null));
-            AgentConfigVersionView draft = agentConfigService.ensureWorkflowToolInDraft(
-                    agent.getId(), workflow.getId(), "CHAT".equalsIgnoreCase(workflowType));
+            boolean defaultReadOnly = "CHAT".equalsIgnoreCase(workflowType);
+            String riskLevel = firstText(request.riskLevel(), defaultReadOnly ? "READ" : "PAGE_ACTION");
+            boolean readOnly = request.readOnly() == null ? defaultReadOnly : request.readOnly();
+            AgentConfigVersionView draft = agentConfigService.upsertWorkflowToolInDraft(
+                    agent.getId(), new WorkflowToolRequest(
+                            workflow.getId(),
+                            firstText(request.toolName(), workflow.getKeySlug()),
+                            firstText(request.descriptionOverride(), workflow.getDescription()),
+                            writeJsonOrNull(request.inputSchema()),
+                            writeJsonOrNull(request.outputSchema()),
+                            riskLevel,
+                            firstText(request.permissionKey(), "workflow:" + workflow.getKeySlug()),
+                            readOnly,
+                            true,
+                            request.priority()));
             AgentConfigVersionView published = agentConfigService.publish(
                     agent.getId(), draft.id(), firstText(request.publishedBy(), "Cursor"));
             return toResult(project, agent, workflow, published, true, false);
@@ -419,13 +434,44 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
         }
     }
 
+    private String writeJsonOrNull(Object value) {
+        return value == null ? null : writeJson(value);
+    }
+
+    private boolean hasToolOverrides(AttachRequest request) {
+        return request != null && (StringUtils.hasText(request.toolName())
+                || StringUtils.hasText(request.descriptionOverride())
+                || request.inputSchema() != null
+                || request.outputSchema() != null
+                || StringUtils.hasText(request.riskLevel())
+                || StringUtils.hasText(request.permissionKey())
+                || request.readOnly() != null
+                || request.priority() != null);
+    }
+
     public record AttachRequest(
             String workflowId,
             String agentId,
             String agentKeySlug,
             String modelInstanceId,
-            String publishedBy
+            String publishedBy,
+            String toolName,
+            String descriptionOverride,
+            Map<String, Object> inputSchema,
+            Map<String, Object> outputSchema,
+            String riskLevel,
+            String permissionKey,
+            Boolean readOnly,
+            Integer priority
     ) {
+        public AttachRequest(String workflowId,
+                             String agentId,
+                             String agentKeySlug,
+                             String modelInstanceId,
+                             String publishedBy) {
+            this(workflowId, agentId, agentKeySlug, modelInstanceId, publishedBy,
+                    null, null, null, null, null, null, null, null);
+        }
     }
 
     public record PageAssistantAttachRequest(

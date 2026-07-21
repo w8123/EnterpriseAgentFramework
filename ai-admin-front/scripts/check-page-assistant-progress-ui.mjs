@@ -22,6 +22,10 @@ const pageAssistantStyleSource = readFileSync(
   join(process.cwd(), 'src/views/registry/styles/PageAssistantWizard.scss'),
   'utf8',
 )
+const connectPanelStyleSource = readFileSync(
+  join(process.cwd(), 'src/views/registry/styles/PageAssistantConnectPanel.scss'),
+  'utf8',
+)
 
 assert.match(stepProgressSource, /step-progress access-progress--refined page-assistant-progress/)
 assert.match(stepProgressSource, /completedStepCount/)
@@ -45,7 +49,14 @@ assert.match(connectPanelSource, /connect-stat-strip/)
 assert.match(connectPanelSource, /connect-stat-card/)
 assert.match(connectPanelSource, /access-task-panel/)
 assert.match(connectPanelSource, /access-empty-state/)
+assert.match(connectPanelSource, /:show-arrow="false"/)
+assert.match(connectPanelSource, /@use '\.\.\/\.\.\/styles\/PageAssistantConnectPanel\.scss'/)
 assert.doesNotMatch(connectPanelSource, /health-grid|health-card/)
+
+assert.match(connectPanelStyleSource, /\.sdk-template-popover\.el-popper/)
+assert.match(connectPanelStyleSource, /max-height:\s*min\(76vh,\s*680px\)/)
+assert.match(connectPanelStyleSource, /\.template-code-shell pre/)
+assert.match(connectPanelStyleSource, /max-height:\s*min\(44vh,\s*360px\)/)
 
 assert.match(pagePanelSource, /<style scoped lang="scss">/)
 assert.match(pagePanelSource, /\.page-list\s*\{/)

@@ -404,12 +404,22 @@ class PlatformEmbedPublicControllerTest {
         assertEquals(MediaType.TEXT_EVENT_STREAM, response.getHeaders().getContentType());
         assertEquals("no-cache", response.getHeaders().getCacheControl());
         assertEquals("no", response.getHeaders().getFirst("X-Accel-Buffering"));
-        verify(embedStreamRelay).streamMessage(eq(session), argThat(body ->
-                "orders-bot".equals(body.get("agentId"))
-                        && "embed-1".equals(body.get("sessionId"))
-                        && "查订单".equals(body.get("message"))
-                        && "EMBED_CHAT".equals(body.get("intentHint"))
-                        && "EMBED".equals(body.get("entryType"))), eq(output));
+        verify(embedStreamRelay).streamMessage(eq(session), argThat(body -> {
+            if (!"orders-bot".equals(body.get("agentId"))
+                    || !"embed-1".equals(body.get("sessionId"))
+                    || !"查订单".equals(body.get("message"))
+                    || !"EMBED_CHAT".equals(body.get("intentHint"))
+                    || !"EMBED".equals(body.get("entryType"))) {
+                return false;
+            }
+            Object timing = body.get("controlTiming");
+            if (!(timing instanceof Map<?, ?> map)) {
+                return false;
+            }
+            return map.get("control.sessionLookupMs") instanceof Number
+                    && map.get("control.userMessageAuditMs") instanceof Number
+                    && map.get("control.preRuntimeMs") instanceof Number;
+        }), eq(output));
         verify(chatEventMapper).insert(argThat(event ->
                 "MESSAGE".equals(event.getEventType())
                         && "user".equals(event.getRole())

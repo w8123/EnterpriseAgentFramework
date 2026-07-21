@@ -246,9 +246,8 @@ public class RuntimeAgentConfigService {
 
     @Transactional
     public AgentConfigVersionView ensureWorkflowToolInDraft(String agentId,
-                                                            String workflowId,
-                                                            boolean readOnly) {
-        requireAgent(agentId);
+                                                             String workflowId,
+                                                             boolean readOnly) {
         if (!StringUtils.hasText(workflowId)) {
             throw new IllegalArgumentException("workflowId is required for Agent Workflow Tool");
         }
@@ -259,36 +258,60 @@ public class RuntimeAgentConfigService {
             throw new IllegalArgumentException(
                     "Agent Workflow Tool requires an ACTIVE published workflow: " + normalizedWorkflowId);
         }
+        return upsertWorkflowToolInDraft(agentId, new WorkflowToolRequest(
+                normalizedWorkflowId,
+                workflowToolName(workflow.getKeySlug()),
+                workflow.getDescription(),
+                null,
+                null,
+                readOnly ? "READ" : "PAGE_ACTION",
+                "workflow:" + workflow.getKeySlug(),
+                readOnly,
+                true,
+                null));
+    }
+
+    /** Adds or replaces one Workflow tool in a new Agent draft while preserving the rest of the catalog. */
+    @Transactional
+    public AgentConfigVersionView upsertWorkflowToolInDraft(String agentId,
+                                                            WorkflowToolRequest requestedTool) {
+        requireAgent(agentId);
+        if (requestedTool == null || !StringUtils.hasText(requestedTool.workflowId())) {
+            throw new IllegalArgumentException("workflowId is required for Agent Workflow Tool");
+        }
+        String normalizedWorkflowId = requestedTool.workflowId().trim();
+        RuntimeWorkflowDefinitionEntity workflow = workflowMapper.selectById(normalizedWorkflowId);
+        if (workflow == null || !"ACTIVE".equalsIgnoreCase(workflow.getStatus())
+                || workflowVersionMapper.listActive(normalizedWorkflowId).isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Agent Workflow Tool requires an ACTIVE published workflow: " + normalizedWorkflowId);
+        }
 
         Optional<RuntimeAgentConfigVersionEntity> displayConfig = resolveDisplayConfig(agentId);
         List<WorkflowToolRequest> tools = new ArrayList<>();
+        boolean replaced = false;
         if (displayConfig.isPresent()) {
             for (WorkflowToolView current : listTools(agentId, displayConfig.get().getId())) {
-                tools.add(new WorkflowToolRequest(
-                        current.workflowId(),
-                        current.toolName(),
-                        current.description(),
-                        current.inputSchemaJson(),
-                        current.outputSchemaJson(),
-                        current.riskLevel(),
-                        current.permissionKey(),
-                        current.readOnly(),
-                        current.enabled(),
-                        current.priority()));
+                if (normalizedWorkflowId.equals(current.workflowId())) {
+                    tools.add(requestedTool);
+                    replaced = true;
+                } else {
+                    tools.add(new WorkflowToolRequest(
+                            current.workflowId(),
+                            current.toolName(),
+                            current.description(),
+                            current.inputSchemaJson(),
+                            current.outputSchemaJson(),
+                            current.riskLevel(),
+                            current.permissionKey(),
+                            current.readOnly(),
+                            current.enabled(),
+                            current.priority()));
+                }
             }
         }
-        if (tools.stream().noneMatch(tool -> normalizedWorkflowId.equals(tool.workflowId()))) {
-            tools.add(new WorkflowToolRequest(
-                    normalizedWorkflowId,
-                    workflowToolName(workflow.getKeySlug()),
-                    workflow.getDescription(),
-                    null,
-                    null,
-                    readOnly ? "READ" : "PAGE_ACTION",
-                    "workflow:" + workflow.getKeySlug(),
-                    readOnly,
-                    true,
-                    tools.size()));
+        if (!replaced) {
+            tools.add(requestedTool);
         }
         return saveDraft(agentId, new AgentConfigDraftRequest(
                 null, null, null, null, null, null, null, null, null,
@@ -402,13 +425,16 @@ public class RuntimeAgentConfigService {
                         rows.stream().map(RuntimeAgentWorkflowToolEntity::getWorkflowId).distinct().toList())
                 .stream()
                 .collect(Collectors.toMap(RuntimeWorkflowDefinitionEntity::getId, Function.identity()));
-        Map<Long, RuntimeWorkflowVersionEntity> pinnedVersions = rows.stream()
+        List<Long> versionIds = rows.stream()
                 .map(RuntimeAgentWorkflowToolEntity::getWorkflowVersionId)
                 .filter(java.util.Objects::nonNull)
                 .distinct()
-                .map(workflowVersionMapper::selectById)
-                .filter(java.util.Objects::nonNull)
-                .collect(Collectors.toMap(RuntimeWorkflowVersionEntity::getId, Function.identity()));
+                .toList();
+        Map<Long, RuntimeWorkflowVersionEntity> pinnedVersions = versionIds.isEmpty()
+                ? Map.of()
+                : workflowVersionMapper.selectBatchIds(versionIds).stream()
+                .collect(Collectors.toMap(RuntimeWorkflowVersionEntity::getId, Function.identity(),
+                        (a, b) -> a, LinkedHashMap::new));
         List<WorkflowToolView> views = new ArrayList<>();
         for (RuntimeAgentWorkflowToolEntity row : rows) {
             RuntimeWorkflowDefinitionEntity workflow = workflows.get(row.getWorkflowId());

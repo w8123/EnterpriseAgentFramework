@@ -79,7 +79,15 @@ public class PlatformEmbedStreamRelay {
         }
         Map<String, Object> metadata = mapValue(payload.get("metadata"));
         String answer = text(payload.get("answer"));
+        long auditStart = System.nanoTime();
         chatEventService.recordAssistantMessage(session, answer, payload, text(metadata.get("traceId")));
+        long assistantAuditMs = Math.max(0L, (System.nanoTime() - auditStart) / 1_000_000L);
+        // Observability only — never mutate the already-persisted assistant content.
+        if (payload.get("metadata") instanceof Map<?, ?> raw) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> mutable = (Map<String, Object>) raw;
+            mutable.put("control.assistantAuditMs", assistantAuditMs);
+        }
     }
 
     private PlatformEmbedPublicController.EmbedChatMessageResponse buildEmbedResponse(

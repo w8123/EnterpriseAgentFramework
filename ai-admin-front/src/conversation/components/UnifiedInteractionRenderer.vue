@@ -158,10 +158,48 @@
 
     <!-- list_card -->
     <div v-else-if="kind === 'list_card'" class="reachai-interaction__list">
-      <article v-for="(row, index) in tableRows" :key="index" class="reachai-interaction__list-item">
-        <strong>{{ row.title || row.name || `#${index + 1}` }}</strong>
-        <span>{{ row.description || row.summary || stringify(row) }}</span>
+      <div v-if="listPresentation.showCount" class="reachai-interaction__list-summary">
+        共 {{ listPresentation.total }} 条
+      </div>
+      <p v-if="!listPresentation.items.length" class="reachai-interaction__empty">
+        {{ listPresentation.emptyText }}
+      </p>
+      <article
+        v-for="item in visibleListItems"
+        :key="item.key"
+        class="reachai-interaction__list-item"
+      >
+        <header class="reachai-interaction__list-item-header">
+          <div class="reachai-interaction__list-title">
+            <strong>{{ item.title }}</strong>
+            <span v-if="item.subtitle">{{ item.subtitle }}</span>
+          </div>
+          <span
+            v-if="item.status"
+            class="reachai-interaction__status-chip"
+            :class="`is-${item.status.tone}`"
+          >
+            {{ item.status.label }}
+          </span>
+        </header>
+        <dl v-if="item.fields.length" class="reachai-interaction__list-fields">
+          <div v-for="field in item.fields" :key="field.key">
+            <dt>{{ field.label }}</dt>
+            <dd>{{ field.value }}</dd>
+          </div>
+        </dl>
       </article>
+      <button
+        v-if="listPresentation.items.length > listPresentation.initialVisibleCount"
+        type="button"
+        class="reachai-interaction__list-toggle"
+        :aria-expanded="listExpanded"
+        @click="listExpanded = !listExpanded"
+      >
+        {{ listExpanded
+          ? '收起'
+          : `展开剩余 ${listPresentation.items.length - listPresentation.initialVisibleCount} 条` }}
+      </button>
     </div>
 
     <!-- page_action -->
@@ -213,6 +251,7 @@ import {
   getCustomInteractionRenderer,
   resolveRendererKind,
 } from '../renderers/interactionRegistry'
+import { buildListCardPresentation } from '../renderers/listCardPresentation'
 
 const props = defineProps<{
   request: UiRequestV1
@@ -238,6 +277,7 @@ const isDisabled = computed(() =>
 )
 const choiceRadioName = computed(() => `reachai-choice-${props.request.interactionId || 'default'}`)
 const validationError = ref('')
+const listExpanded = ref(false)
 const actionButtons = computed(() => (props.request.actions || []) as UiActionPayload[])
 
 const isReadonlyDisplay = computed(() => {
@@ -279,6 +319,7 @@ watch(
   () => props.request,
   (req) => {
     validationError.value = ''
+    listExpanded.value = false
     Object.keys(formValues).forEach((k) => delete formValues[k])
     for (const field of req.fields || []) {
       const pre = req.prefilled?.[field.key]
@@ -368,6 +409,11 @@ const tableColumns = computed(() => {
   if (!first) return [] as Array<{ key: string; label: string }>
   return Object.keys(first).map((key) => ({ key, label: key }))
 })
+
+const listPresentation = computed(() => buildListCardPresentation(props.request))
+const visibleListItems = computed(() => listExpanded.value
+  ? listPresentation.value.items
+  : listPresentation.value.items.slice(0, listPresentation.value.initialVisibleCount))
 
 function resolveDeclaredColumns(request: UiRequestV1): Array<{ key: string; label: string }> {
   const candidates = [
@@ -609,12 +655,132 @@ function retryLast() {
   margin: 0 0 8px;
   font-size: 13px;
 }
+.reachai-interaction--list_card {
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.reachai-interaction--list_card > .reachai-interaction__header,
+.reachai-interaction--list_card > .reachai-interaction__message,
+.reachai-interaction--list_card > .reachai-interaction__state {
+  padding-inline: 2px;
+}
+.reachai-interaction__list {
+  display: grid;
+  gap: 8px;
+}
+.reachai-interaction__list-summary {
+  color: var(--reachai-chat-text-muted, #5b6b69);
+  font-size: 12px;
+}
 .reachai-interaction__list-item {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--reachai-chat-glass-border-soft, var(--reachai-chat-border, #d7e0de));
+  border-radius: 10px;
+  background: var(--reachai-chat-glass-interaction, var(--reachai-chat-surface, #fff));
+  box-shadow: var(--reachai-chat-glass-highlight, none);
+}
+.reachai-interaction__list-item-header {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--reachai-chat-border, #d7e0de);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.reachai-interaction__list-title {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.reachai-interaction__list-title strong,
+.reachai-interaction__list-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+}
+.reachai-interaction__list-title strong {
+  font-size: 14px;
+  line-height: 1.45;
+}
+.reachai-interaction__list-title span {
+  color: var(--reachai-chat-text-muted, #5b6b69);
+  font-size: 12px;
+}
+.reachai-interaction__status-chip {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid var(--reachai-chat-glass-border-soft, var(--reachai-chat-border, #d7e0de));
+  border-radius: 999px;
+  background: var(--reachai-chat-glass-control, var(--reachai-chat-surface-muted, #f5f7f7));
+  color: var(--reachai-chat-text-muted, #5b6b69);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.reachai-interaction__status-chip.is-success {
+  border-color: color-mix(in srgb, var(--reachai-chat-success, #16856b) 32%, transparent);
+  background: color-mix(in srgb, var(--reachai-chat-success, #16856b) 10%, transparent);
+  color: var(--reachai-chat-success, #16856b);
+}
+.reachai-interaction__status-chip.is-warning {
+  border-color: color-mix(in srgb, var(--reachai-chat-warning, #b54708) 32%, transparent);
+  background: color-mix(in srgb, var(--reachai-chat-warning, #b54708) 10%, transparent);
+  color: var(--reachai-chat-warning, #b54708);
+}
+.reachai-interaction__status-chip.is-danger {
+  border-color: color-mix(in srgb, var(--reachai-chat-danger, #b42318) 32%, transparent);
+  background: color-mix(in srgb, var(--reachai-chat-danger, #b42318) 10%, transparent);
+  color: var(--reachai-chat-danger, #b42318);
+}
+.reachai-interaction__status-chip.is-info {
+  border-color: color-mix(in srgb, var(--reachai-chat-primary, #0f766e) 28%, transparent);
+  background: color-mix(in srgb, var(--reachai-chat-primary, #0f766e) 8%, transparent);
+  color: var(--reachai-chat-primary, #0f766e);
+}
+.reachai-interaction__list-fields {
+  display: grid;
+  gap: 6px;
+  margin: 9px 0 0;
+}
+.reachai-interaction__list-fields > div {
+  display: grid;
+  grid-template-columns: minmax(56px, max-content) minmax(0, 1fr);
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.reachai-interaction__list-fields dt {
+  color: var(--reachai-chat-text-muted, #5b6b69);
+}
+.reachai-interaction__list-fields dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-word;
+}
+.reachai-interaction__list-toggle {
+  justify-self: center;
+  border: 0;
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--reachai-chat-primary, #0f766e);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.reachai-interaction__list-toggle:hover {
+  text-decoration: underline;
+}
+.reachai-interaction__empty {
+  margin: 6px 0;
+  padding: 16px 10px;
+  color: var(--reachai-chat-text-muted, #5b6b69);
+  font-size: 13px;
+  text-align: center;
 }
 .reachai-interaction__warn {
   color: #9a6700;

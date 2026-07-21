@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -60,6 +61,10 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
     private final AtomicBoolean fallbackUsed = new AtomicBoolean(false);
     private final AtomicReference<String> fallbackReason = new AtomicReference<>();
     private final AtomicReference<ModelStreamSubscription> activeSubscription = new AtomicReference<>();
+    private final AtomicInteger modelRoundCount = new AtomicInteger(0);
+    private final List<Map<String, Object>> modelRounds = new CopyOnWriteArrayList<>();
+    private final AtomicReference<Long> firstPublicDeltaAtMs = new AtomicReference<>();
+    private final long createdAtMs = System.currentTimeMillis();
 
     public ReachAiAgentScopeChatModel(String modelInstanceId,
                               RuntimeModelServiceClient modelClient,
@@ -115,7 +120,41 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
         if (fallbackReason.get() != null) {
             metadata.put("fallbackReason", fallbackReason.get());
         }
+        metadata.put("modelRoundCount", modelRoundCount.get());
+        metadata.put("supervisor.modelRoundCount", modelRoundCount.get());
+        if (firstPublicDeltaAtMs.get() != null) {
+            metadata.put("supervisor.firstPublicDeltaMs", firstPublicDeltaAtMs.get());
+        }
         return metadata;
+    }
+
+    /**
+     * Safe per-round diagnostics only — never includes reasoning body, prompts, or secrets.
+     */
+    Map<String, Object> safeRoundDiagnostics() {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("supervisor.modelRounds", List.copyOf(modelRounds));
+        metadata.put("supervisor.modelRoundCount", modelRoundCount.get());
+        if (firstPublicDeltaAtMs.get() != null) {
+            metadata.put("supervisor.firstPublicDeltaMs", firstPublicDeltaAtMs.get());
+        }
+        return metadata;
+    }
+
+    int modelRoundCount() {
+        return modelRoundCount.get();
+    }
+
+    /**
+     * DIRECT buffered answer: one public delta, tokenStreaming=false, no force final pass.
+     */
+    void publishBufferedDirect(String text) {
+        if (text == null || text.isEmpty()) {
+            return;
+        }
+        streamMode.set("buffered_direct");
+        fallbackUsed.set(false);
+        publishPublicDelta(text);
     }
 
     SupervisorAnswerPhase answerPhase() {
@@ -141,6 +180,9 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
                                           List<ToolSchema> tools,
                                           GenerateOptions options) {
         boolean publicFinalRound = isPublicFinalRound(tools, options);
+        int roundNo = modelRoundCount.incrementAndGet();
+        String phase = publicFinalRound ? "PUBLIC_FINAL" : "INTERNAL";
+        long roundStartedAt = System.currentTimeMillis();
         List<ToolSchema> effectiveTools = publicFinalRound ? List.of() : tools;
         ModelChatRequest request = ModelChatRequest.builder()
                 .modelInstanceId(modelInstanceId)
@@ -151,7 +193,16 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
                 .build();
 
         if (streamClient == null) {
-            return Flux.defer(() -> Flux.just(completeFromSync(request, publicFinalRound)));
+            return Flux.defer(() -> {
+                ChatResponse response = completeFromSync(request, publicFinalRound);
+                recordRound(roundNo, phase, roundStartedAt, roundStartedAt, roundStartedAt,
+                        response == null ? null : response.getFinishReason(),
+                        publicFinalRound ? publicContentDeltaCount.get() : 0,
+                        0, countToolBlocks(response),
+                        response == null || response.getUsage() == null ? null : response.getUsage().getInputTokens(),
+                        response == null || response.getUsage() == null ? null : response.getUsage().getOutputTokens());
+                return Flux.just(response);
+            });
         }
 
         return Flux.<ChatResponse>create(sink -> {
@@ -166,7 +217,8 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
                         sink.complete();
                         return;
                     }
-                    streamIntoSink(request, sink, roundConsumed, publicFinalRound, subscription);
+                    streamIntoSink(request, sink, roundConsumed, publicFinalRound, subscription,
+                            roundNo, phase, roundStartedAt);
                 } catch (Exception ex) {
                     if (subscription.isCancelled()
                             || answerPhase.get() == SupervisorAnswerPhase.Phase.CANCELLED
@@ -191,7 +243,15 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
                         fallbackUsed.set(true);
                         streamMode.set("sync_fallback");
                         fallbackReason.set(rootMessage(ex));
-                        sink.next(completeFromSync(request, publicFinalRound));
+                        ChatResponse response = completeFromSync(request, publicFinalRound);
+                        recordRound(roundNo, phase, roundStartedAt, System.currentTimeMillis(),
+                                firstPublicDeltaAtMs.get() == null ? null : createdAtMs + firstPublicDeltaAtMs.get(),
+                                response.getFinishReason(),
+                                publicFinalRound ? publicContentDeltaCount.get() : 0,
+                                0, countToolBlocks(response),
+                                response.getUsage() == null ? null : response.getUsage().getInputTokens(),
+                                response.getUsage() == null ? null : response.getUsage().getOutputTokens());
+                        sink.next(response);
                         sink.complete();
                     } catch (Exception syncError) {
                         syncError.addSuppressed(ex);
@@ -220,7 +280,10 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
                                 FluxSink<ChatResponse> sink,
                                 AtomicBoolean roundConsumed,
                                 boolean publicFinalRound,
-                                ModelStreamSubscription subscription) {
+                                ModelStreamSubscription subscription,
+                                int roundNo,
+                                String phase,
+                                long roundStartedAt) {
         StringBuilder content = new StringBuilder();
         AtomicInteger contentDeltaCount = new AtomicInteger();
         AtomicInteger reasoningDeltaCount = new AtomicInteger();
@@ -234,6 +297,8 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
         AtomicReference<Integer> reasoningTokens = new AtomicReference<>();
         AtomicReference<Integer> totalTokens = new AtomicReference<>();
         AtomicBoolean completedReceived = new AtomicBoolean(false);
+        AtomicReference<Long> firstEventAt = new AtomicReference<>();
+        AtomicReference<Long> firstContentAt = new AtomicReference<>();
         String responseId = UUID.randomUUID().toString();
 
         streamClient.streamChatEvents(request, event -> {
@@ -243,22 +308,20 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
             if (event == null || event.type == null) {
                 return;
             }
+            firstEventAt.compareAndSet(null, System.currentTimeMillis());
             switch (event.type) {
                 case "content.delta" -> {
                     if (event.text != null && !event.text.isEmpty()) {
                         roundConsumed.set(true);
                         contentDeltaCount.incrementAndGet();
                         content.append(event.text);
+                        firstContentAt.compareAndSet(null, System.currentTimeMillis());
                         if (publicFinalRound) {
+                            // PUBLIC_FINAL: true token stream to Embed; do NOT also feed each delta
+                            // as TextBlock to AgentScope (completed submits the canonical full text once).
                             publishPublicDelta(event.text);
                         }
-                        // INTERNAL content 仅供 AgentScope 内部消费，绝不公开
-                        if (!subscription.isCancelled()) {
-                            sink.next(ChatResponse.builder()
-                                    .id(responseId)
-                                    .content(List.of(TextBlock.builder().text(event.text).build()))
-                                    .build());
-                        }
+                        // INTERNAL deltas are accumulated only; AgentScope receives one ChatResponse on completed.
                     }
                 }
                 case "reasoning.delta" -> {
@@ -420,11 +483,13 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
                     completedReceived.get());
             throw failure;
         }
-        // 禁止在 INTERNAL 结束后批量 flush；公开内容仅允许 PUBLIC_FINAL 即时发送
-        if (publicFinalRound && contentStreamed.get() && !fallbackUsed.get()) {
-            streamMode.set("token_stream");
-        } else if (!fallbackUsed.get() && "none".equals(streamMode.get())) {
-            streamMode.set(publicFinalRound ? "token_stream" : "internal");
+        // 禁止在 INTERNAL 结束后批量 flush；公开内容仅允许 PUBLIC_FINAL 即时发送或明确的 buffered_direct
+        if (!"buffered_direct".equals(streamMode.get()) && !"sync_fallback".equals(streamMode.get())) {
+            if (publicFinalRound && contentStreamed.get() && !fallbackUsed.get()) {
+                streamMode.set("token_stream");
+            } else if (!fallbackUsed.get() && ("none".equals(streamMode.get()) || "internal".equals(streamMode.get()))) {
+                streamMode.set(publicFinalRound ? "token_stream" : "internal");
+            }
         }
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.putAll(safeStreamMetadata());
@@ -439,7 +504,15 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
             metadata.put("finishReason", finishReason.get());
         }
         roundConsumed.set(true);
+        recordRound(roundNo, phase, roundStartedAt, firstEventAt.get(), firstContentAt.get(),
+                finishReason.get(),
+                publicFinalRound ? publicContentDeltaCount.get() : 0,
+                reasoningLength.get(),
+                toolUseBlocks.size(),
+                promptTokens.get(),
+                completionTokens.get());
         if (!subscription.isCancelled()) {
+            // Canonical single ChatResponse for AgentScope — never concatenate prior deltas + full text.
             sink.next(ChatResponse.builder()
                     .id(responseId)
                     .content(blocks)
@@ -458,6 +531,56 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
         contentDeltaSink.accept(text);
         contentStreamed.set(true);
         publicContentDeltaCount.incrementAndGet();
+        firstPublicDeltaAtMs.compareAndSet(null, System.currentTimeMillis() - createdAtMs);
+    }
+
+    private void recordRound(int roundNo,
+                             String phase,
+                             long roundStartedAt,
+                             Long firstEventAt,
+                             Long firstContentAt,
+                             String finishReason,
+                             int contentDeltaCount,
+                             int reasoningLength,
+                             int toolCallCount,
+                             Integer promptTokens,
+                             Integer completionTokens) {
+        Map<String, Object> round = new LinkedHashMap<>();
+        round.put("roundNo", roundNo);
+        round.put("phase", phase);
+        round.put("durationMs", Math.max(0L, System.currentTimeMillis() - roundStartedAt));
+        if (firstEventAt != null) {
+            round.put("firstEventMs", Math.max(0L, firstEventAt - roundStartedAt));
+        }
+        if (firstContentAt != null) {
+            round.put("firstContentMs", Math.max(0L, firstContentAt - roundStartedAt));
+        }
+        if (finishReason != null) {
+            round.put("finishReason", finishReason);
+        }
+        round.put("contentDeltaCount", contentDeltaCount);
+        round.put("reasoningLength", reasoningLength);
+        round.put("toolCallCount", toolCallCount);
+        if (promptTokens != null) {
+            round.put("promptTokens", promptTokens);
+        }
+        if (completionTokens != null) {
+            round.put("completionTokens", completionTokens);
+        }
+        modelRounds.add(round);
+    }
+
+    private static int countToolBlocks(ChatResponse response) {
+        if (response == null || response.getContent() == null) {
+            return 0;
+        }
+        int count = 0;
+        for (ContentBlock block : response.getContent()) {
+            if (block instanceof ToolUseBlock) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private ChatResponse completeFromSync(ModelChatRequest request, boolean publicFinalRound) {

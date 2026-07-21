@@ -89,4 +89,33 @@ describe('Conversation glass token contract', () => {
     expect(interaction).not.toMatch(/saturate\(1\./)
     expect(card).not.toMatch(/saturate\(1\./)
   })
+
+  it('derives atmosphere washes from spectrum tokens instead of fixed indigo RGB', () => {
+    expect(tokens).toMatch(/--reachai-chat-atmosphere-glow-primary:\s*color-mix/)
+    expect(tokens).toMatch(/--reachai-chat-atmosphere-glow-secondary:\s*color-mix/)
+    expect(tokens).toMatch(/--reachai-chat-atmosphere-theme-wash:\s*linear-gradient/)
+    expect(tokens).not.toMatch(/--reachai-chat-atmosphere-glow-primary:\s*rgb\(100 220 255/)
+  })
+
+  it('inherits shell/preset primary when admin brand is absent (SDK nested path)', () => {
+    expect(tokens).toMatch(
+      /\.eaf-chat \.reachai-conversation[\s\S]*?--reachai-chat-primary:\s*inherit/,
+    )
+    expect(tokens).toMatch(
+      /\.reachai-chat-root \.reachai-conversation[\s\S]*?--reachai-chat-primary-rgb:\s*inherit/,
+    )
+    expect(tokens).toMatch(/--reachai-chat-primary-soft:\s*color-mix\([\s\S]*?#ffffff\)/)
+    expect(tokens).not.toMatch(/--reachai-chat-primary-soft:[^;]*#8b5cf6/)
+  })
+
+  it('shares composer frame focus ring for custom slot classes in ConversationView', () => {
+    const view = readFileSync(
+      resolve(__dirname, './ConversationView.vue'),
+      'utf8',
+    )
+    expect(view).toMatch(/:deep\(\.chat-input:focus-within\)/)
+    expect(view).toMatch(/:deep\(\.debug-chat-composer:focus-within\)/)
+    expect(view).toMatch(/--reachai-chat-glass-focus-ring/)
+    expect(view).toMatch(/prefers-reduced-motion/)
+  })
 })

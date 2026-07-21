@@ -5,17 +5,20 @@ import com.enterprise.ai.control.runtime.RuntimeAgentStreamProxy;
 import com.enterprise.ai.control.runtime.SseStreamRelay;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 class PlatformEmbedStreamRelayTest {
@@ -36,7 +39,12 @@ class PlatformEmbedStreamRelayTest {
             handler.handle("message.delta", "{\"text\":\"订单\"}", downstream);
             handler.handle("supervisor.step", "{\"step\":\"plan\"}", downstream);
             handler.handle("execution.completed",
-                    "{\"sessionId\":\"embed-1\",\"answer\":\"订单已找到\",\"metadata\":{\"traceId\":\"trace-1\"}}",
+                    "{\"sessionId\":\"embed-1\",\"answer\":\"订单已找到\",\"metadata\":{"
+                            + "\"traceId\":\"trace-1\","
+                            + "\"control.sessionLookupMs\":12,"
+                            + "\"control.userMessageAuditMs\":3,"
+                            + "\"control.preRuntimeMs\":18"
+                            + "}}",
                     downstream);
             return null;
         }).when(streamProxy).streamAgentExecute(eq(runtimeBody), any(), any());
@@ -48,11 +56,25 @@ class PlatformEmbedStreamRelayTest {
         assertTrue(streamed.contains("event: message.delta"));
         assertTrue(!streamed.contains("supervisor.step"));
         assertTrue(streamed.contains("event: message.completed"));
-        verify(chatEventService).recordAssistantMessage(
+        assertTrue(streamed.contains("control.sessionLookupMs"));
+        assertTrue(streamed.contains("control.userMessageAuditMs"));
+        assertTrue(streamed.contains("control.preRuntimeMs"));
+        assertTrue(streamed.contains("control.assistantAuditMs"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> completion = ArgumentCaptor.forClass(Map.class);
+        verify(chatEventService, times(1)).recordAssistantMessage(
                 eq(session),
                 eq("订单已找到"),
-                eq(Map.of("sessionId", "embed-1", "answer", "订单已找到", "metadata", Map.of("traceId", "trace-1"))),
+                completion.capture(),
                 eq("trace-1"));
+        assertEquals("embed-1", completion.getValue().get("sessionId"));
+        assertEquals("订单已找到", completion.getValue().get("answer"));
+        Map<?, ?> metadata = (Map<?, ?>) completion.getValue().get("metadata");
+        assertEquals("trace-1", metadata.get("traceId"));
+        assertEquals(12, ((Number) metadata.get("control.sessionLookupMs")).intValue());
+        assertEquals(3, ((Number) metadata.get("control.userMessageAuditMs")).intValue());
+        assertEquals(18, ((Number) metadata.get("control.preRuntimeMs")).intValue());
+        assertTrue(((Number) metadata.get("control.assistantAuditMs")).longValue() >= 0L);
     }
 
     @Test

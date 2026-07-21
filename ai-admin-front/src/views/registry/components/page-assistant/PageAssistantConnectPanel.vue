@@ -56,6 +56,7 @@ const emit = defineEmits<{
           :visible="sdkHelperVisible"
           placement="left-start"
           :width="640"
+          :show-arrow="false"
           trigger="click"
           popper-class="sdk-template-popover"
           @update:visible="emit('update:sdkHelperVisible', $event)"
@@ -184,3 +185,7 @@ const emit = defineEmits<{
     </div>
   </div>
 </template>
+
+<style lang="scss">
+@use '../../styles/PageAssistantConnectPanel.scss';
+</style>

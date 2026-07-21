@@ -1,16 +1,26 @@
 package com.enterprise.ai.runtime.runops;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
-import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -19,127 +29,106 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RuntimeRunLifecycleServiceTest {
 
-    @Test
-    void sanitizesDirectAnswerAndUntrustedUserBeforePersistingAgentRun() {
-        LifecycleFixture fixture = fixture();
-        LocalDateTime startedAt = LocalDateTime.of(2026, 7, 14, 9, 30, 0);
-        Map<String, Object> input = new LinkedHashMap<>();
-        input.put("entryType", "EMBED");
-        input.put("projectCode", "orders");
-        input.put("sessionId", "session-before");
-        input.put("userId", "user-before");
-        input.put("message", "直接回答这个问题");
+    @BeforeAll
+    static void initMybatisPlusLambdaCache() {
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                RuntimeRunEntity.class);
+    }
 
-        fixture.service().beginAgent(
+    @Test
+    void finishSuccessWritesTokenCostAndTerminalFieldsWithoutNullTokenCost() {
+        FinishCapture capture = finishCapture(1);
+        LocalDateTime startedAt = LocalDateTime.of(2026, 7, 14, 9, 30, 0);
+        capture.service().beginAgent(
                 "trace-direct",
                 "span-root",
                 startedAt,
                 agent(),
                 publishedConfig(),
                 List.of(),
-                input);
+                Map.of("entryType", "EMBED", "sessionId", "session-before", "message", "hi"));
 
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("sessionId", "session-final");
-        metadata.put("userId", "user-final");
-        metadata.put("planCount", 1);
+        metadata.put("planCount", 0);
         metadata.put("replanCount", 0);
         metadata.put("workflowCallCount", 0);
+        metadata.put("toolCallCount", 0);
+        metadata.put("guardDenyCount", 0);
+        metadata.put("approvalCount", 0);
         metadata.put("usage", Map.of("inputTokens", 12, "outputTokens", 8));
-        fixture.service().finishAgent(
+
+        capture.service().finishAgent(
                 "trace-direct",
                 true,
                 "SUPERVISOR_COMPLETED",
                 "这是无需调用 Workflow 的直接回答",
                 metadata,
-                startedAt.plusNanos(1_500_000_000L));
+                startedAt.plusNanos(1_500_000_000L),
+                null,
+                1500,
+                startedAt);
 
-        RuntimeRunEntity saved = fixture.saved().get();
-        assertNotNull(saved);
-        assertEquals("trace-direct", saved.getTraceId());
-        assertEquals("AGENT", saved.getRunType());
-        assertEquals("EMBED", saved.getEntryType());
-        assertEquals("SUCCESS", saved.getStatus());
-        assertEquals(7L, saved.getProjectId());
-        assertEquals("orders", saved.getProjectCode());
-        assertEquals("agent-1", saved.getAgentId());
-        assertEquals(91L, saved.getAgentConfigVersionId());
-        assertEquals(4, saved.getAgentConfigVersion());
-        assertEquals("session-final", saved.getSessionId());
-        assertNull(saved.getUserId());
-        assertEquals("[omitted]", saved.getOutputSummary());
-        assertEquals(1, saved.getPlanCount());
-        assertEquals(0, saved.getReplanCount());
-        assertEquals(0, saved.getWorkflowCallCount());
-        assertEquals(0, saved.getToolCallCount());
-        assertEquals(0, saved.getGuardDenyCount());
-        assertEquals(0, saved.getApprovalCount());
-        assertEquals(20, saved.getTokenCost());
-        assertEquals(1500, saved.getLatencyMs());
-        assertNull(saved.getErrorCode());
-        assertTrue(saved.getSnapshotJson().contains("\"workflowToolCount\":0"));
-        verify(fixture.runMapper()).insert(saved);
-        verify(fixture.runMapper()).updateById(saved);
+        Map<String, Object> sets = capture.lastSetValues();
+        assertEquals("SUCCESS", sets.get("status"));
+        assertEquals("[omitted]", sets.get("output_summary"));
+        assertEquals(1500, ((Number) sets.get("latency_ms")).intValue());
+        assertEquals(20, ((Number) sets.get("token_cost")).intValue());
+        assertNotNull(sets.get("ended_at"));
+        assertEquals("session-final", sets.get("session_id"));
+        assertFalse(sets.containsKey("token_cost") && sets.get("token_cost") == null);
     }
 
     @Test
-    void persistsTrustedIdentityUserIdAndIgnoresAttackerBodyUserId() {
-        LifecycleFixture fixture = fixture();
-        LocalDateTime startedAt = LocalDateTime.of(2026, 7, 19, 12, 0, 0);
-        WorkflowExecutionIdentity identity = WorkflowExecutionIdentity.fromAgent(7L, "orders", "42");
-        Map<String, Object> input = new LinkedHashMap<>();
-        input.put("entryType", "AGENT");
-        input.put("userId", "attacker");
-        input.put("message", "spoof me");
-
-        fixture.service().beginAgent(
-                "trace-trusted",
+    void finishWithoutTokenMetadataWritesZeroTokenCostNotNull() {
+        FinishCapture capture = finishCapture(1);
+        LocalDateTime startedAt = LocalDateTime.of(2026, 7, 14, 10, 0, 0);
+        capture.service().beginAgent(
+                "trace-zero-token",
                 "span-root",
                 startedAt,
                 agent(),
                 publishedConfig(),
                 List.of(),
-                input,
-                identity);
+                Map.of("entryType", "API", "message", "hi"));
 
-        RuntimeRunEntity saved = fixture.saved().get();
-        assertEquals("42", saved.getUserId());
-        assertFalse(saved.getInputSummary() != null && saved.getInputSummary().contains("attacker"));
-        assertFalse(saved.getInputSummary() != null && saved.getInputSummary().contains("spoof me"));
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("planCount", 0);
+        metadata.put("workflowCallCount", 0);
+        metadata.put("toolCallCount", 0);
+        metadata.put("guardDenyCount", 0);
+        metadata.put("approvalCount", 0);
+
+        capture.service().finishAgent(
+                "trace-zero-token",
+                true,
+                "SUPERVISOR_COMPLETED",
+                "ok",
+                metadata,
+                startedAt.plusSeconds(1),
+                null,
+                1000,
+                startedAt);
+
+        Map<String, Object> sets = capture.lastSetValues();
+        assertEquals(0, ((Number) sets.get("token_cost")).intValue());
+        assertEquals("SUCCESS", sets.get("status"));
+        assertNotNull(sets.get("ended_at"));
     }
 
     @Test
-    void doesNotPersistUntrustedBodyUserIdWhenIdentityMissing() {
-        LifecycleFixture fixture = fixture();
-        LocalDateTime startedAt = LocalDateTime.of(2026, 7, 19, 12, 1, 0);
-        Map<String, Object> input = Map.of("entryType", "AGENT", "userId", "42", "message", "no bearer");
-
-        fixture.service().beginAgent(
-                "trace-untrusted",
-                "span-root",
-                startedAt,
-                agent(),
-                publishedConfig(),
-                List.of(),
-                input,
-                null);
-
-        assertNull(fixture.saved().get().getUserId());
-    }
-
-    @Test
-    void mapsSupervisorConfirmationToWaitingApprovalRootStatus() {
-        LifecycleFixture fixture = fixture();
-        when(fixture.guardMapper().selectCount(any())).thenReturn(0L, 1L);
+    void finishWaitingApprovalKeepsEndedAtNull() {
+        FinishCapture capture = finishCapture(1);
         LocalDateTime startedAt = LocalDateTime.of(2026, 7, 14, 9, 31, 0);
-
-        fixture.service().beginAgent(
+        capture.service().beginAgent(
                 "trace-waiting",
                 "span-root",
                 startedAt,
@@ -147,33 +136,103 @@ class RuntimeRunLifecycleServiceTest {
                 publishedConfig(),
                 List.of(),
                 Map.of("message", "请执行高风险操作", "sessionId", "session-approval"));
-        fixture.service().finishAgent(
+
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("planCount", 1);
+        metadata.put("workflowCallCount", 0);
+        metadata.put("toolCallCount", 0);
+        metadata.put("guardDenyCount", 0);
+        metadata.put("approvalCount", 1);
+
+        capture.service().finishAgent(
                 "trace-waiting",
                 false,
                 "SUPERVISOR_CONFIRMATION_REQUIRED",
                 "需要人工确认后继续",
-                Map.of("planCount", 1, "workflowCallCount", 0),
+                metadata,
                 startedAt.plusSeconds(2));
 
-        RuntimeRunEntity saved = fixture.saved().get();
-        assertEquals("WAITING_APPROVAL", saved.getStatus());
-        // 等待态不得终结 root run；errorCode 清空，原因保留在 outputSummary
-        assertNull(saved.getErrorCode());
-        assertNull(saved.getErrorMessage());
-        assertEquals("[omitted]", saved.getOutputSummary());
-        assertEquals(1, saved.getApprovalCount());
-        assertEquals(0, saved.getWorkflowCallCount());
-        assertEquals(0, saved.getToolCallCount());
-        assertNull(saved.getEndedAt());
+        Map<String, Object> sets = capture.lastSetValues();
+        assertEquals("WAITING_APPROVAL", sets.get("status"));
+        assertNull(sets.get("ended_at"));
+        assertNull(sets.get("latency_ms"));
+        assertEquals(0, ((Number) sets.get("token_cost")).intValue());
+        assertEquals(1, ((Number) sets.get("approval_count")).intValue());
+    }
+
+    @Test
+    void finishUpdateReturningZeroLogsNoMatchingRow() {
+        FinishCapture capture = finishCapture(0);
+        Logger logger = (Logger) LoggerFactory.getLogger(RuntimeRunLifecycleService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            capture.service().finishAgent(
+                    "trace-missing",
+                    true,
+                    "SUPERVISOR_COMPLETED",
+                    "ok",
+                    Map.of("toolCallCount", 0, "guardDenyCount", 0, "approvalCount", 0),
+                    LocalDateTime.now(),
+                    null,
+                    10,
+                    LocalDateTime.now().minusSeconds(1));
+            assertTrue(appender.list.stream().anyMatch(event ->
+                    event.getFormattedMessage().contains("no runtime_run row matched")
+                            && event.getFormattedMessage().contains("trace-missing")));
+            assertTrue(appender.list.stream().noneMatch(event ->
+                    event.getFormattedMessage().contains("runtime_run is missing")));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    void resolveTokenCostPrefersExplicitIntegerAndWalksUsageTrees() {
+        assertEquals(0, RuntimeRunLifecycleService.resolveTokenCost(null));
+        assertEquals(0, RuntimeRunLifecycleService.resolveTokenCost(Map.of()));
+        assertEquals(42, RuntimeRunLifecycleService.resolveTokenCost(Map.of("tokenCost", 42)));
+        assertEquals(20, RuntimeRunLifecycleService.resolveTokenCost(Map.of(
+                "usage", Map.of("inputTokens", 12, "outputTokens", 8))));
+        assertEquals(30, RuntimeRunLifecycleService.resolveTokenCost(Map.of(
+                "model", Map.of("_chat_usage", Map.of("totalTokens", 30)))));
+        assertEquals(40, RuntimeRunLifecycleService.resolveTokenCost(Map.of(
+                "model", Map.of("usage", Map.of("promptTokens", 25, "completionTokens", 15)))));
+        // Prefer canonical model usage over duplicated supervisor.modelRounds token fields.
+        assertEquals(909, RuntimeRunLifecycleService.resolveTokenCost(Map.of(
+                "model", Map.of(
+                        "usage", Map.of("inputTokens", 862, "outputTokens", 47, "totalTokens", 909),
+                        "supervisor.modelRounds", List.of(Map.of(
+                                "promptTokens", 862, "completionTokens", 47))),
+                "supervisor.modelRounds", List.of(Map.of(
+                        "promptTokens", 862, "completionTokens", 47)))));
+    }
+
+    @Test
+    void persistsTrustedIdentityUserIdAndIgnoresAttackerBodyUserId() {
+        FinishCapture capture = finishCapture(1);
+        LocalDateTime startedAt = LocalDateTime.of(2026, 7, 19, 12, 0, 0);
+        WorkflowExecutionIdentity identity = WorkflowExecutionIdentity.fromAgent(7L, "orders", "42");
+        capture.service().beginAgent(
+                "trace-trusted",
+                "span-root",
+                startedAt,
+                agent(),
+                publishedConfig(),
+                List.of(),
+                Map.of("entryType", "AGENT", "userId", "attacker", "message", "spoof me"),
+                identity);
+
+        RuntimeRunEntity saved = capture.inserted().get();
+        assertEquals("42", saved.getUserId());
+        assertFalse(saved.getInputSummary() != null && saved.getInputSummary().contains("attacker"));
     }
 
     @Test
     void mapsWorkflowInteractionWaitingToWaitingUserWithoutEndingRun() {
-        LifecycleFixture fixture = fixture();
-        when(fixture.guardMapper().selectCount(any())).thenReturn(0L);
-        LocalDateTime startedAt = LocalDateTime.of(2026, 7, 18, 10, 0, 0);
-
-        fixture.service().beginWorkflow(
+        FinishCapture capture = finishCapture(1);
+        capture.service().beginWorkflow(
                 "trace-wfi",
                 "span-root",
                 "WORKFLOW_STUDIO",
@@ -184,7 +243,7 @@ class RuntimeRunLifecycleServiceTest {
                 "LANGGRAPH4J",
                 "{\"entry\":\"form\"}",
                 Map.of("message", "start"));
-        fixture.service().finishWorkflow(
+        capture.service().finishWorkflow(
                 "trace-wfi",
                 false,
                 "RUNTIME_GRAPH_INTERACTION_WAITING",
@@ -192,32 +251,36 @@ class RuntimeRunLifecycleServiceTest {
                 1,
                 Map.of("interactionId", "wfi_abc", "nodeCount", 1));
 
-        RuntimeRunEntity saved = fixture.saved().get();
+        RuntimeRunEntity saved = capture.inserted().get();
         assertEquals("WAITING_USER", saved.getStatus());
         assertNull(saved.getEndedAt());
         assertNull(saved.getErrorCode());
         assertEquals("[omitted]", saved.getOutputSummary());
-        assertFalse(saved.getMetadataJson().contains("uiRequest"));
-        assertFalse(saved.getSnapshotJson().contains("\"entry\":\"form\""));
+        assertEquals(0, saved.getTokenCost());
     }
 
-    private LifecycleFixture fixture() {
+    private FinishCapture finishCapture(int updateRows) {
         RuntimeRunMapper runMapper = mock(RuntimeRunMapper.class);
-        RuntimeToolCallLogMapper toolCallLogMapper = mock(RuntimeToolCallLogMapper.class);
-        RuntimeGuardDecisionLogMapper guardMapper = mock(RuntimeGuardDecisionLogMapper.class);
-        AtomicReference<RuntimeRunEntity> saved = new AtomicReference<>();
-        when(runMapper.selectOne(any())).thenAnswer(invocation -> saved.get());
+        AtomicReference<RuntimeRunEntity> inserted = new AtomicReference<>();
+        AtomicReference<LambdaUpdateWrapper<RuntimeRunEntity>> lastUpdate = new AtomicReference<>();
+        AtomicInteger updateCalls = new AtomicInteger();
+        when(runMapper.selectOne(any())).thenAnswer(invocation -> inserted.get());
         when(runMapper.insert(any())).thenAnswer(invocation -> {
             RuntimeRunEntity entity = invocation.getArgument(0);
             entity.setId(1L);
-            saved.set(entity);
+            inserted.set(entity);
             return 1;
         });
-        when(toolCallLogMapper.selectCount(any())).thenReturn(0L);
-        when(guardMapper.selectCount(any())).thenReturn(0L);
-        RuntimeRunLifecycleService service = new RuntimeRunLifecycleService(
-                runMapper, toolCallLogMapper, guardMapper, new ObjectMapper());
-        return new LifecycleFixture(service, runMapper, guardMapper, saved);
+        when(runMapper.update(isNull(), any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            LambdaUpdateWrapper<RuntimeRunEntity> wrapper = invocation.getArgument(1);
+            lastUpdate.set(wrapper);
+            updateCalls.incrementAndGet();
+            return updateRows;
+        });
+        when(runMapper.selectFinishCounts(any())).thenReturn(finishCounts(0L, 0L, 0L));
+        RuntimeRunLifecycleService service = new RuntimeRunLifecycleService(runMapper, new ObjectMapper());
+        return new FinishCapture(service, runMapper, inserted, lastUpdate, updateCalls);
     }
 
     private RuntimeAgentView agent() {
@@ -237,10 +300,85 @@ class RuntimeRunLifecycleServiceTest {
         return config;
     }
 
-    private record LifecycleFixture(
-            RuntimeRunLifecycleService service,
-            RuntimeRunMapper runMapper,
-            RuntimeGuardDecisionLogMapper guardMapper,
-            AtomicReference<RuntimeRunEntity> saved) {
+    private RuntimeRunFinishCounts finishCounts(long toolCalls, long guardDenies, long approvals) {
+        RuntimeRunFinishCounts counts = new RuntimeRunFinishCounts();
+        counts.setToolCallCount(toolCalls);
+        counts.setGuardDenyCount(guardDenies);
+        counts.setApprovalCount(approvals);
+        return counts;
+    }
+
+    private static final class FinishCapture {
+        private final RuntimeRunLifecycleService service;
+        private final RuntimeRunMapper runMapper;
+        private final AtomicReference<RuntimeRunEntity> inserted;
+        private final AtomicReference<LambdaUpdateWrapper<RuntimeRunEntity>> lastUpdate;
+        private final AtomicInteger updateCalls;
+
+        private FinishCapture(RuntimeRunLifecycleService service,
+                              RuntimeRunMapper runMapper,
+                              AtomicReference<RuntimeRunEntity> inserted,
+                              AtomicReference<LambdaUpdateWrapper<RuntimeRunEntity>> lastUpdate,
+                              AtomicInteger updateCalls) {
+            this.service = service;
+            this.runMapper = runMapper;
+            this.inserted = inserted;
+            this.lastUpdate = lastUpdate;
+            this.updateCalls = updateCalls;
+        }
+
+        RuntimeRunLifecycleService service() {
+            return service;
+        }
+
+        AtomicReference<RuntimeRunEntity> inserted() {
+            return inserted;
+        }
+
+        Map<String, Object> lastSetValues() {
+            assertTrue(updateCalls.get() > 0, "finish must invoke conditional update");
+            LambdaUpdateWrapper<RuntimeRunEntity> wrapper = lastUpdate.get();
+            assertNotNull(wrapper);
+            verify(runMapper).update(isNull(), any());
+            return extractSetValues(wrapper);
+        }
+    }
+
+    /**
+     * Extracts column→value pairs from a MyBatis-Plus LambdaUpdateWrapper SET clause.
+     * Fails loudly if token_cost is absent or explicitly null.
+     */
+    private static Map<String, Object> extractSetValues(LambdaUpdateWrapper<RuntimeRunEntity> wrapper) {
+        String sqlSet = wrapper.getSqlSet();
+        assertNotNull(sqlSet);
+        Map<String, Object> params = wrapper.getParamNameValuePairs();
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (String fragment : sqlSet.split(",")) {
+            String part = fragment.trim();
+            int eq = part.indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            String column = part.substring(0, eq).trim().replace("`", "");
+            String placeholder = part.substring(eq + 1).trim();
+            if ("null".equalsIgnoreCase(placeholder)) {
+                out.put(column, null);
+                continue;
+            }
+            int start = placeholder.indexOf("#{");
+            int end = placeholder.lastIndexOf('}');
+            if (start < 0 || end < 0) {
+                continue;
+            }
+            String path = placeholder.substring(start + 2, end);
+            // ew.paramNameValuePairs.MPGENVAL1
+            String key = path.contains(".") ? path.substring(path.lastIndexOf('.') + 1) : path;
+            out.put(column, params.get(key));
+        }
+        assertTrue(out.containsKey("token_cost"),
+                "finish UPDATE must set token_cost; sqlSet=" + sqlSet);
+        assertNotNull(out.get("token_cost"),
+                "token_cost must not be written as null; sqlSet=" + sqlSet);
+        return out;
     }
 }

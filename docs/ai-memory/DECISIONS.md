@@ -97,6 +97,15 @@
 
 默认不为旧数据做复杂兼容迁移。V2 按新库重建处理，不提供旧表名兼容视图或旧数据迁移脚本；后续如需要面向存量库升级，再新增当次 upgrade SQL 并写清影响。
 
+## ModelInstanceRuntimeCache 跨实例一致性
+
+`reachai-model-service` 的 `ModelInstanceRuntimeCache` 是**进程内**短 TTL 缓存（配置项 `model.instance-runtime-cache.ttl-ms`，默认 5s，硬上限 30s）：
+
+- 本机 create / update / archive 会立即 `invalidate`。
+- 多实例部署下，其他副本在 TTL 窗口内仍可能使用旧的 ACTIVE runtime（含禁用、归档、凭据轮换后的短暂陈旧）。
+- 当前阶段不引入分布式缓存或跨实例失效广播；缩短 TTL 是刻意的安全窗口，而不是“强一致”。
+- 缓存与日志均不得输出模型凭据或解密后的连接配置。
+
 ## 品牌与技术身份
 
 ReachAI 是产品品牌，也是新 JDK8 接入 SDK 的技术身份。新业务系统接入使用 `reachai.*` 配置、`X-ReachAI-*` header、`Reach*` 类名和 `reachai-*` Maven artifact。

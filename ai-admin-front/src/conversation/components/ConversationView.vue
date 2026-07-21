@@ -78,6 +78,7 @@ const props = withDefaults(defineProps<{
   hideComposer?: boolean
   autoFollow?: boolean
   disableSendWhileBusy?: boolean
+  forceComposerDisabled?: boolean
   /** 连续氛围背景（消息区 + Composer 共用一张） */
   atmosphere?: boolean
   assistantLabel?: string
@@ -93,6 +94,7 @@ const props = withDefaults(defineProps<{
   hideComposer: false,
   autoFollow: true,
   disableSendWhileBusy: true,
+  forceComposerDisabled: false,
   atmosphere: true,
   assistantLabel: '',
   showAvatars: true,
@@ -120,7 +122,8 @@ const busy = computed(() =>
 const showStop = computed(() => busy.value)
 
 const composerDisabled = computed(() =>
-  props.disableSendWhileBusy && (busy.value || props.snapshot.turnStatus === 'waiting'),
+  props.forceComposerDisabled
+  || (props.disableSendWhileBusy && (busy.value || props.snapshot.turnStatus === 'waiting')),
 )
 
 function onSend(text: string) {
@@ -195,22 +198,31 @@ function onInteractionCancel(interactionId: string) {
   justify-content: space-between;
   gap: 8px;
   align-items: center;
+  margin: 0 12px 10px;
   padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--reachai-chat-danger, #b42318) 22%, transparent);
+  border-radius: 12px;
   color: var(--reachai-chat-danger, #b42318);
-  background: color-mix(in srgb, var(--reachai-chat-danger, #b42318) 8%, white);
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 0.72), rgb(255 248 248 / 0.58)),
+    color-mix(in srgb, var(--reachai-chat-danger, #b42318) 6%, transparent);
+  box-shadow: var(--reachai-chat-glass-highlight);
+  -webkit-backdrop-filter: blur(14px) saturate(0.8);
+  backdrop-filter: blur(14px) saturate(0.8);
   font-size: 13px;
 }
 
 .reachai-conversation__error button {
-  border: 1px solid var(--reachai-chat-border, #d7e0de);
-  background: var(--reachai-chat-surface, #fff);
-  border-radius: 6px;
-  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--reachai-chat-danger, #b42318) 28%, transparent);
+  background: var(--reachai-chat-glass-control, rgb(255 255 255 / 0.84));
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: var(--reachai-chat-danger, #b42318);
   font: inherit;
   cursor: pointer;
 }
 
-/* 自定义 composer slot 也复用玻璃条视觉（Token 同源，禁止 Shell 各自覆盖） */
+/* 共享 Composer Material Frame：默认 Composer + 自定义 slot（.chat-input / .debug-chat-composer）同源 */
 .reachai-conversation :deep(.reachai-composer),
 .reachai-conversation :deep(.chat-input),
 .reachai-conversation :deep(.debug-chat-composer) {
@@ -223,5 +235,30 @@ function onInteractionCancel(interactionId: string) {
     var(--reachai-chat-glass-shadow-composer);
   -webkit-backdrop-filter: var(--reachai-chat-glass-blur-composer);
   backdrop-filter: var(--reachai-chat-glass-blur-composer);
+  transition: box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.reachai-conversation :deep(.reachai-composer:focus-within),
+.reachai-conversation :deep(.chat-input:focus-within),
+.reachai-conversation :deep(.debug-chat-composer:focus-within) {
+  border-top-color: rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.28);
+  box-shadow:
+    var(--reachai-chat-glass-highlight),
+    var(--reachai-chat-glass-focus-ring),
+    var(--reachai-chat-glass-shadow-composer);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .reachai-conversation__error {
+    background: color-mix(in srgb, var(--reachai-chat-danger, #b42318) 8%, white);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reachai-conversation :deep(.reachai-composer),
+  .reachai-conversation :deep(.chat-input),
+  .reachai-conversation :deep(.debug-chat-composer) {
+    transition: none;
+  }
 }
 </style>

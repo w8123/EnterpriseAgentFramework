@@ -28,6 +28,7 @@ public class ModelInstanceService {
     private final ModelTemplateService modelTemplateService;
     private final ObjectMapper objectMapper;
     private final CredentialCipher credentialCipher;
+    private final ModelInstanceRuntimeCache runtimeCache;
 
     public List<ModelInstanceResponse> list(String projectCode,
                                             String modelType,
@@ -110,6 +111,7 @@ public class ModelInstanceService {
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         mapper.insert(entity);
+        runtimeCache.invalidate(entity.getId());
         return toResponse(entity);
     }
 
@@ -171,6 +173,7 @@ public class ModelInstanceService {
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         mapper.insert(entity);
+        runtimeCache.invalidate(entity.getId());
         return toResponse(entity);
     }
 
@@ -256,6 +259,7 @@ public class ModelInstanceService {
 
         entity.setUpdatedAt(LocalDateTime.now());
         mapper.updateById(entity);
+        runtimeCache.invalidate(entity.getId());
         return toResponse(entity);
     }
 
@@ -264,6 +268,7 @@ public class ModelInstanceService {
         entity.setStatus(ModelInstanceStatus.ARCHIVED.name());
         entity.setUpdatedAt(LocalDateTime.now());
         mapper.updateById(entity);
+        runtimeCache.invalidate(entity.getId());
         return toResponse(entity);
     }
 

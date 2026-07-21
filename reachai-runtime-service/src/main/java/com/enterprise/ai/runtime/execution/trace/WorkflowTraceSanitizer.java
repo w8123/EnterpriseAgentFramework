@@ -30,7 +30,8 @@ public final class WorkflowTraceSanitizer {
             "queryLength", "hitCount", "topK", "searchMode", "rerankApplied");
     private static final Set<String> SAFE_FINISH_KEYS = Set.of(
             "status", "code", "failureCode", "waiting", "planCount", "replanCount",
-            "workflowCallCount", "toolCallCount", "guardDenyCount", "approvalCount");
+            "workflowCallCount", "toolCallCount", "guardDenyCount", "approvalCount",
+            "tokenCost");
     private static final Pattern NODE_TYPE_PATTERN =
             Pattern.compile("\"type\"\\s*:\\s*\"([A-Za-z0-9_.-]{1,120})\"");
 

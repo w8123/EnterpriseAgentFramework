@@ -7349,17 +7349,11 @@ function formatDebugResult(value: unknown) {
 }
 
 .debug-chat-composer {
+  /* 玻璃材质由 ConversationView :deep(.debug-chat-composer) 提供；此处只保留业务布局 */
   margin-top: 0;
   padding: var(--reachai-chat-composer-padding, 12px 16px 14px);
   border: 0;
   border-radius: 0;
-  border-top: 1px solid var(--reachai-chat-glass-border, rgb(255 255 255 / 0.72));
-  background: var(--reachai-chat-glass-composer);
-  box-shadow:
-    var(--reachai-chat-glass-highlight),
-    var(--reachai-chat-glass-shadow-composer);
-  -webkit-backdrop-filter: var(--reachai-chat-glass-blur-composer);
-  backdrop-filter: var(--reachai-chat-glass-blur-composer);
 
   :deep(.el-textarea__inner),
   :deep(.el-input__wrapper) {

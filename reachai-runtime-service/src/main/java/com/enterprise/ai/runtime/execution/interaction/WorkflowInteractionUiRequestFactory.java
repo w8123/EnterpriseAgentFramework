@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.execution.interaction;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
+import com.enterprise.ai.runtime.execution.context.WorkflowVariableNamespaces;
 import org.springframework.util.StringUtils;
 
 import java.time.Instant;
@@ -13,6 +14,9 @@ import java.util.Map;
 import java.util.UUID;
 
 public final class WorkflowInteractionUiRequestFactory {
+
+    private static final java.util.Set<String> BLOCKED_PATH_SEGMENTS = java.util.Set.of(
+            "__proto__", "prototype", "constructor");
 
     private WorkflowInteractionUiRequestFactory() {
     }
@@ -41,9 +45,13 @@ public final class WorkflowInteractionUiRequestFactory {
         Map<String, Object> extension = new LinkedHashMap<>();
         extension.put("interactionType", type.name());
         extension.put("outputAlias", firstText(text(config.get("outputAlias")), "interaction_output"));
-        Object renderSchema = config.get("renderSchema");
-        if (renderSchema instanceof Map<?, ?> schemaMap && !schemaMap.isEmpty()) {
-            extension.put("renderSchema", schemaMap);
+        Map<String, Object> renderSchema = mapValue(config.get("renderSchema"));
+        if (!renderSchema.isEmpty()) {
+            extension.put("renderSchema", renderSchema);
+        }
+        String rendererKey = firstText(text(renderSchema.get("rendererKey")), text(config.get("rendererKey")));
+        if (StringUtils.hasText(rendererKey)) {
+            extension.put("rendererKey", rendererKey);
         }
 
         Object data = resolvePresentData(type, config, context);
@@ -70,7 +78,7 @@ public final class WorkflowInteractionUiRequestFactory {
                 mapValue(config.get("prefilled")),
                 data,
                 summary.isEmpty() ? null : summary,
-                mapValue(config.get("schema")),
+                resolveUiSchema(config, renderSchema),
                 actions,
                 behavior,
                 extension);
@@ -118,13 +126,120 @@ public final class WorkflowInteractionUiRequestFactory {
             return explicit;
         }
         String expression = firstText(text(config.get("dataExpression")), "lastOutput");
-        if ("lastOutput".equals(expression) || "previousOutput".equals(expression)) {
-            return firstPresent(context.get("lastOutput"), context.get("previousOutput"));
+        ResolvedValue resolved = resolveContextExpression(expression, context);
+        if (resolved.found()) {
+            return resolved.value();
         }
-        if (context.containsKey(expression)) {
-            return context.get(expression);
+        // Compatibility for drafts created before dotted-path resolution: an unresolved alias
+        // historically displayed lastOutput because PRESENT_OUTPUT immediately followed its producer.
+        return firstPresent(context.get("lastOutput"), context.get("previousOutput"));
+    }
+
+    private static Map<String, Object> resolveUiSchema(Map<String, Object> config,
+                                                        Map<String, Object> renderSchema) {
+        Map<String, Object> declared = mapValue(config.get("schema"));
+        if (!declared.isEmpty()) {
+            return declared;
         }
-        return context.get("lastOutput");
+        Map<String, Object> nested = mapValue(renderSchema.get("schema"));
+        if (!nested.isEmpty()) {
+            return nested;
+        }
+        return new LinkedHashMap<>(renderSchema);
+    }
+
+    private static ResolvedValue resolveContextExpression(String rawExpression,
+                                                           Map<String, Object> context) {
+        String expression = normalizeExpression(rawExpression);
+        if (!StringUtils.hasText(expression)) {
+            return ResolvedValue.missing();
+        }
+        ResolvedValue direct = mapEntry(context, expression);
+        if (direct.found()) {
+            return direct;
+        }
+        ResolvedValue nested = readPath(context, expression);
+        if (nested.found()) {
+            return nested;
+        }
+
+        String root = expression.contains(".")
+                ? expression.substring(0, expression.indexOf('.'))
+                : expression;
+        if (!WorkflowVariableNamespaces.isReservedRoot(root)) {
+            String businessPath = WorkflowVariableNamespaces.VAR_ROOT + "." + expression;
+            ResolvedValue businessDirect = mapEntry(context, businessPath);
+            if (businessDirect.found()) {
+                return businessDirect;
+            }
+            return readPath(context, businessPath);
+        }
+        return ResolvedValue.missing();
+    }
+
+    private static String normalizeExpression(String rawExpression) {
+        if (!StringUtils.hasText(rawExpression)) {
+            return null;
+        }
+        String expression = rawExpression.trim();
+        if (expression.startsWith("{{") && expression.endsWith("}}") && expression.length() > 4) {
+            expression = expression.substring(2, expression.length() - 2).trim();
+        }
+        if (expression.startsWith("$.")) {
+            expression = expression.substring(2);
+        } else if (expression.startsWith("$")) {
+            expression = expression.substring(1);
+        }
+        while (expression.startsWith(".")) {
+            expression = expression.substring(1);
+        }
+        return expression;
+    }
+
+    private static ResolvedValue mapEntry(Map<String, Object> map, String key) {
+        return map.containsKey(key)
+                ? new ResolvedValue(true, map.get(key))
+                : ResolvedValue.missing();
+    }
+
+    private static ResolvedValue readPath(Object source, String path) {
+        if (!StringUtils.hasText(path)) {
+            return ResolvedValue.missing();
+        }
+        Object current = source;
+        for (String segment : path.split("\\.")) {
+            if (!StringUtils.hasText(segment) || BLOCKED_PATH_SEGMENTS.contains(segment)) {
+                return ResolvedValue.missing();
+            }
+            if (current instanceof Map<?, ?> map) {
+                if (!map.containsKey(segment)) {
+                    return ResolvedValue.missing();
+                }
+                current = map.get(segment);
+                continue;
+            }
+            if (current instanceof List<?> list) {
+                int index;
+                try {
+                    index = Integer.parseInt(segment);
+                } catch (NumberFormatException ex) {
+                    return ResolvedValue.missing();
+                }
+                if (index < 0 || index >= list.size()) {
+                    return ResolvedValue.missing();
+                }
+                current = list.get(index);
+                continue;
+            }
+            return ResolvedValue.missing();
+        }
+        return new ResolvedValue(true, current);
+    }
+
+    private record ResolvedValue(boolean found, Object value) {
+        private static ResolvedValue missing() {
+            return new ResolvedValue(false, null);
+        }
     }
 
     private static List<Map<String, Object>> resolveActions(WorkflowInteractionType type,

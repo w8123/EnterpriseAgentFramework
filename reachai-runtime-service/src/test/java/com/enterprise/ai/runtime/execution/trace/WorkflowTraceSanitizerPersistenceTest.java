@@ -37,8 +37,7 @@ class WorkflowTraceSanitizerPersistenceTest {
         RuntimeToolCallLogMapper toolLogMapper = mock(RuntimeToolCallLogMapper.class);
         RuntimeRunMapper runMapper = mock(RuntimeRunMapper.class);
         RuntimeGuardDecisionLogMapper guardLogMapper = mock(RuntimeGuardDecisionLogMapper.class);
-        RuntimeRunLifecycleService lifecycle = new RuntimeRunLifecycleService(
-                runMapper, toolLogMapper, guardLogMapper, new ObjectMapper());
+        RuntimeRunLifecycleService lifecycle = new RuntimeRunLifecycleService(runMapper, new ObjectMapper());
         SupervisorExecutionTraceService service = new SupervisorExecutionTraceService(
                 spanMapper, toolLogMapper, guardLogMapper, lifecycle, new ObjectMapper());
 

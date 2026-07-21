@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.internal;
 import com.enterprise.ai.runtime.api.SseHeartbeatSupport;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
+import com.enterprise.ai.runtime.execution.TrustedControlTiming;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth;
 import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter;
@@ -68,13 +69,17 @@ public class RuntimeAgentExecutionInternalController {
                     "answer", "body is required",
                     "metadata", Map.of("code", "RUNTIME_AGENT_BODY_REQUIRED")));
         }
-        Map<String, Object> body = sanitizePublicBody(request.body());
+        Map<String, Object> rawBody = new LinkedHashMap<>(request.body());
+        // Extract only after HMAC/nonce/identity verification above succeeded.
+        TrustedControlTiming controlTiming = TrustedControlTiming.extractAndRemoveFromBody(rawBody);
+        Map<String, Object> body = sanitizePublicBody(rawBody);
         Map<String, Object> result = agentExecutionService.execute(
                 body,
                 false,
                 SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
                 RuntimeAgentExecutionCancellation.NOOP,
-                identity);
+                identity,
+                controlTiming);
         return responseForAgentResult(result);
     }
 
@@ -99,9 +104,12 @@ public class RuntimeAgentExecutionInternalController {
                     .contentType(MediaType.TEXT_EVENT_STREAM)
                     .body(rejected);
         }
-        Map<String, Object> body = sanitizePublicBody(request == null || request.body() == null
+        Map<String, Object> rawBody = new LinkedHashMap<>(request == null || request.body() == null
                 ? Map.of()
                 : request.body());
+        // Extract only after HMAC/nonce/identity verification above succeeded.
+        TrustedControlTiming controlTiming = TrustedControlTiming.extractAndRemoveFromBody(rawBody);
+        Map<String, Object> body = sanitizePublicBody(rawBody);
         SseEmitter emitter = new SseEmitter(AGENT_STREAM_TIMEOUT_MS);
         RuntimeAgentExecutionCancellation cancellation = new RuntimeAgentExecutionCancellation();
         ScheduledFuture<?> heartbeat = heartbeatSupport.start(
@@ -120,9 +128,10 @@ public class RuntimeAgentExecutionInternalController {
             log.debug("[InternalAgentStream] client stream closed: {}", error.getMessage());
         });
         WorkflowExecutionIdentity trustedIdentity = identity;
+        TrustedControlTiming trustedTiming = controlTiming;
         CompletableFuture.runAsync(() -> {
             try {
-                streamAgentExecution(emitter, body, cancellation, trustedIdentity);
+                streamAgentExecution(emitter, body, cancellation, trustedIdentity, trustedTiming);
             } finally {
                 heartbeatSupport.stop(heartbeat);
             }
@@ -138,7 +147,8 @@ public class RuntimeAgentExecutionInternalController {
     private void streamAgentExecution(SseEmitter emitter,
                                       Map<String, Object> request,
                                       RuntimeAgentExecutionCancellation cancellation,
-                                      WorkflowExecutionIdentity identity) {
+                                      WorkflowExecutionIdentity identity,
+                                      TrustedControlTiming controlTiming) {
         try {
             Map<String, Object> started = new LinkedHashMap<>();
             putIfPresent(started, "agentId", request.get("agentId"));
@@ -152,7 +162,8 @@ public class RuntimeAgentExecutionInternalController {
                     true,
                     (event, data) -> sendEvent(emitter, event, data, cancellation),
                     cancellation,
-                    identity);
+                    identity,
+                    controlTiming);
             if (cancellation.isCancelled()) {
                 return;
             }
@@ -255,6 +266,23 @@ public class RuntimeAgentExecutionInternalController {
         safe.remove("__workflowExecutionIdentity");
         safe.remove("trustedIdentity");
         safe.remove("_trustedUserId");
+        // Timing is extracted separately after auth; never leave forgeable keys on the body.
+        safe.remove("controlTiming");
+        safe.keySet().removeIf(key -> key != null && key.startsWith("control."));
+        if (safe.get("metadata") instanceof Map<?, ?> rawMeta) {
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            rawMeta.forEach((k, v) -> {
+                String key = k == null ? null : String.valueOf(k);
+                if (key != null && !key.startsWith("control.") && !"controlTiming".equals(key)) {
+                    metadata.put(key, v);
+                }
+            });
+            if (metadata.isEmpty()) {
+                safe.remove("metadata");
+            } else {
+                safe.put("metadata", metadata);
+            }
+        }
         return safe;
     }
 
@@ -304,8 +332,13 @@ public class RuntimeAgentExecutionInternalController {
         if (result == null) {
             return true;
         }
+        // Waiting for a blocking interaction is a suspended turn, not an execution failure.
+        // Supervisor approval deliberately returns success=false until the user confirms.
+        if (isInteractionWaiting(result)) {
+            return false;
+        }
         Object success = result.get("success");
-        return success instanceof Boolean b && !b;
+        return Boolean.FALSE.equals(success) || "false".equalsIgnoreCase(String.valueOf(success));
     }
 
     private static boolean isSupervisorCancelled(Map<String, Object> result) {
@@ -314,11 +347,22 @@ public class RuntimeAgentExecutionInternalController {
     }
 
     private static boolean isInteractionWaiting(Map<String, Object> result) {
+        if (result == null) {
+            return false;
+        }
         Object waiting = result.get("waiting");
         if (waiting instanceof Boolean b) {
             return b;
         }
-        return result.get("metadata") instanceof Map<?, ?> meta && Boolean.TRUE.equals(meta.get("waiting"));
+        if (!(result.get("metadata") instanceof Map<?, ?> meta)) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(meta.get("waiting")) || Boolean.TRUE.equals(meta.get("interactionPending"))) {
+            return true;
+        }
+        String code = String.valueOf(meta.get("code"));
+        return "RUNTIME_GRAPH_INTERACTION_WAITING".equals(code)
+                || "SUPERVISOR_CONFIRMATION_REQUIRED".equals(code);
     }
 
     private static boolean isContentStreamed(Map<String, Object> result) {

@@ -96,6 +96,50 @@ describe('UnifiedInteractionRenderer DOM', () => {
     expect(wrapper.text()).toContain('Alice')
   })
 
+  it('renders schema-driven list cards from a paged response and expands them', async () => {
+    const wrapper = mount(UnifiedInteractionRenderer, {
+      props: {
+        request: {
+          schemaVersion: '1.0',
+          interactionId: 'ix-list-card',
+          component: 'list_card',
+          title: '查询结果',
+          data: {
+            total: 10,
+            records: [
+              { id: 't1', teamName: '一组', managerName: '张三', enabled: true },
+              { id: 't2', teamName: '二组', managerName: '李四', enabled: false },
+            ],
+          },
+          schema: {
+            itemKey: 'id',
+            titleField: 'teamName',
+            initialVisibleCount: 1,
+            status: {
+              field: 'enabled',
+              labels: { true: '已启用', false: '已停用' },
+              tones: { true: 'success', false: 'neutral' },
+            },
+            fields: [{ key: 'managerName', label: '负责人' }],
+          },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('共 10 条')
+    expect(wrapper.text()).toContain('一组')
+    expect(wrapper.text()).toContain('负责人')
+    expect(wrapper.text()).toContain('张三')
+    expect(wrapper.text()).toContain('已启用')
+    expect(wrapper.text()).not.toContain('二组')
+    expect(wrapper.find('.reachai-interaction__status-chip').classes()).toContain('is-success')
+
+    await wrapper.find('.reachai-interaction__list-toggle').trigger('click')
+    expect(wrapper.text()).toContain('二组')
+    expect(wrapper.text()).toContain('李四')
+    expect(wrapper.text()).toContain('收起')
+  })
+
   it('mounts registered custom renderer into DOM', () => {
     registerCustomInteractionRenderer('host.test-card', () => defineComponent({
       name: 'HostTestCard',
