@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeUiRequest } from './normalizeUiRequest'
+import {
+  isBlockingUiRequest,
+  isCardOnlyUiRequest,
+  isTextOnlyUiRequest,
+  normalizeUiRequest,
+  uiPresentationMode,
+} from './normalizeUiRequest'
 
 describe('normalizeUiRequest', () => {
   it('normalizes uppercase component aliases', () => {
@@ -44,5 +50,24 @@ describe('normalizeUiRequest', () => {
   it('returns null for invalid raw', () => {
     expect(normalizeUiRequest(null)).toBeNull()
     expect(normalizeUiRequest('x')).toBeNull()
+  })
+
+  it('treats readonly output as non-blocking and honors explicit behavior override', () => {
+    expect(isBlockingUiRequest({ component: 'LIST_CARD' })).toBe(false)
+    expect(isBlockingUiRequest({ component: 'confirm' })).toBe(true)
+    expect(isBlockingUiRequest({ component: 'confirm', behavior: { blocking: false } })).toBe(false)
+    expect(isBlockingUiRequest({ component: 'list_card', behavior: { blocking: true } })).toBe(true)
+  })
+
+  it('normalizes presentation modes and keeps legacy responses backward compatible', () => {
+    const cardOnly = normalizeUiRequest({
+      component: 'LIST_CARD',
+      presentation: { mode: 'card-only' },
+    })
+    expect(cardOnly?.presentation).toEqual({ mode: 'card_only' })
+    expect(isCardOnlyUiRequest(cardOnly)).toBe(true)
+    expect(isTextOnlyUiRequest({ component: 'detail', presentation: { mode: 'text_only' } })).toBe(true)
+    expect(uiPresentationMode({ component: 'detail' })).toBe('text_and_card')
+    expect(uiPresentationMode({ component: 'detail', presentation: { mode: 'unknown' } })).toBe('text_and_card')
   })
 })

@@ -1,27 +1,32 @@
 import type {
-  AgentGraphNodeTypeDescriptor,
-  AgentGraphSpec,
+  WorkflowGraphSpec,
   AgentNodeDebugResult,
-  AgentRuntimeType,
   AgentWorkflowDebugRunResult,
   AgentWorkflowDebugStepResult,
   ExecutableDebugMessage,
-  WorkflowDraftEditRequest as AgentWorkflowDraftEditRequest,
-  WorkflowDraftEditResult as AgentWorkflowDraftEditResult,
-  WorkflowDraftEditOperation,
-  WorkflowDraftEditOperationType,
-  WorkflowDraftGenerationRequest as AgentWorkflowDraftGenerationRequest,
-  WorkflowDraftGenerationResult as AgentWorkflowDraftGenerationResult,
-  WorkflowDraftPlaceholder,
-  WorkflowDraftResource,
+  WorkflowProposalEditRequest as BaseWorkflowProposalEditRequest,
+  WorkflowProposalEditResult as BaseWorkflowProposalEditResult,
+  WorkflowProposalEditOperation,
+  WorkflowProposalEditOperationType,
+  WorkflowProposalGenerationRequest as BaseWorkflowProposalGenerationRequest,
+  WorkflowProposalGenerationResult as BaseWorkflowProposalGenerationResult,
+  WorkflowProposalPlaceholder,
+  WorkflowProposalResource,
 } from './agent'
 import type { UiRequestPayload } from './interaction'
 
 export type AgentVisibility = 'PROJECT' | 'PRIVATE' | 'PUBLIC' | string
-export type WorkflowType = 'CHAT' | 'SDK_GRAPH' | 'PAGE_ASSISTANT' | string
-export type WorkflowRuntimeType = AgentRuntimeType | string
+export type WorkflowKind = 'GENERAL' | 'PAGE_ASSISTANT' | string
+export type WorkflowExecutionEngine = 'GRAPH_SPEC' | string
+export type WorkflowDefinitionAuthority = 'USER' | 'SDK' | 'SYSTEM' | string
+export type WorkflowCreationChannel =
+  | 'STUDIO'
+  | 'AI_CODING'
+  | 'SDK_SYNC'
+  | 'AI_QUICK_ACCESS'
+  | 'SYSTEM_SEED'
+  | string
 export type WorkflowStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED' | string
-export type WorkflowManagedBy = 'MANUAL' | 'SDK' | 'AI_QUICK_ACCESS' | string
 
 export interface Agent {
   id: string
@@ -50,15 +55,17 @@ export interface AgentStatistics {
   activeWorkflowTools: number
 }
 
-export interface WorkflowDefinition {
+export interface WorkflowWorkingCopy {
   id: string
   projectId?: number | null
   projectCode?: string | null
   keySlug: string
   name: string
   description?: string | null
-  workflowType?: WorkflowType | null
-  runtimeType?: WorkflowRuntimeType | null
+  workflowKind?: WorkflowKind | null
+  executionEngine?: WorkflowExecutionEngine | null
+  definitionAuthority?: WorkflowDefinitionAuthority | null
+  creationChannel?: WorkflowCreationChannel | null
   graphSpecJson?: string | null
   canvasJson?: string | null
   inputSchemaJson?: string | null
@@ -66,21 +73,23 @@ export interface WorkflowDefinition {
   defaultModelInstanceId?: string | null
   defaultResourceConfigJson?: string | null
   status?: WorkflowStatus | null
-  managedBy?: WorkflowManagedBy | null
   extraJson?: string | null
   createdAt?: string | null
   updatedAt?: string | null
   deletable?: boolean | null
 }
 
-export interface WorkflowDefinitionDraft
-  extends Partial<Omit<WorkflowDefinition, 'id' | 'createdAt' | 'updatedAt' | 'graphSpecJson'>> {
+export interface WorkflowWorkingCopyInput
+  extends Partial<Omit<
+    WorkflowWorkingCopy,
+    'id' | 'createdAt' | 'updatedAt' | 'graphSpecJson'
+  >> {
   id?: string
-  graphSpec?: AgentGraphSpec
+  graphSpec?: WorkflowGraphSpec
   graphSpecJson?: string | null
 }
 
-export interface WorkflowStudioState {
+export interface WorkflowWorkingCopyState {
   workflowId: string
   id?: string
   projectId?: number | null
@@ -90,14 +99,15 @@ export interface WorkflowStudioState {
   description?: string | null
   graphSpecJson: string
   canvasJson?: string | null
-  workflowType?: WorkflowType | null
-  runtimeType: WorkflowRuntimeType
+  workflowKind?: WorkflowKind | null
+  executionEngine?: WorkflowExecutionEngine | null
+  definitionAuthority?: WorkflowDefinitionAuthority | null
+  creationChannel?: WorkflowCreationChannel | null
   defaultModelInstanceId?: string | null
   defaultResourceConfigJson?: string | null
   inputSchemaJson?: string | null
   outputSchemaJson?: string | null
   status: WorkflowStatus
-  managedBy: WorkflowManagedBy
   extraJson?: string | null
   createdAt?: string | null
   updatedAt?: string | null
@@ -107,7 +117,7 @@ export interface WorkflowStudioState {
   hasUnpublishedChanges?: boolean
 }
 
-export interface WorkflowStudioSaveRequest {
+export interface SaveWorkflowWorkingCopyRequest {
   graphSpecJson: string
   canvasJson?: string | null
   extraJson?: string | null
@@ -115,8 +125,10 @@ export interface WorkflowStudioSaveRequest {
   keySlug?: string | null
   name?: string | null
   description?: string | null
-  workflowType?: WorkflowType | null
-  runtimeType?: WorkflowRuntimeType | null
+  workflowKind?: WorkflowKind | null
+  executionEngine?: WorkflowExecutionEngine | null
+  definitionAuthority?: WorkflowDefinitionAuthority | null
+  creationChannel?: WorkflowCreationChannel | null
   inputSchemaJson?: string | null
   outputSchemaJson?: string | null
   defaultModelInstanceId?: string | null
@@ -136,7 +148,7 @@ export interface WorkflowActiveVersionSummary {
 export interface WorkflowRuntimeValidationRequest {
   workflowId?: string
   graphSpecJson?: string
-  runtimeType?: WorkflowRuntimeType
+  executionEngine?: WorkflowExecutionEngine
   defaultModelInstanceId?: string | null
 }
 
@@ -152,30 +164,24 @@ export interface WorkflowRuntimeValidationResult {
   warnings?: WorkflowValidationItem[]
 }
 
-export type WorkflowGraphNodeTypeDescriptor = AgentGraphNodeTypeDescriptor
+export type { WorkflowGraphNodeTypeDescriptor } from './agent'
 export type {
-  WorkflowDraftPlaceholder,
-  WorkflowDraftResource,
+  WorkflowProposalPlaceholder,
+  WorkflowProposalResource,
 }
-export type WorkflowDraftGenerationRequest = AgentWorkflowDraftGenerationRequest & {
-  workflowId?: string
-  workflowName?: string
-}
-export type WorkflowDraftGenerationResult = AgentWorkflowDraftGenerationResult
-export type WorkflowDraftEditRequest = AgentWorkflowDraftEditRequest & {
-  workflowId?: string
-  workflowName?: string
-}
-export type WorkflowDraftEditResult = AgentWorkflowDraftEditResult
-export type { WorkflowDraftEditOperation, WorkflowDraftEditOperationType }
+export type WorkflowProposalGenerationRequest = BaseWorkflowProposalGenerationRequest
+export type WorkflowProposalGenerationResult = BaseWorkflowProposalGenerationResult
+export type WorkflowProposalEditRequest = BaseWorkflowProposalEditRequest
+export type WorkflowProposalEditResult = BaseWorkflowProposalEditResult
+export type { WorkflowProposalEditOperation, WorkflowProposalEditOperationType }
 
 export interface WorkflowDebugBaseRequest {
   workflowId?: string
   workflowKeySlug?: string
   workflowName?: string
-  workflowType?: string
+  workflowKind?: WorkflowKind
   projectCode?: string
-  runtimeType?: WorkflowRuntimeType
+  executionEngine?: WorkflowExecutionEngine
   modelInstanceId?: string
   graphSpecJson?: string
   canvasJson?: string
@@ -201,8 +207,8 @@ export type WorkflowDebugStepResult = AgentWorkflowDebugStepResult
 export type WorkflowDebugMessage = ExecutableDebugMessage
 
 export interface WorkflowDebugSessionCreateRequest {
-  targetType: 'WORKFLOW_DRAFT' | 'WORKFLOW_VERSION' | string
-  draftDefinition: Record<string, unknown>
+  targetType: 'WORKFLOW_WORKING_COPY' | 'WORKFLOW_VERSION' | string
+  workingCopyDefinition: Record<string, unknown>
   message?: string
   inputParams?: Record<string, unknown>
   debugOptions?: Record<string, unknown>

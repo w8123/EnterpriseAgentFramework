@@ -45,7 +45,7 @@ Agent 身份 API 与 Supervisor 配置 API 是两条独立写路径：`POST/PUT 
 - 配置版本抽屉可查看 DRAFT/ACTIVE/ARCHIVED 历史并把不可变快照复制为草稿。
 - Agent 调试只有 Supervisor Agent 执行，不再提供 Lightweight Chat 或独立“流式对话”模式。调试请求统一走 `/api/runtime/agents/execute/stream`，实时呈现 `supervisor.step`，并在完成时保留完整结果、Trace、UI 请求和会话 ID；RunOps 单独呈现 PLAN、REPLAN、WORKFLOW_TOOL 和配置版本指标。
 - Agent Eval 通过 `RuntimeAgentExecutionService` 执行已发布配置，断言 zero/single/multi Workflow、有限重规划、页面动作、策略决策、UI 请求、Trace 和最终回答，不再评测一份脱离发布状态的 GraphSpec 副本。
-- “创建页面助手”完成后同时提供 Workflow Studio、Agent 工作台和 RunOps 三个后续入口。
+- “业务页面工作台”统一提供页面上下文、AI Coding 任务、已发布 PAGE_ASSISTANT Workflow、浏览器验收和 RunOps 追踪入口。
 
 ## RunOps 运行事实边界
 
@@ -78,7 +78,7 @@ AgentScope Supervisor 必须在首次 Workflow 调用前记录 PLAN。Workflow �
 
 事实查询优先 API/数据 Workflow。只有用户明确要求打开、跳转、在页面查询或操作时，Supervisor 才能选择页面动作 Workflow。
 
-跨路由页面动作必须在同一 embed session 内完成 `NAVIGATE -> TARGET_READY -> PAGE_ACTION`。Control 拥有 `control_embed_session`、`control_page_registry` 和 `control_page_action_event`；Runtime 只能通过 `/internal/control/page-bridge/execute` 协作，不能直接读写这些表。
+跨路由页面动作必须在同一 embed session 内完成 `NAVIGATE -> TARGET_READY -> PAGE_ACTION`。Control 拥有 `control_embed_session`、`control_project_page`、`control_page_action` 和 `control_page_action_event`；Runtime 只能通过 Control internal catalog / `/internal/control/page-bridge/execute` 协作，不能直接读写这些表。
 
 ## 演进约束
 

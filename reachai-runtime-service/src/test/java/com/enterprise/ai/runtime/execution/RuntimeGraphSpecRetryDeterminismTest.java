@@ -27,7 +27,7 @@ class RuntimeGraphSpecRetryDeterminismTest {
     @Test
     void knowledgeClientUnavailableIsNotRetried() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
-                {"entry":"kr","nodes":[
+                {"entryNodeId":"kr","exitNodeIds":["kr"],"nodes":[
                   {"id":"kr","type":"KNOWLEDGE_RETRIEVAL",
                    "retry":{"enabled":true,"maxAttempts":3},
                    "config":{"knowledgeBaseCodes":["kb1"],"query":"input"}}
@@ -52,7 +52,7 @@ class RuntimeGraphSpecRetryDeterminismTest {
                 mock(RuntimeKnowledgeRetrievalClient.class),
                 null);
         RuntimeGraphSpecExecutionResult result = withClient.execute("""
-                {"entry":"kr","nodes":[
+                {"entryNodeId":"kr","exitNodeIds":["kr"],"nodes":[
                   {"id":"kr","type":"KNOWLEDGE_RETRIEVAL",
                    "retry":{"enabled":true,"maxAttempts":3},
                    "config":{"knowledgeBaseCodes":[],"query":"input"}}
@@ -64,7 +64,7 @@ class RuntimeGraphSpecRetryDeterminismTest {
     @Test
     void httpClientUnavailableIsNotRetried() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
-                {"entry":"http","nodes":[
+                {"entryNodeId":"http","exitNodeIds":["http"],"nodes":[
                   {"id":"http","type":"HTTP_REQUEST",
                    "retry":{"enabled":true,"maxAttempts":3},
                    "config":{"method":"GET","url":"https://example.com"}}

@@ -56,6 +56,8 @@ public class CapabilityToolCatalogService {
             String term = keyword.trim();
             wrapper.and(q -> q.like(ToolDefinitionEntity::getName, term)
                     .or()
+                    .like(ToolDefinitionEntity::getTitle, term)
+                    .or()
                     .like(ToolDefinitionEntity::getDescription, term));
         }
         if (StringUtils.hasText(source)) {
@@ -67,7 +69,8 @@ public class CapabilityToolCatalogService {
         if (projectId != null) {
             wrapper.eq(ToolDefinitionEntity::getProjectId, projectId);
         }
-        wrapper.orderByAsc(ToolDefinitionEntity::getName);
+        wrapper.orderByAsc(ToolDefinitionEntity::getTitle)
+                .orderByAsc(ToolDefinitionEntity::getName);
         return toolMapper.selectPage(new Page<>(pageNum, pageSize, true), wrapper);
     }
 
@@ -265,6 +268,7 @@ public class CapabilityToolCatalogService {
         if (!updating) {
             entity.setName(request.name().trim());
         }
+        entity.setTitle(request.title().trim());
         entity.setKind(kind);
         entity.setDescription(request.description());
         entity.setParametersJson(writeJson(request.parameters() == null ? List.of() : request.parameters()));
@@ -273,13 +277,8 @@ public class CapabilityToolCatalogService {
         entity.setProjectCode(updating && !StringUtils.hasText(request.projectCode())
                 ? entity.getProjectCode()
                 : trimToNull(request.projectCode()));
-        entity.setVisibility(updating && !StringUtils.hasText(request.visibility())
-                ? defaultString(entity.getVisibility(), "PRIVATE")
-                : defaultString(request.visibility(), "PRIVATE"));
         String qualifiedName = resolveQualifiedName(request.qualifiedName(), entity.getProjectCode(), entity.getName());
         entity.setQualifiedName(updating && qualifiedName == null ? entity.getQualifiedName() : qualifiedName);
-        entity.setAgentVisible(request.agentVisible());
-        entity.setLightweightEnabled(request.lightweightEnabled());
         entity.setSideEffect(normalizeSideEffect(request.sideEffect()));
         entity.setDraft(false);
         entity.setEnabled(request.enabled());
@@ -302,6 +301,9 @@ public class CapabilityToolCatalogService {
         }
         if (!updating && !StringUtils.hasText(request.name())) {
             throw new IllegalArgumentException("tool name is required");
+        }
+        if (!StringUtils.hasText(request.title())) {
+            throw new IllegalArgumentException("tool title is required");
         }
         if (!KIND_TOOL.equals(normalizeKind(request.kind()))) {
             throw new IllegalArgumentException("tool catalog endpoint only accepts TOOL kind");

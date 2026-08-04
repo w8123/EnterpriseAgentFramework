@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.enterprise.ai.runtime.api.SseHeartbeatSupport;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
+import com.enterprise.ai.runtime.execution.WorkflowExecutionStatus;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -21,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledFuture;
@@ -31,6 +33,9 @@ public class RuntimeExecutableDebugSessionService {
 
     private static final long DEBUG_STREAM_TIMEOUT_MS = 600_000L;
     private static final long DEFAULT_HEARTBEAT_INTERVAL_MS = 8_000L;
+    private static final Set<String> TARGET_TYPES = Set.of(
+            "WORKFLOW_WORKING_COPY", "WORKFLOW_VERSION", "AGENT_WORKING_COPY",
+            "COMPOSITION_WORKING_COPY", "EXECUTABLE_WORKING_COPY");
 
     private static final String REQUEST_PARAMS = "__requestParams";
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
@@ -77,8 +82,8 @@ public class RuntimeExecutableDebugSessionService {
     public SessionView create(CreateRequest request,
                               RuntimeGraphSpecExecutionEventSink eventSink,
                               RuntimeGraphSpecExecutionCancellation cancellation) {
-        if (request == null || request.draftDefinition() == null || request.draftDefinition().isEmpty()) {
-            throw new IllegalArgumentException("draftDefinition is required");
+        if (request == null || request.workingCopyDefinition() == null || request.workingCopyDefinition().isEmpty()) {
+            throw new IllegalArgumentException("workingCopyDefinition is required");
         }
         String sessionId = UUID.randomUUID().toString();
         String runId = "studio-debug-session-" + sessionId;
@@ -89,7 +94,7 @@ public class RuntimeExecutableDebugSessionService {
 
         RuntimeWorkflowDebugService.DebugRunResult run = workflowDebugService.debugRun(debugRunRequest(
                 request.targetType(),
-                request.draftDefinition(),
+                request.workingCopyDefinition(),
                 nullToEmpty(request.message()),
                 request.inputParams() == null ? Map.of() : request.inputParams(),
                 options), eventSink, cancellation);
@@ -105,13 +110,13 @@ public class RuntimeExecutableDebugSessionService {
         entity.setId(sessionId);
         entity.setRunId(firstText(run.runId(), runId));
         entity.setTraceId(firstText(run.traceId(), runId));
-        entity.setTargetType(firstText(request.targetType(), "WORKFLOW_DRAFT"));
-        entity.setStatus(normalizeStatus(run.status()));
+        entity.setTargetType(requireTargetType(request.targetType()));
+        entity.setStatus(debugStatusFromExecution(run.status()));
         entity.setRevision(0);
         entity.setCurrentNodeId(run.currentNodeId());
-        entity.setDraftDefinitionJson(writeJson(request.draftDefinition()));
+        entity.setWorkingCopyDefinitionJson(writeJson(request.workingCopyDefinition()));
         entity.setDebugOptionsJson(writeJson(options));
-        entity.setStateJson(writeJson(run.finalState()));
+        entity.setStateSnapshotJson(writeJson(run.stateSnapshot()));
         entity.setMessagesJson(writeJson(messages));
         entity.setStepsJson(writeJson(run.steps()));
         entity.setUiRequestJson(writeJson(run.uiRequest()));
@@ -147,7 +152,10 @@ public class RuntimeExecutableDebugSessionService {
                 request == null ? null : request.interactionId(),
                 entity.getCurrentNodeId()));
 
-        if (!"WAITING".equalsIgnoreCase(status)) {
+        if (!RuntimeDebugSessionStatus.SUSPENDED.name().equals(status)) {
+            if (RuntimeDebugSessionStatus.RESUMING.name().equals(status)) {
+                throw new IllegalStateException("debug submit in progress: " + sessionId);
+            }
             if (StringUtils.hasText(idempotencyKey)
                     && idempotencyKey.equals(entity.getIdempotencyKey())
                     && submittedCanonical.equals(entity.getSubmittedPayloadJson())) {
@@ -158,7 +166,7 @@ public class RuntimeExecutableDebugSessionService {
                     && !submittedCanonical.equals(nullToEmpty(entity.getSubmittedPayloadJson()))) {
                 throw new IllegalStateException("duplicate debug submit with different payload: " + sessionId);
             }
-            throw new IllegalArgumentException("debug session is not waiting: " + sessionId);
+            throw new IllegalArgumentException("debug session is not suspended: " + sessionId);
         }
         String action = firstText(request == null ? null : request.action(), "submit");
         if ("cancel".equalsIgnoreCase(action)) {
@@ -193,22 +201,23 @@ public class RuntimeExecutableDebugSessionService {
             throw new IllegalStateException("duplicate debug submit with different payload: " + sessionId);
         }
 
-        // Atomic CAS: WAITING + revision -> RESUMING
+        // Atomic CAS: SUSPENDED + revision -> RESUMING
         if (!claimDebugResuming(entity, idempotencyKey, submittedCanonical)) {
             RuntimeExecutableDebugSessionEntity latest = requireSession(sessionId);
+            if (RuntimeDebugSessionStatus.RESUMING.name()
+                    .equalsIgnoreCase(normalizeStatus(latest.getStatus()))) {
+                throw new IllegalStateException("debug submit in progress: " + sessionId);
+            }
             if (StringUtils.hasText(idempotencyKey)
                     && idempotencyKey.equals(latest.getIdempotencyKey())
                     && submittedCanonical.equals(latest.getSubmittedPayloadJson())) {
                 return toView(latest);
             }
-            if ("RESUMING".equalsIgnoreCase(normalizeStatus(latest.getStatus()))) {
-                throw new IllegalStateException("debug submit in progress: " + sessionId);
-            }
             throw new IllegalStateException("concurrent debug submit rejected: " + sessionId);
         }
 
-        Map<String, Object> draft = readMap(entity.getDraftDefinitionJson());
-        Map<String, Object> state = readMap(entity.getStateJson());
+        Map<String, Object> workingCopy = readMap(entity.getWorkingCopyDefinitionJson());
+        Map<String, Object> stateSnapshot = readMap(entity.getStateSnapshotJson());
         Map<String, Object> resume = new LinkedHashMap<>();
         resume.put("interactionId", firstText(requestInteractionId, waitingInteractionId));
         resume.put("nodeId", entity.getCurrentNodeId());
@@ -217,19 +226,19 @@ public class RuntimeExecutableDebugSessionService {
         if (StringUtils.hasText(idempotencyKey)) {
             resume.put("idempotencyKey", idempotencyKey);
         }
-        Map<String, Object> params = new LinkedHashMap<>(asMap(state.get(REQUEST_PARAMS)));
+        Map<String, Object> params = new LinkedHashMap<>(asMap(stateSnapshot.get(REQUEST_PARAMS)));
         params.putAll(submitted);
-        state.put(REQUEST_PARAMS, params);
-        state.put("params", params);
-        state.put(WorkflowInteractionCodes.RESUME_CONTEXT_KEY, resume);
-        state.put(WorkflowInteractionCodes.PENDING_INTERACTION_ID_KEY,
+        stateSnapshot.put(REQUEST_PARAMS, params);
+        stateSnapshot.put("params", params);
+        stateSnapshot.put(WorkflowInteractionCodes.RESUME_CONTEXT_KEY, resume);
+        stateSnapshot.put(WorkflowInteractionCodes.PENDING_INTERACTION_ID_KEY,
                 firstText(requestInteractionId, waitingInteractionId));
-        state.put(WorkflowInteractionCodes.PENDING_INTERACTION_NODE_KEY, entity.getCurrentNodeId());
+        stateSnapshot.put(WorkflowInteractionCodes.PENDING_INTERACTION_NODE_KEY, entity.getCurrentNodeId());
         // 禁止全局 submittedPayload 泄漏到后续 INTERACTION
-        state.remove("submittedPayload");
+        stateSnapshot.remove("submittedPayload");
         if (request != null && StringUtils.hasText(request.message())) {
-            state.put("message", request.message());
-            state.put("input", request.message());
+            stateSnapshot.put("message", request.message());
+            stateSnapshot.put("input", request.message());
         }
 
         Map<String, Object> options = readMap(entity.getDebugOptionsJson());
@@ -244,9 +253,9 @@ public class RuntimeExecutableDebugSessionService {
         try {
             run = workflowDebugService.debugRun(debugRunRequest(
                     entity.getTargetType(),
-                    draft,
+                    workingCopy,
                     request == null ? "" : nullToEmpty(request.message()),
-                    state,
+                    stateSnapshot,
                     options), eventSink, cancellation);
         } catch (RuntimeException ex) {
             rollbackDebugWaiting(entity);
@@ -259,14 +268,15 @@ public class RuntimeExecutableDebugSessionService {
         List<RuntimeWorkflowDebugService.DebugStepResult> steps = readSteps(entity.getStepsJson());
         steps.addAll(run.steps() == null ? List.of() : run.steps());
 
-        // 校验失败仍 WAITING：保留原 interactionId / currentNodeId
-        String nextStatus = normalizeStatus(run.status());
+        // 校验失败仍 SUSPENDED：保留原 interactionId / currentNodeId
+        String nextStatus = debugStatusFromExecution(run.status());
         entity.setStatus(nextStatus);
         entity.setCurrentNodeId(run.currentNodeId());
-        Map<String, Object> finalState = run.finalState() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(run.finalState());
-        finalState.remove("submittedPayload");
-        finalState.remove(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
-        entity.setStateJson(writeJson(finalState));
+        Map<String, Object> stateSnapshotResult = run.stateSnapshot() == null
+                ? new LinkedHashMap<>() : new LinkedHashMap<>(run.stateSnapshot());
+        stateSnapshotResult.remove("submittedPayload");
+        stateSnapshotResult.remove(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
+        entity.setStateSnapshotJson(writeJson(stateSnapshotResult));
         entity.setMessagesJson(writeJson(messages));
         entity.setStepsJson(writeJson(steps));
         entity.setUiRequestJson(writeJson(run.uiRequest()));
@@ -279,9 +289,17 @@ public class RuntimeExecutableDebugSessionService {
             entity.setIdempotencyKey(idempotencyKey);
         }
         entity.setSubmittedPayloadJson(submittedCanonical);
-        entity.setRevision((entity.getRevision() == null ? 0 : entity.getRevision()) + 1);
+        int resumingRevision = entity.getRevision() == null ? 0 : entity.getRevision();
+        entity.setRevision(resumingRevision + 1);
         entity.setUpdateTime(LocalDateTime.now());
-        mapper.updateById(entity);
+        if (!persistDebugResumeResult(entity, resumingRevision)) {
+            RuntimeExecutableDebugSessionEntity latest = requireSession(sessionId);
+            RuntimeDebugSessionStatus latestStatus = RuntimeDebugSessionStatus.parse(normalizeStatus(latest.getStatus()));
+            if (latestStatus == RuntimeDebugSessionStatus.RESUMING) {
+                throw new IllegalStateException("debug resume result could not be persisted: " + sessionId);
+            }
+            return toView(latest);
+        }
         return toView(entity);
     }
 
@@ -546,7 +564,7 @@ public class RuntimeExecutableDebugSessionService {
 
     void emitTerminalSessionEvents(SessionView view, DebugSessionSseSink sink) throws IOException {
         String status = normalizeStatus(view.status());
-        if ("WAITING".equals(status)) {
+        if (RuntimeDebugSessionStatus.SUSPENDED.name().equals(status)) {
             sink.send("turn.waiting", Map.of(
                     "sessionId", view.sessionId(),
                     "currentNodeId", firstText(view.currentNodeId(), ""),
@@ -580,13 +598,14 @@ public class RuntimeExecutableDebugSessionService {
     }
 
     /**
-     * ERROR/FAILED → turn.failed；CANCELLED → turn.cancelled；其它成功态 → turn.completed。
+     * FAILED/EXPIRED → turn.failed；CANCELLED → turn.cancelled；COMPLETED → turn.completed。
      */
     static String terminalSseEventName(String status) {
-        if ("ERROR".equals(status) || "FAILED".equals(status)) {
+        RuntimeDebugSessionStatus normalized = RuntimeDebugSessionStatus.parse(status);
+        if (normalized == RuntimeDebugSessionStatus.FAILED || normalized == RuntimeDebugSessionStatus.EXPIRED) {
             return "turn.failed";
         }
-        if ("CANCELLED".equals(status)) {
+        if (normalized == RuntimeDebugSessionStatus.CANCELLED) {
             return "turn.cancelled";
         }
         return "turn.completed";
@@ -626,31 +645,31 @@ public class RuntimeExecutableDebugSessionService {
     }
 
     private RuntimeWorkflowDebugService.DebugRunRequest debugRunRequest(String targetType,
-                                                                       Map<String, Object> draft,
+                                                                       Map<String, Object> workingCopy,
                                                                        String message,
                                                                        Map<String, Object> inputParams,
                                                                        Map<String, Object> debugOptions) {
         return new RuntimeWorkflowDebugService.DebugRunRequest(
-                text(draft.get("workflowId")),
-                text(draft.get("workflowKeySlug")),
-                text(draft.get("workflowName")),
-                text(draft.get("workflowType")),
-                text(draft.get("projectCode")),
-                text(draft.get("runtimeType")),
-                text(draft.get("modelInstanceId")),
-                graphSpecJson(draft),
-                text(draft.get("canvasJson")),
+                text(workingCopy.get("workflowId")),
+                text(workingCopy.get("workflowKeySlug")),
+                text(workingCopy.get("workflowName")),
+                text(workingCopy.get("workflowKind")),
+                text(workingCopy.get("projectCode")),
+                text(workingCopy.get("executionEngine")),
+                text(workingCopy.get("modelInstanceId")),
+                graphSpecJson(workingCopy),
+                text(workingCopy.get("canvasJson")),
                 message,
                 inputParams,
                 debugOptions);
     }
 
-    private String graphSpecJson(Map<String, Object> draft) {
-        Object graphSpecJson = draft.get("graphSpecJson");
+    private String graphSpecJson(Map<String, Object> workingCopy) {
+        Object graphSpecJson = workingCopy.get("graphSpecJson");
         if (graphSpecJson instanceof String text && StringUtils.hasText(text)) {
             return text;
         }
-        Object graphSpec = draft.get("graphSpec");
+        Object graphSpec = workingCopy.get("graphSpec");
         if (graphSpec instanceof String text && StringUtils.hasText(text)) {
             return text;
         }
@@ -664,8 +683,8 @@ public class RuntimeExecutableDebugSessionService {
         if (run == null) {
             return;
         }
-        String status = normalizeStatus(run.status());
-        if ("WAITING".equals(status)) {
+        String status = debugStatusFromExecution(run.status());
+        if (RuntimeDebugSessionStatus.SUSPENDED.name().equals(status)) {
             messages.add(message("assistant",
                     firstText(run.answer(), run.errorMessage(), "Waiting for user input"),
                     run.currentNodeId(),
@@ -688,13 +707,13 @@ public class RuntimeExecutableDebugSessionService {
                 entity.getRunId(),
                 entity.getTraceId(),
                 entity.getTargetType(),
-                !"ERROR".equalsIgnoreCase(status) && !"CANCELLED".equalsIgnoreCase(status),
+                statusIsSuccessful(status),
                 status,
                 entity.getCurrentNodeId(),
                 lastAssistantContent(messages),
                 messages,
                 readSteps(entity.getStepsJson()),
-                readMap(entity.getStateJson()),
+                readMap(entity.getStateSnapshotJson()),
                 readObject(entity.getUiRequestJson()),
                 entity.getCreateTime(),
                 entity.getUpdateTime(),
@@ -719,9 +738,9 @@ public class RuntimeExecutableDebugSessionService {
         int revision = latest.getRevision() == null ? 0 : latest.getRevision();
         UpdateWrapper<RuntimeExecutableDebugSessionEntity> update = new UpdateWrapper<>();
         update.eq("id", latest.getId())
-                .eq("status", "WAITING")
+                .eq("status", RuntimeDebugSessionStatus.SUSPENDED.name())
                 .eq("revision", revision)
-                .set("status", "RESUMING")
+                .set("status", RuntimeDebugSessionStatus.RESUMING.name())
                 .set("revision", revision + 1)
                 .set("update_time", LocalDateTime.now());
         if (StringUtils.hasText(idempotencyKey)) {
@@ -734,7 +753,7 @@ public class RuntimeExecutableDebugSessionService {
         if (rows != 1) {
             return false;
         }
-        entity.setStatus("RESUMING");
+        entity.setStatus(RuntimeDebugSessionStatus.RESUMING.name());
         entity.setRevision(revision + 1);
         if (StringUtils.hasText(idempotencyKey)) {
             entity.setIdempotencyKey(idempotencyKey);
@@ -746,13 +765,33 @@ public class RuntimeExecutableDebugSessionService {
     private void rollbackDebugWaiting(RuntimeExecutableDebugSessionEntity entity) {
         UpdateWrapper<RuntimeExecutableDebugSessionEntity> update = new UpdateWrapper<>();
         update.eq("id", entity.getId())
-                .eq("status", "RESUMING")
-                .set("status", "WAITING")
+                .eq("status", RuntimeDebugSessionStatus.RESUMING.name())
+                .set("status", RuntimeDebugSessionStatus.SUSPENDED.name())
                 .set("revision", (entity.getRevision() == null ? 0 : entity.getRevision()) + 1)
                 .set("idempotency_key", null)
                 .set("update_time", LocalDateTime.now());
         mapper.update(null, update);
-        entity.setStatus("WAITING");
+        entity.setStatus(RuntimeDebugSessionStatus.SUSPENDED.name());
+    }
+
+    private boolean persistDebugResumeResult(RuntimeExecutableDebugSessionEntity entity, int resumingRevision) {
+        UpdateWrapper<RuntimeExecutableDebugSessionEntity> update = new UpdateWrapper<>();
+        update.eq("id", entity.getId())
+                .eq("status", RuntimeDebugSessionStatus.RESUMING.name())
+                .eq("revision", resumingRevision)
+                .set("status", entity.getStatus())
+                .set("revision", entity.getRevision())
+                .set("current_node_id", entity.getCurrentNodeId())
+                .set("state_snapshot_json", entity.getStateSnapshotJson())
+                .set("messages_json", entity.getMessagesJson())
+                .set("steps_json", entity.getStepsJson())
+                .set("ui_request_json", entity.getUiRequestJson())
+                .set("debug_options_json", entity.getDebugOptionsJson())
+                .set("result_json", entity.getResultJson())
+                .set("idempotency_key", entity.getIdempotencyKey())
+                .set("submitted_payload_json", entity.getSubmittedPayloadJson())
+                .set("update_time", entity.getUpdateTime());
+        return mapper.update(null, update) == 1;
     }
 
     private Map<String, Object> canonicalSubmitPayload(String action,
@@ -853,10 +892,25 @@ public class RuntimeExecutableDebugSessionService {
     }
 
     private static String normalizeStatus(String status) {
-        if ("WAITING_USER".equalsIgnoreCase(status)) {
-            return "WAITING";
+        return RuntimeDebugSessionStatus.parse(status).name();
+    }
+
+    private static String debugStatusFromExecution(String status) {
+        return RuntimeDebugSessionStatus.fromExecutionStatus(WorkflowExecutionStatus.parse(status)).name();
+    }
+
+    private static String requireTargetType(String targetType) {
+        if (!StringUtils.hasText(targetType) || !TARGET_TYPES.contains(targetType)) {
+            throw new IllegalArgumentException("Unsupported debug targetType: " + targetType);
         }
-        return firstText(status, "ERROR").toUpperCase();
+        return targetType;
+    }
+
+    private static boolean statusIsSuccessful(String status) {
+        RuntimeDebugSessionStatus normalized = RuntimeDebugSessionStatus.parse(status);
+        return normalized != RuntimeDebugSessionStatus.FAILED
+                && normalized != RuntimeDebugSessionStatus.CANCELLED
+                && normalized != RuntimeDebugSessionStatus.EXPIRED;
     }
 
     private static String text(Object value) {
@@ -884,7 +938,7 @@ public class RuntimeExecutableDebugSessionService {
     }
 
     public record CreateRequest(String targetType,
-                                Map<String, Object> draftDefinition,
+                                Map<String, Object> workingCopyDefinition,
                                 String message,
                                 Map<String, Object> inputParams,
                                 Map<String, Object> debugOptions) {
@@ -919,7 +973,7 @@ public class RuntimeExecutableDebugSessionService {
                               String answer,
                               List<MessageView> messages,
                               List<RuntimeWorkflowDebugService.DebugStepResult> steps,
-                              Map<String, Object> finalState,
+                              Map<String, Object> stateSnapshot,
                               Object uiRequest,
                               LocalDateTime createdAt,
                               LocalDateTime updatedAt,

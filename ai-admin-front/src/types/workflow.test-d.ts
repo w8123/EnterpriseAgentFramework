@@ -1,13 +1,15 @@
 import type {
-  WorkflowDefinition,
-  WorkflowManagedBy,
+  WorkflowWorkingCopy,
+  WorkflowCreationChannel,
+  WorkflowDefinitionAuthority,
+  WorkflowExecutionEngine,
+  WorkflowKind,
   WorkflowPublishRequest,
   WorkflowReleaseValidationResult,
-  WorkflowRuntimeType,
   WorkflowRuntimeValidationResult,
   WorkflowStatus,
-  WorkflowStudioSaveRequest,
-  WorkflowStudioState,
+  SaveWorkflowWorkingCopyRequest,
+  WorkflowWorkingCopyState,
   WorkflowValidationItem,
 } from './workflow'
 import type { CanvasSnapshot } from './studio'
@@ -17,21 +19,22 @@ import {
   workflowStudioToCanvas,
 } from '../utils/workflowStudio'
 
-const studio: WorkflowStudioState = {
+const studio: WorkflowWorkingCopyState = {
   workflowId: 'wf-1',
   keySlug: 'orders-page',
   name: 'Orders Page',
   description: null,
   graphSpecJson: '{"nodes":[]}',
   canvasJson: '{"nodes":[]}',
-  workflowType: 'PAGE_ACTION',
-  runtimeType: 'LANGGRAPH4J',
+  workflowKind: 'PAGE_ASSISTANT',
+  executionEngine: 'GRAPH_SPEC',
+  definitionAuthority: 'USER',
+  creationChannel: 'STUDIO',
   status: 'DRAFT',
-  managedBy: 'MANUAL',
   extraJson: null,
 }
 
-const saveRequest: WorkflowStudioSaveRequest = {
+const saveRequest: SaveWorkflowWorkingCopyRequest = {
   graphSpecJson: '{"nodes":[]}',
   canvasJson: '{"nodes":[]}',
   extraJson: '{"source":"studio"}',
@@ -62,17 +65,19 @@ const publish: WorkflowPublishRequest = {
   baseRevision: '2026-07-14T10:30:00',
 }
 
-const runtimeType: WorkflowRuntimeType = studio.runtimeType
+const workflowKind: WorkflowKind = studio.workflowKind || 'GENERAL'
+const executionEngine: WorkflowExecutionEngine = studio.executionEngine || 'GRAPH_SPEC'
+const definitionAuthority: WorkflowDefinitionAuthority = studio.definitionAuthority || 'USER'
+const creationChannel: WorkflowCreationChannel = studio.creationChannel || 'STUDIO'
 const status: WorkflowStatus = studio.status
-const managedBy: WorkflowManagedBy = studio.managedBy
-const workflow: Pick<WorkflowDefinition, 'id' | 'runtimeType' | 'status' | 'managedBy'> = {
+const workflow: Pick<WorkflowWorkingCopy, 'id' | 'workflowKind' | 'executionEngine' | 'status'> = {
   id: studio.workflowId,
-  runtimeType,
+  workflowKind,
+  executionEngine,
   status,
-  managedBy,
 }
 const snapshot: CanvasSnapshot = workflowStudioToCanvas(studio)
-const saveFromCanvas: WorkflowStudioSaveRequest = workflowCanvasToSaveRequest(studio, snapshot)
+const saveFromCanvas: SaveWorkflowWorkingCopyRequest = workflowCanvasToSaveRequest(studio, snapshot)
 const node = createWorkflowCanvasNode('llm', { x: 160, y: 80 }, studio)
 const nodeId: string = node.id
 
@@ -83,3 +88,7 @@ void releaseValidation
 void publish
 void workflow
 void nodeId
+void workflowKind
+void executionEngine
+void definitionAuthority
+void creationChannel

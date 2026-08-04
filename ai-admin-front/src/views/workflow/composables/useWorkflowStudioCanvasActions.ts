@@ -1,6 +1,6 @@
 import { ElMessage } from 'element-plus'
 import type { ComputedRef, Ref } from 'vue'
-import type { AgentGraphNodeTypeDescriptor } from '@/types/agent'
+import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
 import type { CanvasEdge, CanvasNode, CanvasSnapshot } from '@/types/studio'
 import { normalizeCanvasEdgeHandles } from '@/utils/studio'
 import { loopOwnerByBodyNodeId } from '@/utils/studioLoop'
@@ -130,7 +130,7 @@ export interface UseWorkflowStudioCanvasActionsDeps {
   propertyDetailOpen: Ref<boolean>
   fitView: (options?: { padding?: number; duration?: number }) => Promise<boolean> | void
   nextTick: (fn?: () => void) => Promise<void>
-  nodeTypes: Ref<AgentGraphNodeTypeDescriptor[]>
+  nodeTypes: Ref<WorkflowGraphNodeTypeDescriptor[]>
   graphNodeTypeCapabilitiesLoaded: Ref<boolean>
 }
 

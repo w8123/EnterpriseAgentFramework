@@ -9,7 +9,7 @@ Workflow AI Coding 是面向 Cursor、Codex、Claude Code 等 AI 编程工具的
 - **核心语义对象**：`Workflow.graph_spec_json`（`GraphSpec`），不是 canvas，也不是裸 Graph 层。
 - **禁止直接改数据库**：所有变更必须走 `/api/workflows/{workflowId}/ai-coding/*` 或现有 Workflow API。
 
-网页 AI 的创建/修改与外部 AI Coding 共用 `RuntimeWorkflowGraphMutationService`、发布级 Proposal 校验和 canvas 投影。Workflow Studio `/edit-draft` 主链路由 AgentScope 根据工具错误有限重试；兼容 `/generate-draft` 仍可对同一选定模型做最多两轮直接修复轮次。二者都不是独立“修复模型”，且在用户应用前不保存、不发布、不执行 Workflow。OpenCode / Codex / Cursor 仍是外部 AI Coding 客户端，不是 Runtime 必选依赖。架构边界见 [Workflow Authoring 统一内核](../architecture/workflow-authoring-kernel.md)。
+网页 AI 的创建/修改与外部 AI Coding 共用 `RuntimeWorkflowGraphMutationService`、发布级 Proposal 校验和 Canvas 布局投影。Workflow Studio `/proposals/edit` 由 AgentScope 根据工具错误有限重试；`/proposals/generate` 可对同一选定模型做最多两轮候选修复。二者都不是独立“修复模型”，且在用户应用前不保存、不发布、不执行 Workflow。OpenCode / Codex / Cursor 仍是外部 AI Coding 客户端，不是 Runtime 必选依赖。架构边界见 [Workflow Authoring 统一内核](../architecture/workflow-authoring-kernel.md)。
 
 Agent 负责稳定身份和入口；版本化 Supervisor 配置通过 Workflow-as-Tool 白名单选择已发布 Workflow。Page Assistant 只是 Workflow AI Coding 的后续使用场景之一，不是本协议的核心对象。
 
@@ -17,12 +17,14 @@ Agent 负责稳定身份和入口；版本化 Supervisor 配置通过 Workflow-a
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| POST | `/api/workflows/ai-coding/workflows` | 创建 Workflow Working Copy；PAGE_ASSISTANT 必须提交资源绑定 |
 | GET | `/api/workflows/{workflowId}/ai-coding/context` | 获取 AI Coding 上下文 |
+| PUT | `/api/workflows/{workflowId}/ai-coding/resource-bindings` | 仅在首次发布前替换 DRAFT Workflow 的一等资源绑定 |
 | POST | `/api/workflows/{workflowId}/ai-coding/validate` | 校验当前或提案 GraphSpec |
 | POST | `/api/workflows/{workflowId}/ai-coding/patch` | 结构化 patch GraphSpec |
-| POST | `/api/workflows/{workflowId}/ai-coding/run` | 调试运行 Workflow 草稿 |
-| GET | `/api/workflows/{workflowId}/ai-coding/versions` | 查看当前草稿校验、ACTIVE version 和历史版本 |
-| POST | `/api/workflows/{workflowId}/ai-coding/publish` | 发布校验通过的草稿，创建 ACTIVE workflow version |
+| POST | `/api/workflows/{workflowId}/ai-coding/run` | 调试运行 Workflow Working Copy |
+| GET | `/api/workflows/{workflowId}/ai-coding/versions` | 查看当前 Working Copy 校验、ACTIVE version 和历史版本 |
+| POST | `/api/workflows/{workflowId}/ai-coding/publish` | 发布校验通过的 Working Copy，创建 ACTIVE Workflow version |
 | GET | `/api/workflows/{workflowId}/ai-coding/runs` | 查看近期 AI Coding debug run |
 | GET | `/api/workflows/{workflowId}/ai-coding/page-assistant/catalog` | PAGE_ASSISTANT：catalog 与 PAGE_ACTION 匹配视图 |
 | POST | `/api/workflows/{workflowId}/ai-coding/page-assistant/validate` | PAGE_ASSISTANT：校验 PAGE_ACTION 节点 |
@@ -30,7 +32,7 @@ Agent 负责稳定身份和入口；版本化 Supervisor 配置通过 Workflow-a
 
 认证使用项目级 `aiCodingKey`，必须通过 `X-ReachAI-AiCoding-Key` header 传递，不使用平台登录 Cookie / Bearer token，也不要把 key 拼进 URL query。服务端按 `workflow.projectId` 复用 `AiCodingAccessGuard` 校验项目 key；Page Assistant 子资源同样走 Workflow 层校验。
 
-外部工具如需先发现项目可用能力，可读取项目级 AI Coding Gateway manifest：`GET /api/ai-coding/projects/{projectId}/manifest`。该 manifest 只暴露 SDK 快速接入、Page Assistant、Workflow AI Coding、Context Candidate 的入口、认证约定、候选状态回查模板和候选审计深链模板；不会回显原始 `aiCodingKey`。Workflow 的可执行语义仍以本页 `/api/workflows/{workflowId}/ai-coding/*` 和 `GraphSpec` 为准。
+外部工具如需先发现项目可用能力，可读取项目级 AI Coding Gateway manifest：`GET /api/ai-coding/projects/{projectId}/manifest`。该 manifest 暴露 SDK 快速接入、业务页面工作台任务、Workflow AI Coding、Context Candidate 的入口与认证约定；不会回显原始 `aiCodingKey`。Workflow 的可执行语义仍以本页 `/api/workflows/{workflowId}/ai-coding/*` 和 `GraphSpec` 为准。
 
 ## Context 示例
 
@@ -41,18 +43,40 @@ curl -s -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" \
 
 返回包含：
 
-- `workflow`：id、name、keySlug、projectId、projectCode、workflowType、runtimeType、status、defaultModelInstanceId
+- `workflow`：id、name、keySlug、projectId、projectCode、workflowKind、executionEngine、definitionAuthority、creationChannel、status、defaultModelInstanceId
 - `graphSpec`：当前运行语义
 - `canvas`：当前画布布局（只读参考）
 - `validation`：`WorkflowReleaseValidationService` 结果
-- `nodeTypes`：`AgentGraphNodeType.catalog()`
+- `nodeTypes`：`RuntimeWorkflowNodeCapabilityRegistry` 当前开放目录
 - `runtimeHints`：运行时能力与限制说明
-- `pageAssistantContext`：仅当 `workflowType=PAGE_ASSISTANT` 时附带 pageKey、routePattern、actionKeys、catalog 摘要
+- `pageAssistantContext`：附带一等 `resourceBindings`、TARGET `pageKey` 和 GraphSpec 中的 `actionKeys`
 - `warnings`：当前 Workflow 风险提示
+
+## Resource Bindings
+
+通用 Workflow 页面创建的 PAGE_ASSISTANT 草稿如果尚未绑定页面，或首次发布前需要纠正页面范围，使用：
+
+`PUT /api/workflows/{workflowId}/ai-coding/resource-bindings`
+
+```json
+{
+  "baseRevision": "2026-07-25T10:30:00",
+  "reason": "bind the verified orders page",
+  "resourceBindings": [
+    {
+      "resourceType": "PAGE",
+      "resourceKey": "orders.list",
+      "bindingRole": "TARGET"
+    }
+  ]
+}
+```
+
+`baseRevision` 必填，使用最新 context 的 `workflow.updatedAt`。PAGE_ASSISTANT 必须恰好有一个 `TARGET PAGE`；其他确实需要访问的页面使用 `RELATED PAGE`。接口只接受 `DRAFT`，首次发布后资源绑定永久冻结；后续版本只修改 GraphSpec，不允许把已经发布、授权和验收的 Workflow 悄悄移到另一个页面。
 
 ## Validate 示例
 
-校验当前草稿：
+校验当前 Working Copy：
 
 ```bash
 curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
@@ -68,7 +92,9 @@ curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: ap
   -d '{
     "mode": "PROPOSED",
     "graphSpec": {
-      "entry": "start",
+      "schemaVersion": 2,
+      "entryNodeId": "start",
+      "exitNodeIds": ["answer"],
       "nodes": [
         {"id": "start", "type": "USER_INPUT", "name": "Start"},
         {"id": "answer", "type": "ANSWER", "name": "Answer"}
@@ -130,8 +156,12 @@ Patch 操作对象是 **GraphSpec**，使用结构化 JSON operations，不允�
       "edgeId": "old-edge"
     },
     {
-      "op": "SET_ENTRY",
-      "entry": "llm"
+      "op": "SET_ENTRY_NODE",
+      "entryNodeId": "llm"
+    },
+    {
+      "op": "SET_EXIT_NODES",
+      "exitNodeIds": ["answer"]
     }
   ],
   "layout": {
@@ -148,18 +178,18 @@ Patch 操作对象是 **GraphSpec**，使用结构化 JSON operations，不允�
 
 - **`dryRun` 默认值**：请求体省略 `dryRun` 或传 `null` 时，视为 `true`（只预览，不保存）。只有显式 `"dryRun": false` 才会落库。
 - `dryRun=true`：返回 `proposedGraphSpec`、`proposedCanvas`、`validation`，**不保存**。
-- `dryRun=false`：保存到 Workflow **草稿定义**（`graph_spec_json` / `canvas_json`），不修改已发布 version 快照；**必须** patch 操作无错误且 `validation.valid=true`。
-- operations 支持 `ADD_NODE`、`UPDATE_NODE`、`DELETE_NODE`、`ADD_EDGE`、`UPDATE_EDGE`、`DELETE_EDGE`、`SET_ENTRY`、`SET_FINISH`。
+- `dryRun=false`：保存到 Workflow **Working Copy**（`graph_spec_json` / `canvas_json`），不修改已发布 version 快照；**必须** patch 操作无错误且 `validation.valid=true`。
+- operations 支持 `ADD_NODE`、`UPDATE_NODE`、`DELETE_NODE`、`ADD_EDGE`、`UPDATE_EDGE`、`DELETE_EDGE`、`SET_ENTRY_NODE`、`SET_EXIT_NODES`。
 - 所有 operations 会先作用于 GraphSpec 深拷贝；任一操作失败时整批失败，不会留下部分修改。
 - `UPDATE_NODE` / `UPDATE_EDGE` 对嵌套对象做 deep merge，并禁止修改节点或边的 `id`。
-- `DELETE_NODE` 会删除关联边，并清理对应的 `entry` / `finish` 引用。
-- 新增或修改边、设置 entry / finish 时会检查引用的节点是否存在。
+- `DELETE_NODE` 会删除关联边，并清理对应的 `entryNodeId` / `exitNodeIds` 引用。
+- 新增或修改边、设置入口或出口节点时会检查引用的节点是否存在。
 - 不支持 `op` / node type 会返回明确错误。
-- `canvas_json` 保存时保留原有 viewport/graphCode 等顶层字段，仅更新 nodes/edges。
-- create 会从 GraphSpec 投影并整理 canvas；patch 的 `layout.autoLayout` 默认为 `true`。当前 `layered-v2` 布局以卡片边界计算间距，默认层间距 `88px`、同层间距 `56px`，支持分支、汇合、回环和断开组件，并写入 `canvas_json.nodes[].position`。`autoLayout=false` 时仍同步 GraphSpec 对应的 canvas nodes/edges，保留已有节点坐标，只为缺少坐标的新节点补位。
+- `canvas_json` 只保存 `schemaVersion=1 / layoutVersion=1`、viewport、节点位置/尺寸/折叠状态和边展示样式，不保存 GraphSpec 节点数据或拓扑。
+- create 会从 GraphSpec 投影并整理 Canvas；patch 的 `layout.autoLayout` 默认为 `true`。当前 `layered` 布局以卡片边界计算间距，默认层间距 `88px`、同层间距 `56px`，支持分支、汇合、回环和断开组件，并写入 `canvas_json.nodes[].position`。`autoLayout=false` 时保留已有节点坐标，只为缺少坐标的新节点补位。
 - Workflow Studio 的「自动整理」使用相同的 LR 分层和间距契约，并以浏览器实测卡片尺寸和 Handle 位置进行最终排布；后端 AI Coding 在没有 DOM 尺寸时使用节点类型估算值。
-- AI Coding 回传或保存前请确认 `canvasJson.nodes[].position` 已合理分布；不要只改 GraphSpec 而忽略 canvasJson。
-- `baseRevision` 可选，值为 workflow `updatedAt.toString()`；格式非法时返回 HTTP 400 和 `WORKFLOW_BASE_REVISION_INVALID`。不匹配时返回 HTTP 409、`WORKFLOW_DRAFT_CONFLICT`、`currentRevision` 和对应 `ETag`，调用方应保留本地修改并重新加载最新 revision 后再合并。
+- AI Coding 回传或保存前请确认 `canvasJson.nodes[].position` 已合理分布；Canvas 只负责布局，运行语义始终完整写入 GraphSpec。
+- `baseRevision` 可选，值为 Workflow `updatedAt.toString()`；格式非法时返回 HTTP 400 和 `WORKFLOW_BASE_REVISION_INVALID`。不匹配时返回 HTTP 409、`WORKFLOW_WORKING_COPY_CONFLICT`、`currentRevision` 和对应 `ETag`，调用方应保留本地修改并重新加载最新 revision 后再合并。
 - `reason` 在 `dryRun=false` 保存成功时写入 guard audit log。
 
 ### dryRun patch 示例
@@ -229,9 +259,9 @@ curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: ap
 
 ## Publish 示例
 
-Workflow AI Coding 可以发布 **当前 Workflow 草稿**，但发布必须走 `WorkflowVersionService.publish()`，因此仍会执行 Workflow Studio 同一套 release validation。它不会绕过发布校验，也不会直接改数据库 version 快照。
+Workflow AI Coding 可以发布 **当前 Workflow Working Copy**，但发布必须走 `WorkflowVersionService.publish()`，因此仍会执行 Workflow Studio 同一套 release validation。它不会绕过发布校验，也不会直接改数据库 version 快照。
 
-SDK 快速接入只创建或复用项目 Agent，并发布 ACTIVE AgentScope Supervisor 配置；它不会创建占位 Workflow。AI Coding 为真实业务能力创建 Workflow、完成 GraphSpec 绘制并保存草稿后，应先读取版本状态：
+SDK 快速接入只创建或复用项目 Agent，并发布 ACTIVE AgentScope Supervisor 配置；它不会创建占位 Workflow。AI Coding 为真实业务能力创建 Workflow、完成 GraphSpec 绘制并保存 Working Copy 后，应先读取版本状态：
 
 ```bash
 curl -s -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" \
@@ -251,13 +281,13 @@ curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: ap
   }'
 ```
 
-发布成功后会生成 ACTIVE workflow version；只有已发布 Workflow 才能通过 `/api/workflows/{workflowId}/page-assistant/attach-tool` 等显式入口加入 Agent 配置版本的 Workflow-as-Tool 白名单并由 Supervisor 执行。若发布前草稿已被其他编辑更新，接口返回 `409` 且不会创建版本；调用方必须重新读取 context、重新校验，再用新的 `workflow.updatedAt` 发布。若版本号已存在，应先读取 `/versions`，选择下一个语义化版本号后重试。不要创建没有实际业务语义的默认 Workflow。
+发布成功后会生成 ACTIVE Workflow version；只有已发布 Workflow 才能通过 `/api/workflows/{workflowId}/page-assistant/attach-tool` 等显式入口加入 Agent 配置版本的 Workflow-as-Tool 白名单并由 Supervisor 执行。若发布前 Working Copy 已被其他编辑更新，接口返回 `409` 且不会创建版本；调用方必须重新读取 context、重新校验，再用新的 `workflow.updatedAt` 发布。若版本号已存在，应先读取 `/versions`，选择下一个语义化版本号后重试。不要创建没有实际业务语义的默认 Workflow。
 
 ## PAGE_ASSISTANT 扩展 API
 
-当 `workflowType=PAGE_ASSISTANT` 时，Workflow AI Coding 提供 **workflow-scoped** 的 Page Assistant 子资源。这些接口复用同一套项目权限（`WorkflowProjectAccessService`），不复制 `/api/ai-assist/.../page-assistant/*` 的 onboarding session 逻辑。
+当 `workflowKind=PAGE_ASSISTANT` 时，Workflow AI Coding 提供 **workflow-scoped** 的 Page Assistant 子资源。它们复用项目 AI Coding Key、Workflow 应用服务、Control internal 页面操作目录与 Runtime 发布校验，不再存在另一套页面 onboarding session。
 
-非 `PAGE_ASSISTANT` workflow 调用下列接口会返回 `400`（`workflow type must be PAGE_ASSISTANT`）。
+非 `PAGE_ASSISTANT` Workflow 调用下列接口会返回 `400`（`WORKFLOW_KIND_NOT_SUPPORTED`）。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -286,15 +316,15 @@ curl -s -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" \
 
 返回字段：
 
-- `workflowId`、`workflowType`、`projectId`、`projectCode`
-- `pageKey`、`routePattern`（来自 workflow extra）
-- `pageActionNodes[]`：GraphSpec 中每个 PAGE_ACTION 节点，含 `matchStatus`（`MATCHED` / `MISSING` / `INACTIVE` / `PAGE_KEY_MISMATCH` / `ACTION_KEY_EMPTY` / `PAGE_KEY_EMPTY`）
-- `catalogActions[]`：当前 pageKey 在 registry 中的动作，含 `actionKey`、`title`、`description`、`status`、`confirmRequired`、`inputSchema`、`outputSchema`、`sampleArgs`、`metadata`
-- `warnings`
+- `workflowId` 与 `context.resourceBindings[]`
+- `context.pageKey`：恰好一个 `TARGET PAGE` 绑定
+- `pageActionNodes[]`：GraphSpec 中每个 PAGE_ACTION 节点，含 `matchStatus`（`MATCHED` / `MISSING` / `INACTIVE` / `UNBOUND_PAGE` / `ACTION_KEY_EMPTY` / `PAGE_KEY_EMPTY`）
+- `catalogActions[]`：所有 `TARGET` / `RELATED` PAGE 绑定对应的真实 Control 页面操作目录
+- `warnings`：目录服务不可用时明确标记，不能把不可用伪装为空目录
 
 ### Page Assistant Validate 示例
 
-校验当前 workflow 草稿：
+校验当前 Workflow Working Copy：
 
 ```bash
 curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
@@ -309,7 +339,9 @@ curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: ap
   "http://localhost:8080/api/workflows/wf-page/ai-coding/page-assistant/validate" \
   -d '{
     "graphSpec": {
-      "entry": "search",
+      "schemaVersion": 2,
+      "entryNodeId": "search",
+      "exitNodeIds": ["search"],
       "nodes": [
         {
           "id": "search",
@@ -332,71 +364,30 @@ curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: ap
 - `nodeId`、`pageKey`、`actionKey`、`matchStatus`
 - `errors[]` / `warnings[]`：结构化 finding（`code`、`level`、`field`、`message`）
 
-常见 error code：
+常见发布校验 code：
 
-- `CATALOG_MISSING`：actionKey 不在 catalog
-- `CATALOG_INACTIVE`：catalog 存在但非 ACTIVE
-- `ARGS_REQUIRED_MISSING`：`config.args` 未覆盖 `inputSchema.required`
-- `PAGE_KEY_MISMATCH`：节点 pageKey 与 workflow pageKey 不一致
+- `GRAPH_PAGE_ACTION_CATALOG_MISSING`：actionKey 不在 Control catalog
+- `GRAPH_PAGE_ACTION_CATALOG_INACTIVE`：catalog 存在但非 ACTIVE
+- `GRAPH_PAGE_ACTION_ARGS_REQUIRED_MISSING`：`config.args` 未覆盖 `inputSchema.required`
+- `GRAPH_PAGE_ACTION_PAGE_UNBOUND`：节点 pageKey 不在 Workflow 的 PAGE 绑定中
+- `PAGE_RESOURCE_BINDING_INVALID`：没有且仅有一个 TARGET PAGE
 
-`confirmRequired=true` 的动作会附加 `CONFIRM_REQUIRED` warning，提示 run/smoke-test 只能 dry-run 或需确认策略。
+`confirmRequired=true` 的动作会附加 `GRAPH_PAGE_ACTION_CONFIRM_REQUIRED` warning，真实执行仍由 Runtime Guard 与用户确认策略决定。
 
-### Page Assistant Smoke Test 示例
+### Page Assistant Smoke Test
 
-默认 dry-run（只检查 GraphSpec、catalog、args schema、bridge evidence，不调用真实 runtime）：
+`POST /api/workflows/{workflowId}/ai-coding/page-assistant/smoke-test` 复用真实 Workflow debug run，不维护另一套虚构 smoke 状态。请求体与通用 `/run` 相同：
 
-```bash
-curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
-  "http://localhost:8080/api/workflows/wf-page/ai-coding/page-assistant/smoke-test" \
-  -d '{}'
+```json
+{
+  "dryRun": true,
+  "message": "检查订单详情页动作",
+  "input": {},
+  "runtimeContext": {}
+}
 ```
 
-带 bridge context（仍不伪造浏览器 PASS，最多 `READY_TO_QUEUE`）：
-
-```bash
-curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
-  "http://localhost:8080/api/workflows/wf-page/ai-coding/page-assistant/smoke-test" \
-  -d '{
-    "dryRun": false,
-    "runtimeContext": {
-      "embedSessionId": "embed-session-1",
-      "pageBridge": {"ready": true}
-    }
-  }'
-```
-
-仅当请求体携带 `runtimeVerification.browserRuntime.status=PASS`（或等价 evidence）时，才允许标注 `RUNTIME_PASS`：
-
-```bash
-curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: application/json" \
-  "http://localhost:8080/api/workflows/wf-page/ai-coding/page-assistant/smoke-test" \
-  -d '{
-    "dryRun": false,
-    "runtimeContext": {"embedSessionId": "embed-session-1"},
-    "runtimeVerification": {
-      "browserRuntime": {"status": "PASS"}
-    }
-  }'
-```
-
-Smoke test 状态语义：
-
-| status | 含义 |
-|--------|------|
-| `DRY_RUN` | 默认；只校验 schema/catalog，不 queue 真实页面动作 |
-| `SKIPPED` | `dryRun=false` 但缺少 embedSessionId / pageBridge / pageContext / bridgeGlobal |
-| `INVALID` | PAGE_ACTION validation 失败 |
-| `NEED_CONFIRM` | 含 `confirmRequired` 动作且 `dryRun=false` |
-| `READY_TO_QUEUE` | bridge context 齐备，可 queue 客户端执行，但不声明真实页面 PASS |
-| `RUNTIME_PASS` | 仅在有明确 `runtimeVerification` browser PASS evidence 时 |
-
-**安全约束**：
-
-- 不会直接改数据库，不会写入 page action event 伪结果。
-- 缺少 bridge context 时返回 `SKIPPED` / `WARN`，**不会伪造 PASS**。
-- 高风险 / `confirmRequired` 动作在 `dryRun=false` 时返回 `NEED_CONFIRM`，不直接执行。
-
-Page Assistant onboarding / catalog sync / embed session 注册仍是 Page Assistant 业务语义；外部 AI Coding 工具通过 `/api/ai-coding/projects/{projectId}/page-assistant/*` 访问，控制台登录态向导仍可使用 `/api/ai-assist/projects/{projectId}/page-assistant/*`。本扩展只负责 Workflow 层 GraphSpec 工程化与校验。
+发布契约检查应先调用 `/page-assistant/validate`。需要执行 PAGE_ACTION 时，必须提供真实 `embedSessionId` / Page Bridge 上下文并经过 Runtime Guard；debug run 的成功只证明本次运行结果，不等同于真实业务浏览器验收。浏览器验收必须由“业务页面工作台”的 `BROWSER_ACCEPTANCE` 任务回传版本化验收报告。
 
 ## PAGE_ASSISTANT 注意事项（通用 Run）
 
@@ -405,7 +396,7 @@ Page Assistant onboarding / catalog sync / embed session 注册仍是 Page Assis
 - **不能**仅凭 GraphSpec 判断页面动作已在真实页面执行成功。
 - 真实执行需要 embed session / page bridge runtime context（例如 `embedSessionId`、`pageBridge`、`pageContext`）。
 - 若缺少 bridge context，`/run` 返回 `SKIPPED` 和明确 `warnings`，**不会伪造成功**。
-- Page Assistant 专用 onboarding / catalog sync 对外走 `/api/ai-coding/projects/{projectId}/page-assistant/*`，控制台向导仍保留 `/api/ai-assist/projects/{projectId}/page-assistant/*` 登录态入口；Workflow AI Coding 只负责 Workflow 层 GraphSpec 工程化。
+- 页面地图、单页面分析、实施报告与浏览器验收统一通过 `/api/ai-coding/handoffs/{handoffId}/activate` 激活，再以任务级 Bearer Token 调用 `/api/ai-coding/tasks/{taskId}/*`；Workflow AI Coding 只负责 Workflow Working Copy、GraphSpec、页面资源绑定、调试、发布和版本。
 
 ## 架构原则（给 AI 工具）
 
@@ -415,9 +406,4 @@ Page Assistant onboarding / catalog sync / embed session 注册仍是 Page Assis
 4. 不允许直接操作数据库。
 5. Agent 通过已发布配置版本维护 Workflow-as-Tool；不要恢复 Agent 画布入口。
 
-## 后续任务（本阶段未包含）
-
-- npm / PowerShell CLI 包（应复用本阶段 `/ai-coding/page-assistant/*` API）
-- Page Assistant Wizard UI「使用 AI Coding」入口（应复用本阶段 API，而非另建 onboarding 副本）
-- 真实浏览器 bridge 联调 verify
-- Workflow AI Coding 使用项目级 `aiCodingKey`，新工具链统一走 `X-ReachAI-AiCoding-Key` header，不走平台登录 Cookie；`aiCodingKey` 只能给 AI 工具/本机脚本/服务端使用，不得进入 URL、浏览器运行时代码或业务前端配置
+Workflow AI Coding 使用项目级 `aiCodingKey`，工具链统一走 `X-ReachAI-AiCoding-Key` header，不走平台登录 Cookie；`aiCodingKey` 只能给 AI 工具、本机显式脚本或服务端使用，不得进入 URL、浏览器运行时代码或业务前端配置。

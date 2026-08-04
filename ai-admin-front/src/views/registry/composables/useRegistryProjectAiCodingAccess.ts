@@ -4,6 +4,10 @@ import {
   getAiOnboardingManifest,
   updateAiCodingAccess,
 } from '@/api/scanProject'
+import {
+  getAiCodingCredentialPolicy,
+  updateAiCodingCredentialPolicy,
+} from '@/api/aiCodingTasks'
 import type { ScanProject } from '@/types/scanProject'
 
 export interface UseRegistryProjectAiCodingAccessDeps {
@@ -16,6 +20,17 @@ export function useRegistryProjectAiCodingAccess(deps: UseRegistryProjectAiCodin
   const aiCodingAccessEnabled = ref(false)
   const aiCodingAccessKey = ref('')
   const aiCodingDialogVisible = ref(false)
+  const credentialPolicyLoading = ref(false)
+  const credentialPolicySaving = ref(false)
+  const aiCodingAccessLoadError = ref('')
+  const credentialPolicyLoadError = ref('')
+  const handoffActivationTtlHours = ref(72)
+  const taskTokenTtlHours = ref(72)
+  const credentialPolicyCustomized = ref(false)
+  let settingsProjectId: number | null = null
+  let settingsLoadSequence = 0
+  let accessSaveSequence = 0
+  let credentialPolicySaveSequence = 0
 
   const reachAiPlatformUrl = computed(
     () => import.meta.env.VITE_REACHAI_CONTROL_SERVICE_URL?.trim() || window.location.origin,
@@ -125,36 +140,132 @@ export function useRegistryProjectAiCodingAccess(deps: UseRegistryProjectAiCodin
   )
 
   async function loadAiCodingAccess(projectId: number) {
-    try {
-      const { data } = await getAiOnboardingManifest(projectId)
-      aiCodingAccessEnabled.value = data.aiCodingAccess?.enabled ?? false
-      aiCodingAccessKey.value = data.aiCodingAccess?.accessKey || ''
-    } catch {
+    const loadSequence = ++settingsLoadSequence
+    if (settingsProjectId !== projectId) {
+      settingsProjectId = projectId
       aiCodingAccessEnabled.value = false
       aiCodingAccessKey.value = ''
+      handoffActivationTtlHours.value = 72
+      taskTokenTtlHours.value = 72
+      credentialPolicyCustomized.value = false
+    }
+    credentialPolicyLoading.value = true
+    aiCodingAccessLoadError.value = ''
+    credentialPolicyLoadError.value = ''
+    try {
+      const [accessResult, credentialPolicyResult] = await Promise.allSettled([
+        getAiOnboardingManifest(projectId),
+        getAiCodingCredentialPolicy(projectId),
+      ])
+      if (loadSequence !== settingsLoadSequence) return
+
+      if (accessResult.status === 'fulfilled') {
+        const { data } = accessResult.value
+        aiCodingAccessEnabled.value = data.aiCodingAccess?.enabled ?? false
+        aiCodingAccessKey.value = data.aiCodingAccess?.accessKey || ''
+      } else {
+        aiCodingAccessLoadError.value =
+          '无法读取当前 AI Coding 接入设置。重新加载成功前不会保存、复制或覆盖现有配置。'
+      }
+
+      if (credentialPolicyResult.status === 'fulfilled') {
+        const { data } = credentialPolicyResult.value
+        handoffActivationTtlHours.value = data.handoffActivationTtlHours
+        taskTokenTtlHours.value = data.taskTokenTtlHours
+        credentialPolicyCustomized.value = data.customized
+      } else {
+        credentialPolicyLoadError.value =
+          '无法读取当前凭据有效期。重新加载成功前不会把本地默认值写回项目。'
+      }
+    } finally {
+      if (loadSequence === settingsLoadSequence) {
+        credentialPolicyLoading.value = false
+      }
+    }
+  }
+
+  async function saveCredentialPolicy() {
+    const project = deps.project.value
+    if (!project?.id) return
+    if (credentialPolicyLoadError.value) {
+      ElMessage.warning('请先重新加载当前凭据有效期')
+      return
+    }
+    const currentSaveSequence = ++credentialPolicySaveSequence
+    const currentLoadSequence = settingsLoadSequence
+    credentialPolicySaving.value = true
+    try {
+      const { data } = await updateAiCodingCredentialPolicy(project.id, {
+        handoffActivationTtlHours: handoffActivationTtlHours.value,
+        taskTokenTtlHours: taskTokenTtlHours.value,
+      })
+      if (
+        currentSaveSequence !== credentialPolicySaveSequence
+        || currentLoadSequence !== settingsLoadSequence
+        || deps.project.value?.id !== project.id
+      ) return
+      handoffActivationTtlHours.value = data.handoffActivationTtlHours
+      taskTokenTtlHours.value = data.taskTokenTtlHours
+      credentialPolicyCustomized.value = data.customized
+      ElMessage.success('任务凭据有效期已保存；新签发的交接包开始生效')
+    } catch (error) {
+      if (
+        currentSaveSequence === credentialPolicySaveSequence
+        && currentLoadSequence === settingsLoadSequence
+        && deps.project.value?.id === project.id
+      ) {
+        ElMessage.error((error as Error).message || '保存任务凭据有效期失败')
+      }
+    } finally {
+      if (currentSaveSequence === credentialPolicySaveSequence) {
+        credentialPolicySaving.value = false
+      }
     }
   }
 
   async function saveAiCodingAccess() {
     const project = deps.project.value
     if (!project?.id) return
+    if (aiCodingAccessLoadError.value) {
+      ElMessage.warning('请先重新加载当前 AI Coding 接入设置')
+      return
+    }
+    const currentSaveSequence = ++accessSaveSequence
+    const currentLoadSequence = settingsLoadSequence
     aiCodingAccessSaving.value = true
     try {
       const { data } = await updateAiCodingAccess(project.id, {
         enabled: aiCodingAccessEnabled.value,
         accessKey: aiCodingAccessKey.value.trim() || null,
       })
+      if (
+        currentSaveSequence !== accessSaveSequence
+        || currentLoadSequence !== settingsLoadSequence
+        || deps.project.value?.id !== project.id
+      ) return
       aiCodingAccessEnabled.value = data.enabled
       aiCodingAccessKey.value = data.accessKey || ''
       ElMessage.success(data.enabled ? 'AI Coding 接入秘钥已保存' : 'AI Coding 接入已关闭')
     } catch (error) {
-      ElMessage.error((error as Error).message || '保存 AI Coding 接入秘钥失败')
+      if (
+        currentSaveSequence === accessSaveSequence
+        && currentLoadSequence === settingsLoadSequence
+        && deps.project.value?.id === project.id
+      ) {
+        ElMessage.error((error as Error).message || '保存 AI Coding 接入秘钥失败')
+      }
     } finally {
-      aiCodingAccessSaving.value = false
+      if (currentSaveSequence === accessSaveSequence) {
+        aiCodingAccessSaving.value = false
+      }
     }
   }
 
   async function clearAiCodingAccess() {
+    if (aiCodingAccessLoadError.value) {
+      ElMessage.warning('请先重新加载当前 AI Coding 接入设置')
+      return
+    }
     aiCodingAccessEnabled.value = false
     aiCodingAccessKey.value = ''
     await saveAiCodingAccess()
@@ -179,6 +290,10 @@ export function useRegistryProjectAiCodingAccess(deps: UseRegistryProjectAiCodin
   }
 
   async function copyAiCodingBundle() {
+    if (aiCodingAccessLoadError.value) {
+      ElMessage.warning('请先重新加载当前 AI Coding 接入设置')
+      return
+    }
     const text = aiCodingBundleText.value.trim()
     if (!text) {
       ElMessage.warning('请先启用并保存 AI Coding 接入秘钥')
@@ -192,10 +307,18 @@ export function useRegistryProjectAiCodingAccess(deps: UseRegistryProjectAiCodin
     aiCodingAccessEnabled,
     aiCodingAccessKey,
     aiCodingDialogVisible,
+    credentialPolicyLoading,
+    credentialPolicySaving,
+    aiCodingAccessLoadError,
+    credentialPolicyLoadError,
+    handoffActivationTtlHours,
+    taskTokenTtlHours,
+    credentialPolicyCustomized,
     aiCodingInfoRows,
     loadAiCodingAccess,
     saveAiCodingAccess,
     clearAiCodingAccess,
+    saveCredentialPolicy,
     openAiCodingDialog,
     copyText,
     copyAiCodingBundle,

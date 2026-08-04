@@ -13,7 +13,7 @@ const files = {
   projectList: 'src/views/registry/RegistryProjectList.vue',
   projectDetail: 'src/views/registry/RegistryProjectDetail.vue',
   sdkWorkbench: 'src/views/registry/SdkAccessWizard.vue',
-  pageAssistant: 'src/views/registry/components/page-assistant/PageAssistantHeader.vue',
+  pageWorkbench: 'src/views/registry/PageAssistantWizard.vue',
   agentList: 'src/views/agent/AgentList.vue',
   workflowList: 'src/views/workflow/WorkflowList.vue',
   toolList: 'src/views/tool/ToolList.vue',
@@ -180,9 +180,9 @@ function webpDimensions(buffer) {
 function validate(sources, { validateAssets = true } = {}) {
   const failures = []
   const requiredTokens = new Map([
-    ['--layout-page-header-height-compact', '96px'],
-    ['--layout-page-header-height-standard', '120px'],
-    ['--layout-page-header-height-emphasis', '144px'],
+    ['--layout-page-header-height-compact', '76px'],
+    ['--layout-page-header-height-standard', '96px'],
+    ['--layout-page-header-height-emphasis', '112px'],
     ['--layout-page-header-leading-size', '52px'],
     ['--layout-page-header-action-gap', '8px'],
     ['--layout-page-header-tag-gap', '8px'],
@@ -208,6 +208,24 @@ function validate(sources, { validateAssets = true } = {}) {
   expectIncludes(failures, sources.header, 'collapsed: false', 'PageHeader collapsed default')
   expectIncludes(failures, sources.header, "'is-collapsed': props.collapsed", 'PageHeader collapsed class')
   expectIncludes(failures, sources.header, '.app-page-header.is-collapsed', 'PageHeader collapsed height recipe')
+  expectIncludes(
+    failures,
+    sources.header,
+    "[data-theme='dark'] .app-page-header__tags :deep(.el-tag)",
+    'PageHeader dark tag surface',
+  )
+  expectIncludes(
+    failures,
+    sources.header,
+    'background: color-mix(in srgb, var(--surface-solid-control) 88%, transparent);',
+    'PageHeader dark tag semantic background',
+  )
+  expectIncludes(
+    failures,
+    sources.header,
+    "[data-theme='dark'] .app-page-header__tags :deep(.el-tag--info)",
+    'PageHeader dark info tag readability',
+  )
   expectIncludes(failures, sources.collapsibleRegion, 'collapsible-header-region__summary', 'collapsible region summary slot')
   expectIncludes(failures, sources.collapsibleRegion, ':aria-hidden="props.collapsed"', 'collapsible region accessibility state')
   expectIncludes(failures, sources.collapsibleRegion, 'grid-template-rows: 0fr', 'collapsible region hidden summary recipe')
@@ -224,8 +242,31 @@ function validate(sources, { validateAssets = true } = {}) {
 
   expectPageHeader(failures, sources.projectList, 'overview', 'project', 'RegistryProjectList')
   expectPageHeader(failures, sources.projectDetail, 'entity', 'project', 'RegistryProjectDetail')
+  expectIncludes(
+    failures,
+    sources.projectDetail,
+    'v-if="project?.environment"',
+    'RegistryProjectDetail real environment tag',
+  )
+  for (const fragment of [
+    'if (projectMissing.value)',
+    "value: '项目不存在'",
+    'if (loadError.value)',
+    "value: '数据不可用'",
+    "value: loading.value ? '正在加载' : '尚未加载'",
+  ]) {
+    expectIncludes(
+      failures,
+      sources.projectDetail,
+      fragment,
+      'RegistryProjectDetail truthful header state',
+    )
+  }
+  if (sources.projectDetail.includes("project?.environment || 'dev'")) {
+    failures.push('RegistryProjectDetail must not fabricate a dev environment before project data loads')
+  }
   expectPageHeader(failures, sources.sdkWorkbench, 'workbench', 'project', 'SdkAccessWizard')
-  expectPageHeader(failures, sources.pageAssistant, 'workbench', 'project', 'PageAssistantHeader')
+  expectPageHeader(failures, sources.pageWorkbench, 'workbench', 'project', 'BusinessPageWorkbench')
   expectPageHeader(failures, sources.agentList, 'overview', 'agent', 'AgentList')
   expectPageHeader(failures, sources.workflowList, 'overview', 'workflow', 'WorkflowList')
   expectCollapsibleHeader(
@@ -335,7 +376,7 @@ const failures = validate(sources)
 if (process.argv.includes('--self-test')) {
   if (failures.length === 0) {
     const mutations = [
-      ['height-token', 'layout', (value) => value.replace('--layout-page-header-height-compact: 96px;', '--layout-page-header-height-compact: 95px;'), 'layout token contract'],
+      ['height-token', 'layout', (value) => value.replace('--layout-page-header-height-compact: 76px;', '--layout-page-header-height-compact: 75px;'), 'layout token contract'],
       ['variant-union', 'header', (value) => value.replaceAll("'overview'", "'overview-disabled'"), 'PageHeader variant union'],
       ['page-class-override', 'projectList', (value) => value.replace('<PageHeader', '<PageHeader class="rogue-header"'), 'must not override PageHeader'],
       ['tool-retrieval-compact', 'toolRetrieval', (value) => value.replace('title="Tool 检索测试"', 'title="Tool 检索测试"\n      compact'), 'ToolRetrievalTest PageHeader must not declare compact'],

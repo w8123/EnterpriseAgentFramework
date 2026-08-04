@@ -248,11 +248,16 @@ async function resolveToken(reason: EafChatTokenReason, force = false): Promise<
   const timeoutMs = Number.isFinite(props.tokenTimeoutMs) && props.tokenTimeoutMs > 0
     ? props.tokenTimeoutMs
     : 10_000
+  const pageContext = buildEafChatSessionPayload(props.bridge, props.page)
   const providerContext = {
     reason: requestReason,
     signal: controller.signal,
     attempt,
     sessionId: sessionId || undefined,
+    pageKey: pageContext.pageKey,
+    pageInstanceId: pageContext.pageInstanceId,
+    route: pageContext.route,
+    origin: props.page?.origin || (typeof location !== 'undefined' ? location.origin : ''),
   }
   const providerPromise = Promise.resolve().then(async () => {
     if (reason === 'unauthorized' && props.onUnauthorized) {

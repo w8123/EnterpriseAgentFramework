@@ -39,7 +39,15 @@ const splitGatewayOptions: EafChatOptions = {
   tokenTimeoutMs: 10_000,
   tokenProvider: (context?: EafChatTokenProviderContext) => {
     const signal: AbortSignal | undefined = context?.signal
+    const tokenPageKey: string | undefined = context?.pageKey
+    const tokenPageInstanceId: string | undefined = context?.pageInstanceId
+    const tokenRoute: string | undefined = context?.route
+    const tokenOrigin: string | undefined = context?.origin
     void signal
+    void tokenPageKey
+    void tokenPageInstanceId
+    void tokenRoute
+    void tokenOrigin
     return { token: 'token', expiresIn: 600 }
   },
   onStateChange: (state: EafChatAuthState) => {
@@ -48,6 +56,10 @@ const splitGatewayOptions: EafChatOptions = {
   },
   apiBase: 'https://gateway.example.com',
   embedPathPrefix: '/api/reachai/embed',
+  position: 'bottom-right',
+  initialOpen: false,
+  resizable: true,
+  launcherDraggable: true,
   theme: {
     preset: 'metro-green',
     brandName: 'ReachAI',

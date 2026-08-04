@@ -17,9 +17,11 @@ import com.enterprise.ai.runtime.execution.RuntimeInteractionSessionEntity;
 import com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
+import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionPresentationPolicy;
 import com.enterprise.ai.runtime.supervisor.SupervisorExecutionTraceService.TraceHandle;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionMapper;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowSchemaResolver;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -115,7 +117,9 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     modelStreamClient,
                     objectMapper,
                     text -> {
-                        if (StringUtils.hasText(text) && !cancellation.isCancelled()) {
+                        if (StringUtils.hasText(text)
+                                && !cancellation.isCancelled()
+                                && state.shouldPublishAnswerText()) {
                             request.eventSink().emit("message.delta", Map.of("text", text));
                         }
                     },
@@ -663,7 +667,10 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         "Execute the published Workflow " + target.workflow().getName());
             }
             @Override public Map<String, Object> getParameters() {
-                return schema(firstText(tool.getInputSchemaOverrideJson(), target.workflow().getInputSchemaJson()));
+                return schema(firstText(
+                        tool.getInputSchemaOverrideJson(),
+                        RuntimeWorkflowSchemaResolver.inputSchemaJson(
+                                objectMapper, target.workflow(), target.version())));
             }
             @Override public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
                 return state.executeWorkflow(tool, target, param.getInput());
@@ -762,7 +769,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 .append("After a Workflow failure, call record_supervisor_plan again with a revised plan before another Workflow. At most ")
                 .append(config.getMaxReplans()).append(" replans and ")
                 .append(config.getMaxWorkflowCalls()).append(" Workflow calls are allowed.\n")
-                .append("Use page navigation or page actions ONLY when the user explicitly asks to open, jump, query on, or operate a page. A factual query must prefer an API/data Workflow and must not navigate.\n")
+                .append("Use page navigation or page actions ONLY when the user explicitly asks to open, jump, query on, read state from, or operate a page. Reading current-page state, filters, or visible rows is a page request and must use the matching page Workflow; a factual business-data query that is independent of the current page must prefer an API/data Workflow and must not navigate.\n")
                 .append("Never invent Workflow results. If required arguments are missing, ask one concise clarification question.\n")
                 .append("After Workflow tools (or when a planned path needs a gated final answer), call begin_final_answer exactly once, then produce the final plain-text answer. ")
                 .append("Never reveal internal planning, tool arguments, or reasoning in the user-facing answer.\n")
@@ -878,12 +885,18 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             copyIfPresent(metadata, modelMetadata, "supervisor.firstPublicDeltaMs");
             copyIfPresent(metadata, modelMetadata, "decisionMode");
         }
-        long finishAuditStart = System.nanoTime();
-        traceService.finish(state.trace, success, code, answer, metadata, resolveTrustedIdentity(state.request));
-        metadata.put("supervisor.finishAuditMs", Math.max(0L, (System.nanoTime() - finishAuditStart) / 1_000_000L));
         Object uiRequest = state.pendingUiRequest != null
                 ? state.pendingUiRequest
                 : (success ? state.displayUiRequest : null);
+        if (uiRequest != null) {
+            String presentationMode = WorkflowInteractionPresentationPolicy.mode(uiRequest);
+            metadata.put("presentationMode", presentationMode);
+            metadata.put("answerTextSuppressed",
+                    WorkflowInteractionPresentationPolicy.CARD_ONLY.equals(presentationMode));
+        }
+        long finishAuditStart = System.nanoTime();
+        traceService.finish(state.trace, success, code, answer, metadata, resolveTrustedIdentity(state.request));
+        metadata.put("supervisor.finishAuditMs", Math.max(0L, (System.nanoTime() - finishAuditStart) / 1_000_000L));
         return new SupervisorResult(success, code, answer, state.trace.traceId(),
                 List.copyOf(state.steps), metadata, uiRequest);
     }
@@ -1029,6 +1042,10 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     workflowCancel.cancel();
                 }
             });
+        }
+
+        private boolean shouldPublishAnswerText() {
+            return !WorkflowInteractionPresentationPolicy.isCardOnly(displayUiRequest);
         }
 
         @SuppressWarnings("unchecked")
@@ -1392,7 +1409,15 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     return Mono.just(ToolResultBlock.error(
                             "Workflow policy is waiting for user confirmation. Stop and return the confirmation request."));
                 }
-                return Mono.just(ToolResultBlock.error("Workflow policy denied: " + decision.reason()));
+                // A denied planned path is a recoverable Workflow failure. Mark the current plan as
+                // failed so the Supervisor can replace it with another permitted Workflow (for
+                // example, fall back from a page action to a read-only API query). Without this,
+                // recordPlan rejects the replan while every alternative tool is also rejected as
+                // being outside the still-active plan, leaving the run to exhaust max iterations.
+                failureAtPlanNo = planCount.get();
+                return Mono.just(ToolResultBlock.error(
+                        "Workflow policy denied: " + decision.reason()
+                                + ". Record a revised plan before calling another Workflow tool."));
             }
             String reservationError = reservePlannedWorkflow(toolName);
             if (reservationError != null) {
@@ -1586,9 +1611,9 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             continuation.put("userId", userId());
             // Prefer executor live context; never persist only workflowInput + metadata.
             Map<String, Object> state = new LinkedHashMap<>(
-                    result.contextSnapshot() == null || result.contextSnapshot().isEmpty()
+                    result.resumeCheckpoint() == null || result.resumeCheckpoint().isEmpty()
                             ? workflowInput
-                            : result.contextSnapshot());
+                            : result.resumeCheckpoint());
             if (result.metadata() != null) {
                 // Keep interaction metadata keys without overwriting nodeOutput / lastOutput.
                 for (Map.Entry<String, Object> entry : result.metadata().entrySet()) {

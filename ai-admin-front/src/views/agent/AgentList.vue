@@ -22,7 +22,7 @@
       </PageHeader>
 
       <template #summary>
-        <MetricStrip :items="metricItems" aria-label="智能体指标概览" />
+        <MetricStrip :items="metricItems" density="compact" aria-label="智能体指标概览" />
       </template>
     </CollapsibleHeaderRegion>
 
@@ -148,12 +148,13 @@
         </article>
       </div>
 
-      <div v-else class="agent-table-shell">
+      <div v-else ref="agentTableShellRef" class="agent-table-shell">
         <el-table
           ref="agentTableRef"
           :data="pagedAgents"
           class="agent-table"
           row-key="id"
+          :max-height="agentTableMaxHeight"
         >
           <el-table-column prop="name" label="名称" min-width="220" fixed="left">
             <template #default="{ row }">
@@ -217,7 +218,43 @@
       </div>
 
       <template #empty>
-        <el-empty description="暂无符合条件的智能体">
+        <div v-if="agents.length === 0" class="agent-empty-guide">
+          <div class="agent-empty-guide__visual">
+            <img
+              :src="agentSupervisorOnboardingIllustration"
+              alt="Supervisor Agent 协调 Workflow、工具与知识检索的引导插画"
+              width="1024"
+              height="1024"
+              decoding="async"
+            />
+          </div>
+
+          <div class="agent-empty-guide__content">
+            <small class="agent-empty-guide__eyebrow">SUPERVISOR AGENT</small>
+            <h3>创建第一个 Agent，开始编排业务能力</h3>
+            <p>
+              为 Agent 定义身份与项目归属，发布 Supervisor 配置，并将可复用的 Workflow
+              加入 Workflow-as-Tool 目录。
+            </p>
+
+            <button class="agent-empty-guide__action" type="button" @click="handleCreate">
+              <span class="agent-empty-guide__action-icon">
+                <el-icon><Plus /></el-icon>
+              </span>
+              <span>
+                <strong>新建智能体</strong>
+                <small>定义身份、归属与 Supervisor 运行配置</small>
+              </span>
+              <el-icon class="agent-empty-guide__action-arrow"><ArrowRight /></el-icon>
+            </button>
+
+            <small class="agent-empty-guide__note">
+              创建后可继续配置 Workflow-as-Tool，并从运行中心查看执行记录。
+            </small>
+          </div>
+        </div>
+
+        <el-empty v-else description="暂无符合条件的智能体">
           <el-button type="primary" :icon="Plus" @click="handleCreate">新建智能体</el-button>
         </el-empty>
       </template>
@@ -242,7 +279,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type TableInstance } from 'element-plus'
-import { Connection, Cpu, Plus, RefreshLeft, Search } from '@element-plus/icons-vue'
+import { ArrowRight, Connection, Cpu, Plus, RefreshLeft, Search } from '@element-plus/icons-vue'
 import type { Agent, AgentStatistics } from '@/types/workflow'
 import {
   deleteAgent,
@@ -263,6 +300,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
+import agentSupervisorOnboardingIllustration from '@/assets/illustrations/agent-supervisor-onboarding.webp'
 
 const route = useRoute()
 const router = useRouter()
@@ -279,14 +317,35 @@ const viewMode = ref<'table' | 'card'>('table')
 const currentPage = ref(1)
 const pageSize = ref(10)
 const agentTableRef = ref<TableInstance>()
+const agentTableShellRef = ref<HTMLElement | null>(null)
+/** 限制表格主体高度，搜索栏/表头固定，仅表体滚动。 */
+const agentTableMaxHeight = ref(480)
 
 let layoutRaf = 0
+let layoutFreezeUntil = 0
+let layoutFreezeTimer = 0
+let tableShellObserver: ResizeObserver | null = null
+
 function scheduleAgentListLayout() {
-  if (typeof window === 'undefined' || layoutRaf) return
+  if (typeof window === 'undefined') return
+  const remaining = layoutFreezeUntil - performance.now()
+  if (remaining > 0) {
+    window.clearTimeout(layoutFreezeTimer)
+    layoutFreezeTimer = window.setTimeout(() => {
+      scheduleAgentListLayout()
+    }, remaining + 16)
+    return
+  }
+  if (layoutRaf) return
   layoutRaf = requestAnimationFrame(() => {
     layoutRaf = 0
+    updateAgentTableMaxHeight()
     agentTableRef.value?.doLayout()
   })
+}
+
+function freezeAgentListLayout(ms = 300) {
+  layoutFreezeUntil = performance.now() + ms
 }
 
 const {
@@ -298,9 +357,62 @@ const {
     '.agent-table .el-scrollbar__wrap',
     '.agent-table .el-table__body-wrapper',
   ],
+  // Compat callback; composable only invokes these after collapse transitions settle.
   onScroll: scheduleAgentListLayout,
   onLayoutChange: scheduleAgentListLayout,
 })
+
+function updateAgentTableMaxHeight() {
+  if (typeof window === 'undefined') return
+  if (viewMode.value !== 'table') return
+
+  let nextHeight = 0
+  const shellEl = agentTableShellRef.value
+  if (shellEl && shellEl.clientHeight >= 260) {
+    nextHeight = Math.floor(shellEl.clientHeight)
+  } else {
+    const root = document.querySelector('.agent-page')
+    const tableEl = root?.querySelector('.agent-table') as HTMLElement | undefined
+    const paginationEl = root?.querySelector('.data-table-shell__pagination') as HTMLElement | undefined
+    if (!tableEl) {
+      nextHeight = Math.max(280, window.innerHeight - 420)
+    } else {
+      const tableTop = tableEl.getBoundingClientRect().top
+      const viewportPad = 16
+      const paginationGap = 12
+      const paginationVisible = Boolean(paginationEl && paginationEl.offsetParent !== null)
+      const paginationHeight = paginationVisible
+        ? paginationEl!.getBoundingClientRect().height
+        : 0
+      let bottomLimit = window.innerHeight - viewportPad
+      if (paginationVisible) {
+        const paginationTop = paginationEl!.getBoundingClientRect().top
+        if (paginationTop > tableTop && paginationTop < window.innerHeight) {
+          bottomLimit = Math.min(bottomLimit, paginationTop - paginationGap)
+        } else {
+          bottomLimit -= paginationHeight + paginationGap
+        }
+      }
+      nextHeight = Math.floor(bottomLimit - tableTop)
+    }
+  }
+
+  nextHeight = Math.max(260, nextHeight)
+  if (Math.abs(nextHeight - agentTableMaxHeight.value) < 2) return
+  agentTableMaxHeight.value = nextHeight
+}
+
+function bindAgentTableShellObserver() {
+  tableShellObserver?.disconnect()
+  tableShellObserver = null
+  if (typeof ResizeObserver === 'undefined') return
+  const shellEl = agentTableShellRef.value
+  if (!shellEl) return
+  tableShellObserver = new ResizeObserver(() => {
+    scheduleAgentListLayout()
+  })
+  tableShellObserver.observe(shellEl)
+}
 
 const filteredAgents = computed(() => {
   const keyword = filterKeyword.value.trim().toLowerCase()
@@ -385,7 +497,12 @@ function configStatusType(status?: string | null) {
 function configStatusLabel(agent: Agent) {
   if (!agent.configStatus || agent.configStatus === 'NONE') return '未配置'
   const version = agent.displayConfigVersionNo ? ` v${agent.displayConfigVersionNo}` : ''
-  return `${agent.configStatus}${version}`
+  const statusLabels: Record<string, string> = {
+    ACTIVE: '已激活',
+    DRAFT: '草稿',
+    ARCHIVED: '已归档',
+  }
+  return `${statusLabels[agent.configStatus] || agent.configStatus}${version}`
 }
 
 function formatDateTime(value?: string | null) {
@@ -411,14 +528,17 @@ function projectCodeById(projectId?: number | null) {
   return scanProjects.value.find((project) => project.id === projectId)?.projectCode || null
 }
 
-function syncProjectFilter() {
-  const queryProjectId = Number(route.query.projectId)
-  if (Number.isFinite(queryProjectId) && queryProjectId > 0) {
-    filterProjectId.value = queryProjectId
-    projectStore.setCurrentProject(queryProjectId)
+function syncProjectFilter(allowRouteFallback = false) {
+  if (projectStore.currentProjectId !== null) {
+    filterProjectId.value = projectStore.currentProjectId
     return
   }
-  filterProjectId.value = projectStore.currentProjectId ?? undefined
+  const queryProjectId = Number(route.query.projectId)
+  if (allowRouteFallback && Number.isFinite(queryProjectId) && queryProjectId > 0) {
+    filterProjectId.value = queryProjectId
+    return
+  }
+  filterProjectId.value = undefined
 }
 
 async function loadScanProjects() {
@@ -461,6 +581,14 @@ async function fetchData() {
     scheduleAgentListLayout()
   }
 }
+
+watch(
+  () => [filteredAgents.value.length, currentPage.value, pageSize.value] as const,
+  async () => {
+    await nextTick()
+    scheduleAgentListLayout()
+  },
+)
 
 function handleQuery() {
   currentPage.value = 1
@@ -519,13 +647,22 @@ async function handleDelete(id: string) {
 }
 
 onMounted(async () => {
+  window.addEventListener('resize', scheduleAgentListLayout)
   await loadScanProjects()
-  syncProjectFilter()
+  syncProjectFilter(true)
   await fetchData()
+  await nextTick()
+  bindAgentTableShellObserver()
+  refreshAgentHeaderScrollTargets()
+  scheduleAgentListLayout()
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', scheduleAgentListLayout)
+  tableShellObserver?.disconnect()
+  tableShellObserver = null
   if (layoutRaf) cancelAnimationFrame(layoutRaf)
+  window.clearTimeout(layoutFreezeTimer)
 })
 
 watch(
@@ -542,14 +679,33 @@ watch([filterKeyword, filterEnabled, pageSize], () => {
 
 watch(viewMode, async () => {
   await nextTick()
+  bindAgentTableShellObserver()
   refreshAgentHeaderScrollTargets()
   scheduleAgentListLayout()
+})
+
+watch(isAgentHeaderCollapsed, () => {
+  // Freeze table relayout while header/summary CSS transitions run; mid-animation
+  // doLayout was canceling the transition and causing visible flicker.
+  freezeAgentListLayout()
 })
 </script>
 
 <style scoped lang="scss">
+.agent-page {
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agent-page :deep(.collapsible-header-region) {
+  flex: 0 0 auto;
+}
+
 .agent-shell {
-  min-height: 420px;
+  flex: 1 1 auto;
+  min-height: 0;
   gap: 0;
   overflow: hidden;
   padding: 0;
@@ -666,6 +822,157 @@ watch(viewMode, async () => {
   border-top-color: rgb(var(--brand-primary-rgb) / 0.12);
   color: var(--text-muted);
   background: color-mix(in srgb, var(--surface-glass-control) 78%, transparent);
+}
+
+.agent-shell :deep(.data-table-shell__empty) {
+  padding: 22px 28px 28px;
+}
+
+.agent-empty-guide {
+  display: grid;
+  width: min(980px, 100%);
+  min-height: 340px;
+  grid-template-columns: minmax(230px, 280px) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(28px, 4vw, 52px);
+  margin: 0 auto;
+  padding: clamp(24px, 3vw, 36px);
+  overflow: hidden;
+  border: 1px dashed var(--border-readable);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--brand-primary) 6%, var(--surface-solid-panel)),
+      color-mix(in srgb, var(--surface-solid-control) 82%, transparent)
+    );
+}
+
+.agent-empty-guide__visual {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-solid-panel);
+  box-shadow: var(--shadow-card), var(--inner-highlight);
+}
+
+.agent-empty-guide__visual img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.agent-empty-guide__content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.agent-empty-guide__eyebrow,
+.agent-empty-guide__content h3,
+.agent-empty-guide__content p {
+  margin: 0;
+}
+
+.agent-empty-guide__eyebrow {
+  color: var(--brand-active);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.agent-empty-guide__content h3 {
+  margin-top: 7px;
+  color: var(--text-primary);
+  font-size: 1.15rem;
+  line-height: 1.35;
+}
+
+.agent-empty-guide__content > p {
+  max-width: 560px;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.65;
+}
+
+.agent-empty-guide__action {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--brand-primary) 30%, var(--border-subtle));
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--brand-primary) 8%, var(--surface-solid-panel));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-duration-fast) ease,
+    background var(--motion-duration-fast) ease,
+    transform var(--motion-duration-fast) ease;
+}
+
+.agent-empty-guide__action:hover {
+  border-color: color-mix(in srgb, var(--brand-primary) 48%, var(--border-subtle));
+  background: color-mix(in srgb, var(--brand-primary) 12%, var(--surface-solid-panel));
+  transform: translateY(-1px);
+}
+
+.agent-empty-guide__action:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.agent-empty-guide__action > span:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.agent-empty-guide__action strong {
+  color: var(--text-primary);
+  font-size: 0.86rem;
+}
+
+.agent-empty-guide__action small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-empty-guide__action-icon {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: var(--brand-primary);
+  background: var(--surface-solid-panel);
+  box-shadow: var(--inner-highlight);
+}
+
+.agent-empty-guide__action-arrow {
+  color: var(--brand-active);
+}
+
+.agent-empty-guide__note {
+  margin-top: 11px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
 }
 
 .agent-table-shell {
@@ -965,6 +1272,10 @@ watch(viewMode, async () => {
   .agent-filter-bar :deep(.filter-bar__actions) {
     justify-self: end;
   }
+
+  .agent-empty-guide {
+    grid-template-columns: minmax(190px, 220px) minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 900px) {
@@ -1018,6 +1329,29 @@ watch(viewMode, async () => {
     padding-right: 16px;
     padding-left: 16px;
     overflow-x: auto;
+  }
+
+  .agent-shell :deep(.data-table-shell__empty) {
+    padding: 18px 16px 22px;
+  }
+
+  .agent-empty-guide {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 22px;
+    text-align: center;
+  }
+
+  .agent-empty-guide__visual {
+    width: min(220px, 100%);
+  }
+
+  .agent-empty-guide__content {
+    align-items: center;
+  }
+
+  .agent-empty-guide__action {
+    text-align: left;
   }
 }
 </style>

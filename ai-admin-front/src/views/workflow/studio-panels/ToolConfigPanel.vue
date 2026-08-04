@@ -87,7 +87,8 @@
         <el-table-column label="接口" min-width="260" show-overflow-tooltip>
           <template #default="{ row }">
             <div class="project-api-name">
-              <strong>{{ row.name }}</strong>
+              <strong>{{ row.title || row.name }}</strong>
+              <code>{{ row.name }}</code>
               <span>{{ row.httpMethod || '-' }} {{ row.endpointPath || row.sourceLocation || '-' }}</span>
             </div>
           </template>
@@ -178,7 +179,6 @@ const config = computed<ToolNodeConfig>(() => {
     ref: '',
     qualifiedName: null,
     projectCode: null,
-    visibility: null,
     credentialRef: '',
     maxRequestTimeMs: 180000,
     inputMapping: {},
@@ -212,7 +212,6 @@ function handleRefChange() {
   const selected = selectedTool.value
   config.value.qualifiedName = selected?.qualifiedName || null
   config.value.projectCode = selected?.projectCode || null
-  config.value.visibility = selected?.visibility || null
   config.value.maxRequestTimeMs ||= 180000
   props.data.description = selected?.description || props.data.description || ''
 }
@@ -263,11 +262,10 @@ function selectProjectApi(row: ProjectToolInfo) {
   config.value.ref = projectApiToolRef(row)
   config.value.qualifiedName = projectApiToolQualifiedName(row, props.projectCode)
   config.value.projectCode = row.projectCode || props.projectCode || null
-  config.value.visibility = 'PROJECT'
   config.value.maxRequestTimeMs ||= 180000
   config.value.inputMapping = buildDefaultInputMapping(row.parameters || [])
   config.value.mappingNote = `由项目 API 管理选择：${row.httpMethod || ''} ${row.endpointPath || row.name}`.trim()
-  props.data.label = row.name
+  props.data.label = row.title || row.name
   props.data.description = row.aiDescription || row.description || props.data.description || ''
   props.data.inputs = Object.entries(config.value.inputMapping).map(([target, source]) => ({
     id: target,
@@ -320,8 +318,8 @@ function applyHint(hint: ApiGraphParamSourceHint) {
 
 function assetLabel(item: ToolInfo | CompositionInfo) {
   const project = item.projectCode ? ` / ${item.projectCode}` : ''
-  const visibility = item.visibility ? ` / ${item.visibility}` : ''
-  return `${item.name}${project}${visibility}`
+  const label = 'title' in item && item.title ? `${item.title} (${item.name})` : item.name
+  return `${label}${project}`
 }
 </script>
 

@@ -1,7 +1,7 @@
 package com.enterprise.ai.runtime.workflow.authoring;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
-import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftEditOperationView;
+import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalEditOperationView;
 
 import java.util.List;
 import java.util.Map;
@@ -10,7 +10,7 @@ public record WorkflowAuthoringResult(
         Status status,
         String provider,
         String summary,
-        List<RuntimeWorkflowDraftEditOperationView> operations,
+        List<RuntimeWorkflowProposalEditOperationView> operations,
         GraphSpec graphSpec,
         List<String> warnings,
         List<String> validationErrors,

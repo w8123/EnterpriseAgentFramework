@@ -54,6 +54,85 @@ describe('conversationReducer', () => {
     expect(state.turnStatus).toBe('waiting')
   })
 
+  it('completes a turn that contains a non-blocking output card', () => {
+    const uiRequest = {
+      component: 'list_card',
+      interactionId: 'output-1',
+      behavior: { blocking: false },
+      presentation: { mode: 'card_only' },
+    }
+    let state = initialConversationState()
+    state = conversationReducer(state, {
+      type: 'apply_event',
+      event: createEvent('ui.requested', { uiRequest }),
+    })
+    state = conversationReducer(state, {
+      type: 'apply_event',
+      event: createEvent('turn.completed', { answer: 'done', uiRequest }),
+    })
+
+    const interaction = state.messages[0].blocks.find((block) => block.type === 'interaction')
+    expect(interaction?.type === 'interaction' && interaction.state).toBe('resolved')
+    expect(state.messages[0].blocks.some((block) => block.type === 'text')).toBe(false)
+    expect(state.turnStatus).toBe('completed')
+  })
+
+  it('removes already streamed text when a card-only presentation arrives', () => {
+    const uiRequest = {
+      component: 'list_card',
+      interactionId: 'output-streamed',
+      presentation: { mode: 'card_only' },
+    }
+    let state = initialConversationState()
+    state = conversationReducer(state, {
+      type: 'apply_event',
+      event: createEvent('message.delta', { text: 'duplicated details' }),
+    })
+    state = conversationReducer(state, {
+      type: 'apply_event',
+      event: createEvent('ui.requested', { uiRequest }),
+    })
+    state = conversationReducer(state, {
+      type: 'apply_event',
+      event: createEvent('message.delta', { text: 'late duplicate' }),
+    })
+
+    expect(state.messages[0].blocks.filter((block) => block.type === 'text')).toHaveLength(0)
+    expect(state.messages[0].blocks.filter((block) => block.type === 'interaction')).toHaveLength(1)
+  })
+
+  it('keeps both blocks when presentation explicitly requests text and card', () => {
+    const uiRequest = {
+      component: 'list_card',
+      interactionId: 'output-both',
+      presentation: { mode: 'text_and_card' },
+    }
+    let state = initialConversationState()
+    state = conversationReducer(state, {
+      type: 'apply_event',
+      event: createEvent('turn.completed', { answer: 'summary', uiRequest }),
+    })
+
+    expect(state.messages[0].blocks.some((block) => block.type === 'text')).toBe(true)
+    expect(state.messages[0].blocks.some((block) => block.type === 'interaction')).toBe(true)
+  })
+
+  it('keeps only fallback text when presentation explicitly requests text only', () => {
+    const uiRequest = {
+      component: 'list_card',
+      interactionId: 'output-text-only',
+      presentation: { mode: 'text_only' },
+    }
+    let state = initialConversationState()
+    state = conversationReducer(state, {
+      type: 'apply_event',
+      event: createEvent('turn.completed', { answer: 'plain summary', uiRequest }),
+    })
+
+    expect(state.messages[0].blocks.some((block) => block.type === 'text')).toBe(true)
+    expect(state.messages[0].blocks.some((block) => block.type === 'interaction')).toBe(false)
+  })
+
   it('marks cancel distinctly from fail', () => {
     let state = initialConversationState()
     state = conversationReducer(state, { type: 'start_assistant_message' })

@@ -1,13 +1,13 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { Ref } from 'vue'
-import { getWorkflowStudio, saveWorkflowStudio as saveWorkflowStudioApi } from '@/api/workflow'
-import type { WorkflowStudioState } from '@/types/workflow'
+import { getWorkflowWorkingCopy, saveWorkflowWorkingCopy } from '@/api/workflow'
+import type { WorkflowWorkingCopyState } from '@/types/workflow'
 import { formatJson, normalizeJson } from '@/views/workflow/composables/workflowStudioJson'
 
 export interface WorkflowStudioMetaForm {
   name: string
   keySlug: string
-  workflowType: string
+  workflowKind: string
   description: string
   defaultModelInstanceId: string
 }
@@ -17,7 +17,7 @@ export interface UseWorkflowStudioPersistenceDeps {
   studioReadOnly: Readonly<Ref<boolean>>
   saving: Ref<boolean>
   loading: Ref<boolean>
-  studio: Ref<WorkflowStudioState | null>
+  studio: Ref<WorkflowWorkingCopyState | null>
   graphSpecJson: Ref<string>
   canvasJson: Ref<string>
   nodes: Ref<unknown[]>
@@ -27,11 +27,11 @@ export interface UseWorkflowStudioPersistenceDeps {
   lastSavedAt: Ref<string>
   validation: Ref<unknown>
   aiModelInstanceId: Ref<string>
-  applyCanvasFromStudio: (state: WorkflowStudioState) => void
+  applyCanvasFromStudio: (state: WorkflowWorkingCopyState) => void
   syncJsonFromCanvas: () => void
   resetHistorySnapshot: () => void
   loadCredentialOptions: (
-    state: WorkflowStudioState | null,
+    state: WorkflowWorkingCopyState | null,
     shouldApply?: () => boolean,
   ) => Promise<void>
   clearWorkflowDocumentState: () => void
@@ -65,15 +65,15 @@ export function useWorkflowStudioPersistence({
   let documentOperationSequence = 0
   let activeSaveWorkflowId: string | null = null
 
-  function stateWorkflowId(state: WorkflowStudioState | null) {
+  function stateWorkflowId(state: WorkflowWorkingCopyState | null) {
     return state?.workflowId || state?.id || ''
   }
 
-  function syncWorkflowMetaFromStudio(state: WorkflowStudioState | null) {
+  function syncWorkflowMetaFromStudio(state: WorkflowWorkingCopyState | null) {
     if (!state) return
     workflowMeta.name = state.name || ''
     workflowMeta.keySlug = state.keySlug || ''
-    workflowMeta.workflowType = state.workflowType || 'WORKFLOW'
+    workflowMeta.workflowKind = state.workflowKind || 'GENERAL'
     workflowMeta.description = state.description || ''
     workflowMeta.defaultModelInstanceId = state.defaultModelInstanceId || ''
   }
@@ -83,13 +83,13 @@ export function useWorkflowStudioPersistence({
     return (
       workflowMeta.name !== (studio.value.name || '')
       || workflowMeta.keySlug !== (studio.value.keySlug || '')
-      || workflowMeta.workflowType !== (studio.value.workflowType || 'WORKFLOW')
+      || workflowMeta.workflowKind !== (studio.value.workflowKind || 'GENERAL')
       || workflowMeta.description !== (studio.value.description || '')
       || workflowMeta.defaultModelInstanceId !== (studio.value.defaultModelInstanceId || '')
     )
   }
 
-  async function loadStudio(): Promise<WorkflowStudioState | null> {
+  async function loadStudio(): Promise<WorkflowWorkingCopyState | null> {
     const requestedWorkflowId = workflowId.value
     const loadToken = ++loadSequence
     const documentToken = ++documentOperationSequence
@@ -109,19 +109,16 @@ export function useWorkflowStudioPersistence({
     )
     loading.value = true
     try {
-      const { data } = await getWorkflowStudio(requestedWorkflowId)
+      const { data } = await getWorkflowWorkingCopy(requestedWorkflowId)
       if (!isCurrentLoad()) return null
-      const loadedState: WorkflowStudioState = {
-        ...data,
-        workflowId: data.workflowId || data.id || requestedWorkflowId,
-      }
+      const loadedState = canonicalizeWorkingCopyState(data, requestedWorkflowId)
       studio.value = loadedState
       syncWorkflowMetaFromStudio(loadedState)
       if (!aiModelInstanceId.value && loadedState.defaultModelInstanceId) {
         aiModelInstanceId.value = loadedState.defaultModelInstanceId
       }
-      graphSpecJson.value = formatJson(loadedState.graphSpecJson || '{"nodes":[],"edges":[]}')
-      canvasJson.value = formatJson(loadedState.canvasJson || '{"nodes":[],"edges":[]}')
+      graphSpecJson.value = formatJson(loadedState.graphSpecJson || '{"schemaVersion":2,"nodes":[],"edges":[],"entryNodeId":"","exitNodeIds":[]}')
+      canvasJson.value = formatJson(loadedState.canvasJson || '{"schemaVersion":1,"layoutVersion":1,"nodes":[],"edges":[]}')
       applyCanvasFromStudio(loadedState)
       await loadCredentialOptions(loadedState, isCurrentLoad)
       if (!isCurrentLoad()) return null
@@ -139,9 +136,9 @@ export function useWorkflowStudioPersistence({
     }
   }
 
-  async function saveStudio(): Promise<WorkflowStudioState | null> {
+  async function saveStudio(): Promise<WorkflowWorkingCopyState | null> {
     if (studioReadOnly.value) {
-      ElMessage.info('代码托管 Workflow 当前为只读草稿，请修改后重启同步。')
+      ElMessage.info('代码托管 Workflow 的工作副本当前只读，请修改后重启同步。')
       return null
     }
     if (ensurePanelValidationClear && !ensurePanelValidationClear()) {
@@ -173,7 +170,7 @@ export function useWorkflowStudioPersistence({
       const graph = normalizeJson(graphSpecJson.value, 'GraphSpec')
       const canvas = normalizeJson(canvasJson.value || '{}', 'Canvas')
       const savedEditGeneration = editGeneration.value
-      const { data } = await saveWorkflowStudioApi(requestedWorkflowId, {
+      const { data } = await saveWorkflowWorkingCopy(requestedWorkflowId, {
         graphSpecJson: graph,
         canvasJson: canvas,
         extraJson: baseStudio.extraJson || null,
@@ -181,26 +178,32 @@ export function useWorkflowStudioPersistence({
         keySlug: workflowMeta.keySlug.trim() || baseStudio.keySlug || null,
         name: workflowMeta.name.trim() || baseStudio.name || 'Workflow',
         description: workflowMeta.description.trim(),
-        workflowType: workflowMeta.workflowType.trim() || baseStudio.workflowType || null,
-        runtimeType: baseStudio.runtimeType || 'LANGGRAPH4J',
+        workflowKind: workflowMeta.workflowKind.trim()
+          || baseStudio.workflowKind
+          || 'GENERAL',
+        executionEngine: baseStudio.executionEngine || 'GRAPH_SPEC',
+        definitionAuthority: baseStudio.definitionAuthority || 'USER',
+        creationChannel: baseStudio.creationChannel || 'STUDIO',
         inputSchemaJson: baseStudio.inputSchemaJson || null,
         outputSchemaJson: baseStudio.outputSchemaJson || null,
         defaultModelInstanceId: workflowMeta.defaultModelInstanceId,
         defaultResourceConfigJson: baseStudio.defaultResourceConfigJson || null,
       })
       if (!isCurrentSave()) return null
-      const savedState: WorkflowStudioState = {
+      const savedState = canonicalizeWorkingCopyState({
         ...baseStudio,
         ...data,
         workflowId: data.workflowId || data.id || requestedWorkflowId,
         graphSpecJson: data.graphSpecJson || graph,
         canvasJson: data.canvasJson ?? canvas,
-        runtimeType: data.runtimeType || baseStudio.runtimeType || 'LANGGRAPH4J',
+        workflowKind: data.workflowKind || baseStudio.workflowKind || 'GENERAL',
+        executionEngine: data.executionEngine || baseStudio.executionEngine || 'GRAPH_SPEC',
+        definitionAuthority: data.definitionAuthority || baseStudio.definitionAuthority || 'USER',
+        creationChannel: data.creationChannel || baseStudio.creationChannel || 'STUDIO',
         status: data.status || baseStudio.status || 'DRAFT',
-        managedBy: data.managedBy || baseStudio.managedBy || 'MANUAL',
         revision: data.revision || data.updatedAt || baseStudio.revision || null,
         hasUnpublishedChanges: data.hasUnpublishedChanges ?? true,
-      }
+      }, requestedWorkflowId)
       if (editGeneration.value !== savedEditGeneration) {
         studio.value = savedState
         const savedAt = savedState.updatedAt ? new Date(savedState.updatedAt) : new Date()
@@ -218,14 +221,14 @@ export function useWorkflowStudioPersistence({
       lastSavedAt.value = savedAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
       validation.value = null
       resetHistorySnapshot()
-      ElMessage.success('Workflow 草稿已保存')
+      ElMessage.success('Workflow 工作副本已保存')
       return savedState
     } catch (err) {
       if (!isCurrentSave()) return null
       const error = err as { response?: { status?: number; data?: { message?: string } }; message?: string }
       if (error.response?.status === 409) {
         void ElMessageBox.confirm(
-          '服务器上的草稿已被其他编辑更新，本地修改仍然保留。加载最新版本会覆盖当前本地修改。',
+          '服务器上的工作副本已被其他编辑更新，本地修改仍然保留。加载最新版本会覆盖当前本地修改。',
           '检测到版本冲突',
           {
             type: 'warning',
@@ -236,7 +239,7 @@ export function useWorkflowStudioPersistence({
           void loadStudio()
         }).catch(() => undefined)
       } else {
-        ElMessage.error(`Workflow 草稿保存失败：${error.response?.data?.message || error.message || '服务请求失败'}`)
+        ElMessage.error(`Workflow 工作副本保存失败：${error.response?.data?.message || error.message || '服务请求失败'}`)
       }
       return null
     } finally {
@@ -245,6 +248,21 @@ export function useWorkflowStudioPersistence({
         saving.value = false
       }
     }
+  }
+
+  function canonicalizeWorkingCopyState(
+    state: WorkflowWorkingCopyState,
+    fallbackWorkflowId: string,
+  ): WorkflowWorkingCopyState {
+    const canonical: WorkflowWorkingCopyState = {
+      ...state,
+      workflowId: state.workflowId || state.id || fallbackWorkflowId,
+      workflowKind: state.workflowKind || 'GENERAL',
+      executionEngine: state.executionEngine || 'GRAPH_SPEC',
+      definitionAuthority: state.definitionAuthority || 'USER',
+      creationChannel: state.creationChannel || 'STUDIO',
+    }
+    return canonical
   }
 
   return {

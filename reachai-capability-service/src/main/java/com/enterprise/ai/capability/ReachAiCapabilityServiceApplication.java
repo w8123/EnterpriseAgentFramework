@@ -16,12 +16,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @MapperScan(value = {
         "com.enterprise.ai.agent.registry",
         "com.enterprise.ai.agent.capability",
-        "com.enterprise.ai.agent.capability.catalog.semantic",
-        "com.enterprise.ai.agent.capability.catalog.domain",
-        "com.enterprise.ai.agent.capability.catalog.graph",
-        "com.enterprise.ai.agent.capability.catalog.scan",
-        "com.enterprise.ai.agent.capability.catalog.tool.definition",
-        "com.enterprise.ai.capability.catalog.composition",
         "com.enterprise.ai.capability.catalog.mining",
         "com.enterprise.ai.capability.catalog.retrieval"
 }, annotationClass = Mapper.class)

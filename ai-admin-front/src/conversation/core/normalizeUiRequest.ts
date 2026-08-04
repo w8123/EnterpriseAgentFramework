@@ -1,4 +1,10 @@
-import type { UiRequestV1, UiFieldPayload, UiActionPayload } from './conversationTypes'
+import type {
+  UiRequestV1,
+  UiFieldPayload,
+  UiActionPayload,
+  UiPresentationMode,
+  UiPresentationPayload,
+} from './conversationTypes'
 import { createId } from './conversationTypes'
 
 const COMPONENT_ALIASES: Record<string, string> = {
@@ -33,6 +39,12 @@ const READONLY_COMPONENTS = new Set([
   'summary_card',
   'list_card',
   'output_card',
+])
+
+const PRESENTATION_MODES = new Set<UiPresentationMode>([
+  'card_only',
+  'text_and_card',
+  'text_only',
 ])
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -97,6 +109,14 @@ function normalizeActions(raw: unknown): UiActionPayload[] | undefined {
   return actions.length ? actions : undefined
 }
 
+function normalizePresentation(raw: unknown): UiPresentationPayload | undefined {
+  const record = asRecord(raw)
+  if (!record) return undefined
+  const mode = asString(record.mode)?.toLowerCase().replace(/[\s-]+/g, '_') as UiPresentationMode | undefined
+  if (!mode || !PRESENTATION_MODES.has(mode)) return undefined
+  return { ...record, mode }
+}
+
 function stableReadonlyId(component: string, title?: string, message?: string): string {
   const basis = `${component}|${title || ''}|${message || ''}`.slice(0, 80)
   let hash = 0
@@ -153,6 +173,7 @@ export function normalizeUiRequest(raw: unknown): UiRequestV1 | null {
     data: record.data,
     schema,
     actions: normalizeActions(record.actions),
+    presentation: normalizePresentation(record.presentation ?? extension?.presentation),
     datasources: asRecord(record.datasources) || undefined,
     behavior: asRecord(record.behavior) || undefined,
     extension,
@@ -161,6 +182,30 @@ export function normalizeUiRequest(raw: unknown): UiRequestV1 | null {
 
 export function isReadonlyUiComponent(component: string): boolean {
   return READONLY_COMPONENTS.has(normalizeComponent(component))
+}
+
+export function uiPresentationMode(raw: unknown): UiPresentationMode {
+  return normalizeUiRequest(raw)?.presentation?.mode || 'text_and_card'
+}
+
+export function isCardOnlyUiRequest(raw: unknown): boolean {
+  return uiPresentationMode(raw) === 'card_only'
+}
+
+export function isTextOnlyUiRequest(raw: unknown): boolean {
+  return uiPresentationMode(raw) === 'text_only'
+}
+
+/**
+ * 只读输出卡片默认不阻塞下一轮对话；表单、选择、确认等交互默认阻塞。
+ * behavior.blocking 是服务端的显式覆盖，优先级最高。
+ */
+export function isBlockingUiRequest(raw: unknown): boolean {
+  const request = normalizeUiRequest(raw)
+  if (!request) return false
+  const explicit = request.behavior?.blocking
+  if (typeof explicit === 'boolean') return explicit
+  return !isReadonlyUiComponent(request.component)
 }
 
 export const WORKFLOW_INITIAL_INPUT_INTERACTION_ID = 'local:workflow-initial-input'

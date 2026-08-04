@@ -89,7 +89,8 @@ class RuntimeGraphSpecPhase1NodesTest {
     void scenarioA_deterministicTransformChain() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"input",
+                  "entryNodeId":"input",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"input","type":"USER_INPUT"},
                     {"id":"assign","type":"VARIABLE_ASSIGN","config":{
@@ -118,9 +119,9 @@ class RuntimeGraphSpecPhase1NodesTest {
 
         assertTrue(result.success(), result.code() + " / " + result.answer());
         assertEquals("hello alice", result.answer());
-        assertEquals("alice", result.contextSnapshot().get("var.customer"));
-        assertEquals("hello alice", result.contextSnapshot().get("var.tpl"));
-        assertTrue(result.contextSnapshot().get("var.bundle") instanceof Map<?, ?>);
+        assertEquals("alice", result.resumeCheckpoint().get("var.customer"));
+        assertEquals("hello alice", result.resumeCheckpoint().get("var.tpl"));
+        assertTrue(result.resumeCheckpoint().get("var.bundle") instanceof Map<?, ?>);
     }
 
     @Test
@@ -144,7 +145,8 @@ class RuntimeGraphSpecPhase1NodesTest {
 
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"kr",
+                  "entryNodeId":"kr",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
                       "knowledgeBaseCodes":["kb_demo"],
@@ -161,7 +163,7 @@ class RuntimeGraphSpecPhase1NodesTest {
 
         assertTrue(result.success(), result.code() + " / " + result.answer());
         assertEquals("count=1", result.answer());
-        assertTrue(result.contextSnapshot().get("var.hits") instanceof Map<?, ?>);
+        assertTrue(result.resumeCheckpoint().get("var.hits") instanceof Map<?, ?>);
     }
 
     @Test
@@ -172,7 +174,8 @@ class RuntimeGraphSpecPhase1NodesTest {
 
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"http",
+                  "entryNodeId":"http",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"http","type":"HTTP_REQUEST","config":{
                       "method":"GET",
@@ -208,7 +211,8 @@ class RuntimeGraphSpecPhase1NodesTest {
     void scenarioD_errorPolicyContinueAndFallback() {
         RuntimeGraphSpecExecutionResult continued = executor.execute("""
                 {
-                  "entry":"http",
+                  "entryNodeId":"http",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"http","type":"HTTP_REQUEST",
                      "retry":{"enabled":false},
@@ -221,13 +225,14 @@ class RuntimeGraphSpecPhase1NodesTest {
                 """, Map.of("message", "x"));
         assertTrue(continued.success(), continued.code());
         assertEquals("fallback-body", continued.answer());
-        Object httpOut = continued.contextSnapshot().get("var.http_out");
+        Object httpOut = continued.resumeCheckpoint().get("var.http_out");
         assertTrue(httpOut instanceof Map<?, ?>);
         assertEquals("fallback-body", ((Map<?, ?>) httpOut).get("body"));
 
         RuntimeGraphSpecExecutionResult fallback = executor.execute("""
                 {
-                  "entry":"bad",
+                  "entryNodeId":"bad",
+                  "exitNodeIds":["rescue","answer"],
                   "nodes":[
                     {"id":"bad","type":"TEMPLATE",
                      "errorPolicy":{"strategy":"FALLBACK","fallbackNodeId":"rescue"},
@@ -247,7 +252,7 @@ class RuntimeGraphSpecPhase1NodesTest {
     @Test
     void scenarioE_egressRejectsMetadataAndNonHttp() {
         RuntimeGraphSpecExecutionResult metadata = executor.execute("""
-                {"entry":"http","nodes":[{"id":"http","type":"HTTP_REQUEST","config":{
+                {"entryNodeId":"http","exitNodeIds":["http"],"nodes":[{"id":"http","type":"HTTP_REQUEST","config":{
                   "method":"GET","url":"http://169.254.169.254/latest/meta-data/"
                 }}]}
                 """, Map.of("message", "x"));
@@ -255,7 +260,7 @@ class RuntimeGraphSpecPhase1NodesTest {
         assertTrue(metadata.code().contains("EGRESS") || metadata.code().contains("HTTP"));
 
         RuntimeGraphSpecExecutionResult scheme = executor.execute("""
-                {"entry":"http","nodes":[{"id":"http","type":"HTTP_REQUEST","config":{
+                {"entryNodeId":"http","exitNodeIds":["http"],"nodes":[{"id":"http","type":"HTTP_REQUEST","config":{
                   "method":"GET","url":"file:///etc/passwd"
                 }}]}
                 """, Map.of("message", "x"));
@@ -283,7 +288,8 @@ class RuntimeGraphSpecPhase1NodesTest {
         String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/flaky";
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"http",
+                  "entryNodeId":"http",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"http","type":"HTTP_REQUEST",
                      "retry":{"enabled":true,"maxAttempts":3,"backoffMs":1},
@@ -316,13 +322,43 @@ class RuntimeGraphSpecPhase1NodesTest {
         });
         String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/bad";
         RuntimeGraphSpecExecutionResult result = executor.execute("""
-                {"entry":"http","nodes":[{"id":"http","type":"HTTP_REQUEST",
+                {"entryNodeId":"http","exitNodeIds":["http"],"nodes":[{"id":"http","type":"HTTP_REQUEST",
                   "retry":{"enabled":true,"maxAttempts":3,"backoffMs":1},
                   "config":{"method":"GET","url":"%s"}}]}
                 """.formatted(url), Map.of("message", "x"));
         assertFalse(result.success());
         assertEquals(1, hits.get());
         assertEquals("RUNTIME_HTTP_STATUS_400", result.code());
+    }
+
+    @Test
+    void http200WithNon200BusinessCodeFailsWithoutRetry() throws IOException {
+        AtomicInteger hits = new AtomicInteger();
+        server.createContext("/business-failure", exchange -> {
+            hits.incrementAndGet();
+            byte[] body = "{\"code\":\"500\",\"success\":false,\"message\":\"无权查看班组\"}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/business-failure";
+
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {"entryNodeId":"http","exitNodeIds":["http"],"nodes":[
+                  {"id":"http","type":"HTTP_REQUEST",
+                   "retry":{"enabled":true,"maxAttempts":3,"backoffMs":1},
+                   "config":{"method":"GET","url":"%s"}}
+                ]}
+                """.formatted(url), Map.of("message", "x"));
+
+        assertFalse(result.success());
+        assertEquals("RUNTIME_HTTP_BUSINESS_RESPONSE_FAILED", result.code());
+        assertEquals("查询失败：无权查看班组", result.answer());
+        assertEquals("500", result.metadata().get("businessCode"));
+        assertEquals(1, hits.get());
     }
 
     @Test
@@ -335,7 +371,7 @@ class RuntimeGraphSpecPhase1NodesTest {
         });
         String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/post-flaky";
         RuntimeGraphSpecExecutionResult result = executor.execute("""
-                {"entry":"http","nodes":[{"id":"http","type":"HTTP_REQUEST",
+                {"entryNodeId":"http","exitNodeIds":["http"],"nodes":[{"id":"http","type":"HTTP_REQUEST",
                   "retry":{"enabled":true,"maxAttempts":3,"backoffMs":1},
                   "config":{"method":"POST","url":"%s","bodyType":"json","body":"{}"}}]}
                 """.formatted(url), Map.of("message", "x"));

@@ -63,7 +63,7 @@ Runtime Host 承接 Agent、Workflow、GraphSpec、Trace、RunOps 和调试链�
 - Runtime 服务内的公开/内部路由应有 Runtime owning implementation。
 - Control 可以作为公共 BFF，但 Runtime 业务实现不回落到旧 agent。
 - 新链路失败应返回明确错误，避免静默降级到历史轻量 chat/RAG 流程。
-- `GraphSpec` 仍是 Workflow 运行语义，发布校验和执行链路围绕 `ai_workflow.graph_spec_json`。
+- `GraphSpec` 仍是 Workflow 运行语义，发布校验和执行链路围绕 `runtime_workflow.graph_spec_json`。
 
 ## Capability 清单
 

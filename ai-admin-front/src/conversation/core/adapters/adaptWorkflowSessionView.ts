@@ -5,7 +5,12 @@ import type {
   ConversationSnapshot,
 } from '../conversationTypes'
 import { createEmptySnapshot, createId, nowIso } from '../conversationTypes'
-import { normalizeUiRequest } from '../normalizeUiRequest'
+import {
+  isBlockingUiRequest,
+  isCardOnlyUiRequest,
+  isTextOnlyUiRequest,
+  normalizeUiRequest,
+} from '../normalizeUiRequest'
 
 export interface WorkflowDebugStepLike {
   index?: number
@@ -42,7 +47,8 @@ export interface WorkflowDebugSessionViewLike {
 
 function mapMessage(raw: WorkflowDebugMessageLike): ConversationMessage {
   const blocks: ConversationMessage['blocks'] = []
-  if (raw.content) {
+  const ui = normalizeUiRequest(raw.uiRequest)
+  if (raw.content && !isCardOnlyUiRequest(ui)) {
     blocks.push({
       id: createId('blk'),
       type: 'text',
@@ -50,13 +56,12 @@ function mapMessage(raw: WorkflowDebugMessageLike): ConversationMessage {
       status: 'completed',
     })
   }
-  const ui = normalizeUiRequest(raw.uiRequest)
-  if (ui) {
+  if (ui && !isTextOnlyUiRequest(ui)) {
     blocks.push({
       id: createId('blk'),
       type: 'interaction',
       request: ui,
-      state: 'waiting',
+      state: isBlockingUiRequest(raw.uiRequest) ? 'waiting' : 'resolved',
     })
   }
   const role = (raw.role || 'assistant').toLowerCase()
@@ -76,28 +81,36 @@ export function adaptWorkflowSessionViewToSnapshot(view: WorkflowDebugSessionVie
   if (view.uiRequest) {
     const ui = normalizeUiRequest(view.uiRequest)
     const lastAssistant = [...snapshot.messages].reverse().find((m) => m.role === 'assistant')
-    if (ui && lastAssistant && !lastAssistant.blocks.some((b) => b.type === 'interaction' && b.request.interactionId === ui.interactionId)) {
+    if (ui && lastAssistant && isCardOnlyUiRequest(ui)) {
+      lastAssistant.blocks = lastAssistant.blocks.filter((block) => block.type !== 'text')
+    }
+    if (ui && !isTextOnlyUiRequest(ui) && lastAssistant && !lastAssistant.blocks.some((b) => b.type === 'interaction' && b.request.interactionId === ui.interactionId)) {
       lastAssistant.blocks.push({
         id: createId('blk'),
         type: 'interaction',
         request: ui,
-        state: 'waiting',
+        state: isBlockingUiRequest(view.uiRequest) ? 'waiting' : 'resolved',
       })
-    } else if (ui && !lastAssistant) {
+    } else if (ui && !isTextOnlyUiRequest(ui) && !lastAssistant) {
       snapshot.messages.push({
         id: createId('msg'),
         role: 'assistant',
         status: 'completed',
-        blocks: [{ id: createId('blk'), type: 'interaction', request: ui, state: 'waiting' }],
+        blocks: [{
+          id: createId('blk'),
+          type: 'interaction',
+          request: ui,
+          state: isBlockingUiRequest(view.uiRequest) ? 'waiting' : 'resolved',
+        }],
         createdAt: nowIso(),
       })
     }
   }
 
   const status = String(view.status || '').toUpperCase()
-  if (status === 'WAITING' || status === 'WAITING_USER') {
+  if (status === 'SUSPENDED' || status === 'WAITING' || status === 'WAITING_USER') {
     snapshot.turnStatus = 'waiting'
-  } else if (status === 'FAILED' || status === 'ERROR') {
+  } else if (status === 'FAILED' || status === 'ERROR' || status === 'EXPIRED') {
     snapshot.turnStatus = 'failed'
     snapshot.error = view.errorMessage ? String(view.errorMessage) : 'Workflow 调试失败'
   } else if (status === 'CANCELLED') {
@@ -182,25 +195,29 @@ export function* adaptWorkflowSessionViewToEvents(
   const snapshot = adaptWorkflowSessionViewToSnapshot(view)
   // 发出消息增量：以 snapshot 消息为准，简化为完成事件
   const lastAssistant = [...snapshot.messages].reverse().find((m) => m.role === 'assistant')
-  const answer = lastAssistant?.blocks.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('')
-    || (view.answer ? String(view.answer) : '')
+  const interaction = lastAssistant?.blocks.find((block) => block.type === 'interaction')
+  const effectiveUiRequest = view.uiRequest
+    || (interaction?.type === 'interaction' ? interaction.request : undefined)
+  const visibleAnswer = lastAssistant?.blocks.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('')
+    || (!isCardOnlyUiRequest(effectiveUiRequest) && view.answer ? String(view.answer) : '')
+  const completionAnswer = view.answer ? String(view.answer) : visibleAnswer
 
   const status = String(view.status || '').toUpperCase()
-  if (status === 'WAITING' || status === 'WAITING_USER') {
-    if (answer) yield createEvent('message.delta', { text: answer }, { sessionId, traceId })
-    if (view.uiRequest || lastAssistant?.blocks.some((b) => b.type === 'interaction')) {
+  if (status === 'SUSPENDED' || status === 'WAITING' || status === 'WAITING_USER') {
+    if (visibleAnswer) yield createEvent('message.delta', { text: visibleAnswer }, { sessionId, traceId })
+    if (effectiveUiRequest && !isTextOnlyUiRequest(effectiveUiRequest)) {
       yield createEvent('ui.requested', {
-        uiRequest: view.uiRequest || lastAssistant?.blocks.find((b) => b.type === 'interaction'),
+        uiRequest: effectiveUiRequest,
       }, { sessionId, traceId })
     }
     yield createEvent('turn.waiting', {
-      answer,
-      uiRequest: view.uiRequest,
+      answer: completionAnswer,
+      uiRequest: effectiveUiRequest,
       sessionId,
       traceId,
       result: view,
     }, { sessionId, traceId })
-  } else if (status === 'FAILED' || status === 'ERROR') {
+  } else if (status === 'FAILED' || status === 'ERROR' || status === 'EXPIRED') {
     yield createEvent('turn.failed', {
       message: view.errorMessage || 'Workflow 调试失败',
       error: view.errorMessage,
@@ -208,13 +225,13 @@ export function* adaptWorkflowSessionViewToEvents(
   } else if (status === 'CANCELLED') {
     yield createEvent('turn.cancelled', { sessionId }, { sessionId, traceId })
   } else {
-    if (answer) yield createEvent('message.delta', { text: answer }, { sessionId, traceId })
-    if (view.uiRequest) {
-      yield createEvent('ui.requested', { uiRequest: view.uiRequest }, { sessionId, traceId })
+    if (visibleAnswer) yield createEvent('message.delta', { text: visibleAnswer }, { sessionId, traceId })
+    if (effectiveUiRequest && !isTextOnlyUiRequest(effectiveUiRequest)) {
+      yield createEvent('ui.requested', { uiRequest: effectiveUiRequest }, { sessionId, traceId })
     }
     yield createEvent('turn.completed', {
-      answer,
-      uiRequest: view.uiRequest,
+      answer: completionAnswer,
+      uiRequest: effectiveUiRequest,
       sessionId,
       traceId,
       result: view,

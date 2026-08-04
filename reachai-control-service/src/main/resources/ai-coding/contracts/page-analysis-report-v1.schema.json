@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:reachai:ai-coding:page-analysis-report:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "pageKey",
+    "findings"
+  ],
+  "properties": {
+    "pageKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findingKey",
+        "title",
+        "confirmedFact",
+        "relatedPages",
+        "evidence",
+        "codeReferences"
+      ],
+      "properties": {
+        "findingKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confirmedFact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "technicalInference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "openQuestion": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "useCase": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "businessConfirmStatus": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "technicalFeasibility": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operationRisk": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "informationCompleteness": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "readScope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "writeScope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "implementationReference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "acceptanceCriteria": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relatedPages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence": {
+          "type": "object"
+        },
+        "codeReferences": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

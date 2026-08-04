@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "summary": "发布前校验通过。",
+  "checks": [
+    {
+      "name": "release validation",
+      "status": "PASS",
+      "command": null,
+      "evidence": "Published version and resource binding are valid."
+    }
+  ],
+  "workflowId": "wf_demo",
+  "workflowVersion": "1.0.0"
+}

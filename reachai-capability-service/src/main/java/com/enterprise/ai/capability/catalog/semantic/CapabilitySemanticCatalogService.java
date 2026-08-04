@@ -190,7 +190,7 @@ public class CapabilitySemanticCatalogService {
                 HTTP：%s %s
                 参数 JSON：%s
                 """.formatted(
-                safe(tool.getName()),
+                displayToolIdentity(tool.getTitle(), tool.getName()),
                 safe(tool.getDescription()),
                 safe(tool.getAiDescription()),
                 safe(tool.getHttpMethod()),
@@ -220,7 +220,7 @@ public class CapabilitySemanticCatalogService {
                 参数 JSON：%s
                 元数据 JSON：%s
                 """.formatted(
-                safe(tool.getName()),
+                displayToolIdentity(tool.getTitle(), tool.getName()),
                 safe(tool.getDescription()),
                 safe(tool.getHttpMethod()),
                 safe(tool.getEndpointPath()),
@@ -470,7 +470,15 @@ public class CapabilitySemanticCatalogService {
     }
 
     private String describeScanTool(ScanProjectToolEntity tool) {
-        return safe(tool.getHttpMethod()) + " " + safe(tool.getEndpointPath()) + " " + safe(tool.getName());
+        return safe(tool.getHttpMethod()) + " " + safe(tool.getEndpointPath()) + " "
+                + displayToolIdentity(tool.getTitle(), tool.getName());
+    }
+
+    private String displayToolIdentity(String title, String name) {
+        if (StringUtils.hasText(title) && !Objects.equals(title.trim(), name == null ? null : name.trim())) {
+            return title.trim() + " [" + safe(name) + "]";
+        }
+        return safe(name);
     }
 
     private String extractSummary(String markdown) {

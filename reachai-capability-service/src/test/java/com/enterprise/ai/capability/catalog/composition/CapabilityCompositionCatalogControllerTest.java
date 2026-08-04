@@ -301,7 +301,6 @@ class CapabilityCompositionCatalogControllerTest {
         entity.setSkillKind("SUB_AGENT");
         entity.setSideEffect("WRITE");
         entity.setEnabled(true);
-        entity.setAgentVisible(true);
         entity.setDraft(false);
         entity.setSpecJson("{\"systemPrompt\":\"Handle order operations\",\"toolWhitelist\":[\"orders_create\"]}");
         return entity;
@@ -324,9 +323,7 @@ class CapabilityCompositionCatalogControllerTest {
                 "WRITE",
                 7L,
                 "orders",
-                "PROJECT",
                 "orders:orderComposer",
-                true,
                 true,
                 new com.fasterxml.jackson.databind.ObjectMapper().readTree(
                         "{\"systemPrompt\":\"Handle order operations\",\"toolWhitelist\":[\"orders_create\"]}"),

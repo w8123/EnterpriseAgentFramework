@@ -6,6 +6,7 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
 import com.enterprise.ai.runtime.execution.trace.WorkflowTraceSanitizer;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.workflow.WorkflowSemanticValues;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,9 +42,10 @@ public class RuntimeRunLifecycleService {
         LocalDateTime endedAt = expiredAt == null ? LocalDateTime.now() : expiredAt;
         return runMapper.update(null, Wrappers.<RuntimeRunEntity>lambdaUpdate()
                 .eq(RuntimeRunEntity::getTraceId, traceId.trim())
-                .in(RuntimeRunEntity::getStatus, List.of("WAITING_USER", "WAITING_APPROVAL"))
+                .eq(RuntimeRunEntity::getStatus, RuntimeRunStatus.SUSPENDED.name())
                 .isNull(RuntimeRunEntity::getEndedAt)
-                .set(RuntimeRunEntity::getStatus, "TIMEOUT")
+                .set(RuntimeRunEntity::getStatus, RuntimeRunStatus.TIMED_OUT.name())
+                .set(RuntimeRunEntity::getSuspensionReason, null)
                 .set(RuntimeRunEntity::getOutputSummary, "Interaction expired before user response")
                 .set(RuntimeRunEntity::getErrorCode, "RUNTIME_INTERACTION_EXPIRED")
                 .set(RuntimeRunEntity::getErrorMessage, "Interaction expired: " + interactionId)
@@ -71,7 +73,7 @@ public class RuntimeRunLifecycleService {
                            WorkflowExecutionIdentity identity) {
         RuntimeRunEntity run = baseRun(traceId, input, startedAt, identity);
         run.setRunType("AGENT");
-        run.setStatus("RUNNING");
+        run.setStatus(RuntimeRunStatus.RUNNING.name());
         run.setProjectId(agent.projectId());
         run.setProjectCode(firstText(input.get("projectCode"), agent.projectCode()));
         run.setAgentId(agent.id());
@@ -105,6 +107,7 @@ public class RuntimeRunLifecycleService {
         RuntimeRunEntity run = baseRun(traceId, input, now, null);
         run.setRunType("AGENT");
         run.setStatus(status(false, code));
+        run.setSuspensionReason(suspensionReason(code));
         if (agent != null) {
             run.setProjectId(agent.projectId());
             run.setProjectCode(firstText(input.get("projectCode"), agent.projectCode()));
@@ -124,16 +127,17 @@ public class RuntimeRunLifecycleService {
     }
 
     /**
-     * Re-opens a WAITING_* Agent root run so the same traceId can finish later.
+     * Re-opens a suspended Agent root run so the same traceId can finish later.
      */
     public void resumeAgent(String traceId) {
         safe(() -> {
             RuntimeRunEntity run = find(traceId);
-            if (run == null || !isWaitingStatus(run.getStatus())) {
+            if (run == null || !isSuspendedStatus(run.getStatus())) {
                 return;
             }
             LocalDateTime now = LocalDateTime.now();
-            run.setStatus("RUNNING");
+            run.setStatus(RuntimeRunStatus.RUNNING.name());
+            run.setSuspensionReason(null);
             run.setEndedAt(null);
             run.setErrorCode(null);
             run.setErrorMessage(null);
@@ -176,11 +180,12 @@ public class RuntimeRunLifecycleService {
         try {
             LocalDateTime ended = endedAt == null ? LocalDateTime.now() : endedAt;
             String resolvedStatus = status(success, code);
-            boolean waiting = isWaitingStatus(resolvedStatus);
+            boolean suspended = isSuspendedStatus(resolvedStatus);
+            String resolvedSuspensionReason = suspended ? suspensionReason(code) : null;
             String safeAnswer = WorkflowTraceSanitizer.sanitizeAnswer(answer);
             String sessionId = text(metadata == null ? null : metadata.get("sessionId"));
             RuntimeRunFinishCounts counts = resolveFinishCounts(traceId, metadata);
-            Integer resolvedLatency = waiting
+            Integer resolvedLatency = suspended
                     ? null
                     : (latencyMs != null
                     ? latencyMs
@@ -194,13 +199,14 @@ public class RuntimeRunLifecycleService {
             int updated = runMapper.update(null, Wrappers.<RuntimeRunEntity>lambdaUpdate()
                     .eq(RuntimeRunEntity::getTraceId, traceId.trim())
                     .set(RuntimeRunEntity::getStatus, resolvedStatus)
+                    .set(RuntimeRunEntity::getSuspensionReason, resolvedSuspensionReason)
                     .set(StringUtils.hasText(sessionId), RuntimeRunEntity::getSessionId, sessionId)
                     .set(RuntimeRunEntity::getUserId, trustedUserId)
                     .set(RuntimeRunEntity::getExternalUserId, trustedUserId)
                     .set(RuntimeRunEntity::getGlobalUserId, trustedUserId)
                     .set(RuntimeRunEntity::getOutputSummary, safeAnswer)
-                    .set(RuntimeRunEntity::getErrorCode, success || waiting ? null : code)
-                    .set(RuntimeRunEntity::getErrorMessage, success || waiting ? null : safeAnswer)
+                    .set(RuntimeRunEntity::getErrorCode, success || suspended ? null : code)
+                    .set(RuntimeRunEntity::getErrorMessage, success || suspended ? null : safeAnswer)
                     .set(RuntimeRunEntity::getLatencyMs, resolvedLatency)
                     .set(RuntimeRunEntity::getTokenCost, tokenCost)
                     .set(RuntimeRunEntity::getPlanCount, intValue(metadata, "planCount"))
@@ -210,7 +216,7 @@ public class RuntimeRunLifecycleService {
                     .set(RuntimeRunEntity::getGuardDenyCount, counts.guardDenyCountInt())
                     .set(RuntimeRunEntity::getApprovalCount, counts.approvalCountInt())
                     .set(RuntimeRunEntity::getMetadataJson, json(WorkflowTraceSanitizer.sanitizeRunMetadata(metadata)))
-                    .set(RuntimeRunEntity::getEndedAt, waiting ? null : ended)
+                    .set(RuntimeRunEntity::getEndedAt, suspended ? null : ended)
                     .set(RuntimeRunEntity::getUpdatedAt, ended));
             if (updated <= 0) {
                 log.warn("Cannot finish Agent run: no runtime_run row matched traceId={}", traceId);
@@ -354,7 +360,7 @@ public class RuntimeRunLifecycleService {
                               String workflowKeySlug,
                               String workflowName,
                               String projectCode,
-                              String runtimeType,
+                              String executionEngine,
                               String graphSpecJson,
                               Map<String, Object> input) {
         LocalDateTime now = LocalDateTime.now();
@@ -363,11 +369,12 @@ public class RuntimeRunLifecycleService {
         normalized.putIfAbsent("projectCode", projectCode);
         RuntimeRunEntity run = baseRun(traceId, normalized, now, null);
         run.setRunType("WORKFLOW");
-        run.setStatus("RUNNING");
+        run.setStatus(RuntimeRunStatus.RUNNING.name());
         run.setWorkflowId(trim(workflowId));
         run.setWorkflowKeySlug(trim(workflowKeySlug));
         run.setWorkflowName(trim(workflowName));
-        run.setRuntimeType(firstText(runtimeType, "LANGGRAPH4J"));
+        run.setRuntimeType(WorkflowSemanticValues.normalizeExecutionEngine(
+                firstText(executionEngine, WorkflowSemanticValues.ENGINE_GRAPH_SPEC)));
         run.setRootSpanId(rootSpanId);
         Map<String, Object> snapshot = new LinkedHashMap<>(WorkflowTraceSanitizer.sanitizeWorkflowSnapshot(graphSpecJson));
         snapshot.put("workflowId", trim(workflowId));
@@ -386,19 +393,20 @@ public class RuntimeRunLifecycleService {
             if (run == null) return;
             LocalDateTime ended = LocalDateTime.now();
             String resolvedStatus = status(success, code);
-            boolean waiting = isWaitingStatus(resolvedStatus);
+            boolean suspended = isSuspendedStatus(resolvedStatus);
             run.setStatus(resolvedStatus);
+            run.setSuspensionReason(suspended ? suspensionReason(code) : null);
             String safeAnswer = WorkflowTraceSanitizer.sanitizeAnswer(answer);
             run.setOutputSummary(safeAnswer);
-            run.setErrorCode(success || waiting ? null : code);
-            run.setErrorMessage(success || waiting ? null : safeAnswer);
-            run.setLatencyMs(waiting ? null : toInt(ChronoUnit.MILLIS.between(run.getStartedAt(), ended)));
+            run.setErrorCode(success || suspended ? null : code);
+            run.setErrorMessage(success || suspended ? null : safeAnswer);
+            run.setLatencyMs(suspended ? null : toInt(ChronoUnit.MILLIS.between(run.getStartedAt(), ended)));
             run.setTokenCost(resolveTokenCost(metadata));
             Map<String, Object> meta = new LinkedHashMap<>(
                     WorkflowTraceSanitizer.sanitizeRunMetadata(metadata));
             meta.putIfAbsent("nodeCount", nodeCount);
             run.setMetadataJson(json(meta));
-            run.setEndedAt(waiting ? null : ended);
+            run.setEndedAt(suspended ? null : ended);
             run.setUpdatedAt(ended);
             runMapper.updateById(run);
         }, "finish Workflow run");
@@ -503,18 +511,16 @@ public class RuntimeRunLifecycleService {
     }
 
     private String status(boolean success, String code) {
-        if (success) return "SUCCESS";
-        if ("SUPERVISOR_CONFIRMATION_REQUIRED".equalsIgnoreCase(code)) return "WAITING_APPROVAL";
-        if ("RUNTIME_GRAPH_INTERACTION_WAITING".equalsIgnoreCase(code)) return "WAITING_USER";
-        if (code != null && code.toUpperCase().contains("TIMEOUT")) return "TIMEOUT";
-        if (code != null && code.toUpperCase().contains("EXPIRED")) return "TIMEOUT";
-        if (code != null && (code.toUpperCase().contains("CANCEL")
-                || code.toUpperCase().contains("ACTION_REJECTED"))) return "CANCELLED";
-        return "FAILED";
+        return RuntimeRunStatus.fromResult(success, code).name();
     }
 
-    private static boolean isWaitingStatus(String status) {
-        return "WAITING_USER".equalsIgnoreCase(status) || "WAITING_APPROVAL".equalsIgnoreCase(status);
+    private static String suspensionReason(String code) {
+        RuntimeRunSuspensionReason reason = RuntimeRunSuspensionReason.fromCode(code);
+        return reason == null ? null : reason.name();
+    }
+
+    private static boolean isSuspendedStatus(String status) {
+        return RuntimeRunStatus.parse(status) == RuntimeRunStatus.SUSPENDED;
     }
 
     private Integer intValue(Map<String, Object> metadata, String key) {

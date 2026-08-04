@@ -815,12 +815,15 @@ writeFile(allowedRoot, 'reachai-control-service/src/main/java/com/enterprise/ai/
 package com.enterprise.ai.control.client.runtime;
 
 import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 
 @FeignClient(name = "reachai-runtime-proxy", url = "\${services.runtime-service.url:http://localhost:18604}")
 interface RuntimeProxyClient {
-    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/agents/execute")
+    String EXECUTE_PATH = "/api/runtime/agents/execute";
+
+    @PostMapping(EXECUTE_PATH)
     Object executeAgent(Object body);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/debug-sessions/{sessionId}/submit")

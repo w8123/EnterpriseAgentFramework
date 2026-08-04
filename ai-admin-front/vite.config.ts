@@ -22,7 +22,7 @@ export default defineConfig({
       },
       /** reachai-control-service：统一收口 /api，避免前端直连 Runtime/Capability 内部服务 */
       '/api': {
-        target: 'http://localhost:18603',
+        target: process.env.VITE_CONTROL_API_TARGET || 'http://localhost:18603',
         changeOrigin: true,
         timeout: 600_000,
         proxyTimeout: 600_000,

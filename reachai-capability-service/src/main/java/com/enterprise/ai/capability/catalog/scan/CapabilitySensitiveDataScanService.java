@@ -75,6 +75,7 @@ public class CapabilitySensitiveDataScanService {
         try {
             Map<String, Object> spec = new LinkedHashMap<>();
             spec.put("name", tool.getName());
+            spec.put("title", tool.getTitle());
             spec.put("description", tool.getDescription());
             spec.put("httpMethod", tool.getHttpMethod());
             spec.put("baseUrl", tool.getBaseUrl());

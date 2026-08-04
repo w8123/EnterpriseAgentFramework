@@ -31,9 +31,6 @@ public class DomainDefEntity {
     /** 父领域 code，可空。 */
     private String parentCode;
 
-    /** 是否对 Agent 可见（前端切换） */
-    private Boolean agentVisible;
-
     private Boolean enabled;
 
     private LocalDateTime createdAt;

@@ -633,6 +633,7 @@ CREATE TABLE IF NOT EXISTS `capability_scan_project_tool` (
     `project_id`          BIGINT       NOT NULL                COMMENT '扫描项目 ID',
     `module_id`           BIGINT       DEFAULT NULL            COMMENT '扫描模块 ID',
     `name`                VARCHAR(128) NOT NULL                COMMENT '项目内工具名（snake_case）',
+    `title`               VARCHAR(192) NOT NULL                COMMENT '用户可读的简短工具名称',
     `description`         TEXT         NOT NULL                COMMENT '描述',
     `parameters_json`     TEXT         DEFAULT NULL            COMMENT '参数定义 JSON',
     `source`              VARCHAR(32)  NOT NULL DEFAULT 'scanner' COMMENT '来源: scanner',
@@ -647,8 +648,6 @@ CREATE TABLE IF NOT EXISTS `capability_scan_project_tool` (
     `capability_metadata_json` MEDIUMTEXT DEFAULT NULL         COMMENT '@ReachCapability 能力声明元数据 JSON',
     `sensitive_data_json` TEXT         DEFAULT NULL            COMMENT '敏感数据扫描结果 JSON',
     `enabled`             TINYINT      NOT NULL DEFAULT 0      COMMENT '是否启用',
-    `agent_visible`       TINYINT      NOT NULL DEFAULT 0      COMMENT '是否对 Agent 可见',
-    `lightweight_enabled` TINYINT      NOT NULL DEFAULT 0      COMMENT '是否轻量可见',
     `global_tool_definition_id` BIGINT DEFAULT NULL            COMMENT '已注册为全局 capability_tool_definition.id，未注册为 NULL',
     `create_time`         DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`         DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -658,6 +657,9 @@ CREATE TABLE IF NOT EXISTS `capability_scan_project_tool` (
     KEY `idx_module_id`  (`module_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='扫描项目接口（未注册为全局 Tool 前）';
 
+CALL add_col_if_absent('capability_scan_project_tool', 'title', 'VARCHAR(192) DEFAULT NULL COMMENT ''用户可读的简短工具名称'' AFTER `name`');
+UPDATE `capability_scan_project_tool` SET `title` = `name` WHERE `title` IS NULL OR TRIM(`title`) = '';
+ALTER TABLE `capability_scan_project_tool` MODIFY COLUMN `title` VARCHAR(192) NOT NULL COMMENT '用户可读的简短工具名称';
 CALL add_col_if_absent('capability_scan_project_tool', 'capability_metadata_json', 'MEDIUMTEXT DEFAULT NULL COMMENT ''@ReachCapability 能力声明元数据 JSON'' AFTER `ai_description`');
 CALL add_col_if_absent('capability_scan_project_tool', 'sensitive_data_json', 'TEXT DEFAULT NULL COMMENT ''敏感数据扫描结果 JSON'' AFTER `capability_metadata_json`');
 CALL add_col_if_absent('capability_scan_project_tool', 'removed_from_source', 'TINYINT NOT NULL DEFAULT 0 COMMENT ''1=扫描或 SDK 源中已无此接口（墓碑行，可能仍关联全局 Tool）'' AFTER `global_tool_definition_id`');
@@ -693,6 +695,7 @@ CREATE TABLE IF NOT EXISTS `capability_semantic_doc` (
 CREATE TABLE IF NOT EXISTS `capability_tool_definition` (
     `id`                  BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
     `name`                VARCHAR(128)  NOT NULL                COMMENT '能力唯一标识 (snake_case)',
+    `title`               VARCHAR(192)  NOT NULL                COMMENT '用户可读的简短工具名称',
     `kind`                VARCHAR(16)   NOT NULL DEFAULT 'TOOL' COMMENT '能力形态: TOOL / SKILL',
     `description`         TEXT          NOT NULL                COMMENT '能力描述',
     `ai_description`      MEDIUMTEXT    DEFAULT NULL            COMMENT 'LLM 生成的业务语义描述（Agent 运行时优先使用）',
@@ -710,32 +713,33 @@ CREATE TABLE IF NOT EXISTS `capability_tool_definition` (
     `project_id`          BIGINT        DEFAULT NULL            COMMENT '关联的扫描项目 ID',
     `module_id`           BIGINT        DEFAULT NULL            COMMENT '所属模块（capability_scan_module.id）',
     `enabled`             TINYINT       NOT NULL DEFAULT 1      COMMENT '是否启用',
-    `agent_visible`       TINYINT       NOT NULL DEFAULT 1      COMMENT '是否对 ReAct Agent 可见',
     `side_effect`         VARCHAR(24)   NOT NULL DEFAULT 'WRITE' COMMENT '副作用等级: NONE / READ_ONLY / IDEMPOTENT_WRITE / WRITE / IRREVERSIBLE',
     `skill_kind`          VARCHAR(24)   DEFAULT NULL            COMMENT 'kind=SKILL 时填: SUB_AGENT / WORKFLOW / AUGMENTED_TOOL',
     `draft`               TINYINT(1)    NOT NULL DEFAULT 0      COMMENT '1=Skill草稿暂存，不落registry、不可执行',
-    `lightweight_enabled` TINYINT       NOT NULL DEFAULT 0      COMMENT '是否对轻量对话可见',
     `create_time`         DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`         DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_name`                  (`name`),
     KEY        `idx_project_id`           (`project_id`),
     KEY        `idx_tool_module_id`       (`module_id`),
-    KEY        `idx_kind_enabled_visible` (`kind`, `enabled`, `agent_visible`)
+    KEY        `idx_kind_enabled`         (`kind`, `enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool/Skill 统一能力表（Phase 2.0 起 kind 区分）';
 
 -- 兼容老库：如果 capability_tool_definition 已存在但缺少 Phase 2 新列，这里补齐（CREATE TABLE IF NOT EXISTS 不会重建）
-CALL add_col_if_absent('capability_tool_definition', 'kind',             'VARCHAR(16) NOT NULL DEFAULT ''TOOL'' COMMENT ''能力形态: TOOL / SKILL'' AFTER `name`');
+CALL add_col_if_absent('capability_tool_definition', 'title',            'VARCHAR(192) DEFAULT NULL COMMENT ''用户可读的简短工具名称'' AFTER `name`');
+UPDATE `capability_tool_definition` SET `title` = `name` WHERE `title` IS NULL OR TRIM(`title`) = '';
+ALTER TABLE `capability_tool_definition` MODIFY COLUMN `title` VARCHAR(192) NOT NULL COMMENT '用户可读的简短工具名称';
+CALL add_col_if_absent('capability_tool_definition', 'kind',             'VARCHAR(16) NOT NULL DEFAULT ''TOOL'' COMMENT ''能力形态: TOOL / SKILL'' AFTER `title`');
 CALL add_col_if_absent('capability_tool_definition', 'ai_description',   'MEDIUMTEXT DEFAULT NULL COMMENT ''LLM 生成的业务语义描述'' AFTER `description`');
 CALL add_col_if_absent('capability_tool_definition', 'capability_metadata_json', 'MEDIUMTEXT DEFAULT NULL COMMENT ''@ReachCapability 能力声明元数据 JSON'' AFTER `ai_description`');
 CALL add_col_if_absent('capability_tool_definition', 'spec_json',        'MEDIUMTEXT DEFAULT NULL COMMENT ''Skill 专属 spec JSON'' AFTER `parameters_json`');
 CALL add_col_if_absent('capability_tool_definition', 'project_id',       'BIGINT DEFAULT NULL COMMENT ''关联的扫描项目 ID'' AFTER `response_type`');
 CALL add_col_if_absent('capability_tool_definition', 'module_id',        'BIGINT DEFAULT NULL COMMENT ''所属模块'' AFTER `project_id`');
-CALL add_col_if_absent('capability_tool_definition', 'side_effect',      'VARCHAR(24) NOT NULL DEFAULT ''WRITE'' COMMENT ''副作用等级'' AFTER `agent_visible`');
+CALL add_col_if_absent('capability_tool_definition', 'side_effect',      'VARCHAR(24) NOT NULL DEFAULT ''WRITE'' COMMENT ''副作用等级'' AFTER `enabled`');
 CALL add_col_if_absent('capability_tool_definition', 'skill_kind',       'VARCHAR(24) DEFAULT NULL COMMENT ''Skill 形态子类型'' AFTER `side_effect`');
 CALL add_idx_if_absent('capability_tool_definition', 'idx_project_id',           'project_id');
 CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_module_id',       'module_id');
-CALL add_idx_if_absent('capability_tool_definition', 'idx_kind_enabled_visible', 'kind, enabled, agent_visible');
+CALL add_idx_if_absent('capability_tool_definition', 'idx_kind_enabled', 'kind, enabled');
 
 -- Skill 草稿：kind=SKILL 时 draft=1 表示暂存，不参与注册与执行（与 skill_draft_tool_definition.sql 一致）
 CALL add_col_if_absent('capability_tool_definition', 'draft', 'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''1=Skill草稿暂存，不落registry、不可执行'' AFTER `skill_kind`');
@@ -758,7 +762,8 @@ CREATE TABLE IF NOT EXISTS `runtime_run` (
     `trace_id`                VARCHAR(64)   NOT NULL                COMMENT '一次外部入口执行的全局唯一 Trace ID',
     `run_type`                VARCHAR(32)   NOT NULL                COMMENT '根运行类型：AGENT / WORKFLOW',
     `entry_type`              VARCHAR(32)   NOT NULL                COMMENT '入口：DEBUG / EMBED / GATEWAY / API / EVAL / REPLAY / WORKFLOW_STUDIO / A2A',
-    `status`                  VARCHAR(24)   NOT NULL DEFAULT 'RUNNING' COMMENT 'RUNNING / SUCCESS / FAILED / WAITING_USER / WAITING_APPROVAL / CANCELLED / TIMEOUT',
+    `status`                  VARCHAR(24)   NOT NULL DEFAULT 'RUNNING' COMMENT 'RUNNING / SUSPENDED / COMPLETED / FAILED / CANCELLED / TIMED_OUT',
+    `suspension_reason`       VARCHAR(32)   DEFAULT NULL            COMMENT '暂停原因: USER_INPUT / APPROVAL；非暂停状态为空',
     `project_id`              BIGINT        DEFAULT NULL            COMMENT '所属项目 ID',
     `project_code`            VARCHAR(96)   DEFAULT NULL            COMMENT '所属项目编码',
     `tenant_id`               VARCHAR(96)   DEFAULT NULL            COMMENT '租户',
@@ -779,7 +784,7 @@ CREATE TABLE IF NOT EXISTS `runtime_run` (
     `workflow_name`           VARCHAR(160)  DEFAULT NULL            COMMENT '根 Workflow 名称快照',
     `workflow_version_id`     BIGINT        DEFAULT NULL            COMMENT '根 Workflow 发布版本 ID',
     `workflow_version`        VARCHAR(32)   DEFAULT NULL            COMMENT '根 Workflow 发布版本号',
-    `runtime_type`            VARCHAR(32)   DEFAULT NULL            COMMENT 'AGENTSCOPE / LANGGRAPH4J 等 Runtime 类型',
+    `runtime_type`            VARCHAR(32)   DEFAULT NULL            COMMENT '运行协议身份：Agent 为 AGENTSCOPE；Workflow 为 GRAPH_SPEC',
     `root_span_id`            VARCHAR(64)   DEFAULT NULL            COMMENT '根 Span ID',
     `input_summary`           MEDIUMTEXT    DEFAULT NULL            COMMENT '脱敏、截断后的输入摘要',
     `output_summary`          MEDIUMTEXT    DEFAULT NULL            COMMENT '脱敏、截断后的输出摘要',
@@ -1052,8 +1057,8 @@ CREATE TABLE IF NOT EXISTS `runtime_workflow` (
     `key_slug`                     VARCHAR(128) NOT NULL,
     `name`                         VARCHAR(160) NOT NULL,
     `description`                  VARCHAR(512) DEFAULT NULL,
-    `workflow_type`                VARCHAR(32)  NOT NULL DEFAULT 'CHAT',
-    `runtime_type`                 VARCHAR(32)  NOT NULL DEFAULT 'LANGGRAPH4J',
+    `workflow_kind`                VARCHAR(32)  NOT NULL DEFAULT 'GENERAL' COMMENT '业务形态: GENERAL / PAGE_ASSISTANT',
+    `execution_engine`             VARCHAR(32)  NOT NULL DEFAULT 'GRAPH_SPEC' COMMENT '稳定执行引擎协议标识',
     `graph_spec_json`              MEDIUMTEXT   DEFAULT NULL COMMENT 'Platform GraphSpec JSON（运行语义）',
     `canvas_json`                  MEDIUMTEXT   DEFAULT NULL COMMENT 'Workflow Studio 画布布局',
     `input_schema_json`            MEDIUMTEXT   DEFAULT NULL,
@@ -1061,15 +1066,17 @@ CREATE TABLE IF NOT EXISTS `runtime_workflow` (
     `default_model_instance_id`    VARCHAR(64)  DEFAULT NULL,
     `default_resource_config_json` MEDIUMTEXT   DEFAULT NULL,
     `status`                       VARCHAR(24)  NOT NULL DEFAULT 'DRAFT',
-    `managed_by`                   VARCHAR(32)  NOT NULL DEFAULT 'MANUAL',
+    `definition_authority`         VARCHAR(32)  NOT NULL DEFAULT 'USER' COMMENT '定义权威: USER / SDK / SYSTEM',
+    `creation_channel`             VARCHAR(32)  NOT NULL DEFAULT 'STUDIO' COMMENT '创建入口: STUDIO / AI_CODING / SDK_SYNC / AI_QUICK_ACCESS / SYSTEM_SEED',
     `extra_json`                   MEDIUMTEXT   DEFAULT NULL,
     `created_at`                   DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `updated_at`                   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_ai_workflow_key_slug` (`key_slug`),
     KEY `idx_ai_workflow_project` (`project_id`, `status`),
-    KEY `idx_ai_workflow_project_code` (`project_code`, `workflow_type`, `status`),
-    KEY `idx_ai_workflow_runtime` (`runtime_type`, `status`)
+    KEY `idx_runtime_workflow_project_kind` (`project_code`, `workflow_kind`, `status`),
+    KEY `idx_runtime_workflow_engine` (`execution_engine`, `status`),
+    KEY `idx_runtime_workflow_authority` (`definition_authority`, `creation_channel`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ReachAI Workflow 编排资产（GraphSpec / canvas_json）';
 
 CREATE TABLE IF NOT EXISTS `runtime_workflow_version` (
@@ -1090,10 +1097,27 @@ CREATE TABLE IF NOT EXISTS `runtime_workflow_version` (
     KEY `idx_ai_workflow_version_status` (`workflow_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow 发布版本';
 
--- Workflow Studio Eval：草稿流程自动评测
+CREATE TABLE IF NOT EXISTS `runtime_workflow_resource_binding` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT,
+    `workflow_id`   VARCHAR(32)  NOT NULL,
+    `project_id`    BIGINT       NOT NULL,
+    `project_code`  VARCHAR(96)  NOT NULL,
+    `resource_type` VARCHAR(32)  NOT NULL COMMENT 'PAGE',
+    `resource_key`  VARCHAR(256) NOT NULL COMMENT '资源域内稳定键；PAGE 使用 page_key',
+    `binding_role`  VARCHAR(32)  NOT NULL DEFAULT 'TARGET',
+    `status`        VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
+    `created_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_runtime_workflow_resource` (`workflow_id`, `resource_type`, `resource_key`),
+    KEY `idx_runtime_workflow_resource_lookup` (`project_code`, `resource_type`, `resource_key`, `status`),
+    KEY `idx_runtime_workflow_resource_project` (`project_id`, `status`, `updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow与页面等外部资源的稳定绑定';
+
+-- Workflow Studio Eval：Workflow Working Copy 自动评测
 CREATE TABLE IF NOT EXISTS `runtime_agent_eval_dataset` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
-  `agent_id` VARCHAR(64) DEFAULT NULL COMMENT '关联 runtime_agent.id；草稿评测可为空',
+  `agent_id` VARCHAR(64) DEFAULT NULL COMMENT '关联 runtime_agent.id；Workflow Working Copy 评测可为空',
   `agent_name` VARCHAR(128) DEFAULT NULL,
   `name` VARCHAR(128) NOT NULL,
   `description` VARCHAR(512) DEFAULT NULL,
@@ -1306,7 +1330,6 @@ CREATE TABLE IF NOT EXISTS `capability_domain_def` (
     `description`    VARCHAR(512)  DEFAULT NULL,
     `keywords_json`  VARCHAR(2000) DEFAULT NULL,
     `parent_code`    VARCHAR(64)   DEFAULT NULL,
-    `agent_visible`  TINYINT(1)    NOT NULL DEFAULT 1,
     `enabled`        TINYINT(1)    NOT NULL DEFAULT 1,
     `created_at`     DATETIME      DEFAULT CURRENT_TIMESTAMP,
     `updated_at`     DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1569,9 +1592,8 @@ CALL add_idx_if_absent('capability_scan_project', 'idx_scan_project_code', '`pro
 CALL add_idx_if_absent('capability_scan_project', 'idx_scan_project_env', '`environment`, `status`');
 
 CALL add_col_if_absent('capability_tool_definition', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''冗余项目编码'' AFTER `project_id`');
-CALL add_col_if_absent('capability_tool_definition', 'visibility', 'VARCHAR(24) NOT NULL DEFAULT ''PRIVATE'' COMMENT ''能力可见性'' AFTER `project_code`');
-CALL add_col_if_absent('capability_tool_definition', 'qualified_name', 'VARCHAR(256) DEFAULT NULL COMMENT ''projectCode:name 稳定能力全名'' AFTER `visibility`');
-CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_project_kind', '`project_id`, `kind`, `enabled`, `agent_visible`');
+CALL add_col_if_absent('capability_tool_definition', 'qualified_name', 'VARCHAR(256) DEFAULT NULL COMMENT ''projectCode:name 稳定能力全名'' AFTER `project_code`');
+CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_project_kind', '`project_id`, `kind`, `enabled`');
 CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_project_code', '`project_code`, `kind`');
 CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_qualified_name', '`qualified_name`');
 
@@ -1877,49 +1899,246 @@ CALL add_col_if_absent('control_page_action_event', 'parent_request_id', 'VARCHA
 CALL add_col_if_absent('control_page_action_event', 'target_page_key', 'VARCHAR(160) DEFAULT NULL AFTER `target_page_instance_id`');
 CALL add_col_if_absent('control_page_action_event', 'target_route', 'VARCHAR(512) DEFAULT NULL AFTER `target_page_key`');
 
-CREATE TABLE IF NOT EXISTS `control_page_registry` (
-    `id`                       BIGINT       NOT NULL AUTO_INCREMENT,
-    `project_code`             VARCHAR(96)  NOT NULL,
-    `app_id`                   VARCHAR(96)  NOT NULL,
-    `page_key`                 VARCHAR(160) NOT NULL,
-    `name`                     VARCHAR(160) NOT NULL,
-    `route_pattern`            VARCHAR(512) DEFAULT NULL,
-    `origin`                   VARCHAR(512) NOT NULL DEFAULT '',
-    `current_page_instance_id` VARCHAR(128) DEFAULT NULL,
-    `status`                   VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
-    `last_seen_at`             DATETIME     DEFAULT NULL,
-    `metadata_json`            TEXT         DEFAULT NULL,
-    `created_at`               DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`               DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+CREATE TABLE IF NOT EXISTS `control_project_page` (
+    `id`                 BIGINT        NOT NULL AUTO_INCREMENT,
+    `project_id`         BIGINT        NOT NULL,
+    `project_code`       VARCHAR(96)   NOT NULL,
+    `page_key`           VARCHAR(160)  NOT NULL,
+    `module_key`         VARCHAR(128)  DEFAULT NULL,
+    `module_name`        VARCHAR(160)  DEFAULT NULL,
+    `name`               VARCHAR(160)  NOT NULL,
+    `description`        VARCHAR(1000) DEFAULT NULL,
+    `route_pattern`      VARCHAR(512)  DEFAULT NULL,
+    `component_path`     VARCHAR(768)  DEFAULT NULL,
+    `source_type`        VARCHAR(32)   NOT NULL COMMENT 'AI_SCAN / MANUAL / SDK',
+    `lifecycle_status`   VARCHAR(24)   NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE / ARCHIVED',
+    `last_discovered_at` DATETIME      DEFAULT NULL,
+    `last_verified_at`   DATETIME      DEFAULT NULL,
+    `created_at`         DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`         DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_page_registry` (`project_code`, `page_key`, `origin`),
-    KEY `idx_page_registry_project` (`project_code`, `status`, `last_seen_at`),
-    KEY `idx_page_registry_instance` (`current_page_instance_id`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务前端页面注册目录';
+    UNIQUE KEY `uk_control_project_page` (`project_code`, `page_key`),
+    KEY `idx_control_project_page_project` (`project_id`, `lifecycle_status`, `updated_at`),
+    KEY `idx_control_project_page_module` (`project_code`, `module_key`, `lifecycle_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务页面工作台稳定页面定义';
 
-CREATE TABLE IF NOT EXISTS `control_page_action_registry` (
-    `id`                     BIGINT       NOT NULL AUTO_INCREMENT,
-    `project_code`           VARCHAR(96)  NOT NULL,
-    `app_id`                 VARCHAR(96)  NOT NULL,
-    `page_key`               VARCHAR(160) NOT NULL,
-    `action_key`             VARCHAR(160) NOT NULL,
-    `title`                  VARCHAR(160) NOT NULL,
-    `description`            VARCHAR(512) DEFAULT NULL,
-    `confirm_required`       TINYINT(1)   DEFAULT 0,
-    `input_schema_json`      TEXT         DEFAULT NULL,
-    `output_schema_json`     TEXT         DEFAULT NULL,
-    `sample_args_json`       TEXT         DEFAULT NULL,
-    `allowed_agent_ids_json` TEXT         DEFAULT NULL,
-    `metadata_json`          TEXT         DEFAULT NULL,
-    `status`                 VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
-    `last_seen_at`           DATETIME     DEFAULT NULL,
-    `created_at`             DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`             DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+CREATE TABLE IF NOT EXISTS `control_project_page_resource` (
+    `id`              BIGINT        NOT NULL AUTO_INCREMENT,
+    `page_id`         BIGINT        NOT NULL,
+    `project_code`    VARCHAR(96)   NOT NULL,
+    `resource_type`   VARCHAR(32)   NOT NULL COMMENT 'ROUTE / COMPONENT / API / CONFIG / PERMISSION / STORE / STYLE / TEST',
+    `resource_key`    VARCHAR(512)  NOT NULL,
+    `display_name`    VARCHAR(256)  DEFAULT NULL,
+    `location`        VARCHAR(1000) DEFAULT NULL,
+    `http_method`     VARCHAR(16)   DEFAULT NULL,
+    `access_mode`     VARCHAR(16)   NOT NULL DEFAULT 'READ_ONLY' COMMENT 'READ_ONLY / READ_WRITE',
+    `metadata_json`   TEXT          DEFAULT NULL,
+    `created_at`      DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`      DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_page_action_registry` (`project_code`, `page_key`, `action_key`),
-    KEY `idx_page_action_registry_project` (`project_code`, `status`, `last_seen_at`),
-    KEY `idx_page_action_registry_page` (`project_code`, `page_key`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务前端页面动作注册目录';
+    UNIQUE KEY `uk_control_page_resource` (`page_id`, `resource_type`, `resource_key`(191)),
+    KEY `idx_control_page_resource_page` (`page_id`, `resource_type`),
+    KEY `idx_control_page_resource_project` (`project_code`, `resource_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务页面关联路由组件API配置权限与测试资源';
+
+CREATE TABLE IF NOT EXISTS `control_page_action` (
+    `id`                     BIGINT        NOT NULL AUTO_INCREMENT,
+    `page_id`                BIGINT        NOT NULL,
+    `project_id`             BIGINT        NOT NULL,
+    `project_code`           VARCHAR(96)   NOT NULL,
+    `page_key`               VARCHAR(160)  NOT NULL,
+    `action_key`             VARCHAR(160)  NOT NULL,
+    `title`                  VARCHAR(160)  NOT NULL,
+    `description`            VARCHAR(1000) DEFAULT NULL,
+    `action_type`            VARCHAR(32)   NOT NULL DEFAULT 'PAGE_ACTION',
+    `risk_level`             VARCHAR(24)   NOT NULL DEFAULT 'READ',
+    `confirm_required`       TINYINT(1)    NOT NULL DEFAULT 0,
+    `permission_key`         VARCHAR(160)  DEFAULT NULL,
+    `input_schema_json`      TEXT          DEFAULT NULL,
+    `output_schema_json`     TEXT          DEFAULT NULL,
+    `sample_args_json`       TEXT          DEFAULT NULL,
+    `allowed_agent_ids_json` TEXT          DEFAULT NULL,
+    `implementation_ref`     VARCHAR(1000) DEFAULT NULL,
+    `source_type`            VARCHAR(32)   NOT NULL,
+    `status`                 VARCHAR(24)   NOT NULL DEFAULT 'ACTIVE',
+    `metadata_json`          TEXT          DEFAULT NULL,
+    `last_verified_at`       DATETIME      DEFAULT NULL,
+    `created_at`             DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`             DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_control_page_action` (`page_id`, `action_key`),
+    KEY `idx_control_page_action_lookup` (`project_code`, `page_key`, `action_key`, `status`),
+    KEY `idx_control_page_action_project` (`project_id`, `status`, `updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务页面可执行动作契约';
+
+CREATE TABLE IF NOT EXISTS `control_page_analysis_finding` (
+    `id`                       BIGINT        NOT NULL AUTO_INCREMENT,
+    `finding_key`              VARCHAR(96)   NOT NULL,
+    `project_id`               BIGINT        NOT NULL,
+    `project_code`             VARCHAR(96)   NOT NULL,
+    `page_id`                  BIGINT        NOT NULL,
+    `page_key`                 VARCHAR(160)  NOT NULL,
+    `source_task_id`           VARCHAR(40)   NOT NULL,
+    `category`                 VARCHAR(64)   DEFAULT NULL,
+    `title`                    VARCHAR(256)  NOT NULL,
+    `confirmed_fact`           TEXT          NOT NULL,
+    `technical_inference`      TEXT          DEFAULT NULL,
+    `open_question`            TEXT          DEFAULT NULL,
+    `use_case`                 TEXT          DEFAULT NULL,
+    `business_confirm_status`  VARCHAR(32)   NOT NULL DEFAULT 'PENDING',
+    `technical_feasibility`    VARCHAR(32)   NOT NULL DEFAULT 'UNKNOWN',
+    `operation_risk`           VARCHAR(32)   NOT NULL DEFAULT 'UNKNOWN',
+    `information_completeness` VARCHAR(32)   NOT NULL DEFAULT 'PARTIAL',
+    `read_scope`               TEXT          DEFAULT NULL,
+    `write_scope`              TEXT          DEFAULT NULL,
+    `implementation_reference` TEXT          DEFAULT NULL,
+    `acceptance_criteria`      TEXT          DEFAULT NULL,
+    `related_pages_json`       TEXT          DEFAULT NULL,
+    `evidence_json`            MEDIUMTEXT    DEFAULT NULL,
+    `code_references_json`     MEDIUMTEXT    DEFAULT NULL,
+    `status`                   VARCHAR(24)   NOT NULL DEFAULT 'UNREAD' COMMENT 'UNREAD / KEPT / IGNORED',
+    `reviewed_by`              VARCHAR(96)   DEFAULT NULL,
+    `reviewed_at`              DATETIME      DEFAULT NULL,
+    `created_at`               DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`               DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_control_page_finding` (`page_id`, `finding_key`),
+    KEY `idx_control_page_finding_filter` (`project_code`, `status`, `updated_at`),
+    KEY `idx_control_page_finding_page` (`page_id`, `status`, `updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='单页面AI Coding只读分析结果';
+
+CREATE TABLE IF NOT EXISTS `control_ai_coding_task` (
+    `task_id`                 VARCHAR(40)   NOT NULL,
+    `project_id`              BIGINT        NOT NULL,
+    `project_code`            VARCHAR(96)   NOT NULL,
+    `capability_key`          VARCHAR(64)   NOT NULL COMMENT 'PROJECT_ONBOARDING / BUSINESS_PAGE_WORKBENCH / ...',
+    `task_kind`               VARCHAR(64)   NOT NULL COMMENT 'Provider-owned task kind, for example PROJECT_ONBOARDING / PAGE_MAP_SCAN',
+    `protocol_version`        VARCHAR(16)   NOT NULL DEFAULT 'v1',
+    `executor_provider`       VARCHAR(24)   NOT NULL COMMENT 'CODEX / CURSOR / TRAE / CLAUDE_CODE',
+    `title`                   VARCHAR(256)  NOT NULL,
+    `objective`               TEXT          NOT NULL,
+    `access_mode`             VARCHAR(24)   NOT NULL COMMENT 'READ_ONLY / READ_WRITE',
+    `execution_status`        VARCHAR(32)   NOT NULL DEFAULT 'READY' COMMENT 'READY / RUNNING / WAITING_USER / RESULT_SUBMITTED / RESULT_APPLIED / ACCEPTANCE_READY / COMPLETED / FAILED / CANCELLED',
+    `result_contract_key`     VARCHAR(128)  NOT NULL,
+    `result_contract_version` VARCHAR(32)   NOT NULL,
+    `context_snapshot_json`   MEDIUMTEXT    NOT NULL,
+    `last_message`            VARCHAR(1000) DEFAULT NULL,
+    `lock_version`            BIGINT        NOT NULL DEFAULT 0,
+    `created_by`              VARCHAR(96)   DEFAULT NULL,
+    `started_at`              DATETIME      DEFAULT NULL,
+    `result_submitted_at`     DATETIME      DEFAULT NULL,
+    `completed_at`            DATETIME      DEFAULT NULL,
+    `created_at`              DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`              DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`task_id`),
+    KEY `idx_control_ai_task_project` (`project_id`, `task_kind`, `updated_at`),
+    KEY `idx_control_ai_task_status` (`project_code`, `execution_status`, `updated_at`),
+    KEY `idx_control_ai_task_capability` (`capability_key`, `execution_status`, `updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ReachAI通用AI Coding任务根对象';
+
+CREATE TABLE IF NOT EXISTS `control_ai_coding_project_policy` (
+    `project_id`                      BIGINT      NOT NULL COMMENT '逻辑关联 capability_scan_project.id，不建跨服务外键',
+    `handoff_activation_ttl_hours`    INT         NOT NULL DEFAULT 72 COMMENT '新签发一次性交接码的有效小时数，1-168',
+    `task_token_ttl_hours`            INT         NOT NULL DEFAULT 72 COMMENT '新激活任务Token的有效小时数，1-720',
+    `updated_by`                      VARCHAR(96) DEFAULT NULL,
+    `created_at`                      DATETIME    DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`                      DATETIME    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`project_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='项目级AI Coding交接与任务凭据策略';
+
+CREATE TABLE IF NOT EXISTS `control_ai_coding_task_target` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT,
+    `task_id`       VARCHAR(40)  NOT NULL,
+    `target_type`   VARCHAR(40)  NOT NULL COMMENT 'PROJECT / PAGE / WORKFLOW / API / ...',
+    `target_key`    VARCHAR(256) NOT NULL,
+    `target_role`   VARCHAR(24)  NOT NULL COMMENT 'PRIMARY / RELATED',
+    `access_mode`   VARCHAR(24)  NOT NULL COMMENT 'READ_ONLY / READ_WRITE',
+    `snapshot_json` MEDIUMTEXT   DEFAULT NULL,
+    `created_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_control_ai_task_target` (`task_id`, `target_type`, `target_key`, `target_role`),
+    KEY `idx_control_ai_task_target_lookup` (`target_type`, `target_key`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI Coding任务领域目标与访问范围';
+
+CREATE TABLE IF NOT EXISTS `control_ai_coding_task_handoff` (
+    `handoff_id`                VARCHAR(40)   NOT NULL,
+    `task_id`                   VARCHAR(40)   NOT NULL,
+    `activation_code_hash`      CHAR(64)      NOT NULL,
+    `activation_status`         VARCHAR(24)   NOT NULL DEFAULT 'ISSUED' COMMENT 'ISSUED / ACTIVATED / EXPIRED / REVOKED',
+    `activation_attempts`       INT           NOT NULL DEFAULT 0,
+    `last_activation_attempt_at` DATETIME     DEFAULT NULL,
+    `activation_expires_at`     DATETIME      NOT NULL,
+    `task_token_hash`           CHAR(64)      DEFAULT NULL,
+    `token_expires_at`          DATETIME      DEFAULT NULL,
+    `client_provider`           VARCHAR(24)   DEFAULT NULL,
+    `client_session_ref`        VARCHAR(256)  DEFAULT NULL,
+    `activated_at`              DATETIME      DEFAULT NULL,
+    `last_seen_at`              DATETIME      DEFAULT NULL,
+    `lease_expires_at`          DATETIME      DEFAULT NULL,
+    `closed_at`                 DATETIME      DEFAULT NULL,
+    `close_reason`              VARCHAR(128)  DEFAULT NULL,
+    `issued_by`                 VARCHAR(96)   DEFAULT NULL,
+    `created_at`                DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`                DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`handoff_id`),
+    KEY `idx_control_ai_handoff_task` (`task_id`, `created_at`),
+    KEY `idx_control_ai_handoff_activation` (`activation_status`, `activation_expires_at`),
+    KEY `idx_control_ai_handoff_lease` (`lease_expires_at`, `closed_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI Coding一次性交接与短期任务连接事实';
+
+CREATE TABLE IF NOT EXISTS `control_ai_coding_task_event` (
+    `id`                     BIGINT        NOT NULL AUTO_INCREMENT,
+    `task_id`                VARCHAR(40)   NOT NULL,
+    `client_event_id`        VARCHAR(96)   DEFAULT NULL,
+    `event_type`             VARCHAR(40)   NOT NULL,
+    `execution_status_after` VARCHAR(32)   DEFAULT NULL,
+    `message`                VARCHAR(1000) DEFAULT NULL,
+    `payload_json`           MEDIUMTEXT    DEFAULT NULL,
+    `actor_type`             VARCHAR(24)   NOT NULL,
+    `actor_name`             VARCHAR(96)   DEFAULT NULL,
+    `created_at`             DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_control_ai_task_event_client` (`task_id`, `client_event_id`),
+    KEY `idx_control_ai_task_event_task` (`task_id`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI Coding任务不可变事件';
+
+CREATE TABLE IF NOT EXISTS `control_ai_coding_task_question` (
+    `question_id`   VARCHAR(96)  NOT NULL,
+    `task_id`       VARCHAR(40)  NOT NULL,
+    `title`         VARCHAR(256) NOT NULL,
+    `body`          TEXT         NOT NULL,
+    `options_json`  TEXT         DEFAULT NULL,
+    `status`        VARCHAR(24)  NOT NULL DEFAULT 'OPEN',
+    `answer`        TEXT         DEFAULT NULL,
+    `asked_by`      VARCHAR(96)  DEFAULT NULL,
+    `answered_by`   VARCHAR(96)  DEFAULT NULL,
+    `asked_at`      DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `answered_at`   DATETIME     DEFAULT NULL,
+    `updated_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`question_id`),
+    KEY `idx_control_ai_task_question` (`task_id`, `status`, `asked_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI Coding任务待回答问题';
+
+CREATE TABLE IF NOT EXISTS `control_ai_coding_task_artifact` (
+    `artifact_id`            BIGINT        NOT NULL AUTO_INCREMENT,
+    `task_id`                VARCHAR(40)   NOT NULL,
+    `artifact_key`           VARCHAR(128)  NOT NULL,
+    `contract_key`           VARCHAR(128)  NOT NULL,
+    `contract_version`       VARCHAR(32)   NOT NULL,
+    `content_hash`           CHAR(64)      NOT NULL,
+    `content_json`           LONGTEXT      NOT NULL,
+    `processing_status`      VARCHAR(24)   NOT NULL DEFAULT 'RECEIVED' COMMENT 'RECEIVED / VALIDATED / APPLIED / REJECTED',
+    `validation_message`     VARCHAR(1000) DEFAULT NULL,
+    `application_result_json` LONGTEXT     DEFAULT NULL,
+    `reported_by`            VARCHAR(96)   DEFAULT NULL,
+    `created_at`             DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `validated_at`           DATETIME      DEFAULT NULL,
+    `applied_at`             DATETIME      DEFAULT NULL,
+    PRIMARY KEY (`artifact_id`),
+    UNIQUE KEY `uk_control_ai_task_artifact` (`task_id`, `artifact_key`),
+    KEY `idx_control_ai_task_artifact_task` (`task_id`, `artifact_id`),
+    KEY `idx_control_ai_task_artifact_contract` (`contract_key`, `contract_version`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI Coding通用Artifact与领域应用结果';
 
 CREATE TABLE IF NOT EXISTS `control_embed_chat_event` (
     `id`           BIGINT      NOT NULL AUTO_INCREMENT,
@@ -1949,49 +2168,6 @@ CREATE TABLE IF NOT EXISTS `control_embed_renderer` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_embed_renderer` (`app_id`, `renderer_key`, `version`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话自定义结构化渲染器注册';
-
-CREATE TABLE IF NOT EXISTS `control_ai_access_session` (
-    `id`              BIGINT       NOT NULL AUTO_INCREMENT,
-    `session_id`      VARCHAR(96)  NOT NULL,
-    `project_id`      BIGINT       NOT NULL,
-    `project_code`    VARCHAR(128) DEFAULT NULL,
-    `tool_name`       VARCHAR(64)  DEFAULT NULL,
-    `scenario`        VARCHAR(32)  NOT NULL DEFAULT 'SDK_ACCESS',
-    `target_page_key` VARCHAR(160) DEFAULT NULL,
-    `target_route`    VARCHAR(512) DEFAULT NULL,
-    `metadata_json`   TEXT         DEFAULT NULL,
-    `status`          VARCHAR(24)  NOT NULL DEFAULT 'OPEN',
-    `total_steps`     INT          NOT NULL DEFAULT 0,
-    `completed_steps` INT          NOT NULL DEFAULT 0,
-    `failed_steps`    INT          NOT NULL DEFAULT 0,
-    `last_message`    VARCHAR(512) DEFAULT NULL,
-    `created_at`      DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`      DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_ai_access_session` (`session_id`),
-    KEY `idx_ai_access_session_project` (`project_id`, `updated_at`),
-    KEY `idx_ai_access_session_target` (`project_id`, `scenario`, `target_page_key`, `updated_at`),
-    KEY `idx_ai_access_session_status` (`project_code`, `status`, `updated_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI快速接入会话';
-
-CREATE TABLE IF NOT EXISTS `control_ai_access_step` (
-    `id`            BIGINT       NOT NULL AUTO_INCREMENT,
-    `session_id`    VARCHAR(96)  NOT NULL,
-    `project_id`    BIGINT       NOT NULL,
-    `step_key`      VARCHAR(96)  NOT NULL,
-    `title`         VARCHAR(128) NOT NULL,
-    `status`        VARCHAR(24)  NOT NULL DEFAULT 'TODO',
-    `message`       TEXT         DEFAULT NULL,
-    `files_json`    TEXT         DEFAULT NULL,
-    `evidence_json` TEXT         DEFAULT NULL,
-    `reported_by`   VARCHAR(96)  DEFAULT NULL,
-    `started_at`    DATETIME     DEFAULT NULL,
-    `completed_at`  DATETIME     DEFAULT NULL,
-    `updated_at`    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_ai_access_step` (`session_id`, `step_key`),
-    KEY `idx_ai_access_step_project` (`project_id`, `status`, `updated_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI快速接入步骤进度';
 
 -- ============================================================================
 -- Context Governance Kernel v1（企业 Agent 上下文治理底座）
@@ -2395,13 +2571,12 @@ CREATE TABLE IF NOT EXISTS `capability_tool_asset` (
     `executor_ref`         VARCHAR(256) DEFAULT NULL,
     `side_effect`          VARCHAR(24)  NOT NULL DEFAULT 'WRITE',
     `enabled`              TINYINT(1)   NOT NULL DEFAULT 1,
-    `agent_visible`        TINYINT(1)   NOT NULL DEFAULT 1,
     `create_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `update_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_tool_asset_qualified` (`qualified_name`),
     UNIQUE KEY `uk_tool_asset_module_code` (`capability_module_id`, `tool_code`),
-    KEY `idx_tool_asset_capability` (`capability_code`, `enabled`, `agent_visible`)
+    KEY `idx_tool_asset_capability` (`capability_code`, `enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力模块下的原子工具资产';
 
 CREATE TABLE IF NOT EXISTS `capability_composition_definition` (
@@ -2417,13 +2592,12 @@ CREATE TABLE IF NOT EXISTS `capability_composition_definition` (
     `output_schema_json`   MEDIUMTEXT   DEFAULT NULL,
     `side_effect`          VARCHAR(24)  NOT NULL DEFAULT 'WRITE',
     `enabled`              TINYINT(1)   NOT NULL DEFAULT 1,
-    `agent_visible`        TINYINT(1)   NOT NULL DEFAULT 1,
     `create_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `update_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_composition_qualified` (`qualified_name`),
     UNIQUE KEY `uk_composition_module_code` (`capability_module_id`, `composition_code`),
-    KEY `idx_composition_capability` (`capability_code`, `enabled`, `agent_visible`)
+    KEY `idx_composition_capability` (`capability_code`, `enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='能力模块下的组合定义';
 
 CREATE TABLE IF NOT EXISTS `capability_interaction_definition` (
@@ -2439,13 +2613,12 @@ CREATE TABLE IF NOT EXISTS `capability_interaction_definition` (
     `input_schema_json`    MEDIUMTEXT   DEFAULT NULL,
     `output_schema_json`   MEDIUMTEXT   DEFAULT NULL,
     `enabled`              TINYINT(1)   NOT NULL DEFAULT 1,
-    `agent_visible`        TINYINT(1)   NOT NULL DEFAULT 1,
     `create_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `update_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_interaction_qualified` (`qualified_name`),
     UNIQUE KEY `uk_interaction_module_code` (`capability_module_id`, `interaction_code`),
-    KEY `idx_interaction_capability` (`capability_code`, `enabled`, `agent_visible`)
+    KEY `idx_interaction_capability` (`capability_code`, `enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Interaction definition assets';
 
 CREATE TABLE IF NOT EXISTS `runtime_interaction_session` (
@@ -2462,7 +2635,7 @@ CREATE TABLE IF NOT EXISTS `runtime_interaction_session` (
     `status`                     VARCHAR(32)  NOT NULL DEFAULT 'WAITING_USER' COMMENT 'WAITING_USER / RESUMING / COMPLETED / CANCELLED / EXPIRED / FAILED',
     `revision`                   INT          NOT NULL DEFAULT 0 COMMENT '乐观锁版本',
     `idempotency_key`            VARCHAR(128) DEFAULT NULL COMMENT '最近一次成功提交的幂等键',
-    `state_json`                 MEDIUMTEXT   DEFAULT NULL COMMENT '运行时上下文快照',
+    `resume_checkpoint_json`     MEDIUMTEXT   DEFAULT NULL COMMENT '恢复同一 GraphSpec 执行所需的内部断点；不得作为公共结果返回',
     `ui_request_json`            MEDIUMTEXT   DEFAULT NULL COMMENT 'canonical uiRequest',
     `submitted_payload_json`     MEDIUMTEXT   DEFAULT NULL COMMENT '最近一次提交（已脱敏策略由服务层保证）',
     `result_json`                MEDIUMTEXT   DEFAULT NULL COMMENT '恢复结果摘要',
@@ -2497,16 +2670,16 @@ CREATE TABLE IF NOT EXISTS `runtime_executable_debug_session` (
     `id`                    VARCHAR(64)  NOT NULL,
     `run_id`                VARCHAR(128) DEFAULT NULL,
     `trace_id`              VARCHAR(128) DEFAULT NULL,
-    `target_type`           VARCHAR(64)  NOT NULL DEFAULT 'AGENT_DRAFT',
-    `status`                VARCHAR(32)  NOT NULL DEFAULT 'RUNNING',
+    `target_type`           VARCHAR(64)  NOT NULL DEFAULT 'AGENT_WORKING_COPY' COMMENT 'AGENT_WORKING_COPY / WORKFLOW_WORKING_COPY / WORKFLOW_VERSION 等',
+    `status`                VARCHAR(32)  NOT NULL DEFAULT 'RUNNING' COMMENT 'RUNNING / SUSPENDED / RESUMING / COMPLETED / FAILED / CANCELLED / EXPIRED',
     `revision`              INT          NOT NULL DEFAULT 0 COMMENT '乐观锁版本，Debug submit CAS',
     `idempotency_key`       VARCHAR(128) DEFAULT NULL COMMENT '最近一次成功提交的幂等键',
     `submitted_payload_json` MEDIUMTEXT  DEFAULT NULL COMMENT '规范化提交载荷，用于幂等比较',
     `result_json`           MEDIUMTEXT   DEFAULT NULL COMMENT '最近一次 submit 结果摘要',
     `current_node_id`       VARCHAR(128) DEFAULT NULL,
-    `draft_definition_json` MEDIUMTEXT   DEFAULT NULL,
+    `working_copy_definition_json` MEDIUMTEXT DEFAULT NULL COMMENT '调试启动时的可编辑工作副本快照',
     `debug_options_json`    MEDIUMTEXT   DEFAULT NULL,
-    `state_json`            MEDIUMTEXT   DEFAULT NULL,
+    `state_snapshot_json`   MEDIUMTEXT   DEFAULT NULL COMMENT '调试会话当前状态快照；恢复断点只在 Runtime 内部使用',
     `messages_json`         MEDIUMTEXT   DEFAULT NULL,
     `steps_json`            MEDIUMTEXT   DEFAULT NULL,
     `ui_request_json`       MEDIUMTEXT   DEFAULT NULL,
@@ -2533,12 +2706,12 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO `capability_tool_asset`
 (`capability_module_id`, `capability_code`, `tool_code`, `name`, `qualified_name`, `description`,
- `input_schema_json`, `output_schema_json`, `executor_type`, `executor_ref`, `side_effect`, `enabled`, `agent_visible`)
+ `input_schema_json`, `output_schema_json`, `executor_type`, `executor_ref`, `side_effect`, `enabled`)
 VALUES
 ((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
  'system', 'echo', '回声工具', 'system.echo', '用于能力内核验证的回声工具',
  '{"type":"object","properties":{"message":{"type":"string"}}}', '{"type":"object"}',
- 'ECHO', 'echo', 'READ', 1, 0)
+ 'ECHO', 'echo', 'READ', 1)
 ON DUPLICATE KEY UPDATE
     `name` = VALUES(`name`),
     `description` = VALUES(`description`),
@@ -2548,13 +2721,13 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO `capability_composition_definition`
 (`capability_module_id`, `capability_code`, `composition_code`, `name`, `qualified_name`, `description`,
- `graph_spec_json`, `input_schema_json`, `output_schema_json`, `side_effect`, `enabled`, `agent_visible`)
+ `graph_spec_json`, `input_schema_json`, `output_schema_json`, `side_effect`, `enabled`)
 VALUES
 ((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
  'system', 'echo_flow', '回声组合', 'system.echo_flow', '用于能力内核验证的最小图组合',
- '{"entry":"input","nodes":[{"id":"input","type":"USER_INPUT","config":{"fields":[{"name":"message","required":true}]}},{"id":"echo","type":"TOOL","config":{"qualifiedName":"system.echo","inputMapping":{"message":"params.message"},"outputAlias":"echoed"}},{"id":"answer","type":"ANSWER","config":{"template":"{{ echoed.message }}"}}],"edges":[{"from":"START","to":"input","condition":"always"},{"from":"input","to":"echo","condition":"always"},{"from":"echo","to":"answer","condition":"success"},{"from":"answer","to":"END","condition":"always"}]}',
+ '{"schemaVersion":2,"entryNodeId":"input","exitNodeIds":["answer"],"nodes":[{"id":"input","type":"USER_INPUT","config":{"fields":[{"name":"message","required":true}]}},{"id":"echo","type":"TOOL","config":{"qualifiedName":"system.echo","inputMapping":{"message":"params.message"},"outputAlias":"echoed"}},{"id":"answer","type":"ANSWER","config":{"template":"{{ echoed.message }}"}}],"edges":[{"from":"input","to":"echo","condition":"always"},{"from":"echo","to":"answer","condition":"success"}]}',
  '{"type":"object","properties":{"message":{"type":"string"}}}', '{"type":"string"}',
- 'READ', 1, 1)
+ 'READ', 1)
 ON DUPLICATE KEY UPDATE
     `name` = VALUES(`name`),
     `description` = VALUES(`description`),
@@ -2563,18 +2736,18 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO `capability_interaction_definition`
 (`capability_module_id`, `capability_code`, `interaction_code`, `name`, `qualified_name`, `description`,
- `interaction_type`, `spec_json`, `input_schema_json`, `output_schema_json`, `enabled`, `agent_visible`)
+ `interaction_type`, `spec_json`, `input_schema_json`, `output_schema_json`, `enabled`)
 VALUES
 ((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
  'system', 'echo_input', '回声输入交互', 'system.echo_input', '调用回声工具前采集用户输入',
  'COLLECT_INPUT',
  '{"interactionType":"COLLECT_INPUT","title":"Echo Input","fields":[{"key":"message","name":"message","label":"Message","type":"string","required":true}],"behavior":{"askPolicy":"MISSING_ONLY"}}',
- '{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}', '{"type":"object"}', 1, 1),
+ '{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}', '{"type":"object"}', 1),
 ((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
  'system', 'echo_result', '回声结果展示', 'system.echo_result', '以详情卡片展示回声结果',
  'PRESENT_OUTPUT',
  '{"interactionType":"PRESENT_OUTPUT","title":"Echo Result","component":"DETAIL","data":"echoed"}',
- '{"type":"object"}', '{"type":"object"}', 1, 1)
+ '{"type":"object"}', '{"type":"object"}', 1)
 ON DUPLICATE KEY UPDATE
     `name` = VALUES(`name`),
     `description` = VALUES(`description`),
@@ -2584,13 +2757,13 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO `capability_composition_definition`
 (`capability_module_id`, `capability_code`, `composition_code`, `name`, `qualified_name`, `description`,
- `graph_spec_json`, `input_schema_json`, `output_schema_json`, `side_effect`, `enabled`, `agent_visible`)
+ `graph_spec_json`, `input_schema_json`, `output_schema_json`, `side_effect`, `enabled`)
 VALUES
 ((SELECT `id` FROM `capability_module` WHERE `code` = 'system' LIMIT 1),
  'system', 'interactive_echo', '交互式回声组合', 'system.interactive_echo', '用于验证交互内核的示例组合',
- '{"entry":"collect","nodes":[{"id":"collect","type":"INTERACTION","ref":{"kind":"INTERACTION","qualifiedName":"system.echo_input"},"config":{"interactionType":"COLLECT_INPUT","outputAlias":"params"}},{"id":"echo","type":"TOOL","config":{"qualifiedName":"system.echo","inputMapping":{"message":"params.message"},"outputAlias":"echoed"}},{"id":"show","type":"INTERACTION","ref":{"kind":"INTERACTION","qualifiedName":"system.echo_result"},"config":{"interactionType":"PRESENT_OUTPUT","data":"echoed","outputAlias":"presented"}},{"id":"answer","type":"ANSWER","config":{"template":"{{ echoed.message }}"}}],"edges":[{"from":"START","to":"collect","condition":"always"},{"from":"collect","to":"echo","condition":"always"},{"from":"echo","to":"show","condition":"success"},{"from":"show","to":"answer","condition":"always"},{"from":"answer","to":"END","condition":"always"}]}',
+ '{"schemaVersion":2,"entryNodeId":"collect","exitNodeIds":["answer"],"nodes":[{"id":"collect","type":"INTERACTION","ref":{"kind":"INTERACTION","qualifiedName":"system.echo_input"},"config":{"interactionType":"COLLECT_INPUT","outputAlias":"params"}},{"id":"echo","type":"TOOL","config":{"qualifiedName":"system.echo","inputMapping":{"message":"params.message"},"outputAlias":"echoed"}},{"id":"show","type":"INTERACTION","ref":{"kind":"INTERACTION","qualifiedName":"system.echo_result"},"config":{"interactionType":"PRESENT_OUTPUT","data":"echoed","outputAlias":"presented"}},{"id":"answer","type":"ANSWER","config":{"template":"{{ echoed.message }}"}}],"edges":[{"from":"collect","to":"echo","condition":"always"},{"from":"echo","to":"show","condition":"success"},{"from":"show","to":"answer","condition":"always"}]}',
  '{"type":"object","properties":{"message":{"type":"string"}}}', '{"type":"string"}',
- 'READ', 1, 1)
+ 'READ', 1)
 ON DUPLICATE KEY UPDATE
     `name` = VALUES(`name`),
     `description` = VALUES(`description`),

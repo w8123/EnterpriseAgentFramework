@@ -5,7 +5,7 @@ import type {
   WorkflowPublishRequest,
   WorkflowReleaseValidationItem,
   WorkflowRuntimeValidationResult,
-  WorkflowStudioState,
+  WorkflowWorkingCopyState,
   WorkflowValidationItem,
 } from '@/types/workflow'
 import type { CanvasNode } from '@/types/studio'
@@ -14,7 +14,7 @@ import type { GraphLintItem } from '@/views/workflow/composables/useWorkflowStud
 export interface UseWorkflowStudioReleaseDeps {
   workflowId: Readonly<Ref<string>>
   studioReadOnly: Readonly<Ref<boolean>>
-  studio: Ref<WorkflowStudioState | null>
+  studio: Ref<WorkflowWorkingCopyState | null>
   nodes: Ref<CanvasNode[]>
   graphLintErrors: Readonly<Ref<GraphLintItem[]>>
   graphLintWarnings: Readonly<Ref<GraphLintItem[]>>
@@ -26,9 +26,9 @@ export interface UseWorkflowStudioReleaseDeps {
   releaseErrors: Ref<WorkflowReleaseValidationItem[]>
   releaseWarnings: Ref<WorkflowReleaseValidationItem[]>
   publishForm: WorkflowPublishRequest
-  validateCurrentDraft: () => Promise<WorkflowRuntimeValidationResult | null>
-  saveStudio: () => Promise<WorkflowStudioState | null>
-  loadStudio: () => Promise<WorkflowStudioState | null>
+  validateWorkingCopy: () => Promise<WorkflowRuntimeValidationResult | null>
+  saveStudio: () => Promise<WorkflowWorkingCopyState | null>
+  loadStudio: () => Promise<WorkflowWorkingCopyState | null>
   ensurePanelValidationClear?: () => boolean
 }
 
@@ -47,7 +47,7 @@ export function useWorkflowStudioRelease({
   releaseErrors,
   releaseWarnings,
   publishForm,
-  validateCurrentDraft,
+  validateWorkingCopy,
   saveStudio,
   loadStudio,
   ensurePanelValidationClear,
@@ -100,7 +100,7 @@ export function useWorkflowStudioRelease({
     releaseWarnings.value = localReleaseWarnings()
     releaseChecking.value = true
     try {
-      const result = await validateCurrentDraft()
+      const result = await validateWorkingCopy()
       if (!result) {
         releaseErrors.value = [validationUnavailableItem()]
         return
@@ -135,7 +135,7 @@ export function useWorkflowStudioRelease({
     return {
       code: 'VALIDATION_UNAVAILABLE',
       level: 'ERROR',
-      message: '当前草稿未能完成发布校验，请确认 Runtime 服务可用后重试。',
+      message: '当前工作副本未能完成发布校验，请确认 Runtime 服务可用后重试。',
     }
   }
 
@@ -159,7 +159,7 @@ export function useWorkflowStudioRelease({
       return
     }
     if (!releaseValidationReady.value || releaseChecking.value) {
-      ElMessage.warning('请等待当前草稿校验完成')
+      ElMessage.warning('请等待当前工作副本校验完成')
       return
     }
     if (releaseErrors.value.length) {
@@ -175,7 +175,7 @@ export function useWorkflowStudioRelease({
     }
     const publishingWorkflowId = workflowId.value
     const publishingEditGeneration = editGeneration.value
-    const isCurrentPublishingDraft = () => (
+    const isCurrentPublishingWorkingCopy = () => (
       workflowId.value === publishingWorkflowId
       && editGeneration.value === publishingEditGeneration
     )
@@ -183,7 +183,7 @@ export function useWorkflowStudioRelease({
     try {
       const saved = await saveStudio()
       if (!saved) return
-      if (!isCurrentPublishingDraft()) {
+      if (!isCurrentPublishingWorkingCopy()) {
         ElMessage.warning('发布已取消：保存后检测到新的本地修改，请重新校验')
         return
       }
@@ -207,7 +207,7 @@ export function useWorkflowStudioRelease({
         ElMessage.error('Workflow 发布门禁未通过，请先修复阻断项')
         return
       }
-      if (!isCurrentPublishingDraft()) {
+      if (!isCurrentPublishingWorkingCopy()) {
         ElMessage.warning('发布已取消：校验期间草稿发生变化，请重新校验')
         return
       }
@@ -226,7 +226,7 @@ export function useWorkflowStudioRelease({
           return
         }
       }
-      if (!isCurrentPublishingDraft()) {
+      if (!isCurrentPublishingWorkingCopy()) {
         ElMessage.warning('发布已取消：确认期间草稿发生变化，请重新校验')
         return
       }
@@ -239,7 +239,7 @@ export function useWorkflowStudioRelease({
       })
       ElMessage.success(`已发布 Workflow ${publishForm.version}（灰度 ${publishForm.rolloutPercent ?? 100}%）`)
       publishDialogOpen.value = false
-      if (isCurrentPublishingDraft()) {
+      if (isCurrentPublishingWorkingCopy()) {
         await loadStudio()
       } else {
         ElMessage.warning('版本已发布；检测到新的本地修改，已保留当前页面且未自动刷新')

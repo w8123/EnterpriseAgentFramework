@@ -137,6 +137,7 @@ public class CapabilityToolCatalogController {
         CatalogLink link = resolveCatalogLink(entity);
         return new ToolInfoDTO(
                 entity.getName(),
+                entity.getTitle(),
                 entity.getKind() == null ? CapabilityToolCatalogService.KIND_TOOL : entity.getKind(),
                 entity.getDescription(),
                 params,
@@ -150,12 +151,9 @@ public class CapabilityToolCatalogController {
                 entity.getResponseType(),
                 entity.getProjectId(),
                 entity.getProjectCode(),
-                entity.getVisibility(),
                 entity.getQualifiedName(),
                 toolCatalogService.getProjectNameOrNull(entity.getProjectId()),
                 Boolean.TRUE.equals(entity.getEnabled()),
-                Boolean.TRUE.equals(entity.getAgentVisible()),
-                Boolean.TRUE.equals(entity.getLightweightEnabled()),
                 entity.getSideEffect(),
                 entity.getAiDescription(),
                 entity.getCapabilityMetadataJson(),
@@ -191,6 +189,7 @@ public class CapabilityToolCatalogController {
     }
 
     record ToolInfoDTO(String name,
+                       String title,
                        String kind,
                        String description,
                        List<ToolParameterDTO> parameters,
@@ -204,12 +203,9 @@ public class CapabilityToolCatalogController {
                        String responseType,
                        Long projectId,
                        String projectCode,
-                       String visibility,
                        String qualifiedName,
                        String sourceProjectName,
                        boolean enabled,
-                       boolean agentVisible,
-                       boolean lightweightEnabled,
                        String sideEffect,
                        String aiDescription,
                        String capabilityMetadataJson,
@@ -244,6 +240,7 @@ public class CapabilityToolCatalogController {
     }
 
     record ToolUpsertRequest(String name,
+                             String title,
                              String description,
                              List<ToolDefinitionParameter> parameters,
                              String source,
@@ -256,14 +253,12 @@ public class CapabilityToolCatalogController {
                              String responseType,
                              Long projectId,
                              String projectCode,
-                             String visibility,
                              String qualifiedName,
-                             boolean enabled,
-                             boolean agentVisible,
-                             boolean lightweightEnabled) {
+                             boolean enabled) {
         ToolDefinitionUpsertRequest toServiceRequest() {
             return new ToolDefinitionUpsertRequest(
                     name,
+                    title,
                     description,
                     parameters == null ? List.of() : parameters,
                     source,
@@ -276,11 +271,8 @@ public class CapabilityToolCatalogController {
                     responseType,
                     projectId,
                     projectCode,
-                    visibility,
                     qualifiedName,
-                    enabled,
-                    agentVisible,
-                    lightweightEnabled
+                    enabled
             );
         }
     }

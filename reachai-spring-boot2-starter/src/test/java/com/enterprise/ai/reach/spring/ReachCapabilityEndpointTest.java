@@ -93,11 +93,30 @@ class ReachCapabilityEndpointTest {
                 headers.getAppKey(),
                 headers.getTimestamp(),
                 headers.getNonce(),
-                headers.getSignature(),
-                Collections.<String, Object>emptyMap());
+                headers.getSignature());
 
         assertEquals(1, registryClient.scanCalls);
         assertEquals(2, response.getCapabilityCount());
+        assertEquals(ReachAiRegistryClient.CALLBACK_SYNC_SOURCE, registryClient.lastSyncSource);
+    }
+
+    @Test
+    void syncEndpointMarksReachAiInitiatedManualScanAsCallbackEvidence() {
+        ReachAiRegistryProperties properties = registryProperties();
+        RecordingRegistryClient registryClient = new RecordingRegistryClient(properties);
+        ReachCapabilitySyncEndpoint endpoint = new ReachCapabilitySyncEndpoint(
+                registryClient,
+                new ReachAiRegistryRequestVerifier(properties));
+        ReachAiSignatureHeaders headers = ReachAiSigner.sign(registryClientConfig(properties),
+                String.valueOf(System.currentTimeMillis()), "nonce-callback");
+
+        endpoint.sync(
+                headers.getAppKey(),
+                headers.getTimestamp(),
+                headers.getNonce(),
+                headers.getSignature());
+
+        assertEquals(ReachAiRegistryClient.CALLBACK_SYNC_SOURCE, registryClient.lastSyncSource);
     }
 
     @Test
@@ -112,9 +131,33 @@ class ReachCapabilityEndpointTest {
                 "bad-key",
                 String.valueOf(System.currentTimeMillis()),
                 "nonce-1",
-                "bad-signature",
-                Collections.<String, Object>emptyMap()));
+                "bad-signature"));
         assertEquals(0, registryClient.scanCalls);
+    }
+
+    @Test
+    void syncEndpointRejectsReplayOfAnAcceptedSignedRequest() {
+        ReachAiRegistryProperties properties = registryProperties();
+        RecordingRegistryClient registryClient = new RecordingRegistryClient(properties);
+        ReachAiRegistryRequestVerifier verifier = new ReachAiRegistryRequestVerifier(properties);
+        ReachCapabilitySyncEndpoint endpoint = new ReachCapabilitySyncEndpoint(
+                registryClient,
+                verifier);
+        ReachAiSignatureHeaders headers = ReachAiSigner.sign(registryClientConfig(properties),
+                String.valueOf(System.currentTimeMillis()), "nonce-replay");
+
+        endpoint.sync(
+                headers.getAppKey(),
+                headers.getTimestamp(),
+                headers.getNonce(),
+                headers.getSignature());
+
+        assertThrows(ReachAiInvocationUnauthorizedException.class, () -> endpoint.sync(
+                headers.getAppKey(),
+                headers.getTimestamp(),
+                headers.getNonce(),
+                headers.getSignature()));
+        assertEquals(1, registryClient.scanCalls);
     }
 
     private ReachAiRegistryProperties invocationProperties() {
@@ -161,6 +204,7 @@ class ReachCapabilityEndpointTest {
 
     static class RecordingRegistryClient extends ReachAiRegistryClient {
         private int scanCalls;
+        private String lastSyncSource;
 
         RecordingRegistryClient(ReachAiRegistryProperties properties) {
             super(properties, new ReachCapabilityBeanScanner(new Object[0]), new ReachAiRegistryClientTest.RecordingTransport());
@@ -169,6 +213,13 @@ class ReachCapabilityEndpointTest {
         @Override
         public ManualCapabilitySyncResponse scanAndSyncCapabilities() {
             scanCalls++;
+            return new ManualCapabilitySyncResponse("instance-1", 2, "{}");
+        }
+
+        @Override
+        ManualCapabilitySyncResponse scanAndSyncCapabilitiesFromPlatformCallback() {
+            scanCalls++;
+            lastSyncSource = ReachAiRegistryClient.CALLBACK_SYNC_SOURCE;
             return new ManualCapabilitySyncResponse("instance-1", 2, "{}");
         }
     }

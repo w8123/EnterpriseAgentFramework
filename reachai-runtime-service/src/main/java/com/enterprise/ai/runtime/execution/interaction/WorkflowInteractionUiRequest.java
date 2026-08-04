@@ -29,6 +29,7 @@ public record WorkflowInteractionUiRequest(
         Map<String, Object> summary,
         Map<String, Object> schema,
         List<Map<String, Object>> actions,
+        Map<String, Object> presentation,
         Map<String, Object> behavior,
         Map<String, Object> extension
 ) {
@@ -70,6 +71,9 @@ public record WorkflowInteractionUiRequest(
         }
         if (actions != null && !actions.isEmpty()) {
             body.put("actions", actions);
+        }
+        if (presentation != null && !presentation.isEmpty()) {
+            body.put("presentation", presentation);
         }
         if (behavior != null && !behavior.isEmpty()) {
             body.put("behavior", behavior);

@@ -74,6 +74,7 @@ export async function dispatchPageActionExactlyOnce(options: {
   token: string
   handledPageActions: Set<string>
   inFlightPageActions: Map<string, Promise<void>>
+  pendingPageActionResults?: Map<string, PageActionResult>
   responseMetadata?: Record<string, unknown>
   onRequested?: (request: PageActionDispatchRequest) => void
   onError?: (error: unknown) => void
@@ -83,8 +84,11 @@ export async function dispatchPageActionExactlyOnce(options: {
   const normalized = normalizePageActionRequest(options.request, pageKeyFromMetadata(options.responseMetadata))
   if (!normalized?.requestId) return
   const requestId = normalized.requestId
-  if (options.handledPageActions.has(requestId)) return
 
+  if (
+    options.handledPageActions.has(requestId)
+    && !options.pendingPageActionResults?.has(requestId)
+  ) return
   const existing = options.inFlightPageActions.get(requestId)
   if (existing) {
     await existing
@@ -92,7 +96,14 @@ export async function dispatchPageActionExactlyOnce(options: {
   }
 
   const work = (async () => {
-    if (options.handledPageActions.has(requestId)) return
+    const pendingResult =
+      options.pendingPageActionResults?.get(requestId)
+    if (options.handledPageActions.has(requestId)) {
+      if (!pendingResult) return
+      await deliverPageActionResult(options, pendingResult)
+      options.pendingPageActionResults?.delete(requestId)
+      return
+    }
     // 先认领，防止并发第二进入 Bridge
     options.handledPageActions.add(requestId)
     options.onRequested?.(normalized)
@@ -107,26 +118,9 @@ export async function dispatchPageActionExactlyOnce(options: {
       if (result.status === 'FAILED' || result.status === 'TIMEOUT') {
         options.onError?.(new Error(result.error || `Page action ${result.status}: ${normalized.actionKey}`))
       }
-      let token = options.token
-      try {
-        await postPageActionResult(
-          options.apiBase,
-          options.sessionId,
-          token,
-          result,
-          options.fetchImpl,
-        )
-      } catch (error) {
-        if (!isUnauthorized(error) || !options.refreshToken) throw error
-        token = await options.refreshToken()
-        await postPageActionResult(
-          options.apiBase,
-          options.sessionId,
-          token,
-          result,
-          options.fetchImpl,
-        )
-      }
+      options.pendingPageActionResults?.set(requestId, result)
+      await deliverPageActionResult(options, result)
+      options.pendingPageActionResults?.delete(requestId)
     } catch (error) {
       options.onError?.(error)
     }
@@ -137,6 +131,38 @@ export async function dispatchPageActionExactlyOnce(options: {
     await work
   } finally {
     options.inFlightPageActions.delete(requestId)
+  }
+}
+
+async function deliverPageActionResult(
+  options: {
+    apiBase: string
+    sessionId: string
+    token: string
+    refreshToken?: () => Promise<string>
+    fetchImpl?: typeof fetch
+  },
+  result: PageActionResult,
+) {
+  let token = options.token
+  try {
+    await postPageActionResult(
+      options.apiBase,
+      options.sessionId,
+      token,
+      result,
+      options.fetchImpl,
+    )
+  } catch (error) {
+    if (!isUnauthorized(error) || !options.refreshToken) throw error
+    token = await options.refreshToken()
+    await postPageActionResult(
+      options.apiBase,
+      options.sessionId,
+      token,
+      result,
+      options.fetchImpl,
+    )
   }
 }
 
@@ -170,6 +196,7 @@ export async function processMessagePageActionQueue(options: {
   token: string
   handledPageActions: Set<string>
   inFlightPageActions: Map<string, Promise<void>>
+  pendingPageActionResults?: Map<string, PageActionResult>
   onRequested?: (request: PageActionDispatchRequest) => void
   onError?: (error: unknown) => void
   refreshToken?: () => Promise<string>
@@ -185,6 +212,7 @@ export async function processMessagePageActionQueue(options: {
       token: options.token,
       handledPageActions: options.handledPageActions,
       inFlightPageActions: options.inFlightPageActions,
+      pendingPageActionResults: options.pendingPageActionResults,
       responseMetadata: options.response.metadata,
       onRequested: options.onRequested,
       onError: options.onError,
@@ -278,6 +306,7 @@ export async function pollPendingPageActions(options: {
   handledPageActions: Set<string>
   pendingPageActions: Set<string>
   inFlightPageActions?: Map<string, Promise<void>>
+  pendingPageActionResults?: Map<string, PageActionResult>
   context?: Record<string, unknown>
   onEvent?: (event: EafChatEvent) => void
   onError?: (error: unknown) => void
@@ -287,28 +316,62 @@ export async function pollPendingPageActions(options: {
   const fetchImpl = options.fetchImpl || fetch
   const inFlight = options.inFlightPageActions || new Map<string, Promise<void>>()
   const pendingUrl = `${options.apiBase}/chat/sessions/${encodeURIComponent(options.sessionId)}/page-actions/pending?limit=10`
+  let activeToken = options.token
+  const refreshToken = options.refreshToken
+    ? async () => {
+        activeToken = await options.refreshToken!()
+        return activeToken
+      }
+    : undefined
   let requests: PageActionDispatchRequest[]
   try {
-    requests = await getJson(pendingUrl, options.token, fetchImpl)
+    requests = await getJson(pendingUrl, activeToken, fetchImpl)
   } catch (error) {
-    if (!isUnauthorized(error) || !options.refreshToken) throw error
-    const token = await options.refreshToken()
-    requests = await getJson(pendingUrl, token, fetchImpl)
+    if (!isUnauthorized(error) || !refreshToken) throw error
+    await refreshToken()
+    requests = await getJson(pendingUrl, activeToken, fetchImpl)
   }
+  const listedRequestIds = new Set<string>()
   for (const request of requests) {
     if (!request?.requestId) continue
+    listedRequestIds.add(request.requestId)
     await dispatchPageActionExactlyOnce({
       request,
       bridge: options.bridge,
       sessionId: options.sessionId,
       apiBase: options.apiBase,
-      token: options.token,
+      token: activeToken,
       handledPageActions: options.handledPageActions,
       inFlightPageActions: inFlight,
+      pendingPageActionResults: options.pendingPageActionResults,
       responseMetadata: options.context,
       onRequested: (req) => options.onEvent?.({ type: 'page.action.requested', data: req }),
       onError: options.onError,
-      refreshToken: options.refreshToken,
+      refreshToken,
+      fetchImpl,
+    })
+  }
+  for (const [requestId, result] of [
+    ...(options.pendingPageActionResults?.entries() || []),
+  ]) {
+    if (listedRequestIds.has(requestId)) continue
+    options.handledPageActions.add(requestId)
+    await dispatchPageActionExactlyOnce({
+      request: {
+        type: 'page.action.requested',
+        requestId,
+        actionKey: result.actionKey,
+      },
+      bridge: options.bridge,
+      sessionId: options.sessionId,
+      apiBase: options.apiBase,
+      token: activeToken,
+      handledPageActions: options.handledPageActions,
+      inFlightPageActions: inFlight,
+      pendingPageActionResults: options.pendingPageActionResults,
+      responseMetadata: options.context,
+      onError: options.onError,
+      refreshToken,
       fetchImpl,
     })
   }

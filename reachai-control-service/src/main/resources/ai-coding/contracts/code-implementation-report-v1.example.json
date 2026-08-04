@@ -1,0 +1,29 @@
+{
+  "summary": "已实现页面目标并完成相关测试。",
+  "changedFiles": [
+    "src/views/registry/RegistryProjectDetail.vue"
+  ],
+  "tests": [
+    {
+      "name": "frontend build",
+      "status": "PASS",
+      "command": "npm run build",
+      "evidence": "Build completed successfully."
+    }
+  ],
+  "browserVerification": {
+    "passed": true,
+    "browser": "Chromium",
+    "url": "http://localhost:5173/registry/projects/demo",
+    "scenarios": [
+      "Open project detail",
+      "Trigger the new action"
+    ],
+    "screenshots": [
+      "output/project-detail.png"
+    ],
+    "evidence": "The action is visible and the real request succeeds."
+  },
+  "workflowId": null,
+  "remainingQuestions": []
+}

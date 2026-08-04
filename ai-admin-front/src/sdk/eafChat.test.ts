@@ -71,6 +71,239 @@ describe('createEafChat facade', () => {
     chat.destroy()
   })
 
+  it('passes the SDK page identity to tokenProvider and reuses it for session creation', async () => {
+    ;(globalThis.fetch as any)
+      .mockResolvedValueOnce(sessionResponse('sess-page-identity'))
+      .mockResolvedValueOnce(sse([
+        'event: message.completed\ndata: {"sessionId":"sess-page-identity","answer":"ok","metadata":{}}\n\n',
+      ]))
+    const tokenProvider = vi.fn(() => 'tok')
+    const bridge = createEafPageBridge({
+      pageInstanceId: 'page-exact-001',
+      route: '/teams/current',
+    })
+
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider,
+      apiBase: 'http://localhost/embed',
+      bridge,
+      page: {
+        pageKey: 'teamArchive.list',
+        origin: 'https://business.example.com',
+      },
+    })
+    await flushMicrotasks()
+
+    expect(tokenProvider).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'initial',
+      attempt: 1,
+      pageKey: 'teamArchive.list',
+      pageInstanceId: 'page-exact-001',
+      route: '/teams/current',
+      origin: 'https://business.example.com',
+    }))
+
+    await chat.send('hello')
+    const sessionInit = (globalThis.fetch as any).mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(sessionInit.body))).toEqual(expect.objectContaining({
+      pageKey: 'teamArchive.list',
+      pageInstanceId: 'page-exact-001',
+      route: '/teams/current',
+    }))
+    chat.destroy()
+  })
+
+  it('keeps the dynamic launcher and conversation panel mutually exclusive', async () => {
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+      position: 'bottom-right',
+      initialOpen: false,
+    })
+    await flushMicrotasks()
+
+    const root = mountEl.querySelector<HTMLElement>('.eaf-chat')!
+    const panel = root.querySelector<HTMLElement>('.eaf-chat__panel')!
+    const launcherWrap = root.querySelector<HTMLElement>('.eaf-chat__launcher-wrap')!
+    const launcher = root.querySelector<HTMLButtonElement>('.eaf-chat__launcher')!
+    const minimize = root.querySelector<HTMLButtonElement>('.eaf-chat__minimize')!
+
+    expect(root.classList.contains('eaf-chat--closed')).toBe(true)
+    expect(panel.hidden).toBe(true)
+    expect(launcherWrap.hidden).toBe(false)
+    expect(root.dataset.launcherState).toBe('idle')
+
+    launcher.click()
+    expect(root.classList.contains('eaf-chat--closed')).toBe(false)
+    expect(panel.hidden).toBe(false)
+    expect(launcherWrap.hidden).toBe(true)
+
+    minimize.click()
+    expect(panel.hidden).toBe(true)
+    expect(launcherWrap.hidden).toBe(false)
+
+    chat.open()
+    expect(panel.hidden).toBe(false)
+    expect(launcherWrap.hidden).toBe(true)
+    chat.close()
+    expect(panel.hidden).toBe(true)
+    expect(launcherWrap.hidden).toBe(false)
+    chat.destroy()
+  })
+
+  it('supports keyboard resizing from the floating panel anchor', async () => {
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+      position: 'bottom-right',
+    })
+    await flushMicrotasks()
+
+    const root = mountEl.querySelector<HTMLElement>('.eaf-chat')!
+    const panel = root.querySelector<HTMLElement>('.eaf-chat__panel')!
+    const resizeHandle = root.querySelector<HTMLButtonElement>('.eaf-chat__resize-handle')!
+    vi.spyOn(panel, 'getBoundingClientRect').mockImplementation(() => {
+      const width = Number.parseFloat(root.style.getPropertyValue('--reachai-chat-user-width')) || 380
+      const height = Number.parseFloat(root.style.getPropertyValue('--reachai-chat-user-height')) || 560
+      return { width, height, top: 0, right: width, bottom: height, left: 0, x: 0, y: 0, toJSON: () => ({}) }
+    })
+
+    expect(resizeHandle.dataset.resizeAnchor).toBe('north-west')
+    resizeHandle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
+    resizeHandle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+
+    expect(root.style.getPropertyValue('--reachai-chat-user-width')).toBe('396px')
+    expect(root.style.getPropertyValue('--reachai-chat-user-height')).toBe('576px')
+    expect(resizeHandle.getAttribute('aria-label')).toBe('调整对话框大小，当前 396 × 576')
+    chat.destroy()
+  })
+
+  it('drags the floating panel from its header and keeps it inside the viewport', async () => {
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+      position: 'bottom-right',
+    })
+    await flushMicrotasks()
+
+    const root = mountEl.querySelector<HTMLElement>('.eaf-chat')!
+    const panel = root.querySelector<HTMLElement>('.eaf-chat__panel')!
+    const header = root.querySelector<HTMLElement>('.eaf-chat__header')!
+    const minimize = root.querySelector<HTMLButtonElement>('.eaf-chat__minimize')!
+    const width = 380
+    const height = 560
+    const initialLeft = window.innerWidth - width - 16
+    const initialTop = window.innerHeight - height - 16
+    vi.spyOn(panel, 'getBoundingClientRect').mockImplementation(() => {
+      const customLeft = Number.parseFloat(panel.style.left)
+      const customTop = Number.parseFloat(panel.style.top)
+      const left = Number.isFinite(customLeft) ? customLeft : initialLeft
+      const top = Number.isFinite(customTop) ? customTop : initialTop
+      return { width, height, top, right: left + width, bottom: top + height, left, x: left, y: top, toJSON: () => ({}) }
+    })
+
+    const pointerId = 17
+    const startX = initialLeft + 120
+    const startY = initialTop + 24
+    header.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      clientX: startX,
+      clientY: startY,
+      isPrimary: true,
+      pointerId,
+    }))
+    window.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: startX - 240,
+      clientY: startY - 100,
+      isPrimary: true,
+      pointerId,
+    }))
+    window.dispatchEvent(new PointerEvent('pointerup', { isPrimary: true, pointerId }))
+
+    expect(panel.style.left).toBe(`${Math.round(initialLeft - 240)}px`)
+    expect(panel.style.top).toBe(`${Math.round(initialTop - 100)}px`)
+    expect(panel.style.right).toBe('auto')
+    expect(panel.style.bottom).toBe('auto')
+    expect(root.classList.contains('eaf-chat--user-positioned')).toBe(true)
+    expect(root.classList.contains('eaf-chat--panel-dragging')).toBe(false)
+
+    const settledLeft = panel.style.left
+    const settledTop = panel.style.top
+    minimize.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+      isPrimary: true,
+      pointerId: 18,
+    }))
+    window.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 200,
+      clientY: 200,
+      isPrimary: true,
+      pointerId: 18,
+    }))
+    expect(panel.style.left).toBe(settledLeft)
+    expect(panel.style.top).toBe(settledTop)
+
+    header.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      clientX: 100,
+      clientY: 100,
+      isPrimary: true,
+      pointerId: 19,
+    }))
+    window.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: -2000,
+      clientY: -2000,
+      isPrimary: true,
+      pointerId: 19,
+    }))
+    window.dispatchEvent(new PointerEvent('pointerup', { isPrimary: true, pointerId: 19 }))
+    expect(panel.style.left).toBe('12px')
+    expect(panel.style.top).toBe('12px')
+    chat.destroy()
+  })
+
+  it('marks a completed background response unread until the launcher opens', async () => {
+    ;(globalThis.fetch as any)
+      .mockResolvedValueOnce(sessionResponse('sess-unread'))
+      .mockResolvedValueOnce(sse([
+        'event: message.completed\ndata: {"sessionId":"sess-unread","answer":"ok","metadata":{}}\n\n',
+      ]))
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+      position: 'bottom-right',
+      initialOpen: false,
+    })
+    await flushMicrotasks()
+
+    const root = mountEl.querySelector<HTMLElement>('.eaf-chat')!
+    await chat.send('hello')
+    expect(root.dataset.launcherState).toBe('unread')
+
+    root.querySelector<HTMLButtonElement>('.eaf-chat__launcher')!.click()
+    expect(root.dataset.launcherState).toBe('idle')
+    chat.destroy()
+  })
+
   it.each([
     ['empty token', () => '', 'TOKEN_PROVIDER_EMPTY'],
     ['broker 401', () => Promise.reject(Object.assign(new Error('broker unauthorized'), { status: 401 })), 'TOKEN_PROVIDER_UNAUTHORIZED'],
@@ -533,6 +766,48 @@ describe('createEafChat facade', () => {
 
     chatUi.destroy()
     uiMount.remove()
+  })
+
+  it('renders card-only output without duplicated answer text and re-enables the composer', async () => {
+    const uiRequest = {
+      schemaVersion: '1.0',
+      interactionId: 'output-list-1',
+      type: 'PRESENT_OUTPUT',
+      component: 'list_card',
+      title: '查询结果',
+      data: { total: 1, records: [{ id: '1', name: '结果一' }] },
+      behavior: { blocking: false, acknowledge: false },
+      presentation: { mode: 'card_only' },
+    }
+    ;(globalThis.fetch as any)
+      .mockResolvedValueOnce(sessionResponse('sess-output-list'))
+      .mockResolvedValueOnce(sse([
+        'event: message.delta\ndata: {"text":"查询完成"}\n\n',
+        `event: ui.requested\ndata: ${JSON.stringify({ uiRequest })}\n\n`,
+        `event: message.completed\ndata: ${JSON.stringify({
+          sessionId: 'sess-output-list',
+          answer: '查询完成',
+          uiRequest,
+          metadata: {},
+        })}\n\n`,
+      ]))
+
+    const chat = await createEafChat({
+      agentId: 'agent-1',
+      mount: mountEl,
+      tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed',
+      bridge: createEafPageBridge({ route: '/' }),
+    })
+
+    await chat.send('查询')
+    await flushMicrotasks()
+
+    const textarea = mountEl.querySelector('textarea') as HTMLTextAreaElement
+    expect(mountEl.textContent).toContain('查询结果')
+    expect(mountEl.textContent).not.toContain('查询完成')
+    expect(textarea.disabled).toBe(false)
+    chat.destroy()
   })
 
   it('same requestId from SSE, completion queue and pending poll fires once', async () => {

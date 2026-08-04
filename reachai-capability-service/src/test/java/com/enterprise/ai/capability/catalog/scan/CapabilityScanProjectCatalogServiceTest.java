@@ -12,6 +12,8 @@ import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinition
 import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper;
 import com.enterprise.ai.agent.registry.ProjectInstanceEntity;
 import com.enterprise.ai.agent.registry.ProjectInstanceMapper;
+import com.enterprise.ai.agent.registry.CapabilitySnapshotEntity;
+import com.enterprise.ai.agent.registry.CapabilitySnapshotMapper;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistryCredentialMapper;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
@@ -48,6 +50,7 @@ class CapabilityScanProjectCatalogServiceTest {
     private final CapabilityToolExecutionService toolExecutionService = mock(CapabilityToolExecutionService.class);
     private final CapabilityScannerClient scannerClient = mock(CapabilityScannerClient.class);
     private final ProjectInstanceMapper projectInstanceMapper = mock(ProjectInstanceMapper.class);
+    private final CapabilitySnapshotMapper capabilitySnapshotMapper = mock(CapabilitySnapshotMapper.class);
     private final CapabilityScanProjectCatalogService service =
             new CapabilityScanProjectCatalogService(
                     scanProjectMapper,
@@ -61,6 +64,7 @@ class CapabilityScanProjectCatalogServiceTest {
                     toolDefinitionMapper,
                     scannerClient,
                     projectInstanceMapper,
+                    capabilitySnapshotMapper,
                     new ObjectMapper());
 
     @Test
@@ -108,7 +112,12 @@ class CapabilityScanProjectCatalogServiceTest {
                 .orElseThrow()
                 .status());
         assertEquals("PENDING", response.readiness().stream()
-                .filter(item -> "E2E_READY".equals(item.key()))
+                .filter(item -> "SDK_CALLBACK_READY".equals(item.key()))
+                .findFirst()
+                .orElseThrow()
+                .status());
+        assertEquals("PENDING", response.readiness().stream()
+                .filter(item -> "CODE_READY".equals(item.key()))
                 .findFirst()
                 .orElseThrow()
                 .status());
@@ -353,6 +362,7 @@ class CapabilityScanProjectCatalogServiceTest {
 
         ScanProjectToolEntity result = service.updateTool(7L, 11L, new CapabilityScanProjectCatalogService.ScanProjectToolUpsertRequest(
                 "orders_create",
+                "创建订单",
                 "Create order",
                 List.of(new ToolDefinitionParameter("body", "object", "request", true, "body")),
                 "code",
@@ -363,19 +373,17 @@ class CapabilityScanProjectCatalogServiceTest {
                 "/orders",
                 "OrderCreateRequest",
                 "OrderDTO",
-                true,
-                false,
                 true
         ));
 
         assertEquals(existing, result);
         assertEquals("orders_create", existing.getName());
+        assertEquals("创建订单", existing.getTitle());
         assertEquals("Create order", existing.getDescription());
         assertEquals("POST", existing.getHttpMethod());
         assertEquals("/api", existing.getContextPath());
         assertEquals("/orders", existing.getEndpointPath());
-        assertEquals(false, existing.getAgentVisible());
-        assertEquals(true, existing.getLightweightEnabled());
+        assertEquals(true, existing.getEnabled());
         verify(scanProjectToolMapper).updateById(existing);
     }
 
@@ -389,6 +397,7 @@ class CapabilityScanProjectCatalogServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.updateTool(7L, 11L,
                 new CapabilityScanProjectCatalogService.ScanProjectToolUpsertRequest(
                         " ",
+                        "创建订单",
                         "Create order",
                         List.of(),
                         "code",
@@ -399,8 +408,6 @@ class CapabilityScanProjectCatalogServiceTest {
                         "/orders",
                         null,
                         null,
-                        true,
-                        true,
                         false
                 )));
     }
@@ -466,7 +473,7 @@ class CapabilityScanProjectCatalogServiceTest {
                         "/orders",
                         "OrderCreateRequest",
                         "OrderDTO",
-                        Map.of("agentVisible", true)))));
+                        Map.of()))));
 
         CapabilityScanProjectCatalogService.ScanResult result = service.scan(7L);
 
@@ -515,7 +522,6 @@ class CapabilityScanProjectCatalogServiceTest {
         existing.setProjectId(7L);
         existing.setName("orders_create");
         existing.setEnabled(true);
-        existing.setAgentVisible(false);
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
         when(scanProjectToolMapper.selectOne(any())).thenReturn(existing);
         when(scannerClient.scanOpenApi(any())).thenReturn(okManifest(List.of(
@@ -528,7 +534,7 @@ class CapabilityScanProjectCatalogServiceTest {
                         "/orders",
                         "OrderCreateRequest",
                         "OrderDTO",
-                        Map.of("agentVisible", true)))));
+                        Map.of()))));
 
         ScanProjectToolEntity result = service.rescanSingleTool(7L, 11L);
 
@@ -537,7 +543,6 @@ class CapabilityScanProjectCatalogServiceTest {
         assertEquals("Create order", existing.getDescription());
         assertEquals("OrderCreateRequest", existing.getRequestBodyType());
         assertEquals(true, existing.getEnabled());
-        assertEquals(false, existing.getAgentVisible());
         assertEquals(false, existing.getRemovedFromSource());
         verify(scanProjectToolMapper).updateById(existing);
     }
@@ -600,13 +605,133 @@ class CapabilityScanProjectCatalogServiceTest {
         assertEquals("tool11", result.globalToolName());
         assertEquals(501L, scanTool.getGlobalToolDefinitionId());
         assertEquals("TOOL", inserted.get().getKind());
+        assertEquals("Tool 11", inserted.get().getTitle());
         assertEquals("scanner", inserted.get().getSource());
         assertEquals(7L, inserted.get().getProjectId());
         assertEquals("orders", inserted.get().getProjectCode());
         assertEquals("orders:tool11", inserted.get().getQualifiedName());
-        assertEquals("PROJECT", inserted.get().getVisibility());
         assertEquals("https://api.example.com", inserted.get().getBaseUrl());
         verify(scanProjectToolMapper).updateById(scanTool);
+    }
+
+    @Test
+    void sdkAccessCheckUsesSuccessfulSignedCallbackSnapshotAsCallbackEvidence() {
+        ScanProjectEntity project = seededProject();
+        CapabilitySnapshotEntity callbackSnapshot = new CapabilitySnapshotEntity();
+        callbackSnapshot.setId(19L);
+        callbackSnapshot.setProjectId(7L);
+        callbackSnapshot.setSource("SDK_CALLBACK");
+        callbackSnapshot.setCreatedAt(LocalDateTime.of(2026, 7, 27, 9, 30));
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        when(registryCredentialMapper.selectOne(any())).thenReturn(activeCredential());
+        when(projectInstanceMapper.selectOne(any())).thenReturn(instance(
+                "ONLINE", LocalDateTime.now().minusMinutes(1)));
+        when(capabilitySnapshotMapper.selectOne(any())).thenReturn(callbackSnapshot);
+
+        CapabilityScanProjectCatalogService.SdkAccessCheckResponse response = service.sdkAccessCheck(7L);
+
+        CapabilityScanProjectCatalogService.SdkAccessCheckItem callback = response.checks().stream()
+                .filter(check -> "SDK_SYNC_CALLBACK".equals(check.key()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("PASS", callback.status());
+        assertTrue(callback.message().contains("2026-07-27T09:30"));
+        assertEquals("PASS", response.readiness().stream()
+                .filter(item -> "SDK_CALLBACK_READY".equals(item.key()))
+                .findFirst()
+                .orElseThrow()
+                .status());
+        assertTrue(response.readiness().stream()
+                .noneMatch(item -> "E2E_READY".equals(item.key())));
+        assertEquals("SDK 回调闭环", response.readiness().stream()
+                .filter(item -> "SDK_CALLBACK_READY".equals(item.key()))
+                .findFirst()
+                .orElseThrow()
+                .label());
+        Map<String, Object> readinessFacts = service.readinessFacts(7L);
+        assertEquals("PASS", readinessFacts.get("sdkCallbackStatus"));
+        assertTrue(String.valueOf(readinessFacts.get("sdkCallbackMessage"))
+                .contains("2026-07-27T09:30"));
+        assertEquals("PASS", response.overallStatus());
+    }
+
+    @Test
+    void sdkAccessCheckDoesNotReuseCallbackEvidenceFromBeforeConfigurationUpdate() {
+        ScanProjectEntity project = seededProject();
+        project.setUpdateTime(LocalDateTime.of(2026, 7, 27, 10, 0));
+        CapabilitySnapshotEntity callbackSnapshot = new CapabilitySnapshotEntity();
+        callbackSnapshot.setId(19L);
+        callbackSnapshot.setProjectId(7L);
+        callbackSnapshot.setSource("SDK_CALLBACK");
+        callbackSnapshot.setCreatedAt(LocalDateTime.of(2026, 7, 27, 9, 30));
+        callbackSnapshot.setPayloadJson(callbackPayload("http://localhost:9090", "/orders-api"));
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        when(registryCredentialMapper.selectOne(any())).thenReturn(activeCredential());
+        when(projectInstanceMapper.selectOne(any())).thenReturn(instance(
+                "ONLINE", LocalDateTime.now().minusMinutes(1)));
+        when(capabilitySnapshotMapper.selectOne(any())).thenReturn(callbackSnapshot);
+
+        CapabilityScanProjectCatalogService.SdkAccessCheckResponse response = service.sdkAccessCheck(7L);
+
+        CapabilityScanProjectCatalogService.SdkAccessCheckItem callback = response.checks().stream()
+                .filter(check -> "SDK_SYNC_CALLBACK".equals(check.key()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("WARN", callback.status());
+        assertTrue(callback.message().contains("STALE_EVIDENCE"));
+        assertEquals("PENDING", response.readiness().stream()
+                .filter(item -> "SDK_CALLBACK_READY".equals(item.key()))
+                .findFirst()
+                .orElseThrow()
+                .status());
+        assertEquals("WARN", response.overallStatus());
+    }
+
+    @Test
+    void sdkAccessCheckKeepsCallbackEvidenceAfterIdempotentReregistration() {
+        ScanProjectEntity project = seededProject();
+        project.setUpdateTime(LocalDateTime.of(2026, 7, 27, 10, 0));
+        CapabilitySnapshotEntity callbackSnapshot = new CapabilitySnapshotEntity();
+        callbackSnapshot.setId(19L);
+        callbackSnapshot.setProjectId(7L);
+        callbackSnapshot.setSource("SDK_CALLBACK");
+        callbackSnapshot.setCreatedAt(LocalDateTime.of(2026, 7, 27, 9, 30));
+        callbackSnapshot.setPayloadJson(callbackPayload("http://localhost:8080/", "/orders-api"));
+        when(scanProjectMapper.selectById(7L)).thenReturn(project);
+        when(registryCredentialMapper.selectOne(any())).thenReturn(activeCredential());
+        when(projectInstanceMapper.selectOne(any())).thenReturn(instance(
+                "ONLINE", LocalDateTime.now().minusMinutes(1)));
+        when(capabilitySnapshotMapper.selectOne(any())).thenReturn(callbackSnapshot);
+
+        CapabilityScanProjectCatalogService.SdkAccessCheckResponse response = service.sdkAccessCheck(7L);
+
+        CapabilityScanProjectCatalogService.SdkAccessCheckItem callback = response.checks().stream()
+                .filter(check -> "SDK_SYNC_CALLBACK".equals(check.key()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("PASS", callback.status());
+        assertEquals("PASS", response.readiness().stream()
+                .filter(item -> "SDK_CALLBACK_READY".equals(item.key()))
+                .findFirst()
+                .orElseThrow()
+                .status());
+    }
+
+    private String callbackPayload(String baseUrl, String contextPath) {
+        return """
+                {
+                  "syncId":"sync-1",
+                  "source":"SDK_CALLBACK",
+                  "apply":false,
+                  "capabilities":[
+                    {
+                      "name":"orders.search",
+                      "baseUrl":"%s",
+                      "contextPath":"%s"
+                    }
+                  ]
+                }
+                """.formatted(baseUrl, contextPath);
     }
 
     @Test
@@ -616,6 +741,7 @@ class CapabilityScanProjectCatalogServiceTest {
                 "查询班组信息", null, null);
         scanTool.setProjectId(7L);
         scanTool.setName("orders_qmssmp_team_search");
+        scanTool.setTitle("查询班组信息");
         scanTool.setSourceLocation("sdk:orders:qmssmp.team.search");
         scanTool.setCapabilityMetadataJson("{\"sideEffect\":\"READ\"}");
         AtomicReference<ToolDefinitionEntity> inserted = new AtomicReference<>();
@@ -631,6 +757,7 @@ class CapabilityScanProjectCatalogServiceTest {
         service.promoteTool(7L, 11L);
 
         assertEquals("orders:qmssmp.team.search", inserted.get().getQualifiedName());
+        assertEquals("查询班组信息", inserted.get().getTitle());
         assertEquals("READ_ONLY", inserted.get().getSideEffect());
     }
 
@@ -736,6 +863,7 @@ class CapabilityScanProjectCatalogServiceTest {
         tool.setEndpointPath(path);
         tool.setSourceLocation("com.example.Controller#" + id);
         tool.setName("tool" + id);
+        tool.setTitle("Tool " + id);
         tool.setDescription(description);
         tool.setAiDescription(aiDescription);
         tool.setGlobalToolDefinitionId(globalToolDefinitionId);
@@ -755,6 +883,7 @@ class CapabilityScanProjectCatalogServiceTest {
         ToolDefinitionEntity tool = new ToolDefinitionEntity();
         tool.setId(id);
         tool.setName(scanTool.getName());
+        tool.setTitle(scanTool.getTitle());
         tool.setDescription(id == 100L ? scanTool.getDescription() + " old" : scanTool.getDescription());
         tool.setParametersJson(scanTool.getParametersJson());
         tool.setHttpMethod(scanTool.getHttpMethod());
@@ -764,8 +893,6 @@ class CapabilityScanProjectCatalogServiceTest {
         tool.setRequestBodyType(scanTool.getRequestBodyType());
         tool.setResponseType(scanTool.getResponseType());
         tool.setEnabled(scanTool.getEnabled());
-        tool.setAgentVisible(scanTool.getAgentVisible());
-        tool.setLightweightEnabled(scanTool.getLightweightEnabled());
         return tool;
     }
 

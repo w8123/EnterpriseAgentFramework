@@ -20,19 +20,26 @@ public final class ControlEmbedChatArtifactSupport {
     public static final String VERSION = "1.0.0-SNAPSHOT";
     public static final String FORMAT = "npm-tarball";
     public static final String TARBALL_FILE_NAME = "reachai-embed-chat-" + VERSION + ".tgz";
+    public static final String MANIFEST_FILE_NAME = "manifest-artifact.json";
     public static final String CLASS_PATH_DIR = "ai-assist/artifacts/embed-chat/";
     public static final String SKILL_RELATIVE_PATH = "artifacts/" + TARBALL_FILE_NAME;
+    public static final String SKILL_MANIFEST_RELATIVE_PATH = "artifacts/" + MANIFEST_FILE_NAME;
+    public static final String SKILL_INSTALLER_RELATIVE_PATH = "scripts/install-embed-chat.mjs";
     public static final String ARTIFACT_PATH_WITHIN_SKILL = "reachai-onboarding/" + SKILL_RELATIVE_PATH;
+    public static final String VENDORED_ARTIFACT_PATH = "vendor/reachai/" + TARBALL_FILE_NAME;
     public static final String INSTALL_WORKING_DIRECTORY = "business-frontend-package-root";
     public static final String FALLBACK_POLICY = "skill-zip-tarball";
     public static final String SOURCE_POLICY = "platform-artifact-tarball";
     /**
-     * Run from the business frontend directory that contains package.json.
-     * Replace {skillExtractDir} with the absolute directory where the onboarding skill zip was extracted.
-     * Skill extract root may be outside the business repository.
+     * Replace {skillExtractDir} with the absolute directory where the onboarding
+     * skill zip was extracted. The installer verifies the bundled artifact,
+     * vendors it below the business frontend, and runs npm using a stable
+     * relative path.
      */
     public static final String INSTALL_COMMAND_TEMPLATE =
-            "npm install \"{skillExtractDir}/" + ARTIFACT_PATH_WITHIN_SKILL + "\"";
+            "node \"{skillExtractDir}/reachai-onboarding/"
+                    + SKILL_INSTALLER_RELATIVE_PATH
+                    + "\" --business-frontend-dir \".\"";
     public static final String INSTALL_COMMAND = INSTALL_COMMAND_TEMPLATE;
 
     public static final List<String> REQUIRED_FILES = List.of(
@@ -60,8 +67,8 @@ public final class ControlEmbedChatArtifactSupport {
         if (!resource.exists()) {
             return null;
         }
-        try {
-            String text = new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+        try (var input = resource.getInputStream()) {
+            String text = new String(input.readAllBytes(), StandardCharsets.UTF_8).trim();
             return StringUtils.hasText(text) ? text.split("\\s+")[0] : null;
         } catch (IOException ex) {
             return null;
@@ -81,9 +88,10 @@ public final class ControlEmbedChatArtifactSupport {
                 List.of(),
                 INSTALL_COMMAND,
                 "Install from the business frontend package.json directory. "
-                        + "Resolve the absolute tarball path from skill zip extract root + artifactPathWithinSkill "
-                        + "(or expand {skillExtractDir} in installCommandTemplate). "
-                        + "Skill may live outside the business repository; do not use a fixed ./artifacts relative path. "
+                        + "Expand {skillExtractDir} in installCommandTemplate and run the bundled Node installer. "
+                        + "It verifies integritySha256, copies the tarball to " + VENDORED_ARTIFACT_PATH + ", "
+                        + "and records a portable repo-relative file dependency. "
+                        + "Do not npm install directly from a temporary Skill extract path. "
                         + "Authenticated platform downloadUrl needs AI Coding/platform auth headers; "
                         + "npm cannot send those headers, so prefer the skill-bundled tarball. "
                         + "Do not require a ReachAI source checkout or ai-admin-front build:sdk as business install.",
@@ -95,7 +103,9 @@ public final class ControlEmbedChatArtifactSupport {
                 REQUIRED_FILES,
                 ARTIFACT_PATH_WITHIN_SKILL,
                 INSTALL_WORKING_DIRECTORY,
-                INSTALL_COMMAND_TEMPLATE);
+                INSTALL_COMMAND_TEMPLATE,
+                null,
+                null);
     }
 
     public static ResponseEntity<byte[]> tarballResponse(String version) throws IOException {
@@ -109,7 +119,10 @@ public final class ControlEmbedChatArtifactSupport {
         if (!resource.exists()) {
             return ResponseEntity.notFound().build();
         }
-        byte[] body = resource.getInputStream().readAllBytes();
+        byte[] body;
+        try (var input = resource.getInputStream()) {
+            body = input.readAllBytes();
+        }
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
                         .filename(TARBALL_FILE_NAME, StandardCharsets.UTF_8)
@@ -131,7 +144,10 @@ public final class ControlEmbedChatArtifactSupport {
         if (!resource.exists()) {
             return ResponseEntity.notFound().build();
         }
-        byte[] body = resource.getInputStream().readAllBytes();
+        byte[] body;
+        try (var input = resource.getInputStream()) {
+            body = input.readAllBytes();
+        }
         return ResponseEntity.ok()
                 .contentType(MediaType.TEXT_PLAIN)
                 .contentLength(body.length)
@@ -143,6 +159,19 @@ public final class ControlEmbedChatArtifactSupport {
         if (!resource.exists()) {
             throw new IOException("Missing Embed Chat artifact: " + TARBALL_FILE_NAME);
         }
-        return resource.getInputStream().readAllBytes();
+        try (var input = resource.getInputStream()) {
+            return input.readAllBytes();
+        }
+    }
+
+    public static byte[] loadManifestBytes() throws IOException {
+        ClassPathResource resource = new ClassPathResource(
+                CLASS_PATH_DIR + MANIFEST_FILE_NAME);
+        if (!resource.exists()) {
+            throw new IOException("Missing Embed Chat artifact manifest");
+        }
+        try (var input = resource.getInputStream()) {
+            return input.readAllBytes();
+        }
     }
 }

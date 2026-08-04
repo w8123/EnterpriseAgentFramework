@@ -26,8 +26,14 @@ public class RuntimeWorkflowDefinitionService {
     private final RuntimeWorkflowDefinitionMapper mapper;
     private final RuntimeWorkflowVersionMapper versionMapper;
     private final RuntimeAgentWorkflowToolMapper workflowToolMapper;
+    private final RuntimeWorkflowDocumentCanonicalizer documentCanonicalizer;
+    private final RuntimeWorkflowResourceBindingService resourceBindingService;
 
-    public List<RuntimeWorkflowDefinitionEntity> list(Long projectId, String projectCode, String workflowType, String status) {
+    public List<RuntimeWorkflowDefinitionEntity> list(Long projectId,
+                                                       String projectCode,
+                                                       String workflowKind,
+                                                       String definitionAuthority,
+                                                       String status) {
         var query = Wrappers.<RuntimeWorkflowDefinitionEntity>lambdaQuery()
                 .orderByDesc(RuntimeWorkflowDefinitionEntity::getUpdatedAt);
         if (projectId != null) {
@@ -36,8 +42,13 @@ public class RuntimeWorkflowDefinitionService {
         if (StringUtils.hasText(projectCode)) {
             query.eq(RuntimeWorkflowDefinitionEntity::getProjectCode, projectCode.trim());
         }
-        if (StringUtils.hasText(workflowType)) {
-            query.eq(RuntimeWorkflowDefinitionEntity::getWorkflowType, workflowType.trim());
+        if (StringUtils.hasText(workflowKind)) {
+            query.eq(RuntimeWorkflowDefinitionEntity::getWorkflowKind,
+                    WorkflowSemanticValues.normalizeWorkflowKind(workflowKind));
+        }
+        if (StringUtils.hasText(definitionAuthority)) {
+            query.eq(RuntimeWorkflowDefinitionEntity::getDefinitionAuthority,
+                    WorkflowSemanticValues.normalizeDefinitionAuthority(definitionAuthority));
         }
         if (StringUtils.hasText(status)) {
             query.eq(RuntimeWorkflowDefinitionEntity::getStatus, status.trim());
@@ -50,22 +61,24 @@ public class RuntimeWorkflowDefinitionService {
     }
 
     public RuntimeWorkflowSearchPage search(Long projectId,
-                                            String projectCode,
-                                            String workflowType,
-                                            String status,
-                                            String keyword,
-                                            int current,
-                                            int size) {
+                                             String projectCode,
+                                             String workflowKind,
+                                             String definitionAuthority,
+                                             String status,
+                                             String keyword,
+                                             int current,
+                                             int size) {
         int safeCurrent = Math.max(current, 1);
         int safeSize = Math.min(Math.max(size, 1), 100);
-        Long total = mapper.selectCount(searchQuery(projectId, projectCode, workflowType, status, keyword));
+        Long total = mapper.selectCount(searchQuery(
+                projectId, projectCode, workflowKind, definitionAuthority, status, keyword));
         long totalCount = total == null ? 0L : total;
         if (totalCount == 0L) {
             return new RuntimeWorkflowSearchPage(List.of(), 0L, safeCurrent, safeSize);
         }
         long offset = (long) (safeCurrent - 1) * safeSize;
         List<RuntimeWorkflowDefinitionEntity> records = mapper.selectList(
-                searchQuery(projectId, projectCode, workflowType, status, keyword)
+                searchQuery(projectId, projectCode, workflowKind, definitionAuthority, status, keyword)
                         .orderByDesc(RuntimeWorkflowDefinitionEntity::getUpdatedAt)
                         .last("LIMIT " + offset + ", " + safeSize));
         return new RuntimeWorkflowSearchPage(records, totalCount, safeCurrent, safeSize);
@@ -73,7 +86,8 @@ public class RuntimeWorkflowDefinitionService {
 
     private LambdaQueryWrapper<RuntimeWorkflowDefinitionEntity> searchQuery(Long projectId,
                                                                              String projectCode,
-                                                                             String workflowType,
+                                                                             String workflowKind,
+                                                                             String definitionAuthority,
                                                                              String status,
                                                                              String keyword) {
         var query = Wrappers.<RuntimeWorkflowDefinitionEntity>lambdaQuery();
@@ -83,8 +97,13 @@ public class RuntimeWorkflowDefinitionService {
         if (StringUtils.hasText(projectCode)) {
             query.eq(RuntimeWorkflowDefinitionEntity::getProjectCode, projectCode.trim());
         }
-        if (StringUtils.hasText(workflowType)) {
-            query.eq(RuntimeWorkflowDefinitionEntity::getWorkflowType, workflowType.trim());
+        if (StringUtils.hasText(workflowKind)) {
+            query.eq(RuntimeWorkflowDefinitionEntity::getWorkflowKind,
+                    WorkflowSemanticValues.normalizeWorkflowKind(workflowKind));
+        }
+        if (StringUtils.hasText(definitionAuthority)) {
+            query.eq(RuntimeWorkflowDefinitionEntity::getDefinitionAuthority,
+                    WorkflowSemanticValues.normalizeDefinitionAuthority(definitionAuthority));
         }
         if (StringUtils.hasText(status)) {
             query.eq(RuntimeWorkflowDefinitionEntity::getStatus, status.trim());
@@ -96,7 +115,8 @@ public class RuntimeWorkflowDefinitionService {
                     .or().like(RuntimeWorkflowDefinitionEntity::getKeySlug, searchText)
                     .or().like(RuntimeWorkflowDefinitionEntity::getDescription, searchText)
                     .or().like(RuntimeWorkflowDefinitionEntity::getProjectCode, searchText)
-                    .or().like(RuntimeWorkflowDefinitionEntity::getWorkflowType, searchText));
+                    .or().like(RuntimeWorkflowDefinitionEntity::getWorkflowKind, searchText)
+                    .or().like(RuntimeWorkflowDefinitionEntity::getCreationChannel, searchText));
         }
         return query;
     }
@@ -188,6 +208,7 @@ public class RuntimeWorkflowDefinitionService {
         }
         versionMapper.delete(Wrappers.<RuntimeWorkflowVersionEntity>lambdaQuery()
                 .eq(RuntimeWorkflowVersionEntity::getWorkflowId, workflowId));
+        resourceBindingService.deleteForWorkflow(workflowId);
         if (mapper.deleteById(workflowId) <= 0) {
             throw new IllegalArgumentException("workflow not found: " + id);
         }
@@ -223,17 +244,10 @@ public class RuntimeWorkflowDefinitionService {
         if (!StringUtils.hasText(entity.getName())) {
             throw new IllegalArgumentException("workflow name is required");
         }
-        if (!StringUtils.hasText(entity.getWorkflowType())) {
-            entity.setWorkflowType("CHAT");
-        }
-        if (!StringUtils.hasText(entity.getRuntimeType())) {
-            entity.setRuntimeType("LANGGRAPH4J");
-        }
+        applySemantics(entity, null);
+        canonicalizeDocuments(entity);
         if (!StringUtils.hasText(entity.getStatus())) {
             entity.setStatus("DRAFT");
-        }
-        if (!StringUtils.hasText(entity.getManagedBy())) {
-            entity.setManagedBy("MANUAL");
         }
         LocalDateTime now = LocalDateTime.now().withNano(0);
         entity.setCreatedAt(now);
@@ -252,17 +266,63 @@ public class RuntimeWorkflowDefinitionService {
         if (update.getDescription() != null) current.setDescription(update.getDescription());
         if (update.getProjectId() != null) current.setProjectId(update.getProjectId());
         if (StringUtils.hasText(update.getProjectCode())) current.setProjectCode(update.getProjectCode().trim());
-        if (StringUtils.hasText(update.getWorkflowType())) current.setWorkflowType(update.getWorkflowType().trim());
-        if (StringUtils.hasText(update.getRuntimeType())) current.setRuntimeType(update.getRuntimeType().trim());
-        if (update.getGraphSpecJson() != null) current.setGraphSpecJson(update.getGraphSpecJson());
-        if (update.getCanvasJson() != null) current.setCanvasJson(update.getCanvasJson());
+        if (hasSemanticInput(update)) {
+            applySemantics(update, semanticsOf(current));
+            current.setWorkflowKind(update.getWorkflowKind());
+            current.setExecutionEngine(update.getExecutionEngine());
+            current.setDefinitionAuthority(update.getDefinitionAuthority());
+            current.setCreationChannel(update.getCreationChannel());
+        }
+        if (update.getGraphSpecJson() != null) {
+            current.setGraphSpecJson(documentCanonicalizer.canonicalizeGraphSpecJson(update.getGraphSpecJson()));
+        }
+        if (update.getCanvasJson() != null) {
+            current.setCanvasJson(documentCanonicalizer.canonicalizeCanvasJson(update.getCanvasJson()));
+        }
         if (update.getInputSchemaJson() != null) current.setInputSchemaJson(update.getInputSchemaJson());
         if (update.getOutputSchemaJson() != null) current.setOutputSchemaJson(update.getOutputSchemaJson());
         if (update.getDefaultModelInstanceId() != null) current.setDefaultModelInstanceId(update.getDefaultModelInstanceId());
         if (update.getDefaultResourceConfigJson() != null) current.setDefaultResourceConfigJson(update.getDefaultResourceConfigJson());
         if (StringUtils.hasText(update.getStatus())) current.setStatus(update.getStatus().trim());
-        if (StringUtils.hasText(update.getManagedBy())) current.setManagedBy(update.getManagedBy().trim());
         if (update.getExtraJson() != null) current.setExtraJson(update.getExtraJson());
+    }
+
+    private void canonicalizeDocuments(RuntimeWorkflowDefinitionEntity workflow) {
+        if (workflow.getGraphSpecJson() != null) {
+            workflow.setGraphSpecJson(documentCanonicalizer.canonicalizeGraphSpecJson(workflow.getGraphSpecJson()));
+        }
+        if (workflow.getCanvasJson() != null) {
+            workflow.setCanvasJson(documentCanonicalizer.canonicalizeCanvasJson(workflow.getCanvasJson()));
+        }
+    }
+
+    private void applySemantics(RuntimeWorkflowDefinitionEntity workflow,
+                                WorkflowSemanticValues.Resolved fallback) {
+        WorkflowSemanticValues.Resolved resolved = WorkflowSemanticValues.resolve(
+                workflow.getWorkflowKind(),
+                workflow.getExecutionEngine(),
+                workflow.getDefinitionAuthority(),
+                workflow.getCreationChannel(),
+                fallback);
+        workflow.setWorkflowKind(resolved.workflowKind());
+        workflow.setExecutionEngine(resolved.executionEngine());
+        workflow.setDefinitionAuthority(resolved.definitionAuthority());
+        workflow.setCreationChannel(resolved.creationChannel());
+    }
+
+    private WorkflowSemanticValues.Resolved semanticsOf(RuntimeWorkflowDefinitionEntity workflow) {
+        return new WorkflowSemanticValues.Resolved(
+                workflow.getWorkflowKind(),
+                workflow.getExecutionEngine(),
+                workflow.getDefinitionAuthority(),
+                workflow.getCreationChannel());
+    }
+
+    private boolean hasSemanticInput(RuntimeWorkflowDefinitionEntity workflow) {
+        return StringUtils.hasText(workflow.getWorkflowKind())
+                || StringUtils.hasText(workflow.getExecutionEngine())
+                || StringUtils.hasText(workflow.getDefinitionAuthority())
+                || StringUtils.hasText(workflow.getCreationChannel());
     }
 
     private void requireValidKeySlug(String keySlug) {

@@ -62,7 +62,11 @@ class ControlRuntimePublicControllerTest {
         Method gatewayCatalog = ControlRuntimePublicController.class
                 .getDeclaredMethod("gatewayCatalog", Long.class);
         Method listWorkflows = ControlRuntimePublicController.class
-                .getDeclaredMethod("listWorkflows", Long.class, String.class, String.class, String.class);
+                .getDeclaredMethod("listWorkflows", Long.class, String.class, String.class, String.class,
+                        String.class);
+        Method searchWorkflows = ControlRuntimePublicController.class
+                .getDeclaredMethod("searchWorkflows", Long.class, String.class, String.class, String.class,
+                        String.class, String.class, Integer.class, Integer.class);
         Method createWorkflow = ControlRuntimePublicController.class
                 .getDeclaredMethod("createWorkflow", Map.class);
         Method getWorkflow = ControlRuntimePublicController.class.getDeclaredMethod("getWorkflow", String.class);
@@ -72,21 +76,24 @@ class ControlRuntimePublicControllerTest {
         Method graphNodeTypes = ControlRuntimePublicController.class.getDeclaredMethod("graphNodeTypes");
         Method validateWorkflowRuntime = ControlRuntimePublicController.class
                 .getDeclaredMethod("validateWorkflowRuntime", Map.class);
-        Method workflowStudio = ControlRuntimePublicController.class.getDeclaredMethod("workflowStudio", String.class);
-        Method saveWorkflowStudio = ControlRuntimePublicController.class
-                .getDeclaredMethod("saveWorkflowStudio", String.class, Map.class);
+        Method workflowWorkingCopy = ControlRuntimePublicController.class
+                .getDeclaredMethod("workflowWorkingCopy", String.class);
+        Method saveWorkflowWorkingCopy = ControlRuntimePublicController.class
+                .getDeclaredMethod("saveWorkflowWorkingCopy", String.class, Map.class);
         Method debugWorkflowNode = ControlRuntimePublicController.class
                 .getDeclaredMethod("debugWorkflowNode", Map.class);
         Method debugWorkflowRun = ControlRuntimePublicController.class
                 .getDeclaredMethod("debugWorkflowRun", Map.class);
-        Method generateWorkflowStudioDraft = ControlRuntimePublicController.class
-                .getDeclaredMethod("generateWorkflowStudioDraft", Map.class);
-        Method editWorkflowStudioDraft = ControlRuntimePublicController.class
-                .getDeclaredMethod("editWorkflowStudioDraft", Map.class);
+        Method generateWorkflowProposal = ControlRuntimePublicController.class
+                .getDeclaredMethod("generateWorkflowProposal", Map.class);
+        Method editWorkflowProposal = ControlRuntimePublicController.class
+                .getDeclaredMethod("editWorkflowProposal", Map.class);
         Method createWorkflowAiCodingWorkflow = ControlRuntimePublicController.class
                 .getDeclaredMethod("createWorkflowAiCodingWorkflow", Map.class, String.class);
         Method workflowAiCodingContext = ControlRuntimePublicController.class
                 .getDeclaredMethod("workflowAiCodingContext", String.class);
+        Method replaceWorkflowAiCodingResourceBindings = ControlRuntimePublicController.class
+                .getDeclaredMethod("replaceWorkflowAiCodingResourceBindings", String.class, Map.class);
         Method validateWorkflowAiCoding = ControlRuntimePublicController.class
                 .getDeclaredMethod("validateWorkflowAiCoding", String.class, Map.class);
         Method patchWorkflowAiCoding = ControlRuntimePublicController.class
@@ -111,8 +118,6 @@ class ControlRuntimePublicControllerTest {
                 .getDeclaredMethod("listWorkflowVersions", String.class);
         Method publishWorkflowVersion = ControlRuntimePublicController.class
                 .getDeclaredMethod("publishWorkflowVersion", String.class, Map.class);
-        Method publishWorkflowVersionExplicit = ControlRuntimePublicController.class
-                .getDeclaredMethod("publishWorkflowVersionExplicit", String.class, Map.class);
         Method validateWorkflowVersion = ControlRuntimePublicController.class
                 .getDeclaredMethod("validateWorkflowVersion", String.class);
         Method rollbackWorkflowVersion = ControlRuntimePublicController.class
@@ -185,6 +190,7 @@ class ControlRuntimePublicControllerTest {
         assertArrayEquals(new String[] {"/gateway/catalog"},
                 gatewayCatalog.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows"}, listWorkflows.getAnnotation(GetMapping.class).value());
+        assertArrayEquals(new String[] {"/api/workflows/search"}, searchWorkflows.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows"}, createWorkflow.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/{id}"}, getWorkflow.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/{id}"}, updateWorkflow.getAnnotation(PutMapping.class).value());
@@ -193,20 +199,24 @@ class ControlRuntimePublicControllerTest {
                 graphNodeTypes.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/runtime-validation"},
                 validateWorkflowRuntime.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/api/workflows/{id}/studio"}, workflowStudio.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[] {"/api/workflows/{id}/studio"}, saveWorkflowStudio.getAnnotation(PutMapping.class).value());
+        assertArrayEquals(new String[] {"/api/workflows/{id}/working-copy"},
+                workflowWorkingCopy.getAnnotation(GetMapping.class).value());
+        assertArrayEquals(new String[] {"/api/workflows/{id}/working-copy"},
+                saveWorkflowWorkingCopy.getAnnotation(PutMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/studio/debug-node"},
                 debugWorkflowNode.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/studio/debug-run"},
                 debugWorkflowRun.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/api/workflows/studio/generate-draft"},
-                generateWorkflowStudioDraft.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/api/workflows/studio/edit-draft"},
-                editWorkflowStudioDraft.getAnnotation(PostMapping.class).value());
+        assertArrayEquals(new String[] {"/api/workflows/studio/proposals/generate"},
+                generateWorkflowProposal.getAnnotation(PostMapping.class).value());
+        assertArrayEquals(new String[] {"/api/workflows/studio/proposals/edit"},
+                editWorkflowProposal.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/ai-coding/workflows"},
                 createWorkflowAiCodingWorkflow.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/{workflowId}/ai-coding/context"},
                 workflowAiCodingContext.getAnnotation(GetMapping.class).value());
+        assertArrayEquals(new String[] {"/api/workflows/{workflowId}/ai-coding/resource-bindings"},
+                replaceWorkflowAiCodingResourceBindings.getAnnotation(PutMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/{workflowId}/ai-coding/validate"},
                 validateWorkflowAiCoding.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/{workflowId}/ai-coding/patch"},
@@ -229,23 +239,21 @@ class ControlRuntimePublicControllerTest {
                 smokeTestWorkflowAiCodingPageAssistant.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/{workflowId}/versions"},
                 listWorkflowVersions.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[] {"/api/workflows/{workflowId}/versions"},
-                publishWorkflowVersion.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/{workflowId}/versions/publish"},
-                publishWorkflowVersionExplicit.getAnnotation(PostMapping.class).value());
+                publishWorkflowVersion.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/{workflowId}/versions/validate"},
                 validateWorkflowVersion.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/{workflowId}/versions/{versionId}/rollback"},
                 rollbackWorkflowVersion.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/workflows/{id}/page-assistant/attach-tool"},
                 attachPageAssistantWorkflowTool.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/api/agent/workflow-credentials", "/api/workflows/credentials"},
+        assertArrayEquals(new String[] {"/api/workflows/credentials"},
                 listWorkflowCredentials.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[] {"/api/agent/workflow-credentials", "/api/workflows/credentials"},
+        assertArrayEquals(new String[] {"/api/workflows/credentials"},
                 createWorkflowCredential.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/api/agent/workflow-credentials/{id}", "/api/workflows/credentials/{id}"},
+        assertArrayEquals(new String[] {"/api/workflows/credentials/{id}"},
                 updateWorkflowCredential.getAnnotation(PutMapping.class).value());
-        assertArrayEquals(new String[] {"/api/agent/workflow-credentials/{id}", "/api/workflows/credentials/{id}"},
+        assertArrayEquals(new String[] {"/api/workflows/credentials/{id}"},
                 deleteWorkflowCredential.getAnnotation(DeleteMapping.class).value());
         assertArrayEquals(new String[] {"/api/agents"}, listAgents.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/api/agents"}, createAgent.getAnnotation(PostMapping.class).value());
@@ -634,18 +642,27 @@ class ControlRuntimePublicControllerTest {
         ResponseEntity<Object> updated = ResponseEntity.ok(request);
         ResponseEntity<Object> found = ResponseEntity.ok(request);
         ResponseEntity<Object> deleted = ResponseEntity.noContent().build();
-        when(runtimeProxyClient.listWorkflows(7L, "orders", "CHAT", "DRAFT")).thenReturn(list);
+        when(runtimeProxyClient.listWorkflows(
+                7L, "orders", "GENERAL", "USER", "DRAFT")).thenReturn(list);
+        when(runtimeProxyClient.searchWorkflows(
+                7L, "orders", "GENERAL", "USER", "DRAFT", "order", 1, 20)).thenReturn(list);
         when(runtimeProxyClient.createWorkflow(request)).thenReturn(created);
         when(runtimeProxyClient.getWorkflow("wf-1")).thenReturn(found);
         when(runtimeProxyClient.updateWorkflow("wf-1", request)).thenReturn(updated);
         when(runtimeProxyClient.deleteWorkflow("wf-1")).thenReturn(deleted);
 
-        assertEquals(list, controller.listWorkflows(7L, "orders", "CHAT", "DRAFT"));
+        assertEquals(list, controller.listWorkflows(
+                7L, "orders", "GENERAL", "USER", "DRAFT"));
+        assertEquals(list, controller.searchWorkflows(
+                7L, "orders", "GENERAL", "USER", "DRAFT", "order", 1, 20));
         assertEquals(created, controller.createWorkflow(request));
         assertEquals(found, controller.getWorkflow("wf-1"));
         assertEquals(updated, controller.updateWorkflow("wf-1", request));
         assertEquals(deleted, controller.deleteWorkflow("wf-1"));
-        verify(runtimeProxyClient).listWorkflows(7L, "orders", "CHAT", "DRAFT");
+        verify(runtimeProxyClient).listWorkflows(
+                7L, "orders", "GENERAL", "USER", "DRAFT");
+        verify(runtimeProxyClient).searchWorkflows(
+                7L, "orders", "GENERAL", "USER", "DRAFT", "order", 1, 20);
         verify(runtimeProxyClient).createWorkflow(request);
         verify(runtimeProxyClient).getWorkflow("wf-1");
         verify(runtimeProxyClient).updateWorkflow("wf-1", request);
@@ -686,13 +703,13 @@ class ControlRuntimePublicControllerTest {
         Map<String, Object> request = Map.of("graphSpecJson", "{}");
         ResponseEntity<Object> state = ResponseEntity.ok(Map.of("workflowId", "wf-1"));
         ResponseEntity<Object> saved = ResponseEntity.ok(Map.of("id", "wf-1"));
-        when(runtimeProxyClient.workflowStudio("wf-1")).thenReturn(state);
-        when(runtimeProxyClient.saveWorkflowStudio("wf-1", request)).thenReturn(saved);
+        when(runtimeProxyClient.workflowWorkingCopy("wf-1")).thenReturn(state);
+        when(runtimeProxyClient.saveWorkflowWorkingCopy("wf-1", request)).thenReturn(saved);
 
-        assertEquals(state, controller.workflowStudio("wf-1"));
-        assertEquals(saved, controller.saveWorkflowStudio("wf-1", request));
-        verify(runtimeProxyClient).workflowStudio("wf-1");
-        verify(runtimeProxyClient).saveWorkflowStudio("wf-1", request);
+        assertEquals(state, controller.workflowWorkingCopy("wf-1"));
+        assertEquals(saved, controller.saveWorkflowWorkingCopy("wf-1", request));
+        verify(runtimeProxyClient).workflowWorkingCopy("wf-1");
+        verify(runtimeProxyClient).saveWorkflowWorkingCopy("wf-1", request);
     }
 
     @Test
@@ -714,7 +731,7 @@ class ControlRuntimePublicControllerTest {
     }
 
     @Test
-    void delegatesWorkflowStudioDraftToRuntimeService() {
+    void delegatesWorkflowProposalRoutesToRuntimeService() {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
         ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);
         Map<String, Object> request = Map.of("prompt", "draft an order workflow");
@@ -722,13 +739,13 @@ class ControlRuntimePublicControllerTest {
                 .body(Map.of("code", "RUNTIME_WORKFLOW_STUDIO_DRAFT_PENDING"));
         ResponseEntity<Object> edited = ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
                 .body(Map.of("code", "RUNTIME_WORKFLOW_STUDIO_DRAFT_PENDING"));
-        when(runtimeProxyClient.generateWorkflowStudioDraft(request)).thenReturn(generated);
-        when(runtimeProxyClient.editWorkflowStudioDraft(request)).thenReturn(edited);
+        when(runtimeProxyClient.generateWorkflowProposal(request)).thenReturn(generated);
+        when(runtimeProxyClient.editWorkflowProposal(request)).thenReturn(edited);
 
-        assertEquals(generated, controller.generateWorkflowStudioDraft(request));
-        assertEquals(edited, controller.editWorkflowStudioDraft(request));
-        verify(runtimeProxyClient).generateWorkflowStudioDraft(request);
-        verify(runtimeProxyClient).editWorkflowStudioDraft(request);
+        assertEquals(generated, controller.generateWorkflowProposal(request));
+        assertEquals(edited, controller.editWorkflowProposal(request));
+        verify(runtimeProxyClient).generateWorkflowProposal(request);
+        verify(runtimeProxyClient).editWorkflowProposal(request);
     }
 
     @Test
@@ -742,6 +759,7 @@ class ControlRuntimePublicControllerTest {
                 .body(Map.of("code", "RUNTIME_WORKFLOW_AI_CODING_PENDING"));
         when(runtimeProxyClient.createWorkflowAiCodingWorkflow(request)).thenReturn(pending);
         when(runtimeProxyClient.workflowAiCodingContext("wf-1")).thenReturn(pending);
+        when(runtimeProxyClient.replaceWorkflowAiCodingResourceBindings("wf-1", request)).thenReturn(pending);
         when(runtimeProxyClient.validateWorkflowAiCoding("wf-1", request)).thenReturn(pending);
         when(runtimeProxyClient.patchWorkflowAiCoding("wf-1", request)).thenReturn(pending);
         when(runtimeProxyClient.runWorkflowAiCoding("wf-1", request)).thenReturn(pending);
@@ -755,6 +773,7 @@ class ControlRuntimePublicControllerTest {
 
         assertEquals(pending, controller.createWorkflowAiCodingWorkflow(request, "rac_secret"));
         assertEquals(pending, controller.workflowAiCodingContext("wf-1"));
+        assertEquals(pending, controller.replaceWorkflowAiCodingResourceBindings("wf-1", request));
         assertEquals(pending, controller.validateWorkflowAiCoding("wf-1", request));
         assertEquals(pending, controller.patchWorkflowAiCoding("wf-1", request));
         assertEquals(pending, controller.runWorkflowAiCoding("wf-1", request));
@@ -768,6 +787,7 @@ class ControlRuntimePublicControllerTest {
         verify(runtimeProxyClient).createWorkflowAiCodingWorkflow(request);
         verify(aiCodingAccessGuard).requireWorkflowCreateAccess(request, "rac_secret");
         verify(runtimeProxyClient).workflowAiCodingContext("wf-1");
+        verify(runtimeProxyClient).replaceWorkflowAiCodingResourceBindings("wf-1", request);
         verify(runtimeProxyClient).validateWorkflowAiCoding("wf-1", request);
         verify(runtimeProxyClient).patchWorkflowAiCoding("wf-1", request);
         verify(runtimeProxyClient).runWorkflowAiCoding("wf-1", request);
@@ -792,18 +812,15 @@ class ControlRuntimePublicControllerTest {
         ResponseEntity<Object> rolled = ResponseEntity.ok(Map.of("id", 1L));
         when(runtimeProxyClient.listWorkflowVersions("wf-1")).thenReturn(versions);
         when(runtimeProxyClient.publishWorkflowVersion("wf-1", request)).thenReturn(published);
-        when(runtimeProxyClient.publishWorkflowVersionExplicit("wf-1", request)).thenReturn(published);
         when(runtimeProxyClient.validateWorkflowVersion("wf-1")).thenReturn(validation);
         when(runtimeProxyClient.rollbackWorkflowVersion("wf-1", 1L, rollbackRequest)).thenReturn(rolled);
 
         assertEquals(versions, controller.listWorkflowVersions("wf-1"));
         assertEquals(published, controller.publishWorkflowVersion("wf-1", request));
-        assertEquals(published, controller.publishWorkflowVersionExplicit("wf-1", request));
         assertEquals(validation, controller.validateWorkflowVersion("wf-1"));
         assertEquals(rolled, controller.rollbackWorkflowVersion("wf-1", 1L, rollbackRequest));
         verify(runtimeProxyClient).listWorkflowVersions("wf-1");
         verify(runtimeProxyClient).publishWorkflowVersion("wf-1", request);
-        verify(runtimeProxyClient).publishWorkflowVersionExplicit("wf-1", request);
         verify(runtimeProxyClient).validateWorkflowVersion("wf-1");
         verify(runtimeProxyClient).rollbackWorkflowVersion("wf-1", 1L, rollbackRequest);
     }

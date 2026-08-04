@@ -232,7 +232,7 @@ describe('createConversationController interaction cancel', () => {
   it('maps Workflow SSE turn.cancelled to cancelled card without failed', async () => {
     const publicEvents: string[] = []
     const transport: ConversationTransport = {
-      kind: 'workflow-draft',
+      kind: 'workflow-working-copy',
       capabilities: {
         eventStreaming: true,
         tokenStreaming: false,
@@ -588,7 +588,7 @@ describe('createConversationController assistant placeholder lifecycle', () => {
     let createCalls = 0
     let submitCalls = 0
     const transport: ConversationTransport = {
-      kind: 'workflow-draft',
+      kind: 'workflow-working-copy',
       capabilities: baseCaps({ structuredInitialInput: true, restore: true }),
       async *startTurn() {
         createCalls += 1

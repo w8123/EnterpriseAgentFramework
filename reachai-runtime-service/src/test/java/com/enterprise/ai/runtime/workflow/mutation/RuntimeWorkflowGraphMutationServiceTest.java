@@ -42,6 +42,53 @@ class RuntimeWorkflowGraphMutationServiceTest {
     }
 
     @Test
+    void setsWorkflowInputSchemaWithoutMutatingSource() {
+        GraphSpec source = graph();
+
+        MutationResult result = service.mutate(source, List.of(new MutationOperation(
+                MutationOperation.Op.SET_INPUT_SCHEMA,
+                null,
+                null,
+                Map.of(
+                        "type", "object",
+                        "required", List.of("message"),
+                        "properties", Map.of("message", Map.of("type", "string"))),
+                null,
+                null,
+                null,
+                null)));
+
+        assertEquals(null, source.getInputSchema());
+        assertEquals(List.of("message"), result.graphSpec().getInputSchema().get("required"));
+    }
+
+    @Test
+    void replacesToolInputMappingInsteadOfRetainingRemovedArguments() {
+        GraphSpec source = graph();
+        GraphSpec.Node tool = GraphSpec.Node.builder()
+                .id("tool")
+                .type("TOOL")
+                .name("Tool")
+                .config(Map.of("inputMapping", Map.of("legacy", "nodeOutput.extract.legacy")))
+                .build();
+        source.setNodes(List.of(source.getNodes().get(0), tool));
+
+        MutationResult result = service.mutate(source, List.of(new MutationOperation(
+                MutationOperation.Op.UPDATE_NODE,
+                null,
+                "tool",
+                Map.of("config", Map.of("inputMapping", Map.of("teamName", "nodeOutput.extract.teamName"))),
+                null,
+                null,
+                null,
+                null)));
+
+        assertEquals(
+                Map.of("teamName", "nodeOutput.extract.teamName"),
+                result.graphSpec().getNodes().get(1).getConfig().get("inputMapping"));
+    }
+
+    @Test
     void rejectsNodeIdMutationAndLeavesSourceUnchanged() {
         GraphSpec source = graph();
 
@@ -65,14 +112,14 @@ class RuntimeWorkflowGraphMutationServiceTest {
 
         assertThrows(IllegalArgumentException.class, () -> service.mutate(source, List.of(
                 new MutationOperation(MutationOperation.Op.ADD_NODE, tool, null, null, null, null, null, null),
-                new MutationOperation(MutationOperation.Op.SET_ENTRY, null, null, null, null, null, "missing", null))));
+                new MutationOperation(MutationOperation.Op.SET_ENTRY_NODE, null, null, null, null, null, "missing", null))));
 
         assertEquals(List.of("answer"), source.getNodes().stream().map(GraphSpec.Node::getId).toList());
-        assertEquals("answer", source.getEntry());
+        assertEquals("answer", source.getEntryNodeId());
     }
 
     @Test
-    void updateEdgeAcceptsCanvasEndpointAliasesButKeepsEdgeIdStable() {
+    void updateEdgeUsesCanonicalEndpointsAndKeepsEdgeIdStable() {
         GraphSpec source = graph();
         GraphSpec.Node tool = GraphSpec.Node.builder().id("tool").type("TOOL").name("Tool").build();
         source.setNodes(List.of(source.getNodes().get(0), tool));
@@ -81,14 +128,14 @@ class RuntimeWorkflowGraphMutationServiceTest {
                 MutationOperation.Op.UPDATE_EDGE,
                 null,
                 null,
-                Map.of("target", "tool", "condition", "ok"),
+                Map.of("to", "tool", "condition", "ok"),
                 null,
-                "e-start-answer",
+                "e-answer-answer",
                 null,
                 null)));
 
         GraphSpec.Edge edge = result.graphSpec().getEdges().get(0);
-        assertEquals("e-start-answer", edge.getId());
+        assertEquals("e-answer-answer", edge.getId());
         assertEquals("tool", edge.getTo());
         assertEquals("ok", edge.getCondition());
     }
@@ -101,11 +148,9 @@ class RuntimeWorkflowGraphMutationServiceTest {
                 .name("Ask")
                 .build();
         GraphSpec source = GraphSpec.builder()
-                .code("test")
-                .name("Test")
                 .node(interaction)
-                .entry("ask")
-                .finishNode("ask")
+                .entryNodeId("ask")
+                .exitNodeIds(List.of("ask"))
                 .build();
 
         IllegalArgumentException addRejected = assertThrows(IllegalArgumentException.class, () ->
@@ -143,6 +188,27 @@ class RuntimeWorkflowGraphMutationServiceTest {
         assertEquals(List.of("ask"), deleted.changedNodes());
     }
 
+    @Test
+    void rejectsCanvasKindsBoundaryEndpointsAndEmptyExitNodes() {
+        GraphSpec.Node canvasKindNode = GraphSpec.Node.builder()
+                .id("tool")
+                .type("tool")
+                .build();
+        assertThrows(IllegalArgumentException.class, () -> service.mutate(graph(), List.of(new MutationOperation(
+                MutationOperation.Op.ADD_NODE, canvasKindNode, null, null, null, null, null, null))));
+
+        GraphSpec.Edge boundaryEdge = GraphSpec.Edge.builder()
+                .id("e-start-answer")
+                .from("START")
+                .to("answer")
+                .build();
+        assertThrows(IllegalArgumentException.class, () -> service.mutate(graph(), List.of(new MutationOperation(
+                MutationOperation.Op.ADD_EDGE, null, null, null, boundaryEdge, null, null, null))));
+
+        assertThrows(IllegalArgumentException.class, () -> service.mutate(graph(), List.of(new MutationOperation(
+                MutationOperation.Op.SET_EXIT_NODES, null, null, null, null, null, null, List.of()))));
+    }
+
     private GraphSpec graph() {
         GraphSpec.Node answer = GraphSpec.Node.builder()
                 .id("answer")
@@ -151,18 +217,16 @@ class RuntimeWorkflowGraphMutationServiceTest {
                 .config(Map.of("answerConfig", Map.of("template", "old", "format", "keep")))
                 .build();
         GraphSpec.Edge edge = GraphSpec.Edge.builder()
-                .id("e-start-answer")
-                .from("START")
+                .id("e-answer-answer")
+                .from("answer")
                 .to("answer")
                 .condition("always")
                 .build();
         return GraphSpec.builder()
-                .code("test")
-                .name("Test")
                 .node(answer)
                 .edge(edge)
-                .entry("answer")
-                .finishNode("answer")
+                .entryNodeId("answer")
+                .exitNodeIds(List.of("answer"))
                 .build();
     }
 

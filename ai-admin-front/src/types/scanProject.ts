@@ -20,8 +20,6 @@ export type ScanIncrementalMode = 'OFF' | 'MTIME' | 'GIT_DIFF'
 
 export interface ScanDefaultFlags {
   enabled: boolean
-  agentVisible: boolean
-  lightweightEnabled: boolean
 }
 
 /** 各说明源是否参与解析；未列出或为 true=开启，为 false=不参与（优先级行仍可排序） */
@@ -68,7 +66,7 @@ export function getDefaultScanSettings(): ScanSettings {
     classIncludeRegex: '',
     classExcludeRegex: '',
     skipDeprecated: false,
-    defaultFlags: { enabled: false, agentVisible: false, lightweightEnabled: false },
+    defaultFlags: { enabled: false },
     incrementalMode: 'OFF',
   }
 }
@@ -142,14 +140,7 @@ export interface ScanProjectRegistryCredentialSaveRequest {
   appSecret: string
 }
 
-export type SdkAccessCheckStatus = 'PASS' | 'WARN' | 'FAIL'
-
-export interface SdkAccessCheckRequest {
-  scanToolId?: number | null
-  args?: Record<string, unknown>
-  gatewayBaseUrl?: string | null
-  embedTokenPath?: string | null
-}
+export type SdkAccessCheckStatus = 'PASS' | 'WARN' | 'FAIL' | 'PENDING'
 
 export interface SdkAccessCheckItem {
   key: string
@@ -159,7 +150,11 @@ export interface SdkAccessCheckItem {
   evidence?: string | null
 }
 
-export type SdkAccessReadinessKey = 'CODE_READY' | 'RUNTIME_READY' | 'E2E_READY'
+export type SdkAccessReadinessKey =
+  | 'CODE_READY'
+  | 'RUNTIME_READY'
+  | 'SDK_CALLBACK_READY'
+  | 'E2E_READY'
 
 export interface SdkAccessReadiness {
   key: SdkAccessReadinessKey | string
@@ -174,279 +169,6 @@ export interface SdkAccessCheckResponse {
   overallStatus: SdkAccessCheckStatus
   readiness: SdkAccessReadiness[]
   checks: SdkAccessCheckItem[]
-}
-
-export type AiAccessStepStatus = 'TODO' | 'RUNNING' | 'PASS' | 'WARN' | 'FAIL' | 'SKIPPED'
-
-export interface AiAccessStep {
-  stepKey: string
-  title: string
-  status: AiAccessStepStatus
-  message?: string | null
-  files: string[]
-  evidence: Record<string, unknown>
-  reportedBy?: string | null
-  startedAt?: string | null
-  completedAt?: string | null
-  updatedAt?: string | null
-}
-
-export interface AiAccessSession {
-  sessionId: string
-  projectId: number
-  projectCode?: string | null
-  toolName?: string | null
-  scenario?: 'SDK_ACCESS' | 'PAGE_ASSISTANT' | string | null
-  targetPageKey?: string | null
-  targetRoute?: string | null
-  status: AiAccessStepStatus | 'OPEN'
-  totalSteps: number
-  completedSteps: number
-  failedSteps: number
-  lastMessage?: string | null
-  createdAt?: string | null
-  updatedAt?: string | null
-  steps: AiAccessStep[]
-}
-
-export interface AiAccessCheckRunResponse {
-  checkResult: SdkAccessCheckResponse
-  session: AiAccessSession
-}
-
-export interface PageAssistantSessionRequest {
-  toolName?: string | null
-  pageKey?: string | null
-  routePattern?: string | null
-  actionKeys?: string[]
-}
-
-export interface PageAssistantCheckRequest {
-  pageKey?: string | null
-  routePattern?: string | null
-  actionKeys?: string[]
-}
-
-export interface PageAssistantTargetRequest {
-  pageKey?: string | null
-  routePattern?: string | null
-  actionKeys?: string[]
-}
-
-export interface PageAssistantCatalogActionRequest {
-  actionKey: string
-  title?: string | null
-  description?: string | null
-  confirmRequired?: boolean | null
-  inputSchema?: Record<string, unknown>
-  outputSchema?: Record<string, unknown>
-  sampleArgs?: Record<string, unknown>
-  allowedAgentIds?: string[]
-  metadata?: Record<string, unknown>
-}
-
-export interface PageAssistantCatalogSyncRequest {
-  pageKey: string
-  name?: string | null
-  routePattern?: string | null
-  origin?: string | null
-  pageInstanceId?: string | null
-  replaceActions?: boolean
-  actions: PageAssistantCatalogActionRequest[]
-  metadata?: Record<string, unknown>
-}
-
-export interface PageAssistantCatalogSyncResponse {
-  projectCode: string
-  appId: string
-  pageKey: string
-  actionCount: number
-  session: AiAccessSession
-}
-
-export interface PageAssistantCheckItem {
-  key: string
-  label: string
-  status: SdkAccessCheckStatus
-  message: string
-  evidence?: string | null
-}
-
-export interface PageAssistantCheckResponse {
-  projectId: number
-  projectCode: string
-  pageKey?: string | null
-  routePattern?: string | null
-  overallStatus: SdkAccessCheckStatus
-  checks: PageAssistantCheckItem[]
-}
-
-export interface PageAssistantCheckRunResponse {
-  checkResult: PageAssistantCheckResponse
-  session: AiAccessSession
-}
-
-export interface PageAssistantFileEvidence {
-  path: string
-  role?: string | null
-  exists?: boolean | null
-  sha256?: string | null
-  validationStatus?: 'VERIFIED' | 'HASH_MISSING' | string | null
-  validationMessage?: string | null
-}
-
-export interface PageAssistantPageRegisterRequest {
-  sessionId?: string | null
-  toolName?: string | null
-  pageKey: string
-  pageName?: string | null
-  routePattern?: string | null
-  framework?: string | null
-  frameworkVersion?: string | null
-  bridgeGlobal?: string | null
-  replaceActions?: boolean | null
-  files?: PageAssistantFileEvidence[]
-  actions: PageAssistantCatalogActionRequest[]
-  verification?: Record<string, unknown>
-  handoffSummary?: string | null
-}
-
-export interface PageAssistantPageRegisterResponse {
-  session: AiAccessSession
-  checkResult: PageAssistantCheckResponse
-  registeredPage: {
-    projectCode?: string | null
-    appId?: string | null
-    pageKey: string
-    pageName?: string | null
-    routePattern?: string | null
-    framework?: string | null
-    bridgeGlobal?: string | null
-  }
-  registeredActions: string[]
-  fileEvidence: PageAssistantFileEvidence[]
-}
-
-export interface PageAssistantSessionSummary {
-  sessionId: string
-  projectId: number
-  projectCode?: string | null
-  toolName?: string | null
-  targetPageKey?: string | null
-  targetRoute?: string | null
-  status: AiAccessStepStatus | 'OPEN'
-  completionState: 'WAITING_TARGET' | 'IN_PROGRESS' | 'COMPLETED' | 'BLOCKED' | string
-  totalSteps: number
-  completedSteps: number
-  failedSteps: number
-  actionCount: number
-  lastMessage?: string | null
-  lastReportedAt?: string | null
-  steps: AiAccessStep[]
-}
-
-export interface PageAssistantWorkflowAiCodingValidationSummary {
-  overallStatus?: AiAccessStepStatus | string | null
-  errors?: string[]
-  warnings?: string[]
-}
-
-export interface PageAssistantWorkflowAiCodingPageAssistantValidationSummary {
-  overallStatus?: AiAccessStepStatus | string | null
-  matchedActions?: string[]
-  missingActions?: string[]
-  warnings?: string[]
-}
-
-export interface PageAssistantWorkflowAiCodingResultRequest {
-  workflowId: string
-  keySlug?: string | null
-  workflowName?: string | null
-  status?: AiAccessStepStatus | null
-  message?: string | null
-  validation?: PageAssistantWorkflowAiCodingValidationSummary | null
-  pageAssistantValidation?: PageAssistantWorkflowAiCodingPageAssistantValidationSummary | null
-  runtimeVerification?: Record<string, unknown> | null
-  studioUrl?: string | null
-}
-
-export interface PageAssistantOnboardingManifest {
-  schema: string
-  project: AiOnboardingManifest['project']
-  aiCodingAccess: AiOnboardingManifest['aiCodingAccess']
-  auth?: {
-    mode: 'ai-coding-key' | 'platform-session' | string
-    headerName?: string | null
-    keyEnv?: string | null
-    externalToolPath?: string | null
-    platformSessionPath?: string | null
-    guidance?: string[]
-  }
-  target: {
-    pageKey?: string | null
-    routePattern?: string | null
-    actionKeys: string[]
-  }
-  session: AiAccessSession
-  endpoints: {
-    manifestUrl: string
-    latestSessionUrl: string
-    stepReportUrl: string
-    targetBindUrl: string
-    catalogSyncUrl: string
-    checksRunUrl: string
-    registerPageUrl?: string | null
-    skillPackageUrl?: string | null
-    scriptDownloadUrl?: string | null
-  }
-  security: AiOnboardingManifest['security']
-  localExecution?: {
-    requiresLocalShell: boolean
-    reason: string
-  }
-  pageActionContract?: {
-    bridgeGlobal: string
-    protocolVersion: string
-    supportedFrameworks: string[]
-    recommendedActions: string[]
-    safety: {
-      readonlyFirst: boolean
-      highRiskActionsRequireConfirm: boolean
-    }
-    bridgeApi?: {
-      global: string
-      methods: Record<string, string>
-      schemas: {
-        registerRequest: Record<string, unknown>
-        executeRequest: Record<string, unknown>
-        executeResponse: Record<string, unknown>
-      }
-      statusValues: string[]
-      errorCodes: string[]
-      examples: Array<{
-        name: string
-        actionKey: string
-        request: Record<string, unknown>
-        response: Record<string, unknown>
-      }>
-      safety: {
-        readonlyFirst: boolean
-        highRiskActionsRequireConfirm: boolean
-      }
-    }
-  }
-  scaffold?: {
-    framework: string
-    templates: Array<{
-      name: string
-      role: string
-    }>
-    helperScriptPath?: string | null
-    scriptDownloadUrl?: string | null
-    skillPackageUrl?: string | null
-    scaffoldCommand?: string | null
-    verifyCommand?: string | null
-  }
 }
 
 export interface SdkArtifact {
@@ -471,8 +193,12 @@ export interface SdkArtifact {
   artifactPathWithinSkill?: string | null
   /** Where to run install: business frontend directory that contains package.json */
   installWorkingDirectory?: string | null
-  /** npm install template; replace {skillExtractDir} with absolute skill extract root */
+  /** Stable installer template; replace {skillExtractDir} with absolute Skill extract root */
   installCommandTemplate?: string | null
+  /** Standalone consumer POM served by ReachAI for source-independent Maven local installation */
+  pomDownloadUrl?: string | null
+  /** SHA-256 for pomDownloadUrl */
+  pomIntegritySha256?: string | null
 }
 
 export interface GatewayChecklistItem {
@@ -584,12 +310,14 @@ export interface AiOnboardingManifest {
   }
   security: {
     appSecretEnv: string
+    secretSetupScriptWithinSkill?: string | null
+    secretSetupCommandTemplate?: string | null
     message: string
   }
 }
 
 export interface AiCodingGatewayManifest {
-  schema: 'reachai.ai-coding.gateway.v1' | string
+  schema: 'reachai.ai-coding.gateway.v3' | string
   project: {
     id: number
     projectCode?: string | null
@@ -611,10 +339,12 @@ export interface AiCodingGatewayManifest {
     contextCandidatesBatchUrl: string
     contextCandidateStatusUrlTemplate: string
     sdkAccessManifestUrl: string
-    sdkAccessSessionUrl: string
-    sdkAccessLatestSessionUrl: string
-    pageAssistantManifestUrl: string
-    pageAssistantSessionUrl: string
+    handoffActivationUrlTemplate: string
+    taskContextUrlTemplate: string
+    taskHeartbeatUrlTemplate: string
+    taskEventsUrlTemplate: string
+    taskQuestionsUrlTemplate: string
+    taskArtifactsUrlTemplate: string
     workflowCreateUrl: string
     workflowContextUrlTemplate: string
     workflowPatchUrlTemplate: string

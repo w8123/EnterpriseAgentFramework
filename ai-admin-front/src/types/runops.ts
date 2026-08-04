@@ -4,12 +4,13 @@ export type RunEntryType = 'DEBUG' | 'EMBED' | 'GATEWAY' | 'EVAL' | 'REPLAY' | '
 
 export type RunStatus =
   | 'RUNNING'
-  | 'SUCCESS'
+  | 'SUSPENDED'
+  | 'COMPLETED'
   | 'FAILED'
-  | 'WAITING_USER'
-  | 'WAITING_APPROVAL'
   | 'CANCELLED'
-  | 'TIMEOUT'
+  | 'TIMED_OUT'
+
+export type RunSuspensionReason = 'USER_INPUT' | 'APPROVAL'
 
 export interface RunOpsQueryParams {
   projectCode?: string
@@ -29,6 +30,7 @@ export interface RunSummary {
   runType: RunType
   entryType: RunEntryType
   status: RunStatus
+  suspensionReason?: RunSuspensionReason
   projectCode?: string
   tenantId?: string
   sessionId?: string

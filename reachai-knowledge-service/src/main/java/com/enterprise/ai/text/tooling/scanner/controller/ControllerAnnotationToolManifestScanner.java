@@ -609,7 +609,6 @@ public class ControllerAnnotationToolManifestScanner {
                 extractNamedMember(annotation, "module").map(this::extractStringValue).filter(s -> !s.isBlank()).orElse(null),
                 tags,
                 extractNamedMember(annotation, "sideEffect").map(this::extractEnumName).filter(s -> !s.isBlank()).orElse(null),
-                extractBooleanMember(annotation, "agentVisible").orElse(null),
                 roles,
                 timeoutMs,
                 retryLimit,

@@ -1,0 +1,26 @@
+{
+  "passed": true,
+  "summary": "真实浏览器场景通过。",
+  "checks": [
+    {
+      "name": "page interaction",
+      "status": "PASS",
+      "command": null,
+      "evidence": "The visible result matches the acceptance condition."
+    }
+  ],
+  "browserVerification": {
+    "passed": true,
+    "browser": "Chromium",
+    "url": "http://localhost:5173/registry/projects/demo",
+    "scenarios": [
+      "Open the target page",
+      "Complete the target interaction"
+    ],
+    "screenshots": [
+      "output/browser-acceptance.png"
+    ],
+    "evidence": "Observed the real business request and result."
+  },
+  "traceId": null
+}

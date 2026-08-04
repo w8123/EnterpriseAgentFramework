@@ -49,6 +49,24 @@ class PlatformEmbedSessionServiceTest {
         verify(mapper, never()).updateById(any());
     }
 
+    @Test
+    void rejectsTokenIssuedForDifferentPageInstance() {
+        PlatformEmbedSessionMapper mapper = mock(PlatformEmbedSessionMapper.class);
+        PlatformEmbedSessionService service =
+                new PlatformEmbedSessionService(mapper, new ObjectMapper());
+        PlatformEmbedSessionEntity session = session();
+        when(mapper.selectOne(any())).thenReturn(session);
+        PlatformEmbedTokenClaims claims =
+                claims("agent-1", "project-1", "user-1");
+        claims.setPageInstanceId("page-instance-2");
+        claims.setExpiresAt(Instant.now().plusSeconds(300).getEpochSecond());
+
+        assertThrows(
+                PlatformEmbedTokenException.class,
+                () -> service.requireActiveSession("embed-1", claims));
+        verify(mapper, never()).updateById(any());
+    }
+
     private PlatformEmbedSessionEntity session() {
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
         session.setSessionId("embed-1");
@@ -56,6 +74,7 @@ class PlatformEmbedSessionServiceTest {
         session.setAgentId("agent-1");
         session.setProjectCode("project-1");
         session.setExternalUserId("user-1");
+        session.setPageInstanceId("page-instance-1");
         return session;
     }
 
@@ -64,6 +83,7 @@ class PlatformEmbedSessionServiceTest {
         claims.setAgentId(agentId);
         claims.setProjectCode(projectCode);
         claims.setExternalUserId(userId);
+        claims.setPageInstanceId("page-instance-1");
         return claims;
     }
 }

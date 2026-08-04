@@ -16,7 +16,7 @@ export interface ConversationTransportCapabilities {
   pageActions: boolean
 }
 
-export type ConversationTransportKind = 'agent-debug' | 'workflow-draft' | 'embed'
+export type ConversationTransportKind = 'agent-debug' | 'workflow-working-copy' | 'embed'
 
 export interface ConversationTransport {
   readonly kind: ConversationTransportKind

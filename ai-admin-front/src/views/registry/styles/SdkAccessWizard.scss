@@ -263,7 +263,8 @@
     background: #f0fdf4;
   }
 
-  &.warn {
+  &.warn,
+  &.pending {
     border-color: #fedf89;
     background: #fffbeb;
   }
@@ -338,7 +339,8 @@
     background: #f0fdf4;
   }
 
-  &.warn {
+  &.warn,
+  &.pending {
     border-color: #fedf89;
     background: #fffbeb;
   }
@@ -2617,8 +2619,8 @@
   gap: 10px;
 }
 
-.ai-tool-tabs {
-  margin-bottom: 10px;
+.ai-onboarding-provider-selector {
+  margin-bottom: 12px;
 }
 
 .ai-prompt-input :deep(.el-textarea__inner) {
@@ -2856,8 +2858,10 @@
 .sdk-access-page.is-dark-skin {
   box-sizing: border-box;
   display: flex;
+  flex: 1;
   flex-direction: column;
   height: auto;
+  min-height: 0;
   min-height: 100%;
   overflow: visible;
 }
@@ -2884,7 +2888,7 @@
 }
 
 .ai-coding-access-pane {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   min-height: 0;
 }
 

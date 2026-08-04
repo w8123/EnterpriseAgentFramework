@@ -90,7 +90,7 @@ class WorkflowExecutionIdentityTest {
                 WorkflowExecutionIdentity.fromAgent(999L, "attacker")).isEmpty());
 
         RuntimeGraphSpecExecutionResult result = executor.execute("""
-                {"entry":"http","nodes":[
+                {"entryNodeId":"http","exitNodeIds":["http"],"nodes":[
                   {"id":"http","type":"HTTP_REQUEST","config":{
                     "method":"GET","url":"http://127.0.0.1:1/nope","credentialRef":"cred_proj"}}
                 ]}
@@ -103,7 +103,7 @@ class WorkflowExecutionIdentityTest {
     void forgedUserIdDoesNotAffectKnowledgeAcl() {
         WorkflowExecutionIdentity trusted = WorkflowExecutionIdentity.fromAgent(1L, "demo", "trusted-user");
         RuntimeGraphSpecExecutionResult result = executor.execute("""
-                {"entry":"kr","nodes":[{"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
+                {"entryNodeId":"kr","exitNodeIds":["kr"],"nodes":[{"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
                   "knowledgeBaseCodes":["kb1"],"query":"input"}}]}
                 """, Map.of("message", "q", "userId", "forged-user"), trusted);
 

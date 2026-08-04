@@ -253,14 +253,6 @@ const sdkSyncContractDescription = computed(() =>
               <el-switch v-model="scanSettingsForm.defaultFlags.enabled" />
               <span>启用</span>
             </label>
-            <label class="settings-switch-pill">
-              <el-switch v-model="scanSettingsForm.defaultFlags.agentVisible" />
-              <span>Agent 可见</span>
-            </label>
-            <label class="settings-switch-pill">
-              <el-switch v-model="scanSettingsForm.defaultFlags.lightweightEnabled" />
-              <span>轻量调用</span>
-            </label>
           </div>
         </el-form-item>
         <el-form-item label="增量扫描" class="settings-form-section settings-full-section">

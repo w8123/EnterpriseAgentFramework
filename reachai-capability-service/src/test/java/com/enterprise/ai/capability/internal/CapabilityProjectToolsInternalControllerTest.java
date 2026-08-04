@@ -23,6 +23,7 @@ class CapabilityProjectToolsInternalControllerTest {
         ScanProjectToolEntity enabled = new ScanProjectToolEntity();
         enabled.setId(1L);
         enabled.setName("orders_query");
+        enabled.setTitle("查询订单");
         enabled.setEnabled(true);
         enabled.setRemovedFromSource(false);
         ScanProjectToolEntity disabled = new ScanProjectToolEntity();
@@ -39,6 +40,8 @@ class CapabilityProjectToolsInternalControllerTest {
         assertEquals(1, body.size());
         assertEquals(1L, body.get(0).get("toolId"));
         assertEquals("orders_query", body.get(0).get("keySlug"));
+        assertEquals("查询订单", body.get(0).get("title"));
+        assertEquals("查询订单", body.get(0).get("displayName"));
     }
 
     @Test

@@ -78,7 +78,7 @@ class WorkflowTrustedIdentityEntryTest {
             WorkflowExecutionIdentity identity = resolveLikeAdapter(request);
             capturedIdentity.set(identity);
             RuntimeGraphSpecExecutionResult result = executor.execute("""
-                    {"entry":"kr","nodes":[{"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
+                    {"entryNodeId":"kr","exitNodeIds":["kr"],"nodes":[{"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
                       "knowledgeBaseCodes":["kb1"],"query":"input"}}]}
                     """, request.input(), identity);
             return new SupervisorRuntimeAdapter.SupervisorResult(
@@ -108,7 +108,7 @@ class WorkflowTrustedIdentityEntryTest {
             WorkflowExecutionIdentity identity = resolveLikeAdapter(request);
             capturedIdentity.set(identity);
             RuntimeGraphSpecExecutionResult result = executor.execute("""
-                    {"entry":"kr","nodes":[{"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
+                    {"entryNodeId":"kr","exitNodeIds":["kr"],"nodes":[{"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
                       "knowledgeBaseCodes":["kb1"],"query":"input"}}]}
                     """, request.input(), identity);
             return new SupervisorRuntimeAdapter.SupervisorResult(

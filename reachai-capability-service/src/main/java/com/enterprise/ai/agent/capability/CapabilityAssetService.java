@@ -101,9 +101,6 @@ public class CapabilityAssetService {
         if (entity.getEnabled() == null) {
             entity.setEnabled(true);
         }
-        if (entity.getAgentVisible() == null) {
-            entity.setAgentVisible(true);
-        }
         LocalDateTime now = LocalDateTime.now();
         ToolAssetEntity existing = findToolByQualifiedName(entity.getQualifiedName()).orElse(null);
         entity.setUpdateTime(now);
@@ -145,9 +142,6 @@ public class CapabilityAssetService {
         if (entity.getEnabled() == null) {
             entity.setEnabled(true);
         }
-        if (entity.getAgentVisible() == null) {
-            entity.setAgentVisible(true);
-        }
         LocalDateTime now = LocalDateTime.now();
         CompositionDefinitionEntity existing = findCompositionByQualifiedName(entity.getQualifiedName()).orElse(null);
         entity.setUpdateTime(now);
@@ -188,9 +182,6 @@ public class CapabilityAssetService {
         }
         if (entity.getEnabled() == null) {
             entity.setEnabled(true);
-        }
-        if (entity.getAgentVisible() == null) {
-            entity.setAgentVisible(true);
         }
         LocalDateTime now = LocalDateTime.now();
         InteractionDefinitionEntity existing = findInteractionByQualifiedName(entity.getQualifiedName()).orElse(null);

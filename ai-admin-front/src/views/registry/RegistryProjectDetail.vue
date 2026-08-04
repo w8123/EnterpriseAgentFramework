@@ -1,5 +1,5 @@
 <template>
-  <div class="registry-detail-page project-workbench-page" :class="{ 'is-dark-detail': theme === 'dark' }">
+  <div class="registry-detail-page project-workbench-page workbench-page--list" :class="{ 'is-dark-detail': theme === 'dark' }">
     <AppPageBackground local />
 
     <PageHeader
@@ -14,25 +14,28 @@
       </template>
       <template #tags>
         <el-tag effect="plain">{{ project?.projectCode || projectCode }}</el-tag>
-        <el-tag type="info" effect="plain">{{ project?.environment || 'dev' }}</el-tag>
+        <el-tag v-if="project?.environment" type="info" effect="plain">
+          {{ project.environment }}
+        </el-tag>
       </template>
       <template #meta>
         <HeaderMetaList :items="headerMetaItems" />
       </template>
       <template #actions>
-        <el-tooltip content="设为当前项目" placement="top">
+        <el-tooltip content="AI Coding 接入" placement="top">
           <el-button
             circle
-            :icon="Star"
-            :disabled="!project"
-            aria-label="设为当前项目"
-            @click="setCurrentProject"
+            :icon="Key"
+            :disabled="!project?.id"
+            aria-label="AI Coding 接入"
+            @click="openAiCodingDialog"
           />
         </el-tooltip>
         <el-tooltip content="刷新" placement="top">
           <el-button
             circle
             :icon="Refresh"
+            :loading="loading"
             aria-label="刷新"
             @click="refresh"
           />
@@ -46,175 +49,205 @@
             @click="openEditDialog"
           />
         </el-tooltip>
-        <el-tooltip content="更多操作" placement="top">
-          <el-dropdown trigger="click" :disabled="!project?.id" @command="handleHeroMoreCommand">
-            <el-button
-              circle
-              :icon="MoreFilled"
-              :disabled="!project?.id"
-              :loading="deleteLoading"
-              aria-label="更多操作"
-            />
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="delete" :disabled="deleteLoading">
-                  删除项目
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+        <el-tooltip content="删除项目" placement="top">
+          <el-button
+            circle
+            type="danger"
+            :icon="Delete"
+            :disabled="!project?.id"
+            :loading="deleteLoading"
+            aria-label="删除项目"
+            @click="handleDeleteProject"
+          />
         </el-tooltip>
       </template>
     </PageHeader>
 
-    <div class="metric-strip">
-      <template v-for="(item, index) in healthMetrics" :key="item.label">
-        <div v-if="index > 0" class="metric-divider" aria-hidden="true" />
-        <component
-          :is="item.clickable ? 'button' : 'div'"
-          class="metric-segment"
-          :class="[`tone-${item.tone}`, { 'is-clickable': item.clickable }]"
-          :type="item.clickable ? 'button' : undefined"
-          @click="item.clickable ? item.action?.() : undefined"
-        >
-          <MetricIconBg class="metric-segment-icon">
-            <el-icon><component :is="item.icon" /></el-icon>
-          </MetricIconBg>
-          <div class="metric-content">
-            <span class="metric-label">{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-            <small>{{ item.desc }}</small>
-          </div>
-        </component>
-      </template>
-    </div>
+    <ProjectRouteMissingState
+      v-if="projectMissing"
+      :project-code="projectCode"
+    />
 
-    <section class="workbench-grid">
-      <el-card v-for="group in workbenchGroups" :key="group.title" class="detail-card workbench-card" shadow="never">
+    <ProjectWorkbenchLoadErrorState
+      v-else-if="loadError"
+      title="项目详情加载失败"
+      :message="loadError"
+      :loading="loading"
+      @retry="refresh"
+    />
+
+    <template v-else>
+      <el-alert
+        v-if="projectDetailLoadError"
+        class="page-alert"
+        type="warning"
+        show-icon
+        :closable="false"
+        :title="projectDetailLoadError"
+      />
+
+      <el-alert
+        v-if="pageCatalogLoadError"
+        class="page-alert"
+        type="error"
+        show-icon
+        :closable="false"
+        :title="pageCatalogLoadError"
+      >
+        <el-button
+          link
+          type="primary"
+          :loading="loadingPageCatalog"
+          @click="loadPageCatalog"
+        >
+          重新加载页面目录
+        </el-button>
+      </el-alert>
+
+      <section class="workbench-grid">
+        <el-card v-for="group in workbenchGroups" :key="group.title" class="detail-card workbench-card" shadow="never">
+          <template #header>
+            <div class="section-title">
+              <span class="title-mark" />
+              <span>{{ group.title }}</span>
+            </div>
+          </template>
+
+          <div class="task-list">
+            <button
+              v-for="item in group.items"
+              :key="item.title"
+              class="task-entry"
+              type="button"
+              :disabled="item.disabled"
+              @click="item.action"
+            >
+              <span class="task-icon" :class="item.tone">
+                <el-icon><component :is="item.icon" /></el-icon>
+              </span>
+              <span class="task-content">
+                <span class="task-topline">
+                  <strong>{{ item.title }}</strong>
+                </span>
+                <small>{{ item.desc }}</small>
+              </span>
+              <el-icon class="task-arrow"><ArrowRight /></el-icon>
+            </button>
+          </div>
+        </el-card>
+      </section>
+
+      <el-card class="detail-card instance-card workbench-list-surface" shadow="never">
         <template #header>
-          <div class="section-title">
-            <span class="title-mark" />
-            <span>{{ group.title }}</span>
+          <div class="table-header">
+            <div class="section-title">
+              <span class="title-mark" />
+              <span>实例心跳（{{ instances.length }}）</span>
+            </div>
+            <div class="header-actions">
+              <el-tooltip :content="`清理离线（${offlineInstanceCount}）`" placement="top">
+                <el-button
+                  circle
+                  :icon="Delete"
+                  :disabled="offlineInstanceCount === 0"
+                  :loading="purgingOffline"
+                  aria-label="清理离线实例"
+                  @click="purgeOfflineInstances"
+                />
+              </el-tooltip>
+              <el-tooltip content="刷新实例" placement="top">
+                <el-button circle :icon="Refresh" aria-label="刷新实例" @click="loadInstances" />
+              </el-tooltip>
+            </div>
           </div>
         </template>
 
-        <div class="task-list">
-          <button
-            v-for="item in group.items"
-            :key="item.title"
-            class="task-entry"
-            type="button"
-            :disabled="item.disabled"
-            @click="item.action"
+        <el-alert
+          v-if="instancesLoadError"
+          type="error"
+          show-icon
+          :closable="false"
+          :title="instancesLoadError"
+        >
+          <el-button
+            link
+            type="primary"
+            :loading="loadingInstances"
+            @click="loadInstances"
           >
-            <span class="task-icon" :class="item.tone">
-              <el-icon><component :is="item.icon" /></el-icon>
-            </span>
-            <span class="task-content">
-              <span class="task-topline">
-                <strong>{{ item.title }}</strong>
+            重新加载实例
+          </el-button>
+        </el-alert>
+
+        <el-table v-loading="loadingInstances" :data="instances" row-key="id" class="instance-table">
+          <el-table-column prop="instanceId" label="实例 ID" min-width="220" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span class="instance-id">{{ row.instanceId }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="status" label="状态" width="120">
+            <template #default="{ row }">
+              <span class="status-pill" :class="{ offline: row.status !== 'ONLINE', disabled: row.status === 'DISABLED' }">
+                <i />
+                {{ formatInstanceStatusLabel(row.status) }}
               </span>
-              <small>{{ item.desc }}</small>
-            </span>
-            <el-icon class="task-arrow"><ArrowRight /></el-icon>
-          </button>
+            </template>
+          </el-table-column>
+          <el-table-column prop="host" label="主机" min-width="180">
+            <template #default="{ row }">{{ row.host || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="port" label="端口" width="100">
+            <template #default="{ row }">{{ row.port || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="appVersion" label="应用版本" width="130">
+            <template #default="{ row }">{{ row.appVersion || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="sdkVersion" label="SDK 版本" width="130">
+            <template #default="{ row }">{{ row.sdkVersion || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="lastHeartbeatAt" label="最近心跳" min-width="180">
+            <template #default="{ row }">{{ formatRelativeTime(row.lastHeartbeatAt) }}</template>
+          </el-table-column>
+          <el-table-column label="治理" width="130">
+            <template #default="{ row }">
+              <el-button
+                v-if="row.status === 'DISABLED'"
+                size="small"
+                @click="setInstanceStatus(row, 'OFFLINE')"
+              >
+                解除禁用
+              </el-button>
+              <el-button
+                v-else
+                size="small"
+                type="danger"
+                plain
+                @click="setInstanceStatus(row, 'DISABLED')"
+              >
+                禁用
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div class="table-footer">
+          <span>共 {{ instances.length }} 条</span>
+          <el-pagination
+            class="registry-pagination"
+            background
+            layout="prev, pager, next, sizes"
+            :total="instances.length || 1"
+            :default-page-size="10"
+            :page-sizes="[5, 10, 20, 50]"
+          />
         </div>
       </el-card>
-    </section>
-
-    <el-card class="detail-card instance-card" shadow="never">
-      <template #header>
-        <div class="table-header">
-          <div class="section-title">
-            <span class="title-mark" />
-            <span>实例心跳（{{ instances.length }}）</span>
-          </div>
-          <div class="header-actions">
-            <el-tooltip :content="`清理离线（${offlineInstanceCount}）`" placement="top">
-              <el-button
-                circle
-                :icon="Delete"
-                :disabled="offlineInstanceCount === 0"
-                :loading="purgingOffline"
-                aria-label="清理离线实例"
-                @click="purgeOfflineInstances"
-              />
-            </el-tooltip>
-            <el-tooltip content="刷新实例" placement="top">
-              <el-button circle :icon="Refresh" aria-label="刷新实例" @click="loadInstances" />
-            </el-tooltip>
-          </div>
-        </div>
-      </template>
-
-      <el-table v-loading="loadingInstances" :data="instances" row-key="id" class="instance-table">
-        <el-table-column prop="instanceId" label="实例 ID" min-width="220" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span class="instance-id">{{ row.instanceId }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="status" label="状态" width="120">
-          <template #default="{ row }">
-            <span class="status-pill" :class="{ offline: row.status !== 'ONLINE', disabled: row.status === 'DISABLED' }">
-              <i />
-              {{ formatInstanceStatusLabel(row.status) }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="host" label="主机" min-width="180">
-          <template #default="{ row }">{{ row.host || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="port" label="端口" width="100">
-          <template #default="{ row }">{{ row.port || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="appVersion" label="应用版本" width="130">
-          <template #default="{ row }">{{ row.appVersion || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="sdkVersion" label="SDK 版本" width="130">
-          <template #default="{ row }">{{ row.sdkVersion || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="lastHeartbeatAt" label="最近心跳" min-width="180">
-          <template #default="{ row }">{{ formatRelativeTime(row.lastHeartbeatAt) }}</template>
-        </el-table-column>
-        <el-table-column label="治理" width="130">
-          <template #default="{ row }">
-            <el-button
-              v-if="row.status === 'DISABLED'"
-              size="small"
-              @click="setInstanceStatus(row, 'OFFLINE')"
-            >
-              解除禁用
-            </el-button>
-            <el-button
-              v-else
-              size="small"
-              type="danger"
-              plain
-              @click="setInstanceStatus(row, 'DISABLED')"
-            >
-              禁用
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="table-footer">
-        <span>共 {{ instances.length }} 条</span>
-        <el-pagination
-          class="registry-pagination"
-          background
-          layout="prev, pager, next, sizes"
-          :total="instances.length || 1"
-          :page-size="10"
-          :page-sizes="[5, 10, 20, 50]"
-        />
-      </div>
-    </el-card>
+    </template>
 
     <GlassDialog
       v-model="aiCodingDialogVisible"
       title="AI Coding 接入信息"
-      description="让 Cursor、Claude Code、Codex 安全接入当前项目。"
+      description="让 Codex、Cursor、Trae、Claude Code 安全接入当前项目。"
       :status="aiCodingAccessEnabled ? '已启用' : '已关闭'"
       :status-tone="aiCodingAccessEnabled ? 'success' : 'neutral'"
       width="920px"
@@ -240,6 +273,24 @@
             <span class="ai-coding-tab-label">接入概览</span>
           </template>
 
+          <el-alert
+            v-if="aiCodingAccessLoadError"
+            :title="aiCodingAccessLoadError"
+            type="error"
+            show-icon
+            :closable="false"
+            class="ai-coding-load-alert"
+          >
+            <el-button
+              link
+              type="primary"
+              :loading="credentialPolicyLoading"
+              @click="reloadAiCodingSettings"
+            >
+              重新加载
+            </el-button>
+          </el-alert>
+
           <section
             class="ai-coding-access-card glass-surface-control"
             :class="{ 'is-enabled': aiCodingAccessEnabled }"
@@ -251,12 +302,21 @@
               >
                 <template #icon><el-icon><Lock /></el-icon></template>
               </GlassSectionHeader>
-              <el-switch v-model="aiCodingAccessEnabled" active-text="启用" inactive-text="关闭" />
+              <el-switch
+                v-model="aiCodingAccessEnabled"
+                active-text="启用"
+                inactive-text="关闭"
+                :disabled="credentialPolicyLoading || Boolean(aiCodingAccessLoadError)"
+              />
             </div>
             <div class="ai-coding-key-form">
               <el-input
                 v-model="aiCodingAccessKey"
-                :disabled="!aiCodingAccessEnabled"
+                :disabled="
+                  credentialPolicyLoading
+                    || Boolean(aiCodingAccessLoadError)
+                    || !aiCodingAccessEnabled
+                "
                 show-password
                 placeholder="保存时为空会自动生成；清空并关闭后 AI 工具无法连接"
               >
@@ -268,15 +328,31 @@
                 <el-button
                   circle
                   :icon="DocumentCopy"
-                  :disabled="!aiCodingAccessEnabled || !aiCodingAccessKey.trim()"
+                  :disabled="
+                    Boolean(aiCodingAccessLoadError)
+                      || !aiCodingAccessEnabled
+                      || !aiCodingAccessKey.trim()
+                  "
                   aria-label="复制秘钥"
                   @click="copyText(aiCodingAccessKey, 'AI Coding 接入秘钥')"
                 />
               </el-tooltip>
-              <el-button :loading="aiCodingAccessSaving" type="primary" @click="saveAiCodingAccess">
+              <el-button
+                :loading="aiCodingAccessSaving"
+                :disabled="credentialPolicyLoading || Boolean(aiCodingAccessLoadError)"
+                type="primary"
+                @click="saveAiCodingAccess"
+              >
                 保存
               </el-button>
-              <el-button type="danger" plain @click="clearAiCodingAccess">清空并关闭</el-button>
+              <el-button
+                type="danger"
+                plain
+                :disabled="credentialPolicyLoading || Boolean(aiCodingAccessLoadError)"
+                @click="clearAiCodingAccess"
+              >
+                清空并关闭
+              </el-button>
             </div>
           </section>
 
@@ -359,6 +435,99 @@
             </div>
           </section>
         </el-tab-pane>
+
+        <el-tab-pane name="credentials">
+          <template #label>
+            <span class="ai-coding-tab-label">任务凭据</span>
+          </template>
+
+          <section
+            class="ai-coding-credential-policy glass-surface-control"
+            v-loading="credentialPolicyLoading"
+          >
+            <GlassSectionHeader
+              title="交接与任务 Token"
+              description="控制新建 AI Coding 任务的交接窗口和回传凭据有效期。"
+              :meta="
+                credentialPolicyLoadError
+                  ? '加载失败'
+                  : credentialPolicyCustomized
+                    ? '项目自定义'
+                    : '平台默认'
+              "
+            >
+              <template #icon><el-icon><Timer /></el-icon></template>
+            </GlassSectionHeader>
+
+            <el-alert
+              v-if="credentialPolicyLoadError"
+              :title="credentialPolicyLoadError"
+              type="error"
+              show-icon
+              :closable="false"
+              class="ai-coding-load-alert"
+            >
+              <el-button
+                link
+                type="primary"
+                :loading="credentialPolicyLoading"
+                @click="reloadAiCodingSettings"
+              >
+                重新加载
+              </el-button>
+            </el-alert>
+
+            <div class="ai-coding-credential-grid">
+              <label>
+                <span>
+                  <strong>交接包激活有效期</strong>
+                  <small>交接码只能成功使用一次，超时后需要重新签发。</small>
+                </span>
+                <span class="ai-coding-duration-control">
+                  <el-input-number
+                    v-model="handoffActivationTtlHours"
+                    :min="1"
+                    :max="168"
+                    :disabled="Boolean(credentialPolicyLoadError)"
+                    controls-position="right"
+                  />
+                  <em>小时</em>
+                </span>
+              </label>
+
+              <label>
+                <span>
+                  <strong>任务 Token 有效期</strong>
+                  <small>AI Coding 客户端激活后，用于持续回传进度、问题和结果。</small>
+                </span>
+                <span class="ai-coding-duration-control">
+                  <el-input-number
+                    v-model="taskTokenTtlHours"
+                    :min="1"
+                    :max="720"
+                    :disabled="Boolean(credentialPolicyLoadError)"
+                    controls-position="right"
+                  />
+                  <em>小时</em>
+                </span>
+              </label>
+            </div>
+
+            <div class="ai-coding-credential-actions">
+              <p>
+                保存后只影响新签发或新激活的交接包。已经丢失 taskToken 的任务仍需重新生成交接包。
+              </p>
+              <el-button
+                type="primary"
+                :loading="credentialPolicySaving"
+                :disabled="credentialPolicyLoading || Boolean(credentialPolicyLoadError)"
+                @click="saveCredentialPolicy"
+              >
+                保存任务凭据设置
+              </el-button>
+            </div>
+          </section>
+        </el-tab-pane>
       </el-tabs>
 
       <template #hint>
@@ -367,7 +536,12 @@
       </template>
       <template #footer>
         <el-button @click="aiCodingDialogVisible = false">关闭</el-button>
-        <el-button type="primary" :icon="DocumentCopy" @click="copyAiCodingBundle">
+        <el-button
+          type="primary"
+          :icon="DocumentCopy"
+          :disabled="Boolean(aiCodingAccessLoadError)"
+          @click="copyAiCodingBundle"
+        >
           复制全部接入信息
         </el-button>
       </template>
@@ -512,14 +686,12 @@ import {
   Link,
   Lock,
   Monitor,
-  MoreFilled,
   Postcard,
   Refresh,
-  Star,
   Tickets,
+  Timer,
   WarningFilled,
 } from '@element-plus/icons-vue'
-import MetricIconBg from '@/components/common/MetricIconBg.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import HeaderMetaList, { type HeaderMetaItem } from '@/components/common/HeaderMetaList.vue'
 import { formatInstanceStatusLabel } from '@/utils/registryLabels'
@@ -538,12 +710,14 @@ import { useRegistryProjectDetailData } from '@/views/registry/composables/useRe
 import { useRegistryProjectDetailNavigation } from '@/views/registry/composables/useRegistryProjectDetailNavigation'
 import { useRegistryProjectDetailUiState } from '@/views/registry/composables/useRegistryProjectDetailUiState'
 import { useRegistryProjectWorkbench } from '@/views/registry/composables/useRegistryProjectWorkbench'
+import ProjectRouteMissingState from '@/views/registry/components/ProjectRouteMissingState.vue'
+import ProjectWorkbenchLoadErrorState from '@/views/registry/components/ProjectWorkbenchLoadErrorState.vue'
 
 const { theme } = useTheme()
 
 const projectKindOptions = PROJECT_KIND_SELECT_OPTIONS
 const visibilityOptions = VISIBILITY_SELECT_OPTIONS
-const aiCodingDialogTab = ref<'overview' | 'endpoints'>('overview')
+const aiCodingDialogTab = ref<'overview' | 'endpoints' | 'credentials'>('overview')
 
 let loadAiCodingAccessFn: (projectId: number) => Promise<void> = async () => {}
 
@@ -551,13 +725,19 @@ const {
   projectCode,
   project,
   instances,
-  pageRegistry,
-  pageActions,
+  loading,
   loadingInstances,
+  loadingPageCatalog,
+  projectMissing,
+  loadError,
+  projectDetailLoadError,
+  instancesLoadError,
+  pageCatalogLoadError,
   offlineInstanceCount,
   isSdkBackedProject,
   refresh,
   loadInstances,
+  loadPageCatalog,
 } = useRegistryProjectDetailData({
   loadAiCodingAccess: (projectId) => loadAiCodingAccessFn(projectId),
 })
@@ -578,9 +758,17 @@ const {
   aiCodingAccessEnabled,
   aiCodingAccessKey,
   aiCodingDialogVisible,
+  credentialPolicyLoading,
+  credentialPolicySaving,
+  aiCodingAccessLoadError,
+  credentialPolicyLoadError,
+  handoffActivationTtlHours,
+  taskTokenTtlHours,
+  credentialPolicyCustomized,
   aiCodingInfoRows,
   saveAiCodingAccess,
   clearAiCodingAccess,
+  saveCredentialPolicy,
   openAiCodingDialog,
   copyText,
   copyAiCodingBundle,
@@ -591,6 +779,12 @@ const {
 })
 
 loadAiCodingAccessFn = loadAiCodingAccess
+
+function reloadAiCodingSettings() {
+  if (project.value?.id) {
+    void loadAiCodingAccess(project.value.id)
+  }
+}
 
 const aiCodingProjectInfoRows = computed(() => aiCodingInfoRows.value.slice(0, 5))
 const aiCodingEndpointRows = computed(() => aiCodingInfoRows.value.slice(6))
@@ -607,11 +801,8 @@ function aiCodingInfoIcon(label: string) {
 const {
   goCapability,
   goScanProjectDetail,
-  goCapabilitySync,
   goWorkflowList,
   goPageActionGovernance,
-  goContextGovernance,
-  goContextCandidateReview,
   goPageAssistantWizard,
   goSdkAccessWizard,
 } = useRegistryProjectDetailNavigation({
@@ -625,7 +816,6 @@ const {
   openEditDialog,
   saveEditProject,
   handleDeleteProject,
-  setCurrentProject,
 } = useRegistryProjectDetailActions({
   project,
   projectCode,
@@ -642,59 +832,63 @@ const {
   isEditingSdkProject,
 })
 
-const { healthMetrics, workbenchGroups } = useRegistryProjectWorkbench({
+const { workbenchGroups } = useRegistryProjectWorkbench({
   project,
   projectCode,
-  instances,
-  pageRegistry,
-  pageActions,
-  aiCodingAccessEnabled,
-  aiCodingAccessKey,
   isSdkBackedProject,
-  formatRelativeTime,
-  openAiCodingDialog,
   goCapability,
   goScanProjectDetail,
-  goCapabilitySync,
   goWorkflowList,
   goPageActionGovernance,
-  goContextGovernance,
-  goContextCandidateReview,
   goPageAssistantWizard,
   goSdkAccessWizard,
 })
 
-const latestHeartbeatLabel = computed(() =>
-  formatRelativeTime(instances.value[0]?.lastHeartbeatAt || project.value?.lastScannedAt || null),
-)
-
-const onlineInstanceCount = computed(() =>
-  instances.value.filter((item) => item.status === 'ONLINE').length,
-)
-
-const headerMetaItems = computed<HeaderMetaItem[]>(() => [
-  {
-    key: 'status',
-    label: '状态',
-    value: formatProjectKindLabel(project.value?.projectKind || 'REGISTERED'),
-    tone: 'success',
-  },
-  { key: 'sdk', label: 'SDK', value: project.value?.sdkVersion || '-' },
-  {
-    key: 'visibility',
-    label: '可见性',
-    value: formatVisibilityLabel(project.value?.visibility || 'PRIVATE'),
-  },
-  { key: 'owner', label: '负责人', value: project.value?.owner || '-' },
-  { key: 'heartbeat', label: '最近心跳', value: latestHeartbeatLabel.value },
-  { key: 'instances', label: '实例', value: `${onlineInstanceCount.value} 在线` },
-])
-
-function handleHeroMoreCommand(command: string | number | object) {
-  if (command === 'delete') {
-    handleDeleteProject()
+const headerMetaItems = computed<HeaderMetaItem[]>(() => {
+  if (projectMissing.value) {
+    return [{
+      key: 'status',
+      label: '状态',
+      value: '项目不存在',
+      tone: 'danger',
+    }]
   }
-}
+  if (loadError.value) {
+    return [{
+      key: 'status',
+      label: '状态',
+      value: '数据不可用',
+      tone: 'danger',
+    }]
+  }
+  if (!project.value) {
+    return [{
+      key: 'status',
+      label: '状态',
+      value: loading.value ? '正在加载' : '尚未加载',
+      tone: 'info',
+    }]
+  }
+  return [
+    {
+      key: 'status',
+      label: '状态',
+      value: project.value.projectKind
+        ? formatProjectKindLabel(project.value.projectKind)
+        : '未标注',
+      tone: project.value.projectKind ? 'success' : 'info',
+    },
+    { key: 'sdk', label: 'SDK', value: project.value.sdkVersion || '-' },
+    {
+      key: 'visibility',
+      label: '可见性',
+      value: project.value.visibility
+        ? formatVisibilityLabel(project.value.visibility)
+        : '未标注',
+    },
+    { key: 'owner', label: '负责人', value: project.value.owner || '-' },
+  ]
+})
 
 onMounted(refresh)
 </script>

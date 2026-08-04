@@ -35,9 +35,11 @@ public class ControlToolAclController {
                                                            @RequestParam(required = false) String roleCode,
                                                            @RequestParam(required = false) String targetKind) {
         LambdaQueryWrapper<ControlToolAclEntity> wrapper = new LambdaQueryWrapper<ControlToolAclEntity>()
-                .eq(StringUtils.hasText(roleCode), ControlToolAclEntity::getRoleCode, roleCode)
-                .eq(StringUtils.hasText(targetKind), ControlToolAclEntity::getTargetKind, upper(targetKind))
-                .orderByDesc(ControlToolAclEntity::getId);
+                .eq(StringUtils.hasText(roleCode), ControlToolAclEntity::getRoleCode, roleCode);
+        if (StringUtils.hasText(targetKind)) {
+            wrapper.eq(ControlToolAclEntity::getTargetKind, upper(targetKind));
+        }
+        wrapper.orderByDesc(ControlToolAclEntity::getId);
         return ResponseEntity.ok(mapper.selectPage(new Page<>(safePage(current), safeSize(size, 20, 500)), wrapper));
     }
 

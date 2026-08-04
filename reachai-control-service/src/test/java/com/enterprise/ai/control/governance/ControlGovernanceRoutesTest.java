@@ -26,6 +26,20 @@ import static org.mockito.Mockito.when;
 class ControlGovernanceRoutesTest {
 
     @Test
+    void listsToolAclRulesWithoutOptionalTargetKind() {
+        ControlToolAclMapper mapper = mock(ControlToolAclMapper.class);
+        ControlToolAclController controller = new ControlToolAclController(mapper);
+        Page<ControlToolAclEntity> page = new Page<>(1, 20);
+        when(mapper.selectPage(any(), any())).thenReturn(page);
+
+        ResponseEntity<Page<ControlToolAclEntity>> response = controller.page(1, 20, null, null);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(page, response.getBody());
+        verify(mapper).selectPage(any(), any());
+    }
+
+    @Test
     void managesToolAclRoutesWithoutFallingThroughToRetiredProxy() {
         ControlToolAclMapper mapper = mock(ControlToolAclMapper.class);
         ControlToolAclController controller = new ControlToolAclController(mapper);

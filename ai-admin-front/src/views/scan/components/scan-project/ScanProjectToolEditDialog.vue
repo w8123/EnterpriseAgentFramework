@@ -25,9 +25,12 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <el-dialog v-model="formDialogVisible" :title="form.name ? `编辑 Tool - ${form.name}` : '编辑 Tool'" width="760px">
+  <el-dialog v-model="formDialogVisible" :title="form.title ? `编辑 Tool - ${form.title}` : '编辑 Tool'" width="760px">
     <el-form label-width="120px">
-      <el-form-item label="工具名">
+      <el-form-item label="工具名称">
+        <el-input v-model="form.title" placeholder="例如：停用班组" />
+      </el-form-item>
+      <el-form-item label="工具标识">
         <el-input v-model="form.name" />
       </el-form-item>
       <el-form-item label="描述">
@@ -122,10 +125,6 @@ const emit = defineEmits<{
         <div class="switch-group">
           <el-switch v-model="form.enabled" />
           <span>启用</span>
-          <el-switch v-model="form.agentVisible" />
-          <span>Agent 可见</span>
-          <el-switch v-model="form.lightweightEnabled" />
-          <span>轻量调用可见</span>
         </div>
       </el-form-item>
     </el-form>
@@ -136,7 +135,7 @@ const emit = defineEmits<{
     </template>
   </el-dialog>
 
-  <el-dialog v-model="testDialogVisible" :title="`测试工具 - ${testingTool?.name}`" width="600px">
+  <el-dialog v-model="testDialogVisible" :title="`测试工具 - ${testingTool?.title || testingTool?.name}`" width="600px">
     <el-form v-if="testingTool" label-width="120px">
       <el-form-item v-for="param in testingTool.parameters" :key="param.name" :label="param.name" :required="param.required">
         <el-input v-model="testArgs[param.name]" :placeholder="param.description || param.type" />

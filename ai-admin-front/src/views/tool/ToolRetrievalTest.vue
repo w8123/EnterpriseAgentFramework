@@ -5,7 +5,7 @@
       domain="tool"
       eyebrow="Retrieval Lab"
       title="Tool 检索测试"
-      description="验证 Tool 语义召回、相似度阈值与向量索引状态，辅助定位能力检索质量。"
+      description="验证 Tool 语义召回与向量索引状态。"
       density="comfortable"
     >
       <template #actions>
@@ -38,21 +38,30 @@
         <el-form-item label="仅启用">
           <el-switch v-model="form.enabledOnly" />
         </el-form-item>
-        <el-form-item label="仅 Agent 可见">
-          <el-switch v-model="form.agentVisibleOnly" />
-        </el-form-item>
-        <el-form-item label="相似度下限">
+        <el-form-item>
+          <template #label>
+            <span class="form-label">
+              相似度下限
+              <el-tooltip
+                content="0=不过滤；清空后使用服务端 min-score"
+                placement="top"
+              >
+                <el-icon class="form-label__tip" tabindex="0" aria-label="相似度下限说明">
+                  <QuestionFilled />
+                </el-icon>
+              </el-tooltip>
+            </span>
+          </template>
           <el-input-number
             v-model="form.minScore"
             :min="0"
             :max="1"
             :step="0.05"
             :precision="2"
-            placeholder="默认用服务端配置"
+            :value-on-clear="undefined"
             controls-position="right"
             class="search-form__score"
           />
-          <span class="form-hint">0=不过滤；留空用服务端 min-score</span>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="searching" @click="handleSearch">检索</el-button>
@@ -69,7 +78,10 @@
       >
         <el-table :data="candidates" stripe empty-text=" ">
           <el-table-column label="#" type="index" width="60" />
-          <el-table-column prop="toolName" label="Tool 名" min-width="220" />
+          <el-table-column prop="toolTitle" label="工具名称" min-width="180" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.toolTitle || row.toolName }}</template>
+          </el-table-column>
+          <el-table-column prop="toolName" label="工具标识" min-width="220" show-overflow-tooltip />
           <el-table-column label="分数" width="100">
             <template #default="{ row }">
               <StatusTag
@@ -80,25 +92,20 @@
           </el-table-column>
           <el-table-column prop="projectId" label="项目 ID" width="100" />
           <el-table-column prop="moduleId" label="模块 ID" width="100" />
-          <el-table-column label="入库文本" min-width="320">
+          <el-table-column label="入库文本" min-width="320" show-overflow-tooltip>
             <template #default="{ row }">
-              <span class="text-ellipsis" :title="row.text">{{ row.text }}</span>
+              <span class="text-ellipsis">{{ row.text }}</span>
             </template>
           </el-table-column>
         </el-table>
       </DataTableShell>
     </WorkbenchPanel>
 
-    <WorkbenchPanel title="重建任务" density="comfortable">
+    <WorkbenchPanel v-if="task" title="重建任务" density="comfortable">
       <template #actions>
-        <StatusTag
-          v-if="task"
-          :label="task.stage"
-          :tone="stageTag(task.stage) || 'neutral'"
-        />
-        <StatusTag v-else label="暂无任务" tone="neutral" />
+        <StatusTag :label="task.stage" :tone="stageTag(task.stage) || 'neutral'" />
       </template>
-      <div v-if="task" class="task-state">
+      <div class="task-state">
         <el-descriptions :column="4" border size="small">
           <el-descriptions-item label="总数">{{ task.totalSteps }}</el-descriptions-item>
           <el-descriptions-item label="已完成">{{ task.completedSteps }}</el-descriptions-item>
@@ -126,22 +133,27 @@
           show-icon
         />
       </div>
-      <p v-else class="task-empty">尚无重建任务</p>
     </WorkbenchPanel>
 
     <AppDialog
       v-model="rebuildDialogVisible"
-      title="选择向量索引模型"
+      title="重建向量索引"
       width="480px"
       destroy-on-close
       @open="loadEmbeddingInstances"
     >
-      <p class="rebuild-dialog-hint">
-        重建会为每条 Tool 定义调用 Embedding 服务写入 Milvus，请选择与集合维度一致且状态为可用的向量模型实例。
-        所选模型实例 ID 会写入库表 tool_retrieval_setting，供智能体对话时的 Tool 语义召回与用户问题向量化共用；未设置环境变量时不再使用占位默认值。
-      </p>
       <el-form label-width="120px">
-        <el-form-item label="模型厂商" required>
+        <el-form-item required>
+          <template #label>
+            <span class="form-label">
+              模型厂商
+              <el-tooltip content="请选择与 Milvus 集合维度一致、状态可用的 Embedding 实例所属厂商" placement="top">
+                <el-icon class="form-label__tip" tabindex="0" aria-label="模型厂商说明">
+                  <QuestionFilled />
+                </el-icon>
+              </el-tooltip>
+            </span>
+          </template>
           <el-select
             v-model="rebuildModelProvider"
             class="rebuild-dialog__control"
@@ -157,7 +169,20 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="Embedding 实例" required>
+        <el-form-item required>
+          <template #label>
+            <span class="form-label">
+              Embedding 实例
+              <el-tooltip
+                content="所选实例会写入 tool_retrieval_setting，供对话时的 Tool 语义召回共用"
+                placement="top"
+              >
+                <el-icon class="form-label__tip" tabindex="0" aria-label="Embedding 实例说明">
+                  <QuestionFilled />
+                </el-icon>
+              </el-tooltip>
+            </span>
+          </template>
           <el-select
             v-model="rebuildModelInstanceId"
             class="rebuild-dialog__control"
@@ -185,7 +210,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { RefreshRight } from '@element-plus/icons-vue'
+import { QuestionFilled, RefreshRight } from '@element-plus/icons-vue'
 import {
   getToolRetrievalRebuildStatus,
   searchToolRetrieval,
@@ -205,7 +230,6 @@ const form = reactive({
   query: '',
   topK: 10,
   enabledOnly: false,
-  agentVisibleOnly: false,
   /** undefined：不传，走后端默认 min-score */
   minScore: undefined as number | undefined,
 })
@@ -243,7 +267,6 @@ async function handleSearch() {
       query: form.query.trim(),
       topK: form.topK,
       enabledOnly: form.enabledOnly,
-      agentVisibleOnly: form.agentVisibleOnly,
     }
     if (form.minScore !== undefined && form.minScore !== null) {
       payload.minScore = form.minScore
@@ -367,6 +390,7 @@ onUnmounted(stopPolling)
 .search-form {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: calc(var(--section-gap) / 2) var(--section-gap);
 }
 
@@ -378,10 +402,17 @@ onUnmounted(stopPolling)
   width: 160px;
 }
 
-.form-hint {
-  margin-inline-start: calc(var(--section-gap) / 2);
-  color: var(--text-secondary);
-  font-size: 0.75rem;
+.form-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.form-label__tip {
+  color: var(--text-muted);
+  cursor: help;
+  font-size: 0.875rem;
+  outline: none;
 }
 
 .text-ellipsis {
@@ -398,19 +429,6 @@ onUnmounted(stopPolling)
   gap: var(--section-gap);
 }
 
-.task-empty {
-  margin: 0;
-  color: var(--text-muted);
-  line-height: 1.6;
-}
-
-.rebuild-dialog-hint {
-  margin: 0 0 var(--section-gap);
-  color: var(--text-secondary);
-  font-size: 0.8125rem;
-  line-height: 1.6;
-}
-
 .rebuild-dialog__control {
   width: 100%;
 }
@@ -419,11 +437,6 @@ onUnmounted(stopPolling)
   .search-form__query,
   .search-form__score {
     width: 100%;
-  }
-
-  .form-hint {
-    flex-basis: 100%;
-    margin-inline-start: 0;
   }
 }
 </style>

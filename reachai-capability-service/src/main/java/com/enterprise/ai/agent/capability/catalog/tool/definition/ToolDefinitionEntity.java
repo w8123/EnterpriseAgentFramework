@@ -16,6 +16,9 @@ public class ToolDefinitionEntity {
 
     private String name;
 
+    /** 用户可读的简短名称；name 仍是稳定机器标识。 */
+    private String title;
+
     /** 能力形态：TOOL / SKILL。默认 TOOL；Phase 2.0 新增。 */
     private String kind;
 
@@ -52,17 +55,12 @@ public class ToolDefinitionEntity {
     /** 冗余项目编码，便于 SDK 注册、跨项目引用和后续脱离自增 ID 的导入导出。 */
     private String projectCode;
 
-    /** 项目内能力可见性：PRIVATE / PROJECT / SHARED / PUBLIC。 */
-    private String visibility;
-
-    /** 稳定能力全名，建议形如 projectCode:name；旧数据可为空并按 name 兼容。 */
+    /** 稳定能力全名；项目能力建议形如 projectCode:name，全局能力可直接按 name 引用。 */
     private String qualifiedName;
 
     private Long moduleId;
 
     private Boolean enabled;
-
-    private Boolean agentVisible;
 
     /** 副作用等级：NONE / READ_ONLY / IDEMPOTENT_WRITE / WRITE / IRREVERSIBLE。 */
     private String sideEffect;
@@ -72,8 +70,6 @@ public class ToolDefinitionEntity {
 
     /** kind=SKILL 时：true 表示草稿暂存，不落 ToolRegistry、不可执行。 */
     private Boolean draft;
-
-    private Boolean lightweightEnabled;
 
     private LocalDateTime createTime;
 

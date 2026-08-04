@@ -30,7 +30,7 @@ public class CapabilityToolRetrievalService {
             return List.of();
         }
         CapabilityRetrievalScope effectiveScope = scope == null
-                ? new CapabilityRetrievalScope(null, null, null, true, true)
+                ? new CapabilityRetrievalScope(null, null, null, true)
                 : scope;
         if (effectiveScope.toolWhitelist() != null && effectiveScope.toolWhitelist().isEmpty()) {
             return List.of();
@@ -51,6 +51,7 @@ public class CapabilityToolRetrievalService {
             candidates.add(new CapabilityToolCandidate(
                     tool.getId(),
                     tool.getName(),
+                    tool.getTitle(),
                     tool.getProjectId(),
                     tool.getModuleId(),
                     score,
@@ -70,6 +71,7 @@ public class CapabilityToolRetrievalService {
         }
         StringBuilder sb = new StringBuilder();
         append(sb, tool.getAiDescription());
+        append(sb, tool.getTitle());
         append(sb, tool.getDescription());
         append(sb, tool.getName());
         String text = sb.toString().trim();
@@ -93,9 +95,6 @@ public class CapabilityToolRetrievalService {
         if (scope.enabledOnly() && !Boolean.TRUE.equals(tool.getEnabled())) {
             return false;
         }
-        if (scope.agentVisibleOnly() && !Boolean.TRUE.equals(tool.getAgentVisible())) {
-            return false;
-        }
         if (scope.toolWhitelist() != null && !scope.toolWhitelist().contains(tool.getId())) {
             return false;
         }
@@ -110,7 +109,9 @@ public class CapabilityToolRetrievalService {
     private static float score(ToolDefinitionEntity tool, String text, String query) {
         String lowerQuery = query.toLowerCase(Locale.ROOT);
         String name = nullToEmpty(tool.getName()).toLowerCase(Locale.ROOT);
-        if (!name.isEmpty() && name.contains(lowerQuery)) {
+        String title = nullToEmpty(tool.getTitle()).toLowerCase(Locale.ROOT);
+        if ((!name.isEmpty() && name.contains(lowerQuery))
+                || (!title.isEmpty() && title.contains(lowerQuery))) {
             return EXACT_NAME_SCORE;
         }
         String lowerText = nullToEmpty(text).toLowerCase(Locale.ROOT);

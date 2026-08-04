@@ -10,9 +10,9 @@ import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationService;
-import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftCandidateValidationService;
-import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftEditOperationType;
-import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftEditOperationView;
+import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalValidationService;
+import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalEditOperationType;
+import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalEditOperationView;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -99,25 +99,26 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
         assertTrue(result.graphSpec().getEdges().stream().anyMatch(edge ->
                 "is_metro".equals(edge.getFrom()) && "reject".equals(edge.getTo())
                         && "route:else".equals(edge.getCondition())));
-        assertEquals("is_metro", result.graphSpec().getEntry());
+        assertEquals("is_metro", result.graphSpec().getEntryNodeId());
 
         assertTrue(result.operations().stream().anyMatch(op ->
-                op.getType() == RuntimeWorkflowDraftEditOperationType.ADD_NODE
+                op.getType() == RuntimeWorkflowProposalEditOperationType.ADD_NODE
                         && op.getNode() != null && "is_metro".equals(op.getNode().get("id"))));
         assertTrue(result.operations().stream().anyMatch(op ->
-                op.getType() == RuntimeWorkflowDraftEditOperationType.ADD_NODE
+                op.getType() == RuntimeWorkflowProposalEditOperationType.ADD_NODE
                         && op.getNode() != null && "llm_answer".equals(op.getNode().get("id"))));
         assertTrue(result.operations().stream().anyMatch(op ->
-                op.getType() == RuntimeWorkflowDraftEditOperationType.ADD_NODE
+                op.getType() == RuntimeWorkflowProposalEditOperationType.ADD_NODE
                         && op.getNode() != null && "reject".equals(op.getNode().get("id"))));
         assertFalse(result.operations().stream().anyMatch(op ->
-                op.getType() == RuntimeWorkflowDraftEditOperationType.ADD_NODE
+                op.getType() == RuntimeWorkflowProposalEditOperationType.ADD_NODE
                         && (op.getNode() == null || !op.getNode().containsKey("id"))));
 
         RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
         workflow.setId("wf-1");
         workflow.setProjectCode("demo");
-        workflow.setWorkflowType("WORKFLOW");
+        workflow.setWorkflowKind("GENERAL");
+        workflow.setExecutionEngine("GRAPH_SPEC");
         workflow.setDefaultModelInstanceId("model-1");
         RuntimeWorkflowReleaseValidationResult release =
                 validation.releaseValidation().validateProposed(workflow, result.graphSpec());
@@ -168,27 +169,27 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
         assertEquals(WorkflowAuthoringResult.Status.SUCCEEDED, result.status());
         assertEquals(2, result.attempts());
         assertTrue(result.operations().stream().anyMatch(op ->
-                op.getType() == RuntimeWorkflowDraftEditOperationType.ADD_NODE
+                op.getType() == RuntimeWorkflowProposalEditOperationType.ADD_NODE
                         && "is_metro".equals(String.valueOf(op.getNode().get("id")))));
         assertTrue(result.operations().stream().anyMatch(op ->
-                op.getType() == RuntimeWorkflowDraftEditOperationType.ADD_NODE
+                op.getType() == RuntimeWorkflowProposalEditOperationType.ADD_NODE
                         && "llm_answer".equals(String.valueOf(op.getNode().get("id")))));
         assertTrue(result.operations().stream().anyMatch(op ->
-                op.getType() == RuntimeWorkflowDraftEditOperationType.ADD_NODE
+                op.getType() == RuntimeWorkflowProposalEditOperationType.ADD_NODE
                         && "reject".equals(String.valueOf(op.getNode().get("id")))));
         assertTrue(result.operations().stream().anyMatch(op ->
-                op.getType() == RuntimeWorkflowDraftEditOperationType.ADD_EDGE
+                op.getType() == RuntimeWorkflowProposalEditOperationType.ADD_EDGE
                         && "route:metro".equals(String.valueOf(op.getEdge().get("condition")))));
         assertTrue(result.operations().stream().anyMatch(op ->
-                op.getType() == RuntimeWorkflowDraftEditOperationType.ADD_EDGE
+                op.getType() == RuntimeWorkflowProposalEditOperationType.ADD_EDGE
                         && "route:else".equals(String.valueOf(op.getEdge().get("condition")))));
         // Round-2 only patched an already-added node, so net ops keep ADD_NODE with final state
         // rather than a failed mutation or an orphan UPDATE-only preview.
         assertFalse(result.operations().stream().anyMatch(op ->
-                op.getType() == RuntimeWorkflowDraftEditOperationType.UPDATE_NODE
+                op.getType() == RuntimeWorkflowProposalEditOperationType.UPDATE_NODE
                         && "is_metro".equals(op.getNodeId())));
-        RuntimeWorkflowDraftEditOperationView classifierAdd = result.operations().stream()
-                .filter(op -> op.getType() == RuntimeWorkflowDraftEditOperationType.ADD_NODE
+        RuntimeWorkflowProposalEditOperationView classifierAdd = result.operations().stream()
+                .filter(op -> op.getType() == RuntimeWorkflowProposalEditOperationType.ADD_NODE
                         && "is_metro".equals(String.valueOf(op.getNode().get("id"))))
                 .findFirst()
                 .orElseThrow();
@@ -198,7 +199,7 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
 
     @Test
     void failsWhenFinalizeNeverCalledEvenIfMutationLooksValid() throws Exception {
-        RuntimeWorkflowDraftCandidateValidationService validationService = validationService(true);
+        RuntimeWorkflowProposalValidationService validationService = validationService(true);
         AtomicInteger index = new AtomicInteger();
         List<ModelChatData> responses = List.of(
                 calls(call("m1", WorkflowAuthoringToolkit.APPLY, Map.of(
@@ -221,7 +222,7 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
 
     @Test
     void returnsFailedAfterMutationBudgetExhausted() throws Exception {
-        RuntimeWorkflowDraftCandidateValidationService validationService = validationService(false);
+        RuntimeWorkflowProposalValidationService validationService = validationService(false);
         AtomicInteger index = new AtomicInteger();
         List<ModelChatData> responses = new ArrayList<>();
         for (int i = 1; i <= 4; i++) {
@@ -252,7 +253,7 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
 
     @Test
     void isolatesCandidateStateAcrossConcurrentRequests() throws Exception {
-        RuntimeWorkflowDraftCandidateValidationService validationService = validationService(true);
+        RuntimeWorkflowProposalValidationService validationService = validationService(true);
         CountDownLatch started = new CountDownLatch(2);
         CountDownLatch release = new CountDownLatch(1);
         RuntimeModelServiceClient model = request -> {
@@ -368,7 +369,7 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
     }
 
     @Test
-    void blankWorkflowIdDoesNotBreakRuntimeContextOrDraftAuthoring() throws Exception {
+    void blankWorkflowIdDoesNotBreakRuntimeContextOrProposalAuthoring() throws Exception {
         RealValidationBundle validation = realValidation();
         AtomicInteger index = new AtomicInteger();
         List<ModelChatData> responses = List.of(
@@ -469,17 +470,11 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
                         "name", "拒绝回答",
                         "config", Map.of("answerConfig", Map.of("template", "非地铁相关问题，已拒绝回答")))),
                 Map.of("op", "ADD_EDGE", "edge", Map.of(
-                        "id", "start-to-gate", "from", "START", "to", "is_metro", "condition", "always")),
-                Map.of("op", "ADD_EDGE", "edge", Map.of(
                         "id", "gate-to-llm", "from", "is_metro", "to", "llm_answer", "condition", "route:metro")),
                 Map.of("op", "ADD_EDGE", "edge", Map.of(
                         "id", "gate-to-reject", "from", "is_metro", "to", "reject", "condition", "route:else")),
-                Map.of("op", "ADD_EDGE", "edge", Map.of(
-                        "id", "llm-to-end", "from", "llm_answer", "to", "END", "condition", "always")),
-                Map.of("op", "ADD_EDGE", "edge", Map.of(
-                        "id", "reject-to-end", "from", "reject", "to", "END", "condition", "always")),
-                Map.of("op", "SET_ENTRY", "entry", "is_metro"),
-                Map.of("op", "SET_FINISH", "finish", List.of("llm_answer", "reject")));
+                Map.of("op", "SET_ENTRY_NODE", "entryNodeId", "is_metro"),
+                Map.of("op", "SET_EXIT_NODES", "exitNodeIds", List.of("llm_answer", "reject")));
     }
 
     private List<Map<String, Object>> incompleteMetroOperationsWithoutElseRoute() {
@@ -511,17 +506,13 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
                         "config", Map.of("answerConfig", Map.of("template", "非地铁相关问题，已拒绝回答")))),
                 Map.of("op", "ADD_EDGE", "edge", Map.of(
                         "id", "gate-to-llm", "from", "is_metro", "to", "llm_answer", "condition", "route:metro")),
-                Map.of("op", "ADD_EDGE", "edge", Map.of(
-                        "id", "llm-to-end", "from", "llm_answer", "to", "END", "condition", "always")),
-                Map.of("op", "ADD_EDGE", "edge", Map.of(
-                        "id", "reject-to-end", "from", "reject", "to", "END", "condition", "always")),
-                Map.of("op", "SET_ENTRY", "entry", "is_metro"),
-                Map.of("op", "SET_FINISH", "finish", List.of("llm_answer", "reject")));
+                Map.of("op", "SET_ENTRY_NODE", "entryNodeId", "is_metro"),
+                Map.of("op", "SET_EXIT_NODES", "exitNodeIds", List.of("llm_answer", "reject")));
     }
 
     private AgentScopeWorkflowAuthoringAgentAdapter adapter(
             RuntimeModelServiceClient modelClient,
-            RuntimeWorkflowDraftCandidateValidationService validationService) {
+            RuntimeWorkflowProposalValidationService validationService) {
         return new AgentScopeWorkflowAuthoringAgentAdapter(
                 objectMapper,
                 modelClient,
@@ -536,14 +527,14 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
         RuntimeControlCatalogClient catalogClient = mock(RuntimeControlCatalogClient.class);
         RuntimeWorkflowReleaseValidationService releaseValidation =
                 new RuntimeWorkflowReleaseValidationService(catalogClient, objectMapper);
-        RuntimeWorkflowDraftCandidateValidationService candidateValidation =
-                new RuntimeWorkflowDraftCandidateValidationService(workflowService, releaseValidation);
+        RuntimeWorkflowProposalValidationService candidateValidation =
+                new RuntimeWorkflowProposalValidationService(workflowService, releaseValidation);
         return new RealValidationBundle(candidateValidation, releaseValidation);
     }
 
-    private RuntimeWorkflowDraftCandidateValidationService validationService(boolean valid) {
-        RuntimeWorkflowDraftCandidateValidationService service =
-                mock(RuntimeWorkflowDraftCandidateValidationService.class);
+    private RuntimeWorkflowProposalValidationService validationService(boolean valid) {
+        RuntimeWorkflowProposalValidationService service =
+                mock(RuntimeWorkflowProposalValidationService.class);
         when(service.validate(
                 nullable(String.class),
                 nullable(String.class),
@@ -570,7 +561,7 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
                 workflowId,
                 "Metro Workflow",
                 projectCode,
-                "WORKFLOW",
+                "GENERAL",
                 instruction,
                 "model-1",
                 graphSpec,
@@ -581,9 +572,6 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
 
     private GraphSpec emptyGraph() {
         return GraphSpec.builder()
-                .code("blank")
-                .name("blank")
-                .mode("WORKFLOW")
                 .nodes(List.of())
                 .edges(List.of())
                 .build();
@@ -608,7 +596,7 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
     }
 
     private record RealValidationBundle(
-            RuntimeWorkflowDraftCandidateValidationService candidateValidation,
+            RuntimeWorkflowProposalValidationService candidateValidation,
             RuntimeWorkflowReleaseValidationService releaseValidation) {
     }
 }

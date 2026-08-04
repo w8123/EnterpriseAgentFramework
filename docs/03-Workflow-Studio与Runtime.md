@@ -62,8 +62,8 @@ Workflow Studio 是唯一的画布编辑器：
 - `runtime_workflow.canvas_json` 只保存画布布局。
 - `WorkflowReleaseValidationService` 校验节点、边、入口、变量映射、Capability 引用和可达性。
 - 发布后的 `runtime_workflow_version.graph_spec_snapshot_json` 是 Supervisor 调用时的执行事实源。
-- AI 生成使用 `POST /api/workflows/studio/generate-draft`。
-- AI 编排使用 `POST /api/workflows/studio/edit-draft`：AgentScope Authoring Adapter 通过受约束工具修改内存候选，确定性内核负责 mutation / validation；仅 `status=SUCCEEDED` 可应用到草稿。
+- AI 生成 Proposal 使用 `POST /api/workflows/studio/proposals/generate`。
+- AI 编辑 Proposal 使用 `POST /api/workflows/studio/proposals/edit`：AgentScope Authoring Adapter 通过受约束工具修改内存候选，确定性内核负责 mutation / validation；仅 `status=SUCCEEDED` 可应用到 Working Copy。旧 `generate-draft`、`edit-draft` 路由不再提供。
 
 ### 节点能力目录
 
@@ -121,11 +121,19 @@ AI Draft 的 `nodeTypes` 与 system prompt 均以 `RuntimeWorkflowNodeCapability
 
 HTTP 契约：
 
-- 成功状态：仅 HTTP 200–299；4xx/5xx → `success=false`，供 Retry/ErrorPolicy 消费
+- 传输成功：仅 HTTP 200–299；4xx/5xx → `success=false`，供 Retry/ErrorPolicy 消费
+- 业务响应：若 JSON 顶层存在 `code`，仅字符串或数值 `200` 视为成功；`code != 200` 或显式 `success=false` → 节点失败、`retryableFailure=false`，用户提示以“查询失败”开头。该规则同时适用于 `HTTP_REQUEST` 与 Capability/Tool 返回，不能把 HTTP 200 误判为业务成功
 - Canonical 凭据类型：`BEARER`、`BASIC`、`API_KEY_HEADER`、`API_KEY_QUERY`、`CUSTOM_HEADERS`（历史别名仅在单一 normalize 层转换）
 - Scope fail-closed：PROJECT 凭据在缺少 `projectId/projectCode` 时拒绝；list 无项目身份时仅返回 GLOBAL
 - Redirect：credentialed 请求禁止跨 origin；HTTPS→HTTP 降级拒绝；同 origin 仍重新做 egress 校验
 - Trace：只保留无 query 的 safe URL、status、duration、bytes、contentType、redirectCount；不落 secret / bodyPreview
+
+结构化回复展示契约：
+
+- `INTERACTION/PRESENT_OUTPUT` 使用通用 `presentation.mode`，支持 `card_only`、`text_and_card`、`text_only`；Studio 新建展示节点默认 `card_only`
+- `card_only` 只抑制可见正文，不删除完成结果中的 `answer`，以保证 API、历史记录和不支持卡片的客户端仍可降级
+- 未携带 `presentation` 的历史 `uiRequest` 按 `text_and_card` 兼容；阻塞型交互禁止 `text_only`
+- 业务节点失败时不产生结果卡片，失败正文必须保留，不能因展示策略隐藏“查询失败”
 
 Knowledge 契约：
 

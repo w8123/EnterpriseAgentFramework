@@ -4,7 +4,7 @@
 
 ReachAI 同时支持两类运行环境：
 
-- 业务系统侧：通常仍运行在 JDK8 或 Spring Boot 2，目标是低侵入声明能力、注册项目与实例心跳；接口扫描/能力快照由 ReachAI API 管理手动触发 SDK 同步。
+- 业务系统侧：通常仍运行在 JDK8 或 Spring Boot 2，目标是低侵入声明能力、注册项目与实例心跳；接口扫描/能力快照不在应用启动时自动执行，由 ReachAI API 管理手动触发，或由活动中的 Project Onboarding 任务通过任务 Token 显式触发同一项目的 `SDK_SYNC` 验证。
 - 平台侧：运行在 JDK17 和 Spring Boot 3，负责 Capability Catalog、Runtime Host、Knowledge / Retrieval、Model Gateway 和 Platform Control。
 
 JDK8 侧不运行完整 Agent Runtime，不依赖 LangGraph4j，不承担平台治理职责。它只提供业务能力声明、SDK 图同步、实例心跳和本地能力调用入口。
@@ -60,9 +60,9 @@ mvn -pl reachai-control-service,reachai-runtime-service,reachai-capability-servi
 
 业务系统接入验证应同时关注：
 
-- Starter 是否能在 API 管理手动触发时扫描 `@ReachCapability`。
+- Starter 是否能在 Project Onboarding 任务的 `SDK_SYNC` 验证或 API 管理手动触发时扫描 `@ReachCapability`。
 - 项目注册、实例心跳是否进入 Control 兼容入口；接口同步不再作为 SDK 启动时动作。
-- API 管理手动触发 SDK 同步后，Capability Catalog 是否形成能力快照和 diff。
+- 任务验证或 API 管理手动触发 SDK 同步后，Capability Catalog 是否形成能力快照和 diff。
 - Runtime 调用业务能力时是否遵守 Tool / Capability 调用契约。
 
 ## 后续工作

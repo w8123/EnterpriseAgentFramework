@@ -143,6 +143,7 @@ reachai:
     visibility: PROJECT
   capability:
     scan-beans: true
+    scan-mode: ANNOTATED_ONLY
   embed:
     allowed-origins:
       - ${REACHAI_EMBED_ORIGIN:http://localhost:9200}
@@ -367,7 +368,7 @@ Page Action 事件路径约定：
 
 组件职责：
 
-1. 生成 `pageInstanceId`。
+1. 创建 Page Bridge，并使用 SDK 拥有的 `pageInstanceId`。
 2. 调用网关 `reachai/embed-token` 获取 embed token。
 3. 调用 ReachAI 创建嵌入式会话：
 
@@ -395,7 +396,6 @@ POST /api/embed/chat/sessions/{sessionId}/page-actions/{requestId}/result
 
 ```ts
 const pageBridge = createEafPageBridge({
-  pageInstanceId: 'team-archive-list',
   route: window.location.pathname
 });
 
@@ -405,13 +405,19 @@ const chat = await createEafChat({
   agentId: reachAi.agentId,
   position: 'bottom-right',
   initialOpen: false,
+  resizable: true,
+  launcherDraggable: true,
   tokenProvider: async (tokenContext) => {
+    if (!tokenContext?.pageInstanceId) {
+      throw new Error('ReachAI page identity is unavailable');
+    }
     const query = new URLSearchParams({
       projectCode: reachAi.projectCode,
       agentId: reachAi.agentId,
-      pageInstanceId: pageBridge.pageInstanceId,
-      route: window.location.pathname,
-      origin: window.location.origin
+      pageKey: tokenContext.pageKey || 'teamArchive.list',
+      pageInstanceId: tokenContext.pageInstanceId,
+      route: tokenContext.route,
+      origin: tokenContext.origin
     });
     const response = await fetch(`${reachAi.tokenPath}?${query}`, {
       signal: tokenContext?.signal
@@ -463,11 +469,6 @@ actionKey: qmssmp.teamArchive.search
 前端页面需要提供对应处理函数：
 
 ```ts
-const pageBridge = createEafPageBridge({
-  pageInstanceId,
-  route: window.location.pathname
-});
-
 pageBridge.registerAction(
   'qmssmp.teamArchive.search',
   (args: TeamArchiveAiSearch) => this.applyAiSearch(args),
@@ -479,7 +480,7 @@ pageBridge.registerAction(
 );
 ```
 
-SDK 接入项目的正式链路不要求浏览器自动签名上报页面目录。`pageKey`、`routePattern`、`actionKey`、展示标题、描述、示例参数等目录信息可以通过 ReachAI 管理端“创建页面助手”、业务后端注册流程或治理页面维护。
+SDK 接入项目的正式链路不要求浏览器自动签名上报页面目录。`pageKey`、`routePattern`、`actionKey`、展示标题、描述、示例参数等目录信息可以通过 ReachAI 管理端“业务页面工作台”、业务后端注册流程或治理页面维护。
 
 ```http
 POST /api/registry/projects/{projectCode}/pages/register
@@ -487,7 +488,7 @@ POST /api/registry/projects/{projectCode}/pages/register
 
 如仍使用该目录注册接口，应由可信业务后端或受控治理工具发起，使用项目级 `appKey/appSecret` 做服务端签名。SDK 接入项目不应把 `appSecret` 下发到浏览器。中台接受新增、变更，并在 `replaceActions=true` 时将本次未上报的旧动作标记为 `REMOVED`。随后 Workflow Studio 的 Page Action 节点可以直接从该目录选择页面动作。
 
-如果页面动作在前端代码中新增，建议先通过“创建页面助手”或治理页面补齐目录，再让前端 handler 与目录中的 `actionKey` 保持一致。
+如果页面动作在前端代码中新增，建议先通过“业务页面工作台”或治理页面补齐目录，再让前端 handler 与目录中的 `actionKey` 保持一致。
 
 参数结构建议：
 
@@ -537,7 +538,7 @@ Agent 的运行图需要能识别用户意图并输出页面动作请求。
 
 配置 Page Action 节点时，不再手抄 `actionKey`。推荐流程是：
 
-1. 在 ReachAI 管理端使用“创建页面助手”或页面动作治理入口维护 `teamArchive.list` 页面和 `qmssmp.teamArchive.search` 动作。
+1. 在 ReachAI 管理端使用“业务页面工作台”或页面动作治理入口维护 `teamArchive.list` 页面和 `qmssmp.teamArchive.search` 动作。
 2. 启动班组前端并打开目标页面，确认能看到当前页面实例和嵌入式会话。
 3. 在 Workflow Studio 的 Page Action 节点中选择或输入项目编码；如果顶部项目选择器已经选中当前项目，节点会默认带出该项目。
 4. 节点会自动加载目录；也可以点击“加载目录”，依次选择已注册页面和该页面下的动作。
@@ -654,7 +655,7 @@ npm run build
 1. 项目已注册。
 2. 实例心跳正常。
 3. SDK 实例心跳正常。
-4. 如需接口资产，已在 ReachAI API 管理手动触发 SDK 同步，并确认 `teamArchivePage` 能力存在。
+4. 如需接口资产，已由活动中的 Project Onboarding 任务触发一次 `SDK_SYNC` 验证，或在 ReachAI API 管理手动触发 SDK 同步，并确认 `teamArchivePage` 能力存在。
 5. 嵌入授权包含 `team-archive-assistant`。
 
 ### 9.3 token 验证
@@ -777,5 +778,5 @@ GET http://localhost:8080/api/v1/reachai/embed-token
 9. 在业务前端配置 `reachAi.projectCode`、返回的 `agent.keySlug`、`reachAi.tokenPath`、`reachAi.apiBase`，不配置项目级 `appSecret`。
 10. 在目标页面挂载嵌入式对话组件。
 11. 在目标页面注册 Page Action handler。
-12. 在“创建页面助手”或 Workflow Studio 创建并发布实际业务 Workflow；页面助手向导会把已发布 Workflow 加入 Supervisor 的 Workflow-as-Tool 白名单，并发布新版 Agent 配置。
-13. 启动全链路并验证注册、心跳、API 管理手动 SDK 同步、能力、token、对话、页面动作和审计。
+12. 在“业务页面工作台”发起明确的 AI Coding 建设任务，或在 Workflow Studio 创建实际业务 Workflow；PAGE_ASSISTANT Workflow 必须绑定当前 TARGET PAGE，发布 ACTIVE 版本，再显式加入 Supervisor 的 Workflow-as-Tool 白名单并发布新版 Agent 配置。
+13. 启动全链路并验证注册、心跳、任务级或 API 管理手动 SDK 同步、能力、token、对话、页面动作和审计。

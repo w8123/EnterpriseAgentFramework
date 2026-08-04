@@ -17,7 +17,7 @@ describe('useWorkflowStudioRelease', () => {
   it('blocks publish validation through the real panel validation gate until JSON is fixed', async () => {
     const validation = useWorkflowStudioPanelValidation()
     validation.setPanelValidation('assign_1', { valid: false, message: 'JSON 无效' })
-    const validateCurrentDraft = vi.fn(async () => ({ valid: true, errors: [], warnings: [] }))
+    const validateWorkingCopy = vi.fn(async () => ({ valid: true, errors: [], warnings: [] }))
     const publishDialogOpen = ref(false)
     const actions = useWorkflowStudioRelease({
       workflowId: ref('wf-1'),
@@ -34,7 +34,7 @@ describe('useWorkflowStudioRelease', () => {
       releaseErrors: ref([]),
       releaseWarnings: ref([]),
       publishForm: { version: 'v1', rolloutPercent: 100, note: '', publishedBy: '' },
-      validateCurrentDraft,
+      validateWorkingCopy,
       saveStudio: vi.fn(),
       loadStudio: vi.fn(),
       ensurePanelValidationClear: validation.ensurePanelValidationClear,
@@ -42,11 +42,11 @@ describe('useWorkflowStudioRelease', () => {
 
     await actions.publishWorkflow()
     expect(publishDialogOpen.value).toBe(false)
-    expect(validateCurrentDraft).not.toHaveBeenCalled()
+    expect(validateWorkingCopy).not.toHaveBeenCalled()
 
     validation.setPanelValidation('assign_1', { valid: true })
     await actions.publishWorkflow()
     expect(publishDialogOpen.value).toBe(true)
-    expect(validateCurrentDraft).toHaveBeenCalledTimes(1)
+    expect(validateWorkingCopy).toHaveBeenCalledTimes(1)
   })
 })

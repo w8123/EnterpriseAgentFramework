@@ -1,0 +1,36 @@
+{
+  "scanMode": "INCREMENTAL",
+  "repositoryBranch": "main",
+  "repositoryRevision": "0123456789abcdef",
+  "scannedAt": "2026-07-25T12:00:00",
+  "modules": [
+    {
+      "moduleKey": "registry",
+      "name": "项目管理",
+      "description": "项目、实例与接入配置"
+    }
+  ],
+  "pages": [
+    {
+      "pageKey": "registry-project-detail",
+      "moduleKey": "registry",
+      "moduleName": "项目管理",
+      "name": "项目详情",
+      "description": "查看项目基本信息和接入状态",
+      "routePattern": "/registry/projects/:projectCode",
+      "componentPath": "src/views/registry/RegistryProjectDetail.vue",
+      "resources": [
+        {
+          "resourceType": "API",
+          "resourceKey": "get-project-detail",
+          "displayName": "读取项目详情",
+          "location": "src/api/scanProject.ts",
+          "httpMethod": "GET",
+          "accessMode": "READ_ONLY",
+          "metadata": {}
+        }
+      ],
+      "actions": []
+    }
+  ]
+}

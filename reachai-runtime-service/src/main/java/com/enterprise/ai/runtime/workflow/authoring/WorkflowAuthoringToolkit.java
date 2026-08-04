@@ -1,11 +1,10 @@
 package com.enterprise.ai.runtime.workflow.authoring;
 
-import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
-import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftCandidateValidationService;
-import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftEditOperationType;
-import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftEditOperationView;
+import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalValidationService;
+import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalEditOperationType;
+import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalEditOperationView;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService.MutationOperation;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,6 +23,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Constrained AgentScope tools for in-memory Workflow candidate authoring.
@@ -36,15 +36,19 @@ final class WorkflowAuthoringToolkit {
     static final String APPLY = "apply_candidate_operations";
     static final String VALIDATE = "validate_candidate";
     static final String FINALIZE = "finalize_preview";
+    private static final Set<String> OPERATION_FIELDS = Set.of(
+            "op", "node", "nodeId", "patch", "edge", "edgeId", "entryNodeId", "exitNodeIds", "reason");
+    private static final Set<String> EDGE_FIELDS = Set.of(
+            "id", "from", "to", "condition", "sourceHandle", "targetHandle", "priority");
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
     private final ObjectMapper objectMapper;
-    private final RuntimeWorkflowDraftCandidateValidationService validationService;
+    private final RuntimeWorkflowProposalValidationService validationService;
 
     WorkflowAuthoringToolkit(ObjectMapper objectMapper,
-                             RuntimeWorkflowDraftCandidateValidationService validationService) {
+                             RuntimeWorkflowProposalValidationService validationService) {
         this.objectMapper = objectMapper;
         this.validationService = validationService;
     }
@@ -114,7 +118,7 @@ final class WorkflowAuthoringToolkit {
                                 "OPERATIONS_REQUIRED", "operations must be a non-empty array", null, true));
                     }
                     List<MutationOperation> mutations = new ArrayList<>();
-                    List<RuntimeWorkflowDraftEditOperationView> views = new ArrayList<>();
+                    List<RuntimeWorkflowProposalEditOperationView> views = new ArrayList<>();
                     for (int index = 0; index < list.size(); index++) {
                         Object item = list.get(index);
                         try {
@@ -171,7 +175,7 @@ final class WorkflowAuthoringToolkit {
                     RuntimeWorkflowReleaseValidationResult validation = validationService.validate(
                             request.workflowId(),
                             request.projectCode(),
-                            request.workflowType(),
+                            request.workflowKind(),
                             request.modelInstanceId(),
                             session.candidateGraphSpec());
                     Map<String, Object> payload = session.recordValidation(validation);
@@ -233,17 +237,25 @@ final class WorkflowAuthoringToolkit {
         // server-side validation still returns structured retryable errors for the agent loop.
         Map<String, Object> nodeSchema = new LinkedHashMap<>();
         nodeSchema.put("type", "object");
-        nodeSchema.put("properties", Map.of(
-                "id", Map.of(
-                        "type", "string",
-                        "minLength", 1,
-                        "description", "Required stable unique node id"),
-                "type", Map.of("type", "string"),
-                "name", Map.of("type", "string"),
-                "description", Map.of("type", "string"),
-                "config", Map.of("type", "object")));
+        Map<String, Object> nodeProperties = new LinkedHashMap<>();
+        nodeProperties.put("id", Map.of(
+                "type", "string",
+                "minLength", 1,
+                "description", "Required stable unique node id"));
+        nodeProperties.put("type", Map.of("type", "string"));
+        nodeProperties.put("name", Map.of("type", "string"));
+        nodeProperties.put("description", Map.of("type", "string"));
+        nodeProperties.put("ref", Map.of("type", "object"));
+        nodeProperties.put("inputs", Map.of("type", "array"));
+        nodeProperties.put("outputs", Map.of("type", "array"));
+        nodeProperties.put("inputSchema", Map.of("type", "object"));
+        nodeProperties.put("outputSchema", Map.of("type", "object"));
+        nodeProperties.put("retry", Map.of("type", "object"));
+        nodeProperties.put("errorPolicy", Map.of("type", "object"));
+        nodeProperties.put("config", Map.of("type", "object"));
+        nodeSchema.put("properties", nodeProperties);
         nodeSchema.put("required", List.of("type"));
-        nodeSchema.put("additionalProperties", true);
+        nodeSchema.put("additionalProperties", false);
 
         Map<String, Object> edgeSchema = new LinkedHashMap<>();
         edgeSchema.put("type", "object");
@@ -255,7 +267,7 @@ final class WorkflowAuthoringToolkit {
                 "sourceHandle", Map.of("type", "string"),
                 "targetHandle", Map.of("type", "string")));
         edgeSchema.put("required", List.of("from", "to"));
-        edgeSchema.put("additionalProperties", true);
+        edgeSchema.put("additionalProperties", false);
 
         Map<String, Object> operationSchema = new LinkedHashMap<>();
         operationSchema.put("type", "object");
@@ -265,14 +277,14 @@ final class WorkflowAuthoringToolkit {
                         "enum", List.of(
                                 "ADD_NODE", "UPDATE_NODE", "DELETE_NODE",
                                 "ADD_EDGE", "UPDATE_EDGE", "DELETE_EDGE",
-                                "SET_ENTRY", "SET_FINISH")),
+                                "SET_ENTRY_NODE", "SET_EXIT_NODES", "SET_INPUT_SCHEMA")),
                 "node", nodeSchema,
                 "nodeId", Map.of("type", "string"),
                 "edge", edgeSchema,
                 "edgeId", Map.of("type", "string"),
                 "patch", Map.of("type", "object"),
-                "entry", Map.of("type", "string"),
-                "finish", Map.of("type", "array", "items", Map.of("type", "string")),
+                "entryNodeId", Map.of("type", "string"),
+                "exitNodeIds", Map.of("type", "array", "items", Map.of("type", "string")),
                 "reason", Map.of("type", "string")));
         operationSchema.put("required", List.of("op"));
         operationSchema.put("additionalProperties", false);
@@ -290,17 +302,18 @@ final class WorkflowAuthoringToolkit {
 
     private ParsedOperation parseOperation(Object raw, int index) {
         Map<String, Object> map = mutableMap(raw);
-        String opText = firstText(textValue(map.get("op")), textValue(map.get("type")));
+        assertAllowedFields(map, OPERATION_FIELDS, "operation[" + index + "]");
+        String opText = textValue(map.get("op"));
         if (!StringUtils.hasText(opText)) {
             throw new IllegalArgumentException("operation[" + index + "].op is required");
         }
         MutationOperation.Op op;
         try {
-            op = MutationOperation.Op.valueOf(opText.trim().toUpperCase());
+            op = MutationOperation.Op.valueOf(opText.trim());
         } catch (IllegalArgumentException ex) {
             throw new IllegalArgumentException("operation[" + index + "] has unknown op: " + opText);
         }
-        RuntimeWorkflowDraftEditOperationType viewType = toViewType(op);
+        RuntimeWorkflowProposalEditOperationType viewType = toViewType(op);
         String reason = textValue(map.get("reason"));
         return switch (op) {
             case ADD_NODE -> {
@@ -314,7 +327,7 @@ final class WorkflowAuthoringToolkit {
                 GraphSpec.Node node = toNode(nodeMap);
                 yield new ParsedOperation(
                         new MutationOperation(op, node, null, null, null, null, null, null),
-                        RuntimeWorkflowDraftEditOperationView.builder()
+                        RuntimeWorkflowProposalEditOperationView.builder()
                                 .type(viewType)
                                 .node(nodeMap)
                                 .reason(reason)
@@ -327,11 +340,11 @@ final class WorkflowAuthoringToolkit {
                 }
                 Map<String, Object> patch = mutableMap(map.get("patch"));
                 if (patch.isEmpty()) {
-                    patch = mutableMap(map.get("node"));
+                    throw new IllegalArgumentException("UPDATE_NODE requires patch");
                 }
                 yield new ParsedOperation(
                         new MutationOperation(op, null, nodeId, patch, null, null, null, null),
-                        RuntimeWorkflowDraftEditOperationView.builder()
+                        RuntimeWorkflowProposalEditOperationView.builder()
                                 .type(viewType)
                                 .nodeId(nodeId)
                                 .patch(patch)
@@ -345,7 +358,7 @@ final class WorkflowAuthoringToolkit {
                 }
                 yield new ParsedOperation(
                         new MutationOperation(op, null, nodeId, null, null, null, null, null),
-                        RuntimeWorkflowDraftEditOperationView.builder()
+                        RuntimeWorkflowProposalEditOperationView.builder()
                                 .type(viewType)
                                 .nodeId(nodeId)
                                 .reason(reason)
@@ -356,22 +369,17 @@ final class WorkflowAuthoringToolkit {
                 if (edgeMap.isEmpty()) {
                     throw new IllegalArgumentException("ADD_EDGE requires edge");
                 }
-                String from = firstText(textValue(edgeMap.get("from")), textValue(edgeMap.get("source")));
-                String to = firstText(textValue(edgeMap.get("to")), textValue(edgeMap.get("target")));
+                assertAllowedFields(edgeMap, EDGE_FIELDS, "ADD_EDGE.edge");
+                String from = textValue(edgeMap.get("from"));
+                String to = textValue(edgeMap.get("to"));
                 if (!StringUtils.hasText(from) || !StringUtils.hasText(to)) {
                     throw new IllegalArgumentException("ADD_EDGE requires edge.from and edge.to");
                 }
-                GraphSpec.Edge edge = GraphSpec.Edge.builder()
-                        .id(textValue(edgeMap.get("id")))
-                        .from(from)
-                        .to(to)
-                        .condition(firstText(textValue(edgeMap.get("condition")), "always"))
-                        .sourceHandle(textValue(edgeMap.get("sourceHandle")))
-                        .targetHandle(textValue(edgeMap.get("targetHandle")))
-                        .build();
+                GraphSpec.Edge edge = objectMapper.convertValue(edgeMap, GraphSpec.Edge.class);
+                edge.setCondition(firstText(edge.getCondition(), "always"));
                 yield new ParsedOperation(
                         new MutationOperation(op, null, null, null, edge, null, null, null),
-                        RuntimeWorkflowDraftEditOperationView.builder()
+                        RuntimeWorkflowProposalEditOperationView.builder()
                                 .type(viewType)
                                 .edge(edgeMap)
                                 .reason(reason)
@@ -385,7 +393,7 @@ final class WorkflowAuthoringToolkit {
                 Map<String, Object> patch = mutableMap(map.get("patch"));
                 yield new ParsedOperation(
                         new MutationOperation(op, null, null, patch, null, edgeId, null, null),
-                        RuntimeWorkflowDraftEditOperationView.builder()
+                        RuntimeWorkflowProposalEditOperationView.builder()
                                 .type(viewType)
                                 .edgeId(edgeId)
                                 .patch(patch)
@@ -399,40 +407,54 @@ final class WorkflowAuthoringToolkit {
                 }
                 yield new ParsedOperation(
                         new MutationOperation(op, null, null, null, null, edgeId, null, null),
-                        RuntimeWorkflowDraftEditOperationView.builder()
+                        RuntimeWorkflowProposalEditOperationView.builder()
                                 .type(viewType)
                                 .edgeId(edgeId)
                                 .reason(reason)
                                 .build());
             }
-            case SET_ENTRY -> {
-                String entry = textValue(map.get("entry"));
-                if (!StringUtils.hasText(entry)) {
-                    throw new IllegalArgumentException("SET_ENTRY requires entry");
+            case SET_ENTRY_NODE -> {
+                String entryNodeId = textValue(map.get("entryNodeId"));
+                if (!StringUtils.hasText(entryNodeId)) {
+                    throw new IllegalArgumentException("SET_ENTRY_NODE requires entryNodeId");
                 }
                 yield new ParsedOperation(
-                        new MutationOperation(op, null, null, null, null, null, entry, null),
-                        RuntimeWorkflowDraftEditOperationView.builder()
+                        new MutationOperation(op, null, null, null, null, null, entryNodeId, null),
+                        RuntimeWorkflowProposalEditOperationView.builder()
                                 .type(viewType)
-                                .patch(Map.of("entry", entry))
+                                .patch(Map.of("entryNodeId", entryNodeId))
                                 .reason(reason)
                                 .build());
             }
-            case SET_FINISH -> {
-                List<String> finish = new ArrayList<>();
-                Object rawFinish = map.get("finish");
-                if (rawFinish instanceof List<?> items) {
+            case SET_EXIT_NODES -> {
+                List<String> exitNodeIds = new ArrayList<>();
+                Object rawExitNodeIds = map.get("exitNodeIds");
+                if (rawExitNodeIds instanceof List<?> items) {
                     for (Object item : items) {
                         if (StringUtils.hasText(textValue(item))) {
-                            finish.add(textValue(item));
+                            exitNodeIds.add(textValue(item));
                         }
                     }
                 }
                 yield new ParsedOperation(
-                        new MutationOperation(op, null, null, null, null, null, null, finish),
-                        RuntimeWorkflowDraftEditOperationView.builder()
+                        new MutationOperation(op, null, null, null, null, null, null, exitNodeIds),
+                        RuntimeWorkflowProposalEditOperationView.builder()
                                 .type(viewType)
-                                .patch(Map.of("finish", finish))
+                                .patch(Map.of("exitNodeIds", exitNodeIds))
+                                .reason(reason)
+                                .build());
+            }
+            case SET_INPUT_SCHEMA -> {
+                Map<String, Object> inputSchema = mutableMap(map.get("patch"));
+                if (inputSchema.isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "SET_INPUT_SCHEMA requires a non-empty JSON Schema object in patch");
+                }
+                yield new ParsedOperation(
+                        new MutationOperation(op, null, null, inputSchema, null, null, null, null),
+                        RuntimeWorkflowProposalEditOperationView.builder()
+                                .type(viewType)
+                                .patch(inputSchema)
                                 .reason(reason)
                                 .build());
             }
@@ -440,23 +462,28 @@ final class WorkflowAuthoringToolkit {
     }
 
     private GraphSpec.Node toNode(Map<String, Object> nodeMap) {
-        GraphSpec.Node node = objectMapper.convertValue(nodeMap, GraphSpec.Node.class);
-        if (StringUtils.hasText(node.getType())) {
-            node.setType(AgentGraphNodeType.normalize(node.getType()));
-        }
-        return node;
+        return objectMapper.convertValue(nodeMap, GraphSpec.Node.class);
     }
 
-    private RuntimeWorkflowDraftEditOperationType toViewType(MutationOperation.Op op) {
+    private void assertAllowedFields(Map<String, Object> values, Set<String> allowedFields, String context) {
+        for (String field : values.keySet()) {
+            if (!allowedFields.contains(field)) {
+                throw new IllegalArgumentException(context + " contains unsupported field: " + field);
+            }
+        }
+    }
+
+    private RuntimeWorkflowProposalEditOperationType toViewType(MutationOperation.Op op) {
         return switch (op) {
-            case ADD_NODE -> RuntimeWorkflowDraftEditOperationType.ADD_NODE;
-            case UPDATE_NODE -> RuntimeWorkflowDraftEditOperationType.UPDATE_NODE;
-            case DELETE_NODE -> RuntimeWorkflowDraftEditOperationType.DELETE_NODE;
-            case ADD_EDGE -> RuntimeWorkflowDraftEditOperationType.ADD_EDGE;
-            case UPDATE_EDGE -> RuntimeWorkflowDraftEditOperationType.UPDATE_EDGE;
-            case DELETE_EDGE -> RuntimeWorkflowDraftEditOperationType.DELETE_EDGE;
-            case SET_ENTRY -> RuntimeWorkflowDraftEditOperationType.SET_ENTRY;
-            case SET_FINISH -> RuntimeWorkflowDraftEditOperationType.SET_FINISH;
+            case ADD_NODE -> RuntimeWorkflowProposalEditOperationType.ADD_NODE;
+            case UPDATE_NODE -> RuntimeWorkflowProposalEditOperationType.UPDATE_NODE;
+            case DELETE_NODE -> RuntimeWorkflowProposalEditOperationType.DELETE_NODE;
+            case ADD_EDGE -> RuntimeWorkflowProposalEditOperationType.ADD_EDGE;
+            case UPDATE_EDGE -> RuntimeWorkflowProposalEditOperationType.UPDATE_EDGE;
+            case DELETE_EDGE -> RuntimeWorkflowProposalEditOperationType.DELETE_EDGE;
+            case SET_ENTRY_NODE -> RuntimeWorkflowProposalEditOperationType.SET_ENTRY_NODE;
+            case SET_EXIT_NODES -> RuntimeWorkflowProposalEditOperationType.SET_EXIT_NODES;
+            case SET_INPUT_SCHEMA -> RuntimeWorkflowProposalEditOperationType.SET_INPUT_SCHEMA;
         };
     }
 
@@ -492,6 +519,6 @@ final class WorkflowAuthoringToolkit {
         return "";
     }
 
-    private record ParsedOperation(MutationOperation mutation, RuntimeWorkflowDraftEditOperationView view) {
+    private record ParsedOperation(MutationOperation mutation, RuntimeWorkflowProposalEditOperationView view) {
     }
 }

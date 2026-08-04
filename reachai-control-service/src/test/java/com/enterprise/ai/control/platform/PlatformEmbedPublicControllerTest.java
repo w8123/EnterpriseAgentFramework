@@ -247,7 +247,7 @@ class PlatformEmbedPublicControllerTest {
                         "global-1",
                         "Alice",
                         List.of("operator"),
-                        Map.of("dept", "ops")))
+                        Map.of("deptId", "dept-1", "deptName", "Operations", "region", "east")))
                 .build()).token();
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
         session.setSessionId("embed-1");
@@ -281,6 +281,14 @@ class PlatformEmbedPublicControllerTest {
         assertEquals("订单已找到", response.getBody().getData().answer());
         assertEquals("embed-1", response.getBody().getData().sessionId());
         verify(trustedExecutionClient).executeTrusted(argThat(body -> body != null && "orders-bot".equals(body.get("agentId")) && "embed-1".equals(body.get("sessionId")) && "查订单".equals(body.get("message")) && "EMBED_CHAT".equals(body.get("intentHint"))), eq("EMBED_SESSION"), eq("user-1"));
+        verify(trustedExecutionClient).executeTrusted(argThat(body -> body != null
+                        && "Alice".equals(body.get("userName"))
+                        && List.of("operator").equals(body.get("roles"))
+                        && "dept-1".equals(body.get("deptId"))
+                        && "Operations".equals(body.get("deptName"))
+                        && Map.of("deptId", "dept-1", "deptName", "Operations", "region", "east")
+                        .equals(body.get("attributes"))),
+                eq("EMBED_SESSION"), eq("user-1"));
         verify(chatEventMapper, times(2)).insert(any());
         verify(chatEventMapper).insert(argThat(event ->
                 "MESSAGE".equals(event.getEventType())

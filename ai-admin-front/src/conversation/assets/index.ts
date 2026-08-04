@@ -7,8 +7,11 @@
  */
 declare const __REACHAI_EMBED_SDK__: boolean | undefined
 
+export const embedSdkAssetsUseCss =
+  typeof __REACHAI_EMBED_SDK__ !== 'undefined' && __REACHAI_EMBED_SDK__
+
 function resolveAsset(fileName: string): string {
-  if (typeof __REACHAI_EMBED_SDK__ !== 'undefined' && __REACHAI_EMBED_SDK__) {
+  if (embedSdkAssetsUseCss) {
     return `./${fileName}`
   }
   return `/conversation/${fileName}`

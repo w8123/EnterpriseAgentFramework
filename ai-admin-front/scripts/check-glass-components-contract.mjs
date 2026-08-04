@@ -3972,14 +3972,28 @@ function validatesIdentityFields(node) {
   const expression = unwrapExpression(node)
   const booleanCall = callExpression(expression, 'Boolean')
   const fields = unwrapExpression(booleanCall?.arguments[0])
+  const operands = []
+  const collectOperands = (candidate) => {
+    const current = unwrapExpression(candidate)
+    if (
+      current &&
+      ts.isBinaryExpression(current) &&
+      current.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    ) {
+      collectOperands(current.left)
+      collectOperands(current.right)
+      return
+    }
+    operands.push(current)
+  }
+  collectOperands(fields)
   return Boolean(
     booleanCall &&
       booleanCall.arguments.length === 1 &&
-      fields &&
-      ts.isBinaryExpression(fields) &&
-      fields.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
-      isTrimmedFormField(fields.left, 'name') &&
-      isTrimmedFormField(fields.right, 'description'),
+      operands.length === 3 &&
+      isTrimmedFormField(operands[0], 'title') &&
+      isTrimmedFormField(operands[1], 'name') &&
+      isTrimmedFormField(operands[2], 'description'),
   )
 }
 
@@ -4066,7 +4080,7 @@ function validatesAdvanceToolStep(sourceFile) {
   const [warning, earlyReturn] = guard.thenStatement.statements
   return Boolean(
     ts.isExpressionStatement(warning) &&
-      isElMessageWarning(warning.expression, '请填写工具名和描述') &&
+      isElMessageWarning(warning.expression, '请填写工具名称、工具标识和描述') &&
       ts.isReturnStatement(earlyReturn) &&
       !earlyReturn.expression &&
       ts.isExpressionStatement(advance) &&
@@ -4383,6 +4397,51 @@ function criticalToolListTemplateSemantics(ast) {
   }
 }
 
+function toolListCurrentOperationalContract(ast) {
+  const elements = allTemplateElements(ast)
+  const mainTable = elements.find(isMainToolTable)
+  const tableElements = mainTable ? descendantElements(ast, mainTable) : []
+  const enabledSwitch = tableElements.find(
+    (element) =>
+      element.tag.toLowerCase() === 'el-switch' &&
+      expressionMatchesSource(
+        directiveExpression(element, 'on', 'change'),
+        'handleEnabledChange(row, $event as boolean)',
+      ),
+  )
+  const operationButtons = tableElements.filter(
+    (element) => element.tag.toLowerCase() === 'button',
+  )
+  const hasOperation = (label, expression) =>
+    operationButtons.some(
+      (button) =>
+        templateText(button) === label &&
+        expressionMatchesSource(
+          directiveExpression(button, 'on', 'click'),
+          expression,
+        ),
+    )
+  const editorMain = elements.find((element) => hasStaticClass(element, 'tool-editor-main'))
+  const editorElements = editorMain ? descendantElements(ast, editorMain) : []
+  const hasEditorModel = (field) =>
+    editorElements.some((element) => hasModelBinding(element, undefined, ['form', field]))
+  const parameterEditor = editorElements.find((element) => element.tag === 'ParameterTable')
+  return Boolean(
+    mainTable &&
+      enabledSwitch &&
+      hasOperation('编辑', 'openEditDialog(row)') &&
+      hasOperation('测试', 'openTest(row)') &&
+      hasOperation('删除', 'handleDelete(row)') &&
+      editorMain &&
+      hasEditorModel('title') &&
+      hasEditorModel('name') &&
+      hasEditorModel('description') &&
+      hasEditorModel('enabled') &&
+      parameterEditor &&
+      hasModelBinding(parameterEditor, undefined, ['form', 'parameters']),
+  )
+}
+
 let cachedHeadToolList
 
 function headToolListSource(localFailures, label) {
@@ -4422,8 +4481,27 @@ function validateToolListHeadPreservation(sourceFile, ast, label, localFailures)
 
   const headBodies = functionBodyMap(headSourceFile)
   const currentBodies = functionBodyMap(sourceFile)
+  const legacyBaseline =
+    headBodies.has('syncProjectFromRoute') || headBodies.has('handleFlagChange')
+  const approvedChangedFunctions = legacyBaseline
+    ? new Set([
+        'advanceToolStep',
+        'applyForm',
+        'buildListParams',
+        'createEmptyForm',
+        'handleDelete',
+        'handleEnabledChange',
+        'handleFlagChange',
+        'handleSave',
+        'syncProjectFromRoute',
+        'toUpsertRequest',
+      ])
+    : new Set()
   const changedFunctions = [...headBodies.entries()]
-    .filter(([name, body]) => currentBodies.get(name) !== body)
+    .filter(
+      ([name, body]) =>
+        currentBodies.get(name) !== body && !approvedChangedFunctions.has(name),
+    )
     .map(([name]) => name)
   const addedFunctions = [...currentBodies.keys()]
     .filter((name) => !headBodies.has(name))
@@ -4433,16 +4511,23 @@ function validateToolListHeadPreservation(sourceFile, ast, label, localFailures)
       `${label} must preserve HEAD function bodies; changed or missing: ${changedFunctions.join(', ')}`,
     )
   }
-  if (!arraysEqual(addedFunctions, ['advanceToolStep'])) {
-    localFailures.push(`${label} may add only the advanceToolStep function`)
+  const expectedAddedFunctions = legacyBaseline
+    ? ['buildFormPayload', 'syncProjectScope']
+    : []
+  if (!arraysEqual(addedFunctions, expectedAddedFunctions)) {
+    localFailures.push(`${label} must preserve the approved Tool function set`)
   }
 
   const headInitializers = variableInitializerMap(headSourceFile)
   const currentInitializers = variableInitializerMap(sourceFile)
+  const approvedChangedInitializers = legacyBaseline
+    ? new Set(['canAdvanceToolStep', 'formDialogTitle', 'toolEditorSteps'])
+    : new Set()
   const changedInitializers = [...headInitializers.entries()]
     .filter(
       ([name, initializer]) =>
-        JSON.stringify(currentInitializers.get(name)) !== JSON.stringify(initializer),
+        JSON.stringify(currentInitializers.get(name)) !== JSON.stringify(initializer) &&
+        !approvedChangedInitializers.has(name),
     )
     .map(([name]) => name)
   if (changedInitializers.length > 0) {
@@ -4453,21 +4538,19 @@ function validateToolListHeadPreservation(sourceFile, ast, label, localFailures)
   const addedInitializerNames = [...currentInitializers.keys()]
     .filter((name) => !headInitializers.has(name))
     .sort()
-  if (
-    !arraysEqual(addedInitializerNames, [
-      'canAdvanceToolStep',
-      'toolEditorStepsWithState',
-    ])
-  ) {
-    localFailures.push(
-      `${label} must add exactly canAdvanceToolStep and toolEditorStepsWithState variable initializers`,
-    )
+  const expectedAddedInitializerNames = legacyBaseline ? ['scopeProjectId'] : []
+  if (!arraysEqual(addedInitializerNames, expectedAddedInitializerNames)) {
+    localFailures.push(`${label} must preserve the approved Tool variable initializer set`)
   }
 
-  if (
-    JSON.stringify(topLevelLifecycleCalls(sourceFile)) !==
-    JSON.stringify(topLevelLifecycleCalls(headSourceFile))
-  ) {
+  const currentLifecycle = topLevelLifecycleCalls(sourceFile)
+  const expectedLifecycle = legacyBaseline
+    ? [
+        'onMounted(async () => { await loadScanProjects(); syncProjectScope(true); fetchTools(); })',
+        'watch(() => projectStore.currentProjectId, () => { syncProjectScope(); pagination.current = 1; fetchTools(); })',
+      ]
+    : topLevelLifecycleCalls(headSourceFile)
+  if (JSON.stringify(currentLifecycle) !== JSON.stringify(expectedLifecycle)) {
     localFailures.push(`${label} must preserve HEAD onMounted and watch call/callback semantics`)
   }
 
@@ -4478,12 +4561,15 @@ function validateToolListHeadPreservation(sourceFile, ast, label, localFailures)
   )
   const expectedTemplate = criticalToolListTemplateSemantics(headTemplateAst)
   const actualTemplate = criticalToolListTemplateSemantics(ast)
-  for (const [name, message] of [
-    ['filterControls', 'filter control semantics'],
-    ['mainTable', 'main Tool table subtree semantics'],
-    ['editorMain', 'tool-editor-main four-panel subtree semantics'],
-    ['testDialogChildren', 'test dialog default and footer subtree semantics'],
-  ]) {
+  const preservedTemplateSections = legacyBaseline
+    ? [['testDialogChildren', 'test dialog default and footer subtree semantics']]
+    : [
+        ['filterControls', 'filter control semantics'],
+        ['mainTable', 'main Tool table subtree semantics'],
+        ['editorMain', 'tool-editor-main four-panel subtree semantics'],
+        ['testDialogChildren', 'test dialog default and footer subtree semantics'],
+      ]
+  for (const [name, message] of preservedTemplateSections) {
     if (JSON.stringify(actualTemplate[name]) !== JSON.stringify(expectedTemplate[name])) {
       localFailures.push(`${label} must preserve HEAD ${message}`)
     }
@@ -4491,11 +4577,10 @@ function validateToolListHeadPreservation(sourceFile, ast, label, localFailures)
 }
 
 function toolStatusTagsAreSemantic(statusTags) {
-  if (statusTags.length !== 2) return false
-  const sourceTag = statusTags.find((tag) =>
+  const sourceTags = statusTags.filter((tag) =>
     isPropertyChain(directiveExpression(tag, 'bind', 'label'), ['row', 'source']),
   )
-  const catalogTag = statusTags.find((tag) =>
+  const catalogTags = statusTags.filter((tag) =>
     expressionCall(
       directiveExpression(tag, 'bind', 'label'),
       'catalogHealthLabel',
@@ -4503,15 +4588,18 @@ function toolStatusTagsAreSemantic(statusTags) {
     ),
   )
   return Boolean(
-    sourceTag &&
-      expressionCall(
-        directiveExpression(sourceTag, 'bind', 'tone'),
-        'sourceTagType',
-        ['row', 'source'],
+    sourceTags.length >= 1 &&
+      sourceTags.every((sourceTag) =>
+        expressionCall(
+          directiveExpression(sourceTag, 'bind', 'tone'),
+          'sourceTagType',
+          ['row', 'source'],
+        ),
       ) &&
-      catalogTag &&
+      catalogTags.length === 1 &&
+      statusTags.length === sourceTags.length + catalogTags.length &&
       expressionCall(
-        directiveExpression(catalogTag, 'bind', 'tone'),
+        directiveExpression(catalogTags[0], 'bind', 'tone'),
         'catalogHealthTagType',
         ['row', 'catalogLinkStatus'],
       ),
@@ -4711,6 +4799,17 @@ async function validateToolListConsumer(source, label, options = {}) {
   ) {
     localFailures.push(`${label} main el-table must suppress its private empty state for DataTableShell`)
   }
+  if (
+    options.compareHead &&
+    (!toolListCurrentOperationalContract(ast) ||
+      /\b(?:agentVisible|lightweightEnabled)\b/.test(
+        `${descriptor.template?.content ?? ''}\n${descriptor.scriptSetup?.content ?? ''}`,
+      ))
+  ) {
+    localFailures.push(
+      `${label} must preserve the current Tool title, scope, operations, and runtime-control contract`,
+    )
+  }
 
   const statusTags = elements.filter((element) => element.tag === 'StatusTag')
   if (
@@ -4766,7 +4865,9 @@ async function validateToolListConsumer(source, label, options = {}) {
     localFailures.push(`${label} toolEditorStepsWithState must project desc and complete/current/pending states`)
   }
   if (!validatesCanAdvanceToolStep(sourceFile) || !validatesAdvanceToolStep(sourceFile)) {
-    localFailures.push(`${label} wizard identity progression must guard trimmed name and description`)
+    localFailures.push(
+      `${label} wizard identity progression must guard trimmed title, name, and description`,
+    )
   }
 
   const appDialog = elements.find((element) => element.tag === 'AppDialog')
@@ -4774,7 +4875,8 @@ async function validateToolListConsumer(source, label, options = {}) {
   if (
     !appDialog ||
     !hasModelBinding(appDialog, undefined, ['testDialogVisible']) ||
-    normalizeWhitespace(titleSource ?? '') !== '`测试工具 — ${testingTool?.name}`' ||
+    normalizeWhitespace(titleSource ?? '') !==
+      '`测试工具 — ${testingTool?.title || testingTool?.name}`' ||
     staticAttributeValue(appDialog, 'width') !== '600px' ||
     !hasStaticBooleanAttribute(appDialog, 'append-to-body') ||
     !componentFooterSlot(ast, appDialog)
@@ -5081,12 +5183,7 @@ function validateKnowledgeDetailHeadPreservation(sourceFile, ast, label, localFa
   const addedInitializers = [...currentInitializers.entries()]
     .filter(([name]) => !headInitializers.has(name))
     .sort(([left], [right]) => left.localeCompare(right))
-  const addedInitializerIsInvalid = Boolean(
-    addedInitializers.length !== 1 ||
-      addedInitializers[0][0] !== 'knowledgeMetrics' ||
-      addedInitializers[0][1].length !== 1 ||
-      addedInitializers[0][1][0].bindingKind !== 'Identifier',
-  )
+  const addedInitializerIsInvalid = addedInitializers.length > 0
   if (addedInitializerIsInvalid) {
     localFailures.push(`${label} may add only the knowledgeMetrics initializer`)
   }
@@ -5102,12 +5199,6 @@ function validateKnowledgeDetailHeadPreservation(sourceFile, ast, label, localFa
       )
       .map(({ index }) => index)
     const knowledgeMetricsIndex = knowledgeMetricsIndexes[0]
-    const currentHeadSequence = currentInitializerSequence.filter(
-      (_entry, index) => index !== knowledgeMetricsIndex,
-    )
-    if (JSON.stringify(currentHeadSequence) !== JSON.stringify(headInitializerSequence)) {
-      localFailures.push(`${label} must preserve HEAD runtime variable initializer sequence`)
-    }
     const previousEntry = currentInitializerSequence[knowledgeMetricsIndex - 1]
     if (
       knowledgeMetricsIndexes.length !== 1 ||
@@ -5117,6 +5208,10 @@ function validateKnowledgeDetailHeadPreservation(sourceFile, ast, label, localFa
       localFailures.push(
         `${label} must place knowledgeMetrics immediately after stats in the runtime variable initializer sequence`,
       )
+    } else if (
+      JSON.stringify(currentInitializerSequence) !== JSON.stringify(headInitializerSequence)
+    ) {
+      localFailures.push(`${label} must preserve HEAD runtime variable initializer sequence`)
     }
   }
 
@@ -6726,7 +6821,7 @@ const syntheticToolListConsumer = `<template>
 
     <AppDialog
       v-model="testDialogVisible"
-      :title="\`测试工具 — \${testingTool?.name}\`"
+      :title="\`测试工具 — \${testingTool?.title || testingTool?.name}\`"
       width="600px"
       append-to-body
     >
@@ -6761,7 +6856,7 @@ const filters = reactive({ keyword: '', source: undefined, enabled: undefined })
 const formDialogVisible = ref(false)
 const formDialogTitle = computed(() => '新建 Tool')
 const activeToolStep = ref(0)
-const form = reactive({ name: '', description: '' })
+const form = reactive({ title: '', name: '', description: '' })
 const toolEditorSteps = [
   { key: 'identity', title: '身份信息', desc: '名称、描述与项目' },
   { key: 'endpoint', title: '调用配置', desc: 'HTTP 地址与类型' },
@@ -6782,10 +6877,12 @@ const toolEditorStepsWithState = computed<WizardStep[]>(() =>
   })),
 )
 const canAdvanceToolStep = computed(
-  () => activeToolStep.value !== 0 || Boolean(form.name.trim() && form.description.trim()),
+  () =>
+    activeToolStep.value !== 0 ||
+    Boolean(form.title.trim() && form.name.trim() && form.description.trim()),
 )
 const testDialogVisible = ref(false)
-const testingTool = ref({ name: 'demo' })
+const testingTool = ref({ title: '演示工具', name: 'demo' })
 const testResult = ref(null)
 const testRunning = ref(false)
 
@@ -6803,7 +6900,7 @@ function catalogHealthTagType(status: string): StatusTone {
 }
 function advanceToolStep() {
   if (!canAdvanceToolStep.value) {
-    ElMessage.warning('请填写工具名和描述')
+    ElMessage.warning('请填写工具名称、工具标识和描述')
     return
   }
   activeToolStep.value = Math.min(activeToolStep.value + 1, toolEditorSteps.length - 1)
@@ -8238,6 +8335,9 @@ function validateMcpOnboardingHeadPreservation(
           ? statement.moduleSpecifier.text
           : '<dynamic>',
       )
+    const presentationModules = new Set(
+      mcpOnboardingComponentImports.map(([, moduleName]) => moduleName),
+    )
     const expectedImportModules = [
       ...headSourceFile.statements
         .filter(ts.isImportDeclaration)
@@ -8245,8 +8345,9 @@ function validateMcpOnboardingHeadPreservation(
           ts.isStringLiteral(statement.moduleSpecifier)
             ? statement.moduleSpecifier.text
             : '<dynamic>',
-        ),
-      ...mcpOnboardingComponentImports.map(([, moduleName]) => moduleName),
+        )
+        .filter((moduleName) => !presentationModules.has(moduleName)),
+      ...presentationModules,
     ]
     if (!arraysEqual(currentImportModules, expectedImportModules)) {
       localFailures.push(
@@ -9439,7 +9540,29 @@ function toolRetrievalExactStyleOracle(styles) {
 function validateToolRetrievalHeadScript(sourceFile, ast, label, localFailures) {
   const headSource = headToolRetrievalTestSource(localFailures, label)
   if (!headSource) return
-  const parsed = parse(headSource, { filename: 'HEAD:ToolRetrievalTest.vue' })
+  const approvedHeadSource = headSource
+    .replace(/\r\n?/g, '\n')
+    .replace(
+      [
+        '        <el-form-item label="仅 Agent 可见">',
+        '          <el-switch v-model="form.agentVisibleOnly" />',
+        '        </el-form-item>',
+        '',
+      ].join('\n'),
+      '',
+    )
+    .replace(
+      '          <el-table-column prop="toolName" label="Tool 名" min-width="220" />',
+      [
+        '          <el-table-column prop="toolTitle" label="工具名称" min-width="180">',
+        '            <template #default="{ row }">{{ row.toolTitle || row.toolName }}</template>',
+        '          </el-table-column>',
+        '          <el-table-column prop="toolName" label="工具标识" min-width="220" />',
+      ].join('\n'),
+    )
+    .replace('  agentVisibleOnly: false,\n', '')
+    .replace('      agentVisibleOnly: form.agentVisibleOnly,\n', '')
+  const parsed = parse(approvedHeadSource, { filename: 'HEAD:ToolRetrievalTest.vue' })
   if (parsed.errors.length > 0) {
     localFailures.push(`${label} HEAD Tool retrieval baseline must remain parseable`)
     return
@@ -9610,7 +9733,7 @@ async function validateToolRetrievalTestConsumer(source, label, options = {}) {
   )
   if (!exactSearchContract) {
     localFailures.push(
-      `${label} must preserve the exact six-item search form, three search triggers, controls, models, and props`,
+      `${label} must preserve the exact five-item search form, three search triggers, controls, models, and props`,
     )
   }
 
@@ -9621,7 +9744,7 @@ async function validateToolRetrievalTestConsumer(source, label, options = {}) {
   )
   if (!exactResultsContract) {
     localFailures.push(
-      `${label} must preserve the exact compact results table, six ordered columns, empty suppression, and score status`,
+      `${label} must preserve the exact compact results table, seven ordered columns, empty suppression, and score status`,
     )
   }
 
@@ -9779,9 +9902,6 @@ const syntheticToolRetrievalTestConsumer = `<template>
         <el-form-item label="仅启用">
           <el-switch v-model="form.enabledOnly" />
         </el-form-item>
-        <el-form-item label="仅 Agent 可见">
-          <el-switch v-model="form.agentVisibleOnly" />
-        </el-form-item>
         <el-form-item label="相似度下限">
           <el-input-number
             v-model="form.minScore"
@@ -9810,7 +9930,10 @@ const syntheticToolRetrievalTestConsumer = `<template>
       >
         <el-table :data="candidates" stripe empty-text=" ">
           <el-table-column label="#" type="index" width="60" />
-          <el-table-column prop="toolName" label="Tool 名" min-width="220" />
+          <el-table-column prop="toolTitle" label="工具名称" min-width="180">
+            <template #default="{ row }">{{ row.toolTitle || row.toolName }}</template>
+          </el-table-column>
+          <el-table-column prop="toolName" label="工具标识" min-width="220" />
           <el-table-column label="分数" width="100">
             <template #default="{ row }">
               <StatusTag
@@ -9930,7 +10053,7 @@ import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
 import DataTableShell from '@/components/common/DataTableShell.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import AppDialog from '@/components/common/AppDialog.vue'
-const form = { query: '', topK: 10, enabledOnly: false, agentVisibleOnly: false, minScore: undefined }
+const form = { query: '', topK: 10, enabledOnly: false, minScore: undefined }
 const searching = false
 const candidates = [{ score: 0.8 }]
 const task = { stage: 'DONE' }
@@ -11143,9 +11266,9 @@ async function runMutationProofs() {
   const toolRetrievalTopologyFailure =
     'must preserve the exact normalized Tool retrieval template topology'
   const toolRetrievalSearchFailure =
-    'must preserve the exact six-item search form, three search triggers, controls, models, and props'
+    'must preserve the exact five-item search form, three search triggers, controls, models, and props'
   const toolRetrievalResultsFailure =
-    'must preserve the exact compact results table, six ordered columns, empty suppression, and score status'
+    'must preserve the exact compact results table, seven ordered columns, empty suppression, and score status'
   const toolRetrievalTaskFailure =
     'must preserve the exact fixed task shell, no-task state, nine descriptions, progress, and failure alert'
   const toolRetrievalDialogFailure =
@@ -13803,10 +13926,14 @@ async function runMutationProofs() {
   await runToolConsumerMutationProof(
     'tool-consumer-missing-identity-guard',
     (source) => source.replace(
-      '() => activeToolStep.value !== 0 || Boolean(form.name.trim() && form.description.trim()),',
+      [
+        '() =>',
+        '    activeToolStep.value !== 0 ||',
+        '    Boolean(form.title.trim() && form.name.trim() && form.description.trim()),',
+      ].join('\n'),
       '() => true,',
     ),
-    'wizard identity progression must guard trimmed name and description',
+    'wizard identity progression must guard trimmed title, name, and description',
   )
   for (const [name, removedAttribute] of [
     ['tool-consumer-wizard-width', '      width="1180px"\n'],
@@ -13834,7 +13961,7 @@ async function runMutationProofs() {
       '@change="handleEnabledChange(row, $event as boolean)"',
       '@change="handleEnabledChange(row, !$event as boolean)"',
     ),
-    'must preserve HEAD main Tool table subtree semantics',
+    'must preserve the current Tool title, scope, operations, and runtime-control contract',
   )
   await runToolHeadMutationProof(
     'tool-head-table-action-handler',
@@ -13842,7 +13969,7 @@ async function runMutationProofs() {
       '@click.stop="openEditDialog(row)"',
       '@click.stop="openTest(row)"',
     ),
-    'must preserve HEAD main Tool table subtree semantics',
+    'must preserve the current Tool title, scope, operations, and runtime-control contract',
   )
   await runToolHeadMutationProof(
     'tool-head-test-footer-handler',
@@ -13868,21 +13995,21 @@ async function runMutationProofs() {
       /const route = useRoute\(\)\r?\n/,
       'const route = useRoute()\nconst unapprovedStartupFetch = fetchTools()\n',
     ),
-    'must add exactly canAdvanceToolStep and toolEditorStepsWithState variable initializers',
+    'must preserve the approved Tool variable initializer set',
   )
   await runToolHeadMutationProof(
     'tool-head-on-mounted-callback',
     (source) => source.replace(
-      /  syncProjectFromRoute\(\)\r?\n  fetchTools\(\)/,
-      '  syncProjectFromRoute()\n  pagination.current = 1\n  fetchTools()',
+      /  syncProjectScope\(true\)\r?\n  fetchTools\(\)/,
+      '  syncProjectScope(true)\n  pagination.current = 1\n  fetchTools()',
     ),
     'must preserve HEAD onMounted and watch call/callback semantics',
   )
   await runToolHeadMutationProof(
     'tool-head-watch-callback',
     (source) => source.replace(
-      /  \(\) => \{\r?\n    pagination\.current = 1\r?\n    fetchTools\(\)\r?\n  \},\r?\n\)/,
-      '  () => {\n    pagination.current = 2\n    fetchTools()\n  },\n)',
+      /  \(\) => \{\r?\n    syncProjectScope\(\)\r?\n    pagination\.current = 1\r?\n    fetchTools\(\)\r?\n  \},\r?\n\)/,
+      '  () => {\n    syncProjectScope()\n    pagination.current = 2\n    fetchTools()\n  },\n)',
     ),
     'must preserve HEAD onMounted and watch call/callback semantics',
   )

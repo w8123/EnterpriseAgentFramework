@@ -1,7 +1,7 @@
 import { ElMessage } from 'element-plus'
 import { computed, ref, type Ref } from 'vue'
 import { debugWorkflowRun } from '@/api/workflow'
-import type { WorkflowDebugRunResult, WorkflowDebugStepResult, WorkflowStudioState } from '@/types/workflow'
+import type { WorkflowDebugRunResult, WorkflowDebugStepResult, WorkflowWorkingCopyState } from '@/types/workflow'
 import { stringifyDebugPayload } from '@/views/workflow/composables/useWorkflowStudioDebugRun'
 
 export interface WorkflowEvalCase {
@@ -25,7 +25,7 @@ export interface WorkflowEvalResult {
 }
 
 export interface UseWorkflowStudioEvalDeps {
-  studio: Ref<WorkflowStudioState | null>
+  studio: Ref<WorkflowWorkingCopyState | null>
   buildDebugBaseRequest: () => Record<string, unknown>
   parseOptionalObject: (value: string, label: string) => Record<string, unknown> | undefined
 }
@@ -58,7 +58,7 @@ function debugStepOutput(step: WorkflowDebugStepResult) {
 function answerFromDebugRun(result: WorkflowDebugRunResult) {
   if (result.answer) return result.answer
   const outputStep = [...(result.steps || [])].reverse().find((step) => debugStepOutput(step) !== null)
-  const output = outputStep ? debugStepOutput(outputStep) : result.finalState
+  const output = outputStep ? debugStepOutput(outputStep) : result.stateSnapshot
   return stringifyDebugPayload(output)
 }
 

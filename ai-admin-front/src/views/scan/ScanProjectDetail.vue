@@ -91,7 +91,6 @@
         @promote-module-to-global="handlePromoteModuleToGlobal"
         @tool-expand-change="onToolExpandChange"
         @enabled-change="handleEnabledChange"
-        @flag-change="handleFlagChange"
         @open-diff="openDiffDialog"
         @open-edit="openEditDialog"
         @rescan-from-source="handleRescanToolFromSource"
@@ -312,7 +311,6 @@ const {
   removeParameter,
   handleSave,
   handleEnabledChange,
-  handleFlagChange,
   batchToggle,
   openTest,
   handleTest,

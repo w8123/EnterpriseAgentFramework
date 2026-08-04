@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.execution;
 
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
+import com.enterprise.ai.common.response.BusinessResponseEnvelope;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.PageBridgeExecutionRequest;
@@ -119,17 +120,6 @@ public class RuntimeGraphSpecExecutor {
         return EXECUTABLE_NODE_TYPES;
     }
 
-    /**
-     * Alias of {@link #handledNodeTypes()} for callers that prefer "supported" naming.
-     */
-    public static Set<String> supportedNodeTypes() {
-        return handledNodeTypes();
-    }
-
-    public static boolean supportsNodeType(String rawType) {
-        return EXECUTABLE_NODE_TYPES.contains(AgentGraphNodeType.normalize(rawType));
-    }
-
     public static final String TRUSTED_IDENTITY_CONTEXT_KEY = "__workflowExecutionIdentity";
 
     public RuntimeGraphSpecExecutionResult execute(String graphSpecJson, Map<String, Object> request) {
@@ -208,8 +198,19 @@ public class RuntimeGraphSpecExecutor {
         if (graph == null || graph.getNodes() == null || graph.getNodes().isEmpty()) {
             return failure("RUNTIME_GRAPH_NODE_EMPTY", "GraphSpec requires at least one node", null, null);
         }
-        String entry = firstText(text(entryOverride), text(graph.getEntry()));
-        if (!StringUtils.hasText(entry)) {
+        if (!Integer.valueOf(2).equals(graph.getSchemaVersion())) {
+            return failure("RUNTIME_GRAPH_SCHEMA_VERSION_INVALID", "GraphSpec schemaVersion must be 2", null, null);
+        }
+        for (GraphSpec.Node node : graph.getNodes()) {
+            AgentGraphNodeType type = node == null ? null : AgentGraphNodeType.find(node.getType()).orElse(null);
+            if (type == null || !type.type().equals(node.getType())) {
+                return failure("RUNTIME_GRAPH_NODE_TYPE_INVALID",
+                        "GraphSpec node.type must use a canonical value: " + (node == null ? null : node.getType()),
+                        node == null ? null : node.getId(), node == null ? null : node.getType());
+            }
+        }
+        String declaredEntry = text(graph.getEntryNodeId());
+        if (!StringUtils.hasText(declaredEntry)) {
             return failure("RUNTIME_GRAPH_ENTRY_MISSING", "GraphSpec entry is required", null, null);
         }
 
@@ -219,6 +220,34 @@ public class RuntimeGraphSpecExecutor {
                 nodesById.put(node.getId().trim(), node);
             }
         }
+        if (!nodesById.containsKey(declaredEntry)) {
+            return failure("RUNTIME_GRAPH_ENTRY_INVALID",
+                    "GraphSpec entry node does not exist: " + declaredEntry, declaredEntry, null);
+        }
+        Set<String> exitNodeIds = new LinkedHashSet<>();
+        for (String exitNodeId : graph.getExitNodeIds()) {
+            String exit = text(exitNodeId);
+            if (!StringUtils.hasText(exit) || !nodesById.containsKey(exit)) {
+                return failure("RUNTIME_GRAPH_EXIT_INVALID",
+                        "GraphSpec exit node does not exist: " + exit, exit, null);
+            }
+            exitNodeIds.add(exit);
+        }
+        if (exitNodeIds.isEmpty()) {
+            return failure("RUNTIME_GRAPH_EXIT_MISSING",
+                    "GraphSpec requires at least one exitNodeId", null, null);
+        }
+        for (GraphSpec.Edge edge : graph.getEdges() == null ? List.<GraphSpec.Edge>of() : graph.getEdges()) {
+            if (edge == null
+                    || !nodesById.containsKey(text(edge.getFrom()))
+                    || !nodesById.containsKey(text(edge.getTo()))) {
+                return failure("RUNTIME_GRAPH_EDGE_INVALID",
+                        "GraphSpec edges must connect real nodes; use entryNodeId/exitNodeIds for boundaries",
+                        null, null);
+            }
+        }
+
+        String entry = firstText(text(entryOverride), declaredEntry);
         if (!nodesById.containsKey(entry)) {
             return failure("RUNTIME_GRAPH_ENTRY_INVALID", "GraphSpec entry node does not exist: " + entry, entry, null);
         }
@@ -245,7 +274,7 @@ public class RuntimeGraphSpecExecutor {
                         currentNodeId,
                         null), steps, nodeTraces), context);
             }
-            String nodeType = AgentGraphNodeType.normalize(node.getType());
+            String nodeType = node.getType();
             String nodeName = firstText(node.getName(), node.getId());
             long nodeStartedAt = System.currentTimeMillis();
             eventSink.onNodeStarted(node.getId(), nodeType, nodeName, safeNodePayload(node, nodeType, null));
@@ -331,6 +360,9 @@ public class RuntimeGraphSpecExecutor {
             if ("ANSWER".equals(nodeResult.nodeType()) && !StringUtils.hasText(forcedNext)) {
                 return withLiveContext(withDisplayUiRequest(lastResult, context), context);
             }
+            if (!StringUtils.hasText(forcedNext) && exitNodeIds.contains(node.getId())) {
+                return withLiveContext(withDisplayUiRequest(lastResult, context), context);
+            }
             String route = resultRoute(nodeResult);
             if (!StringUtils.hasText(forcedNext) && StringUtils.hasText(route) && next != null && !next.matched()) {
                 if ("INTERACTION".equals(nodeResult.nodeType())
@@ -378,7 +410,7 @@ public class RuntimeGraphSpecExecutor {
                 result.nodeType(),
                 result.steps(),
                 metadata,
-                result.contextSnapshot());
+                result.resumeCheckpoint());
     }
 
     /**
@@ -390,7 +422,7 @@ public class RuntimeGraphSpecExecutor {
         if (result == null) {
             return null;
         }
-        return result.withContextSnapshot(context == null ? Map.of() : context);
+        return result.withResumeCheckpoint(context == null ? Map.of() : context);
     }
 
     private Map<String, Object> safeNodePayload(GraphSpec.Node node, String nodeType, Long elapsedMs) {
@@ -418,7 +450,7 @@ public class RuntimeGraphSpecExecutor {
                                                                     RuntimeGraphSpecExecutionEventSink eventSink,
                                                                     RuntimeGraphSpecExecutionCancellation cancel,
                                                                     Map<String, GraphSpec.Node> nodesById) {
-        String nodeType = AgentGraphNodeType.normalize(node.getType());
+        String nodeType = node.getType();
         GraphSpec.RetryPolicy retry = node.getRetry();
         boolean retryEnabled = retry != null && Boolean.TRUE.equals(retry.getEnabled());
         int maxAttempts = 1;
@@ -581,7 +613,7 @@ public class RuntimeGraphSpecExecutor {
                     nodeType,
                     base.steps(),
                     metadata,
-                    base.contextSnapshot());
+                    base.resumeCheckpoint());
         }
         if ("FALLBACK".equals(strategy)) {
             String fallbackNodeId = policy == null ? null : text(policy.getFallbackNodeId());
@@ -626,7 +658,7 @@ public class RuntimeGraphSpecExecutor {
                     nodeType,
                     base.steps(),
                     metadata,
-                    base.contextSnapshot());
+                    base.resumeCheckpoint());
         }
         return withPolicyDecision(base, "TERMINATE", base.code(), base.answer());
     }
@@ -645,7 +677,7 @@ public class RuntimeGraphSpecExecutor {
                 base.nodeType(),
                 base.steps(),
                 metadata,
-                base.contextSnapshot());
+                base.resumeCheckpoint());
     }
 
     private RuntimeGraphSpecExecutionResult withAttemptMetadata(RuntimeGraphSpecExecutionResult result,
@@ -1401,6 +1433,23 @@ public class RuntimeGraphSpecExecutor {
         }
         Map<String, Object> structured = result.structuredOutput();
         metadata.put("structuredOutput", structured);
+        Optional<BusinessResponseEnvelope.Failure> businessFailure =
+                BusinessResponseEnvelope.failure(result.parsedBody());
+        if (businessFailure.isPresent()) {
+            BusinessResponseEnvelope.Failure failure = businessFailure.get();
+            metadata.put("retryableFailure", false);
+            if (failure.businessCode() != null) {
+                metadata.put("businessCode", failure.businessCode());
+            }
+            return new RuntimeGraphSpecExecutionResult(
+                    false,
+                    "RUNTIME_HTTP_BUSINESS_RESPONSE_FAILED",
+                    failure.message(),
+                    node.getId(),
+                    "HTTP_REQUEST",
+                    List.of(step("execute-node", node.getId())),
+                    metadata);
+        }
         String answer;
         try {
             answer = objectMapper.writeValueAsString(structured);
@@ -1971,6 +2020,7 @@ public class RuntimeGraphSpecExecutor {
         String normalizedInput = input == null ? "" : input.trim().toLowerCase(Locale.ROOT);
         ClassifierDecision best = null;
         int bestScore = -1;
+        boolean ambiguous = false;
         for (ClassifierClass candidate : classes) {
             for (String keyword : candidate.keywords()) {
                 String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
@@ -1981,10 +2031,16 @@ public class RuntimeGraphSpecExecutor {
                 if (score > bestScore) {
                     bestScore = score;
                     best = new ClassifierDecision(candidate.id(), 1D, "keyword:" + keyword, null);
+                    ambiguous = false;
+                } else if (score == bestScore && best != null && !candidate.id().equals(best.route())) {
+                    ambiguous = true;
                 }
             }
         }
-        return best;
+        // A HYBRID classifier must not silently prefer the first catalog entry when equally
+        // specific keywords point at different intents. Returning null lets HYBRID ask the
+        // configured model and makes a KEYWORD-only classifier use its explicit default route.
+        return ambiguous ? null : best;
     }
 
     private ClassifierDecision modelDecision(GraphSpec.Node node,
@@ -2291,16 +2347,49 @@ public class RuntimeGraphSpecExecutor {
             if (cancel.isCancelled()) {
                 return cancelled(node.getId(), nodeType);
             }
-            Object output = firstPresent(result == null ? null : result.get("data"),
+            Object businessOutput = firstPresent(result == null ? null : result.get("data"),
                     result == null ? null : result.get("result"));
-            output = firstPresent(output, result == null ? null : result.get("body"));
-            output = firstPresent(output, result);
-            String answer = output == null ? "" : String.valueOf(output);
+            businessOutput = firstPresent(businessOutput, result == null ? null : result.get("body"));
+            Object output = firstPresent(businessOutput, result);
             Map<String, Object> metadata = nodeMetadata(node, nodeType);
             metadata.put("qualifiedName", qualifiedName);
             if (output != null) {
                 metadata.put("structuredOutput", output);
             }
+            Optional<BusinessResponseEnvelope.Failure> payloadFailure =
+                    BusinessResponseEnvelope.failure(businessOutput);
+            boolean upstreamBusinessFailure = result != null
+                    && "CAPABILITY_BUSINESS_RESPONSE_FAILED".equals(text(result.get("code")));
+            if (payloadFailure.isPresent() || upstreamBusinessFailure) {
+                BusinessResponseEnvelope.Failure failure = payloadFailure.orElseGet(() ->
+                        new BusinessResponseEnvelope.Failure(
+                                text(result.get("businessCode")),
+                                firstText(text(result.get("message")), BusinessResponseEnvelope.FAILURE_MESSAGE)));
+                metadata.put("retryableFailure", false);
+                if (failure.businessCode() != null) {
+                    metadata.put("businessCode", failure.businessCode());
+                }
+                return new RuntimeGraphSpecExecutionResult(
+                        false,
+                        "RUNTIME_GRAPH_TOOL_BUSINESS_RESPONSE_FAILED",
+                        failure.message(),
+                        node.getId(),
+                        nodeType,
+                        List.of(step("execute-node", node.getId())),
+                        metadata);
+            }
+            if (result != null && Boolean.FALSE.equals(result.get("success"))) {
+                metadata.put("retryableFailure", false);
+                return new RuntimeGraphSpecExecutionResult(
+                        false,
+                        firstText(text(result.get("code")), "RUNTIME_GRAPH_TOOL_FAILED"),
+                        firstText(text(result.get("message")), nodeType + " node execution failed"),
+                        node.getId(),
+                        nodeType,
+                        List.of(step("execute-node", node.getId())),
+                        metadata);
+            }
+            String answer = output == null ? "" : String.valueOf(output);
             return new RuntimeGraphSpecExecutionResult(
                     true,
                     "RUNTIME_GRAPH_EXECUTED",
@@ -2334,6 +2423,7 @@ public class RuntimeGraphSpecExecutor {
         copyContextValue(executionContext, "deptId", context, metadata);
         copyContextValue(executionContext, "deptName", context, metadata);
         copyContextValue(executionContext, "roles", context, metadata);
+        copyContextValue(executionContext, "attributes", context, metadata);
         copyContextValue(executionContext, "agentId", context, metadata);
         copyContextValue(executionContext, "sessionId", context, metadata);
         copyContextValue(executionContext, "supervisorTraceId", context, metadata);
@@ -2427,8 +2517,17 @@ public class RuntimeGraphSpecExecutor {
 
     private Map<String, Object> buildToolInput(GraphSpec.Node node, Map<String, Object> context) {
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
-        Map<String, Object> mapping = mapValue(firstPresent(config.get("inputMapping"), config.get("args")));
+        Map<String, Object> mapping = mapValue(config.get("inputMapping"));
         if (mapping == null || mapping.isEmpty()) {
+            mapping = mapValue(config.get("args"));
+        }
+        if (mapping == null || mapping.isEmpty()) {
+            // PAGE_ACTION intentionally supports a zero-argument contract. Studio
+            // serializes that as args={}, which must not be replaced by an
+            // unrelated previous-node output.
+            if (config.containsKey("args")) {
+                return Map.of();
+            }
             String input = firstText(text(context.get("lastOutput")), text(context.get("input")));
             return Map.of("input", input == null ? "" : input);
         }
@@ -2700,9 +2799,7 @@ public class RuntimeGraphSpecExecutor {
         if (!StringUtils.hasText(target)) {
             return NextNodeResolution.unmatched();
         }
-        return "END".equalsIgnoreCase(target)
-                ? NextNodeResolution.end()
-                : NextNodeResolution.node(target);
+        return NextNodeResolution.node(target);
     }
 
     private String resultRoute(RuntimeGraphSpecExecutionResult nodeResult) {
@@ -2770,10 +2867,6 @@ public class RuntimeGraphSpecExecutor {
             return new NextNodeResolution(false, null);
         }
 
-        private static NextNodeResolution end() {
-            return new NextNodeResolution(true, null);
-        }
-
         private static NextNodeResolution node(String nodeId) {
             return new NextNodeResolution(true, nodeId);
         }
@@ -2794,7 +2887,7 @@ public class RuntimeGraphSpecExecutor {
                 result.nodeType(),
                 List.copyOf(steps),
                 metadata,
-                result.contextSnapshot());
+                result.resumeCheckpoint());
     }
 
     private Map<String, Object> buildInternalNodeTrace(GraphSpec.Node node,

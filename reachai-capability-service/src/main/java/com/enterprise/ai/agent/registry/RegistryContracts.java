@@ -63,9 +63,6 @@ public final class RegistryContracts {
             String responseType,
             String sideEffect,
             Boolean enabled,
-            Boolean agentVisible,
-            Boolean lightweightEnabled,
-            String visibility,
             List<ToolDefinitionParameter> parameters,
             Map<String, Object> metadata
     ) {

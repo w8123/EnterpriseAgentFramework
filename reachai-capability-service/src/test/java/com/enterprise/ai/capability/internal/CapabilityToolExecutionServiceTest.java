@@ -33,10 +33,42 @@ class CapabilityToolExecutionServiceTest {
 
         assertEquals(true, response.get("success"));
         assertEquals("orders:queryOrder", response.get("qualifiedName"));
+        assertEquals("查询订单", response.get("toolTitle"));
         assertEquals(Map.of("orderStatus", "PAID"), response.get("data"));
         assertEquals("POST", invoker.invocation.method());
         assertEquals("http://orders/api/orders/query", invoker.invocation.url());
         assertEquals(Map.of("orderNo", "A001"), invoker.invocation.body());
+    }
+
+    @Test
+    void marksNon200BusinessResponseAsCapabilityFailure() {
+        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
+        CapturingInvoker invoker = new CapturingInvoker(Map.of(
+                "statusCode", 200,
+                "body", Map.of("code", "500", "success", false, "message", "无权查看班组")));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker);
+        when(mapper.selectOne(any())).thenReturn(tool("qmssmp:team.search", true));
+
+        Map<String, Object> response = service.execute("qmssmp:team.search", Map.of("input", Map.of()));
+
+        assertEquals(false, response.get("success"));
+        assertEquals("CAPABILITY_BUSINESS_RESPONSE_FAILED", response.get("code"));
+        assertEquals("500", response.get("businessCode"));
+        assertEquals("查询失败：无权查看班组", response.get("message"));
+    }
+
+    @Test
+    void keepsStringBusinessCode200Successful() {
+        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
+        Map<String, Object> businessBody = Map.of("code", "200", "success", true, "data", Map.of("total", 0));
+        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", businessBody));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker);
+        when(mapper.selectOne(any())).thenReturn(tool("qmssmp:team.search", true));
+
+        Map<String, Object> response = service.execute("qmssmp:team.search", Map.of("input", Map.of()));
+
+        assertEquals(true, response.get("success"));
+        assertEquals(businessBody, response.get("data"));
     }
 
     @Test
@@ -84,6 +116,7 @@ class CapabilityToolExecutionServiceTest {
         assertEquals(true, response.get("success"));
         assertEquals(11L, response.get("scanToolId"));
         assertEquals("orders_create", response.get("toolName"));
+        assertEquals("创建订单", response.get("toolTitle"));
         assertEquals(Map.of("orderStatus", "PAID"), response.get("data"));
         assertEquals("POST", invoker.invocation.method());
         assertEquals("http://orders/api/orders/create", invoker.invocation.url());
@@ -109,7 +142,11 @@ class CapabilityToolExecutionServiceTest {
                 "input", Map.of("pageIndex", 1),
                 "context", Map.of(
                         "externalUserId", "u-1",
+                        "userName", "Alice",
+                        "deptId", "dept-1",
+                        "deptName", "Operations",
                         "roles", java.util.List.of("team-reader"),
+                        "attributes", Map.of("region", "east"),
                         "sessionId", "s-1")));
 
         Map<?, ?> headers = (Map<?, ?>) invoker.invocation.metadata().get("headers");
@@ -117,7 +154,11 @@ class CapabilityToolExecutionServiceTest {
         ReachAiInvocationClaims claims = ReachAiInvocationToken.verify(
                 "secret", token, "qmssmp", "queryOrder", System.currentTimeMillis());
         assertEquals("u-1", claims.getExternalUserId());
+        assertEquals("Alice", claims.getUserName());
+        assertEquals("dept-1", claims.getDeptId());
+        assertEquals("Operations", claims.getDeptName());
         assertEquals(java.util.List.of("team-reader"), claims.getRoles());
+        assertEquals(Map.of("region", "east"), claims.getAttributes());
         assertEquals("s-1", claims.getSessionId());
     }
 
@@ -151,6 +192,7 @@ class CapabilityToolExecutionServiceTest {
         ToolDefinitionEntity entity = new ToolDefinitionEntity();
         entity.setId(9L);
         entity.setName("queryOrder");
+        entity.setTitle("查询订单");
         entity.setKind("TOOL");
         entity.setQualifiedName(qualifiedName);
         entity.setEnabled(enabled);
@@ -167,6 +209,7 @@ class CapabilityToolExecutionServiceTest {
         ScanProjectToolEntity entity = new ScanProjectToolEntity();
         entity.setId(id);
         entity.setName("orders_create");
+        entity.setTitle("创建订单");
         entity.setEnabled(enabled);
         entity.setHttpMethod("POST");
         entity.setBaseUrl("http://orders");

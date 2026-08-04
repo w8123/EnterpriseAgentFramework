@@ -29,10 +29,15 @@ const props = withDefaults(
 
 <style scoped lang="scss">
 .collapsible-header-region {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: grid;
   min-width: 0;
   gap: var(--layout-page-gap);
-  transition: gap var(--motion-duration-normal) ease;
+  // Keep list content from flashing through the sticky chrome while collapsing.
+  background: color-mix(in srgb, var(--surface-solid-page) 92%, transparent);
+  backdrop-filter: blur(10px);
 }
 
 .collapsible-header-region__summary {
@@ -40,11 +45,7 @@ const props = withDefaults(
   min-width: 0;
   grid-template-rows: 1fr;
   opacity: 1;
-  transform: translateY(0);
-  transition:
-    grid-template-rows var(--motion-duration-normal) ease,
-    opacity var(--motion-duration-fast) ease,
-    transform var(--motion-duration-normal) ease;
+  overflow: hidden;
 }
 
 .collapsible-header-region__summary-inner {
@@ -60,12 +61,10 @@ const props = withDefaults(
 .collapsible-header-region.is-collapsed .collapsible-header-region__summary {
   grid-template-rows: 0fr;
   opacity: 0;
-  transform: translateY(-8px);
   pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .collapsible-header-region,
   .collapsible-header-region__summary {
     transition: none;
   }

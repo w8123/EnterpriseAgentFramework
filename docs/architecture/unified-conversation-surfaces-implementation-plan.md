@@ -12,7 +12,7 @@
 | B. Agent Token Streaming | **Code Ready / E2E Pending** | PUBLIC_FINAL 即时 `message.delta`；sync fallback 标记 `streamMode=sync_fallback` / `tokenStreaming=false`；反缓冲头 + Vite SSE 配置 |
 | C. Embed Token Streaming | **Code Ready / E2E Pending** | `createEmbedTransport.tokenStreaming: true`；不暴露 supervisor.step |
 | D. Workflow 实时节点 | **Core Ready / E2E Pending** | 安全最终输出序列：`node.output.delta` + 后端 `message.delta`；前端不再推导公共文本 |
-| E. Workflow Token Streaming | **false / 未完成** | `createWorkflowDraftTransport.tokenStreaming: false` |
+| E. Workflow Token Streaming | **false / 未完成** | `createWorkflowWorkingCopyTransport.tokenStreaming: false` |
 | F. 请求级取消（含 Workflow-as-Tool） | **Cancellation Code Ready / E2E Pending** | `RuntimeAgentExecutionCancellation` 扇出到并行 `RuntimeGraphSpecExecutionCancellation`；取消码 `SUPERVISOR_CANCELLED` / `RUNTIME_GRAPH_CANCELLED`；不伪装 TIMEOUT |
 | G. 静默期断开检测 | **Cancellation Code Ready / E2E Pending** | Runtime SSE comment heartbeat（默认 8s，可配置）；Control `SseStreamRelay` 原样转发并 flush；写失败关闭 upstream |
 | H. 安全 Supervisor 阶段 | **Code Ready / E2E Pending** | `supervisor.step` additive：`stepId/state/source/title`；forced/explicit final 一致；implicit direct 不再伪装规划 |
@@ -205,7 +205,7 @@ Workflow Debug 交互取消语义：
              |                    |                    |
       AgentDebugShell      WorkflowDebugShell      EmbedChatShell
              |                    |                    |
-    AgentDebugTransport  WorkflowDraftTransport   EmbedTransport
+    AgentDebugTransport  WorkflowWorkingCopyTransport   EmbedTransport
              |                    |                    |
        Runtime Agent SSE    Debug Session REST/SSE   Embed API/SSE
 ```
@@ -436,7 +436,7 @@ ai-admin-front/src/conversation/
     normalizeUiRequest.ts
   transports/
     createAgentDebugTransport.ts
-    createWorkflowDraftTransport.ts
+    createWorkflowWorkingCopyTransport.ts
     createEmbedTransport.ts
   renderers/
     interactionRegistry.ts
@@ -557,7 +557,7 @@ ai-admin-front/src/conversation/
 
 保留在 Workflow Shell：
 
-- 当前草稿/已发布版本语义
+- 当前 Working Copy / 已发布版本语义
 - 节点轨迹、节点详情、变量快照
 - 画布节点高亮和回放
 - Trace 回放与发布版本对照
@@ -572,7 +572,7 @@ ai-admin-front/src/conversation/
 
 REST 适配：
 
-- 第一阶段 `createWorkflowDraftTransport` 继续使用现有 REST。
+- 第一阶段 `createWorkflowWorkingCopyTransport` 继续使用现有 REST。
 - 收到 `WorkflowDebugSessionView` 后，根据 message ID 和 step index 生成公共事件与 `debug.workflow.node.*` 事件。
 - `restoreSession()` 使用现有 GET 路由。
 - 不能因为统一 UI 而丢失现有恢复会话能力。
@@ -876,7 +876,7 @@ REST 适配：
 
 ### 10.4 Workflow Studio
 
-- [ ] 当前草稿可以运行。
+- [ ] 当前 Working Copy 可以运行。
 - [ ] 普通问题和多字段初始输入都可提交。
 - [ ] `WAITING` 卡片可恢复、取消。
 - [ ] 刷新后可恢复已有 debug session。
@@ -1028,7 +1028,7 @@ git status --short
 必须实现的架构边界：
 
 - 新建 framework-independent 的 Conversation Core：公共 types、events、SSE parser、reducer/controller、UiRequest normalizer。
-- 定义 AgentDebugTransport、WorkflowDraftTransport、EmbedTransport，UI 不直接调用具体 API。
+- 定义 AgentDebugTransport、WorkflowWorkingCopyTransport、EmbedTransport，UI 不直接调用具体 API。
 - 新建共享 ConversationView、message list、composer、block renderer 和唯一 UnifiedInteractionRenderer。
 - 共享 UI 不依赖 Element Plus；管理端 Shell 可以继续使用 Element Plus。
 - 同一份 Vue 组件源码既供管理端使用，也编译为 Web Component 给外部业务前端使用。
@@ -1097,4 +1097,3 @@ B. 真正 Token 级文字流：
 7. 尚未完成或受外部环境限制的项目，禁止含糊表述。
 8. 确认没有覆盖用户原有无关修改。
 ```
-

@@ -32,7 +32,7 @@
         <template #prefix>
           <span class="project-status-dot" :class="{ active: Boolean(projectStore.currentProject) }" />
         </template>
-        <el-option :value="null" label="未选择项目" />
+        <el-option :value="NO_PROJECT_VALUE" label="未选择项目" />
         <el-option
           v-for="project in projectStore.projects"
           :key="project.id"
@@ -212,7 +212,10 @@ const hideProjectPanel = computed(() => props.hideProjectPanel)
 const activeMenu = computed(() => resolveActiveMenu(route.path, route.meta.activeMenu))
 const openGroups = computed(() => resolveOpenGroups(route.path))
 const activeFooterPanel = ref<'profile' | 'settings' | null>(null)
-const resolvedCurrentProjectId = computed(() => projectStore.currentProject?.id ?? null)
+const NO_PROJECT_VALUE = '__reachai_no_project__'
+const resolvedCurrentProjectId = computed(
+  () => projectStore.currentProject?.id ?? NO_PROJECT_VALUE,
+)
 const themeModeControlsDisabled = true
 
 function ensureProjectOptionsLoaded() {
@@ -233,8 +236,10 @@ function toggleSidebarCollapse() {
   emit('toggle-collapse')
 }
 
-function handleProjectChange(value: number | null | undefined) {
-  projectStore.setCurrentProject(value ?? null)
+function handleProjectChange(value: number | string | null | undefined) {
+  projectStore.selectCurrentProject(
+    typeof value === 'number' ? value : null,
+  )
 }
 
 function handleProjectVisibleChange(visible: boolean) {

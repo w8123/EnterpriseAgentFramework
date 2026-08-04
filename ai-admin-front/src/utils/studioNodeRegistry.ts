@@ -1,5 +1,5 @@
 import type { CanvasNodeKind } from '@/types/studio'
-import type { AgentGraphNodeTypeDescriptor } from '@/types/agent'
+import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
 
 export type StudioNodeCategory = 'system' | 'action' | 'flow' | 'integration'
 
@@ -298,7 +298,7 @@ export type StudioNodeCreationDecision = {
  */
 export function resolveStudioNodeCreation(
   kind: string | null | undefined,
-  descriptors: AgentGraphNodeTypeDescriptor[],
+  descriptors: WorkflowGraphNodeTypeDescriptor[],
   capabilityLoaded: boolean,
 ): StudioNodeCreationDecision {
   const normalized = String(kind || '').trim() as CanvasNodeKind
@@ -325,7 +325,7 @@ export function resolveStudioNodeCreation(
 
 export function canCreateStudioNodeKind(
   kind: string | null | undefined,
-  descriptors: AgentGraphNodeTypeDescriptor[],
+  descriptors: WorkflowGraphNodeTypeDescriptor[],
   capabilityLoaded: boolean,
 ) {
   return resolveStudioNodeCreation(kind, descriptors, capabilityLoaded).allowed
@@ -337,7 +337,7 @@ export function canCreateStudioNodeKind(
  */
 export function resolveStudioNodeSetCreation(
   requiredKinds: ReadonlyArray<string | null | undefined>,
-  descriptors: AgentGraphNodeTypeDescriptor[],
+  descriptors: WorkflowGraphNodeTypeDescriptor[],
   capabilityLoaded: boolean,
 ): StudioNodeCreationDecision {
   if (!capabilityLoaded || !descriptors?.length) {
@@ -356,7 +356,7 @@ export function resolveStudioNodeSetCreation(
 export const API_QUERY_TEMPLATE_REQUIRED_KINDS = ['interaction', 'pageAction', 'tool'] as const
 
 export function resolveApiQueryTemplateCapability(
-  descriptors: AgentGraphNodeTypeDescriptor[],
+  descriptors: WorkflowGraphNodeTypeDescriptor[],
   capabilityLoaded: boolean,
 ): StudioNodeCreationDecision {
   return resolveStudioNodeSetCreation(
@@ -373,7 +373,7 @@ export function resolveApiQueryTemplateCapability(
  * Catalog unloaded/empty/failed must NOT enable the full local registry.
  */
 export function enabledStudioNodeKinds(
-  descriptors: AgentGraphNodeTypeDescriptor[],
+  descriptors: WorkflowGraphNodeTypeDescriptor[],
   capabilityLoaded: boolean,
 ) {
   const enabled = new Set<CanvasNodeKind>(['start', 'end'])
@@ -393,8 +393,8 @@ export function enabledStudioNodeKinds(
   return enabled
 }
 
-export function studioNodeCapabilityMap(descriptors: AgentGraphNodeTypeDescriptor[]) {
-  const out: Partial<Record<CanvasNodeKind, AgentGraphNodeTypeDescriptor>> = {}
+export function studioNodeCapabilityMap(descriptors: WorkflowGraphNodeTypeDescriptor[]) {
+  const out: Partial<Record<CanvasNodeKind, WorkflowGraphNodeTypeDescriptor>> = {}
   const knownKinds = new Set(Object.keys(STUDIO_NODE_REGISTRY))
   for (const item of descriptors) {
     if (knownKinds.has(item.canvasKind)) {

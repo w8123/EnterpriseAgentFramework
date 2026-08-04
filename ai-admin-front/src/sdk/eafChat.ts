@@ -20,6 +20,10 @@ import {
 } from './embedSession'
 import { createPendingPageActionPollScheduler } from './pendingPageActionPollScheduler'
 import {
+  createEmbedChatShell,
+  type EmbedChatShellController,
+} from './embedChatShell'
+import {
   EAF_CHAT_THEME_PRESETS,
   resolveEafChatThemePrimary,
   type EafChatThemePreset,
@@ -45,6 +49,14 @@ export interface EafChatTokenProviderContext {
   signal: AbortSignal
   attempt: number
   sessionId?: string
+  /** 当前页面目录键；未传 createEafChat({ page }) 时为空。 */
+  pageKey?: string
+  /** SDK Page Bridge 创建的页面实例 ID，必须原样传给业务 Token Broker。 */
+  pageInstanceId: string
+  /** 与 Chat Session 使用同一份页面路由。 */
+  route: string
+  /** 页面来源；业务 Token Broker 必须原样转发给 ReachAI。 */
+  origin: string
 }
 
 export interface EafChatTokenResult {
@@ -61,6 +73,7 @@ export type EafChatTokenProvider = (
 ) => Promise<EafChatTokenValue> | EafChatTokenValue
 
 export type EafChatAuthStatus = 'loading' | 'ready' | 'error'
+export type EafChatPosition = 'inline' | 'bottom-right' | 'bottom-left'
 
 export interface EafChatAuthState {
   phase: 'token'
@@ -86,8 +99,12 @@ export interface EafChatOptions {
   stream?: boolean
   theme?: EafChatTheme
   locale?: 'zh-CN' | 'en-US' | string
-  position?: 'inline' | 'bottom-right' | 'bottom-left'
+  position?: EafChatPosition
   initialOpen?: boolean
+  /** 是否允许用户调整对话框宽高，默认 true。 */
+  resizable?: boolean
+  /** 浮动模式下是否允许拖动悬浮球并吸附到视口边缘，默认 true。 */
+  launcherDraggable?: boolean
   context?: Record<string, unknown>
   onEvent?: (event: EafChatEvent) => void
   onError?: (error: EafChatError) => void
@@ -209,6 +226,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   const pendingPageActions = new Set<string>()
   const handledPageActions = new Set<string>()
   const inFlightPageActions = new Map<string, Promise<void>>()
+  const pendingPageActionResults = new Map<string, PageActionResult>()
   const emittedPageActionEventIds = new Set<string>()
   let pageCatalogTimer: number | undefined
   let destroyed = false
@@ -264,6 +282,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       token,
       handledPageActions,
       inFlightPageActions,
+      pendingPageActionResults,
       responseMetadata,
       onRequested: (req) => publishPageActionRequested(req, { sessionId }),
       onError: reportError,
@@ -309,6 +328,10 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     }
     if (event.type === 'message.completed') {
       const response = event.data as EafChatMessageResponse
+      if (shell && !shell.isOpen()) {
+        unread = true
+        syncLauncherVisualState()
+      }
       // 先同步 publish queue 中的 page.action（已由 SSE 发过的 requestId 会跳过）
       for (const request of pageActionQueueFromResponse(response)) {
         publishPageActionRequested(request, { sessionId: response.sessionId, turnId: response.turnId })
@@ -342,6 +365,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       token,
       handledPageActions,
       inFlightPageActions,
+      pendingPageActionResults,
       onRequested: (request) => publishPageActionRequested(request, { sessionId }),
       onError: reportError,
       refreshToken: async () => {
@@ -368,6 +392,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       handledPageActions,
       pendingPageActions,
       inFlightPageActions,
+      pendingPageActionResults,
       context,
       // poll 自己已 dispatch；此处只 publish，禁止再走 emitPublicEvent→dispatch 递归
       onEvent: (event) => {
@@ -391,33 +416,43 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     onError: reportError,
   })
 
-  const root = document.createElement('div')
-  root.className = 'eaf-chat'
-  if (options.position && options.position !== 'inline') {
-    root.classList.add(`eaf-chat--${options.position}`)
+  let authStatus: EafChatAuthStatus = 'loading'
+  let messageInFlight = false
+  let unread = false
+  let shell!: EmbedChatShellController
+
+  function syncLauncherVisualState() {
+    if (!shell) return
+    shell.setLauncherState(
+      authStatus === 'error'
+        ? 'error'
+        : authStatus === 'loading' || messageInFlight
+          ? 'thinking'
+          : unread
+            ? 'unread'
+            : 'idle',
+    )
   }
-  if (options.initialOpen === false) {
-    root.classList.add('eaf-chat--closed')
-  }
+
+  shell = createEmbedChatShell({
+    mount,
+    position: options.position,
+    initialOpen: options.initialOpen,
+    brandName: options.theme?.brandName || 'ReachAI',
+    locale,
+    resizable: options.resizable,
+    launcherDraggable: options.launcherDraggable,
+    onOpen: () => {
+      unread = false
+      syncLauncherVisualState()
+      pendingPollScheduler.notifyActivity()
+    },
+  })
+  const { root, body: bodyEl, connectionStatus } = shell
   applyChatTheme(root, options.theme)
-  root.innerHTML = `
-    <div class="eaf-chat__header">
-      <div class="eaf-chat__brand">${escapeText(options.theme?.brandName || 'ReachAI')}</div>
-      <div class="eaf-chat__header-actions">
-        <span class="eaf-chat__connection-status" role="status" aria-live="polite">${locale === 'en-US' ? 'Connecting' : '正在连接'}</span>
-        <button class="eaf-chat__toggle" type="button" aria-expanded="${options.initialOpen === false ? 'false' : 'true'}">
-          ${options.initialOpen === false ? '+' : '-'}
-        </button>
-      </div>
-    </div>
-    <div class="eaf-chat__body"></div>
-  `
-  mount.appendChild(root)
-  const toggleButton = root.querySelector<HTMLButtonElement>('.eaf-chat__toggle')!
-  const connectionStatus = root.querySelector<HTMLElement>('.eaf-chat__connection-status')!
-  const bodyEl = root.querySelector<HTMLElement>('.eaf-chat__body')!
 
   function handleAuthState(state: EafChatAuthState) {
+    authStatus = state.status
     root.dataset.authState = state.status
     connectionStatus.hidden = state.status === 'ready'
     connectionStatus.classList.toggle('is-error', state.status === 'error')
@@ -426,6 +461,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       : state.status === 'error'
         ? (locale === 'en-US' ? 'Connection failed' : '连接失败')
         : ''
+    syncLauncherVisualState()
     try {
       options.onStateChange?.(state)
     } catch (error) {
@@ -493,12 +529,6 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     await registerPageCatalogIfConfigured(platformBase, options, bridge)
   }
 
-  function syncOpenState() {
-    const open = !root.classList.contains('eaf-chat--closed')
-    toggleButton.textContent = open ? '-' : '+'
-    toggleButton.setAttribute('aria-expanded', open ? 'true' : 'false')
-  }
-
   async function refreshTokenForCurrentSession() {
     if (!hostInstance) throw new Error('Embed chat host is not ready')
     token = await hostInstance.refreshToken('page-action')
@@ -509,6 +539,8 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     if (!text || !hostInstance || destroyed) return {}
     if (sendInFlight) throw new Error('Another message is still in flight')
     sendInFlight = true
+    messageInFlight = true
+    syncLauncherVisualState()
     pendingPollScheduler.notifyActivity()
     try {
       // 会话由 EmbedChatHost / EmbedTransport 唯一创建；完成事件由 Host onPublicEvent 转发
@@ -522,18 +554,10 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       throw error
     } finally {
       sendInFlight = false
+      messageInFlight = false
+      syncLauncherVisualState()
     }
   }
-
-  toggleButton.addEventListener('click', () => {
-    const wasClosed = root.classList.contains('eaf-chat--closed')
-    root.classList.toggle('eaf-chat--closed')
-    syncOpenState()
-    if (wasClosed && !root.classList.contains('eaf-chat--closed')) {
-      pendingPollScheduler.notifyActivity()
-    }
-  })
-  syncOpenState()
 
   const client = {
     bridge,
@@ -541,21 +565,13 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       return hostInstance?.getSessionId() || null
     },
     open() {
-      root.classList.remove('eaf-chat--closed')
-      syncOpenState()
-      pendingPollScheduler.notifyActivity()
+      shell.open()
     },
     close() {
-      root.classList.add('eaf-chat--closed')
-      syncOpenState()
+      shell.close()
     },
     toggle() {
-      const wasClosed = root.classList.contains('eaf-chat--closed')
-      root.classList.toggle('eaf-chat--closed')
-      syncOpenState()
-      if (wasClosed && !root.classList.contains('eaf-chat--closed')) {
-        pendingPollScheduler.notifyActivity()
-      }
+      shell.toggle()
     },
     send,
     async retry() {
@@ -576,7 +592,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       chatApp?.unmount()
       chatApp = null
       hostInstance = null
-      root.remove()
+      shell.destroy()
     },
   }
 
@@ -676,10 +692,6 @@ function requestError(message: string, status: number): Error & { status?: numbe
   const error = new Error(message) as Error & { status?: number }
   error.status = status
   return error
-}
-
-function escapeText(value: string) {
-  return value.replace(/[<>&"']/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[ch] || ch))
 }
 
 export function resolveEafChatEmbedApiRoot(apiBase?: string, embedPathPrefix?: string): string {

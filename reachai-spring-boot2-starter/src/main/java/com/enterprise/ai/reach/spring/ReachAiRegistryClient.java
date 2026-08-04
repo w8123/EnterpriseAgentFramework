@@ -22,6 +22,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ReachAiRegistryClient {
 
     private static final Logger log = LoggerFactory.getLogger(ReachAiRegistryClient.class);
+    static final String DEFAULT_SYNC_SOURCE = "SDK";
+    static final String CALLBACK_SYNC_SOURCE = "SDK_CALLBACK";
 
     private final ReachAiRegistryProperties properties;
     private final ReachCapabilityBeanScanner capabilityBeanScanner;
@@ -29,6 +31,7 @@ public class ReachAiRegistryClient {
     private final String registryBaseUrl;
     private final String instanceId;
     private final AtomicBoolean configurationErrorLogged = new AtomicBoolean(false);
+    private final AtomicBoolean registrationConfirmed = new AtomicBoolean(false);
 
     public ReachAiRegistryClient(ReachAiRegistryProperties properties,
                                  ReachCapabilityBeanScanner capabilityBeanScanner) {
@@ -63,7 +66,9 @@ public class ReachAiRegistryClient {
         try {
             registerProject();
             heartbeat();
+            registrationConfirmed.set(true);
         } catch (Exception e) {
+            registrationConfirmed.set(false);
             log.warn("[ReachAI Registry] registerAndSync failed project={} registryUrl={} error={}",
                     properties.getProject().getCode(), properties.getRegistry().getUrl(), e.toString());
         }
@@ -77,19 +82,41 @@ public class ReachAiRegistryClient {
         post("/api/registry/projects/{projectCode}/instances/heartbeat", heartbeatBody());
     }
 
+    void heartbeatOrRetryRegistration() {
+        if (registrationConfirmed.get()) {
+            heartbeat();
+            return;
+        }
+        registerProject();
+        heartbeat();
+        registrationConfirmed.set(true);
+    }
+
     public ManualCapabilitySyncResponse scanAndSyncCapabilities() {
+        return scanAndSyncCapabilities(DEFAULT_SYNC_SOURCE);
+    }
+
+    ManualCapabilitySyncResponse scanAndSyncCapabilitiesFromPlatformCallback() {
+        return scanAndSyncCapabilities(CALLBACK_SYNC_SOURCE);
+    }
+
+    private ManualCapabilitySyncResponse scanAndSyncCapabilities(String source) {
         if (!isConfigured()) {
             throw new IllegalStateException("ReachAI registry configuration is incomplete: " + configurationProblems());
         }
         List<ReachCapabilityDescriptor> descriptors = capabilities();
-        String registryResponse = syncCapabilities(descriptors);
+        String registryResponse = syncCapabilities(descriptors, source);
         return new ManualCapabilitySyncResponse(instanceId, descriptors.size(), registryResponse);
     }
 
     String syncCapabilities(List<ReachCapabilityDescriptor> capabilities) {
+        return syncCapabilities(capabilities, DEFAULT_SYNC_SOURCE);
+    }
+
+    String syncCapabilities(List<ReachCapabilityDescriptor> capabilities, String source) {
         Map<String, Object> body = new LinkedHashMap<String, Object>();
         body.put("syncId", UUID.randomUUID().toString());
-        body.put("source", "SDK");
+        body.put("source", StringUtils.hasText(source) ? source.trim() : DEFAULT_SYNC_SOURCE);
         body.put("apply", Boolean.TRUE);
         body.put("capabilities", capabilityRegistrations(capabilities));
         return post("/api/registry/projects/{projectCode}/capabilities/sync", body);
@@ -116,9 +143,6 @@ public class ReachAiRegistryClient {
             item.put("responseType", descriptor.getReturnType());
             item.put("sideEffect", descriptor.getSideEffect() == null ? "WRITE" : descriptor.getSideEffect().name());
             item.put("enabled", Boolean.TRUE);
-            item.put("agentVisible", descriptor.isAgentVisible());
-            item.put("lightweightEnabled", Boolean.FALSE);
-            item.put("visibility", defaultString(properties.getProject().getVisibility(), "PRIVATE"));
             item.put("parameters", parameterRegistrations(descriptor.getParameters()));
             item.put("metadata", capabilityMetadata(descriptor));
             registrations.add(item);
@@ -247,7 +271,7 @@ public class ReachAiRegistryClient {
             log.error("[ReachAI Registry] config missing: reachai properties are not available");
             return;
         }
-        log.info("[ReachAI Registry] config registryEnabled={} registryUrl={} projectCode={} projectName={} baseUrl={} contextPath={} appKeyConfigured={} appSecretConfigured={} scanBeans={} heartbeatIntervalMs={}",
+        log.info("[ReachAI Registry] config registryEnabled={} registryUrl={} projectCode={} projectName={} baseUrl={} contextPath={} appKeyConfigured={} appSecretConfigured={} scanBeans={} scanMode={} heartbeatIntervalMs={}",
                 properties.getRegistry().isEnabled(),
                 properties.getRegistry().getUrl(),
                 properties.getProject().getCode(),
@@ -257,6 +281,7 @@ public class ReachAiRegistryClient {
                 StringUtils.hasText(properties.getRegistry().getAppKey()),
                 StringUtils.hasText(properties.getRegistry().getAppSecret()),
                 properties.getCapability().isScanBeans(),
+                properties.getCapability().getScanMode(),
                 properties.getRegistry().getHeartbeatIntervalMs());
     }
 

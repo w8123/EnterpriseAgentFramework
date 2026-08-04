@@ -80,7 +80,7 @@ public class ReachAiRegistryHeartbeatScheduler implements SmartLifecycle {
             return;
         }
         try {
-            registryClient.heartbeat();
+            registryClient.heartbeatOrRetryRegistration();
         } catch (Exception ex) {
             if (isCredentialError(ex)) {
                 log.error("[ReachAI Registry] heartbeat rejected project={} registryUrl={} error={}",

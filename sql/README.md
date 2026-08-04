@@ -2,7 +2,7 @@
 
 ## 当前基线
 
-`sql/initV2.sql` 是 ReachAI 当前新库 SQL 基线入口，覆盖当前物理服务拆分主路径运行所需的表结构、补列、补索引和必要种子数据。V2 仍使用一个 MySQL 库，不拆库；表名按 owning service / domain 前缀收口。旧 `sql/init.sql` 已退场，不再保留为活跃或历史基线。
+`sql/initV2.sql` 是 ReachAI 当前新库 SQL 基线入口，覆盖当前物理服务拆分主路径运行所需的表结构、补列、补索引和必要种子数据。当前阶段仍使用一个 MySQL 库，不拆库；表名按 owning service / domain 前缀收口。旧 `sql/init.sql` 已退场，不再保留为活跃或历史基线。
 
 当前主路径服务：
 
@@ -12,7 +12,7 @@
 - `reachai-knowledge-service`
 - `reachai-model-service`
 
-第一阶段保持同一个 MySQL 库，不拆库。旧 `ai-agent-service` module 已删除；V2 面向新库重建，不兼容旧表名，也不提供旧数据迁移脚本。
+第一阶段保持同一个 MySQL 库，不拆库。旧 `ai-agent-service` module 已删除；当前基线面向新库重建，不兼容旧表名，也不提供旧数据迁移脚本。
 
 ## 执行方式
 
@@ -30,12 +30,14 @@ mysql -uroot -p < sql/initV2.sql
 ## 覆盖范围
 
 - Agent 聚合：`runtime_agent`、`runtime_agent_config_version`、固定 Workflow 发布版本的 `runtime_agent_workflow_tool`。
-- Workflow 编排：`runtime_workflow`、`runtime_workflow_version`。
+- Workflow 编排：`runtime_workflow`、`runtime_workflow_version`、`runtime_workflow_resource_binding`。
 - 注册中心、项目实例、能力快照、字段级 diff、review/apply。
 - 扫描项目、扫描模块、项目接口、语义文档、API 图谱。
 - Tool / Capability 资产、交互式能力挂起恢复。
 - RunOps 根运行事实 `runtime_run`、通用子事件 `runtime_trace_span`、Tool 调用、Tool ACL、Guard、SlotExtractor、DomainClassifier。
 - MCP、A2A、Gateway、市场资产、嵌入式对话。
+- 业务页面工作台：`control_project_page`、页面资源/动作/分析结果，以及版本化 AI Coding 任务、问题、事件和报告。
+- AI Coding 凭据策略：`control_ai_coding_project_policy`，未配置项目使用平台默认 72 小时。
 - 模型中心 V2：`model_template`（平台目录模板）与 `model_instance`（可执行实例；全新库可不含实例种子）。
 - 知识库、文件、chunk、权限、知识标签、问题、命中日志。
 - 业务语义索引及附件。
@@ -46,7 +48,7 @@ mysql -uroot -p < sql/initV2.sql
 任何 schema、索引、种子数据或字段语义变化，都必须先：
 
 1. 修改 `sql/initV2.sql`，保证全新环境直接可用。
-2. 如果已有开发/测试库需要升级，再新增当次 `sql/upgrade-YYYYMMDD-short-name.sql`；当前 V2 新库重建场景不要求提供旧数据迁移。
+2. 如果已有开发/测试库需要升级，再新增当次 `sql/upgrade-YYYYMMDD-short-name.sql`；当前新库重建场景不要求提供旧数据迁移。
 3. 更新本文件或相关文档中的执行说明。
 
 根目录 `sql/` 保留 `initV2.sql`、本说明和当前仍需应用的 `upgrade-*.sql`。后续真实数据库变更仍需新增当次 upgrade 脚本；该脚本在确认已合入基线且开发/测试库不再需要单独执行后，可以按同样规则清理。
@@ -55,7 +57,7 @@ mysql -uroot -p < sql/initV2.sql
 
 ## 破坏性变更
 
-项目默认不为旧数据做复杂兼容迁移。V2 按新库重建处理；如果后续升级脚本会清理、重建、重命名或丢弃历史字段/数据，必须在 SQL 注释和最终变更说明中写清影响。
+项目默认不为旧数据做复杂兼容迁移。当前基线按新库重建处理；如果后续升级脚本会清理、重建、重命名或丢弃历史字段/数据，必须在 SQL 注释和最终变更说明中写清影响。
 
 ## 建议验证
 
@@ -69,6 +71,12 @@ DESC runtime_workflow;
 DESC runtime_run;
 DESC runtime_trace_span;
 DESC runtime_agent_workflow_tool;
+DESC runtime_workflow_resource_binding;
+DESC control_project_page;
+DESC control_ai_coding_task;
+DESC control_ai_coding_task_target;
+DESC control_ai_coding_task_handoff;
+DESC control_ai_coding_project_policy;
 DESC capability_scan_project_tool;
 SHOW INDEX FROM control_mcp_client;
 ```
@@ -140,6 +148,61 @@ RunOps replay 使用来源运行记录的历史 Agent 配置和固定 Workflow �
 
 全新环境直接使用当前 `sql/initV2.sql`。
 
+## Upgrade: 20260725 业务页面工作台（破坏性）
+
+已有开发或测试库按顺序执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260725-business-page-workbench.sql
+mysql -uroot -p < sql/upgrade-20260725-ai-coding-task-protocol-v1.sql
+```
+
+影响：
+
+1. 永久删除 `control_page_registry`、`control_page_action_registry` 及旧页面助手数据，不做迁移。
+2. 建立唯一页面定义 `control_project_page`；运行中的 `pageInstanceId` 只由 `control_embed_session` 持有。
+3. 新增页面资源、动作和分析结果；页面领域不再自建 AI Coding 任务协议。
+4. 新增 Runtime 所有的 `runtime_workflow_resource_binding`，关键页面绑定不再依赖 `runtime_workflow.extra_json`。
+5. 第二份脚本永久删除旧 SDK 接入 session/step 和旧页面专用 AI Coding 任务历史，不做迁移。
+6. 第二份脚本建立 ReachAI 通用 Task、Target、Handoff、Event、Question、Artifact 表。
+
+该脚本仅适用于可丢弃的开发/测试库。MySQL DDL 自动提交，执行前必须备份整个 `reach_ai`；脚本不提供旧页面数据兼容或回滚迁移。
+
+验证：
+
+```sql
+SHOW TABLES LIKE 'control_project_page';
+SHOW TABLES LIKE 'control_ai_coding_task';
+SHOW TABLES LIKE 'control_ai_coding_task_target';
+SHOW TABLES LIKE 'control_ai_coding_task_handoff';
+SHOW TABLES LIKE 'runtime_workflow_resource_binding';
+SHOW TABLES LIKE 'control_page_registry';
+SHOW TABLES LIKE 'control_page_action_registry';
+SHOW TABLES LIKE 'control_ai_access_session';
+SHOW TABLES LIKE 'control_ai_access_step';
+```
+
+## Upgrade: 20260726 AI Coding 任务凭据策略
+
+已有开发或测试库执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260726-ai-coding-credential-policy.sql
+```
+
+影响：
+
+1. 新增 Control-owned 的 `control_ai_coding_project_policy`，不修改或删除现有任务数据。
+2. 未配置项目使用平台默认值：交接包激活有效期 72 小时、任务 Token 有效期 72 小时。
+3. 项目级自定义值只影响新签发或新激活的交接包；已经签发、激活或丢失 Token 的任务不会被追溯修改。
+
+验证：
+
+```sql
+DESC control_ai_coding_project_policy;
+SELECT * FROM control_ai_coding_project_policy LIMIT 20;
+```
+
 ## Upgrade: 20260719 Runtime internal auth nonce
 
 已有开发/测试库执行：
@@ -168,6 +231,99 @@ DESC runtime_internal_auth_nonce;
 SHOW INDEX FROM runtime_internal_auth_nonce;
 ```
 
+## Upgrade: 20260722 Tool 用户可读名称
+
+已有开发或测试库执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260722-add-tool-title.sql
+```
+
+影响：
+
+1. 为 `capability_scan_project_tool` 和 `capability_tool_definition` 增加必填 `title`，用于面向用户展示简短中文名称。
+2. `name` 和 `qualified_name` 继续作为稳定机器标识，不参与本次重命名。
+3. 已有数据先用 `name` 回填 `title`，后续 SDK 注册和界面编辑可写入真实业务名称；不删除任何数据。
+
+验证：
+
+```sql
+SHOW FULL COLUMNS FROM capability_scan_project_tool LIKE 'title';
+SHOW FULL COLUMNS FROM capability_tool_definition LIKE 'title';
+SELECT name, title FROM capability_scan_project_tool LIMIT 20;
+SELECT name, title FROM capability_tool_definition LIMIT 20;
+```
+
+## Upgrade: 20260722 能力开关与作用域字段清理（破坏性）
+
+已有开发或测试库执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260722-remove-redundant-capability-flags.sql
+```
+
+影响：
+
+1. 永久删除能力目录、领域和能力内核资产表中的 `agent_visible`；`enabled=1` 即表示可被 Agent 发现与调用。
+2. 永久删除扫描接口与全局 Tool 上没有运行时消费链路的 `lightweight_enabled`。
+3. 永久删除 `capability_tool_definition.visibility`；项目作用域继续由 `capability_scan_project.visibility` 统一承载。
+4. 同步删除 `scan_settings.defaultFlags` 和能力元数据 JSON 中遗留的对应开关，不保留隐藏配置。
+5. 不做字段回填、别名兼容或数据保留，并按剩余字段重建相关索引。执行前如需保留旧值，必须先备份目标库。
+
+验证：
+
+```sql
+DESC capability_scan_project_tool;
+DESC capability_tool_definition;
+DESC capability_domain_def;
+DESC capability_tool_asset;
+DESC capability_composition_definition;
+DESC capability_interaction_definition;
+SHOW INDEX FROM capability_tool_definition;
+```
+
+## 20260722 Workflow 语义硬切换
+
+本次 Workflow Studio 升级不转换旧 Workflow 数据，也不读取旧字段、旧枚举值、旧 GraphSpec 或完整 Canvas 快照。已有开发或测试库不需要重跑 `initV2.sql`，执行以下破坏性升级脚本：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260722-workflow-semantics.sql
+```
+
+脚本将当前契约直接应用到已有库：
+
+1. Workflow 分类使用 `workflow_kind / execution_engine / definition_authority / creation_channel`。
+2. Workflow 执行引擎只使用无产品代际后缀的 `GRAPH_SPEC`。
+3. GraphSpec 只接受 `schemaVersion=2`、`entryNodeId`、`exitNodeIds`，且不包含 `START / END` 语义节点或边。
+4. `canvas_json` 只保存 `schemaVersion=1 / layoutVersion=1` 的布局文档，不保存节点配置或拓扑语义。
+5. Run、Interaction 和 Debug 分别使用 `suspension_reason / resume_checkpoint_json / working_copy_definition_json / state_snapshot_json`。
+
+破坏性影响：
+
+1. 删除全部 Workflow 工作副本、发布版本和 Agent Workflow-as-Tool 绑定；执行后需要按当前契约重新创建、发布并绑定 Workflow。
+2. 删除全部 RunOps 根运行记录，并清空 Trace、Tool 调用、Guard 决策和运行时 Skill Interaction 历史。
+3. 删除全部 Interaction 与 Debug 会话。
+4. 清空评测执行记录与结果，但保留评测数据集和用例。
+5. 保留 Agent、Agent 配置版本、Workflow Credential 以及 Capability、Knowledge、Model、Control 等非 Runtime 业务数据。
+6. 不做旧列重命名、旧枚举映射、JSON 转换或兼容副本。脚本可重复执行，但每次都会再次清空上述数据；执行前必须备份目标库。
+
+验证：
+
+```sql
+DESC runtime_workflow;
+SHOW INDEX FROM runtime_workflow;
+DESC runtime_run;
+DESC runtime_interaction_session;
+DESC runtime_executable_debug_session;
+
+SELECT COUNT(*) FROM runtime_workflow;
+SELECT COUNT(*) FROM runtime_workflow_version;
+SELECT COUNT(*) FROM runtime_agent_workflow_tool;
+SELECT COUNT(*) FROM runtime_run;
+```
+
+以上四项计数在刚执行完脚本时都应为 `0`。全新环境仍直接执行 `sql/initV2.sql`。
+
 ## Upgrade: 20260718 Workflow INTERACTION resume
 
 已有开发/测试库执行：
@@ -178,7 +334,7 @@ mysql -uroot -p < sql/upgrade-20260718-workflow-interaction-resume.sql
 
 影响：
 
-1. `runtime_run` / `runtime_trace_span` 状态注释增加 `WAITING_USER`（用户交互等待）；`WAITING_APPROVAL` 仍专用于 Supervisor 策略确认/真审批。
+1. 当时 `runtime_run` / `runtime_trace_span` 增加了 `WAITING_USER`；当前基线将 `runtime_run` 表达为 `status=SUSPENDED` 与 `suspension_reason=USER_INPUT / APPROVAL`，Trace/Interaction 自身状态仍按各自生命周期表达。
 2. `runtime_interaction_session` 升级为 GraphSpec-native Workflow 交互会话：增加 `source_type`、`workflow_id`、`workflow_version_id`、`graph_spec_snapshot_json`、`revision`、`idempotency_key`、所有权字段与 continuation。
 3. `composition_qualified_name` 改为可空；历史 composition 行保留，`source_type` 回填为 `COMPOSITION`。新 Workflow 暂停必须持久化 snapshot，恢复不得读取最新 Workflow。
 

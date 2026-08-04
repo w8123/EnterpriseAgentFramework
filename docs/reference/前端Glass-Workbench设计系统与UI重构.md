@@ -239,7 +239,7 @@ src/styles/
 
 - 2.7 顶栏本体已按浅色玻璃规范重做（`MainLayout.vue`）：浅色为 `:root` 基线（半透明白 + blur + 薄下边界 + 克制阴影），暗色通过 `.main-layout.is-dark` 覆盖；面包屑文字层级（灰字 + 尾项深色 + hover 品牌色）统一在布局层定义。
 - 2.5 顶栏新增外置返回按钮（`< 返回` + 竖分隔线），仅当面包屑存在可导航父级时显示；点击优先 `router.back()`，无历史记录时跳最近的父级面包屑。已用 Playwright 点击验证：项目详情 → 返回 → 项目管理。
-- 2.5 注册中心族路由已补 `meta.breadcrumb` + `meta.activeMenu`（项目管理/项目详情/API 管理/能力变更评审/前端页面管理/创建页面助手/SDK 接入向导/嵌入式会话审计/扫描 API 目录）；面包屑 `to` 支持函数形式，携带 `projectCode` 的父级（如 页面管理 → 项目详情）可正确回跳。
+- 2.5 注册中心族路由已补 `meta.breadcrumb` + `meta.activeMenu`（项目管理/项目详情/API 管理/能力变更评审/前端页面管理/业务页面工作台/SDK 接入向导/嵌入式会话审计/扫描 API 目录）；面包屑 `to` 支持函数形式，携带 `projectCode` 的父级（如 页面管理 → 项目详情）可正确回跳。
 - 2.4 `resolveActiveMenu` 已支持 `meta.activeMenu` 优先，未配置的路由继续走原 if 链兜底；后续页面迁移时逐步补 meta 即可收敛 if 链。
 - 2.6 顶栏视觉特例已全部删除：`registry-shell` 顶栏皮肤（`MainLayout.vue`）、`RegistryProjectDetail.scss` / `EmbedOpsMonitor.vue` / `PageAssistantWizard.scss` / `SdkAccessWizard.scss` 里 6 处 `:has(...) .topbar` `!important` 皮肤块、`theme.scss` / `index.scss` 的旧顶栏覆盖，以及已无消费者的 `--brand-topbar-bg` 品牌变量（7 套）。`registry-shell` / `studio-shell` 类仅保留结构差异（main 区零内边距）。
 - 4.2 的一小步顺带完成：项目详情 hero 卡片内嵌返回按钮及其样式已删（顶栏返回取代）；`SdkAccessWizard` / `PageAssistantHeader` 页面内的"返回项目详情"按钮待各自页面迁移时处理。

@@ -32,9 +32,9 @@ public class RuntimeRunOpsReplayService {
         if (source.agentConfigVersionId() == null) {
             throw new IllegalArgumentException("Replay source has no published Agent config version: " + originalTraceId);
         }
-        if ("WAITING_USER".equalsIgnoreCase(source.status())) {
+        if (RuntimeRunStatus.parse(source.status()) == RuntimeRunStatus.SUSPENDED) {
             throw new IllegalArgumentException(
-                    "Cannot replay a run waiting for user interaction; provide substitute input via a new related run: "
+                    "Cannot replay a suspended run; provide substitute input via a new related run: "
                             + originalTraceId);
         }
 

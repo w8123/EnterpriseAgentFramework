@@ -6,6 +6,7 @@ import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 
@@ -75,9 +76,16 @@ class ControlProxyClientContractTest {
         assertEquals(ResponseEntity.class, runOpsReplay.getReturnType());
 
         Method listWorkflows = RuntimeProxyClient.class
-                .getMethod("listWorkflows", Long.class, String.class, String.class, String.class);
+                .getMethod("listWorkflows", Long.class, String.class, String.class, String.class,
+                        String.class);
         assertMapping(listWorkflows, RequestMethod.GET, "/api/workflows");
         assertEquals(ResponseEntity.class, listWorkflows.getReturnType());
+
+        Method searchWorkflows = RuntimeProxyClient.class
+                .getMethod("searchWorkflows", Long.class, String.class, String.class, String.class,
+                        String.class, String.class, Integer.class, Integer.class);
+        assertMapping(searchWorkflows, RequestMethod.GET, "/api/workflows/search");
+        assertEquals(ResponseEntity.class, searchWorkflows.getReturnType());
 
         Method createWorkflow = RuntimeProxyClient.class.getMethod("createWorkflow", Map.class);
         assertMapping(createWorkflow, RequestMethod.POST, "/api/workflows");
@@ -103,13 +111,14 @@ class ControlProxyClientContractTest {
         assertMapping(validateWorkflowRuntime, RequestMethod.POST, "/api/workflows/runtime-validation");
         assertEquals(ResponseEntity.class, validateWorkflowRuntime.getReturnType());
 
-        Method workflowStudio = RuntimeProxyClient.class.getMethod("workflowStudio", String.class);
-        assertMapping(workflowStudio, RequestMethod.GET, "/api/workflows/{id}/studio");
-        assertEquals(ResponseEntity.class, workflowStudio.getReturnType());
+        Method workflowWorkingCopy = RuntimeProxyClient.class.getMethod("workflowWorkingCopy", String.class);
+        assertMapping(workflowWorkingCopy, RequestMethod.GET, "/api/workflows/{id}/working-copy");
+        assertEquals(ResponseEntity.class, workflowWorkingCopy.getReturnType());
 
-        Method saveWorkflowStudio = RuntimeProxyClient.class.getMethod("saveWorkflowStudio", String.class, Map.class);
-        assertMapping(saveWorkflowStudio, RequestMethod.PUT, "/api/workflows/{id}/studio");
-        assertEquals(ResponseEntity.class, saveWorkflowStudio.getReturnType());
+        Method saveWorkflowWorkingCopy = RuntimeProxyClient.class
+                .getMethod("saveWorkflowWorkingCopy", String.class, Map.class);
+        assertMapping(saveWorkflowWorkingCopy, RequestMethod.PUT, "/api/workflows/{id}/working-copy");
+        assertEquals(ResponseEntity.class, saveWorkflowWorkingCopy.getReturnType());
 
         Method debugWorkflowNode = RuntimeProxyClient.class.getMethod("debugWorkflowNode", Map.class);
         assertMapping(debugWorkflowNode, RequestMethod.POST, "/api/workflows/studio/debug-node");
@@ -119,15 +128,15 @@ class ControlProxyClientContractTest {
         assertMapping(debugWorkflowRun, RequestMethod.POST, "/api/workflows/studio/debug-run");
         assertEquals(ResponseEntity.class, debugWorkflowRun.getReturnType());
 
-        Method generateWorkflowStudioDraft = RuntimeProxyClient.class
-                .getMethod("generateWorkflowStudioDraft", Map.class);
-        assertMapping(generateWorkflowStudioDraft, RequestMethod.POST, "/api/workflows/studio/generate-draft");
-        assertEquals(ResponseEntity.class, generateWorkflowStudioDraft.getReturnType());
+        Method generateWorkflowProposal = RuntimeProxyClient.class
+                .getMethod("generateWorkflowProposal", Map.class);
+        assertMapping(generateWorkflowProposal, RequestMethod.POST, "/api/workflows/studio/proposals/generate");
+        assertEquals(ResponseEntity.class, generateWorkflowProposal.getReturnType());
 
-        Method editWorkflowStudioDraft = RuntimeProxyClient.class
-                .getMethod("editWorkflowStudioDraft", Map.class);
-        assertMapping(editWorkflowStudioDraft, RequestMethod.POST, "/api/workflows/studio/edit-draft");
-        assertEquals(ResponseEntity.class, editWorkflowStudioDraft.getReturnType());
+        Method editWorkflowProposal = RuntimeProxyClient.class
+                .getMethod("editWorkflowProposal", Map.class);
+        assertMapping(editWorkflowProposal, RequestMethod.POST, "/api/workflows/studio/proposals/edit");
+        assertEquals(ResponseEntity.class, editWorkflowProposal.getReturnType());
 
         Method createWorkflowAiCodingWorkflow = RuntimeProxyClient.class
                 .getMethod("createWorkflowAiCodingWorkflow", Map.class);
@@ -138,6 +147,12 @@ class ControlProxyClientContractTest {
                 .getMethod("workflowAiCodingContext", String.class);
         assertMapping(workflowAiCodingContext, RequestMethod.GET, "/api/workflows/{workflowId}/ai-coding/context");
         assertEquals(ResponseEntity.class, workflowAiCodingContext.getReturnType());
+
+        Method replaceWorkflowAiCodingResourceBindings = RuntimeProxyClient.class
+                .getMethod("replaceWorkflowAiCodingResourceBindings", String.class, Map.class);
+        assertMapping(replaceWorkflowAiCodingResourceBindings, RequestMethod.PUT,
+                "/api/workflows/{workflowId}/ai-coding/resource-bindings");
+        assertEquals(ResponseEntity.class, replaceWorkflowAiCodingResourceBindings.getReturnType());
 
         Method validateWorkflowAiCoding = RuntimeProxyClient.class
                 .getMethod("validateWorkflowAiCoding", String.class, Map.class);
@@ -199,13 +214,8 @@ class ControlProxyClientContractTest {
 
         Method publishWorkflowVersion = RuntimeProxyClient.class
                 .getMethod("publishWorkflowVersion", String.class, Map.class);
-        assertMapping(publishWorkflowVersion, RequestMethod.POST, "/api/workflows/{workflowId}/versions");
+        assertMapping(publishWorkflowVersion, RequestMethod.POST, "/api/workflows/{workflowId}/versions/publish");
         assertEquals(ResponseEntity.class, publishWorkflowVersion.getReturnType());
-
-        Method publishWorkflowVersionExplicit = RuntimeProxyClient.class
-                .getMethod("publishWorkflowVersionExplicit", String.class, Map.class);
-        assertMapping(publishWorkflowVersionExplicit, RequestMethod.POST, "/api/workflows/{workflowId}/versions/publish");
-        assertEquals(ResponseEntity.class, publishWorkflowVersionExplicit.getReturnType());
 
         Method validateWorkflowVersion = RuntimeProxyClient.class.getMethod("validateWorkflowVersion", String.class);
         assertMapping(validateWorkflowVersion, RequestMethod.POST, "/api/workflows/{workflowId}/versions/validate");
@@ -231,20 +241,20 @@ class ControlProxyClientContractTest {
 
         Method listWorkflowCredentials = RuntimeProxyClient.class
                 .getMethod("listWorkflowCredentials", Long.class, String.class);
-        assertMapping(listWorkflowCredentials, RequestMethod.GET, "/api/agent/workflow-credentials");
+        assertMapping(listWorkflowCredentials, RequestMethod.GET, "/api/workflows/credentials");
         assertEquals(ResponseEntity.class, listWorkflowCredentials.getReturnType());
 
         Method createWorkflowCredential = RuntimeProxyClient.class.getMethod("createWorkflowCredential", Map.class);
-        assertMapping(createWorkflowCredential, RequestMethod.POST, "/api/agent/workflow-credentials");
+        assertMapping(createWorkflowCredential, RequestMethod.POST, "/api/workflows/credentials");
         assertEquals(ResponseEntity.class, createWorkflowCredential.getReturnType());
 
         Method updateWorkflowCredential = RuntimeProxyClient.class
                 .getMethod("updateWorkflowCredential", Long.class, Map.class);
-        assertMapping(updateWorkflowCredential, RequestMethod.PUT, "/api/agent/workflow-credentials/{id}");
+        assertMapping(updateWorkflowCredential, RequestMethod.PUT, "/api/workflows/credentials/{id}");
         assertEquals(ResponseEntity.class, updateWorkflowCredential.getReturnType());
 
         Method deleteWorkflowCredential = RuntimeProxyClient.class.getMethod("deleteWorkflowCredential", Long.class);
-        assertMapping(deleteWorkflowCredential, RequestMethod.DELETE, "/api/agent/workflow-credentials/{id}");
+        assertMapping(deleteWorkflowCredential, RequestMethod.DELETE, "/api/workflows/credentials/{id}");
         assertEquals(ResponseEntity.class, deleteWorkflowCredential.getReturnType());
 
         Method listEvalDatasets = RuntimeProxyClient.class.getMethod("listEvalDatasets", String.class);
@@ -420,6 +430,13 @@ class ControlProxyClientContractTest {
         FeignClient feignClient = CapabilityProjectOnboardingClient.class.getAnnotation(FeignClient.class);
         assertEquals("reachai-capability-project-onboarding", feignClient.name());
         assertEquals("${services.capability-service.url:http://localhost:18605}", feignClient.url());
+
+        Method getProjectById = CapabilityProjectOnboardingClient.class.getMethod(
+                "getProjectById",
+                Long.class);
+        assertArrayEquals(
+                new String[] {"/internal/capability/projects/by-id/{projectId}"},
+                getProjectById.getAnnotation(GetMapping.class).value());
 
         Method updateAiCodingAccess = CapabilityProjectOnboardingClient.class.getMethod(
                 "updateAiCodingAccess",

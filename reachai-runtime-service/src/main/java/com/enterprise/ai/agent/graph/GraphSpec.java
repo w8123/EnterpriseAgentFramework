@@ -1,6 +1,6 @@
 package com.enterprise.ai.agent.graph;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonAnySetter;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,23 +14,14 @@ import java.util.Map;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@JsonIgnoreProperties(ignoreUnknown = true)
 public class GraphSpec {
 
-    private String code;
-
-    private String name;
-
     @Builder.Default
-    private String mode = "WORKFLOW";
-
-    private String runtimeHint;
+    private Integer schemaVersion = 2;
 
     private Map<String, Object> inputSchema;
 
     private Map<String, Object> stateSchema;
-
-    private Layout layout;
 
     @Singular
     private List<Node> nodes;
@@ -38,16 +29,23 @@ public class GraphSpec {
     @Singular
     private List<Edge> edges;
 
-    private String entry;
+    private String entryNodeId;
 
-    @Singular("finishNode")
-    private List<String> finish;
+    private List<String> exitNodeIds;
+
+    public List<String> getExitNodeIds() {
+        return exitNodeIds == null ? List.of() : exitNodeIds;
+    }
+
+    @JsonAnySetter
+    private void rejectUnknownField(String field, Object value) {
+        throw new IllegalArgumentException("Unsupported GraphSpec field: " + field);
+    }
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Node {
         private String id;
         private String type;
@@ -62,15 +60,18 @@ public class GraphSpec {
         private Map<String, Object> outputSchema;
         private RetryPolicy retry;
         private ErrorPolicy errorPolicy;
-        private Layout.NodeLayout layout;
         private Map<String, Object> config;
+
+        @JsonAnySetter
+        private void rejectUnknownField(String field, Object value) {
+            throw new IllegalArgumentException("Unsupported GraphSpec node field: " + field);
+        }
     }
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Edge {
         private String id;
         private String from;
@@ -79,27 +80,34 @@ public class GraphSpec {
         private String sourceHandle;
         private String targetHandle;
         private Integer priority;
-        private Layout.EdgeLayout layout;
+
+        @JsonAnySetter
+        private void rejectUnknownField(String field, Object value) {
+            throw new IllegalArgumentException("Unsupported GraphSpec edge field: " + field);
+        }
     }
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class CapabilityRef {
         private String kind;
         private String name;
         private String qualifiedName;
         private Long definitionId;
         private String projectCode;
+
+        @JsonAnySetter
+        private void rejectUnknownField(String field, Object value) {
+            throw new IllegalArgumentException("Unsupported GraphSpec capability ref field: " + field);
+        }
     }
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Port {
         private String id;
         private String name;
@@ -107,61 +115,41 @@ public class GraphSpec {
         private Boolean required;
         private String schema;
         private String source;
+
+        @JsonAnySetter
+        private void rejectUnknownField(String field, Object value) {
+            throw new IllegalArgumentException("Unsupported GraphSpec port field: " + field);
+        }
     }
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class RetryPolicy {
         private Boolean enabled;
         private Integer maxAttempts;
         private Long backoffMs;
+
+        @JsonAnySetter
+        private void rejectUnknownField(String field, Object value) {
+            throw new IllegalArgumentException("Unsupported GraphSpec retry field: " + field);
+        }
     }
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class ErrorPolicy {
         private String strategy;
         private String fallbackNodeId;
         private Map<String, Object> defaultOutput;
-    }
 
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class Layout {
-        private String engine;
-        private String direction;
-        private Map<String, Object> viewport;
-
-        @Data
-        @Builder
-        @NoArgsConstructor
-        @AllArgsConstructor
-        @JsonIgnoreProperties(ignoreUnknown = true)
-        public static class NodeLayout {
-            private Double x;
-            private Double y;
-            private Double width;
-            private Double height;
-            private Boolean collapsed;
-        }
-
-        @Data
-        @Builder
-        @NoArgsConstructor
-        @AllArgsConstructor
-        @JsonIgnoreProperties(ignoreUnknown = true)
-        public static class EdgeLayout {
-            private String label;
-            private String style;
+        @JsonAnySetter
+        private void rejectUnknownField(String field, Object value) {
+            throw new IllegalArgumentException("Unsupported GraphSpec error policy field: " + field);
         }
     }
+
 }

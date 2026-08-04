@@ -4,6 +4,7 @@ import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClien
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -12,6 +13,8 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -24,20 +27,49 @@ class RuntimeWorkflowDebugServiceTest {
                     mock(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.class)),
             mock(com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService.class),
             mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper.class),
-            new ObjectMapper());
+            new ObjectMapper(),
+            new RuntimeWorkflowDocumentCanonicalizer(new ObjectMapper()));
+
+    @Test
+    void debugContractsUseCanonicalNamesOnly() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        RuntimeWorkflowDebugService.DebugRunRequest request = mapper.readValue("""
+                {
+                  "workflowKind":"GENERAL",
+                  "executionEngine":"GRAPH_SPEC",
+                  "inputParams":{},
+                  "debugOptions":{}
+                }
+                """, RuntimeWorkflowDebugService.DebugRunRequest.class);
+
+        assertEquals("GENERAL", request.workflowKind());
+        assertEquals("GRAPH_SPEC", request.executionEngine());
+        JsonNode requestJson = mapper.readTree(mapper.writeValueAsString(request));
+        assertEquals("GENERAL", requestJson.path("workflowKind").asText());
+        assertEquals("GRAPH_SPEC", requestJson.path("executionEngine").asText());
+        assertFalse(requestJson.has("workflowType"));
+        assertFalse(requestJson.has("runtimeType"));
+
+        RuntimeWorkflowDebugService.DebugRunResult result = new RuntimeWorkflowDebugService.DebugRunResult(
+                "run-1", "trace-1", null, "WORKFLOW", true, "COMPLETED", "ok", "answer",
+                List.of(), null, List.of(), Map.of("lastOutput", "ok"), null, null);
+        JsonNode resultJson = mapper.readTree(mapper.writeValueAsString(result));
+        assertTrue(resultJson.has("stateSnapshot"));
+        assertFalse(resultJson.has("finalState"));
+    }
 
     @Test
     void mapExecutionStatusMapsCancelledCodeToCancelledNotError() {
         assertEquals("CANCELLED", RuntimeWorkflowDebugService.mapExecutionStatus(
                 new RuntimeGraphSpecExecutionResult(false, "RUNTIME_GRAPH_CANCELLED",
                         "Workflow execution cancelled", "n1", "LLM", List.of(), Map.of())));
-        assertEquals("ERROR", RuntimeWorkflowDebugService.mapExecutionStatus(
+        assertEquals("FAILED", RuntimeWorkflowDebugService.mapExecutionStatus(
                 new RuntimeGraphSpecExecutionResult(false, "RUNTIME_GRAPH_LLM_FAILED",
                         "boom", "n1", "LLM", List.of(), Map.of())));
-        assertEquals("WAITING_USER", RuntimeWorkflowDebugService.mapExecutionStatus(
+        assertEquals("SUSPENDED", RuntimeWorkflowDebugService.mapExecutionStatus(
                 new RuntimeGraphSpecExecutionResult(false, "RUNTIME_GRAPH_INTERACTION_WAITING",
                         "wait", "n1", "INTERACTION", List.of(), Map.of())));
-        assertEquals("SUCCESS", RuntimeWorkflowDebugService.mapExecutionStatus(
+        assertEquals("COMPLETED", RuntimeWorkflowDebugService.mapExecutionStatus(
                 new RuntimeGraphSpecExecutionResult(true, "RUNTIME_GRAPH_EXECUTED",
                         "ok", "n1", "ANSWER", List.of(), Map.of())));
     }
@@ -48,13 +80,15 @@ class RuntimeWorkflowDebugServiceTest {
                 null,
                 "wf-orders",
                 "Orders",
-                "CHAT",
+                "GENERAL",
                 "orders",
-                "LANGGRAPH4J",
+                "GRAPH_SPEC",
                 null,
                 """
                         {
-                          "entry":"input",
+                          "schemaVersion":2,
+                          "entryNodeId":"input",
+                          "exitNodeIds":["answer"],
                           "nodes":[
                             {"id":"input","type":"USER_INPUT","name":"Input"},
                             {"id":"answer","type":"ANSWER","name":"Answer","config":{"template":"收到：{{ input }}"}}
@@ -70,13 +104,13 @@ class RuntimeWorkflowDebugServiceTest {
         RuntimeWorkflowDebugService.DebugRunResult result = service.debugRun(request);
 
         assertEquals(true, result.success());
-        assertEquals("SUCCESS", result.status());
+        assertEquals("COMPLETED", result.status());
         assertEquals("收到：A-1", result.answer());
         assertEquals("trace-debug", result.traceId());
         assertEquals(2, result.steps().size());
         assertEquals("input", result.steps().get(0).nodeId());
         assertEquals("answer", result.steps().get(1).nodeId());
-        assertEquals("收到：A-1", result.finalState().get("lastOutput"));
+        assertEquals("收到：A-1", result.stateSnapshot().get("lastOutput"));
     }
 
     @Test
@@ -85,11 +119,13 @@ class RuntimeWorkflowDebugServiceTest {
         workflow.setId("wf-1");
         workflow.setKeySlug("wf-orders");
         workflow.setName("Orders");
-        workflow.setWorkflowType("CHAT");
-        workflow.setRuntimeType("LANGGRAPH4J");
+        workflow.setWorkflowKind("GENERAL");
+        workflow.setExecutionEngine("GRAPH_SPEC");
         workflow.setGraphSpecJson("""
                 {
-                  "entry":"input",
+                  "schemaVersion":2,
+                  "entryNodeId":"input",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"input","type":"USER_INPUT"},
                     {"id":"answer","type":"ANSWER","config":{"template":"节点：{{ input }}"}}
@@ -128,13 +164,15 @@ class RuntimeWorkflowDebugServiceTest {
                 null,
                 "wf-router",
                 "Router",
-                "CHAT",
+                "GENERAL",
                 "orders",
-                "LANGGRAPH4J",
+                "GRAPH_SPEC",
                 null,
                 """
                         {
-                          "entry":"classifier",
+                          "schemaVersion":2,
+                          "entryNodeId":"classifier",
+                          "exitNodeIds":["answer"],
                           "nodes":[
                             {"id":"classifier","type":"INTENT_CLASSIFIER","config":{
                               "strategy":"KEYWORD",

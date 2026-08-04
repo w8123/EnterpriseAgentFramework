@@ -14,6 +14,12 @@ import java.util.Map;
 @FeignClient(name = "reachai-capability-project-onboarding", url = "${services.capability-service.url:http://localhost:18605}")
 public interface CapabilityProjectOnboardingClient {
 
+    @GetMapping("/internal/capability/projects/{projectCode}")
+    Map<String, Object> getProjectByCode(@PathVariable("projectCode") String projectCode);
+
+    @GetMapping("/internal/capability/projects/by-id/{projectId}")
+    Map<String, Object> getProjectById(@PathVariable("projectId") Long projectId);
+
     @GetMapping("/internal/capability/projects/by-id/{projectId}/onboarding")
     Map<String, Object> getOnboardingProjectById(@PathVariable("projectId") Long projectId);
 
@@ -25,6 +31,10 @@ public interface CapabilityProjectOnboardingClient {
 
     @GetMapping("/internal/capability/projects/by-id/{projectId}/readiness-facts")
     Map<String, Object> getReadinessFacts(@PathVariable("projectId") Long projectId);
+
+    @RequestMapping(method = RequestMethod.POST,
+            path = "/internal/capability/projects/by-id/{projectId}/sdk-sync")
+    Map<String, Object> triggerSdkSync(@PathVariable("projectId") Long projectId);
 
     @GetMapping("/internal/capability/projects/by-id/{projectId}/tools")
     List<Map<String, Object>> listProjectTools(@PathVariable("projectId") Long projectId);

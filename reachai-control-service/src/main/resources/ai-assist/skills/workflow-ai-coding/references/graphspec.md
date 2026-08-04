@@ -39,28 +39,29 @@ Current Runtime-executable node families:
 
 Do not add catalog-only nodes such as `HTTP_REQUEST`, `MCP_CALL`, `CODE`, `VARIABLE_ASSIGN`, `TEMPLATE`, `LOOP`, or `HUMAN_APPROVAL` until release validation reports them executable.
 
-## START / END Endpoints
+## Graph Boundaries
 
-`START` and `END` are virtual GraphSpec edge endpoints. They do not appear in `nodeTypes` and must not be added to `nodes`.
+`START` and `END` are Studio-only canvas nodes. GraphSpec never stores them as nodes or edge endpoints.
 
 Required shape:
 
 - Create a real entry node, usually `USER_INPUT`.
-- Set `graphSpec.entry` to the entry node id.
-- Add an edge `START -> <entryNodeId>` with `condition=always`.
-- Connect every terminal branch to `END`.
-- Do not create ordinary nodes with `id=START`, `id=END`, `type=START`, or `type=END`.
+- Set `graphSpec.entryNodeId` to that node id.
+- Put every terminal branch node id in `graphSpec.exitNodeIds`.
+- Keep `edges` limited to real GraphSpec nodes.
 
-For branching flows, every route must end at `END`:
+For branching flows, declare boundaries separately from topology:
 
 ```json
-[
-  { "from": "START", "to": "user_input", "condition": "always" },
-  { "from": "classifier", "to": "query_action", "condition": "route:query_intent" },
-  { "from": "query_answer", "to": "END", "condition": "always" },
-  { "from": "classifier", "to": "clarify_answer", "condition": "route:else" },
-  { "from": "clarify_answer", "to": "END", "condition": "always" }
-]
+{
+  "schemaVersion": 2,
+  "entryNodeId": "user_input",
+  "exitNodeIds": ["query_answer", "clarify_answer"],
+  "edges": [
+    { "from": "classifier", "to": "query_action", "condition": "route:query_intent" },
+    { "from": "classifier", "to": "clarify_answer", "condition": "route:else" }
+  ]
+}
 ```
 
 ## Node Config Examples
@@ -73,7 +74,7 @@ Minimal entry node:
 {
   "op": "ADD_NODE",
   "node": {
-    "id": "start",
+    "id": "user_input",
     "type": "USER_INPUT",
     "name": "User Input"
   }
@@ -249,9 +250,8 @@ Requires `edge.from` and `edge.to`.
 
 Rules:
 
-- `edge.to` cannot be `START`
-- `edge.from` cannot be `END`
-- endpoints must exist unless they are `START`/`END`
+- both endpoints must be real node ids in the same GraphSpec
+- `START` and `END` endpoints are rejected
 - duplicate `(from,to,condition)` edges are rejected
 
 Optional: `condition`, `sourceHandle`, `targetHandle`, `priority`, explicit `id`.
@@ -264,15 +264,15 @@ Requires `edgeId`.
 
 ### UPDATE_EDGE
 
-Requires `edgeId` plus a partial `patch`. `source` / `target` aliases are accepted for `from` / `to`; changing the edge id is rejected.
+Requires `edgeId` plus a partial `patch`. Use canonical `from` / `to`; changing the edge id is rejected.
 
-### SET_ENTRY
+### SET_ENTRY_NODE
 
-Requires `entry` node id that already exists.
+Requires `entryNodeId`, a node id that already exists.
 
-### SET_FINISH
+### SET_EXIT_NODES
 
-Requires `finish`, an array of existing terminal node ids. The full finish list is replaced atomically.
+Requires `exitNodeIds`, an array of existing terminal node ids. The full list is replaced atomically.
 
 ## Validation Modes
 
@@ -300,7 +300,7 @@ Patch preview example:
   "operations": [
     {
       "op": "ADD_NODE",
-      "node": { "id": "start", "type": "USER_INPUT", "name": "Start" }
+      "node": { "id": "input", "type": "USER_INPUT", "name": "Input" }
     },
     {
       "op": "ADD_NODE",
@@ -330,7 +330,7 @@ Patch preview example:
         "name": "Metro Answer",
         "config": {
           "modelInstanceId": "<availableModels[0].id>",
-          "prompt": "你是地铁问答助手，只回答与中国城市地铁相关的问题。",
+          "systemPrompt": "你是地铁问答助手，只回答与中国城市地铁相关的问题。",
           "userPrompt": "{{ input }}"
         }
       }
@@ -346,10 +346,11 @@ Patch preview example:
         }
       }
     },
-    { "op": "ADD_EDGE", "edge": { "from": "start", "to": "judge" } },
+    { "op": "ADD_EDGE", "edge": { "from": "input", "to": "judge" } },
     { "op": "ADD_EDGE", "edge": { "from": "judge", "to": "answer", "condition": "metro" } },
     { "op": "ADD_EDGE", "edge": { "from": "judge", "to": "reject", "condition": "reject" } },
-    { "op": "SET_ENTRY", "entry": "start" }
+    { "op": "SET_ENTRY_NODE", "entryNodeId": "input" },
+    { "op": "SET_EXIT_NODES", "exitNodeIds": ["answer", "reject"] }
   ]
 }
 ```
@@ -361,7 +362,7 @@ Suggested debug cases after save:
 
 ## Common Failure Patterns
 
-- missing entry node
+- missing `entryNodeId`
 - unsupported node type
 - dangling edge endpoint
 - LLM node without `modelInstanceId` when workflow default model is absent

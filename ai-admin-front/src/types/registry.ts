@@ -55,9 +55,6 @@ export interface CapabilityRegistration {
   responseType?: string
   sideEffect?: string
   enabled?: boolean
-  agentVisible?: boolean
-  lightweightEnabled?: boolean
-  visibility?: ProjectVisibility
   parameters?: ToolParameter[]
   metadata?: Record<string, unknown>
 }

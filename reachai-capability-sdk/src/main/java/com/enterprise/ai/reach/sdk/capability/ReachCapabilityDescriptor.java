@@ -15,7 +15,6 @@ public class ReachCapabilityDescriptor {
     private String module;
     private List<String> tags = new ArrayList<String>();
     private ReachSideEffectLevel sideEffect;
-    private boolean agentVisible;
     private List<String> requiredRoles = new ArrayList<String>();
     private int timeoutMs;
     private int retryLimit;
@@ -81,14 +80,6 @@ public class ReachCapabilityDescriptor {
 
     public void setSideEffect(ReachSideEffectLevel sideEffect) {
         this.sideEffect = sideEffect;
-    }
-
-    public boolean isAgentVisible() {
-        return agentVisible;
-    }
-
-    public void setAgentVisible(boolean agentVisible) {
-        this.agentVisible = agentVisible;
     }
 
     public List<String> getRequiredRoles() {

@@ -25,21 +25,23 @@ Use the versions from the manifest. If no manifest version is available, use the
 
 ## Maven Artifact Resolution
 
-Do not use the ReachAI platform base URL as a Maven repository. The platform URLs in the onboarding prompt and manifest are API endpoints, not artifact repositories.
+Do not use the ReachAI platform base URL as a Maven repository. ReachAI exposes versioned artifact download APIs, not a Maven repository.
 
 Do not add repository URLs or probe paths such as:
 - `/repository/**`
 - `/maven/**`
 - `/repository/maven/**`
 
-Resolve `reachai-capability-sdk` and `reachai-spring-boot2-starter` from one of these sources:
-- The business repository's existing corporate Maven repository or dependency-management setup.
-- A Maven repository where the ReachAI artifacts have already been published.
-- The local Maven repository after running, in the ReachAI repository, `mvn -pl reachai-spring-boot2-starter -am install -DskipTests`.
+Resolve `reachai-capability-sdk` and `reachai-spring-boot2-starter` in this order:
 
-If the artifacts still cannot be resolved, stop and report that the Java artifacts must be installed or published. Do not invent platform download URLs.
+1. Read the exact Java entries declared by the onboarding manifest's `sdkArtifacts`.
+2. If `sourcePolicy` is `platform-artifact-download`, require `downloadUrl`, `integritySha256`, `pomDownloadUrl`, `pomIntegritySha256`, and `installCommandTemplate`.
+3. Expand `{skillExtractDir}` and run the declared installer for `reachai-capability-sdk` first, then `reachai-spring-boot2-starter`. The installer downloads the JAR and standalone consumer POM to an isolated temporary directory, verifies both hashes, runs Maven `install:install-file`, and removes the temporary files.
+4. A business repository's already configured corporate Maven publication may be used instead when it resolves the exact declared coordinate.
 
-The same rule applies to front-end packages: do not fetch a browser SDK from `/api/embed/sdk`, `/npm/**`, or any other guessed ReachAI platform path. Prefer the manifest `sdkArtifacts` entry for `@reachai/embed-chat`; use an installed package, an already built local SDK artifact, or implement against the documented embed HTTP contract and report the packaging gap.
+Do not require a ReachAI source checkout and do not run a ReachAI reactor build from the business repository. If any declared URL/hash is missing or mismatched, fail closed and report the manifest defect. Do not invent another platform URL.
+
+The same rule applies to front-end packages: do not fetch a browser SDK from `/api/embed/sdk`, `/npm/**`, or any other guessed ReachAI platform path. Prefer the manifest `sdkArtifacts` entry and bundled installer for `@reachai/embed-chat`.
 
 ```xml
 <dependency>
@@ -60,24 +62,26 @@ Prefer an existing dependency-management pattern if the business repo already ce
 
 Add `reachai.registry`, `reachai.project`, and `reachai.capability` configuration to the active service configuration. Keep the app secret as an environment variable.
 
-The starter registers the project and instance and sends heartbeat data during SDK onboarding. Do not add a capability startup-sync setting. SDK interface scan/sync is triggered later from ReachAI **API Management（API 管理）** by choosing the project, adding interfaces, and manually starting SDK sync. 中文产品口径是：接口扫描由 API 管理手动触发。
+The starter registers the project and instance and sends heartbeat data during SDK onboarding. Do not add a capability startup-sync setting. For a task handoff, an active `PROJECT_ONBOARDING` task explicitly triggers project-scoped SDK sync with `POST <taskRoot>/verifications/SDK_SYNC` after registration and heartbeat pass. For console onboarding, ReachAI **API Management（API 管理）** 负责手动触发 SDK 同步. Both are explicit actions over the same signed two-hop callback; neither runs on business application startup.
 
 `reachai.project.base-url` is the business-system address as seen from the ReachAI server. It is not merely a browser URL or a local developer convenience. Do not keep `localhost`, `127.0.0.1`, or `::1` when ReachAI and the business service run on different machines, containers, or network namespaces.
 
-## API Management Manual SDK Sync Boundary
+## Explicit SDK Sync Boundary
 
-ReachAI should sync business APIs, not every controller visible in the Spring application context. This boundary is preparation for the later API Management manual SDK sync, not an SDK onboarding completion task.
+ReachAI should sync business APIs, not every controller visible in the Spring application context. This boundary applies to both task-scoped `SDK_SYNC` verification and API Management manual SDK sync.
 
 Before writing optional `reachai.capability` scan boundary configuration:
 - Identify the runnable application's real business package from the `@SpringBootApplication` class, business controller/service packages, and Maven module names.
 - If the application class sits in a broad platform root package, do not use that root as the scan package. Choose narrower business packages instead.
+- Prefer `reachai.capability.scan-mode: ANNOTATED_ONLY` for a curated capability surface. It registers only methods explicitly marked with `@ReachCapability`.
+- Use `reachai.capability.scan-mode: ALL_CONTROLLERS` only when the user explicitly wants unannotated Spring MVC endpoints inferred as capabilities. `ALL_CONTROLLERS` remains the starter default for backward compatibility.
 - Configure `reachai.capability.scan-packages` with business-owned packages only.
 - Configure `reachai.capability.exclude-packages` for framework, platform, starter, generated, and third-party packages.
 - If the business package cannot be determined confidently, stop and ask the user to choose from the candidate packages.
-- Do not add a capability startup-sync setting or call the capability sync endpoint during SDK onboarding.
+- Do not add a capability startup-sync setting or call internal/public capability service sync endpoints directly. A task handoff may call only its declared task verification URL with its task Bearer token.
 
-Prepare the inbound callback even though the onboarding workflow does not invoke it:
-- ReachAI later sends `POST {baseUrl}{contextPath}/reachai/registry/capabilities/sync` from the platform server to the online business-system instance.
+Prepare the inbound callback before explicit sync:
+- ReachAI sends `POST {baseUrl}{contextPath}/reachai/registry/capabilities/sync` from the platform server to the online business-system instance.
 - If `baseUrl` points to a gateway or ingress, route `/reachai/registry/**` to the service that contains `reachai-spring-boot2-starter`.
 - Preserve `X-ReachAI-App-Key`, `X-ReachAI-Timestamp`, `X-ReachAI-Nonce`, and `X-ReachAI-Signature` through every proxy layer.
 - Exclude this POST path from normal business-login/JWT authentication and CSRF. Apply the repository's actual Spring Security, Sa-Token, Shiro, or custom-interceptor pattern rather than pasting an unrelated framework example.
@@ -90,6 +94,7 @@ Recommended examples:
 reachai:
   capability:
     scan-beans: true
+    scan-mode: ANNOTATED_ONLY
     scan-packages:
       - com.company.order
       - com.company.customer
@@ -106,7 +111,7 @@ Do not set `scan-packages` to generic roots such as `com`, `com.company`, or a p
 
 ## Optional Capability Metadata Preparation
 
-Do not make project API sync a condition for SDK onboarding. Only prepare annotations when the user explicitly asks to prepare metadata for later API Management manual SDK sync.
+Only prepare annotations when the user explicitly asks to expose API metadata. A successful signed snapshot is required for task-level `SDK_CALLBACK_READY`, but reconciling/publishing catalog Tools remains a separate API Management decision.
 
 Start with low-risk read-only methods:
 - Query by id/code/name.
@@ -132,11 +137,11 @@ Use `@ReachOutput` only on response DTO fields that should be visible to later w
 
 The SDK access check may return both detailed `checks` and summarized `readiness` levels:
 
-- `CODE_READY`: manifest, dependencies/configuration, registry credentials, gateway base URL, and token broker path are present.
+- `CODE_READY`: ReachAI has observed a business instance register through Starter and the project access configuration is enabled.
 - `RUNTIME_READY`: the business service has started with `REACHAI_REGISTRY_APP_SECRET` and SDK heartbeat is online.
-- `E2E_READY`: the embed chat/token-broker path has completed a real invocation. If SDK interfaces have already been manually synced in API Management, a selected project interface invocation can also be used as optional evidence.
+- `SDK_CALLBACK_READY`: ReachAI has completed a signed SDK callback and received the resulting capability snapshot.
 
-`CODE_READY` can pass while `RUNTIME_READY` or `E2E_READY` remains WARN. Treat that as "code/config looks ready but runtime has not proven itself yet", not as an automatic integration failure.
+These platform SDK checks do not replace browser acceptance. The current AI Coding task exposes a separate `E2E_READY` gate, which passes only after ReachAI observes a real Embed session, user message and assistant reply created after that task started. Client-reported booleans, screenshots and a successful SDK callback cannot replace that server-side evidence.
 
 ## Gateway Route And Token Broker
 
@@ -173,6 +178,7 @@ For the callback security boundary:
 
 Add the gateway authentication whitelist required by embed chat:
 - Keep the token broker path, for example `/api/reachai/embed-token`, behind the business login token because it maps the current user to `principal.externalUserId`.
+- Inject the Starter-provided `ReachAiEmbedTokenClient` in that broker. Build `ReachAiEmbedTokenRequest` from the browser SDK context and a `ReachAiEmbedPrincipal` resolved from the authenticated business request; do not duplicate ReachAI signing or wrapped response parsing.
 - Route `/api/reachai/embed/**` to ReachAI `/api/embed/**` as an anonymous proxy or with a dedicated security chain. Browser calls to this path use `Authorization: Bearer <embedToken>`, and business OAuth/JWT filters must not parse or reject that token.
 - If the gateway has a global authentication filter, add an explicit skip for `/api/reachai/embed/**` while preserving the `Authorization`, `Origin`, and `Content-Type` headers.
 - Inspect any existing whitelist or anonymous-path filter that removes JWT headers, including names such as `IgnoreUrlsRemoveJwtFilter`, `RemoveJwtFilter`, `RemoveRequestHeader=Authorization`, or code that calls `mutate().header("Authorization", "")`. Do not let those filters clear `Authorization` on `/api/reachai/embed/**`; the path is anonymous only with respect to business login validation, not with respect to ReachAI embed-token forwarding.
@@ -305,13 +311,16 @@ Use a token provider that calls the business gateway token broker. Before adding
 const provisionedAgentKeySlug = '<provisioned-agent-key-slug>'
 
 const tokenProvider = async (tokenContext) => {
+  if (!tokenContext?.pageInstanceId) {
+    throw new Error('ReachAI page identity is unavailable')
+  }
   const query = new URLSearchParams({
     projectCode: 'demo-service',
     agentId: provisionedAgentKeySlug,
-    pageKey: 'teamArchive.list',
-    pageInstanceId,
-    route: window.location.pathname,
-    origin: window.location.origin,
+    pageKey: tokenContext.pageKey || 'teamArchive.list',
+    pageInstanceId: tokenContext.pageInstanceId,
+    route: tokenContext.route,
+    origin: tokenContext.origin,
   })
   const response = await fetch('/api/reachai/embed-token?' + query, {
     signal: tokenContext?.signal,
@@ -329,7 +338,7 @@ const tokenProvider = async (tokenContext) => {
 }
 ```
 
-The front end should pass `pageKey`, `pageInstanceId`, `route`, and `origin` so ReachAI can bind chat sessions, audit events, and page actions to the exact page instance. Use the same values in token exchange and session create.
+The SDK supplies `pageKey`, `pageInstanceId`, `route`, and `origin` in every `tokenProvider` context so ReachAI can bind chat sessions, audit events, and page actions to the exact page instance. Forward these values unchanged to the business broker. Do not generate a fallback UUID in the token provider or broker: a replacement ID will not match the Page Bridge identity used to create the Chat Session.
 
 When creating the global chat entry, pass the same page descriptor to the SDK so the chat session can resolve the page Workflow:
 
@@ -340,6 +349,8 @@ void createEafChat({
   agentId: provisionedAgentKeySlug,
   position: 'bottom-right',
   initialOpen: false,
+  resizable: true,
+  launcherDraggable: true,
   tokenProvider,
   page: {
     pageKey: 'teamArchive.list',
@@ -348,7 +359,21 @@ void createEafChat({
 })
 ```
 
-`createEafChat()` mounts the shell before the initial Token Broker request completes. A pending, empty, rejected, timed-out, 401, 502, or network-failed provider must leave the launcher visible with a retryable error state. Only local configuration failures such as a missing mount may reject before the shell is available. Import `@reachai/embed-chat/style.css` once in the business front-end entry.
+“Global” means one launcher in the authenticated application shell, not one
+launcher before authentication. Create the client only after the business
+identity/session is ready. Do not initialize it on login, logout,
+silent-refresh, OAuth callback, or public routes, and call `destroy()` before
+redirecting after authentication is lost. A broker 401 from an auth page is not
+valid onboarding evidence.
+
+`createEafChat()` mounts the shell before the initial Token Broker request completes. A pending, empty, rejected, timed-out, 401, 502, or network-failed provider must leave the dynamic launcher visible with a retryable error state. With `initialOpen: false`, only the launcher is shown; opening the panel hides it, and the Header minimize button restores it. Floating panels are resizable and launchers are draggable with edge snapping by default; the panel reopens on the launcher's docked side. Opt out with `resizable: false` or `launcherDraggable: false`. Only local configuration failures such as a missing mount may reject before the shell is available. Import `@reachai/embed-chat/style.css` once in the business front-end entry.
+
+Keep the packaged stylesheet unchanged. ReachAI's package verification rejects
+`@container` and `:has()` because legacy enterprise optimizers such as the Angular
+12/Critters pipeline can fail while generating `index.html`, even when the target
+browser supports those selectors. Do not disable the business build optimizer or
+copy SDK styles into the business repository as a workaround; report a package
+compatibility defect to ReachAI instead.
 
 `apiBase` can be the ReachAI platform origin. If the browser must use a gateway prefix, configure `embedPathPrefix`, for example `/api/reachai/embed`; current `@reachai/embed-chat` also treats `/api/embed` and `/api/reachai/embed` as full Embed API roots to avoid appending `/api/embed` twice. Keep token broker paths such as `/api/reachai/embed-token` separate from the Chat embed API root.
 
@@ -360,26 +385,10 @@ When caching embed tokens in the front end:
 - If creating a session or sending a message returns `embed token is expired`, clear the cached token, call the broker again, and retry once.
 - Preserve HTTP status and safe correlation metadata for `onError` diagnostics when a retry still fails; show a generic recoverable message to end users and never render raw response bodies or credentials.
 
-## Access Session Progress Reporting
+## Task Progress and Final Report
 
-When the ReachAI prompt provides `/api/ai-coding/projects/{projectId}/access-sessions/...`, report progress back to the platform instead of only summarizing in chat.
+For a ReachAI task handoff, use the task Bearer token and task root returned by one-time activation. Read task context before editing, then report `STARTED` and truthful `PROGRESS` events. Submit blocking ambiguity through the task question endpoint and write `RESUMED` only after reading the user's answer.
 
-Recommended reporting points:
-- `project-manifest`: manifest fetched and parsed.
-- `backend-sdk`: Maven dependencies added to the correct modules.
-- `reachai-config`: `reachai.registry`, `reachai.project`, and `reachai.capability` configured without a capability startup-sync setting.
-- `api-management-handoff`: SDK interface scan/sync left for ReachAI API Management manual trigger; optional scan boundaries or annotations prepared only if requested.
-- `gateway-route`: capability invocation route configured.
-- `embed-token-broker`: server-side token broker implemented.
-- `gateway-whitelist`: `/api/reachai/embed/**` bypasses business OAuth/JWT filters and forwards the embed token.
-- `frontend-embed`: real business front-end page or shell uses the broker-backed token provider.
-- `connectivity-check`: compile/build and ReachAI self-check attempted.
-- `handoff-summary`: final changed-file list, verification results, and remaining manual secrets/config.
+The final onboarding artifact must contain the six canonical step keys `PROJECT`, `STARTER`, `GATEWAY`, `BUSINESS_API`, `EMBED_TOKEN`, and `FINAL_CHECK`. Each step records a final `PASS`, `WARN`, `FAIL`, or `SKIPPED` status, changed files, and observed evidence. Use `WARN` or `NOT_RUN` rather than inferring runtime, platform, or browser success.
 
-Example:
-
-```bash
-curl -X POST "$REPORT_URL" \
-  -H "Content-Type: application/json" \
-  -d '{"status":"PASS","message":"Gateway whitelist added.","files":["gateway/src/main/java/SecurityConfiguration.java"],"evidence":{"command":"mvn -DskipTests compile","exitCode":0},"reportedBy":"Cursor"}'
-```
+Follow the contract key, version, and JSON Schema returned by `GET <taskRoot>/context`. Reuse the same artifact key and identical content when retrying a network failure; changing content under an existing key is a conflict.

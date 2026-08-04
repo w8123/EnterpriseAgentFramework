@@ -86,10 +86,10 @@
                     {{ formatExecutorTypeLabel(row.executorType) }}
                   </template>
                 </el-table-column>
-                <el-table-column label="可见" width="100" align="center">
+                <el-table-column label="状态" width="100" align="center">
                   <template #default="{ row }">
-                    <el-tag :type="row.agentVisible ? 'success' : 'info'" size="small">
-                      {{ formatAgentVisibleLabel(row.agentVisible) }}
+                    <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
+                      {{ row.enabled ? '启用' : '停用' }}
                     </el-tag>
                   </template>
                 </el-table-column>
@@ -113,10 +113,10 @@
                   </template>
                 </el-table-column>
                 <el-table-column prop="qualifiedName" label="限定名" min-width="220" show-overflow-tooltip />
-                <el-table-column label="可见" width="100" align="center">
+                <el-table-column label="状态" width="100" align="center">
                   <template #default="{ row }">
-                    <el-tag :type="row.agentVisible ? 'success' : 'info'" size="small">
-                      {{ formatAgentVisibleLabel(row.agentVisible) }}
+                    <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
+                      {{ row.enabled ? '启用' : '停用' }}
                     </el-tag>
                   </template>
                 </el-table-column>
@@ -145,10 +145,10 @@
                     {{ formatInteractionTypeLabel(row.interactionType) }}
                   </template>
                 </el-table-column>
-                <el-table-column label="可见" width="100" align="center">
+                <el-table-column label="状态" width="100" align="center">
                   <template #default="{ row }">
-                    <el-tag :type="row.agentVisible ? 'success' : 'info'" size="small">
-                      {{ formatAgentVisibleLabel(row.agentVisible) }}
+                    <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
+                      {{ row.enabled ? '启用' : '停用' }}
                     </el-tag>
                   </template>
                 </el-table-column>
@@ -219,9 +219,8 @@
         <el-form-item label="描述">
           <el-input v-model="toolForm.description" type="textarea" :rows="3" />
         </el-form-item>
-        <el-form-item label="开关">
+        <el-form-item label="状态">
           <el-switch v-model="toolForm.enabled" active-text="启用" inactive-text="停用" />
-          <el-switch v-model="toolForm.agentVisible" class="inline-switch" active-text="智能体可见" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -244,9 +243,8 @@
         <el-form-item label="图规格 JSON">
           <el-input v-model="compositionForm.graphSpecJson" type="textarea" :rows="12" />
         </el-form-item>
-        <el-form-item label="开关">
+        <el-form-item label="状态">
           <el-switch v-model="compositionForm.enabled" active-text="启用" inactive-text="停用" />
-          <el-switch v-model="compositionForm.agentVisible" class="inline-switch" active-text="智能体可见" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -279,9 +277,8 @@
         <el-form-item label="交互规格 JSON">
           <el-input v-model="interactionForm.specJson" type="textarea" :rows="12" />
         </el-form-item>
-        <el-form-item label="开关">
+        <el-form-item label="状态">
           <el-switch v-model="interactionForm.enabled" active-text="启用" inactive-text="停用" />
-          <el-switch v-model="interactionForm.agentVisible" class="inline-switch" active-text="智能体可见" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -349,7 +346,6 @@ import {
   EXECUTOR_TYPE_SELECT_OPTIONS,
   INTERACTION_TYPE_SELECT_OPTIONS,
   MODULE_SOURCE_SELECT_OPTIONS,
-  formatAgentVisibleLabel,
   formatCapabilityDisplayName,
   formatExecutorTypeLabel,
   formatInteractionTypeLabel,
@@ -630,7 +626,6 @@ function emptyTool(): ToolAsset {
     executorRef: '',
     sideEffect: 'WRITE',
     enabled: true,
-    agentVisible: true,
   }
 }
 
@@ -638,10 +633,9 @@ function emptyComposition(): CompositionDefinition {
   return {
     compositionCode: '',
     name: '',
-    graphSpecJson: '{\n  "entry": "collect",\n  "nodes": [\n    {\n      "id": "collect",\n      "type": "INTERACTION",\n      "config": {\n        "interactionType": "COLLECT_INPUT",\n        "fields": [\n          { "key": "message", "label": "消息", "type": "string", "required": true }\n        ],\n        "outputAlias": "params"\n      }\n    }\n  ],\n  "edges": [\n    { "from": "START", "to": "collect", "condition": "always" },\n    { "from": "collect", "to": "END", "condition": "always" }\n  ]\n}',
+    graphSpecJson: '{\n  "schemaVersion": 2,\n  "entryNodeId": "collect",\n  "exitNodeIds": ["collect"],\n  "nodes": [\n    {\n      "id": "collect",\n      "type": "INTERACTION",\n      "config": {\n        "interactionType": "COLLECT_INPUT",\n        "fields": [\n          { "key": "message", "label": "消息", "type": "string", "required": true }\n        ],\n        "outputAlias": "params"\n      }\n    }\n  ],\n  "edges": []\n}',
     sideEffect: 'WRITE',
     enabled: true,
-    agentVisible: true,
   }
 }
 
@@ -652,7 +646,6 @@ function emptyInteraction(): InteractionDefinition {
     interactionType: 'COLLECT_INPUT',
     specJson: '{\n  "interactionType": "COLLECT_INPUT",\n  "title": "信息采集",\n  "fields": [\n    { "key": "message", "name": "message", "label": "消息", "type": "string", "required": true }\n  ],\n  "behavior": { "askPolicy": "MISSING_ONLY" }\n}',
     enabled: true,
-    agentVisible: true,
   }
 }
 </script>

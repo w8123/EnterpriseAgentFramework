@@ -23,8 +23,6 @@ public @interface ReachCapability {
 
     ReachSideEffectLevel sideEffect() default ReachSideEffectLevel.WRITE;
 
-    boolean agentVisible() default true;
-
     String[] requiredRoles() default {};
 
     int timeoutMs() default 0;

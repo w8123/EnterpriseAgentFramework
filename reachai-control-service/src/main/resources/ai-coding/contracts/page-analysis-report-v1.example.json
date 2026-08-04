@@ -1,0 +1,33 @@
+{
+  "pageKey": "registry-project-detail",
+  "findings": [
+    {
+      "findingKey": "instance-offline-guidance",
+      "category": "OPERABILITY",
+      "title": "补充实例离线处理入口",
+      "confirmedFact": "页面展示实例在线状态，但未提供对应处理入口。",
+      "technicalInference": "可以复用现有实例查询 API 和 RunOps 跳转。",
+      "openQuestion": "离线多久后才允许触发诊断？",
+      "useCase": "开发者在项目详情直接进入离线诊断。",
+      "businessConfirmStatus": "PENDING",
+      "technicalFeasibility": "FEASIBLE",
+      "operationRisk": "LOW",
+      "informationCompleteness": "PARTIAL",
+      "readScope": "项目实例和最近心跳",
+      "writeScope": "",
+      "implementationReference": "RegistryProjectDetail.vue",
+      "acceptanceCriteria": "离线实例显示诊断入口，在线实例不显示。",
+      "relatedPages": [
+        "runops-list"
+      ],
+      "evidence": {
+        "statusComponent": "InstanceStatusCard"
+      },
+      "codeReferences": {
+        "files": [
+          "src/views/registry/RegistryProjectDetail.vue"
+        ]
+      }
+    }
+  ]
+}

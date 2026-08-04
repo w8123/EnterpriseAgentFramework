@@ -25,7 +25,7 @@ class RuntimeAgentSupervisorWorkflowAttachmentControllerTest {
                 7L,
                 "orders",
                 new RuntimeAgentSupervisorWorkflowAttachmentService.AgentRef("agent-1", "orders-page-copilot"),
-                new RuntimeAgentSupervisorWorkflowAttachmentService.WorkflowRef("wf-1", "chat-flow", "CHAT"),
+                new RuntimeAgentSupervisorWorkflowAttachmentService.WorkflowRef("wf-1", "chat-flow", "GENERAL"),
                 new RuntimeAgentSupervisorWorkflowAttachmentService.ActiveConfigRef(21L, 2, "ACTIVE"),
                 "chat_flow",
                 true,

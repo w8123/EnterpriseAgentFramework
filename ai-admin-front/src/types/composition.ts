@@ -316,10 +316,8 @@ export interface CompositionInfo {
   sideEffect?: string | null
   projectId?: number | null
   projectCode?: string | null
-  visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
   qualifiedName?: string | null
   enabled: boolean
-  agentVisible: boolean
   source?: string | null
   draft?: boolean
   spec?: SubAgentSpec | Record<string, unknown> | null
@@ -333,10 +331,8 @@ export interface CompositionUpsertRequest {
   sideEffect?: string | null
   projectId?: number | null
   projectCode?: string | null
-  visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
   qualifiedName?: string | null
   enabled: boolean
-  agentVisible: boolean
   spec: SubAgentSpec | Record<string, unknown>
   draft?: boolean
 }

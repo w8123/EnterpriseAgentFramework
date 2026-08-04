@@ -3,12 +3,10 @@ import { defineStore } from 'pinia'
 import { getScanProjects } from '@/api/scanProject'
 import type { ScanProject } from '@/types/scanProject'
 
-const STORAGE_KEY = 'eaf.currentProjectId'
-
 export const useProjectStore = defineStore('project', () => {
   const projects = ref<ScanProject[]>([])
   const loading = ref(false)
-  const currentProjectId = ref<number | null>(readStoredProjectId())
+  const currentProjectId = ref<number | null>(null)
 
   const currentProject = computed(() =>
     projects.value.find((p) => p.id === currentProjectId.value) || null,
@@ -25,7 +23,7 @@ export const useProjectStore = defineStore('project', () => {
         currentProjectId.value !== null
         && !projects.value.some((p) => p.id === currentProjectId.value)
       ) {
-        setCurrentProject(null)
+        clearCurrentProject()
       }
     } catch {
       projects.value = []
@@ -34,13 +32,13 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
-  function setCurrentProject(projectId: number | null) {
+  function selectCurrentProject(projectId: number | null) {
     currentProjectId.value = projectId
-    if (projectId === null) {
-      localStorage.removeItem(STORAGE_KEY)
-    } else {
-      localStorage.setItem(STORAGE_KEY, String(projectId))
-    }
+  }
+
+  function clearCurrentProject(projectId?: number) {
+    if (projectId !== undefined && currentProjectId.value !== projectId) return
+    currentProjectId.value = null
   }
 
   function projectLabel(project?: ScanProject | null) {
@@ -57,14 +55,8 @@ export const useProjectStore = defineStore('project', () => {
     currentProject,
     currentProjectCode,
     fetchProjects,
-    setCurrentProject,
+    selectCurrentProject,
+    clearCurrentProject,
     projectLabel,
   }
 })
-
-function readStoredProjectId() {
-  const raw = localStorage.getItem(STORAGE_KEY)
-  if (!raw) return null
-  const id = Number(raw)
-  return Number.isFinite(id) ? id : null
-}

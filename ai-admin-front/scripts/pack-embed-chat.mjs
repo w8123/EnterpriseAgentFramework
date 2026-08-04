@@ -94,8 +94,11 @@ async function writeDeliverable(sourceTarball, integritySha256) {
     .filter((name) => /\.(webp|png|jpe?g|gif|svg)$/i.test(name))
     .sort()
   const artifactPathWithinSkill = `reachai-onboarding/artifacts/${tarballFileName}`
+  const installScriptWithinSkill = 'reachai-onboarding/scripts/install-embed-chat.mjs'
+  const vendoredArtifactPath = `vendor/reachai/${tarballFileName}`
   const installWorkingDirectory = 'business-frontend-package-root'
-  const installCommandTemplate = `npm install "{skillExtractDir}/${artifactPathWithinSkill}"`
+  const installCommandTemplate =
+    `node "{skillExtractDir}/${installScriptWithinSkill}" --business-frontend-dir "."`
   const manifest = {
     schema: 'reachai.embed-chat.artifact.v1',
     packageName,
@@ -105,6 +108,8 @@ async function writeDeliverable(sourceTarball, integritySha256) {
     integritySha256,
     downloadUrlTemplate: '/api/ai-assist/artifacts/embed-chat/{version}.tgz',
     artifactPathWithinSkill,
+    installScriptWithinSkill,
+    vendoredArtifactPath,
     installWorkingDirectory,
     installCommand: installCommandTemplate,
     installCommandTemplate,

@@ -1,4 +1,5 @@
 import type { AgentVisibility } from './workflow'
+import type { CanvasSnapshot } from './studio'
 
 export type { Agent, AgentVisibility } from './workflow'
 
@@ -76,21 +77,17 @@ export type AgentMode = 'AUTONOMOUS' | 'WORKFLOW' | 'CODE' | 'EXTERNAL'
 export type AgentConfigurationSurface = 'FORM' | 'STUDIO' | 'CODE_WORKSPACE' | 'EXTERNAL_CONSOLE' | string
 
 /** Workflow 运行语义（GraphSpec）；画布布局见 canvasJson */
-export interface AgentGraphSpec {
-  code?: string
-  name?: string
-  mode?: 'WORKFLOW' | 'AUTONOMOUS'
-  runtimeHint?: AgentRuntimeType
+export interface WorkflowGraphSpec {
+  schemaVersion: 2
+  entryNodeId: string
+  exitNodeIds: string[]
   inputSchema?: Record<string, unknown>
   stateSchema?: Record<string, unknown>
-  layout?: AgentGraphLayout
-  nodes: AgentGraphNode[]
-  edges: AgentGraphEdge[]
-  entry?: string
-  finish?: string[]
+  nodes: WorkflowGraphNode[]
+  edges: WorkflowGraphEdge[]
 }
 
-export interface AgentGraphNode {
+export interface WorkflowGraphNode {
   id: string
   type:
     | 'LLM'
@@ -114,22 +111,19 @@ export interface AgentGraphNode {
     | 'PARAMETER_EXTRACT'
     | 'HTTP_REQUEST'
     | 'KNOWLEDGE_RETRIEVAL'
-    | 'START'
-    | 'END'
   name?: string
   description?: string
-  ref?: AgentGraphCapabilityRef
-  inputs?: AgentGraphPort[]
-  outputs?: AgentGraphPort[]
+  ref?: WorkflowGraphCapabilityRef
+  inputs?: WorkflowGraphPort[]
+  outputs?: WorkflowGraphPort[]
   inputSchema?: Record<string, unknown>
   outputSchema?: Record<string, unknown>
-  retry?: AgentGraphRetryPolicy
-  errorPolicy?: AgentGraphErrorPolicy
-  layout?: AgentGraphNodeLayout
+  retry?: WorkflowGraphRetryPolicy
+  errorPolicy?: WorkflowGraphErrorPolicy
   config?: Record<string, unknown>
 }
 
-export interface AgentGraphEdge {
+export interface WorkflowGraphEdge {
   id?: string
   from: string
   to: string
@@ -137,10 +131,9 @@ export interface AgentGraphEdge {
   sourceHandle?: string
   targetHandle?: string
   priority?: number
-  layout?: AgentGraphEdgeLayout
 }
 
-export interface AgentGraphCapabilityRef {
+export interface WorkflowGraphCapabilityRef {
   kind: 'TOOL' | 'SKILL' | 'CAPABILITY' | 'INTERACTION'
   name?: string
   qualifiedName?: string
@@ -148,7 +141,7 @@ export interface AgentGraphCapabilityRef {
   projectCode?: string | null
 }
 
-export interface AgentGraphPort {
+export interface WorkflowGraphPort {
   id: string
   name?: string
   type?: string
@@ -157,38 +150,19 @@ export interface AgentGraphPort {
   source?: string
 }
 
-export interface AgentGraphRetryPolicy {
+export interface WorkflowGraphRetryPolicy {
   enabled?: boolean
   maxAttempts?: number
   backoffMs?: number
 }
 
-export interface AgentGraphErrorPolicy {
+export interface WorkflowGraphErrorPolicy {
   strategy?: 'TERMINATE' | 'CONTINUE' | 'FALLBACK' | string
   fallbackNodeId?: string
   defaultOutput?: Record<string, unknown>
 }
 
-export interface AgentGraphLayout {
-  engine?: string
-  direction?: 'LR' | 'TB' | string
-  viewport?: Record<string, unknown>
-}
-
-export interface AgentGraphNodeLayout {
-  x?: number
-  y?: number
-  width?: number
-  height?: number
-  collapsed?: boolean
-}
-
-export interface AgentGraphEdgeLayout {
-  label?: string
-  style?: string
-}
-
-export interface WorkflowDraftResource {
+export interface WorkflowProposalResource {
   kind: 'TOOL' | 'SKILL' | 'CAPABILITY' | 'KNOWLEDGE' | string
   name: string
   qualifiedName?: string | null
@@ -198,50 +172,50 @@ export interface WorkflowDraftResource {
   metadata?: Record<string, unknown> | null
 }
 
-export interface WorkflowDraftPlaceholder {
+export interface WorkflowProposalPlaceholder {
   nodeId: string
   kind: string
   label: string
   reason: string
 }
 
-export interface WorkflowDraftGenerationRequest {
-  agentId?: string
-  agentName?: string
+export interface WorkflowProposalGenerationRequest {
+  workflowId?: string
+  workflowName?: string
   requirement: string
   projectCode?: string | null
   modelInstanceId?: string
-  draftScenario?: 'PAGE_ASSISTANT' | string
-  currentCanvas?: Record<string, unknown>
-  tools?: WorkflowDraftResource[]
-  capabilities?: WorkflowDraftResource[]
-  knowledgeBases?: WorkflowDraftResource[]
-  pageActions?: WorkflowDraftResource[]
+  workflowKind?: 'GENERAL' | 'PAGE_ASSISTANT' | string
+  tools?: WorkflowProposalResource[]
+  capabilities?: WorkflowProposalResource[]
+  knowledgeBases?: WorkflowProposalResource[]
+  pageActions?: WorkflowProposalResource[]
 }
 
-export interface WorkflowDraftGenerationResult {
+export interface WorkflowProposalGenerationResult {
   provider: string
   canvasSnapshot: Record<string, unknown>
-  graphSpec: AgentGraphSpec
+  graphSpec: WorkflowGraphSpec
   warnings: string[]
-  placeholderNodes: WorkflowDraftPlaceholder[]
+  placeholderNodes: WorkflowProposalPlaceholder[]
   validationErrors: string[]
 }
 
-export type WorkflowDraftEditOperationType =
+export type WorkflowProposalEditOperationType =
   | 'ADD_NODE'
   | 'UPDATE_NODE'
   | 'DELETE_NODE'
   | 'ADD_EDGE'
   | 'UPDATE_EDGE'
   | 'DELETE_EDGE'
-  | 'SET_ENTRY'
-  | 'SET_FINISH'
+  | 'SET_ENTRY_NODE'
+  | 'SET_EXIT_NODES'
+  | 'SET_INPUT_SCHEMA'
 
-export type WorkflowDraftEditStatus = 'SUCCEEDED' | 'FAILED'
+export type WorkflowProposalEditStatus = 'SUCCEEDED' | 'FAILED'
 
-export interface WorkflowDraftEditOperation {
-  type: WorkflowDraftEditOperationType
+export interface WorkflowProposalEditOperation {
+  type: WorkflowProposalEditOperationType
   nodeId?: string
   edgeId?: string
   node?: Record<string, unknown>
@@ -250,31 +224,32 @@ export interface WorkflowDraftEditOperation {
   reason?: string
 }
 
-export interface WorkflowDraftEditRequest {
-  agentId?: string
-  agentName?: string
+export interface WorkflowProposalEditRequest {
+  workflowId?: string
+  workflowName?: string
   instruction: string
   projectCode?: string | null
+  workflowKind?: 'GENERAL' | 'PAGE_ASSISTANT' | string
   modelInstanceId?: string
-  currentCanvas?: Record<string, unknown>
-  currentGraphSpec?: Record<string, unknown>
+  currentCanvas?: CanvasSnapshot | Record<string, unknown>
+  currentGraphSpec: WorkflowGraphSpec
   selectedNodeIds?: string[]
   selectedEdgeIds?: string[]
-  tools?: WorkflowDraftResource[]
-  capabilities?: WorkflowDraftResource[]
-  knowledgeBases?: WorkflowDraftResource[]
-  pageActions?: WorkflowDraftResource[]
+  tools?: WorkflowProposalResource[]
+  capabilities?: WorkflowProposalResource[]
+  knowledgeBases?: WorkflowProposalResource[]
+  pageActions?: WorkflowProposalResource[]
 }
 
-export interface WorkflowDraftEditResult {
-  status?: WorkflowDraftEditStatus | string
+export interface WorkflowProposalEditResult {
+  status: WorkflowProposalEditStatus | string
   provider: string
   summary: string
-  operations: WorkflowDraftEditOperation[]
+  operations: WorkflowProposalEditOperation[]
   canvasSnapshot: Record<string, unknown>
-  graphSpec: AgentGraphSpec
+  graphSpec: WorkflowGraphSpec
   warnings: string[]
-  placeholderNodes: WorkflowDraftPlaceholder[]
+  placeholderNodes: WorkflowProposalPlaceholder[]
   validationErrors: string[]
   attempts?: number
   failureCode?: string | null
@@ -284,13 +259,12 @@ export interface WorkflowDraftEditResult {
 
 export type WorkflowNodeMaturity = 'STABLE' | 'BETA' | 'PLANNED'
 
-export interface AgentGraphNodeTypeDescriptor {
-  type: AgentGraphNode['type']
+export interface WorkflowGraphNodeTypeDescriptor {
+  type: WorkflowGraphNode['type']
   canvasKind: string
   canvasCategory: string
   family: 'LLM' | 'TOOL' | 'FLOW' | string
   retryable: boolean
-  aliases: string[]
   /** Product maturity from unified node capability registry. */
   maturity?: WorkflowNodeMaturity
   /** Whether Runtime currently has a real handler. */
@@ -305,25 +279,16 @@ export interface AgentGraphNodeTypeDescriptor {
   unavailableReason?: string | null
 }
 
-/**
- * Workflow 画布互操作过渡类型（@deprecated）。
- * 仅供 `studio.ts` / `workflowStudio.ts` 在 GraphSpec ↔ canvas_json 之间转换。
- * Agent 管理主类型请用 `Agent`；编排主类型请用 `WorkflowDefinition`。
- */
+/** Workflow GraphSpec 与 Studio 内存画布之间的最小投影输入。 */
 export interface WorkflowCanvasSource {
   id?: string
   keySlug?: string
   canvasJson?: string
-  graphSpec?: AgentGraphSpec | null
+  graphSpec?: WorkflowGraphSpec | null
   modelInstanceId?: string
   systemPrompt?: string
   extra?: Record<string, unknown>
 }
-
-/**
- * @deprecated 历史名称，等价于 {@link WorkflowCanvasSource}。新代码请直接使用 WorkflowCanvasSource。
- */
-export type AgentDefinition = WorkflowCanvasSource
 
 /** Agent 创建 / 编辑表单 */
 export interface AgentForm {
@@ -346,7 +311,7 @@ export interface AgentForm {
   runtimePlacement: AgentRuntimePlacement
   runtimeConfig: Record<string, unknown>
   defaultResourceConfig: Record<string, unknown>
-  graphSpec?: AgentGraphSpec | null
+  graphSpec?: WorkflowGraphSpec | null
   maxSteps: number
   enabled: boolean
   type: 'single' | 'pipeline'
@@ -451,13 +416,13 @@ export interface AgentWorkflowDebugRunResult {
   sessionId?: string
   targetType?: string
   success: boolean
-  status: 'SUCCESS' | 'ERROR' | 'WAITING' | string
+  status: 'RUNNING' | 'SUSPENDED' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'TIMED_OUT' | string
   answer?: string
   currentNodeId?: string
   messages?: ExecutableDebugMessage[]
   uiRequest?: UiRequestPayload
   steps: AgentWorkflowDebugStepResult[]
-  finalState?: Record<string, unknown>
+  stateSnapshot?: Record<string, unknown>
   errorCode?: string
   errorMessage?: string
 }
@@ -473,8 +438,8 @@ export interface ExecutableDebugMessage {
 }
 
 export interface ExecutableDebugSessionCreateRequest {
-  targetType: 'AGENT_DRAFT' | 'COMPOSITION_DRAFT' | 'EXECUTABLE_DRAFT' | string
-  draftDefinition: Record<string, unknown>
+  targetType: 'AGENT_WORKING_COPY' | 'COMPOSITION_WORKING_COPY' | 'EXECUTABLE_WORKING_COPY' | string
+  workingCopyDefinition: Record<string, unknown>
   message?: string
   inputParams?: Record<string, unknown>
   debugOptions?: Record<string, unknown>

@@ -59,7 +59,6 @@ class CapabilityCompositionLookupServiceTest {
         entity.setOutputSchemaJson("{}");
         entity.setSideEffect("READ");
         entity.setEnabled(true);
-        entity.setAgentVisible(true);
         entity.setCreateTime(LocalDateTime.of(2026, 6, 30, 9, 0));
         entity.setUpdateTime(LocalDateTime.of(2026, 6, 30, 9, 5));
         return entity;

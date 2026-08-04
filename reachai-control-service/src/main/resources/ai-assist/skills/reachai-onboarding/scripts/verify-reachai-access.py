@@ -29,10 +29,6 @@ def main():
     parser = argparse.ArgumentParser(description="Verify ReachAI onboarding manifest and optional SDK access check.")
     parser.add_argument("--manifest-url", required=True)
     parser.add_argument("--run-check", action="store_true")
-    parser.add_argument("--scan-tool-id", type=int)
-    parser.add_argument("--args-json", default="{}")
-    parser.add_argument("--gateway-base-url")
-    parser.add_argument("--embed-token-path")
     parser.add_argument("--report-url", help="Access session step report URL. Replace {stepKey} automatically when present.")
     parser.add_argument("--step-key", help="Access session step key to report.")
     parser.add_argument("--status", default="PASS", help="Step status: TODO, RUNNING, PASS, WARN, FAIL, or SKIPPED.")
@@ -50,13 +46,7 @@ def main():
         print("secret.env=" + str(manifest.get("security", {}).get("appSecretEnv")))
 
         if args.run_check:
-            payload = {
-                "scanToolId": args.scan_tool_id,
-                "args": json.loads(args.args_json),
-                "gatewayBaseUrl": args.gateway_base_url,
-                "embedTokenPath": args.embed_token_path,
-            }
-            result = post_json(manifest["endpoints"]["sdkAccessCheckUrl"], payload)
+            result = post_json(manifest["endpoints"]["sdkAccessCheckUrl"], {})
             print("sdkAccessCheck.overallStatus=" + str(result.get("overallStatus")))
             print(json.dumps(result, ensure_ascii=False, indent=2))
 

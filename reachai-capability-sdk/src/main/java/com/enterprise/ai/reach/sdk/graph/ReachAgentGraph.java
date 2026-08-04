@@ -9,7 +9,7 @@ public class ReachAgentGraph {
     private final String code;
     private final String name;
     private final String description;
-    private final String runtimeType;
+    private final String executionEngine;
     private final String modelInstanceId;
     private final String systemPrompt;
     private final String visibility;
@@ -19,7 +19,7 @@ public class ReachAgentGraph {
     public ReachAgentGraph(String code,
                            String name,
                            String description,
-                           String runtimeType,
+                           String executionEngine,
                            String modelInstanceId,
                            String systemPrompt,
                            String visibility,
@@ -28,7 +28,7 @@ public class ReachAgentGraph {
         this.code = code;
         this.name = name;
         this.description = description;
-        this.runtimeType = runtimeType;
+        this.executionEngine = executionEngine;
         this.modelInstanceId = modelInstanceId;
         this.systemPrompt = systemPrompt;
         this.visibility = visibility;
@@ -50,8 +50,8 @@ public class ReachAgentGraph {
         return description;
     }
 
-    public String getRuntimeType() {
-        return runtimeType;
+    public String getExecutionEngine() {
+        return executionEngine;
     }
 
     public String getModelInstanceId() {

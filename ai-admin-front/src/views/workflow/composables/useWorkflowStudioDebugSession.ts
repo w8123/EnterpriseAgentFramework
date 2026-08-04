@@ -29,7 +29,7 @@ export function useWorkflowStudioDebugSession({
   getDebugSessionById,
 }: UseWorkflowStudioDebugSessionDeps) {
   function debugSessionStorageKey() {
-    return `workflow-studio-debug-session:${workflowId.value || workflowKeySlug.value || 'draft'}`
+    return `workflow-studio-debug-session:${workflowId.value || workflowKeySlug.value || 'working-copy'}`
   }
 
   function rememberDebugSession(sessionId?: string) {

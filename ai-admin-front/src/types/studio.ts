@@ -173,6 +173,12 @@ export interface UserInputNodeConfig {
 
 export type InteractionNodeType = 'COLLECT_INPUT' | 'PRESENT_OUTPUT' | 'USER_CHOICE' | 'CONFIRM_ACTION' | 'REVIEW_EDIT'
 export type InteractionBindingSourceKind = 'NONE' | 'TOOL' | 'COMPOSITION' | 'API'
+export type InteractionPresentationMode = 'card_only' | 'text_and_card' | 'text_only'
+
+export interface InteractionPresentationConfig {
+  mode?: InteractionPresentationMode
+  [key: string]: unknown
+}
 
 export interface InteractionBindingConfig {
   sourceKind: InteractionBindingSourceKind
@@ -196,7 +202,6 @@ export interface InteractionCallNodeRequest {
   qualifiedName?: string | null
   projectCode?: string | null
   projectId?: number | null
-  visibility?: string | null
   apiMethod?: string | null
   apiPath?: string | null
   responseType?: string | null
@@ -218,6 +223,7 @@ export interface InteractionNodeConfig {
   outputAlias: string
   dataSources?: Record<string, unknown>
   behavior?: Record<string, unknown>
+  presentation?: InteractionPresentationConfig
   renderSchema?: Record<string, unknown>
 }
 
@@ -331,7 +337,6 @@ export interface ToolNodeConfig {
   ref?: string
   qualifiedName?: string | null
   projectCode?: string | null
-  visibility?: string | null
   credentialRef?: string
   maxRequestTimeMs?: number
   inputMapping: Record<string, unknown>

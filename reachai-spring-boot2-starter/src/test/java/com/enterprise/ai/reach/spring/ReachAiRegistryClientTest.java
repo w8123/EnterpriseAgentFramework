@@ -18,6 +18,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -136,6 +137,23 @@ class ReachAiRegistryClientTest {
     }
 
     @Test
+    void callbackScanMarksTheSnapshotSourceSeparatelyFromStartupSync() {
+        ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
+        properties.getRegistry().setUrl("https://reachai.example.com");
+        properties.getRegistry().setAppKey("demo-key");
+        properties.getRegistry().setAppSecret("demo-secret");
+        properties.getProject().setCode("demo");
+
+        RecordingTransport transport = new RecordingTransport();
+        ReachAiRegistryClient client = new ReachAiRegistryClient(
+                properties, new CountingScanner(), transport);
+
+        client.scanAndSyncCapabilitiesFromPlatformCallback();
+
+        assertEquals("SDK_CALLBACK", transport.requests.get(0).body.get("source"));
+    }
+
+    @Test
     void registerAndSyncDoesNotBreakApplicationStartupWhenRegistryIsUnavailable() {
         ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
         properties.getRegistry().setUrl("https://reachai.example.com");
@@ -176,7 +194,9 @@ class ReachAiRegistryClientTest {
         assertEquals("plain_getStatus", getItem.get("name"));
         assertEquals("GET", getItem.get("httpMethod"));
         assertEquals("/plain/getStatus", getItem.get("endpointPath"));
-        assertEquals(Boolean.FALSE, getItem.get("agentVisible"));
+        assertFalse(getItem.containsKey("agentVisible"));
+        assertFalse(getItem.containsKey("lightweightEnabled"));
+        assertFalse(getItem.containsKey("visibility"));
         Map<?, ?> getMetadata = (Map<?, ?>) getItem.get("metadata");
         assertEquals(Boolean.FALSE, getMetadata.get("declared"));
         assertEquals("SpringMvcController", getMetadata.get("source"));
@@ -187,6 +207,34 @@ class ReachAiRegistryClientTest {
         assertEquals("POST", postItem.get("httpMethod"));
         assertEquals("/plain/create", postItem.get("endpointPath"));
         assertEquals("java.lang.String", postItem.get("requestBodyType"));
+    }
+
+    @Test
+    void explicitReachCapabilitySupersedesAutomaticMvcDiscoveryForSameMethod() {
+        ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
+        properties.getRegistry().setUrl("https://reachai.example.com");
+        properties.getRegistry().setAppKey("demo-key");
+        properties.getRegistry().setAppSecret("demo-secret");
+        properties.getProject().setCode("demo");
+        properties.getProject().setBaseUrl("https://biz.example.com");
+
+        RecordingTransport transport = new RecordingTransport();
+        ReachAiRegistryClient client = new ReachAiRegistryClient(
+                properties,
+                new ReachCapabilityBeanScanner(new Object[]{new AnnotatedController()}),
+                transport);
+
+        client.scanAndSyncCapabilities();
+
+        List<?> capabilities = (List<?>) transport.requests.get(0).body.get("capabilities");
+        assertEquals(1, capabilities.size());
+        Map<?, ?> capability = findCapability(capabilities, "team.current-user");
+        assertEquals(
+                "/reachai/capabilities/team.current-user/invoke",
+                capability.get("endpointPath"));
+        Map<?, ?> metadata = (Map<?, ?>) capability.get("metadata");
+        assertEquals(Boolean.TRUE, metadata.get("declared"));
+        assertEquals("ReachCapability", metadata.get("source"));
     }
 
     static class ContractCapability {
@@ -223,7 +271,6 @@ class ReachAiRegistryClientTest {
             descriptor.setEndpointPath("/reachai/capabilities/contract.query/invoke");
             descriptor.setRequestBodyType("java.util.Map");
             descriptor.setReturnType("java.lang.String");
-            descriptor.setAgentVisible(true);
             return Collections.singletonList(descriptor);
         }
     }
@@ -239,6 +286,16 @@ class ReachAiRegistryClientTest {
         @PostMapping("/create")
         public String create(@RequestBody String payload) {
             return payload;
+        }
+    }
+
+    @RestController
+    @RequestMapping("/users")
+    static class AnnotatedController {
+        @GetMapping("/current")
+        @ReachCapability(name = "team.current-user", title = "Current user")
+        public String currentUser() {
+            return "user-001";
         }
     }
 

@@ -2,7 +2,7 @@
 
 ## Secrets
 
-Never place `appSecret` or project `aiCodingKey` in:
+Never place `appSecret`, project `aiCodingKey`, task token, or activation code in:
 - Chat prompts.
 - Generated source files.
 - Business front-end runtime code, `environment.ts`, `.env`, `window.__env`, or browser bundles.
@@ -10,7 +10,7 @@ Never place `appSecret` or project `aiCodingKey` in:
 - Markdown reports.
 - Terminal output summaries.
 
-`aiCodingKey` and `provisionAgentUrl` belong to AI coding tools, local shell scripts, or server-side onboarding only. Browser runtime must not call `/api/ai-coding/projects/{projectId}/onboarding-manifest`, `/api/ai-coding/projects/{projectId}/agents/provision`, or `/api/ai-coding/projects/{projectId}/access-sessions` endpoints.
+Project-level `aiCodingKey` and `provisionAgentUrl` belong to independently authenticated AI coding tools, local shell scripts, or server-side onboarding only. A ReachAI task handoff does not expose that key: activate the one-time code and keep its short-lived task token only in the current process. Browser runtime must not call onboarding manifests, provisioning endpoints, handoff activation, or task protocol endpoints.
 
 Use the manifest field `sdk.config.appSecretEnv` and write configuration like:
 
@@ -19,6 +19,18 @@ app-secret: ${REACHAI_REGISTRY_APP_SECRET}
 ```
 
 If the business repo uses a secret manager or config center, follow its existing pattern and still avoid printing the secret.
+
+On Windows, the onboarding Skill provides a hidden-input helper:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File `
+  "<skillExtractDir>/reachai-onboarding/scripts/set-reachai-registry-secret.ps1" `
+  -Target User
+```
+
+The helper prompts with `Read-Host -AsSecureString`, stores only the current Windows user's environment value, and prints only the variable name and target. Start a new terminal/process before launching the business service so it inherits the updated value. The user or their secret manager must still supply the actual secret; ReachAI manifests and task contexts never expose it.
+
+This is non-disclosure by workflow, not an operating-system isolation boundary. An AI coding tool running with the same Windows user permissions may technically read that user's environment. Do not claim stronger secrecy than the host account provides.
 
 ## Prompt Safety
 

@@ -1,6 +1,7 @@
 export interface ToolCandidate {
   toolId: number
   toolName: string
+  toolTitle: string | null
   projectId: number | null
   moduleId: number | null
   score: number
@@ -14,7 +15,6 @@ export interface ToolRetrievalSearchRequest {
   moduleIds?: number[]
   toolWhitelist?: number[]
   enabledOnly?: boolean
-  agentVisibleOnly?: boolean
   /** 覆盖后端 ai.tool-retrieval.min-score；0 表示不按阈值过滤 */
   minScore?: number | null
 }

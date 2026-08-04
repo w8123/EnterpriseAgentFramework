@@ -39,6 +39,14 @@ public class ReachAiRegistryAutoConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean
+    public ReachAiEmbedTokenClient reachAiEmbedTokenClient(
+            ReachAiRegistryProperties properties,
+            ReachAiRegistryTransport transport) {
+        return new ReachAiEmbedTokenClient(properties, transport);
+    }
+
+    @Bean
     @ConditionalOnMissingBean(name = "reachAiRegistryTaskScheduler")
     public TaskScheduler reachAiRegistryTaskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();

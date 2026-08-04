@@ -47,7 +47,8 @@ class RuntimeGraphSpecLoopTest {
         String markerC = UUID.randomUUID().toString();
         String graph = """
                 {
-                  "entry":"loop",
+                  "entryNodeId":"loop",
+                  "exitNodeIds":["loop"],
                   "nodes":[
                     {"id":"loop","type":"LOOP","config":{
                       "mode":"FOREACH","collection":"var.items","itemAlias":"item","indexAlias":"index",
@@ -56,7 +57,7 @@ class RuntimeGraphSpecLoopTest {
                     }},
                     {"id":"tpl","type":"TEMPLATE","config":{"template":"{{ var.item }}","outputAlias":"rendered"}}
                   ],
-                  "edges":[{"from":"loop","to":"END","condition":"always"}]
+                  "edges":[]
                 }
                 """;
         RuntimeGraphSpecExecutionResult result = executor.execute(
@@ -109,7 +110,8 @@ class RuntimeGraphSpecLoopTest {
     void bodyFailureStopsLoopAndReportsIterationIndex() {
         String graph = """
                 {
-                  "entry":"loop",
+                  "entryNodeId":"loop",
+                  "exitNodeIds":["loop"],
                   "nodes":[
                     {"id":"loop","type":"LOOP","config":{
                       "collection":"var.items","itemAlias":"item","indexAlias":"index",
@@ -148,7 +150,8 @@ class RuntimeGraphSpecLoopTest {
     void nestedLoopRejectedAtRuntime() {
         String graph = """
                 {
-                  "entry":"outer",
+                  "entryNodeId":"outer",
+                  "exitNodeIds":["outer"],
                   "nodes":[
                     {"id":"outer","type":"LOOP","config":{
                       "collection":"var.items","itemAlias":"item","indexAlias":"index",
@@ -177,7 +180,8 @@ class RuntimeGraphSpecLoopTest {
     void multiNodeBodyPreservesOrder() {
         String graph = """
                 {
-                  "entry":"loop",
+                  "entryNodeId":"loop",
+                  "exitNodeIds":["loop"],
                   "nodes":[
                     {"id":"loop","type":"LOOP","config":{
                       "collection":"var.items","itemAlias":"item","indexAlias":"index",
@@ -203,7 +207,8 @@ class RuntimeGraphSpecLoopTest {
         for (Object bad : List.of(0, -1, 1001, "abc")) {
             String graph = """
                     {
-                      "entry":"loop",
+                      "entryNodeId":"loop",
+                      "exitNodeIds":["loop"],
                       "nodes":[
                         {"id":"loop","type":"LOOP","config":{
                           "collection":"var.items","itemAlias":"item","indexAlias":"index",
@@ -228,7 +233,8 @@ class RuntimeGraphSpecLoopTest {
     void missingMaxIterationsDefaultsToHundred() {
         String graph = """
                 {
-                  "entry":"loop",
+                  "entryNodeId":"loop",
+                  "exitNodeIds":["loop"],
                   "nodes":[
                     {"id":"loop","type":"LOOP","config":{
                       "collection":"var.items","itemAlias":"item","indexAlias":"index",
@@ -251,7 +257,8 @@ class RuntimeGraphSpecLoopTest {
     private String loopGraph(String collection, int maxIterations) {
         return """
                 {
-                  "entry":"loop",
+                  "entryNodeId":"loop",
+                  "exitNodeIds":["loop"],
                   "nodes":[
                     {"id":"loop","type":"LOOP","config":{
                       "collection":"%s","itemAlias":"item","indexAlias":"index",

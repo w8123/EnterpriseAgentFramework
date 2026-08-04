@@ -86,7 +86,3 @@ export function formatSideEffectLabel(sideEffect?: string | null): string {
   if (sideEffect == null || sideEffect === '') return '-'
   return SIDE_EFFECT_LABELS[sideEffect.toUpperCase()] ?? sideEffect
 }
-
-export function formatAgentVisibleLabel(agentVisible?: boolean | null): string {
-  return agentVisible ? '智能体可见' : '隐藏'
-}

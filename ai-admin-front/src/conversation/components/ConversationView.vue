@@ -1,11 +1,13 @@
 <template>
   <div
+    ref="conversationEl"
     class="reachai-conversation"
     :class="[
       `reachai-conversation--${density}`,
       `reachai-conversation--${chrome}`,
       {
         'reachai-conversation--atmosphere': atmosphere,
+        'reachai-conversation--narrow': narrow,
         'is-busy': busy,
       },
     ]"
@@ -22,7 +24,7 @@
       :assistant-label="assistantLabel"
       :resolve-status-hint="resolveStatusHint"
       :resolve-thinking-presentation="resolveThinkingPresentation"
-      :show-avatars="showAvatars"
+      :show-avatars="renderAvatars"
       :surface="surface"
       @interaction-submit="onInteractionSubmit"
       @interaction-cancel="onInteractionCancel"
@@ -59,7 +61,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type {
   ConversationMessage,
   ConversationSnapshot,
@@ -67,7 +69,7 @@ import type {
 } from '../core/conversationTypes'
 import ConversationMessageList from './ConversationMessageList.vue'
 import ConversationComposer from './ConversationComposer.vue'
-import { atmosphereUrl, prismAvatarUrl } from '../assets'
+import { atmosphereUrl, embedSdkAssetsUseCss, prismAvatarUrl } from '../assets'
 import '../styles/conversation-tokens.css'
 
 const props = withDefaults(defineProps<{
@@ -109,10 +111,17 @@ const emit = defineEmits<{
   'interaction-cancel': [interactionId: string]
 }>()
 
-const assetStyle = computed(() => ({
-  '--reachai-chat-atmosphere-image': `url("${atmosphereUrl}")`,
-  '--reachai-chat-prism-avatar': `url("${prismAvatarUrl}")`,
-}))
+const AVATAR_HIDE_MAX_WIDTH = 480
+const conversationEl = ref<HTMLElement | null>(null)
+const narrow = ref(false)
+let conversationResizeObserver: ResizeObserver | null = null
+
+const assetStyle = computed(() => embedSdkAssetsUseCss
+  ? {}
+  : {
+      '--reachai-chat-atmosphere-image': `url("${atmosphereUrl}")`,
+      '--reachai-chat-prism-avatar': `url("${prismAvatarUrl}")`,
+    })
 
 const busy = computed(() =>
   props.snapshot.turnStatus === 'sending'
@@ -120,6 +129,7 @@ const busy = computed(() =>
 )
 
 const showStop = computed(() => busy.value)
+const renderAvatars = computed(() => props.showAvatars && !narrow.value)
 
 const composerDisabled = computed(() =>
   props.forceComposerDisabled
@@ -137,6 +147,38 @@ function onInteractionSubmit(interactionId: string, action: string, values: Reco
 function onInteractionCancel(interactionId: string) {
   emit('interaction-cancel', interactionId)
 }
+
+function updateNarrowState(width: number) {
+  if (width > 0) {
+    narrow.value = width <= AVATAR_HIDE_MAX_WIDTH
+  }
+}
+
+function measureConversation() {
+  const width = conversationEl.value?.getBoundingClientRect().width || 0
+  updateNarrowState(width)
+}
+
+onMounted(() => {
+  measureConversation()
+  if (typeof ResizeObserver === 'undefined') {
+    window.addEventListener('resize', measureConversation)
+    return
+  }
+  conversationResizeObserver = new ResizeObserver((entries) => {
+    const entry = entries[0]
+    if (entry) updateNarrowState(entry.contentRect.width)
+  })
+  if (conversationEl.value) {
+    conversationResizeObserver.observe(conversationEl.value)
+  }
+})
+
+onBeforeUnmount(() => {
+  conversationResizeObserver?.disconnect()
+  conversationResizeObserver = null
+  window.removeEventListener('resize', measureConversation)
+})
 </script>
 
 <style scoped>
@@ -152,8 +194,6 @@ function onInteractionCancel(interactionId: string) {
   border: 1px solid var(--reachai-chat-border, #d7e0de);
   border-radius: var(--reachai-chat-radius, 12px);
   background: var(--reachai-chat-surface, #fff);
-  container-type: inline-size;
-  container-name: reachai-conversation;
 }
 
 .reachai-conversation--atmosphere {

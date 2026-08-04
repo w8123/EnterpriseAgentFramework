@@ -5,7 +5,7 @@
       domain="governance"
       eyebrow="Domain Governance"
       title="领域定义"
-      description="定义业务领域、分类关键词与 Agent 可见范围，为 Tool 和能力召回提供治理标签。"
+      description="定义业务领域与分类关键词，为 Tool 和能力召回提供治理标签。"
     >
       <template #actions>
         <el-tooltip content="刷新领域定义" placement="top">
@@ -40,14 +40,6 @@
             >
               {{ kw }}
             </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="agentVisible" label="对 Agent 可见" width="120">
-          <template #default="{ row }">
-            <el-switch
-              :model-value="row.agentVisible !== false"
-              @change="(v: boolean) => handleToggleVisible(row, v)"
-            />
           </template>
         </el-table-column>
         <el-table-column prop="enabled" label="启用" width="80">
@@ -98,9 +90,6 @@
         </el-form-item>
         <el-form-item label="父领域 code">
           <el-input v-model="editing.parentCode" placeholder="可选，构建领域层级" />
-        </el-form-item>
-        <el-form-item label="对 Agent 可见">
-          <el-switch v-model="editing.agentVisible" />
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="editing.enabled" />
@@ -163,7 +152,7 @@ function parseKeywords(json?: string): string[] {
 }
 
 function openCreate() {
-  editing.value = { code: '', name: '', enabled: true, agentVisible: true, keywordsJson: '[]' }
+  editing.value = { code: '', name: '', enabled: true, keywordsJson: '[]' }
   dialogOpen.value = true
 }
 
@@ -204,12 +193,6 @@ async function handleDelete(id?: number) {
 async function handleToggleEnabled(row: DomainDef, enabled: boolean) {
   if (!row.id) return
   await updateDomain(row.id, { ...row, enabled })
-  await reload()
-}
-
-async function handleToggleVisible(row: DomainDef, agentVisible: boolean) {
-  if (!row.id) return
-  await updateDomain(row.id, { ...row, agentVisible })
   await reload()
 }
 

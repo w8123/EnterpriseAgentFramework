@@ -32,8 +32,7 @@ public class CapabilityToolRetrievalController {
                 request.projectIds(),
                 request.moduleIds(),
                 request.toolWhitelist(),
-                request.enabledOnly() == null || request.enabledOnly(),
-                request.agentVisibleOnly() == null || request.agentVisibleOnly()
+                request.enabledOnly() == null || request.enabledOnly()
         );
         List<CapabilityToolCandidate> candidates = toolRetrievalService.retrieve(
                 request.query(), scope, topK, request.minScore());
@@ -79,7 +78,6 @@ public class CapabilityToolRetrievalController {
             List<Long> moduleIds,
             List<Long> toolWhitelist,
             Boolean enabledOnly,
-            Boolean agentVisibleOnly,
             Double minScore
     ) {
     }

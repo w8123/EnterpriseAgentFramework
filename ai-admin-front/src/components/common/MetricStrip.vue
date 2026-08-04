@@ -46,6 +46,14 @@ const props = withDefaults(
   border-radius: var(--radius-lg);
 }
 
+.metric-strip.density-compact {
+  --metric-icon-bg-size: 36px;
+  --metric-icon-bg-radius: 10px;
+  --metric-icon-glyph-size: 18px;
+  --metric-icon-stroke-width: 1.45;
+  padding-block: 12px;
+}
+
 .metric-strip__item {
   display: flex;
   align-items: center;
@@ -64,6 +72,10 @@ const props = withDefaults(
   gap: 0.2rem;
 }
 
+.metric-strip.density-compact .metric-strip__content {
+  gap: 0.05rem;
+}
+
 .metric-strip__label,
 .metric-strip__hint {
   overflow: hidden;
@@ -76,6 +88,10 @@ const props = withDefaults(
   font-size: 0.8rem;
 }
 
+.metric-strip.density-compact .metric-strip__label {
+  font-size: 0.75rem;
+}
+
 .metric-strip__value {
   overflow: hidden;
   color: var(--text-primary);
@@ -85,8 +101,17 @@ const props = withDefaults(
   white-space: nowrap;
 }
 
+.metric-strip.density-compact .metric-strip__value {
+  font-size: 1.2rem;
+  line-height: 1.1;
+}
+
 .metric-strip__hint {
   font-size: 0.75rem;
+}
+
+.metric-strip.density-compact .metric-strip__hint {
+  font-size: 0.7rem;
 }
 
 @media (max-width: 720px) {

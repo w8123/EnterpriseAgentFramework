@@ -70,7 +70,7 @@ class RuntimeInteractionResumeServiceTest {
         assertEquals("trace-1", result.get("traceId"));
         assertEquals("run-1", result.get("runId"));
         assertFalse(result.containsKey("finalState"));
-        assertFalse(result.containsKey("contextSnapshot"));
+        assertFalse(result.containsKey("resumeCheckpoint"));
     }
 
     @Test
@@ -138,7 +138,7 @@ class RuntimeInteractionResumeServiceTest {
                 "values", Map.of("q", "a"),
                 "idempotencyKey", "k1"), owner());
         RuntimeInteractionSessionEntity latest = waitingSession();
-        latest.setStatus("RESUMING");
+        latest.setStatus("COMPLETED");
         latest.setIdempotencyKey("k1");
         latest.setSubmittedPayloadJson("{\"q\":\"a\"}");
         latest.setResultJson("{\"code\":\"RUNTIME_GRAPH_EXECUTED\",\"answer\":\"got:a\"}");
@@ -174,10 +174,30 @@ class RuntimeInteractionResumeServiceTest {
     }
 
     @Test
+    void duplicateWhileOriginalResumeIsStillRunningDoesNotReportExecutionSuccess() {
+        RuntimeInteractionSessionEntity session = waitingSession();
+        session.setStatus("RESUMING");
+        session.setRevision(1);
+        session.setIdempotencyKey("k1");
+        session.setSubmittedPayloadJson("{\"q\":\"a\"}");
+        session.setResultJson(null);
+        when(sessionMapper.selectById("wfi_session1")).thenReturn(session);
+
+        Map<String, Object> result = service.resume("wfi_session1", Map.of(
+                "values", Map.of("q", "a"),
+                "idempotencyKey", "k1"), owner());
+
+        assertEquals(false, result.get("success"));
+        assertEquals("RUNTIME_INTERACTION_CONFLICT", result.get("code"));
+        assertEquals("RESUMING", result.get("status"));
+        verify(sessionMapper, never()).update(any(), any());
+    }
+
+    @Test
     void validationFailureRollsBackToWaiting() {
         RuntimeInteractionSessionEntity session = waitingSession();
         session.setGraphSpecSnapshotJson("""
-                {"entry":"form","nodes":[{"id":"form","type":"INTERACTION","config":{
+                {"schemaVersion":2,"entryNodeId":"form","exitNodeIds":["form"],"nodes":[{"id":"form","type":"INTERACTION","config":{
                   "interactionType":"COLLECT_INPUT",
                   "fields":[{"key":"q","required":true}]
                 }}]}
@@ -200,7 +220,7 @@ class RuntimeInteractionResumeServiceTest {
     @Test
     void preservesSnapshotOutputsAcrossResume() {
         RuntimeInteractionSessionEntity session = waitingSession();
-        session.setStateJson("""
+        session.setResumeCheckpointJson("""
                 {
                   "traceId":"trace-1",
                   "runId":"run-1",
@@ -212,7 +232,9 @@ class RuntimeInteractionResumeServiceTest {
                 """);
         session.setGraphSpecSnapshotJson("""
                 {
-                  "entry":"form",
+                  "schemaVersion":2,
+                  "entryNodeId":"form",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"form","type":"INTERACTION","config":{
                       "interactionType":"COLLECT_INPUT",
@@ -287,7 +309,7 @@ class RuntimeInteractionResumeServiceTest {
         session.setInteractionType("COLLECT_INPUT");
         session.setStatus("WAITING_USER");
         session.setRevision(0);
-        session.setStateJson("{\"traceId\":\"trace-1\",\"runId\":\"run-1\"}");
+        session.setResumeCheckpointJson("{\"traceId\":\"trace-1\",\"runId\":\"run-1\"}");
         session.setUiRequestJson("{\"interactionId\":\"wfi_session1\",\"component\":\"form\",\"nodeId\":\"form\"}");
         session.setSessionId("chat-1");
         session.setAppId("app-1");
@@ -297,7 +319,9 @@ class RuntimeInteractionResumeServiceTest {
         session.setExpiresAt(LocalDateTime.now().plusHours(1));
         session.setGraphSpecSnapshotJson("""
                 {
-                  "entry":"form",
+                  "schemaVersion":2,
+                  "entryNodeId":"form",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"form","type":"INTERACTION","config":{
                       "interactionType":"COLLECT_INPUT",

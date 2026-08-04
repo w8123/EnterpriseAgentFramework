@@ -1,5 +1,6 @@
 import type { ConversationEventEnvelope } from '../conversationEvents'
 import { createEvent } from '../conversationEvents'
+import { isBlockingUiRequest } from '../normalizeUiRequest'
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -84,7 +85,7 @@ export function adaptEmbedEvent(
       if (uiRequest) {
         return [
           createEvent('ui.requested', { uiRequest }, { sessionId }),
-          createEvent('turn.waiting', payload, { sessionId }),
+          createEvent(isBlockingUiRequest(uiRequest) ? 'turn.waiting' : 'turn.completed', payload, { sessionId }),
         ]
       }
       return createEvent('turn.completed', payload, { sessionId })

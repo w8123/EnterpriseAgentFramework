@@ -54,8 +54,9 @@ public class RuntimeWorkflowVersionService {
         if (!StringUtils.hasText(version)) {
             throw new IllegalArgumentException("version is required");
         }
-        if (rolloutPercent < 0 || rolloutPercent > 100) {
-            throw new IllegalArgumentException("rolloutPercent must be between 0 and 100");
+        if (rolloutPercent != 100) {
+            throw new IllegalArgumentException(
+                    "rolloutPercent must be 100 until deterministic workflow version routing is implemented");
         }
         RuntimeWorkflowReleaseValidationResult validation = validationService.validate(workflow);
         if (!validation.valid()) {
@@ -68,9 +69,7 @@ public class RuntimeWorkflowVersionService {
         if (duplicate != null) {
             throw new IllegalArgumentException("workflow version already exists: " + version);
         }
-        if (rolloutPercent == 100) {
-            retireActiveVersions(workflowId);
-        }
+        retireActiveVersions(workflowId);
 
         LocalDateTime now = LocalDateTime.now();
         RuntimeWorkflowVersionEntity entity = new RuntimeWorkflowVersionEntity();
@@ -154,8 +153,8 @@ public class RuntimeWorkflowVersionService {
         snapshot.put("keySlug", workflow.getKeySlug());
         snapshot.put("name", workflow.getName());
         snapshot.put("description", workflow.getDescription());
-        snapshot.put("workflowType", workflow.getWorkflowType());
-        snapshot.put("runtimeType", workflow.getRuntimeType());
+        snapshot.put("workflowKind", workflow.getWorkflowKind());
+        snapshot.put("executionEngine", workflow.getExecutionEngine());
         snapshot.put("graphSpec", workflow.getGraphSpecJson());
         snapshot.put("canvas", workflow.getCanvasJson());
         snapshot.put("inputSchemaJson", workflow.getInputSchemaJson());
@@ -163,7 +162,8 @@ public class RuntimeWorkflowVersionService {
         snapshot.put("defaultModelInstanceId", workflow.getDefaultModelInstanceId());
         snapshot.put("defaultResourceConfigJson", workflow.getDefaultResourceConfigJson());
         snapshot.put("status", workflow.getStatus());
-        snapshot.put("managedBy", workflow.getManagedBy());
+        snapshot.put("definitionAuthority", workflow.getDefinitionAuthority());
+        snapshot.put("creationChannel", workflow.getCreationChannel());
         snapshot.put("extraJson", workflow.getExtraJson());
         try {
             return objectMapper.writeValueAsString(snapshot);

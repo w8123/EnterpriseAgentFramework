@@ -9,7 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 /**
- * Page Assistant compatibility facade over the generic Supervisor Workflow-as-Tool attach service.
+ * Page Assistant-specific facade over the generic Supervisor Workflow-as-Tool attach service.
  */
 @Service
 @RequiredArgsConstructor

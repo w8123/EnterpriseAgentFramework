@@ -26,7 +26,6 @@ public class PlatformPageBridgeCommandService {
     private final PlatformEmbedSessionMapper sessionMapper;
     private final PlatformEmbedSessionService sessionService;
     private final PlatformPageActionEventMapper eventMapper;
-    private final PlatformPageRegistryMapper pageRegistryMapper;
     private final ObjectMapper objectMapper;
 
     public PageBridgeExecutionResponse execute(PageBridgeExecutionRequest request) {
@@ -59,7 +58,7 @@ public class PlatformPageBridgeCommandService {
             String targetInstance = text(navigationData.get("pageInstanceId"));
             if (!StringUtils.hasText(targetInstance)) {
                 targetInstance = awaitRegisteredPageInstance(
-                        session.getProjectCode(), request.targetPageKey(), navigationStarted, deadline);
+                        session.getSessionId(), request.targetPageKey(), navigationStarted, deadline);
             }
             if (!StringUtils.hasText(targetInstance)) {
                 return failure("PAGE_BRIDGE_TARGET_NOT_READY",
@@ -132,21 +131,20 @@ public class PlatformPageBridgeCommandService {
         return event;
     }
 
-    private String awaitRegisteredPageInstance(String projectCode,
+    private String awaitRegisteredPageInstance(String sessionId,
                                                String pageKey,
                                                LocalDateTime after,
                                                long deadline) {
         while (System.currentTimeMillis() < deadline) {
-            PlatformPageRegistryEntity page = pageRegistryMapper.selectOne(
-                    Wrappers.<PlatformPageRegistryEntity>lambdaQuery()
-                            .eq(PlatformPageRegistryEntity::getProjectCode, projectCode)
-                            .eq(PlatformPageRegistryEntity::getPageKey, pageKey)
-                            .eq(PlatformPageRegistryEntity::getStatus, "ACTIVE")
-                            .ge(PlatformPageRegistryEntity::getLastSeenAt, after)
-                            .orderByDesc(PlatformPageRegistryEntity::getLastSeenAt)
+            PlatformEmbedSessionEntity current = sessionMapper.selectOne(
+                    Wrappers.<PlatformEmbedSessionEntity>lambdaQuery()
+                            .eq(PlatformEmbedSessionEntity::getSessionId, sessionId)
+                            .eq(PlatformEmbedSessionEntity::getPageKey, pageKey)
+                            .eq(PlatformEmbedSessionEntity::getStatus, "ACTIVE")
+                            .ge(PlatformEmbedSessionEntity::getUpdatedAt, after)
                             .last("LIMIT 1"));
-            if (page != null && StringUtils.hasText(page.getCurrentPageInstanceId())) {
-                return page.getCurrentPageInstanceId();
+            if (current != null && StringUtils.hasText(current.getPageInstanceId())) {
+                return current.getPageInstanceId();
             }
             try {
                 Thread.sleep(100);

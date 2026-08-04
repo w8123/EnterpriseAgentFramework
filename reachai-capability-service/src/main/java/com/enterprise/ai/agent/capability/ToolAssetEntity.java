@@ -38,8 +38,6 @@ public class ToolAssetEntity {
 
     private Boolean enabled;
 
-    private Boolean agentVisible;
-
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

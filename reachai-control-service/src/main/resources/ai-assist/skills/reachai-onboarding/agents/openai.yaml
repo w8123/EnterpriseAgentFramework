@@ -1,4 +1,4 @@
 interface:
   display_name: "ReachAI Onboarding"
-  short_description: "Guide AI coding tools through safe ReachAI SDK onboarding."
-  default_prompt: "Use this skill to integrate the current Java service with ReachAI SDK registration."
+  short_description: "Guide safe ReachAI SDK, Embed and Page Action onboarding."
+  default_prompt: "Use this skill to integrate the current business system with ReachAI SDK registration, gateway/embed access, and selected page actions."

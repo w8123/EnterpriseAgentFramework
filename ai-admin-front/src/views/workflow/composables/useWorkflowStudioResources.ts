@@ -11,10 +11,10 @@ import type { KnowledgeBase } from '@/types/knowledge'
 import type { ModelInstance } from '@/types/model'
 import type { ToolInfo } from '@/types/tool'
 import type { WorkflowCredential } from '@/types/workflowCredential'
-import type { WorkflowGraphNodeTypeDescriptor, WorkflowStudioState } from '@/types/workflow'
+import type { WorkflowGraphNodeTypeDescriptor, WorkflowWorkingCopyState } from '@/types/workflow'
 
 export interface UseWorkflowStudioResourcesDeps {
-  studio: Ref<WorkflowStudioState | null>
+  studio: Ref<WorkflowWorkingCopyState | null>
   aiModelInstanceId: Ref<string>
   selectedToolName: Ref<string>
 }
@@ -44,16 +44,17 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
   const credentialOptions = ref<WorkflowCredential[]>([])
   const paramSourceHints = ref<ApiGraphParamSourceHint[]>([])
   const graphNodeTypeCapabilitiesLoaded = ref(false)
+  let paramSourceHintsSequence = 0
 
   const availableTools = computed(() =>
-    toolOptions.value.filter((tool) => tool.enabled && tool.agentVisible),
+    toolOptions.value.filter((tool) => tool.enabled),
   )
 
   const availableCompositions = computed(() =>
-    compositionOptions.value.filter((composition) => composition.enabled && composition.agentVisible && !composition.draft),
+    compositionOptions.value.filter((composition) => composition.enabled && !composition.draft),
   )
 
-  const aiDraftModelOptions = computed(() => {
+  const authoringModelOptions = computed(() => {
     const llmOptions = modelOptions.value.filter((item) => item.modelType === 'LLM')
     return llmOptions.length ? llmOptions : modelOptions.value
   })
@@ -61,10 +62,10 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
   const selectedAiEditModel = computed(() => {
     const id = deps.aiModelInstanceId.value
       || deps.studio.value?.defaultModelInstanceId
-      || aiDraftModelOptions.value[0]?.id
+      || authoringModelOptions.value[0]?.id
       || ''
     if (!id) return null
-    return aiDraftModelOptions.value.find((item) => item.id === id)
+    return authoringModelOptions.value.find((item) => item.id === id)
       || modelOptions.value.find((item) => item.id === id)
       || null
   })
@@ -125,7 +126,7 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
   }
 
   async function loadCredentialOptions(
-    state: WorkflowStudioState | null = deps.studio.value,
+    state: WorkflowWorkingCopyState | null = deps.studio.value,
     shouldApply: () => boolean = () => true,
   ) {
     try {
@@ -149,6 +150,7 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
   }
 
   async function refreshParamSourceHints() {
+    const requestSequence = ++paramSourceHintsSequence
     paramSourceHints.value = []
     const tool = selectedToolInfo.value
     if (!tool?.projectId || !tool.name) {
@@ -156,8 +158,10 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
     }
     try {
       const { data } = await getApiGraphParamHints(tool.projectId, tool.name)
+      if (requestSequence !== paramSourceHintsSequence) return
       paramSourceHints.value = Array.isArray(data) ? data : []
     } catch {
+      if (requestSequence !== paramSourceHintsSequence) return
       paramSourceHints.value = []
     }
   }
@@ -171,7 +175,7 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
     graphNodeTypeCapabilitiesLoaded,
     availableTools,
     availableCompositions,
-    aiDraftModelOptions,
+    authoringModelOptions,
     selectedAiEditModel,
     selectedToolInfo,
     loadNodeTypes,

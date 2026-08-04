@@ -22,12 +22,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class ControlAiAssistSkillController {
 
     private static final String SKILL_NAME = "reachai-onboarding";
-    private static final String SKILL_VERSION = "0.1.0";
+    private static final String SKILL_VERSION = "0.3.0";
     private static final String SKILL_ROOT = "ai-assist/skills/" + SKILL_NAME + "/";
-    private static final String PAGE_ASSISTANT_SKILL_NAME = "reachai-page-assistant-onboarding";
-    private static final String PAGE_ASSISTANT_SKILL_VERSION = "0.1.0";
-    private static final String PAGE_ASSISTANT_SKILL_ROOT = "ai-assist/skills/" + PAGE_ASSISTANT_SKILL_NAME + "/";
-    private static final String PAGE_ASSISTANT_HELPER_SCRIPT = "scripts/reachai-page-assistant.ps1";
     private static final String WORKFLOW_AI_CODING_SKILL_NAME = "workflow-ai-coding";
     private static final String WORKFLOW_AI_CODING_SKILL_VERSION = "0.1.0";
     private static final String WORKFLOW_AI_CODING_SKILL_ROOT = "ai-assist/skills/" + WORKFLOW_AI_CODING_SKILL_NAME + "/";
@@ -39,27 +35,24 @@ public class ControlAiAssistSkillController {
             "references/platform-apis.md",
             "references/page-action-result.schema.json",
             "references/page-action-mock.html",
+            "references/page-action-contract.md",
+            "references/angular-page-action.md",
             "references/security.md",
             "templates/application-reachai.yml",
             "templates/pom-dependencies.xml",
             "templates/reach-capability-example.java",
+            "templates/angular/reachai-page-action.types.ts",
+            "templates/angular/reachai-page-action.service.ts",
+            "templates/angular/page-registry.example.ts",
+            "scripts/install-java-sdk.ps1",
+            "scripts/install-embed-chat.mjs",
+            "scripts/reachai-page-actions.ps1",
+            "scripts/set-reachai-registry-secret.ps1",
             "scripts/verify-reachai-access.py"
     );
 
     private static final String EMBED_CHAT_ARTIFACT_ZIP_PATH =
             ControlEmbedChatArtifactSupport.SKILL_RELATIVE_PATH;
-
-    private static final List<String> PAGE_ASSISTANT_SKILL_FILES = List.of(
-            "SKILL.md",
-            "references/page-action-contract.md",
-            "references/page-action-result.schema.json",
-            "references/page-action-mock.html",
-            "references/angular-page-action.md",
-            "templates/angular/reachai-page-action.types.ts",
-            "templates/angular/reachai-page-action.service.ts",
-            "templates/angular/page-registry.example.ts",
-            PAGE_ASSISTANT_HELPER_SCRIPT
-    );
 
     private static final List<String> WORKFLOW_AI_CODING_SKILL_FILES = List.of(
             "SKILL.md",
@@ -79,16 +72,6 @@ public class ControlAiAssistSkillController {
                 SKILL_FILES));
     }
 
-    @GetMapping("/skills/reachai-page-assistant-onboarding/latest")
-    public ResponseEntity<SkillPackageResponse> latestPageAssistantSkill(HttpServletRequest request) {
-        return ResponseEntity.ok(skillResponse(
-                request,
-                PAGE_ASSISTANT_SKILL_NAME,
-                PAGE_ASSISTANT_SKILL_VERSION,
-                "ReachAI Page Assistant onboarding skill for AI coding tools.",
-                PAGE_ASSISTANT_SKILL_FILES));
-    }
-
     @GetMapping("/skills/workflow-ai-coding/latest")
     public ResponseEntity<SkillPackageResponse> latestWorkflowAiCodingSkill(HttpServletRequest request) {
         return ResponseEntity.ok(skillResponse(
@@ -104,34 +87,10 @@ public class ControlAiAssistSkillController {
         return zipResponse(SKILL_NAME, SKILL_VERSION, SKILL_ROOT, SKILL_FILES);
     }
 
-    @GetMapping(value = "/skills/reachai-page-assistant-onboarding/latest.zip", produces = "application/zip")
-    public ResponseEntity<byte[]> downloadLatestPageAssistantSkill() throws IOException {
-        return zipResponse(PAGE_ASSISTANT_SKILL_NAME, PAGE_ASSISTANT_SKILL_VERSION,
-                PAGE_ASSISTANT_SKILL_ROOT, PAGE_ASSISTANT_SKILL_FILES);
-    }
-
     @GetMapping(value = "/skills/workflow-ai-coding/latest.zip", produces = "application/zip")
     public ResponseEntity<byte[]> downloadLatestWorkflowAiCodingSkill() throws IOException {
         return zipResponse(WORKFLOW_AI_CODING_SKILL_NAME, WORKFLOW_AI_CODING_SKILL_VERSION,
                 WORKFLOW_AI_CODING_SKILL_ROOT, WORKFLOW_AI_CODING_SKILL_FILES);
-    }
-
-    @GetMapping(value = "/skills/reachai-page-assistant-onboarding/scripts/reachai-page-assistant.ps1",
-            produces = "text/plain")
-    public ResponseEntity<byte[]> downloadPageAssistantHelperScript() throws IOException {
-        ClassPathResource resource = new ClassPathResource(PAGE_ASSISTANT_SKILL_ROOT + PAGE_ASSISTANT_HELPER_SCRIPT);
-        if (!resource.exists()) {
-            throw new IOException("Missing ReachAI page assistant helper script");
-        }
-        byte[] body = resource.getInputStream().readAllBytes();
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
-                        .filename("reachai-page-assistant.ps1", StandardCharsets.UTF_8)
-                        .build()
-                        .toString())
-                .contentType(MediaType.parseMediaType("text/plain; charset=UTF-8"))
-                .contentLength(body.length)
-                .body(body);
     }
 
     private static SkillPackageResponse skillResponse(HttpServletRequest request,
@@ -179,6 +138,11 @@ public class ControlAiAssistSkillController {
             if (SKILL_NAME.equals(skillName)) {
                 zip.putNextEntry(new ZipEntry(skillName + "/" + EMBED_CHAT_ARTIFACT_ZIP_PATH));
                 zip.write(ControlEmbedChatArtifactSupport.loadTarballBytes());
+                zip.closeEntry();
+                zip.putNextEntry(new ZipEntry(
+                        skillName + "/"
+                                + ControlEmbedChatArtifactSupport.SKILL_MANIFEST_RELATIVE_PATH));
+                zip.write(ControlEmbedChatArtifactSupport.loadManifestBytes());
                 zip.closeEntry();
             }
         }

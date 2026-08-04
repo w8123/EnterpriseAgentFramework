@@ -44,6 +44,27 @@ class ReachAiRegistryHeartbeatSchedulerTest {
         assertEquals(0, client.heartbeatCount);
     }
 
+    @Test
+    void periodicRunRetriesProjectRegistrationAfterStartupFailure() {
+        ReachAiRegistryProperties properties = configuredProperties();
+        RegistrationRequiredTransport transport = new RegistrationRequiredTransport();
+        ReachAiRegistryClient client = new ReachAiRegistryClient(
+                properties, new ReachCapabilityBeanScanner(new Object[0]), transport);
+        RecordingTaskScheduler scheduler = new RecordingTaskScheduler();
+
+        client.registerAndSync();
+        assertEquals(1, transport.registrationAttempts);
+        assertEquals(0, transport.successfulHeartbeats);
+
+        ReachAiRegistryHeartbeatScheduler heartbeatScheduler =
+                new ReachAiRegistryHeartbeatScheduler(properties, client, scheduler);
+        heartbeatScheduler.start();
+        scheduler.lastTask.run();
+
+        assertEquals(2, transport.registrationAttempts);
+        assertEquals(1, transport.successfulHeartbeats);
+    }
+
     private ReachAiRegistryProperties configuredProperties() {
         ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
         properties.getRegistry().setUrl("https://reachai.example.com");
@@ -69,6 +90,33 @@ class ReachAiRegistryHeartbeatSchedulerTest {
     private static class NoopTransport implements ReachAiRegistryTransport {
         @Override
         public String exchange(String method, String url, java.util.Map<String, String> headers, Object body) {
+            return "{}";
+        }
+    }
+
+    private static class RegistrationRequiredTransport implements ReachAiRegistryTransport {
+        private int registrationAttempts;
+        private int successfulHeartbeats;
+        private boolean registered;
+
+        @Override
+        public String exchange(String method, String url, java.util.Map<String, String> headers, Object body)
+                throws java.io.IOException {
+            if (url.endsWith("/api/registry/projects/register")) {
+                registrationAttempts++;
+                if (registrationAttempts == 1) {
+                    throw new java.io.IOException("simulated startup outage");
+                }
+                registered = true;
+                return "{}";
+            }
+            if (url.contains("/instances/heartbeat")) {
+                if (!registered) {
+                    throw new java.io.IOException("status=400 project does not exist");
+                }
+                successfulHeartbeats++;
+                return "{}";
+            }
             return "{}";
         }
     }

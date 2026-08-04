@@ -1,0 +1,41 @@
+{
+  "pageKey": "orders.detail",
+  "summary": "使用当前页面已注册的只读操作建立订单详情页面助手 Workflow 草稿。",
+  "workflow": {
+    "name": "订单详情页面助手",
+    "keySlug": "orders-detail-page-assistant",
+    "description": "根据用户请求读取订单详情页面当前状态。",
+    "defaultModelInstanceId": null,
+    "graphSpec": {
+      "nodes": [
+        {
+          "id": "read_page",
+          "type": "PAGE_ACTION",
+          "name": "读取页面状态",
+          "config": {
+            "pageKey": "orders.detail",
+            "actionKey": "getPageState",
+            "args": {}
+          }
+        }
+      ],
+      "edges": [],
+      "entryNodeId": "read_page",
+      "exitNodeIds": [
+        "read_page"
+      ]
+    },
+    "canvas": null
+  },
+  "selectedActionKeys": [
+    "getPageState"
+  ],
+  "referencedFiles": [
+    "src/views/orders/Detail.vue"
+  ],
+  "acceptanceCriteria": [
+    "在订单详情页面发起请求时，Workflow 只调用 getPageState。",
+    "页面返回结构化状态后，运行 Trace 可定位到当前 Workflow 版本。"
+  ],
+  "remainingQuestions": []
+}

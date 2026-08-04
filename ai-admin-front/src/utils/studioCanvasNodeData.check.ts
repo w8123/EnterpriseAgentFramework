@@ -1,4 +1,5 @@
-import type { AgentForm, AgentGraphSpec } from '@/types/agent'
+import type { AgentForm, WorkflowGraphSpec } from '@/types/agent'
+import type { CanvasSnapshot } from '@/types/studio'
 import { canvasToDefinition, definitionToCanvas } from './studio'
 
 function assertPresent<T>(value: T, message: string): asserts value is NonNullable<T> {
@@ -29,17 +30,28 @@ const base = {
 } as AgentForm
 
 function canvasSnapshot(nodes: unknown[]) {
-  return definitionToCanvas({
-    ...base,
-    canvasJson: JSON.stringify({ version: 2, nodes, edges: [] }),
+  const definition = canvasToDefinition(base, {
+    version: 2,
+    nodes: nodes as CanvasSnapshot['nodes'],
+    edges: [],
   })
+  return definitionToCanvas(definition)
 }
 
-function canvasSnapshotWithGraphSpec(nodes: unknown[], graphSpec: AgentGraphSpec) {
+function canvasSnapshotWithGraphSpec(nodes: unknown[], graphSpec: WorkflowGraphSpec) {
   return definitionToCanvas({
     ...base,
     graphSpec,
-    canvasJson: JSON.stringify({ version: 2, nodes, edges: [] }),
+    canvasJson: JSON.stringify({
+      schemaVersion: 1,
+      layoutVersion: 1,
+      nodes: (nodes as CanvasSnapshot['nodes']).map((node) => ({
+        id: node.id,
+        position: node.position,
+        collapsed: node.data.collapsed === true ? true : undefined,
+      })),
+      edges: [],
+    }),
   })
 }
 
@@ -115,10 +127,9 @@ const graphHydratedSnapshot = canvasSnapshotWithGraphSpec([
     },
   },
 ], {
-  code: 'workflow',
-  name: 'Test Workflow',
-  mode: 'WORKFLOW',
-  entry: 'input',
+  schemaVersion: 2,
+  entryNodeId: 'router',
+  exitNodeIds: ['search_action'],
   nodes: [
     {
       id: 'router',
@@ -170,38 +181,50 @@ assertEqual(hydratedPageAction.data.label, '执行查询')
 assertEqual(hydratedPageAction.data.pageActionConfig?.actionKey, 'search')
 assertEqual(hydratedPageAction.data.pageActionConfig?.projectCode, 'orders')
 
-const roundTripGraphSpec: AgentGraphSpec = {
-  code: 'schema-preservation',
-  name: 'Schema Preservation',
-  mode: 'WORKFLOW',
+const roundTripGraphSpec: WorkflowGraphSpec = {
+  schemaVersion: 2,
+  entryNodeId: 'answer',
+  exitNodeIds: ['answer'],
   inputSchema: { type: 'object', required: ['question'] },
   stateSchema: { type: 'object', properties: { order: { type: 'object' } } },
-  layout: { engine: 'custom', direction: 'TB', viewport: { x: 10, y: 20, zoom: 0.8 } },
   nodes: [{ id: 'answer', type: 'ANSWER', name: 'Answer', config: { answer: 'ok' } }],
-  edges: [
-    { from: 'START', to: 'answer', condition: 'always', priority: 7 },
-    { from: 'answer', to: 'END', condition: 'always', priority: 9 },
-  ],
+  edges: [],
+}
+
+function assertTrue(value: unknown, message: string) {
+  if (value !== true) throw new Error(message)
 }
 const roundTripBase = { ...base, graphSpec: roundTripGraphSpec }
 const roundTripCanvas = definitionToCanvas(roundTripBase)
 const roundTripDefinition = canvasToDefinition(roundTripBase, roundTripCanvas)
 assertDeepEqual(roundTripDefinition.graphSpec?.inputSchema, roundTripGraphSpec.inputSchema)
 assertDeepEqual(roundTripDefinition.graphSpec?.stateSchema, roundTripGraphSpec.stateSchema)
-assertDeepEqual(roundTripDefinition.graphSpec?.layout?.viewport, roundTripGraphSpec.layout?.viewport)
-assertEqual(roundTripDefinition.graphSpec?.layout?.direction, 'TB')
+assertEqual(roundTripDefinition.graphSpec?.schemaVersion, 2)
+assertEqual(roundTripDefinition.graphSpec?.entryNodeId, 'answer')
+assertDeepEqual(roundTripDefinition.graphSpec?.exitNodeIds, ['answer'])
 assertDeepEqual(
   roundTripDefinition.graphSpec?.edges.map((edge) => edge.priority),
-  [7, 9],
-  'GraphSpec edge priority must survive a source/canvas/save round trip',
+  [],
+  'START/END are virtual boundaries and must not be persisted as semantic edges',
+)
+const roundTripLayout = JSON.parse(roundTripDefinition.canvasJson || '{}') as Record<string, unknown>
+assertEqual(roundTripLayout.schemaVersion, 1)
+assertEqual(roundTripLayout.layoutVersion, 1)
+assertTrue(
+  (roundTripLayout.nodes as Array<Record<string, unknown>>).every((node) => !('data' in node) && !('type' in node)),
+  'Canvas JSON must not duplicate semantic node configuration',
+)
+assertTrue(
+  (roundTripLayout.edges as Array<Record<string, unknown>>).every((edge) => (
+    !('source' in edge) && !('target' in edge) && !('condition' in edge)
+  )),
+  'Canvas JSON must not duplicate semantic edge topology',
 )
 
-const aliasGraphSpec: AgentGraphSpec = {
-  code: 'runtime-alias-preservation',
-  name: 'Runtime Alias Preservation',
-  mode: 'WORKFLOW',
-  entry: 'tool_alias',
-  finish: ['finish_answer'],
+const aliasGraphSpec: WorkflowGraphSpec = {
+  schemaVersion: 2,
+  entryNodeId: 'tool_alias',
+  exitNodeIds: ['finish_answer'],
   nodes: [
     { id: 'first_node', type: 'ANSWER', config: { template: 'not the entry' } },
     {
@@ -275,11 +298,9 @@ const aliasGraphSpec: AgentGraphSpec = {
     { id: 'finish_answer', type: 'ANSWER', config: { content: 'Completed: {{ lastOutput }}' } },
   ],
   edges: [
-    { id: 'stale-start', from: 'START', to: 'first_node', condition: 'always' },
     { from: 'tool_alias', to: 'parameter_alias', condition: 'always' },
     { from: 'parameter_alias', to: 'llm_alias', condition: 'always' },
     { from: 'llm_alias', to: 'finish_answer', condition: 'always' },
-    { id: 'stale-finish', from: 'first_node', to: 'END', condition: 'always' },
   ],
 }
 const aliasBase = { ...base, graphSpec: aliasGraphSpec }
@@ -287,12 +308,12 @@ const aliasCanvas = definitionToCanvas(aliasBase)
 assertDeepEqual(
   aliasCanvas.edges.filter((edge) => edge.source === 'start').map((edge) => edge.target),
   ['tool_alias'],
-  'GraphSpec entry must be the only visual START target even when an old START edge disagrees',
+  'GraphSpec entryNodeId must be the visual START target',
 )
 assertDeepEqual(
   aliasCanvas.edges.filter((edge) => edge.target === 'end').map((edge) => edge.source),
   ['finish_answer'],
-  'GraphSpec finish must be the visual END source even when an old END edge disagrees',
+  'GraphSpec exitNodeIds must define the visual END sources',
 )
 
 const hydratedToolAlias = aliasCanvas.nodes.find((node) => node.id === 'tool_alias')
@@ -344,10 +365,11 @@ assertDeepEqual(hydratedClassifierOverride.data.classifierConfig?.modelParams, {
   responseFormat: { type: 'json_object' },
 })
 
-const aliasRoundTrip = canvasToDefinition(aliasBase, aliasCanvas).graphSpec
+const aliasDefinition = canvasToDefinition(aliasBase, aliasCanvas)
+const aliasRoundTrip = aliasDefinition.graphSpec
 assertPresent(aliasRoundTrip, 'alias GraphSpec should survive canvas serialization')
-assertEqual(aliasRoundTrip.entry, 'tool_alias')
-assertDeepEqual(aliasRoundTrip.finish, ['finish_answer'])
+assertEqual(aliasRoundTrip.entryNodeId, 'tool_alias')
+assertDeepEqual(aliasRoundTrip.exitNodeIds, ['finish_answer'])
 
 const roundTripToolAlias = aliasRoundTrip.nodes.find((node) => node.id === 'tool_alias')
 assertPresent(roundTripToolAlias, 'tool alias node should survive round trip')

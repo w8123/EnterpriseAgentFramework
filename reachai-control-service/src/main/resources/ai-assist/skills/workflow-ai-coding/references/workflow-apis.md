@@ -24,7 +24,7 @@ Responses:
 
 These endpoints do **not** accept platform Bearer login. Admin UI (Workflow Studio `/api/workflows/studio/**`) continues to use Bearer separately.
 
-API base URL depends on deployment; prefer relative paths from onboarding manifest.
+API base URL depends on deployment; use the base URL in the current project or task handoff context.
 
 ## Windows / PowerShell UTF-8 Requirements
 
@@ -62,6 +62,7 @@ Do not inline JSON containing Chinese text directly in the command line.
 |--------|------|---------|
 | `POST` | `/api/workflows/ai-coding/workflows` | Create workflow draft |
 | `GET` | `/api/workflows/{workflowId}/ai-coding/context` | Read workflow + graph + validation |
+| `PUT` | `/api/workflows/{workflowId}/ai-coding/resource-bindings` | Replace first-class bindings on a pre-publish DRAFT |
 | `POST` | `/api/workflows/{workflowId}/ai-coding/validate` | Validate current or proposed graph |
 | `POST` | `/api/workflows/{workflowId}/ai-coding/patch` | Preview or save graph patch |
 | `POST` | `/api/workflows/{workflowId}/ai-coding/run` | Debug run draft workflow |
@@ -84,6 +85,45 @@ Required:
 
 Returns the same shape as `GET .../context`.
 
+For `workflowKind=PAGE_ASSISTANT`, also send `resourceBindings`. Exactly one binding must be a `TARGET` `PAGE`; additional in-scope pages may be `RELATED`.
+
+```json
+{
+  "name": "Orders Page Assistant",
+  "keySlug": "orders-page-assistant",
+  "projectId": 7,
+  "projectCode": "orders",
+  "workflowKind": "PAGE_ASSISTANT",
+  "resourceBindings": [
+    {
+      "resourceType": "PAGE",
+      "resourceKey": "orders.list",
+      "bindingRole": "TARGET"
+    }
+  ]
+}
+```
+
+## Draft Resource Binding Request
+
+Use `PUT /api/workflows/{workflowId}/ai-coding/resource-bindings` only before the first publish:
+
+```json
+{
+  "baseRevision": "2026-07-25T10:30:00",
+  "reason": "bind verified page scope",
+  "resourceBindings": [
+    {
+      "resourceType": "PAGE",
+      "resourceKey": "orders.list",
+      "bindingRole": "TARGET"
+    }
+  ]
+}
+```
+
+`baseRevision` is required and must equal the latest context `workflow.updatedAt`. The request is a complete replacement, not a merge. It advances the Workflow revision. Bindings are immutable once Workflow status is `ACTIVE`; later releases may change GraphSpec but cannot silently move the Workflow to another page or permission scope.
+
 ## Context Response
 
 `GET /api/workflows/{workflowId}/ai-coding/context` returns:
@@ -96,6 +136,9 @@ Returns the same shape as `GET .../context`.
   - fields: `id`, `name`, `provider`, `modelName`, `modelType`, `status`
 - `availableTools`: project-scoped tools/capabilities
   - fields: `name`, `kind`, `title`, `description`, `enabled`, `qualifiedName`
+- `pageAssistantContext.resourceBindings`: first-class Workflow resource scope
+- `pageAssistantContext.pageKey`: the single `TARGET` page when `workflowKind=PAGE_ASSISTANT`
+- `pageAssistantContext.actionKeys`: distinct action keys currently referenced by GraphSpec
 - `warnings`
 
 Rules:
@@ -113,12 +156,12 @@ Important fields:
 - `dryRun` (default `true`)
 - `baseRevision` (required for save; use `workflow.updatedAt` from context)
 - `reason`
-- `layout.autoLayout` (patch default `true`): uses the cycle-safe `layered-v2` LR policy. Create always projects and lays out canvas from GraphSpec. Patch uses 88px inter-layer and 56px same-layer card-boundary gaps by default; `false` preserves existing positions while still synchronizing canvas nodes/edges and positioning newly added nodes. Verify `canvas.nodes[].position` before reporting back.
+- `layout.autoLayout` (patch default `true`): uses the cycle-safe `layered` LR policy. Create always projects and lays out canvas from GraphSpec. Patch uses 88px inter-layer and 56px same-layer card-boundary gaps by default; `false` preserves existing positions while still synchronizing canvas nodes/edges and positioning newly added nodes. Verify `canvas.nodes[].position` before reporting back.
 - `layout.direction`: `LR`
 - `layout.columnGap`: default `88`
 - `layout.rowGap`: default `56`
 
-All patch operations run through the same atomic GraphSpec mutation kernel used by Workflow Studio AI editing. Supported ops are `ADD_NODE`, `UPDATE_NODE`, `DELETE_NODE`, `ADD_EDGE`, `UPDATE_EDGE`, `DELETE_EDGE`, `SET_ENTRY`, and `SET_FINISH`. Nested patches deep-merge; node/edge ids are immutable; references are checked before a candidate can be saved.
+All patch operations run through the same atomic GraphSpec mutation kernel used by Workflow Studio AI editing. Supported ops are `ADD_NODE`, `UPDATE_NODE`, `DELETE_NODE`, `ADD_EDGE`, `UPDATE_EDGE`, `DELETE_EDGE`, `SET_ENTRY_NODE`, and `SET_EXIT_NODES`. Nested patches deep-merge; node/edge ids are immutable; references are checked before a candidate can be saved.
 
 ## Validate Request
 
@@ -161,12 +204,12 @@ Rules:
 - Re-read `GET .../context` immediately before publish and send the latest `workflow.updatedAt` as `baseRevision`.
 - Publish still runs server-side release validation and fails if the draft is not releasable.
 - A stale `baseRevision` returns `409` and creates no version; re-read context, validate again, then retry.
-- Use `POST .../publish`, not legacy admin publish endpoints.
+- Use the canonical `POST .../publish` endpoint.
 - If `v1.0.0` already exists, read version history and choose the next semantic version.
 
 ## Error Semantics
 
 - `400`: invalid payload or patch failure; malformed `baseRevision` returns `code=WORKFLOW_BASE_REVISION_INVALID`
-- `409`: stale draft revision; no save or publish was applied. The body returns `code=WORKFLOW_DRAFT_CONFLICT`, `workflowId`, `baseRevision`, and `currentRevision`; `ETag` carries the current revision.
+- `409`: stale working-copy revision; no save or publish was applied. The body returns `code=WORKFLOW_WORKING_COPY_CONFLICT`, `workflowId`, `baseRevision`, and `currentRevision`; `ETag` carries the current revision.
 - `403`: project permission denied
 - `404`: workflow or trace not found

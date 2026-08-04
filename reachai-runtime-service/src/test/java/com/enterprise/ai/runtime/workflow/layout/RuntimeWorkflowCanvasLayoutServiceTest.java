@@ -39,7 +39,9 @@ class RuntimeWorkflowCanvasLayoutServiceTest {
 
         Map<String, Object> canvas = service.projectAndLayout(
                 graph,
-                Map.of(),
+                Map.of("nodes", List.of(
+                        Map.of("id", "input", "width", 200, "height", 100),
+                        Map.of("id", "answer", "width", 320, "height", 220))),
                 RuntimeWorkflowCanvasLayoutService.Options.defaults());
 
         List<String> chain = List.of("start", "input", "answer", "end");
@@ -169,6 +171,11 @@ class RuntimeWorkflowCanvasLayoutServiceTest {
         assertEquals(Set.of("e-start-kept", "kept-added", "e-added-end"), edges(result).stream()
                 .map(item -> String.valueOf(item.get("id")))
                 .collect(Collectors.toSet()));
+        assertEquals(1, result.get("schemaVersion"));
+        assertTrue(nodes(result).stream().allMatch(item -> !item.containsKey("type") && !item.containsKey("data")));
+        assertTrue(edges(result).stream().allMatch(item -> !item.containsKey("source")
+                && !item.containsKey("target")
+                && !item.containsKey("condition")));
     }
 
     @Test
@@ -187,8 +194,8 @@ class RuntimeWorkflowCanvasLayoutServiceTest {
         assertEquals(Set.of("e-start-kept"), edges(result).stream()
                 .map(item -> String.valueOf(item.get("id")))
                 .collect(Collectors.toSet()));
-        assertTrue(edges(result).stream()
-                .noneMatch(edge -> "deleted".equals(edge.get("source")) || "deleted".equals(edge.get("target"))));
+        assertFalse(edges(result).stream()
+                .anyMatch(edge -> String.valueOf(edge.get("id")).contains("deleted")));
     }
 
     private GraphSpec graph(List<GraphSpec.Node> nodes,
@@ -196,13 +203,10 @@ class RuntimeWorkflowCanvasLayoutServiceTest {
                             String entry,
                             List<String> finish) {
         return GraphSpec.builder()
-                .code("layout-test")
-                .name("Layout Test")
-                .mode("WORKFLOW")
                 .nodes(nodes)
                 .edges(edges)
-                .entry(entry)
-                .finish(finish)
+                .entryNodeId(entry)
+                .exitNodeIds(finish)
                 .build();
     }
 
@@ -211,7 +215,6 @@ class RuntimeWorkflowCanvasLayoutServiceTest {
                 .id(id)
                 .type(type)
                 .name(id)
-                .layout(GraphSpec.Layout.NodeLayout.builder().width(width).height(height).build())
                 .build();
     }
 
@@ -269,17 +272,12 @@ class RuntimeWorkflowCanvasLayoutServiceTest {
     private double width(Map<String, Object> node) {
         Object width = node.get("width");
         if (width instanceof Number number) return number.doubleValue();
-        return List.of("classifier", "condition", "approval", "loop").contains(kind(node)) ? 300 : 240;
+        return 240;
     }
 
     private double height(Map<String, Object> node) {
         Object height = node.get("height");
         return height instanceof Number number ? number.doubleValue() : 156;
-    }
-
-    @SuppressWarnings("unchecked")
-    private String kind(Map<String, Object> node) {
-        return String.valueOf(((Map<String, Object>) node.get("data")).get("kind"));
     }
 
     private double centerY(Map<String, Object> node) {

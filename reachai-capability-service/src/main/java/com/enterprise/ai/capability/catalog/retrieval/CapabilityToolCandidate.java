@@ -6,6 +6,7 @@ package com.enterprise.ai.capability.catalog.retrieval;
 public record CapabilityToolCandidate(
         Long toolId,
         String toolName,
+        String toolTitle,
         Long projectId,
         Long moduleId,
         float score,

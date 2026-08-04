@@ -98,7 +98,11 @@ class CapabilitySdkSyncTriggerServiceTest {
         assertNotNull(request.getHeaders().getFirst(ReachAiSignatureHeaders.HEADER_TIMESTAMP));
         assertNotNull(request.getHeaders().getFirst(ReachAiSignatureHeaders.HEADER_NONCE));
         assertNotNull(request.getHeaders().getFirst(ReachAiSignatureHeaders.HEADER_SIGNATURE));
-        assertEquals("API_MANUAL_SCAN", request.getBody().get("source"));
+        assertEquals(
+                "reachai.registry-capability-scan-request.v1",
+                request.getBody().get("schema"));
+        assertEquals(7L, request.getBody().get("projectId"));
+        assertEquals("orders", request.getBody().get("projectCode"));
     }
 
     @Test

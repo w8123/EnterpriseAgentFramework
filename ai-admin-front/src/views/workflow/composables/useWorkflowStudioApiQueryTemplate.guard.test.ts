@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
-import type { AgentGraphNodeTypeDescriptor } from '@/types/agent'
+import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
 import type { ProjectToolInfo } from '@/types/scanProject'
 import { useWorkflowStudioApiQueryTemplate } from './useWorkflowStudioApiQueryTemplate'
 
@@ -34,13 +34,12 @@ vi.mock('vue-router', () => ({
 }))
 
 function descriptor(
-  partial: Partial<AgentGraphNodeTypeDescriptor> & Pick<AgentGraphNodeTypeDescriptor, 'type' | 'canvasKind'>,
-): AgentGraphNodeTypeDescriptor {
+  partial: Partial<WorkflowGraphNodeTypeDescriptor> & Pick<WorkflowGraphNodeTypeDescriptor, 'type' | 'canvasKind'>,
+): WorkflowGraphNodeTypeDescriptor {
   return {
     canvasCategory: 'flow',
     family: 'FLOW',
     retryable: false,
-    aliases: [],
     maturity: 'STABLE',
     runtimeExecutable: true,
     publishable: true,
@@ -51,7 +50,7 @@ function descriptor(
   }
 }
 
-function currentCatalog(openInteraction = false): AgentGraphNodeTypeDescriptor[] {
+function currentCatalog(openInteraction = false): WorkflowGraphNodeTypeDescriptor[] {
   return [
     descriptor({ type: 'TOOL', canvasKind: 'tool' }),
     descriptor({
@@ -78,12 +77,11 @@ function selectableTool(): ProjectToolInfo {
   return {
     scanToolId: 12,
     name: 'demo.search',
+    title: '查询演示数据',
     description: 'demo',
     parameters: [],
     source: 'scanner',
     enabled: true,
-    agentVisible: true,
-    lightweightEnabled: true,
     globalToolDefinitionId: 99,
     globalToolName: 'demo.search',
     toolLinkStatus: 'LINKED',
@@ -110,7 +108,7 @@ function createTemplate(overrides: Record<string, unknown> = {}) {
     projectCode: 'demo',
     name: 'Demo',
     keySlug: 'demo',
-    graphSpecJson: '{}',
+    graphSpecJson: '{"schemaVersion":2,"nodes":[],"edges":[],"entryNodeId":"","exitNodeIds":[]}',
     canvasJson: '{}',
   } as any)
   const deps = {
@@ -199,6 +197,7 @@ describe('useWorkflowStudioApiQueryTemplate capability guard', () => {
     expect(ctx.edges.value).toHaveLength(3)
     const displayNode = ctx.nodes.value[3] as any
     expect(displayNode.data.interactionConfig.component).toBe('LIST_CARD')
+    expect(displayNode.data.interactionConfig.presentation).toEqual({ mode: 'card_only' })
     expect(displayNode.data.interactionConfig.renderSchema).toMatchObject({
       version: '1.0',
       initialVisibleCount: 5,

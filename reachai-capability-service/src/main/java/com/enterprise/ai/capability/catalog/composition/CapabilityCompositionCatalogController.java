@@ -384,10 +384,8 @@ public class CapabilityCompositionCatalogController {
                 entity.getSideEffect(),
                 entity.getProjectId(),
                 entity.getProjectCode(),
-                entity.getVisibility(),
                 entity.getQualifiedName(),
                 Boolean.TRUE.equals(entity.getEnabled()),
-                Boolean.TRUE.equals(entity.getAgentVisible()),
                 entity.getSource(),
                 compositionCatalogService.parseSpecForDto(entity),
                 Boolean.TRUE.equals(entity.getDraft())
@@ -409,10 +407,8 @@ public class CapabilityCompositionCatalogController {
                               String sideEffect,
                               Long projectId,
                               String projectCode,
-                              String visibility,
                               String qualifiedName,
                               boolean enabled,
-                              boolean agentVisible,
                               String source,
                               Object spec,
                               boolean draft) {
@@ -448,10 +444,8 @@ public class CapabilityCompositionCatalogController {
                                     String sideEffect,
                                     Long projectId,
                                     String projectCode,
-                                    String visibility,
                                     String qualifiedName,
                                     boolean enabled,
-                                    boolean agentVisible,
                                     JsonNode spec,
                                     Boolean draft) {
         ToolDefinitionUpsertRequest toServiceRequest(ObjectMapper objectMapper) {
@@ -473,12 +467,11 @@ public class CapabilityCompositionCatalogController {
                         "manual",
                         null,
                         enabled,
-                        agentVisible,
                         sideEffect,
                         resolvedKind,
                         specJson,
                         isDraft
-                ).withProjectScope(projectId, projectCode, visibility, qualifiedName);
+                ).withProjectScope(projectId, projectCode, qualifiedName);
             } catch (JsonProcessingException ex) {
                 throw new IllegalArgumentException("invalid composition spec JSON: " + ex.getMessage(), ex);
             }

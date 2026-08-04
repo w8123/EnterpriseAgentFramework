@@ -27,6 +27,7 @@ interface ParameterRow extends ToolParameter {
 function createEmptyForm(): ToolUpsertRequest {
   return {
     name: '',
+    title: '',
     description: '',
     parameters: [],
     source: 'scanner',
@@ -39,8 +40,6 @@ function createEmptyForm(): ToolUpsertRequest {
     responseType: '',
     projectId: null,
     enabled: false,
-    agentVisible: false,
-    lightweightEnabled: false,
   }
 }
 
@@ -51,6 +50,7 @@ function cloneParameters(parameters: ToolParameter[] = []): ToolParameter[] {
 function toUpsertRequest(tool: ProjectToolInfo): ToolUpsertRequest {
   return {
     name: tool.name,
+    title: tool.title || tool.name,
     description: tool.description,
     parameters: cloneParameters(tool.parameters),
     source: tool.source,
@@ -63,8 +63,6 @@ function toUpsertRequest(tool: ProjectToolInfo): ToolUpsertRequest {
     responseType: tool.responseType || '',
     projectId: tool.projectId ?? null,
     enabled: tool.enabled,
-    agentVisible: tool.agentVisible,
-    lightweightEnabled: tool.lightweightEnabled,
   }
 }
 
@@ -97,6 +95,7 @@ export function useScanProjectToolEditor(deps: UseScanProjectToolEditorDeps) {
 
   function applyForm(data: ToolUpsertRequest) {
     form.name = data.name
+    form.title = data.title
     form.description = data.description
     form.parameters = cloneParameters(data.parameters)
     form.source = data.source
@@ -109,8 +108,6 @@ export function useScanProjectToolEditor(deps: UseScanProjectToolEditorDeps) {
     form.responseType = data.responseType || ''
     form.projectId = data.projectId ?? null
     form.enabled = data.enabled
-    form.agentVisible = data.agentVisible
-    form.lightweightEnabled = data.lightweightEnabled
   }
 
   async function openEditDialog(tool: ProjectToolInfo) {
@@ -135,8 +132,8 @@ export function useScanProjectToolEditor(deps: UseScanProjectToolEditorDeps) {
   }
 
   async function handleSave() {
-    if (editingScanToolId.value == null || !form.name.trim() || !form.description.trim()) {
-      ElMessage.warning('请填写工具名和描述')
+    if (editingScanToolId.value == null || !form.title.trim() || !form.name.trim() || !form.description.trim()) {
+      ElMessage.warning('请填写工具名称、工具标识和描述')
       return
     }
     saving.value = true
@@ -158,25 +155,10 @@ export function useScanProjectToolEditor(deps: UseScanProjectToolEditorDeps) {
   async function handleEnabledChange(tool: ProjectToolInfo, enabled: boolean) {
     try {
       await toggleScanProjectTool(deps.projectId.value, tool.scanToolId, enabled)
-      ElMessage.success(`已${enabled ? '启用' : '禁用'} ${tool.name}`)
+      ElMessage.success(`已${enabled ? '启用' : '禁用'} ${tool.title || tool.name}`)
       await deps.refreshAll()
     } catch (error) {
       ElMessage.error((error as Error).message || '状态更新失败')
-    }
-  }
-
-  async function handleFlagChange(tool: ProjectToolInfo, field: 'agentVisible' | 'lightweightEnabled', value: boolean) {
-    try {
-      const detail = await deps.ensureToolDetail(tool)
-      const payload = toUpsertRequest({
-        ...detail,
-        [field]: value,
-      })
-      await updateScanProjectTool(deps.projectId.value, detail.scanToolId, payload)
-      ElMessage.success('配置已更新')
-      await deps.refreshAll()
-    } catch (error) {
-      ElMessage.error((error as Error).message || '配置更新失败')
     }
   }
 
@@ -245,7 +227,6 @@ export function useScanProjectToolEditor(deps: UseScanProjectToolEditorDeps) {
     removeParameter,
     handleSave,
     handleEnabledChange,
-    handleFlagChange,
     batchToggle,
     openTest,
     handleTest,

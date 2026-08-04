@@ -47,8 +47,7 @@ public final class ScanSettingsJson {
         base.setSkipDeprecated(settings.isSkipDeprecated());
         if (settings.getDefaultFlags() != null) {
             ScanDefaultFlags flags = settings.getDefaultFlags();
-            base.setDefaultFlags(new ScanDefaultFlags(
-                    flags.isEnabled(), flags.isAgentVisible(), flags.isLightweightEnabled()));
+            base.setDefaultFlags(new ScanDefaultFlags(flags.isEnabled()));
         }
         base.setIncrementalMode(normalizeIncremental(settings.getIncrementalMode()));
         return base;

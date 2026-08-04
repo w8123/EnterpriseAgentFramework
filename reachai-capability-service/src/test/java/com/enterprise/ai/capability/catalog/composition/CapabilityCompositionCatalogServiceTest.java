@@ -82,7 +82,6 @@ class CapabilityCompositionCatalogServiceTest {
                 "manual",
                 null,
                 true,
-                true,
                 "WRITE",
                 "SUB_AGENT",
                 "{\"systemPrompt\":\"\",\"toolWhitelist\":[]}",
@@ -143,7 +142,6 @@ class CapabilityCompositionCatalogServiceTest {
         entity.setParametersJson(null);
         entity.setSource("manual");
         entity.setEnabled(true);
-        entity.setAgentVisible(true);
         entity.setDraft(false);
         entity.setSkillKind("SUB_AGENT");
         entity.setSpecJson(specJson());
@@ -158,12 +156,11 @@ class CapabilityCompositionCatalogServiceTest {
                 "manual",
                 null,
                 true,
-                true,
                 "WRITE",
                 "SUB_AGENT",
                 specJson(),
                 false
-        ).withProjectScope(7L, "orders", "PROJECT", "orders:orderComposer");
+        ).withProjectScope(7L, "orders", "orders:orderComposer");
     }
 
     private String specJson() {

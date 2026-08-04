@@ -202,20 +202,20 @@ class CapabilityToolCatalogServiceTest {
     private ToolDefinitionEntity tool(String name, String description) {
         ToolDefinitionEntity entity = new ToolDefinitionEntity();
         entity.setName(name);
+        entity.setTitle("创建订单");
         entity.setKind("TOOL");
         entity.setDescription(description);
         entity.setSource("manual");
         entity.setHttpMethod("POST");
         entity.setEndpointPath("/orders");
         entity.setEnabled(true);
-        entity.setAgentVisible(true);
-        entity.setLightweightEnabled(false);
         return entity;
     }
 
     private ToolDefinitionUpsertRequest toolRequest(String name) {
         return new ToolDefinitionUpsertRequest(
                 name,
+                "创建订单",
                 "Create order",
                 List.of(new ToolDefinitionParameter("orderId", "string", "Order id", true, "body")),
                 "manual",
@@ -228,11 +228,8 @@ class CapabilityToolCatalogServiceTest {
                 "JSON",
                 7L,
                 "orders",
-                "PROJECT",
                 "orders:createOrder",
-                true,
-                true,
-                false
+                true
         );
     }
 }

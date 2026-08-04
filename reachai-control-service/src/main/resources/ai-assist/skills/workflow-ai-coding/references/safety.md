@@ -59,7 +59,7 @@ Prefer `dryRun=true` first.
 
 `PAGE_ACTION` nodes queue client-side actions. Real page execution requires embed/page bridge context and may still need human confirmation for `confirmRequired` actions.
 
-Do not claim a PAGE_ASSISTANT workflow is production-ready based only on backend smoke-test `READY_TO_QUEUE`.
+Do not claim a PAGE_ASSISTANT workflow is production-ready based only on a successful backend debug run. Verify the real browser interaction, business request and visible result, then report that acceptance through the current workbench task.
 
 ## Secrets and Credentials
 

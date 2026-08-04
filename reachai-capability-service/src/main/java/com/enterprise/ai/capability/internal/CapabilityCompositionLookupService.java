@@ -39,7 +39,6 @@ public class CapabilityCompositionLookupService {
         body.put("outputSchemaJson", entity.getOutputSchemaJson());
         body.put("sideEffect", entity.getSideEffect());
         body.put("enabled", entity.getEnabled());
-        body.put("agentVisible", entity.getAgentVisible());
         body.put("createTime", String.valueOf(entity.getCreateTime()));
         body.put("updateTime", String.valueOf(entity.getUpdateTime()));
         return body;

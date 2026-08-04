@@ -37,7 +37,7 @@ public class RuntimeInteractionSessionEntity {
 
     private String idempotencyKey;
 
-    private String stateJson;
+    private String resumeCheckpointJson;
 
     private String uiRequestJson;
 

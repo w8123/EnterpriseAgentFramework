@@ -1,6 +1,13 @@
 package com.enterprise.ai.control.platform;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
+import com.enterprise.ai.control.pageworkbench.application.PageCatalogApplicationService;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionInput;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageReport;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView;
+import com.enterprise.ai.control.pageworkbench.domain.PageWorkbenchValues.PageSource;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +24,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -26,13 +32,13 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class PlatformEmbedCatalogController {
 
-    private final PlatformPageRegistryMapper pageRegistryMapper;
-    private final PlatformPageActionRegistryMapper pageActionRegistryMapper;
+    private final PageCatalogApplicationService pageCatalog;
+    private final CapabilityProjectOnboardingClient capabilityClient;
     private final PlatformEmbedSessionMapper sessionMapper;
     private final PlatformPageActionEventMapper pageActionEventMapper;
     private final PlatformEmbedChatEventMapper chatEventMapper;
     private final PlatformEmbedRendererMapper rendererMapper;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
     @GetMapping("/api/platform/embed/sessions")
     public ResponseEntity<List<EmbedSessionView>> listSessions(@RequestParam(required = false) String appId,
@@ -74,12 +80,8 @@ public class PlatformEmbedCatalogController {
     @GetMapping({"/api/platform/embed/pages", "/api/platform/embed/pages/catalog"})
     public ResponseEntity<List<PageRegistryView>> listPages(@RequestParam(required = false) String projectCode,
                                                             @RequestParam(defaultValue = "200") int limit) {
-        LambdaQueryWrapper<PlatformPageRegistryEntity> wrapper = new LambdaQueryWrapper<PlatformPageRegistryEntity>()
-                .eq(StringUtils.hasText(projectCode), PlatformPageRegistryEntity::getProjectCode, projectCode)
-                .orderByDesc(PlatformPageRegistryEntity::getLastSeenAt)
-                .orderByDesc(PlatformPageRegistryEntity::getId)
-                .last("limit " + safeLimit(limit, 200));
-        return ResponseEntity.ok(pageRegistryMapper.selectList(wrapper).stream()
+        return ResponseEntity.ok(pageCatalog.listPages(projectCode, false).stream()
+                .limit(safeLimit(limit, 200))
                 .map(this::toPageView)
                 .toList());
     }
@@ -89,15 +91,7 @@ public class PlatformEmbedCatalogController {
                                                                         @RequestParam(required = false) String pageKey,
                                                                         @RequestParam(required = false) String status,
                                                                         @RequestParam(defaultValue = "500") int limit) {
-        LambdaQueryWrapper<PlatformPageActionRegistryEntity> wrapper =
-                new LambdaQueryWrapper<PlatformPageActionRegistryEntity>()
-                        .eq(StringUtils.hasText(projectCode), PlatformPageActionRegistryEntity::getProjectCode, projectCode)
-                        .eq(StringUtils.hasText(pageKey), PlatformPageActionRegistryEntity::getPageKey, pageKey)
-                        .eq(StringUtils.hasText(status), PlatformPageActionRegistryEntity::getStatus, status)
-                        .orderByDesc(PlatformPageActionRegistryEntity::getLastSeenAt)
-                        .orderByDesc(PlatformPageActionRegistryEntity::getId)
-                        .last("limit " + safeLimit(limit, 500));
-        return ResponseEntity.ok(pageActionRegistryMapper.selectList(wrapper).stream()
+        return ResponseEntity.ok(pageCatalog.listActions(projectCode, pageKey, status, safeLimit(limit, 500)).stream()
                 .map(this::toActionView)
                 .toList());
     }
@@ -108,20 +102,18 @@ public class PlatformEmbedCatalogController {
 
     @DeleteMapping("/api/platform/embed/pages/{id}")
     public ResponseEntity<PageRegistryDeleteResult> deletePageRegistry(@PathVariable Long id) {
-        PlatformPageRegistryEntity page = pageRegistryMapper.selectById(id);
+        PageView page = pageCatalog.findPage(id).orElse(null);
         if (page == null) {
             return ResponseEntity.notFound().build();
         }
         List<String> sessionIds = sessionMapper.selectList(new LambdaQueryWrapper<PlatformEmbedSessionEntity>()
-                        .eq(PlatformEmbedSessionEntity::getProjectCode, page.getProjectCode())
-                        .eq(PlatformEmbedSessionEntity::getPageKey, page.getPageKey()))
+                        .eq(PlatformEmbedSessionEntity::getProjectCode, page.projectCode())
+                        .eq(PlatformEmbedSessionEntity::getPageKey, page.pageKey()))
                 .stream()
                 .map(PlatformEmbedSessionEntity::getSessionId)
                 .filter(StringUtils::hasText)
                 .toList();
-        int deletedActions = pageActionRegistryMapper.delete(new LambdaQueryWrapper<PlatformPageActionRegistryEntity>()
-                .eq(PlatformPageActionRegistryEntity::getProjectCode, page.getProjectCode())
-                .eq(PlatformPageActionRegistryEntity::getPageKey, page.getPageKey()));
+        int deletedActions = page.actions().size();
         int deletedPageActionEvents = sessionIds.isEmpty() ? 0 : pageActionEventMapper.delete(
                 new LambdaQueryWrapper<PlatformPageActionEventEntity>()
                         .in(PlatformPageActionEventEntity::getSessionId, sessionIds));
@@ -129,13 +121,13 @@ public class PlatformEmbedCatalogController {
                 new LambdaQueryWrapper<PlatformEmbedChatEventEntity>()
                         .in(PlatformEmbedChatEventEntity::getSessionId, sessionIds));
         int deletedEmbedSessions = sessionMapper.delete(new LambdaQueryWrapper<PlatformEmbedSessionEntity>()
-                .eq(PlatformEmbedSessionEntity::getProjectCode, page.getProjectCode())
-                .eq(PlatformEmbedSessionEntity::getPageKey, page.getPageKey()));
-        int deletedPages = pageRegistryMapper.deleteById(id);
+                .eq(PlatformEmbedSessionEntity::getProjectCode, page.projectCode())
+                .eq(PlatformEmbedSessionEntity::getPageKey, page.pageKey()));
+        int deletedPages = pageCatalog.deletePage(id) ? 1 : 0;
         return ResponseEntity.ok(new PageRegistryDeleteResult(
                 id,
-                page.getProjectCode(),
-                page.getPageKey(),
+                page.projectCode(),
+                page.pageKey(),
                 deletedPages,
                 deletedActions,
                 deletedEmbedSessions,
@@ -151,38 +143,42 @@ public class PlatformEmbedCatalogController {
         String projectCode = requireText(request == null ? null : request.projectCode(), "projectCode");
         String pageKey = requireText(request.pageKey(), "pageKey");
         String actionKey = requireText(request.actionKey(), "actionKey");
-        String appId = StringUtils.hasText(request.appId()) ? request.appId().trim() : projectCode;
-        LocalDateTime now = LocalDateTime.now();
-
-        PlatformPageRegistryEntity page = new PlatformPageRegistryEntity();
-        page.setProjectCode(projectCode);
-        page.setAppId(appId);
-        page.setPageKey(pageKey);
-        page.setName(StringUtils.hasText(request.pageName()) ? request.pageName().trim() : pageKey);
-        page.setRoutePattern(StringUtils.hasText(request.routePattern()) ? request.routePattern().trim() : null);
-        page.setOrigin("manual");
-        page.setStatus("ACTIVE");
-        page.setLastSeenAt(now);
-        page.setMetadataJson(toJson(Map.of("source", "MANUAL_DRAFT")));
-        pageRegistryMapper.insert(page);
-
-        PlatformPageActionRegistryEntity action = new PlatformPageActionRegistryEntity();
-        action.setProjectCode(projectCode);
-        action.setAppId(appId);
-        action.setPageKey(pageKey);
-        action.setActionKey(actionKey);
-        action.setTitle(StringUtils.hasText(request.title()) ? request.title().trim() : actionKey);
-        action.setDescription(StringUtils.hasText(request.description()) ? request.description().trim() : null);
-        action.setConfirmRequired(Boolean.TRUE.equals(request.confirmRequired()));
-        action.setInputSchemaJson(toJson(request.inputSchema() == null ? Map.of() : request.inputSchema()));
-        action.setOutputSchemaJson(toJson(request.outputSchema() == null ? Map.of() : request.outputSchema()));
-        action.setSampleArgsJson(toJson(request.sampleArgs() == null ? Map.of() : request.sampleArgs()));
-        action.setAllowedAgentIdsJson(toJson(request.allowedAgentIds() == null ? List.of() : request.allowedAgentIds()));
-        action.setMetadataJson(toJson(Map.of("source", "MANUAL_DRAFT")));
-        action.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : "ACTIVE");
-        action.setLastSeenAt(now);
-        pageActionRegistryMapper.insert(action);
-        return ResponseEntity.ok(new PageActionManualDeclareResponse("MANUAL_DRAFT", toPageView(page), toActionView(action)));
+        Long projectId = projectId(projectCode);
+        ActionInput actionInput = new ActionInput(
+                actionKey,
+                request.title(),
+                request.description(),
+                "PAGE_ACTION",
+                Boolean.TRUE.equals(request.confirmRequired()) ? "WRITE" : "READ",
+                request.confirmRequired(),
+                null,
+                objectMapper.valueToTree(request.inputSchema() == null ? Map.of() : request.inputSchema()),
+                objectMapper.valueToTree(request.outputSchema() == null ? Map.of() : request.outputSchema()),
+                objectMapper.valueToTree(request.sampleArgs() == null ? Map.of() : request.sampleArgs()),
+                request.allowedAgentIds(),
+                null,
+                objectMapper.valueToTree(Map.of("source", "MANUAL")));
+        PageView page = pageCatalog.upsertPageCatalog(
+                projectId,
+                projectCode,
+                new PageReport(
+                        pageKey,
+                        null,
+                        null,
+                        request.pageName(),
+                        null,
+                        request.routePattern(),
+                        null,
+                        null,
+                        List.of(actionInput)),
+                PageSource.MANUAL,
+                false);
+        ActionView action = page.actions().stream()
+                .filter(candidate -> actionKey.equals(candidate.actionKey()))
+                .findFirst()
+                .orElseThrow();
+        return ResponseEntity.ok(new PageActionManualDeclareResponse(
+                "MANUAL", toPageView(page), toActionView(page, action)));
     }
 
     @PostMapping("/api/registry/projects/{projectCode}/pages/register")
@@ -191,50 +187,51 @@ public class PlatformEmbedCatalogController {
             @RequestBody PageCatalogRegisterPayload request) {
         String normalizedProjectCode = requireText(projectCode, "projectCode");
         String pageKey = requireText(request == null ? null : request.pageKey(), "pageKey");
-        String appId = normalizedProjectCode;
-        LocalDateTime now = LocalDateTime.now();
-
-        PlatformPageRegistryEntity page = new PlatformPageRegistryEntity();
-        page.setProjectCode(normalizedProjectCode);
-        page.setAppId(appId);
-        page.setPageKey(pageKey);
-        page.setName(StringUtils.hasText(request.name()) ? request.name().trim() : pageKey);
-        page.setRoutePattern(StringUtils.hasText(request.routePattern()) ? request.routePattern().trim() : null);
-        page.setOrigin(StringUtils.hasText(request.origin()) ? request.origin().trim() : null);
-        page.setCurrentPageInstanceId(StringUtils.hasText(request.pageInstanceId()) ? request.pageInstanceId().trim() : null);
-        page.setStatus("ACTIVE");
-        page.setLastSeenAt(now);
-        page.setMetadataJson(toJson(pageCatalogMetadata(request.metadata())));
-        pageRegistryMapper.insert(page);
-
-        if (Boolean.TRUE.equals(request.replaceActions())) {
-            pageActionRegistryMapper.delete(new LambdaQueryWrapper<PlatformPageActionRegistryEntity>()
-                    .eq(PlatformPageActionRegistryEntity::getProjectCode, normalizedProjectCode)
-                    .eq(PlatformPageActionRegistryEntity::getPageKey, pageKey));
-        }
-        List<PageActionRegistryView> actions = (request.actions() == null ? List.<PageCatalogActionPayload>of() : request.actions())
-                .stream()
-                .map(action -> registerPageCatalogAction(normalizedProjectCode, appId, pageKey, action, now))
-                .toList();
-        return ResponseEntity.ok(new PageCatalogRegisterResponse("SDK", toPageView(page), actions));
+        Map<String, Object> metadata = request.metadata() == null ? Map.of() : request.metadata();
+        List<ActionInput> actionInputs = (request.actions() == null
+                ? List.<PageCatalogActionPayload>of()
+                : request.actions()).stream().map(this::toActionInput).toList();
+        PageView page = pageCatalog.upsertPageCatalog(
+                projectId(normalizedProjectCode),
+                normalizedProjectCode,
+                new PageReport(
+                        pageKey,
+                        stringValue(metadata.get("moduleKey")),
+                        stringValue(metadata.get("moduleName")),
+                        request.name(),
+                        stringValue(metadata.get("description")),
+                        request.routePattern(),
+                        stringValue(metadata.get("componentPath")),
+                        null,
+                        actionInputs),
+                PageSource.SDK,
+                Boolean.TRUE.equals(request.replaceActions()));
+        return ResponseEntity.ok(new PageCatalogRegisterResponse(
+                "SDK",
+                toPageView(page),
+                page.actions().stream().map(action -> toActionView(page, action)).toList()));
     }
 
     @PostMapping("/api/platform/embed/page-actions/catalog/{id}/debug")
     public ResponseEntity<PageActionDebugResponse> debugPageActionCatalog(@PathVariable Long id,
                                                                           @RequestBody(required = false)
                                                                           PageActionDebugRequest request) {
-        PlatformPageActionRegistryEntity action = pageActionRegistryMapper.selectById(id);
+        ActionView action = pageCatalog.findAction(id).orElse(null);
         if (action == null) {
             return ResponseEntity.notFound().build();
         }
-        PlatformEmbedSessionEntity session = resolveDebugSession(action, request);
+        PageView page = pageCatalog.findPageForAction(id).orElse(null);
+        if (page == null) {
+            return ResponseEntity.notFound().build();
+        }
+        PlatformEmbedSessionEntity session = resolveDebugSession(page, request);
         if (session == null) {
             return ResponseEntity.ok(new PageActionDebugResponse(
                     null,
                     null,
-                    action.getProjectCode(),
-                    action.getPageKey(),
-                    action.getActionKey(),
+                    page.projectCode(),
+                    page.pageKey(),
+                    action.actionKey(),
                     null,
                     "NO_ACTIVE_SESSION",
                     "No active embedded session found for this page."));
@@ -246,10 +243,13 @@ public class PlatformEmbedCatalogController {
         event.setTenantId(session.getTenantId());
         event.setAppId(session.getAppId());
         event.setAgentId(session.getAgentId());
-        event.setActionKey(action.getActionKey());
-        event.setTitle(action.getTitle());
+        event.setCommandType("PAGE_ACTION");
+        event.setActionKey(action.actionKey());
+        event.setTitle(action.title());
         event.setArgsJson(toJson(request == null || request.args() == null ? Map.of() : request.args()));
         event.setTargetPageInstanceId(session.getPageInstanceId());
+        event.setTargetPageKey(page.pageKey());
+        event.setTargetRoute(page.routePattern());
         event.setConfirmRequired(false);
         event.setStatus("REQUESTED");
         event.setRequestedAt(LocalDateTime.now());
@@ -257,9 +257,9 @@ public class PlatformEmbedCatalogController {
         return ResponseEntity.ok(new PageActionDebugResponse(
                 requestId,
                 session.getSessionId(),
-                action.getProjectCode(),
-                action.getPageKey(),
-                action.getActionKey(),
+                page.projectCode(),
+                page.pageKey(),
+                action.actionKey(),
                 session.getPageInstanceId(),
                 "REQUESTED",
                 "Debug request has been created."));
@@ -276,7 +276,7 @@ public class PlatformEmbedCatalogController {
 
     @GetMapping("/api/platform/embed/page-actions/catalog/{id}/references")
     public ResponseEntity<List<PageActionReferenceView>> listPageActionReferences(@PathVariable Long id) {
-        return pageActionRegistryMapper.selectById(id) == null
+        return pageCatalog.findAction(id).isEmpty()
                 ? ResponseEntity.notFound().build()
                 : ResponseEntity.ok(List.of());
     }
@@ -352,38 +352,54 @@ public class PlatformEmbedCatalogController {
         return Math.min(Math.max(value, 1), 1000);
     }
 
-    private PageRegistryView toPageView(PlatformPageRegistryEntity entity) {
+    private PageRegistryView toPageView(PageView entity) {
+        PlatformEmbedSessionEntity currentSession = sessionMapper.selectOne(
+                new LambdaQueryWrapper<PlatformEmbedSessionEntity>()
+                        .eq(PlatformEmbedSessionEntity::getProjectCode, entity.projectCode())
+                        .eq(PlatformEmbedSessionEntity::getPageKey, entity.pageKey())
+                        .eq(PlatformEmbedSessionEntity::getStatus, "ACTIVE")
+                        .orderByDesc(PlatformEmbedSessionEntity::getUpdatedAt)
+                        .last("LIMIT 1"));
         return new PageRegistryView(
-                entity.getId(),
-                entity.getProjectCode(),
-                entity.getAppId(),
-                entity.getPageKey(),
-                entity.getName(),
-                entity.getRoutePattern(),
-                entity.getOrigin(),
-                entity.getCurrentPageInstanceId(),
-                entity.getStatus(),
-                instantText(entity.getLastSeenAt()),
-                entity.getMetadataJson());
+                entity.id(),
+                entity.projectCode(),
+                entity.projectCode(),
+                entity.pageKey(),
+                entity.name(),
+                entity.routePattern(),
+                entity.sourceType(),
+                currentSession == null ? null : currentSession.getPageInstanceId(),
+                entity.lifecycleStatus(),
+                instantText(currentSession == null
+                        ? entity.lastDiscoveredAt()
+                        : currentSession.getUpdatedAt()),
+                toJson(Map.of(
+                        "moduleKey", nullToEmpty(entity.moduleKey()),
+                        "moduleName", nullToEmpty(entity.moduleName()),
+                        "componentPath", nullToEmpty(entity.componentPath()))));
     }
 
-    private PageActionRegistryView toActionView(PlatformPageActionRegistryEntity entity) {
+    private PageActionRegistryView toActionView(ActionView entity) {
         return new PageActionRegistryView(
-                entity.getId(),
-                entity.getProjectCode(),
-                entity.getAppId(),
-                entity.getPageKey(),
-                entity.getActionKey(),
-                entity.getTitle(),
-                entity.getDescription(),
-                Boolean.TRUE.equals(entity.getConfirmRequired()),
-                entity.getInputSchemaJson(),
-                entity.getOutputSchemaJson(),
-                entity.getSampleArgsJson(),
-                entity.getAllowedAgentIdsJson(),
-                entity.getMetadataJson(),
-                entity.getStatus(),
-                instantText(entity.getLastSeenAt()));
+                entity.id(),
+                entity.projectCode(),
+                entity.projectCode(),
+                entity.pageKey(),
+                entity.actionKey(),
+                entity.title(),
+                entity.description(),
+                entity.confirmRequired(),
+                entity.inputSchema().toString(),
+                entity.outputSchema().toString(),
+                entity.sampleArgs().toString(),
+                toJson(entity.allowedAgentIds()),
+                entity.metadata().toString(),
+                entity.status(),
+                instantText(entity.lastVerifiedAt()));
+    }
+
+    private PageActionRegistryView toActionView(PageView page, ActionView entity) {
+        return toActionView(entity);
     }
 
     private EmbedSessionView toSessionView(PlatformEmbedSessionEntity entity) {
@@ -449,7 +465,7 @@ public class PlatformEmbedCatalogController {
                 instantText(entity.getUpdatedAt()));
     }
 
-    private PlatformEmbedSessionEntity resolveDebugSession(PlatformPageActionRegistryEntity action,
+    private PlatformEmbedSessionEntity resolveDebugSession(PageView page,
                                                            PageActionDebugRequest request) {
         if (request != null && StringUtils.hasText(request.sessionId())) {
             PlatformEmbedSessionEntity session = sessionMapper.selectOne(new LambdaQueryWrapper<PlatformEmbedSessionEntity>()
@@ -460,17 +476,9 @@ public class PlatformEmbedCatalogController {
                 return session;
             }
         }
-        PlatformPageRegistryEntity page = pageRegistryMapper.selectOne(new LambdaQueryWrapper<PlatformPageRegistryEntity>()
-                .eq(PlatformPageRegistryEntity::getProjectCode, action.getProjectCode())
-                .eq(PlatformPageRegistryEntity::getPageKey, action.getPageKey())
-                .eq(PlatformPageRegistryEntity::getStatus, "ACTIVE")
-                .last("limit 1"));
-        if (page == null || !StringUtils.hasText(page.getCurrentPageInstanceId())) {
-            return null;
-        }
         return sessionMapper.selectOne(new LambdaQueryWrapper<PlatformEmbedSessionEntity>()
-                .eq(PlatformEmbedSessionEntity::getProjectCode, action.getProjectCode())
-                .eq(PlatformEmbedSessionEntity::getPageInstanceId, page.getCurrentPageInstanceId())
+                .eq(PlatformEmbedSessionEntity::getProjectCode, page.projectCode())
+                .eq(PlatformEmbedSessionEntity::getPageKey, page.pageKey())
                 .eq(PlatformEmbedSessionEntity::getStatus, "ACTIVE")
                 .orderByDesc(PlatformEmbedSessionEntity::getId)
                 .last("limit 1"));
@@ -496,38 +504,42 @@ public class PlatformEmbedCatalogController {
         return value.trim();
     }
 
-    private PageActionRegistryView registerPageCatalogAction(String projectCode,
-                                                             String appId,
-                                                             String pageKey,
-                                                             PageCatalogActionPayload request,
-                                                             LocalDateTime now) {
+    private ActionInput toActionInput(PageCatalogActionPayload request) {
         String actionKey = requireText(request == null ? null : request.actionKey(), "actionKey");
-        PlatformPageActionRegistryEntity action = new PlatformPageActionRegistryEntity();
-        action.setProjectCode(projectCode);
-        action.setAppId(appId);
-        action.setPageKey(pageKey);
-        action.setActionKey(actionKey);
-        action.setTitle(StringUtils.hasText(request.title()) ? request.title().trim() : actionKey);
-        action.setDescription(StringUtils.hasText(request.description()) ? request.description().trim() : null);
-        action.setConfirmRequired(Boolean.TRUE.equals(request.confirmRequired()));
-        action.setInputSchemaJson(toJson(request.inputSchema() == null ? Map.of() : request.inputSchema()));
-        action.setOutputSchemaJson(toJson(request.outputSchema() == null ? Map.of() : request.outputSchema()));
-        action.setSampleArgsJson(toJson(request.sampleArgs() == null ? Map.of() : request.sampleArgs()));
-        action.setAllowedAgentIdsJson(toJson(request.allowedAgentIds() == null ? List.of() : request.allowedAgentIds()));
-        action.setMetadataJson(toJson(pageCatalogMetadata(request.metadata())));
-        action.setStatus("ACTIVE");
-        action.setLastSeenAt(now);
-        pageActionRegistryMapper.insert(action);
-        return toActionView(action);
+        return new ActionInput(
+                actionKey,
+                request.title(),
+                request.description(),
+                "PAGE_ACTION",
+                Boolean.TRUE.equals(request.confirmRequired()) ? "WRITE" : "READ",
+                request.confirmRequired(),
+                stringValue(request.metadata() == null ? null : request.metadata().get("permissionKey")),
+                objectMapper.valueToTree(request.inputSchema() == null ? Map.of() : request.inputSchema()),
+                objectMapper.valueToTree(request.outputSchema() == null ? Map.of() : request.outputSchema()),
+                objectMapper.valueToTree(request.sampleArgs() == null ? Map.of() : request.sampleArgs()),
+                request.allowedAgentIds(),
+                stringValue(request.metadata() == null ? null : request.metadata().get("implementationRef")),
+                objectMapper.valueToTree(request.metadata() == null ? Map.of() : request.metadata()));
     }
 
-    private Map<String, Object> pageCatalogMetadata(Map<String, Object> metadata) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("source", "SDK");
-        if (metadata != null) {
-            result.putAll(metadata);
+    private Long projectId(String projectCode) {
+        Map<String, Object> project = capabilityClient.getProjectByCode(projectCode);
+        Object value = project.get("id");
+        if (value instanceof Number number) {
+            return number.longValue();
         }
-        return result;
+        if (value != null && StringUtils.hasText(String.valueOf(value))) {
+            return Long.valueOf(String.valueOf(value).trim());
+        }
+        throw new IllegalArgumentException("project does not expose an id: " + projectCode);
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     private String toJson(Object value) {

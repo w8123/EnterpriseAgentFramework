@@ -17,21 +17,22 @@ class CapabilityToolRetrievalServiceTest {
     private final CapabilityToolRetrievalService service = new CapabilityToolRetrievalService(toolDefinitionMapper);
 
     @Test
-    void keywordSearchReturnsMatchingEnabledVisibleTools() {
+    void keywordSearchReturnsMatchingEnabledTools() {
         when(toolDefinitionMapper.selectList(any())).thenReturn(List.of(
-                tool(1L, "order.create", "创建订单", "面向订单提交", 7L, 2L, true, true),
-                tool(2L, "user.delete", "删除用户", "高危操作", 7L, 2L, true, true),
-                tool(3L, "order.hidden", "创建订单草稿", "内部使用", 7L, 2L, true, false)
+                tool(1L, "order.create", "创建订单", "面向订单提交", 7L, 2L, true),
+                tool(2L, "user.delete", "删除用户", "高危操作", 7L, 2L, true),
+                tool(3L, "order.hidden", "创建订单草稿", "内部使用", 7L, 2L, false)
         ));
 
         List<CapabilityToolCandidate> candidates = service.retrieve(
                 "订单",
-                new CapabilityRetrievalScope(List.of(7L), List.of(2L), null, true, true),
+                new CapabilityRetrievalScope(List.of(7L), List.of(2L), null, true),
                 5,
                 0.0);
 
         assertEquals(1, candidates.size());
         assertEquals("order.create", candidates.get(0).toolName());
+        assertEquals("创建订单", candidates.get(0).toolTitle());
         assertEquals(1L, candidates.get(0).toolId());
         assertEquals(7L, candidates.get(0).projectId());
         assertEquals(2L, candidates.get(0).moduleId());
@@ -40,13 +41,13 @@ class CapabilityToolRetrievalServiceTest {
     @Test
     void honorsTopK() {
         when(toolDefinitionMapper.selectList(any())).thenReturn(List.of(
-                tool(1L, "order.create", "订单创建", "create order", null, null, true, true),
-                tool(2L, "order.query", "订单查询", "query order", null, null, true, true)
+                tool(1L, "order.create", "订单创建", "create order", null, null, true),
+                tool(2L, "order.query", "订单查询", "query order", null, null, true)
         ));
 
         List<CapabilityToolCandidate> candidates = service.retrieve(
                 "订单",
-                new CapabilityRetrievalScope(null, null, null, true, true),
+                new CapabilityRetrievalScope(null, null, null, true),
                 1,
                 0.0);
 
@@ -59,17 +60,16 @@ class CapabilityToolRetrievalServiceTest {
                                       String aiDescription,
                                       Long projectId,
                                       Long moduleId,
-                                      boolean enabled,
-                                      boolean agentVisible) {
+                                      boolean enabled) {
         ToolDefinitionEntity tool = new ToolDefinitionEntity();
         tool.setId(id);
         tool.setName(name);
+        tool.setTitle(description);
         tool.setDescription(description);
         tool.setAiDescription(aiDescription);
         tool.setProjectId(projectId);
         tool.setModuleId(moduleId);
         tool.setEnabled(enabled);
-        tool.setAgentVisible(agentVisible);
         return tool;
     }
 }

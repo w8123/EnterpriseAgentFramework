@@ -15,7 +15,7 @@
     "check:workflow-layout": "node scripts/check-workflow-layout.mjs",
     "check:studio-canvas": "node scripts/check-studio-canvas-node-data.mjs",
     "check:sdk-access-workbench": "node scripts/check-sdk-access-workbench-ui.mjs",
-    "check:page-assistant-progress": "node scripts/check-page-assistant-progress-ui.mjs",
+    "check:page-workbench": "node scripts/check-page-workbench-ui.mjs",
     "check:scan-project-detail-ui": "node scripts/check-scan-project-detail-ui.mjs",
     "check:model-center-v2-ui": "node scripts/check-model-center-v2-ui.mjs",
     "build:sdk": "vite build --config vite.sdk.config.ts && node scripts/write-embed-chat-package.mjs",
@@ -24,6 +24,7 @@
     "test:conversation": "vitest run --config vitest.conversation.config.ts",
     "test:conversation:watch": "vitest --config vitest.conversation.config.ts",
     "test:sdk": "vitest run --config vitest.sdk.config.ts",
+    "test:ai-coding": "vitest run --config vitest.ai-coding.config.ts",
     "test:workflow": "vitest run --config vitest.workflow.config.ts",
     "test:model": "vitest run --config vitest.model.config.ts",
     "preview": "vite preview"

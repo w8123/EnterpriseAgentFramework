@@ -36,8 +36,6 @@ public class CompositionDefinitionEntity {
 
     private Boolean enabled;
 
-    private Boolean agentVisible;
-
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

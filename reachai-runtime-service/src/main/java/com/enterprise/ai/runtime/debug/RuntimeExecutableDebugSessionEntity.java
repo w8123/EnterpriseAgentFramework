@@ -31,11 +31,11 @@ public class RuntimeExecutableDebugSessionEntity {
 
     private String currentNodeId;
 
-    private String draftDefinitionJson;
+    private String workingCopyDefinitionJson;
 
     private String debugOptionsJson;
 
-    private String stateJson;
+    private String stateSnapshotJson;
 
     private String messagesJson;
 

@@ -63,8 +63,11 @@ public class ReachCapabilityBeanScanner {
         if (userClass == null || properties == null) {
             return true;
         }
-        String className = userClass.getName();
         ReachAiRegistryProperties.Capability capability = properties.getCapability();
+        if (ReachAiRegistryProperties.ScanMode.ANNOTATED_ONLY.equals(capability.getScanMode())) {
+            return false;
+        }
+        String className = userClass.getName();
         if (matchesPackage(className, capability.getExcludePackages())) {
             return false;
         }

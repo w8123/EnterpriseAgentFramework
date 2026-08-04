@@ -39,6 +39,7 @@ public class CapabilityToolLookupService {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("id", entity.getId());
         body.put("name", entity.getName());
+        body.put("title", entity.getTitle());
         body.put("kind", entity.getKind());
         body.put("description", entity.getDescription());
         body.put("aiDescription", entity.getAiDescription());
@@ -55,15 +56,12 @@ public class CapabilityToolLookupService {
         body.put("responseType", entity.getResponseType());
         body.put("projectId", entity.getProjectId());
         body.put("projectCode", entity.getProjectCode());
-        body.put("visibility", entity.getVisibility());
         body.put("qualifiedName", entity.getQualifiedName());
         body.put("moduleId", entity.getModuleId());
         body.put("enabled", entity.getEnabled());
-        body.put("agentVisible", entity.getAgentVisible());
         body.put("sideEffect", entity.getSideEffect());
         body.put("skillKind", entity.getSkillKind());
         body.put("draft", entity.getDraft());
-        body.put("lightweightEnabled", entity.getLightweightEnabled());
         body.put("createTime", String.valueOf(entity.getCreateTime()));
         body.put("updateTime", String.valueOf(entity.getUpdateTime()));
         return body;

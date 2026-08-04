@@ -103,7 +103,8 @@
         <el-table-column label="接口" min-width="280" show-overflow-tooltip>
           <template #default="{ row }">
             <div class="project-api-cell">
-              <strong>{{ row.name }}</strong>
+              <strong>{{ row.title || row.name }}</strong>
+              <code>{{ row.name }}</code>
               <span>{{ row.httpMethod || '-' }} {{ row.endpointPath || row.sourceLocation || '-' }}</span>
             </div>
           </template>
@@ -183,6 +184,13 @@
             <el-option label="卡片" value="CARD" />
             <el-option label="报告" value="REPORT" />
             <el-option label="自定义" value="CUSTOM" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="config.interactionType === 'PRESENT_OUTPUT'" label="回复展示">
+          <el-select v-model="presentationMode" :teleported="false">
+            <el-option label="仅卡片" value="card_only" />
+            <el-option label="文字和卡片" value="text_and_card" />
+            <el-option label="仅文字" value="text_only" />
           </el-select>
         </el-form-item>
         <el-form-item v-if="config.component === 'CUSTOM'" label="Renderer Key">
@@ -378,6 +386,7 @@ import type {
   InteractionBindingSourceKind,
   InteractionNodeConfig,
   InteractionNodeType,
+  InteractionPresentationMode,
   StudioFieldSchema,
   StudioPort,
   StudioVariableOption,
@@ -515,6 +524,14 @@ const bindingSummary = computed(() => {
   return assetLabel(selectedBindingAsset.value)
 })
 
+const presentationMode = computed<InteractionPresentationMode>({
+  get: () => config.value.presentation?.mode
+    || (config.value.interactionType === 'PRESENT_OUTPUT' ? 'card_only' : 'text_and_card'),
+  set: (mode) => {
+    config.value.presentation = { ...(config.value.presentation || {}), mode }
+  },
+})
+
 const normalizedVariableOptions = computed<StudioVariableOption[]>(() => {
   return (props.variableOptions || []).map((item) => {
     if (typeof item === 'string') {
@@ -534,6 +551,9 @@ function selectInteractionType(value: InteractionNodeType) {
   config.value.interactionType = value
   if (value === 'PRESENT_OUTPUT' && !config.value.component) {
     config.value.component = 'DETAIL'
+  }
+  if (value === 'PRESENT_OUTPUT' && !config.value.presentation?.mode) {
+    config.value.presentation = { mode: 'card_only' }
   }
   if (value !== 'PRESENT_OUTPUT' && !config.value.component) {
     config.value.component = 'FORM'
@@ -629,6 +649,7 @@ async function selectProjectApi(row: ProjectToolInfo) {
 function projectApiToTool(row: ProjectToolInfo): ToolInfo {
   return {
     name: projectApiToolRef(row),
+    title: row.title || row.name,
     description: row.aiDescription || row.description || '',
     parameters: row.parameters || [],
     source: 'scanner',
@@ -641,14 +662,11 @@ function projectApiToTool(row: ProjectToolInfo): ToolInfo {
     responseType: row.responseType || null,
     projectId: row.projectId || props.projectId || null,
     projectCode: row.projectCode || props.projectCode || null,
-    visibility: 'PROJECT',
     qualifiedName: projectApiToolQualifiedName(row, props.projectCode),
     sourceProjectName: null,
     aiDescription: row.aiDescription || null,
     capabilityMetadataJson: null,
     enabled: row.enabled,
-    agentVisible: row.agentVisible,
-    lightweightEnabled: row.lightweightEnabled,
     catalogScanToolId: row.scanToolId,
     catalogLinkStatus: row.toolLinkStatus || null,
     catalogLinkMessage: null,
@@ -806,7 +824,6 @@ function emitCallNodeRequest(asset: ToolInfo | CompositionInfo) {
     qualifiedName: asset.qualifiedName || null,
     projectCode: asset.projectCode || null,
     projectId: asset.projectId || null,
-    visibility: asset.visibility || null,
     apiMethod: isTool(asset) ? asset.httpMethod || null : null,
     apiPath: isTool(asset) ? asset.endpointPath || null : null,
     responseType: isTool(asset) ? asset.responseType || null : null,
@@ -1016,15 +1033,15 @@ function fieldSlotStrategiesLabel(field: StudioFieldSchema) {
 
 function assetLabel(item: ToolInfo | CompositionInfo) {
   const project = item.projectCode ? ` / ${item.projectCode}` : ''
-  const visibility = item.visibility ? ` / ${item.visibility}` : ''
-  return `${item.name}${project}${visibility}`
+  const label = 'title' in item && item.title ? `${item.title} (${item.name})` : item.name
+  return `${label}${project}`
 }
 
 function apiLabel(item: ToolInfo) {
   const method = item.httpMethod ? `${item.httpMethod.toUpperCase()} ` : ''
   const path = item.endpointPath || item.sourceLocation || item.name
   const project = item.projectCode ? ` / ${item.projectCode}` : ''
-  return `${method}${path}${project}`
+  return `${item.title || item.name} · ${method}${path}${project}`
 }
 
 function isTool(item: ToolInfo | CompositionInfo | undefined): item is ToolInfo {

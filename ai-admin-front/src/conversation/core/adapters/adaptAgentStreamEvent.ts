@@ -1,5 +1,6 @@
 import type { ConversationEventEnvelope } from '../conversationEvents'
 import { createEvent } from '../conversationEvents'
+import { isBlockingUiRequest } from '../normalizeUiRequest'
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -146,7 +147,7 @@ export function adaptAgentStreamEvent(
       if (uiRequest) {
         return [
           createEvent('ui.requested', { uiRequest }, { sessionId, turnId: extras.turnId, traceId }),
-          createEvent('turn.waiting', {
+          createEvent(isBlockingUiRequest(uiRequest) ? 'turn.waiting' : 'turn.completed', {
             answer,
             uiRequest,
             sessionId,

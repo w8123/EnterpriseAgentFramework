@@ -4,6 +4,7 @@ import { ArrowLeft } from '@element-plus/icons-vue'
 import { densityClass, type WorkbenchDensity } from './glassWorkbench'
 
 export type PageHeaderVariant = 'overview' | 'entity' | 'workbench' | 'standard'
+export type PageHeaderHeightPreset = 'compact' | 'standard' | 'emphasis'
 export type PageHeaderDomain =
   | 'project'
   | 'agent'
@@ -20,6 +21,7 @@ const props = withDefaults(
     description?: string
     density?: WorkbenchDensity
     variant?: PageHeaderVariant
+    heightPreset?: PageHeaderHeightPreset
     domain?: PageHeaderDomain
     compact?: boolean
     collapsed?: boolean
@@ -69,6 +71,7 @@ if (import.meta.env.DEV) {
       densityClass(props.density),
       `app-page-header--${props.variant}`,
       `app-page-header--${props.domain}`,
+      props.heightPreset ? `app-page-header--height-${props.heightPreset}` : undefined,
       {
         'is-compact': props.compact,
         'is-collapsed': props.collapsed,
@@ -146,10 +149,6 @@ if (import.meta.env.DEV) {
   border-radius: var(--radius-xl);
   color: var(--text-primary);
   background: var(--surface-glass-panel);
-  transition:
-    height var(--motion-duration-normal) ease,
-    min-height var(--motion-duration-normal) ease,
-    padding var(--motion-duration-normal) ease;
 }
 
 .app-page-header::before,
@@ -203,7 +202,25 @@ if (import.meta.env.DEV) {
   padding-inline: var(--layout-page-header-compact-padding-inline);
 }
 
-.app-page-header.is-collapsed {
+.app-page-header--height-compact {
+  height: var(--layout-page-header-height-compact);
+  padding-block: var(--layout-page-header-compact-padding-block);
+  padding-inline: var(--layout-page-header-compact-padding-inline);
+}
+
+.app-page-header--height-standard {
+  height: var(--layout-page-header-height-standard);
+}
+
+.app-page-header--height-emphasis {
+  height: var(--layout-page-header-height-emphasis);
+}
+
+.app-page-header.is-collapsed,
+.app-page-header--overview.is-collapsed,
+.app-page-header--workbench.is-collapsed,
+.app-page-header--entity.is-collapsed,
+.app-page-header--standard.is-collapsed {
   height: var(--layout-page-header-height-compact);
   min-height: var(--layout-page-header-height-compact);
   padding-block: var(--layout-page-header-compact-padding-block);
@@ -475,6 +492,20 @@ if (import.meta.env.DEV) {
     linear-gradient(180deg, rgb(8 18 28 / 0.12), rgb(var(--page-header-domain-rgb) / 0.12));
 }
 
+[data-theme='dark'] .app-page-header__tags :deep(.el-tag) {
+  border-color: color-mix(in srgb, var(--border-readable) 72%, transparent);
+  background: color-mix(in srgb, var(--surface-solid-control) 88%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+
+[data-theme='dark'] .app-page-header__tags :deep(.el-tag--primary) {
+  color: color-mix(in srgb, var(--brand-primary) 70%, var(--text-primary));
+}
+
+[data-theme='dark'] .app-page-header__tags :deep(.el-tag--info) {
+  color: var(--text-secondary);
+}
+
 @media (max-width: 900px) {
   .app-page-header {
     height: auto;
@@ -490,6 +521,18 @@ if (import.meta.env.DEV) {
 
   .app-page-header--standard.is-compact {
     min-height: var(--layout-page-header-height-compact);
+  }
+
+  .app-page-header--height-compact {
+    min-height: var(--layout-page-header-height-compact);
+  }
+
+  .app-page-header--height-standard {
+    min-height: var(--layout-page-header-height-standard);
+  }
+
+  .app-page-header--height-emphasis {
+    min-height: var(--layout-page-header-height-emphasis);
   }
 
   .app-page-header.is-collapsed {

@@ -2,11 +2,11 @@ import { ElMessage } from 'element-plus'
 import { computed, reactive, ref, type Ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { getScanProjectTools } from '@/api/scanProject'
-import type { AgentGraphNodeTypeDescriptor } from '@/types/agent'
+import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
 import type { ProjectToolInfo } from '@/types/scanProject'
 import type { ToolParameter } from '@/types/tool'
 import type { CanvasEdge, CanvasNode, CanvasNodeKind, StudioFieldSchema } from '@/types/studio'
-import type { WorkflowStudioState } from '@/types/workflow'
+import type { WorkflowWorkingCopyState } from '@/types/workflow'
 import { createWorkflowCanvasNode } from '@/utils/workflowStudio'
 import { interactionOutputPorts } from '@/utils/studio'
 import {
@@ -24,7 +24,7 @@ import {
 } from '@/utils/projectApiTools'
 
 export interface UseWorkflowStudioApiQueryTemplateDeps {
-  studio: Ref<WorkflowStudioState | null>
+  studio: Ref<WorkflowWorkingCopyState | null>
   nodes: Ref<CanvasNode[]>
   edges: Ref<CanvasEdge[]>
   selectedNodeId: Ref<string | null>
@@ -34,7 +34,7 @@ export interface UseWorkflowStudioApiQueryTemplateDeps {
   decorateWorkflowEdge: (edge: CanvasEdge) => CanvasEdge
   markCanvasDirty: () => void
   syncJsonFromCanvas: () => void
-  nodeTypes: Ref<AgentGraphNodeTypeDescriptor[]>
+  nodeTypes: Ref<WorkflowGraphNodeTypeDescriptor[]>
   graphNodeTypeCapabilitiesLoaded: Ref<boolean>
 }
 
@@ -471,7 +471,6 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
       ref: toolRef,
       qualifiedName,
       projectCode,
-      visibility: 'PROJECT',
       credentialRef: '',
       maxRequestTimeMs: 180000,
       inputMapping,
@@ -493,6 +492,7 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
         source: { nodeId: toolNode.id, outputAlias: resultAlias, scanToolId: tool.scanToolId },
       },
       behavior: { acknowledge: false },
+      presentation: { mode: 'card_only' },
       renderSchema: {
         version: '1.0',
         initialVisibleCount: 5,

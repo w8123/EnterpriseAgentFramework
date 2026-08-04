@@ -74,7 +74,7 @@ class RuntimeGraphSpecExecutorHandlerConformanceTest {
                 continue;
             }
             RuntimeGraphSpecExecutionResult result = executor.execute("""
-                    {"entry":"n1","nodes":[{"id":"n1","type":"%s"}],"finish":["n1"]}
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"%s"}],"exitNodeIds":["n1"]}
                     """.formatted(type.type()), Map.of("message", "x"));
             assertFalse(result.success(), type.type());
             assertEquals(UNSUPPORTED, result.code(), type.type());
@@ -116,86 +116,86 @@ class RuntimeGraphSpecExecutorHandlerConformanceTest {
     private String minimalGraph(String nodeType) {
         return switch (nodeType) {
             case "USER_INPUT" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"USER_INPUT"}],"finish":["n1"]}
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"USER_INPUT"}],"exitNodeIds":["n1"]}
                     """;
             case "ANSWER" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"ANSWER","config":{"template":"ok {{ input }}"}}],"finish":["n1"]}
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"ANSWER","config":{"template":"ok {{ input }}"}}],"exitNodeIds":["n1"]}
                     """;
             case "LLM" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"LLM","config":{
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"LLM","config":{
                       "modelInstanceId":"model-1","userPrompt":"{{ input }}"
-                    }}],"finish":["n1"]}
+                    }}],"exitNodeIds":["n1"]}
                     """;
             case "TOOL" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"TOOL","config":{}}],"finish":["n1"]}
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"TOOL","config":{}}],"exitNodeIds":["n1"]}
                     """;
             case "CAPABILITY" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"CAPABILITY","config":{}}],"finish":["n1"]}
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"CAPABILITY","config":{}}],"exitNodeIds":["n1"]}
                     """;
             case "PAGE_ACTION" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"PAGE_ACTION","config":{
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"PAGE_ACTION","config":{
                       "projectCode":"demo","pageKey":"orders","actionKey":"open"
-                    }}],"finish":["n1"]}
+                    }}],"exitNodeIds":["n1"]}
                     """;
             case "INTERACTION" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"INTERACTION"}],"finish":["n1"]}
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"INTERACTION"}],"exitNodeIds":["n1"]}
                     """;
             case "INTENT_CLASSIFIER" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"INTENT_CLASSIFIER","config":{
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"INTENT_CLASSIFIER","config":{
                       "strategy":"KEYWORD",
                       "classes":[{"id":"search","keywords":["query"]}],
                       "defaultRoute":"else"
-                    }}],"edges":[{"from":"n1","to":"END","condition":"route:search"}],"finish":["n1"]}
+                    }}],"exitNodeIds":["n1"]}
                     """;
             case "IF_ELSE" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"IF_ELSE","config":{
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"IF_ELSE","config":{
                       "conditionGroups":[{"id":"paid","conditions":[
                         {"left":"params.status","operator":"equals","right":"PAID"}
                       ]}],
                       "defaultRoute":"else"
-                    }}],"edges":[{"from":"n1","to":"END","condition":"route:paid"}],"finish":["n1"]}
+                    }}],"exitNodeIds":["n1"]}
                     """;
             case "PARAMETER_EXTRACT" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"PARAMETER_EXTRACT","config":{
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"PARAMETER_EXTRACT","config":{
                       "mode":"expression",
                       "fields":[{"name":"owner","expression":"input"}]
-                    }}],"finish":["n1"]}
+                    }}],"exitNodeIds":["n1"]}
                     """;
             case "VARIABLE_ASSIGN" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"VARIABLE_ASSIGN","config":{
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"VARIABLE_ASSIGN","config":{
                       "assignments":{"demo":"input"}
-                    }}],"finish":["n1"]}
+                    }}],"exitNodeIds":["n1"]}
                     """;
             case "TEMPLATE" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"TEMPLATE","config":{
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"TEMPLATE","config":{
                       "template":"hi {{ input }}"
-                    }}],"finish":["n1"]}
+                    }}],"exitNodeIds":["n1"]}
                     """;
             case "VARIABLE_AGGREGATOR" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"VARIABLE_AGGREGATOR","config":{
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"VARIABLE_AGGREGATOR","config":{
                       "mode":"object",
                       "items":[{"name":"v","source":"input"}]
-                    }}],"finish":["n1"]}
+                    }}],"exitNodeIds":["n1"]}
                     """;
             case "KNOWLEDGE_RETRIEVAL" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"KNOWLEDGE_RETRIEVAL","config":{
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"KNOWLEDGE_RETRIEVAL","config":{
                       "knowledgeBaseCodes":["kb"],"query":"input"
-                    }}],"finish":["n1"]}
+                    }}],"exitNodeIds":["n1"]}
                     """;
             case "HTTP_REQUEST" -> """
-                    {"entry":"n1","nodes":[{"id":"n1","type":"HTTP_REQUEST","config":{
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"HTTP_REQUEST","config":{
                       "method":"GET","url":"https://example.com"
-                    }}],"finish":["n1"]}
+                    }}],"exitNodeIds":["n1"]}
                     """;
             case "LOOP" -> """
-                    {"entry":"n1","nodes":[
+                    {"entryNodeId":"n1","nodes":[
                       {"id":"n1","type":"LOOP","config":{
                         "collection":"var.items","itemAlias":"item","indexAlias":"index",
                         "outputAlias":"results","bodyOutput":"lastOutput","maxIterations":10,
                         "bodyEntry":"tpl","bodyExit":"tpl","bodyNodeIds":["tpl"]
                       }},
                       {"id":"tpl","type":"TEMPLATE","config":{"template":"{{ var.item }}"}}
-                    ],"finish":["n1"]}
+                    ],"exitNodeIds":["n1"]}
                     """;
             default -> throw new IllegalArgumentException("unexpected handled type: " + nodeType);
         };

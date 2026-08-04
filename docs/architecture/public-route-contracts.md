@@ -35,6 +35,8 @@ This document is the short source of truth for public route lifecycle decisions.
 | Runtime debug sessions and Tool execution | `/api/runtime/**` | Control | Runtime |
 | Traces and RunOps | `/api/traces/**`, `/api/runops/**` | Control | Runtime |
 | SDK registry and capability sync | `/api/registry/**` | Control | Capability, except Control-owned page registration and Runtime-owned agent graph sync |
+| Business page workbench | `/api/registry/projects/{projectCode}/page-workbench/**` | Control | Control, with Runtime published-data query |
+| AI Coding task console, handoff activation and task protocol | `/api/ai-coding-console/tasks/**`, `/api/ai-coding/handoffs/**`, `/api/ai-coding/tasks/{taskId}/**` | Control | Control |
 | Capability, Tool, Composition, API graph | `/api/capabilities/**`, `/api/tools/**`, `/api/compositions/**`, `/api/api-graph/**` | Control | Capability |
 | Capability mining | `/api/capability-mining/**` | Control | Capability |
 | Scan projects and semantic documents | `/api/scan-projects/**`, `/api/scan-modules/**`, `/api/semantic-docs/**` | Control | Capability |
@@ -49,7 +51,6 @@ These routes may remain on backend services while external callers migrate. They
 
 | Compatibility route | Main path | Owner requirement |
 | --- | --- | --- |
-| `/api/agent/workflow-credentials/**` | `/api/workflows/credentials/**` | Must delegate to Runtime-owned credential service. |
 | `/api/skill-mining/**` | `/api/capability-mining/**` | Must delegate to Capability-owned mining implementation. |
 
 ## Retired Or Frontend-Banned Routes
@@ -61,6 +62,8 @@ These routes must not appear in frontend source or product-facing guidance:
 - `/api/skill-mining/**`
 - `/api/api-assets/**`
 - `/api/platform/embed/pages/catalog`
+- `/api/ai-coding/projects/{projectId}/access-sessions/**`
+- `/api/ai-coding/projects/{projectId}/page-workbench/tasks/{taskId}/**`
 - `/internal/runtime/**`
 - `/internal/capability/**`
 - `/internal/control/**`

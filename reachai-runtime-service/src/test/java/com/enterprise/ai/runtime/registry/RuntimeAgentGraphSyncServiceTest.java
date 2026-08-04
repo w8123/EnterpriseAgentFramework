@@ -7,7 +7,9 @@ import com.enterprise.ai.runtime.registry.RuntimeAgentGraphSyncContracts.AgentGr
 import com.enterprise.ai.runtime.registry.RuntimeAgentGraphSyncContracts.AgentGraphSyncResponse;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -15,7 +17,9 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -49,11 +53,12 @@ class RuntimeAgentGraphSyncServiceTest {
     }
 
     @Test
-    void applyCreatesSdkWorkflowGraphInRuntimeOwnedWorkflowTable() {
+    void applyCreatesCanonicalSdkWorkflowAndLayoutOnlyCanvas() throws Exception {
         RuntimeCapabilityCatalogClient capabilityClient = mock(RuntimeCapabilityCatalogClient.class);
         RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
+        ObjectMapper objectMapper = new ObjectMapper();
         RuntimeAgentGraphSyncService service =
-                new RuntimeAgentGraphSyncService(capabilityClient, workflowService, new ObjectMapper());
+                new RuntimeAgentGraphSyncService(capabilityClient, workflowService, objectMapper);
         when(capabilityClient.getProject("orders")).thenReturn(Map.of("projectId", 7L, "projectCode", "orders"));
         when(workflowService.findByKeySlug("orders_orderAssistant")).thenReturn(Optional.empty());
         RuntimeWorkflowDefinitionEntity saved = new RuntimeWorkflowDefinitionEntity();
@@ -72,7 +77,28 @@ class RuntimeAgentGraphSyncServiceTest {
         assertEquals(0, response.updated());
         assertEquals("CREATED", response.items().get(0).changeType());
         assertEquals("wf_1", response.items().get(0).workflowId());
-        verify(workflowService).create(any(RuntimeWorkflowDefinitionEntity.class));
+        ArgumentCaptor<RuntimeWorkflowDefinitionEntity> draftCaptor =
+                ArgumentCaptor.forClass(RuntimeWorkflowDefinitionEntity.class);
+        verify(workflowService).create(draftCaptor.capture());
+        RuntimeWorkflowDefinitionEntity draft = draftCaptor.getValue();
+        assertEquals("GENERAL", draft.getWorkflowKind());
+        assertEquals("GRAPH_SPEC", draft.getExecutionEngine());
+        assertEquals("SDK", draft.getDefinitionAuthority());
+        assertEquals("SDK_SYNC", draft.getCreationChannel());
+
+        JsonNode graphSpec = objectMapper.readTree(draft.getGraphSpecJson());
+        assertEquals(2, graphSpec.path("schemaVersion").asInt());
+        assertEquals("llm_1", graphSpec.path("entryNodeId").asText());
+        assertEquals("llm_1", graphSpec.path("exitNodeIds").get(0).asText());
+        assertFalse(graphSpec.has("entry"));
+        assertFalse(graphSpec.has("finish"));
+        assertFalse(graphSpec.has("runtimeHint"));
+
+        JsonNode canvas = objectMapper.readTree(draft.getCanvasJson());
+        assertEquals(1, canvas.path("schemaVersion").asInt());
+        assertTrue(canvas.path("nodes").isArray());
+        assertTrue(canvas.path("nodes").findValues("data").isEmpty());
+        assertTrue(canvas.path("nodes").findValues("type").isEmpty());
     }
 
     @Test
@@ -114,6 +140,8 @@ class RuntimeAgentGraphSyncServiceTest {
                         .name("Answer")
                         .config(Map.of("modelInstanceId", modelInstanceId))
                         .build())
+                .entryNodeId("llm_1")
+                .exitNodeIds(List.of("llm_1"))
                 .build();
         return new AgentGraphRegistration(
                 code,

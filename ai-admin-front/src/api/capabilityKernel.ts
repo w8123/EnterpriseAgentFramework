@@ -29,7 +29,6 @@ export interface ToolAsset {
   executorRef?: string
   sideEffect?: string
   enabled?: boolean
-  agentVisible?: boolean
   createTime?: string
   updateTime?: string
 }
@@ -47,7 +46,6 @@ export interface CompositionDefinition {
   outputSchemaJson?: string | null
   sideEffect?: string
   enabled?: boolean
-  agentVisible?: boolean
   createTime?: string
   updateTime?: string
 }
@@ -65,7 +63,6 @@ export interface InteractionDefinition {
   inputSchemaJson?: string | null
   outputSchemaJson?: string | null
   enabled?: boolean
-  agentVisible?: boolean
   createTime?: string
   updateTime?: string
 }

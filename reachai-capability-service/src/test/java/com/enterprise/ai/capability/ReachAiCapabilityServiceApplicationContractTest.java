@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class ReachAiCapabilityServiceApplicationContractTest {
 
@@ -29,15 +30,18 @@ class ReachAiCapabilityServiceApplicationContractTest {
         assertArrayEquals(new String[] {
                 "com.enterprise.ai.agent.registry",
                 "com.enterprise.ai.agent.capability",
-                "com.enterprise.ai.agent.capability.catalog.semantic",
-                "com.enterprise.ai.agent.capability.catalog.domain",
-                "com.enterprise.ai.agent.capability.catalog.graph",
-                "com.enterprise.ai.agent.capability.catalog.scan",
-                "com.enterprise.ai.agent.capability.catalog.tool.definition",
-                "com.enterprise.ai.capability.catalog.composition",
                 "com.enterprise.ai.capability.catalog.mining",
                 "com.enterprise.ai.capability.catalog.retrieval"
         }, mapperScan.value());
         assertEquals(Mapper.class, mapperScan.annotationClass());
+
+        for (String parent : mapperScan.value()) {
+            for (String candidate : mapperScan.value()) {
+                if (!parent.equals(candidate)) {
+                    assertFalse(candidate.startsWith(parent + "."),
+                            () -> "MapperScan roots must not overlap: " + parent + " and " + candidate);
+                }
+            }
+        }
     }
 }

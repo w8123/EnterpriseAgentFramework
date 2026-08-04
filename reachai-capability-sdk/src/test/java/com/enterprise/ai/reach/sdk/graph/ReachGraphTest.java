@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -40,16 +41,13 @@ class ReachGraphTest {
                 .build();
 
         assertEquals("contract-review", graph.getCode());
-        assertEquals("LANGGRAPH4J", graph.getRuntimeType());
+        assertEquals("GRAPH_SPEC", graph.getExecutionEngine());
         assertEquals("default-qwen", graph.getModelInstanceId());
 
         ReachGraphSpec spec = graph.getGraphSpec();
-        assertEquals("contract-review", spec.getCode());
-        assertEquals("合同审查助手", spec.getName());
-        assertEquals("WORKFLOW", spec.getMode());
-        assertEquals("LANGGRAPH4J", spec.getRuntimeHint());
-        assertEquals("classify", spec.getEntry());
-        assertEquals("final", spec.getFinish().get(0));
+        assertEquals(2, spec.getSchemaVersion());
+        assertEquals("classify", spec.getEntryNodeId());
+        assertEquals("final", spec.getExitNodeIds().get(0));
         assertEquals(3, spec.getNodes().size());
         assertEquals(2, spec.getEdges().size());
 
@@ -92,9 +90,9 @@ class ReachGraphTest {
         Map<String, Object> parsed = new ObjectMapper().readValue(json, new TypeReference<Map<String, Object>>() {
         });
 
-        assertEquals("contract-review", parsed.get("code"));
-        assertEquals("WORKFLOW", parsed.get("mode"));
-        assertTrue(parsed.containsKey("runtimeHint"));
+        assertEquals(2, parsed.get("schemaVersion"));
+        assertEquals("classify", parsed.get("entryNodeId"));
+        assertEquals(Collections.singletonList("final"), parsed.get("exitNodeIds"));
         assertTrue(parsed.containsKey("nodes"));
         assertTrue(parsed.containsKey("edges"));
         assertFalse(parsed.containsKey("canvasJson"));

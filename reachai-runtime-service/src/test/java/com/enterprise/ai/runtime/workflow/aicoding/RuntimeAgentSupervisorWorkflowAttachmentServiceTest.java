@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.workflow.aicoding;
 
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigService;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentConfigDraftRequest;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentConfigVersionView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.WorkflowToolView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.WorkflowToolRequest;
@@ -26,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -34,7 +36,7 @@ import static org.mockito.Mockito.when;
 class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
 
     @Test
-    void attachesChatWorkflowViaAgentKeySlug() {
+    void attachesGeneralWorkflowViaAgentKeySlug() {
         RuntimeCapabilityCatalogClient capabilityClient = mock(RuntimeCapabilityCatalogClient.class);
         RuntimeModelCatalogClient modelCatalogClient = mock(RuntimeModelCatalogClient.class);
         RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
@@ -46,7 +48,7 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
                         new ObjectMapper());
 
         when(capabilityClient.getProjectById(7L)).thenReturn(project());
-        when(workflowService.findById("wf-chat")).thenReturn(Optional.of(workflow("wf-chat", "CHAT")));
+        when(workflowService.findById("wf-chat")).thenReturn(Optional.of(workflow("wf-chat", "GENERAL")));
         when(agentMapper.selectOne(any())).thenReturn(agent("agent-1", "orders-page-copilot"));
         when(modelCatalogClient.isActiveLlm("model-1")).thenReturn(true);
         when(configService.resolveActive("agent-1")).thenReturn(Optional.empty());
@@ -63,7 +65,7 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
                         "WRITE", "workflow:disable-team", false, 5));
 
         assertEquals("workflow-tool-attachment.v1", result.schema());
-        assertEquals("CHAT", result.workflow().workflowType());
+        assertEquals("GENERAL", result.workflow().workflowKind());
         assertEquals("chat_flow", result.toolName());
         assertTrue(result.created());
         assertFalse(result.reused());
@@ -74,6 +76,38 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
         assertFalse(toolCaptor.getValue().readOnly());
         assertTrue(toolCaptor.getValue().inputSchemaOverrideJson().contains("\"type\":\"object\""));
         verify(configService).publish("agent-1", 21L, "Cursor");
+    }
+
+    @Test
+    void normalizesWorkflowKeySlugWhenDefaultingToolName() {
+        RuntimeCapabilityCatalogClient capabilityClient = mock(RuntimeCapabilityCatalogClient.class);
+        RuntimeModelCatalogClient modelCatalogClient = mock(RuntimeModelCatalogClient.class);
+        RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
+        RuntimeAgentMapper agentMapper = mock(RuntimeAgentMapper.class);
+        RuntimeAgentConfigService configService = mock(RuntimeAgentConfigService.class);
+        RuntimeAgentSupervisorWorkflowAttachmentService service =
+                new RuntimeAgentSupervisorWorkflowAttachmentService(
+                        capabilityClient, modelCatalogClient, workflowService, agentMapper, configService,
+                        new ObjectMapper());
+
+        when(capabilityClient.getProjectById(7L)).thenReturn(project());
+        when(workflowService.findById("wf-chat")).thenReturn(Optional.of(workflow("wf-chat", "GENERAL")));
+        when(agentMapper.selectOne(any())).thenReturn(agent("agent-1", "orders-page-copilot"));
+        when(modelCatalogClient.isActiveLlm("model-1")).thenReturn(true);
+        when(configService.resolveActive("agent-1")).thenReturn(Optional.empty());
+        AgentConfigVersionView draft = config(21L, 2, "DRAFT");
+        AgentConfigVersionView active = config(21L, 2, "ACTIVE");
+        when(configService.upsertWorkflowToolInDraft(eq("agent-1"), any())).thenReturn(draft);
+        when(configService.publish("agent-1", 21L, "Cursor")).thenReturn(active);
+
+        service.attach(
+                7L,
+                new RuntimeAgentSupervisorWorkflowAttachmentService.AttachRequest(
+                        "wf-chat", null, "orders-page-copilot", "model-1", "Cursor"));
+
+        ArgumentCaptor<WorkflowToolRequest> toolCaptor = ArgumentCaptor.forClass(WorkflowToolRequest.class);
+        verify(configService).upsertWorkflowToolInDraft(eq("agent-1"), toolCaptor.capture());
+        assertEquals("chat_flow", toolCaptor.getValue().toolName());
     }
 
     @Test
@@ -89,7 +123,7 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
                         new ObjectMapper());
 
         when(capabilityClient.getProjectById(7L)).thenReturn(project());
-        when(workflowService.findById("wf-chat")).thenReturn(Optional.of(workflow("wf-chat", "CHAT")));
+        when(workflowService.findById("wf-chat")).thenReturn(Optional.of(workflow("wf-chat", "GENERAL")));
         when(agentMapper.selectOne(any())).thenReturn(agent("agent-1", "orders-page-copilot"));
         when(modelCatalogClient.isActiveLlm("model-1")).thenReturn(true);
         RuntimeAgentConfigVersionEntity activeEntity = new RuntimeAgentConfigVersionEntity();
@@ -110,7 +144,7 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
     }
 
     @Test
-    void rejectsChatOnPageAssistantOnlyPath() {
+    void rejectsGeneralOnPageAssistantOnlyPath() {
         RuntimeCapabilityCatalogClient capabilityClient = mock(RuntimeCapabilityCatalogClient.class);
         RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
         RuntimeAgentSupervisorWorkflowAttachmentService service =
@@ -118,13 +152,13 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
                         capabilityClient, mock(RuntimeModelCatalogClient.class), workflowService,
                         mock(RuntimeAgentMapper.class), mock(RuntimeAgentConfigService.class), new ObjectMapper());
         when(capabilityClient.getProject("orders")).thenReturn(project());
-        when(workflowService.findById("wf-chat")).thenReturn(Optional.of(workflow("wf-chat", "CHAT")));
+        when(workflowService.findById("wf-chat")).thenReturn(Optional.of(workflow("wf-chat", "GENERAL")));
 
         AiCodingAttachmentException ex = assertThrows(AiCodingAttachmentException.class,
                 () -> service.attachPageAssistantOnly("wf-chat",
                         new RuntimeAgentSupervisorWorkflowAttachmentService.PageAssistantAttachRequest(
                                 null, "orders", null, "model-1", "wizard")));
-        assertEquals("WORKFLOW_TYPE_NOT_SUPPORTED", ex.code());
+        assertEquals("WORKFLOW_KIND_NOT_SUPPORTED", ex.code());
     }
 
     @Test
@@ -139,7 +173,7 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
                         capabilityClient, modelCatalogClient, workflowService, agentMapper, configService,
                         new ObjectMapper());
         when(capabilityClient.getProjectById(7L)).thenReturn(project());
-        when(workflowService.findById("wf-chat")).thenReturn(Optional.of(workflow("wf-chat", "CHAT")));
+        when(workflowService.findById("wf-chat")).thenReturn(Optional.of(workflow("wf-chat", "GENERAL")));
         when(agentMapper.selectOne(any())).thenReturn(agent("agent-1", "orders-page-copilot"));
         when(configService.resolveActive("agent-1")).thenReturn(Optional.empty());
         when(modelCatalogClient.firstActiveLlmId()).thenReturn(null);
@@ -162,7 +196,7 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
                         capabilityClient, modelCatalogClient, workflowService, agentMapper, configService,
                         new ObjectMapper());
         when(capabilityClient.getProjectById(7L)).thenReturn(project());
-        when(workflowService.findById("wf-chat")).thenReturn(Optional.of(workflow("wf-chat", "CHAT")));
+        when(workflowService.findById("wf-chat")).thenReturn(Optional.of(workflow("wf-chat", "GENERAL")));
         when(agentMapper.selectOne(any())).thenReturn(agent("agent-1", "orders-page-copilot"));
         when(configService.resolveActive("agent-1")).thenReturn(Optional.empty());
         when(modelCatalogClient.firstActiveLlmId()).thenThrow(new RuntimeException("model service down"));
@@ -171,6 +205,97 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
                 () -> service.attach(7L, new RuntimeAgentSupervisorWorkflowAttachmentService.AttachRequest(
                         "wf-chat", null, "orders-page-copilot", null, "Cursor")));
         assertEquals("RUNTIME_DEPENDENCY_UNAVAILABLE", ex.code());
+    }
+
+    @Test
+    void createsManagedPageCopilotWithChineseReadableDefaults() {
+        RuntimeCapabilityCatalogClient capabilityClient = mock(RuntimeCapabilityCatalogClient.class);
+        RuntimeModelCatalogClient modelCatalogClient = mock(RuntimeModelCatalogClient.class);
+        RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
+        RuntimeAgentMapper agentMapper = mock(RuntimeAgentMapper.class);
+        RuntimeAgentConfigService configService = mock(RuntimeAgentConfigService.class);
+        RuntimeAgentSupervisorWorkflowAttachmentService service =
+                new RuntimeAgentSupervisorWorkflowAttachmentService(
+                        capabilityClient, modelCatalogClient, workflowService, agentMapper, configService,
+                        new ObjectMapper());
+
+        when(capabilityClient.getProjectById(7L)).thenReturn(project());
+        when(workflowService.findById("wf-chat")).thenReturn(Optional.of(workflow("wf-chat", "GENERAL")));
+        when(agentMapper.selectOne(any())).thenReturn(null);
+        when(modelCatalogClient.isActiveLlm("model-1")).thenReturn(true);
+        when(configService.resolveActive(any())).thenReturn(Optional.empty());
+        when(configService.upsertWorkflowToolInDraft(any(), any())).thenReturn(config(21L, 1, "DRAFT"));
+        when(configService.publish(any(), eq(21L), eq("Codex"))).thenReturn(config(21L, 1, "ACTIVE"));
+
+        RuntimeAgentSupervisorWorkflowAttachmentService.AttachmentResult result = service.attach(
+                7L,
+                new RuntimeAgentSupervisorWorkflowAttachmentService.AttachRequest(
+                        "wf-chat", null, null, "model-1", "Codex"));
+
+        ArgumentCaptor<RuntimeAgentEntity> agentCaptor = ArgumentCaptor.forClass(RuntimeAgentEntity.class);
+        verify(agentMapper).insert(agentCaptor.capture());
+        RuntimeAgentEntity created = agentCaptor.getValue();
+        assertEquals("orders 页面副驾驶 Agent", created.getName());
+        assertEquals(
+                "项目页面副驾驶 Agent，用于嵌入式对话、页面理解和 Workflow 路由。",
+                created.getDescription());
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(configService).createInitialDraft(
+                eq(created.getId()),
+                promptCaptor.capture(),
+                isNull(),
+                org.mockito.ArgumentMatchers.anyString());
+        assertTrue(promptCaptor.getValue().startsWith("你是当前项目的页面副驾驶 Supervisor"));
+        assertTrue(promptCaptor.getValue().contains("名称、说明和回复默认使用简体中文"));
+        assertEquals(created.getId(), result.agent().id());
+    }
+
+    @Test
+    void upgradesLegacyManagedPageCopilotContentToChinese() {
+        RuntimeCapabilityCatalogClient capabilityClient = mock(RuntimeCapabilityCatalogClient.class);
+        RuntimeModelCatalogClient modelCatalogClient = mock(RuntimeModelCatalogClient.class);
+        RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
+        RuntimeAgentMapper agentMapper = mock(RuntimeAgentMapper.class);
+        RuntimeAgentConfigService configService = mock(RuntimeAgentConfigService.class);
+        RuntimeAgentSupervisorWorkflowAttachmentService service =
+                new RuntimeAgentSupervisorWorkflowAttachmentService(
+                        capabilityClient, modelCatalogClient, workflowService, agentMapper, configService,
+                        new ObjectMapper());
+        RuntimeAgentEntity legacyAgent = agent("agent-1", "orders-page-copilot");
+        legacyAgent.setName("orders Page Copilot");
+        legacyAgent.setDescription(
+                "Project page copilot Agent for embedded chat, page understanding, and Workflow routing.");
+        RuntimeAgentConfigVersionEntity activeEntity = new RuntimeAgentConfigVersionEntity();
+        activeEntity.setId(20L);
+        activeEntity.setModelInstanceId("model-1");
+        activeEntity.setSystemPrompt(
+                "You are the project's page copilot. Understand the user's intent and select the permitted Workflows as tools.");
+
+        when(capabilityClient.getProjectById(7L)).thenReturn(project());
+        when(workflowService.findById("wf-chat")).thenReturn(Optional.of(workflow("wf-chat", "GENERAL")));
+        when(agentMapper.selectOne(any())).thenReturn(legacyAgent);
+        when(modelCatalogClient.isActiveLlm("model-1")).thenReturn(true);
+        when(configService.resolveActive("agent-1")).thenReturn(Optional.of(activeEntity));
+        when(configService.listTools("agent-1", 20L)).thenReturn(List.of(tool(20L, "wf-chat")));
+        when(configService.upsertWorkflowToolInDraft(eq("agent-1"), any())).thenReturn(config(21L, 3, "DRAFT"));
+        when(configService.publish("agent-1", 21L, "Codex")).thenReturn(config(21L, 3, "ACTIVE"));
+
+        service.attach(
+                7L,
+                new RuntimeAgentSupervisorWorkflowAttachmentService.AttachRequest(
+                        "wf-chat", null, null, "model-1", "Codex"));
+
+        ArgumentCaptor<RuntimeAgentEntity> agentCaptor = ArgumentCaptor.forClass(RuntimeAgentEntity.class);
+        verify(agentMapper).updateById(agentCaptor.capture());
+        assertEquals("orders 页面副驾驶 Agent", agentCaptor.getValue().getName());
+        assertEquals(
+                "项目页面副驾驶 Agent，用于嵌入式对话、页面理解和 Workflow 路由。",
+                agentCaptor.getValue().getDescription());
+        ArgumentCaptor<AgentConfigDraftRequest> configCaptor =
+                ArgumentCaptor.forClass(AgentConfigDraftRequest.class);
+        verify(configService).saveDraft(eq("agent-1"), configCaptor.capture());
+        assertTrue(configCaptor.getValue().systemPrompt().startsWith(
+                "你是当前项目的页面副驾驶 Supervisor"));
     }
 
     private AgentConfigVersionView config(Long id, int versionNo, String status) {
@@ -195,13 +320,13 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
         return Map.of("projectId", 7L, "projectCode", "orders", "visibility", "PROJECT");
     }
 
-    private RuntimeWorkflowDefinitionEntity workflow(String id, String type) {
+    private RuntimeWorkflowDefinitionEntity workflow(String id, String workflowKind) {
         RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
         workflow.setId(id);
         workflow.setProjectId(7L);
         workflow.setProjectCode("orders");
         workflow.setKeySlug("chat-flow");
-        workflow.setWorkflowType(type);
+        workflow.setWorkflowKind(workflowKind);
         workflow.setStatus("ACTIVE");
         return workflow;
     }

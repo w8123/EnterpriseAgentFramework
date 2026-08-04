@@ -8,10 +8,6 @@
       description="SDK 上报先生成 snapshot 与字段级 diff，再通过评审 API 逐条 apply 或 ignore。"
     />
 
-    <WorkbenchPanel level="control" density="compact">
-      <ProjectSelector />
-    </WorkbenchPanel>
-
     <section class="capability-sync-grid"><el-row :gutter="16">
       <el-col :span="10">
         <el-card shadow="never">
@@ -23,7 +19,7 @@
           </template>
           <el-alert
             v-if="!selectedProjectCode"
-            title="请先在顶部选择项目，或从项目详情页进入调试。"
+            title="请先在左上角的“当前项目”中选择项目。"
             type="warning"
             show-icon
             :closable="false"
@@ -85,8 +81,6 @@ import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
-import ProjectSelector from '@/components/ProjectSelector.vue'
 import { applyRegistryCapabilities, diffRegistryCapabilities, syncRegistryCapabilities } from '@/api/registry'
 import { useProjectStore } from '@/store/project'
 import type { CapabilitySyncRequest, CapabilitySyncResponse } from '@/types/registry'
@@ -112,9 +106,7 @@ function fillExample() {
           description: '按订单号查询订单详情',
           httpMethod: 'GET',
           endpointPath: '/api/orders/{orderNo}',
-          visibility: 'PROJECT',
           enabled: true,
-          agentVisible: true,
           parameters: [
             {
               name: 'orderNo',

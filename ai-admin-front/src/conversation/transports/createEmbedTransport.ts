@@ -5,6 +5,7 @@ import type { ConversationTurnInput } from '../core/conversationTypes'
 import { parseSseStream, isAbortError } from '../core/parseSseStream'
 import { createAttemptIdempotencyKey } from '../core/buildInteractionIdempotencyKey'
 import { canFallbackFromStreamFailure } from '../core/streamFallbackPolicy'
+import { isBlockingUiRequest, isCardOnlyUiRequest } from '../core/normalizeUiRequest'
 import type { ConversationTransport } from './transportTypes'
 
 export interface EmbedTransportOptions {
@@ -123,7 +124,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
     sessionId: string,
   ): Generator<ConversationEventEnvelope> {
     yield createEvent('turn.started', {}, { sessionId })
-    if (data.answer) {
+    if (data.answer && !isCardOnlyUiRequest(data.uiRequest)) {
       yield createEvent('message.delta', { text: String(data.answer) }, { sessionId })
     }
     const publicMetadata = data.metadata && typeof data.metadata === 'object' && !Array.isArray(data.metadata)
@@ -131,7 +132,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
       : undefined
     if (data.uiRequest) {
       yield createEvent('ui.requested', { uiRequest: data.uiRequest }, { sessionId })
-      yield createEvent('turn.waiting', {
+      yield createEvent(isBlockingUiRequest(data.uiRequest) ? 'turn.waiting' : 'turn.completed', {
         answer: data.answer,
         uiRequest: data.uiRequest,
         sessionId,

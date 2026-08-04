@@ -8,8 +8,8 @@
       :description="workflow?.keySlug || workflowId"
     >
       <template #tags>
-          <el-tag size="small" effect="plain">{{ formatWorkflowTypeLabel(workflow?.workflowType) }}</el-tag>
-          <el-tag size="small" type="info" effect="plain">{{ formatRuntimeTypeLabel(workflow?.runtimeType) }}</el-tag>
+          <el-tag size="small" effect="plain">{{ formatWorkflowKindLabel(workflow?.workflowKind) }}</el-tag>
+          <el-tag size="small" type="info" effect="plain">{{ formatWorkflowExecutionEngineLabel(workflow?.executionEngine) }}</el-tag>
           <el-tag size="small" :type="workflowStatusTagType(workflow?.status)">
             {{ formatWorkflowStatusLabel(workflow?.status) }}
           </el-tag>
@@ -54,8 +54,8 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="rolloutPercent" label="灰度" width="110">
-        <template #default="{ row }">{{ row.rolloutPercent ?? 100 }}%</template>
+      <el-table-column label="生效方式" width="110">
+        <template #default>全量</template>
       </el-table-column>
       <el-table-column prop="publishedBy" label="发布人" min-width="140" />
       <el-table-column prop="publishedAt" label="发布时间" min-width="180" />
@@ -79,8 +79,8 @@
         <el-form-item label="版本">
           <el-input v-model="publishForm.version" placeholder="v1.0.0" />
         </el-form-item>
-        <el-form-item label="灰度">
-          <el-input-number v-model="publishForm.rolloutPercent" :min="0" :max="100" />
+        <el-form-item label="生效方式">
+          <el-input value="全量发布" disabled />
         </el-form-item>
         <el-form-item label="发布人">
           <el-input v-model="publishForm.publishedBy" placeholder="operator" />
@@ -111,15 +111,15 @@ import {
   validateWorkflowVersion,
 } from '@/api/workflow'
 import type {
-  WorkflowDefinition,
+  WorkflowWorkingCopy,
   WorkflowPublishRequest,
   WorkflowReleaseValidationResult,
   WorkflowVersion,
 } from '@/types/workflow'
-import { formatRuntimeTypeLabel } from '@/utils/registryLabels'
 import {
+  formatWorkflowExecutionEngineLabel,
+  formatWorkflowKindLabel,
   formatWorkflowStatusLabel,
-  formatWorkflowTypeLabel,
   workflowStatusTagType,
 } from '@/utils/workflowLabels'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
@@ -134,7 +134,7 @@ const validating = ref(false)
 const publishing = ref(false)
 const rollingBackId = ref<number | null>(null)
 const publishOpen = ref(false)
-const workflow = ref<WorkflowDefinition | null>(null)
+const workflow = ref<WorkflowWorkingCopy | null>(null)
 const versions = ref<WorkflowVersion[]>([])
 const validation = ref<WorkflowReleaseValidationResult | null>(null)
 const publishForm = reactive<WorkflowPublishRequest>({
@@ -188,7 +188,7 @@ async function publishVersion() {
   try {
     await publishWorkflowVersion(workflowId, {
       version: publishForm.version.trim(),
-      rolloutPercent: publishForm.rolloutPercent,
+      rolloutPercent: 100,
       note: publishForm.note,
       publishedBy: publishForm.publishedBy,
     })

@@ -1,12 +1,11 @@
 <template>
   <WorkbenchPage class="runops-page" layout="list">
     <PageHeader
-      variant="standard"
-      compact
-      :artwork="false"
+      variant="overview"
       domain="governance"
-      title="RunOps 运行中心"
-      description="观测 Agent 决策、Workflow 调用与运行异常"
+      eyebrow="运行治理"
+      title="运行中心"
+      description="观测智能体决策、工作流调用与运行异常"
     >
       <template #actions>
         <el-button
@@ -37,6 +36,24 @@
     </section>
 
     <el-card shadow="never" class="filter-card">
+      <FilterBar
+        class="trace-lookup-bar"
+        density="compact"
+        :show-reset="false"
+        query-label="打开追踪记录"
+        @query="openTrace"
+      >
+        <el-form-item label="追踪 ID">
+          <el-input
+            v-model="traceLookupId"
+            class="trace-lookup-input"
+            clearable
+            :prefix-icon="Search"
+            placeholder="输入完整追踪 ID，直接查看运行详情"
+          />
+        </el-form-item>
+      </FilterBar>
+
       <div class="section-heading">
         <h2>筛选运行记录</h2>
         <span class="section-count">当前匹配 {{ filteredRuns.length }} 条</span>
@@ -48,7 +65,7 @@
           class="keyword-filter"
           clearable
           :prefix-icon="Search"
-          placeholder="搜索运行名称、Trace ID 或错误信息"
+          placeholder="搜索运行名称、追踪 ID 或错误信息"
           @keyup.enter="applyFilters"
         />
         <el-select v-model="draftFilters.days" class="time-window-filter" aria-label="时间范围">
@@ -65,12 +82,11 @@
           aria-label="运行状态"
         >
           <el-option label="运行中" value="RUNNING" />
-          <el-option label="成功" value="SUCCESS" />
+          <el-option label="已暂停" value="SUSPENDED" />
+          <el-option label="已完成" value="COMPLETED" />
           <el-option label="失败" value="FAILED" />
-          <el-option label="等待用户交互" value="WAITING_USER" />
-          <el-option label="等待审批" value="WAITING_APPROVAL" />
           <el-option label="已取消" value="CANCELLED" />
-          <el-option label="超时" value="TIMEOUT" />
+          <el-option label="已超时" value="TIMED_OUT" />
         </el-select>
         <el-select
           v-model="draftFilters.runType"
@@ -79,8 +95,8 @@
           placeholder="运行类型"
           aria-label="运行类型"
         >
-          <el-option label="Agent" value="AGENT" />
-          <el-option label="Workflow" value="WORKFLOW" />
+          <el-option label="智能体" value="AGENT" />
+          <el-option label="工作流" value="WORKFLOW" />
         </el-select>
         <el-select
           v-model="draftFilters.entryType"
@@ -114,11 +130,11 @@
           />
         </label>
         <label class="filter-field">
-          <span>Agent ID</span>
+          <span>智能体 ID</span>
           <el-input
             v-model="draftFilters.agentId"
             clearable
-            placeholder="全部 Agent"
+            placeholder="全部智能体"
             @keyup.enter="applyFilters"
           />
         </label>
@@ -290,7 +306,7 @@
             <el-table-column label="状态" width="84">
               <template #default="{ row }">
                 <el-tag :type="statusTagType(row.status)" size="small" effect="light">
-                  {{ statusLabel(row.status) }}
+                  {{ runStatusLabel(row) }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -300,7 +316,7 @@
                 <div class="run-object">
                   <div class="run-object__title">
                     <el-tag size="small" effect="plain" :type="row.runType === 'AGENT' ? 'success' : ''">
-                      {{ row.runType }}
+                      {{ runTypeLabel(row.runType) }}
                     </el-tag>
                     <el-tooltip :content="runObjectLabel(row)" placement="top" :show-after="400">
                       <span class="issue-title run-object__name">{{ runObjectLabel(row) }}</span>
@@ -315,7 +331,7 @@
                       <button
                         type="button"
                         class="trace-chip"
-                        :aria-label="`复制 Trace ID ${row.traceId}`"
+                        :aria-label="`复制追踪 ID ${row.traceId}`"
                         @click="copyTraceId(row.traceId)"
                       >
                         {{ shortTraceId(row.traceId) }}
@@ -346,7 +362,7 @@
                 <div class="decision-metrics">
                   <span>规划 {{ row.planCount ?? 0 }}</span>
                   <span :class="{ 'is-warn': (row.replanCount ?? 0) > 0 }">重规划 {{ row.replanCount ?? 0 }}</span>
-                  <span>Workflow {{ row.workflowCallCount ?? 0 }}</span>
+                  <span>工作流 {{ row.workflowCallCount ?? 0 }}</span>
                   <span v-if="row.approvalCount" class="is-warn">审批 {{ row.approvalCount }}</span>
                 </div>
               </template>
@@ -362,18 +378,17 @@
                     </div>
                   </el-tooltip>
                 </template>
-                <span v-else-if="row.status === 'WAITING_USER'" class="result-waiting">等待用户交互</span>
-                <span v-else-if="row.status === 'WAITING_APPROVAL'" class="result-waiting">等待审批</span>
+                <span v-else-if="row.status === 'SUSPENDED'" class="result-waiting">{{ runStatusLabel(row) }}</span>
                 <span v-else class="muted">{{ statusLabel(row.status) }}</span>
               </template>
             </el-table-column>
 
-            <el-table-column label="耗时 / Token" width="92" align="right">
+            <el-table-column label="耗时 / Token 数" width="92" align="right">
               <template #default="{ row }">
-                <el-tooltip :content="`${row.latencyMs ?? 0} ms · ${row.tokenCost ?? 0} token`" placement="top" :show-after="400">
+                <el-tooltip :content="`${row.latencyMs ?? 0} ms · ${row.tokenCost ?? 0} Token`" placement="top" :show-after="400">
                   <div class="cell-stack cell-stack--end">
                     <div class="issue-title">{{ formatLatencyMs(row.latencyMs) }}</div>
-                    <div class="issue-meta">{{ row.tokenCost ?? 0 }} token</div>
+                    <div class="issue-meta">{{ row.tokenCost ?? 0 }} Token</div>
                   </div>
                 </el-tooltip>
               </template>
@@ -394,7 +409,7 @@
                     size="small"
                     @click="router.push(`/workflows/${row.workflowId}/studio`)"
                   >
-                    Studio
+                    编排
                   </el-button>
                 </div>
               </template>
@@ -436,6 +451,7 @@ import type {
   RunSummary,
   VersionComparison,
 } from '@/types/runops'
+import FilterBar from '@/components/common/FilterBar.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import { useProjectStore } from '@/store/project'
@@ -445,12 +461,22 @@ const route = useRoute()
 const projectStore = useProjectStore()
 const loading = ref(false)
 const diagnosticsLoading = ref(false)
+const traceLookupId = ref('')
 const showMoreFilters = ref(false)
 const runs = ref<RunSummary[]>([])
 const currentPage = ref(1)
 const pageSize = ref(10)
 const entryTypes: RunEntryType[] = ['DEBUG', 'EMBED', 'GATEWAY', 'EVAL', 'REPLAY', 'API']
 const diagnostics = ref<RunDiagnostics>({ failureClusters: [], versionComparisons: [] })
+
+function openTrace() {
+  const traceId = traceLookupId.value.trim()
+  if (!traceId) {
+    ElMessage.warning('请输入追踪 ID')
+    return
+  }
+  router.push({ name: 'RunOpsDetail', params: { traceId } })
+}
 
 type FilterState = {
   projectCode: string
@@ -510,9 +536,8 @@ const advancedFilterCount = computed(() => {
 
 const kpis = computed(() => {
   const total = filteredRuns.value.length
-  const failed = filteredRuns.value.filter((run) => ['FAILED', 'TIMEOUT'].includes(run.status)).length
-  const waiting = filteredRuns.value.filter((run) =>
-    run.status === 'WAITING_APPROVAL' || run.status === 'WAITING_USER').length
+  const failed = filteredRuns.value.filter((run) => ['FAILED', 'TIMED_OUT'].includes(run.status)).length
+  const waiting = filteredRuns.value.filter((run) => run.status === 'SUSPENDED').length
   const avgLatency = total
     ? Math.round(filteredRuns.value.reduce((sum, run) => sum + (run.latencyMs ?? 0), 0) / total)
     : 0
@@ -545,7 +570,7 @@ async function loadRuns() {
     const { data } = await getRecentRunOps(requestParams.value)
     runs.value = data ?? []
   } catch {
-    ElMessage.error('加载 RunOps 根运行列表失败')
+    ElMessage.error('加载根运行列表失败')
   } finally {
     loading.value = false
   }
@@ -557,7 +582,7 @@ async function loadDiagnostics() {
     const { data } = await getRunOpsDiagnostics(requestParams.value)
     diagnostics.value = data ?? { failureClusters: [], versionComparisons: [] }
   } catch {
-    ElMessage.error('加载 RunOps 诊断数据失败')
+    ElMessage.error('加载运行诊断数据失败')
   } finally {
     diagnosticsLoading.value = false
   }
@@ -614,6 +639,14 @@ function runVersionLabel(run: RunSummary) {
   return `${version || '-'}${versionId == null ? '' : ` · #${versionId}`}`
 }
 
+function runTypeLabel(runType?: string) {
+  const labels: Record<string, string> = {
+    AGENT: '智能体',
+    WORKFLOW: '工作流',
+  }
+  return runType ? labels[runType] || runType : '-'
+}
+
 function diagnosticObjectLabel(row: FailureCluster | VersionComparison) {
   return row.versionType === 'WORKFLOW'
     ? row.workflowName || row.workflowId || '-'
@@ -652,26 +685,32 @@ function entryTypeLabel(entryType?: RunEntryType) {
 function statusLabel(status: RunStatus) {
   const labels: Record<RunStatus, string> = {
     RUNNING: '运行中',
-    SUCCESS: '成功',
+    SUSPENDED: '已暂停',
+    COMPLETED: '已完成',
     FAILED: '失败',
-    WAITING_USER: '等待用户交互',
-    WAITING_APPROVAL: '等待审批',
     CANCELLED: '已取消',
-    TIMEOUT: '超时',
+    TIMED_OUT: '已超时',
   }
   return labels[status]
 }
 
+function runStatusLabel(run: RunSummary) {
+  if (run.status !== 'SUSPENDED') return statusLabel(run.status)
+  if (run.suspensionReason === 'APPROVAL') return '等待审批'
+  if (run.suspensionReason === 'USER_INPUT') return '等待用户交互'
+  return statusLabel(run.status)
+}
+
 function statusTagType(status?: string) {
-  if (status === 'SUCCESS') return 'success'
+  if (status === 'COMPLETED' || status === 'SUCCESS') return 'success'
   if (status === 'RUNNING') return 'primary'
-  if (status === 'WAITING_APPROVAL' || status === 'WAITING_USER') return 'warning'
+  if (status === 'SUSPENDED' || status === 'WAITING_APPROVAL' || status === 'WAITING_USER') return 'warning'
   if (status === 'CANCELLED') return 'info'
   return 'danger'
 }
 
 function isFailedStatus(status?: string) {
-  return status === 'FAILED' || status === 'TIMEOUT'
+  return status === 'FAILED' || status === 'TIMED_OUT' || status === 'TIMEOUT'
 }
 
 function toPercent(value?: number) {
@@ -707,9 +746,9 @@ async function copyTraceId(traceId?: string) {
   if (!traceId) return
   try {
     await navigator.clipboard.writeText(traceId)
-    ElMessage.success('Trace ID 已复制')
+    ElMessage.success('追踪 ID 已复制')
   } catch {
-    ElMessage.error('复制 Trace ID 失败')
+    ElMessage.error('复制追踪 ID 失败')
   }
 }
 
@@ -736,41 +775,6 @@ watch([filteredRuns, pageSize], () => {
 <style scoped lang="scss">
 .runops-page {
   gap: 12px;
-}
-
-/* 紧凑工具栏：压低 PageHeader，去掉玻璃与渐变装饰 */
-.runops-page :deep(.app-page-header) {
-  height: 64px;
-  min-height: 64px;
-  padding: 10px 16px;
-  border: 1px solid var(--border-divider);
-  border-radius: 10px;
-  background: var(--surface-solid-panel);
-  box-shadow: none;
-}
-
-.runops-page :deep(.app-page-header::before),
-.runops-page :deep(.app-page-header::after),
-.runops-page :deep(.app-page-header__title-row::before) {
-  display: none;
-}
-
-.runops-page :deep(.app-page-header__title) {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: 1.25;
-}
-
-.runops-page :deep(.app-page-header__description) {
-  margin-top: 2px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.runops-page :deep(.app-page-header__action-dock) {
-  gap: 8px;
 }
 
 .runops-kpis {
@@ -840,6 +844,24 @@ watch([filteredRuns, pageSize], () => {
 
 .filter-card :deep(.el-card__body) {
   padding: 14px 16px;
+}
+
+.trace-lookup-bar {
+  margin: -2px -2px 14px;
+  padding: 12px;
+}
+
+.trace-lookup-bar :deep(.filter-bar__fields) {
+  flex-wrap: nowrap;
+}
+
+.trace-lookup-bar :deep(.el-form-item) {
+  flex: 1;
+  margin: 0;
+}
+
+.trace-lookup-input {
+  width: min(520px, 100%);
 }
 
 .section-heading {

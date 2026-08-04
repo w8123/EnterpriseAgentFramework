@@ -79,8 +79,8 @@ export function useScanProjectSummary(deps: UseScanProjectSummaryDeps) {
     deps.tools.value.filter((item) => !item.globalToolDefinitionId && !item.removedFromSource).length,
   )
 
-  const agentVisibleToolCount = computed(() =>
-    deps.tools.value.filter((item) => item.agentVisible && item.globalToolDefinitionId && !item.removedFromSource).length,
+  const enabledToolCount = computed(() =>
+    deps.tools.value.filter((item) => item.enabled && item.globalToolDefinitionId && !item.removedFromSource).length,
   )
 
   const sensitiveRiskCount = computed(() =>
@@ -124,9 +124,9 @@ export function useScanProjectSummary(deps: UseScanProjectSummaryDeps) {
       {
         key: 'agent',
         label: '用于 Agent',
-        value: hasApi ? `${agentVisibleToolCount.value}` : '-',
-        desc: agentVisibleToolCount.value > 0 ? '已可进入智能体编排' : '上架后开放给 Agent',
-        status: agentVisibleToolCount.value > 0 ? 'done' : hasApi && linkedToolCount.value > 0 ? 'active' : 'todo',
+        value: hasApi ? `${enabledToolCount.value}` : '-',
+        desc: enabledToolCount.value > 0 ? '已可进入智能体编排' : '上架并启用后开放给 Agent',
+        status: enabledToolCount.value > 0 ? 'done' : hasApi && linkedToolCount.value > 0 ? 'active' : 'todo',
       },
     ]
   })

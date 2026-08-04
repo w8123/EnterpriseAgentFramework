@@ -44,8 +44,8 @@ class RuntimePageAssistantWorkflowControllerTest {
                 new RuntimePageAssistantWorkflowAttachRequest(7L, "orders", "agent-1", "model-1", "wizard");
         when(service.attachPublishedPageWorkflow("wf-1", request))
                 .thenThrow(new AiCodingAttachmentException(
-                        "WORKFLOW_TYPE_NOT_SUPPORTED",
-                        "Page Assistant attach endpoint only accepts PAGE_ASSISTANT, got: CHAT"));
+                        "WORKFLOW_KIND_NOT_SUPPORTED",
+                        "Page Assistant attach endpoint only accepts PAGE_ASSISTANT, got: GENERAL"));
 
         ResponseEntity<?> response = controller.attachPageAssistantWorkflowTool("wf-1", request);
 
@@ -53,6 +53,6 @@ class RuntimePageAssistantWorkflowControllerTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> body = (Map<String, Object>) response.getBody();
         assertEquals("ai-coding-error.v1", body.get("schema"));
-        assertEquals("WORKFLOW_TYPE_NOT_SUPPORTED", body.get("code"));
+        assertEquals("WORKFLOW_KIND_NOT_SUPPORTED", body.get("code"));
     }
 }

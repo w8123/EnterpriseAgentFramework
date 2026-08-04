@@ -6,6 +6,7 @@ import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinition
 import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinitionMapper;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
+import com.enterprise.ai.common.response.BusinessResponseEnvelope;
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationClaims;
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationToken;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 public class CapabilityToolExecutionService {
@@ -62,11 +64,10 @@ public class CapabilityToolExecutionService {
         Map<String, Object> invoked = invoker.invoke(invocation);
 
         Map<String, Object> response = new LinkedHashMap<>();
-        response.put("success", true);
         response.put("qualifiedName", tool.getQualifiedName());
         response.put("toolName", tool.getName());
-        response.put("data", invoked == null ? null : invoked.get("body"));
-        response.put("metadata", invoked == null ? Map.of() : invoked);
+        response.put("toolTitle", titleOrName(tool.getTitle(), tool.getName()));
+        applyInvocationResult(response, invoked);
         return response;
     }
 
@@ -94,17 +95,32 @@ public class CapabilityToolExecutionService {
                 Map.of(
                         "scanToolId", tool.getId(),
                         "toolName", tool.getName(),
+                        "toolTitle", titleOrName(tool.getTitle(), tool.getName()),
                         "requestBodyType", nullToEmpty(tool.getRequestBodyType()),
                         "responseType", nullToEmpty(tool.getResponseType())));
         Map<String, Object> invoked = invoker.invoke(invocation);
 
         Map<String, Object> response = new LinkedHashMap<>();
-        response.put("success", true);
         response.put("scanToolId", tool.getId());
         response.put("toolName", tool.getName());
-        response.put("data", invoked == null ? null : invoked.get("body"));
-        response.put("metadata", invoked == null ? Map.of() : invoked);
+        response.put("toolTitle", titleOrName(tool.getTitle(), tool.getName()));
+        applyInvocationResult(response, invoked);
         return response;
+    }
+
+    private void applyInvocationResult(Map<String, Object> response, Map<String, Object> invoked) {
+        Object businessBody = invoked == null ? null : invoked.get("body");
+        Optional<BusinessResponseEnvelope.Failure> failure = BusinessResponseEnvelope.failure(businessBody);
+        response.put("success", failure.isEmpty());
+        response.put("data", businessBody);
+        response.put("metadata", invoked == null ? Map.of() : invoked);
+        failure.ifPresent(value -> {
+            response.put("code", "CAPABILITY_BUSINESS_RESPONSE_FAILED");
+            response.put("message", value.message());
+            if (value.businessCode() != null) {
+                response.put("businessCode", value.businessCode());
+            }
+        });
     }
 
     private ToolDefinitionEntity findTool(String qualifiedName) {
@@ -139,6 +155,7 @@ public class CapabilityToolExecutionService {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("qualifiedName", tool.getQualifiedName());
         metadata.put("toolName", tool.getName());
+        metadata.put("toolTitle", titleOrName(tool.getTitle(), tool.getName()));
         metadata.put("requestBodyType", nullToEmpty(tool.getRequestBodyType()));
         metadata.put("responseType", nullToEmpty(tool.getResponseType()));
         if (registrySecurityService == null || !StringUtils.hasText(tool.getProjectCode())) {
@@ -152,6 +169,7 @@ public class CapabilityToolExecutionService {
         }
         Map<String, Object> context = mapValue(request == null ? null : request.get("context"));
         context = context == null ? Map.of() : context;
+        Map<String, Object> attributes = mapValue(context.get("attributes"));
         ReachAiInvocationClaims claims = ReachAiInvocationClaims.builder()
                 .projectCode(tool.getProjectCode())
                 .appKey(credential.getAppKey())
@@ -169,6 +187,7 @@ public class CapabilityToolExecutionService {
                 .pageInstanceId(text(context.get("pageInstanceId")))
                 .origin(text(context.get("origin")))
                 .route(text(context.get("route")))
+                .attributes(attributes == null ? Map.of() : attributes)
                 .build();
         String token = ReachAiInvocationToken.sign(credential.getAppSecret(), claims,
                 System.currentTimeMillis(), 60);
@@ -186,6 +205,10 @@ public class CapabilityToolExecutionService {
             }
         }
         return tool == null ? null : tool.getName();
+    }
+
+    private String titleOrName(String title, String name) {
+        return StringUtils.hasText(title) ? title.trim() : nullToEmpty(name);
     }
 
     private String buildUrl(ScanProjectToolEntity tool) {

@@ -56,7 +56,6 @@ class ReachCapabilityScannerTest {
         assertEquals("contract", descriptor.getDomain());
         assertEquals("review", descriptor.getModule());
         assertEquals(ReachSideEffectLevel.READ, descriptor.getSideEffect());
-        assertTrue(descriptor.isAgentVisible());
         assertEquals("contract_reader", descriptor.getRequiredRoles().get(0));
         assertEquals("contract", descriptor.getTags().get(0));
 

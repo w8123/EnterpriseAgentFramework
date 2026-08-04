@@ -47,7 +47,6 @@ public class DomainController {
     @PostMapping
     public ResponseEntity<DomainDefEntity> create(@RequestBody DomainDefEntity body) {
         if (body.getEnabled() == null) body.setEnabled(true);
-        if (body.getAgentVisible() == null) body.setAgentVisible(true);
         body.setCreatedAt(LocalDateTime.now());
         defMapper.insert(body);
         invalidateCache();

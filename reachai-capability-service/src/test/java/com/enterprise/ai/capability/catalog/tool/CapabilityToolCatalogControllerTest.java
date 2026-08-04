@@ -70,6 +70,7 @@ class CapabilityToolCatalogControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(1, response.getBody().records().size());
         assertEquals("orders_create", response.getBody().records().get(0).name());
+        assertEquals("创建订单", response.getBody().records().get(0).title());
     }
 
     @Test
@@ -98,6 +99,7 @@ class CapabilityToolCatalogControllerTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("orders_create", response.getBody().name());
+        assertEquals("创建订单", response.getBody().title());
         verify(service).create(any());
     }
 
@@ -142,6 +144,7 @@ class CapabilityToolCatalogControllerTest {
         ToolDefinitionEntity entity = new ToolDefinitionEntity();
         entity.setId(11L);
         entity.setName(name);
+        entity.setTitle("创建订单");
         entity.setKind(kind);
         entity.setDescription("Create order");
         entity.setParametersJson(null);
@@ -149,14 +152,13 @@ class CapabilityToolCatalogControllerTest {
         entity.setHttpMethod("POST");
         entity.setEndpointPath("/create");
         entity.setEnabled(true);
-        entity.setAgentVisible(true);
-        entity.setLightweightEnabled(false);
         return entity;
     }
 
     private CapabilityToolCatalogController.ToolUpsertRequest request(String name) {
         return new CapabilityToolCatalogController.ToolUpsertRequest(
                 name,
+                "创建订单",
                 "Create order",
                 List.of(new ToolDefinitionParameter("orderId", "string", "Order id", true, "body")),
                 "manual",
@@ -169,11 +171,8 @@ class CapabilityToolCatalogControllerTest {
                 "JSON",
                 7L,
                 "orders",
-                "PROJECT",
                 "orders:createOrder",
-                true,
-                true,
-                false
+                true
         );
     }
 }

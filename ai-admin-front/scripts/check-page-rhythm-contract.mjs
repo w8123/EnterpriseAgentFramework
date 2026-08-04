@@ -8,10 +8,10 @@ import ts from 'typescript'
 
 const REQUIRED_LAYOUT_MODES = new Set(['standard', 'project-workbench', 'edge-to-edge', 'studio'])
 const REQUIRED_LAYOUT_TOKEN_SEQUENCES = new Map([
-  ['--layout-breadcrumb-height', [['base :root', '44px']]],
-  ['--layout-page-header-height-compact', [['base :root', '96px']]],
-  ['--layout-page-header-height-standard', [['base :root', '120px']]],
-  ['--layout-page-header-height-emphasis', [['base :root', '144px']]],
+  ['--layout-breadcrumb-height', [['base :root', '40px']]],
+  ['--layout-page-header-height-compact', [['base :root', '76px']]],
+  ['--layout-page-header-height-standard', [['base :root', '96px']]],
+  ['--layout-page-header-height-emphasis', [['base :root', '112px']]],
   ['--layout-page-header-leading-size', [['base :root', '52px']]],
   ['--layout-page-header-action-gap', [['base :root', '8px']]],
   ['--layout-page-header-tag-gap', [['base :root', '8px']]],
@@ -52,7 +52,7 @@ const REQUIRED_LAYOUT_TOKEN_SEQUENCES = new Map([
   [
     '--layout-page-header-padding-block',
     [
-      ['base :root', '26px'],
+      ['base :root', '14px'],
       ['@media (max-width: 900px) :root', '18px'],
       ['@media (max-width: 760px) :root', '16px'],
     ],
@@ -101,6 +101,7 @@ const STANDARD_PAGE_FILES = new Set([
   'src/views/dashboard/Dashboard.vue',
   'src/views/agent/AgentList.vue',
   'src/views/agent/AgentEdit.vue',
+  'src/views/agent/AgentEval.vue',
   'src/views/workflow/WorkflowVersions.vue',
   'src/views/runops/RunOpsList.vue',
   'src/views/runops/RunOpsDetail.vue',
@@ -162,6 +163,7 @@ const LIST_FILL_PAGE_FILES = new Set([
   'src/views/capability/slot/SlotDictUser.vue',
   'src/views/capability/slot/SlotExtractLogs.vue',
   'src/views/registry/RegistryProjectList.vue',
+  'src/views/registry/RegistryProjectDetail.vue',
   'src/views/mcp/McpVisibilityBoard.vue',
   'src/views/mcp/McpClientList.vue',
   'src/views/mcp/McpCallMonitor.vue',
@@ -184,7 +186,7 @@ const PROJECT_WORKBENCH_STYLE_FILES = new Map([
     'src/views/registry/RegistryProjectDetail.vue',
   ],
   [
-    'src/views/registry/styles/PageAssistantWizard.scss',
+    'src/views/registry/styles/PageWorkbench.scss',
     'src/views/registry/PageAssistantWizard.vue',
   ],
   [
@@ -203,10 +205,6 @@ const PROJECT_WORKBENCH_STYLE_FILES = new Map([
 
 const PROJECT_WORKBENCH_DIRECT_COMPONENT_FILES = new Map([
   [
-    'src/views/registry/components/page-assistant/PageAssistantHeader.vue',
-    'src/views/registry/PageAssistantWizard.vue',
-  ],
-  [
     'src/views/scan/components/scan-project/ScanProjectHeader.vue',
     'src/views/scan/ScanProjectDetail.vue',
   ],
@@ -224,10 +222,10 @@ function createValidFixture() {
       [
         'src/styles/tokens/_layout.scss',
         `:root {
-  --layout-breadcrumb-height: 44px;
-  --layout-page-header-height-compact: 96px;
-  --layout-page-header-height-standard: 120px;
-  --layout-page-header-height-emphasis: 144px;
+  --layout-breadcrumb-height: 40px;
+  --layout-page-header-height-compact: 76px;
+  --layout-page-header-height-standard: 96px;
+  --layout-page-header-height-emphasis: 112px;
   --layout-page-header-leading-size: 52px;
   --layout-page-header-action-gap: 8px;
   --layout-page-header-tag-gap: 8px;
@@ -237,7 +235,7 @@ function createValidFixture() {
   --layout-page-start: 10px;
   --layout-page-end: 16px;
   --layout-page-gap: 10px;
-  --layout-page-header-padding-block: 26px;
+  --layout-page-header-padding-block: 14px;
   --layout-page-header-padding-inline: 28px;
 }
 
@@ -1230,7 +1228,7 @@ function validateContract(fixture) {
 
 
   const listFillPageFiles = fixture.listFillPageFiles ?? LIST_FILL_PAGE_FILES
-  const expectedListFillSize = fixture.expectedListFillSize ?? 22
+  const expectedListFillSize = fixture.expectedListFillSize ?? 23
   if (listFillPageFiles.size !== expectedListFillSize) {
     failures.push(
       `list-fill source-of-truth count must be ${expectedListFillSize}, found ${listFillPageFiles.size}`,
@@ -2049,8 +2047,8 @@ function createRepositoryFixture() {
     projectWorkbenchDirectComponentFiles: PROJECT_WORKBENCH_DIRECT_COMPONENT_FILES,
     exemptPageFiles: EXEMPT_PAGE_FILES,
     listFillPageFiles: LIST_FILL_PAGE_FILES,
-    expectedSetSizes: { standard: 38, projectWorkbench: 8, exempt: 3 },
-    expectedListFillSize: 22,
+    expectedSetSizes: { standard: 39, projectWorkbench: 8, exempt: 3 },
+    expectedListFillSize: 23,
   }
 }
 

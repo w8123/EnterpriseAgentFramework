@@ -12,7 +12,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class PlatformPageBridgeCommandServiceTest {
@@ -22,7 +21,6 @@ class PlatformPageBridgeCommandServiceTest {
         PlatformEmbedSessionMapper sessionMapper = mock(PlatformEmbedSessionMapper.class);
         PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
         PlatformPageActionEventMapper eventMapper = mock(PlatformPageActionEventMapper.class);
-        PlatformPageRegistryMapper pageRegistryMapper = mock(PlatformPageRegistryMapper.class);
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
         session.setSessionId("embed-1");
         session.setProjectCode("qmssmp");
@@ -60,7 +58,7 @@ class PlatformPageBridgeCommandServiceTest {
         }).when(sessionService).updateBridge(any(), any(), any(), any());
 
         PlatformPageBridgeCommandService service = new PlatformPageBridgeCommandService(
-                sessionMapper, sessionService, eventMapper, pageRegistryMapper, new ObjectMapper());
+                sessionMapper, sessionService, eventMapper, new ObjectMapper());
         long startedAt = System.nanoTime();
         PlatformPageBridgeCommandService.PageBridgeExecutionResponse result = service.execute(
                 new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
@@ -81,6 +79,5 @@ class PlatformPageBridgeCommandServiceTest {
         assertEquals(3, result.phases().size());
         assertEquals("team-page-1", session.getPageInstanceId());
         assertTrue(elapsedMs < 1_000, "navigation result should avoid the registry wait fallback");
-        verifyNoInteractions(pageRegistryMapper);
     }
 }

@@ -1,6 +1,6 @@
 /**
  * Embed SDK 安全出口：只导出 Embed 运行所需的 core / transport / UI，
- * 避免把 AgentDebug / WorkflowDraft（依赖管理端 API）打进 SDK bundle。
+ * 避免把 Agent Debug / Workflow Working Copy（依赖管理端 API）打进 SDK bundle。
  */
 export {
   createEmptySnapshot,

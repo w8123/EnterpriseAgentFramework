@@ -88,7 +88,6 @@ public class CapabilityMiningService {
                 "manual",
                 null,
                 true,
-                true,
                 "WRITE",
                 CapabilityCompositionCatalogService.SKILL_KIND_SUB_AGENT,
                 draft.getSpecJson()

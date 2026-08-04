@@ -41,6 +41,9 @@ class WorkflowInteractionUiRequestFactoryTest {
         assertEquals("name", request.schema().get("titleField"));
         assertEquals(5, request.schema().get("initialVisibleCount"));
         assertEquals(false, request.behavior().get("blocking"));
+        assertEquals(WorkflowInteractionPresentationPolicy.CARD_ONLY,
+                request.presentation().get("mode"));
+        assertEquals(request.presentation(), request.toMap().get("presentation"));
     }
 
     @Test
@@ -62,5 +65,24 @@ class WorkflowInteractionUiRequestFactoryTest {
                 WorkflowInteractionType.PRESENT_OUTPUT);
 
         assertEquals(records, request.data());
+    }
+
+    @Test
+    void honorsExplicitTextAndCardPresentationMode() {
+        GraphSpec.Node node = GraphSpec.Node.builder()
+                .id("show")
+                .type("INTERACTION")
+                .config(Map.of(
+                        "interactionType", "PRESENT_OUTPUT",
+                        "component", "detail",
+                        "presentation", Map.of("mode", "text-and-card")))
+                .build();
+
+        WorkflowInteractionUiRequest request = WorkflowInteractionUiRequestFactory.build(
+                node, Map.of("lastOutput", Map.of("name", "Team One")), "ix-3",
+                WorkflowInteractionType.PRESENT_OUTPUT);
+
+        assertEquals(WorkflowInteractionPresentationPolicy.TEXT_AND_CARD,
+                request.presentation().get("mode"));
     }
 }

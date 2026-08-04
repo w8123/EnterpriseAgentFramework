@@ -9,48 +9,20 @@ import java.util.Map;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ReachGraphSpec {
 
-    private String code;
-    private String name;
-    private String mode = "WORKFLOW";
-    private String runtimeHint;
+    private Integer schemaVersion = Integer.valueOf(2);
     private Map<String, Object> inputSchema;
     private Map<String, Object> stateSchema;
-    private Layout layout;
     private List<Node> nodes = new ArrayList<Node>();
     private List<Edge> edges = new ArrayList<Edge>();
-    private String entry;
-    private List<String> finish = new ArrayList<String>();
+    private String entryNodeId;
+    private List<String> exitNodeIds = new ArrayList<String>();
 
-    public String getCode() {
-        return code;
+    public Integer getSchemaVersion() {
+        return schemaVersion;
     }
 
-    public void setCode(String code) {
-        this.code = code;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getMode() {
-        return mode;
-    }
-
-    public void setMode(String mode) {
-        this.mode = mode;
-    }
-
-    public String getRuntimeHint() {
-        return runtimeHint;
-    }
-
-    public void setRuntimeHint(String runtimeHint) {
-        this.runtimeHint = runtimeHint;
+    public void setSchemaVersion(Integer schemaVersion) {
+        this.schemaVersion = schemaVersion;
     }
 
     public Map<String, Object> getInputSchema() {
@@ -69,14 +41,6 @@ public class ReachGraphSpec {
         this.stateSchema = stateSchema;
     }
 
-    public Layout getLayout() {
-        return layout;
-    }
-
-    public void setLayout(Layout layout) {
-        this.layout = layout;
-    }
-
     public List<Node> getNodes() {
         return nodes;
     }
@@ -93,20 +57,20 @@ public class ReachGraphSpec {
         this.edges = edges;
     }
 
-    public String getEntry() {
-        return entry;
+    public String getEntryNodeId() {
+        return entryNodeId;
     }
 
-    public void setEntry(String entry) {
-        this.entry = entry;
+    public void setEntryNodeId(String entryNodeId) {
+        this.entryNodeId = entryNodeId;
     }
 
-    public List<String> getFinish() {
-        return finish;
+    public List<String> getExitNodeIds() {
+        return exitNodeIds;
     }
 
-    public void setFinish(List<String> finish) {
-        this.finish = finish;
+    public void setExitNodeIds(List<String> exitNodeIds) {
+        this.exitNodeIds = exitNodeIds;
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -122,7 +86,6 @@ public class ReachGraphSpec {
         private Map<String, Object> outputSchema;
         private RetryPolicy retry;
         private ErrorPolicy errorPolicy;
-        private Layout.NodeLayout layout;
         private Map<String, Object> config;
 
         public String getId() {
@@ -213,14 +176,6 @@ public class ReachGraphSpec {
             this.errorPolicy = errorPolicy;
         }
 
-        public Layout.NodeLayout getLayout() {
-            return layout;
-        }
-
-        public void setLayout(Layout.NodeLayout layout) {
-            this.layout = layout;
-        }
-
         public Map<String, Object> getConfig() {
             return config;
         }
@@ -239,7 +194,6 @@ public class ReachGraphSpec {
         private String sourceHandle;
         private String targetHandle;
         private Integer priority;
-        private Layout.EdgeLayout layout;
 
         public String getId() {
             return id;
@@ -297,13 +251,6 @@ public class ReachGraphSpec {
             this.priority = priority;
         }
 
-        public Layout.EdgeLayout getLayout() {
-            return layout;
-        }
-
-        public void setLayout(Layout.EdgeLayout layout) {
-            this.layout = layout;
-        }
     }
 
     public static class CapabilityRef {
@@ -471,102 +418,4 @@ public class ReachGraphSpec {
         }
     }
 
-    public static class Layout {
-        private String engine;
-        private String direction;
-        private Map<String, Object> viewport;
-
-        public String getEngine() {
-            return engine;
-        }
-
-        public void setEngine(String engine) {
-            this.engine = engine;
-        }
-
-        public String getDirection() {
-            return direction;
-        }
-
-        public void setDirection(String direction) {
-            this.direction = direction;
-        }
-
-        public Map<String, Object> getViewport() {
-            return viewport;
-        }
-
-        public void setViewport(Map<String, Object> viewport) {
-            this.viewport = viewport;
-        }
-
-        public static class NodeLayout {
-            private Double x;
-            private Double y;
-            private Double width;
-            private Double height;
-            private Boolean collapsed;
-
-            public Double getX() {
-                return x;
-            }
-
-            public void setX(Double x) {
-                this.x = x;
-            }
-
-            public Double getY() {
-                return y;
-            }
-
-            public void setY(Double y) {
-                this.y = y;
-            }
-
-            public Double getWidth() {
-                return width;
-            }
-
-            public void setWidth(Double width) {
-                this.width = width;
-            }
-
-            public Double getHeight() {
-                return height;
-            }
-
-            public void setHeight(Double height) {
-                this.height = height;
-            }
-
-            public Boolean getCollapsed() {
-                return collapsed;
-            }
-
-            public void setCollapsed(Boolean collapsed) {
-                this.collapsed = collapsed;
-            }
-        }
-
-        public static class EdgeLayout {
-            private String label;
-            private String style;
-
-            public String getLabel() {
-                return label;
-            }
-
-            public void setLabel(String label) {
-                this.label = label;
-            }
-
-            public String getStyle() {
-                return style;
-            }
-
-            public void setStyle(String style) {
-                this.style = style;
-            }
-        }
-    }
 }

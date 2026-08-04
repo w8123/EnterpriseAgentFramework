@@ -44,7 +44,6 @@ public final class ReachCapabilityScanner {
         descriptor.setModule(trimToNull(capability.module()));
         descriptor.setTags(Arrays.asList(capability.tags()));
         descriptor.setSideEffect(capability.sideEffect());
-        descriptor.setAgentVisible(capability.agentVisible());
         descriptor.setRequiredRoles(Arrays.asList(capability.requiredRoles()));
         descriptor.setTimeoutMs(capability.timeoutMs());
         descriptor.setRetryLimit(capability.retryLimit());

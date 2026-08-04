@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.trace;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.enterprise.ai.runtime.runops.RuntimeRunEntity;
 import com.enterprise.ai.runtime.runops.RuntimeRunMapper;
+import com.enterprise.ai.runtime.runops.RuntimeRunStatus;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -142,7 +143,7 @@ public class RuntimeTraceQueryService {
                 firstText(run.getAgentName(), run.getWorkflowName()),
                 run.getEntryType(),
                 run.getToolCallCount() == null ? 0 : run.getToolCallCount(),
-                "SUCCESS".equalsIgnoreCase(run.getStatus()) ? 1L : 0L,
+                RuntimeRunStatus.parse(run.getStatus()) == RuntimeRunStatus.COMPLETED ? 1L : 0L,
                 run.getStartedAt(),
                 run.getEndedAt());
     }

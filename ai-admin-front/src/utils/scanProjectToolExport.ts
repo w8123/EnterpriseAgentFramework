@@ -186,6 +186,8 @@ function formatSensitiveTypes(tool: ProjectToolInfo): string {
 /** 导出当前列表中的全部扫描接口（扁平行，与详情页 tools 数据源一致） */
 export function exportScanProjectToolsExcel(tools: ProjectToolInfo[], filenameBase: string): void {
   const rows = tools.map((t) => ({
+    工具名称: (t.title || t.name).trim(),
+    工具标识: t.name,
     接口地址: buildApiAddress(t),
     接口用途: (t.description || '').trim() || '-',
     访问方式: (t.httpMethod || '-').toUpperCase(),
@@ -195,7 +197,16 @@ export function exportScanProjectToolsExcel(tools: ProjectToolInfo[], filenameBa
   }))
 
   const ws = XLSX.utils.json_to_sheet(rows)
-  ws['!cols'] = [{ wch: 48 }, { wch: 36 }, { wch: 10 }, { wch: 72 }, { wch: 18 }, { wch: 28 }]
+  ws['!cols'] = [
+    { wch: 24 },
+    { wch: 32 },
+    { wch: 48 },
+    { wch: 36 },
+    { wch: 10 },
+    { wch: 72 },
+    { wch: 18 },
+    { wch: 28 },
+  ]
 
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '扫描接口')

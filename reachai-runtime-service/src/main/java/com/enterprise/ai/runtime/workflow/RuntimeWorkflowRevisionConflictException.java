@@ -13,7 +13,7 @@ public class RuntimeWorkflowRevisionConflictException extends RuntimeException {
     public RuntimeWorkflowRevisionConflictException(String workflowId,
                                                     String baseRevision,
                                                     String currentRevision) {
-        super("workflow draft revision conflict: workflowId=" + workflowId
+        super("workflow working copy revision conflict: workflowId=" + workflowId
                 + ", baseRevision=" + baseRevision
                 + ", currentRevision=" + currentRevision);
         this.workflowId = workflowId;

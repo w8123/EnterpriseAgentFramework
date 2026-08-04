@@ -8,9 +8,14 @@ import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowRevisionConflictException;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDocumentCanonicalizer;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowResourceBindingService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowResourceBindingService.BindingInput;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowResourceBindingService.BindingView;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
+import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelCatalogClient;
 import com.enterprise.ai.runtime.workflow.layout.RuntimeWorkflowCanvasLayoutService;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService;
@@ -47,6 +52,8 @@ class RuntimeWorkflowAiCodingServiceTest {
     private RuntimeRunOpsQueryService runOpsQueryService;
     private RuntimeModelCatalogClient modelCatalogClient;
     private RuntimeCapabilityCatalogClient capabilityCatalogClient;
+    private RuntimeWorkflowResourceBindingService resourceBindingService;
+    private RuntimeControlCatalogClient controlCatalogClient;
     private RuntimeWorkflowAiCodingService service;
 
     @BeforeEach
@@ -58,6 +65,8 @@ class RuntimeWorkflowAiCodingServiceTest {
         runOpsQueryService = mock(RuntimeRunOpsQueryService.class);
         modelCatalogClient = mock(RuntimeModelCatalogClient.class);
         capabilityCatalogClient = mock(RuntimeCapabilityCatalogClient.class);
+        resourceBindingService = mock(RuntimeWorkflowResourceBindingService.class);
+        controlCatalogClient = mock(RuntimeControlCatalogClient.class);
         ObjectMapper objectMapper = new ObjectMapper();
         service = new RuntimeWorkflowAiCodingService(
                 workflowService,
@@ -69,7 +78,11 @@ class RuntimeWorkflowAiCodingServiceTest {
                 new RuntimeWorkflowCanvasLayoutService(objectMapper),
                 new RuntimeWorkflowGraphMutationService(objectMapper),
                 modelCatalogClient,
-                capabilityCatalogClient);
+                capabilityCatalogClient,
+                new RuntimeWorkflowDocumentCanonicalizer(objectMapper),
+                resourceBindingService,
+                controlCatalogClient);
+        when(resourceBindingService.list(any())).thenReturn(List.of());
         when(validationService.validate(any(RuntimeWorkflowDefinitionEntity.class)))
                 .thenReturn(RuntimeWorkflowReleaseValidationResult.builder().build());
         when(validationService.validateProposed(any(RuntimeWorkflowDefinitionEntity.class), any(GraphSpec.class)))
@@ -98,29 +111,56 @@ class RuntimeWorkflowAiCodingServiceTest {
                         "orders",
                         "Draft from AI Coding",
                         "PAGE_ASSISTANT",
-                        "LANGGRAPH4J",
+                        "GRAPH_SPEC",
                         "model-1",
                         graph("answer"),
                         Map.of("nodes", List.of()),
                         Map.of("source", "ai-coding"),
+                        List.of(new BindingInput(12L, "orders", "PAGE", "orders.detail", "TARGET")),
                         "initial draft"));
 
         assertEquals("wf-ai-1", context.workflow().id());
         assertEquals("order-assistant", context.workflow().keySlug());
-        assertEquals("PAGE_ASSISTANT", context.workflow().workflowType());
-        assertEquals("LANGGRAPH4J", context.workflow().runtimeType());
-        assertEquals("answer", context.graphSpec().getEntry());
+        assertEquals("PAGE_ASSISTANT", context.workflow().workflowKind());
+        assertEquals("GRAPH_SPEC", context.workflow().executionEngine());
+        assertEquals("USER", context.workflow().definitionAuthority());
+        assertEquals("AI_CODING", context.workflow().creationChannel());
+        assertEquals("answer", context.graphSpec().getEntryNodeId());
         assertEquals(true, context.validation().valid());
-        assertEquals(2, context.canvas().get("layoutVersion"));
+        assertEquals(1, context.canvas().get("layoutVersion"));
         assertEquals(Set.of("start", "answer", "end"), canvasNodeIds(context.canvas()));
         assertEquals(1, context.availableModels().size());
         assertEquals("model-active", ((Map<?, ?>) context.availableModels().get(0)).get("id"));
         assertEquals(1, context.availableTools().size());
         verify(workflowService).create(any(RuntimeWorkflowDefinitionEntity.class));
+        verify(resourceBindingService).replace(
+                any(RuntimeWorkflowDefinitionEntity.class),
+                eq(List.of(new BindingInput(12L, "orders", "PAGE", "orders.detail", "TARGET"))));
     }
 
     @Test
-    void createDefaultsWorkflowTypeToChat() {
+    void createRejectsPageAssistantWithoutPageBinding() {
+        RuntimeWorkflowAiCodingService.CreateRequest request =
+                new RuntimeWorkflowAiCodingService.CreateRequest(
+                        "Order Assistant",
+                        "order-assistant",
+                        12L,
+                        "orders",
+                        null,
+                        "PAGE_ASSISTANT",
+                        "GRAPH_SPEC",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null);
+
+        assertThrows(IllegalArgumentException.class, () -> service.createWorkflow(request));
+        verify(workflowService, never()).create(any());
+    }
+
+    @Test
+    void createDefaultsWorkflowKindToGeneral() {
         when(workflowService.create(any(RuntimeWorkflowDefinitionEntity.class))).thenAnswer(inv -> {
             RuntimeWorkflowDefinitionEntity entity = inv.getArgument(0);
             entity.setId("wf-chat-1");
@@ -143,7 +183,58 @@ class RuntimeWorkflowAiCodingServiceTest {
                         null,
                         null));
 
-        assertEquals("CHAT", context.workflow().workflowType());
+        assertEquals("GENERAL", context.workflow().workflowKind());
+        assertEquals("GRAPH_SPEC", context.workflow().executionEngine());
+    }
+
+    @Test
+    void replacesResourceBindingsOnlyOnDraftWithOptimisticRevision() {
+        RuntimeWorkflowDefinitionEntity workflow = workflow("wf-ai-1");
+        RuntimeWorkflowDefinitionEntity updated = workflow("wf-ai-1");
+        updated.setUpdatedAt(LocalDateTime.of(2026, 7, 1, 10, 0));
+        List<BindingInput> bindings = List.of(
+                new BindingInput(12L, "orders", "PAGE", "orders.detail", "TARGET"));
+        when(workflowService.findById("wf-ai-1")).thenReturn(Optional.of(workflow));
+        when(workflowService.update(
+                eq("wf-ai-1"),
+                any(RuntimeWorkflowDefinitionEntity.class),
+                eq("2026-07-01T09:00"))).thenReturn(updated);
+
+        RuntimeWorkflowAiCodingService.ContextView context = service.replaceResourceBindings(
+                "wf-ai-1",
+                new RuntimeWorkflowAiCodingService.ResourceBindingsRequest(
+                        "2026-07-01T09:00",
+                        bindings,
+                        "bind target page"));
+
+        assertEquals(LocalDateTime.of(2026, 7, 1, 10, 0), context.workflow().updatedAt());
+        verify(workflowService).assertRevision(workflow, "2026-07-01T09:00");
+        verify(resourceBindingService).replace(workflow, bindings);
+        verify(workflowService).update(
+                eq("wf-ai-1"),
+                any(RuntimeWorkflowDefinitionEntity.class),
+                eq("2026-07-01T09:00"));
+    }
+
+    @Test
+    void rejectsResourceBindingChangesAfterFirstPublish() {
+        RuntimeWorkflowDefinitionEntity workflow = workflow("wf-ai-1");
+        workflow.setStatus("ACTIVE");
+        when(workflowService.findById("wf-ai-1")).thenReturn(Optional.of(workflow));
+
+        assertThrows(IllegalArgumentException.class, () -> service.replaceResourceBindings(
+                "wf-ai-1",
+                new RuntimeWorkflowAiCodingService.ResourceBindingsRequest(
+                        "2026-07-01T09:00",
+                        List.of(new BindingInput(
+                                12L, "orders", "PAGE", "orders.detail", "TARGET")),
+                        "move page")));
+
+        verify(resourceBindingService, never()).replace(any(), any());
+        verify(workflowService, never()).update(
+                eq("wf-ai-1"),
+                any(RuntimeWorkflowDefinitionEntity.class),
+                any(String.class));
     }
 
     @Test
@@ -203,6 +294,7 @@ class RuntimeWorkflowAiCodingServiceTest {
                                 null,
                                 null,
                                 null,
+                                null,
                                 null)),
                         null,
                         "add tool"));
@@ -210,7 +302,7 @@ class RuntimeWorkflowAiCodingServiceTest {
         assertEquals(true, view.saved());
         assertEquals(List.of("tool"), view.changedNodes());
         assertEquals(true, view.validation().valid());
-        assertEquals(2, view.proposedCanvas().get("layoutVersion"));
+        assertEquals(1, view.proposedCanvas().get("layoutVersion"));
         assertTrue(canvasNodeIds(view.proposedCanvas()).contains("tool"));
         assertNotNull(updateRef.get().getGraphSpecJson());
         verify(workflowService).assertRevision(workflow, "2026-07-01T09:00");
@@ -266,6 +358,7 @@ class RuntimeWorkflowAiCodingServiceTest {
                                 null,
                                 null,
                                 null,
+                                null,
                                 null)),
                         null,
                         "remove the only node"));
@@ -307,7 +400,7 @@ class RuntimeWorkflowAiCodingServiceTest {
         workflow.setGraphSpecJson("""
                 {"nodes":[{"id":"answer","type":"ANSWER"},{"id":"tool","type":"TOOL"}],
                  "edges":[{"id":"answer-tool","from":"answer","to":"tool","condition":"always"}],
-                 "entry":"answer","finish":["tool"]}
+                 "entryNodeId":"answer","exitNodeIds":["tool"]}
                 """);
         when(workflowService.findById("wf-ai-1")).thenReturn(Optional.of(workflow));
 
@@ -323,11 +416,12 @@ class RuntimeWorkflowAiCodingServiceTest {
                                 null,
                                 null,
                                 null,
+                                null,
                                 null)),
                         null,
                         "remove finish node"));
 
-        assertEquals(List.of(), view.proposedGraphSpec().getFinish());
+        assertEquals(List.of(), view.proposedGraphSpec().getExitNodeIds());
         assertEquals(Set.of("start", "answer", "end"), canvasNodeIds(view.proposedCanvas()));
         assertTrue(canvasEdges(view.proposedCanvas()).stream()
                 .noneMatch(edge -> "tool".equals(edge.get("source")) || "tool".equals(edge.get("target"))));
@@ -344,7 +438,7 @@ class RuntimeWorkflowAiCodingServiceTest {
                         null,
                         "WORKFLOW",
                         true,
-                        "SUCCESS",
+                        "COMPLETED",
                         "ok",
                         "answer",
                         List.of(),
@@ -362,7 +456,7 @@ class RuntimeWorkflowAiCodingServiceTest {
                         Map.of("source", "ai-coding"),
                         true));
 
-        assertEquals("SUCCESS", view.status());
+        assertEquals("COMPLETED", view.status());
         assertEquals("ok", view.answer());
         assertEquals("trace-1", view.traceId());
         verify(debugService).debugRun(any(RuntimeWorkflowDebugService.DebugRunRequest.class));
@@ -379,7 +473,7 @@ class RuntimeWorkflowAiCodingServiceTest {
                         null,
                         "WORKFLOW",
                         false,
-                        "ERROR",
+                        "FAILED",
                         null,
                         null,
                         List.of(),
@@ -397,7 +491,7 @@ class RuntimeWorkflowAiCodingServiceTest {
                         Map.of(),
                         true));
 
-        assertEquals("ERROR", view.status());
+        assertEquals("FAILED", view.status());
         assertEquals(List.of(), view.errors());
     }
 
@@ -457,6 +551,67 @@ class RuntimeWorkflowAiCodingServiceTest {
         verify(versionService, never()).publish("wf-ai-1", "v1.0.0", 100, "first", "codex");
     }
 
+    @Test
+    void pageAssistantCatalogUsesFirstClassBindingsAndTheRealControlCatalog() {
+        RuntimeWorkflowDefinitionEntity workflow = workflow("wf-ai-1");
+        workflow.setGraphSpecJson("""
+                {
+                  "schemaVersion": 2,
+                  "entryNodeId": "open",
+                  "exitNodeIds": ["open"],
+                  "nodes": [{
+                    "id": "open",
+                    "type": "PAGE_ACTION",
+                    "config": {
+                      "pageKey": "orders.detail",
+                      "actionKey": "openCancel",
+                      "args": {"orderId": "123"}
+                    }
+                  }],
+                  "edges": []
+                }
+                """);
+        when(workflowService.findById("wf-ai-1")).thenReturn(Optional.of(workflow));
+        when(resourceBindingService.list("wf-ai-1")).thenReturn(List.of(new BindingView(
+                1L,
+                "wf-ai-1",
+                12L,
+                "orders",
+                "PAGE",
+                "orders.detail",
+                "TARGET",
+                "ACTIVE",
+                LocalDateTime.of(2026, 7, 1, 9, 0))));
+        when(controlCatalogClient.listPageActions(
+                "orders", "orders.detail", null, 1000)).thenReturn(List.of(
+                new RuntimeControlCatalogClient.PageActionCatalogEntry(
+                        "orders", "orders.detail", "openCancel", "ACTIVE")));
+
+        RuntimeWorkflowAiCodingService.PageAssistantCatalogView catalog =
+                service.pageAssistantCatalog("wf-ai-1");
+
+        assertEquals("orders.detail", catalog.context().get("pageKey"));
+        assertEquals(1, catalog.catalogActions().size());
+        assertEquals(1, catalog.pageActionNodes().size());
+        assertEquals("MATCHED", catalog.pageActionNodes().get(0).matchStatus());
+        verify(controlCatalogClient).listPageActions(
+                "orders", "orders.detail", null, 1000);
+    }
+
+    @Test
+    void pageAssistantEndpointsRejectGeneralWorkflows() {
+        RuntimeWorkflowDefinitionEntity workflow = workflow("wf-general");
+        workflow.setWorkflowKind("GENERAL");
+        when(workflowService.findById("wf-general")).thenReturn(Optional.of(workflow));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.pageAssistantCatalog("wf-general"));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.validatePageAssistant("wf-general", null));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.smokeTestPageAssistant("wf-general", null));
+    }
+
     private RuntimeWorkflowDefinitionEntity workflow(String id) {
         RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
         workflow.setId(id);
@@ -465,11 +620,13 @@ class RuntimeWorkflowAiCodingServiceTest {
         workflow.setKeySlug("order-assistant");
         workflow.setName("Order Assistant");
         workflow.setDescription("Draft from AI Coding");
-        workflow.setWorkflowType("PAGE_ASSISTANT");
-        workflow.setRuntimeType("LANGGRAPH4J");
+        workflow.setWorkflowKind("PAGE_ASSISTANT");
+        workflow.setExecutionEngine("GRAPH_SPEC");
+        workflow.setDefinitionAuthority("USER");
+        workflow.setCreationChannel("AI_CODING");
         workflow.setDefaultModelInstanceId("model-1");
         workflow.setStatus("DRAFT");
-        workflow.setGraphSpecJson("{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"edges\":[],\"entry\":\"answer\"}");
+        workflow.setGraphSpecJson("{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"edges\":[],\"entryNodeId\":\"answer\"}");
         workflow.setCanvasJson("{\"nodes\":[]}");
         workflow.setUpdatedAt(LocalDateTime.of(2026, 7, 1, 9, 0));
         return workflow;
@@ -479,7 +636,8 @@ class RuntimeWorkflowAiCodingServiceTest {
         GraphSpec graph = new GraphSpec();
         graph.setNodes(List.of(graphNode(entry, "ANSWER", "Answer")));
         graph.setEdges(List.of());
-        graph.setEntry(entry);
+        graph.setEntryNodeId(entry);
+        graph.setExitNodeIds(List.of(entry));
         return graph;
     }
 

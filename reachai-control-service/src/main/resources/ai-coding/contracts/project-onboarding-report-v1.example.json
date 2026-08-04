@@ -1,0 +1,92 @@
+{
+  "schema": "reachai.project-onboarding-report.v1",
+  "summary": "ReachAI SDK、网关与前端嵌入链路已按当前项目上下文接入。",
+  "steps": [
+    {
+      "stepKey": "PROJECT",
+      "status": "PASS",
+      "message": "已确认项目模块和 projectCode。",
+      "files": [],
+      "evidence": {
+        "projectCodeMatched": true
+      }
+    },
+    {
+      "stepKey": "STARTER",
+      "status": "PASS",
+      "message": "已接入 starter 并声明真实业务能力。",
+      "files": [
+        "pom.xml",
+        "src/main/resources/application.yml"
+      ],
+      "evidence": {
+        "focusedTests": "PASS"
+      }
+    },
+    {
+      "stepKey": "GATEWAY",
+      "status": "PASS",
+      "message": "已配置 embed 代理和注册回调路由。",
+      "files": [
+        "gateway/src/main/resources/application.yml"
+      ],
+      "evidence": {
+        "authorizationPreserved": true
+      }
+    },
+    {
+      "stepKey": "BUSINESS_API",
+      "status": "PASS",
+      "message": "真实业务能力已保留领域权限并可注册。",
+      "files": [
+        "service/src/main/java/example/OrderCapability.java"
+      ],
+      "evidence": {
+        "domainAuthorizationPreserved": true
+      }
+    },
+    {
+      "stepKey": "EMBED_TOKEN",
+      "status": "PASS",
+      "message": "短期 embed token broker 和前端组件已接入。",
+      "files": [
+        "frontend/package.json",
+        "frontend/src/app/reachai-chat.ts"
+      ],
+      "evidence": {
+        "businessLoginRequired": true
+      }
+    },
+    {
+      "stepKey": "FINAL_CHECK",
+      "status": "WARN",
+      "message": "代码测试通过，等待 ReachAI 平台确认在线心跳和 E2E。",
+      "files": [],
+      "evidence": {
+        "runtimeClaimedWithoutProbe": false
+      }
+    }
+  ],
+  "tests": [
+    {
+      "name": "focused module tests",
+      "status": "PASS",
+      "command": "mvn -pl business-service test",
+      "evidence": "相关模块测试通过。"
+    }
+  ],
+  "browserVerification": {
+    "passed": true,
+    "browser": "Chromium",
+    "url": "http://localhost:4200/business/orders",
+    "scenarios": [
+      "在真实业务登录态打开订单页面并确认 ReachAI 入口可见",
+      "打开对话并完成 token、session 和 message 请求"
+    ],
+    "screenshots": [
+      "output/reachai-project-onboarding.png"
+    ],
+    "evidence": "入口可见，真实业务请求成功，页面展示了助手回复。"
+  },
+  "remainingQuestions": []
+}

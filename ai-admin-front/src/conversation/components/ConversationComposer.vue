@@ -1,5 +1,9 @@
 <template>
-  <form class="reachai-composer" @submit.prevent="onSubmit">
+  <form
+    class="reachai-composer"
+    :class="{ 'is-disabled': disabled }"
+    @submit.prevent="onSubmit"
+  >
     <textarea
       ref="inputEl"
       v-model="draft"
@@ -105,11 +109,11 @@ defineExpose({
     var(--reachai-chat-glass-shadow-composer);
 }
 
-.reachai-composer:has(.reachai-composer__input:disabled) {
+.reachai-composer.is-disabled {
   box-shadow: var(--reachai-chat-glass-inset-edge);
 }
 
-.reachai-composer:has(.reachai-composer__input:disabled) .reachai-composer__send {
+.reachai-composer.is-disabled .reachai-composer__send {
   filter: saturate(0.72);
   opacity: 0.55;
 }

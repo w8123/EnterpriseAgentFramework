@@ -6,6 +6,7 @@ import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.execution.context.WorkflowVariableNamespaces;
 import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCustomRenderers;
+import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionPresentationPolicy;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionType;
 import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityDescriptor;
 import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityRegistry;
@@ -31,26 +32,34 @@ import java.util.Set;
 @Service
 public class RuntimeWorkflowReleaseValidationService {
 
-    private static final String END = "END";
-
     private final RuntimeControlCatalogClient controlCatalogClient;
     private final ObjectMapper objectMapper;
     private final RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry;
+    private final RuntimeWorkflowResourceBindingService resourceBindingService;
 
     public RuntimeWorkflowReleaseValidationService(RuntimeControlCatalogClient controlCatalogClient,
                                                    ObjectMapper objectMapper) {
-        this(controlCatalogClient, objectMapper, new RuntimeWorkflowNodeCapabilityRegistry());
+        this(controlCatalogClient, objectMapper, new RuntimeWorkflowNodeCapabilityRegistry(), null);
     }
 
-    @Autowired
     public RuntimeWorkflowReleaseValidationService(RuntimeControlCatalogClient controlCatalogClient,
                                                    ObjectMapper objectMapper,
                                                    RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry) {
+        this(controlCatalogClient, objectMapper, nodeCapabilityRegistry, null);
+    }
+
+    @Autowired
+    public RuntimeWorkflowReleaseValidationService(
+            RuntimeControlCatalogClient controlCatalogClient,
+            ObjectMapper objectMapper,
+            RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry,
+            RuntimeWorkflowResourceBindingService resourceBindingService) {
         this.controlCatalogClient = controlCatalogClient;
         this.objectMapper = objectMapper;
         this.nodeCapabilityRegistry = nodeCapabilityRegistry == null
                 ? new RuntimeWorkflowNodeCapabilityRegistry()
                 : nodeCapabilityRegistry;
+        this.resourceBindingService = resourceBindingService;
     }
 
     public RuntimeWorkflowReleaseValidationResult validate(RuntimeWorkflowDefinitionEntity workflow) {
@@ -59,11 +68,12 @@ public class RuntimeWorkflowReleaseValidationService {
             report.error("WORKFLOW_NOT_FOUND", null, "Workflow does not exist");
             return report.build();
         }
+        Set<String> boundPageKeys = validateResourceBindings(workflow, report);
         GraphSpec graph = readGraph(workflow.getGraphSpecJson(), report);
         if (graph == null) {
             return report.build();
         }
-        validateGraph(workflow, graph, report);
+        validateGraph(workflow, graph, boundPageKeys, report);
         return report.build();
     }
 
@@ -74,11 +84,12 @@ public class RuntimeWorkflowReleaseValidationService {
             report.error("WORKFLOW_NOT_FOUND", null, "Workflow does not exist");
             return report.build();
         }
+        Set<String> boundPageKeys = validateResourceBindings(workflow, report);
         if (graphSpec == null) {
             report.error("GRAPH_SPEC_MISSING", null, "GraphSpec is required");
             return report.build();
         }
-        validateGraph(workflow, graphSpec, report);
+        validateGraph(workflow, graphSpec, boundPageKeys, report);
         return report.build();
     }
 
@@ -100,9 +111,47 @@ public class RuntimeWorkflowReleaseValidationService {
         }
     }
 
+    private Set<String> validateResourceBindings(
+            RuntimeWorkflowDefinitionEntity workflow,
+            RuntimeWorkflowReleaseValidationResult.Builder report) {
+        if (!WorkflowSemanticValues.KIND_PAGE_ASSISTANT.equals(workflow.getWorkflowKind())) {
+            return Set.of();
+        }
+        if (resourceBindingService == null) {
+            report.error(
+                    "PAGE_RESOURCE_BINDING_UNAVAILABLE",
+                    null,
+                    "PAGE_ASSISTANT release validation cannot read Workflow resource bindings");
+            return Set.of();
+        }
+        List<RuntimeWorkflowResourceBindingService.BindingView> bindings =
+                resourceBindingService.list(workflow.getId());
+        long targetPages = bindings.stream()
+                .filter(binding -> RuntimeWorkflowResourceBindingService.RESOURCE_PAGE
+                        .equals(binding.resourceType()))
+                .filter(binding -> RuntimeWorkflowResourceBindingService.ROLE_TARGET
+                        .equals(binding.bindingRole()))
+                .count();
+        if (targetPages != 1) {
+            report.error(
+                    "PAGE_RESOURCE_BINDING_INVALID",
+                    null,
+                    "PAGE_ASSISTANT workflow requires exactly one active TARGET PAGE resource binding");
+        }
+        return bindings.stream()
+                .filter(binding -> RuntimeWorkflowResourceBindingService.RESOURCE_PAGE
+                        .equals(binding.resourceType()))
+                .map(RuntimeWorkflowResourceBindingService.BindingView::resourceKey)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+    }
+
     private void validateGraph(RuntimeWorkflowDefinitionEntity workflow,
                                GraphSpec graph,
+                               Set<String> boundPageKeys,
                                RuntimeWorkflowReleaseValidationResult.Builder report) {
+        if (!Integer.valueOf(2).equals(graph.getSchemaVersion())) {
+            report.error("GRAPH_SCHEMA_VERSION_INVALID", null, "GraphSpec schemaVersion must be 2");
+        }
         List<GraphSpec.Node> nodes = graph.getNodes() == null ? List.of() : graph.getNodes();
         if (nodes.isEmpty()) {
             report.error("GRAPH_NODE_EMPTY", null, "GraphSpec requires at least one node");
@@ -124,8 +173,9 @@ public class RuntimeWorkflowReleaseValidationService {
         }
         for (GraphSpec.Node node : byId.values()) {
             String nodeId = node.getId().trim();
-            String type = AgentGraphNodeType.normalize(node.getType());
-            boolean knownType = AgentGraphNodeType.supports(type);
+            AgentGraphNodeType canonicalType = AgentGraphNodeType.find(node.getType()).orElse(null);
+            boolean knownType = canonicalType != null && canonicalType.type().equals(node.getType());
+            String type = knownType ? canonicalType.type() : String.valueOf(node.getType());
             RuntimeWorkflowNodeCapabilityDescriptor capability = nodeCapabilityRegistry.find(type).orElse(null);
             boolean runtimeExecutable = capability != null && capability.runtimeExecutable();
             // PRESENT_OUTPUT is display-only and never enters pause/resume. It can be published
@@ -133,7 +183,8 @@ public class RuntimeWorkflowReleaseValidationService {
             boolean displayOnlyInteraction = "INTERACTION".equals(type) && isPresentOutputInteraction(node);
             boolean publishable = capability != null && (capability.publishable() || displayOnlyInteraction);
             if (!knownType) {
-                report.error("GRAPH_NODE_TYPE_UNSUPPORTED", nodeId, "Unsupported graph node type: " + node.getType());
+                report.error("GRAPH_NODE_TYPE_UNSUPPORTED", nodeId,
+                        "Graph node type must use a canonical value: " + node.getType());
             } else if (!runtimeExecutable) {
                 report.error("GRAPH_NODE_RUNTIME_UNSUPPORTED", nodeId,
                         "Graph node type is known but not executable by the current Runtime: " + type);
@@ -195,7 +246,7 @@ public class RuntimeWorkflowReleaseValidationService {
                     validateLoopNode(node, byId, edges, report);
                 }
                 if ("PAGE_ACTION".equals(type)) {
-                    validatePageActionNode(workflow, node, report);
+                    validatePageActionNode(workflow, node, boundPageKeys, report);
                 }
                 validateOutputAlias(node, outputAliases, report);
                 validateRetryPolicy(node, report);
@@ -207,11 +258,28 @@ public class RuntimeWorkflowReleaseValidationService {
         }
         validateLoopBodyDualOwnership(byId, report);
 
-        String entry = StringUtils.hasText(graph.getEntry()) ? graph.getEntry().trim() : null;
+        String entry = StringUtils.hasText(graph.getEntryNodeId()) ? graph.getEntryNodeId().trim() : null;
         if (entry == null) {
             report.error("GRAPH_ENTRY_MISSING", null, "GraphSpec entry is required");
         } else if (!byId.containsKey(entry)) {
             report.error("GRAPH_ENTRY_INVALID", entry, "GraphSpec entry node does not exist: " + entry);
+        }
+
+        Set<String> exitNodeIds = new LinkedHashSet<>();
+        for (String exitNodeId : graph.getExitNodeIds()) {
+            if (!StringUtils.hasText(exitNodeId)) {
+                report.error("GRAPH_EXIT_INVALID", null, "GraphSpec exitNodeIds cannot contain blank values");
+                continue;
+            }
+            String normalizedExit = exitNodeId.trim();
+            if (!byId.containsKey(normalizedExit)) {
+                report.error("GRAPH_EXIT_INVALID", normalizedExit,
+                        "GraphSpec exit node does not exist: " + normalizedExit);
+            }
+            exitNodeIds.add(normalizedExit);
+        }
+        if (exitNodeIds.isEmpty()) {
+            report.error("GRAPH_EXIT_MISSING", null, "GraphSpec requires at least one exitNodeId");
         }
 
         for (GraphSpec.Edge edge : edges) {
@@ -219,11 +287,15 @@ public class RuntimeWorkflowReleaseValidationService {
                 report.error("GRAPH_EDGE_EMPTY", null, "GraphSpec edge item cannot be null");
                 continue;
             }
-            if (!StringUtils.hasText(edge.getFrom()) || (!byId.containsKey(edge.getFrom()) && !"START".equalsIgnoreCase(edge.getFrom()))) {
+            if (!StringUtils.hasText(edge.getFrom()) || !byId.containsKey(edge.getFrom())) {
                 report.error("GRAPH_EDGE_FROM_INVALID", edge.getFrom(), "Edge source node does not exist: " + edge.getFrom());
             }
-            if (!StringUtils.hasText(edge.getTo()) || (!byId.containsKey(edge.getTo()) && !END.equalsIgnoreCase(edge.getTo()))) {
+            if (!StringUtils.hasText(edge.getTo()) || !byId.containsKey(edge.getTo())) {
                 report.error("GRAPH_EDGE_TO_INVALID", edge.getTo(), "Edge target node does not exist: " + edge.getTo());
+            }
+            if (StringUtils.hasText(edge.getFrom()) && exitNodeIds.contains(edge.getFrom())) {
+                report.error("GRAPH_EXIT_HAS_OUTGOING_EDGE", edge.getFrom(),
+                        "GraphSpec exit node cannot have an outgoing edge: " + edge.getFrom());
             }
         }
 
@@ -541,9 +613,6 @@ public class RuntimeWorkflowReleaseValidationService {
             }
             String from = edge.getFrom().trim();
             String to = edge.getTo().trim();
-            if (END.equalsIgnoreCase(to) || "START".equalsIgnoreCase(from)) {
-                continue;
-            }
             String fromOwner = bodyOwner.get(from);
             String toOwner = bodyOwner.get(to);
             boolean fromInThis = bodyNodeIds.contains(from);
@@ -632,7 +701,7 @@ public class RuntimeWorkflowReleaseValidationService {
             }
             String from = edge.getFrom().trim();
             String to = edge.getTo().trim();
-            if ("START".equalsIgnoreCase(from) || END.equalsIgnoreCase(to) || !byId.containsKey(from)) {
+            if (!byId.containsKey(from)) {
                 continue;
             }
             // Body-internal edges are owned by LOOP executor; exclude from main-graph cycle checks.
@@ -1072,6 +1141,7 @@ public class RuntimeWorkflowReleaseValidationService {
                     "REVIEW_EDIT is not part of the formal INTERACTION publish contract");
             return;
         }
+        validateInteractionPresentation(node, type, config, report);
         switch (type) {
             case COLLECT_INPUT -> validateCollectInputInteraction(node, config, report);
             case USER_CHOICE -> validateUserChoiceInteraction(node, config, edges, report);
@@ -1230,6 +1300,36 @@ public class RuntimeWorkflowReleaseValidationService {
         }
     }
 
+    private void validateInteractionPresentation(GraphSpec.Node node,
+                                                 WorkflowInteractionType type,
+                                                 Map<String, Object> config,
+                                                 RuntimeWorkflowReleaseValidationResult.Builder report) {
+        Object rawPresentation = config.get("presentation");
+        if (rawPresentation == null) {
+            return;
+        }
+        if (!(rawPresentation instanceof Map<?, ?>)) {
+            report.error("GRAPH_INTERACTION_PRESENTATION_INVALID", node.getId(),
+                    "INTERACTION presentation must be an object");
+            return;
+        }
+        Map<String, Object> presentation = mapValue(rawPresentation);
+        Object rawMode = presentation.get("mode");
+        if (rawMode == null) {
+            return;
+        }
+        String mode = WorkflowInteractionPresentationPolicy.normalizeMode(rawMode);
+        if (!StringUtils.hasText(mode)) {
+            report.error("GRAPH_INTERACTION_PRESENTATION_MODE_UNSUPPORTED", node.getId(),
+                    "Unsupported INTERACTION presentation.mode: " + rawMode);
+            return;
+        }
+        if (type.blocking() && WorkflowInteractionPresentationPolicy.TEXT_ONLY.equals(mode)) {
+            report.error("GRAPH_INTERACTION_PRESENTATION_TEXT_ONLY_UNSAFE", node.getId(),
+                    "Blocking INTERACTION nodes cannot hide their interactive card");
+        }
+    }
+
     private void validateListCardRenderSchema(GraphSpec.Node node,
                                               Map<String, Object> config,
                                               RuntimeWorkflowReleaseValidationResult.Builder report) {
@@ -1345,6 +1445,7 @@ public class RuntimeWorkflowReleaseValidationService {
 
     private void validatePageActionNode(RuntimeWorkflowDefinitionEntity workflow,
                                         GraphSpec.Node node,
+                                        Set<String> boundPageKeys,
                                         RuntimeWorkflowReleaseValidationResult.Builder report) {
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
         String pageKey = text(config.get("pageKey"));
@@ -1358,6 +1459,13 @@ public class RuntimeWorkflowReleaseValidationService {
         }
         if (!StringUtils.hasText(projectCode) || !StringUtils.hasText(pageKey) || !StringUtils.hasText(actionKey)) {
             return;
+        }
+        if (WorkflowSemanticValues.KIND_PAGE_ASSISTANT.equals(workflow.getWorkflowKind())
+                && !boundPageKeys.contains(pageKey)) {
+            report.error(
+                    "GRAPH_PAGE_ACTION_PAGE_UNBOUND",
+                    node.getId(),
+                    "PAGE_ACTION pageKey is not bound to this Workflow: " + pageKey);
         }
 
         RuntimeControlCatalogClient.PageActionCatalogEntry action;
@@ -1374,6 +1482,30 @@ public class RuntimeWorkflowReleaseValidationService {
         if (!"ACTIVE".equalsIgnoreCase(action.status())) {
             report.error("GRAPH_PAGE_ACTION_CATALOG_INACTIVE", node.getId(),
                     "PAGE_ACTION catalog entry is not ACTIVE: " + projectCode + "/" + pageKey + "/" + actionKey);
+        }
+        Map<String, Object> inputSchema = mapValue(action.inputSchema());
+        Map<String, Object> args = mapValue(config.get("args"));
+        Object requiredValue = inputSchema.get("required");
+        if (requiredValue instanceof Iterable<?> requiredFields) {
+            List<String> missing = new ArrayList<>();
+            for (Object requiredField : requiredFields) {
+                String field = text(requiredField);
+                if (StringUtils.hasText(field) && !args.containsKey(field)) {
+                    missing.add(field);
+                }
+            }
+            if (!missing.isEmpty()) {
+                report.error(
+                        "GRAPH_PAGE_ACTION_ARGS_REQUIRED_MISSING",
+                        node.getId(),
+                        "PAGE_ACTION args are missing required fields: " + String.join(", ", missing));
+            }
+        }
+        if (action.confirmRequired()) {
+            report.warn(
+                    "GRAPH_PAGE_ACTION_CONFIRM_REQUIRED",
+                    node.getId(),
+                    "PAGE_ACTION requires explicit runtime confirmation: " + actionKey);
         }
     }
 

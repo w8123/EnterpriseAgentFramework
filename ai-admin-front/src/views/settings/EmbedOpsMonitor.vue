@@ -1,111 +1,121 @@
 <template>
-  <div class="embed-ops-page project-workbench-page">
-    <div class="page-hero">
-      <div class="page-head">
-        <div>
-          <h1>前端页面管理</h1>
-          <p>管理当前项目已接入的业务页面、页面动作、嵌入授权和会话审计。</p>
-        </div>
-        <div class="page-actions">
-          <el-button :icon="ChatDotRound" @click="goSessionAudit">嵌入式会话审计</el-button>
-          <el-button :icon="Lock" @click="openCredentialDrawer">嵌入授权</el-button>
-          <el-button :icon="Cpu" @click="openRendererDrawer">嵌入渲染器</el-button>
-          <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-        </div>
-      </div>
-    </div>
-
-    <section class="stats-row">
-      <div v-for="item in accessStats" :key="item.label" class="stat-card">
-        <span class="stat-icon" :class="item.tone">
-          <el-icon><component :is="item.icon" /></el-icon>
-        </span>
-        <span>
-          <small>{{ item.label }}</small>
-          <strong>{{ item.value }}</strong>
-        </span>
-      </div>
-    </section>
-
-    <el-card class="catalog-card" shadow="never">
-      <template #header>
-        <div class="card-head">
-          <span>页面动作目录</span>
-          <el-button size="small" :icon="Refresh" :loading="catalogLoading" @click="loadCatalog">刷新目录</el-button>
-        </div>
+  <WorkbenchPage class="embed-ops-page" layout="list">
+    <PageHeader
+      variant="overview"
+      domain="project"
+      eyebrow="Page Access"
+      title="前端页面管理"
+      description="管理当前项目已接入的业务页面、页面动作、嵌入授权和会话审计。"
+    >
+      <template #actions>
+        <el-button :icon="ChatDotRound" @click="goSessionAudit">嵌入式会话审计</el-button>
+        <el-button :icon="Lock" @click="openCredentialDrawer">嵌入授权</el-button>
+        <el-button :icon="Cpu" @click="openRendererDrawer">嵌入渲染器</el-button>
       </template>
-      <el-form class="catalog-filters" inline>
-        <el-form-item label="页面">
-          <el-input v-model="catalogFilters.pageKey" clearable placeholder="pageKey / 路由" />
-        </el-form-item>
-        <el-form-item label="动作">
-          <el-input v-model="catalogFilters.actionKeyword" clearable placeholder="标题 / actionKey" />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="catalogFilters.status" clearable placeholder="全部状态" style="width: 130px">
-            <el-option label="已启用" value="ACTIVE" />
-            <el-option label="已移除" value="REMOVED" />
-            <el-option label="已禁用" value="DISABLED" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="catalogLoading" @click="loadCatalog">查询目录</el-button>
-        </el-form-item>
-      </el-form>
-      <div class="catalog-summary">
-        <span>业务页面</span>
-        <el-tag effect="plain">{{ filteredPages.length }} 个页面</el-tag>
-      </div>
-      <div v-if="filteredPages.length" class="page-card-grid">
+    </PageHeader>
+
+    <MetricStrip :items="metricItems" density="compact" aria-label="页面接入指标" />
+
+    <DataTableShell
+      class="embed-ops-shell workbench-list-surface project-list-card-mode"
+      density="compact"
+      :loading="catalogLoading"
+      :empty="filteredPages.length === 0"
+      empty-description="暂无匹配页面"
+    >
+      <template #toolbar>
+        <FilterBar
+          class="project-list-filter-bar"
+          density="compact"
+          :loading="catalogLoading"
+          query-label="搜索"
+          @query="loadCatalog"
+          @reset="resetCatalogFilters"
+        >
+          <el-form-item label="页面">
+            <el-input
+              v-model="catalogFilters.pageKey"
+              clearable
+              :prefix-icon="Search"
+              placeholder="搜索 pageKey / 路由"
+              @keyup.enter="loadCatalog"
+            />
+          </el-form-item>
+          <el-form-item label="动作">
+            <el-input
+              v-model="catalogFilters.actionKeyword"
+              clearable
+              placeholder="标题 / actionKey"
+              @keyup.enter="loadCatalog"
+            />
+          </el-form-item>
+          <el-form-item label="状态">
+            <el-select v-model="catalogFilters.status" clearable placeholder="全部状态">
+              <el-option label="已启用" value="ACTIVE" />
+              <el-option label="已移除" value="REMOVED" />
+              <el-option label="已禁用" value="DISABLED" />
+            </el-select>
+          </el-form-item>
+          <template #actions>
+            <el-button native-type="button" @click="resetCatalogFilters">重置</el-button>
+            <el-button type="primary" native-type="submit" :icon="Search" :loading="catalogLoading">
+              搜索
+            </el-button>
+          </template>
+        </FilterBar>
+      </template>
+
+      <div class="project-list-card-grid">
         <article
           v-for="page in filteredPages"
           :key="page.pageKey"
-          class="page-card"
-          :class="{ active: page.pageKey === selectedPageKey && actionDrawerVisible }"
+          class="project-list-card"
+          :class="{ 'is-active': page.pageKey === selectedPageKey && actionDrawerVisible }"
           @click="selectPage(page.pageKey)"
         >
-          <span class="page-card-main">
-            <span class="page-card-title">
-              <strong>{{ page.name || page.pageKey }}</strong>
-              <CommonStatusTag :status="page.status" />
-            </span>
-          </span>
-          <span class="page-field">
-            <b>pageKey</b>
-            <span>{{ page.pageKey }}</span>
-          </span>
-          <span class="page-field">
-            <b>路由</b>
-            <span>{{ page.routePattern || '-' }}</span>
-          </span>
-          <span class="page-card-footer">
+          <div class="project-list-card__header">
+            <div class="project-list-card__icon">
+              <el-icon :size="20"><Monitor /></el-icon>
+            </div>
+            <div class="project-list-card__identity">
+              <h3>{{ page.name || page.pageKey }}</h3>
+              <code>{{ page.pageKey }}</code>
+            </div>
+            <CommonStatusTag :status="page.status" />
+          </div>
+
+          <p class="project-list-card__description">
+            {{ page.routePattern || '未登记路由' }}
+          </p>
+
+          <div class="project-list-card__metrics">
             <span>
-              <el-icon><Grid /></el-icon>
-              {{ actionCount(page.pageKey) }} 个动作
+              <strong>{{ actionCount(page.pageKey) }}</strong>
+              <small>动作</small>
             </span>
             <span>
-              <el-icon><Clock /></el-icon>
-              最近上报：{{ page.lastSeenAt || '-' }}
+              <strong class="embed-ops-card-time">{{ formatRelativeTime(page.lastSeenAt) }}</strong>
+              <small>最近上报</small>
             </span>
-            <span class="page-card-actions">
-              <el-button size="small" type="primary" @click.stop="selectPage(page.pageKey)">动作详情</el-button>
-              <el-button size="small" :icon="Document" @click.stop="openPageMemoryWorkbench(page)">上下文</el-button>
-              <el-button size="small" @click.stop="previewPage(page)">预览页面</el-button>
-              <el-button
-                size="small"
-                type="danger"
-                link
-                :loading="deletingPageId === page.id"
-                @click.stop="confirmDeletePage(page)"
-              >
-                删除
-              </el-button>
-            </span>
-          </span>
+          </div>
+
+          <div class="project-list-card__footer">
+            <el-button link type="primary" size="small" @click.stop="selectPage(page.pageKey)">动作详情</el-button>
+            <el-button link type="primary" size="small" @click.stop="openPageMemoryWorkbench(page)">上下文</el-button>
+            <el-button link type="primary" size="small" @click.stop="previewPage(page)">预览</el-button>
+            <el-button
+              link
+              type="danger"
+              size="small"
+              :loading="deletingPageId === page.id"
+              @click.stop="confirmDeletePage(page)"
+            >
+              删除
+            </el-button>
+          </div>
         </article>
       </div>
-      <el-empty v-else description="暂无页面" :image-size="88" />
-    </el-card>
+    </DataTableShell>
 
     <AppDrawer
       v-model="actionDrawerVisible"
@@ -124,7 +134,7 @@
         </div>
         <div>
           <span>最近上报</span>
-          <strong>{{ selectedPage.lastSeenAt || '-' }}</strong>
+          <strong>{{ formatRelativeTime(selectedPage.lastSeenAt) }}</strong>
         </div>
         <div>
           <span>状态</span>
@@ -153,7 +163,9 @@
         <el-table-column label="确认方式" width="100">
           <template #default="{ row }">{{ row.confirmRequired ? '二次确认' : '免确认' }}</template>
         </el-table-column>
-        <el-table-column prop="lastSeenAt" label="最近上报" width="150" />
+        <el-table-column label="最近上报" width="120">
+          <template #default="{ row }">{{ formatRelativeTime(row.lastSeenAt) }}</template>
+        </el-table-column>
         <el-table-column prop="description" label="描述" min-width="170" show-overflow-tooltip />
         <el-table-column label="引用" width="96" fixed="right" align="center">
           <template #default="{ row }">
@@ -330,18 +342,24 @@
       :page="selectedMemoryPage"
       :project-code="currentProjectCode"
     />
-
-  </div>
+  </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import AppDialog from '@/components/common/AppDialog.vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
+import DataTableShell from '@/components/common/DataTableShell.vue'
+import FilterBar from '@/components/common/FilterBar.vue'
+import MetricStrip from '@/components/common/MetricStrip.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ChatDotRound, Clock, Cpu, Document, Grid, Lock, MagicStick, Refresh, Select } from '@element-plus/icons-vue'
+import { ChatDotRound, Cpu, Lock, Monitor, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CommonStatusTag from '@/components/CommonStatusTag.vue'
+import { formatRelativeTime } from '@/utils/relativeTime'
 import PageMemoryWorkbench from './PageMemoryWorkbench.vue'
 import {
   createEmbedRenderer,
@@ -364,7 +382,6 @@ import {
 
 const route = useRoute()
 const router = useRouter()
-const loading = ref(false)
 const catalogLoading = ref(false)
 const credentialLoading = ref(false)
 const credentialSaving = ref(false)
@@ -459,30 +476,34 @@ const lastSeenAt = computed(() => {
   return values[values.length - 1] || '-'
 })
 
-const accessStats = computed(() => [
+const metricItems = computed<MetricStripItem[]>(() => [
   {
+    key: 'pages',
     label: '已接入页面',
     value: pageRegistry.value.length,
-    icon: Document,
-    tone: 'blue',
+    iconKey: 'agent-page',
+    tone: 'brand',
   },
   {
+    key: 'actions',
     label: '页面动作',
     value: pageActionCatalog.value.length,
-    icon: MagicStick,
-    tone: 'green',
+    iconKey: 'ai-semantic',
+    tone: 'info',
   },
   {
+    key: 'active-actions',
     label: '已启用动作',
     value: activeActionCount.value,
-    icon: Select,
-    tone: 'violet',
+    iconKey: 'agent-ready',
+    tone: 'success',
   },
   {
+    key: 'last-seen',
     label: '最近上报',
-    value: lastSeenAt.value,
-    icon: Clock,
-    tone: 'orange',
+    value: formatRelativeTime(lastSeenAt.value === '-' ? null : lastSeenAt.value),
+    iconKey: 'sdk',
+    tone: 'warning',
   },
 ])
 
@@ -492,15 +513,6 @@ watch(filteredPages, (pages) => {
     actionDrawerVisible.value = false
   }
 })
-
-async function load() {
-  loading.value = true
-  try {
-    await loadCatalog()
-  } finally {
-    loading.value = false
-  }
-}
 
 async function loadCatalog() {
   catalogLoading.value = true
@@ -518,6 +530,13 @@ async function loadCatalog() {
   } finally {
     catalogLoading.value = false
   }
+}
+
+function resetCatalogFilters() {
+  catalogFilters.pageKey = ''
+  catalogFilters.actionKeyword = ''
+  catalogFilters.status = ''
+  void loadCatalog()
 }
 
 async function loadCredentialPolicies() {
@@ -722,292 +741,34 @@ function formatOriginPolicy(value?: string): string {
   return origins.length ? origins.join(', ') : '开发默认：localhost / 127.0.0.1 / ::1'
 }
 
-onMounted(load)
+onMounted(loadCatalog)
 </script>
 
-<style scoped>
-.embed-ops-page {
-  display: flex;
-  flex-direction: column;
-  min-height: calc(100vh - 96px);
+<style scoped lang="scss">
+.embed-ops-shell.project-list-card-mode :deep(.data-table-shell__body) {
+  padding: 4px 4px 8px;
 }
 
-.page-hero {
-  padding: 18px 20px;
-  border: 1px solid var(--border-glass);
-  border-radius: 8px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--bg-card) 90%, rgb(var(--brand-primary-rgb) / 0.08)), var(--bg-card));
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
+.embed-ops-shell :deep(.project-list-card) {
+  min-height: 228px;
 }
 
-.page-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
+.embed-ops-shell :deep(.project-list-filter-bar .el-form-item:not(:first-child) .el-input) {
+  width: 100% !important;
 }
 
-.page-head h1 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 24px;
-  font-weight: 800;
-  line-height: 1.25;
+.project-list-card.is-active {
+  border-color: color-mix(in srgb, var(--brand-primary) 42%, var(--border-subtle));
+  box-shadow:
+    var(--inner-highlight),
+    var(--shadow-md),
+    inset 3px 0 0 var(--brand-primary);
 }
 
-.page-head p {
-  max-width: 560px;
-  margin: 8px 0 0;
-  color: var(--text-secondary);
-  font-size: 14px;
-  line-height: 1.7;
-}
-
-.page-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.stats-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.stat-card {
-  min-height: 68px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border: 1px solid var(--border-glass);
-  border-radius: 8px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-card) 88%, #ffffff 12%), var(--bg-card));
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
-}
-
-.stat-icon {
-  width: 36px;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  border-radius: 8px;
-  font-size: 19px;
-}
-
-.stat-icon.blue {
-  background: rgba(59, 130, 246, 0.12);
-  color: #2563eb;
-}
-
-.stat-icon.green {
-  background: rgba(34, 197, 94, 0.12);
-  color: #16a34a;
-}
-
-.stat-icon.violet {
-  background: rgba(124, 92, 255, 0.13);
-  color: #6d5dfc;
-}
-
-.stat-icon.orange {
-  background: rgba(245, 158, 11, 0.14);
-  color: #d97706;
-}
-
-.stat-card span:last-child {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.stat-card small {
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.stat-card strong {
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: 18px;
-  font-weight: 750;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.catalog-card {
-  overflow: hidden;
-}
-
-.card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 16px;
-  font-weight: 750;
-}
-
-.catalog-filters {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-  margin-bottom: 14px;
-  padding: 12px 14px;
-  border: 1px solid var(--border-glass);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-tertiary) 42%, transparent);
-}
-
-.catalog-filters :deep(.el-form-item) {
-  margin: 0;
-}
-
-.catalog-filters :deep(.el-input),
-.catalog-filters :deep(.el-select) {
-  width: 220px;
-}
-
-.catalog-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-  color: var(--text-primary);
-  font-weight: 700;
-}
-
-.page-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 14px;
-}
-
-.page-card {
-  position: relative;
-  width: 100%;
-  min-width: 0;
-  display: grid;
-  gap: 12px;
-  padding: 18px;
-  border: 1px solid var(--border-glass);
-  border-radius: 8px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 94%, rgb(var(--brand-primary-rgb) / 0.08)), var(--bg-secondary));
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
-}
-
-.page-card:hover,
-.page-card.active {
-  border-color: var(--accent-color);
-  box-shadow: 0 14px 32px rgba(59, 91, 255, 0.12);
-}
-
-.page-card:hover {
-  transform: translateY(-1px);
-}
-
-.page-card.active::after {
-  content: "✓";
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border-radius: 0 8px 0 8px;
-  background: var(--accent-color);
-  color: #fff;
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.page-card-main {
-  min-width: 0;
-  display: grid;
-  gap: 8px;
-}
-
-.page-card-title {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.page-card-title strong,
-.action-main strong {
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 750;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.page-field {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 70px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-}
-
-.page-field b {
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.page-field span,
-.action-main small,
-.action-desc {
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.page-card-footer {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px 14px;
-  justify-content: flex-start;
-  margin-top: 4px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--border-glass);
-}
-
-.page-card-footer span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.page-card-actions {
-  display: inline-flex !important;
-  align-items: center;
-  gap: 8px !important;
-  margin-left: auto;
+.embed-ops-card-time {
+  font-size: 13px !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.01em;
 }
 
 .drawer-page-summary {
@@ -1016,22 +777,20 @@ onMounted(load)
   gap: 10px;
   margin-bottom: 18px;
   padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--accent-color) 24%, var(--border-glass));
-  border-radius: 8px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--bg-card) 88%, rgb(var(--brand-primary-rgb) / 0.08)), var(--bg-card));
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid-panel) 88%, transparent);
 }
 
 .drawer-page-summary > div {
   display: grid;
   gap: 4px;
   min-width: 0;
-  padding: 4px;
 }
 
 .drawer-page-summary span,
 .drawer-section-title span {
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -1059,8 +818,8 @@ onMounted(load)
 }
 
 .drawer-action-table {
-  border: 1px solid var(--border-glass);
-  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
   overflow: hidden;
 }
 
@@ -1071,9 +830,9 @@ onMounted(load)
   gap: 12px;
   margin-bottom: 12px;
   padding: 12px 14px;
-  border: 1px solid var(--border-glass);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-tertiary) 44%, transparent);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-solid-control) 72%, transparent);
 }
 
 .reference-head span {
@@ -1093,345 +852,26 @@ onMounted(load)
 .reference-head small,
 .reference-sub {
   overflow: hidden;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ml-6 {
-  margin-left: 6px;
-}
-
-.action-main {
-  min-width: 0;
+.renderer-form {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 14px;
 }
 
-.action-main > div {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.action-meta {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.action-meta span {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-  padding: 8px 10px;
-  overflow: hidden;
-  border-radius: 7px;
-  background: var(--bg-muted);
-  color: var(--text-primary);
-  font-size: 12px;
-  text-overflow: ellipsis;
-}
-
-.action-meta b {
-  color: var(--text-secondary);
-  font-weight: 600;
+.renderer-form :deep(.el-form-item) {
+  margin: 0;
 }
 
 @media (max-width: 980px) {
-  .page-hero {
-    padding: 16px;
-  }
-
-  .page-head {
-    display: grid;
-  }
-
-  .page-actions {
-    justify-content: flex-start;
-  }
-
-  .stats-row,
-  .page-card-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .catalog-filters :deep(.el-input),
-  .catalog-filters :deep(.el-select) {
-    width: 100%;
-  }
-
-  .action-meta {
-    grid-template-columns: 1fr;
-  }
-
   .drawer-page-summary {
     grid-template-columns: 1fr;
-  }
-}
-
-/* SDK wizard aligned skin: tech-violet glass for frontend page access management. */
-/* 顶栏皮肤特例已删除：统一使用 MainLayout 的浅色玻璃顶栏（Phase 2.6）。 */
-
-.embed-ops-page {
-  position: relative;
-  min-height: calc(100vh - 72px);
-  overflow: hidden;
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.13) 1px, transparent 1px),
-    radial-gradient(circle at 78% 0%, rgb(var(--brand-selected-rgb) / 0.92), transparent 28%),
-    radial-gradient(circle at 20% 18%, rgb(var(--brand-selected-rgb) / 0.38), transparent 34%),
-    radial-gradient(circle at 72% 72%, rgb(var(--brand-hover-rgb) / 0.16), transparent 32%),
-    var(--brand-page-bg) !important;
-  background-size: 56px 56px, 56px 56px, auto, auto, auto, auto;
-  color: #11183a;
-}
-
-.embed-ops-page::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background:
-    radial-gradient(circle at 90% 18%, rgba(255, 255, 255, 0.78), transparent 23%),
-    linear-gradient(110deg, transparent 0%, rgb(var(--brand-hover-rgb) / 0.12) 38%, transparent 66%);
-  opacity: 0.9;
-  pointer-events: none;
-}
-
-.embed-ops-page::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  z-index: 0;
-  width: min(520px, 42vw);
-  height: 380px;
-  background:
-    linear-gradient(rgb(var(--brand-hover-rgb) / 0.12) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(var(--brand-primary-rgb) / 0.1) 1px, transparent 1px);
-  background-size: 28px 28px;
-  mask-image: linear-gradient(135deg, transparent 0%, #000 45%, #000 100%);
-  opacity: 0.68;
-  pointer-events: none;
-}
-
-.page-hero,
-.stats-row,
-.catalog-card {
-  position: relative;
-  z-index: 1;
-}
-
-.page-hero {
-  min-height: var(--reachai-workbench-title-height, 120px);
-  padding: var(--layout-page-header-padding-block) var(--layout-page-header-padding-inline);
-  overflow: hidden;
-  border: 1px solid rgb(var(--brand-selected-rgb) / 0.66) !important;
-  border-radius: var(--reachai-workbench-title-radius, 16px);
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.6), rgb(var(--brand-selected-rgb) / 0.38)) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 22px 48px rgb(var(--brand-primary-rgb) / 0.14) !important;
-  backdrop-filter: blur(24px) saturate(1.08) !important;
-}
-
-.page-hero::after {
-  content: '';
-  position: absolute;
-  right: 5%;
-  top: 28%;
-  width: 46%;
-  height: 64%;
-  background:
-    radial-gradient(circle at 12% 36%, rgba(255, 255, 255, 0.95) 0 2px, transparent 3px),
-    radial-gradient(circle at 42% 20%, rgba(255, 255, 255, 0.86) 0 2px, transparent 3px),
-    radial-gradient(circle at 68% 44%, rgba(255, 255, 255, 0.8) 0 2px, transparent 3px),
-    linear-gradient(168deg, transparent 0%, rgba(255, 255, 255, 0.5) 47%, transparent 53%),
-    repeating-linear-gradient(168deg, transparent 0 10px, rgba(255, 255, 255, 0.16) 11px 12px);
-  opacity: 0.82;
-  pointer-events: none;
-}
-
-.page-head {
-  position: relative;
-  z-index: 1;
-  align-items: center;
-}
-
-.page-head h1 {
-  color: #11183a !important;
-  font-size: 29px;
-  font-weight: 850;
-  line-height: 1.12;
-  text-shadow: none !important;
-}
-
-.page-head p {
-  max-width: 660px;
-  color: #4f5f81 !important;
-  font-size: 14px;
-}
-
-.page-actions :deep(.el-button) {
-  height: 38px;
-  border-color: rgba(148, 163, 184, 0.28) !important;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.68) !important;
-  color: #27364f !important;
-  font-weight: 750;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 14px 32px rgb(var(--brand-primary-rgb) / 0.1) !important;
-  backdrop-filter: blur(16px);
-}
-
-.stats-row {
-  gap: 12px;
-}
-
-.stat-card,
-.catalog-card,
-.catalog-filters,
-.page-card,
-.drawer-page-summary,
-.drawer-action-table,
-.action-meta span {
-  border-color: rgb(var(--brand-selected-rgb) / 0.48) !important;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.7), rgb(var(--brand-selected-rgb) / 0.34)) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 14px 30px rgb(var(--brand-primary-rgb) / 0.08) !important;
-  backdrop-filter: blur(18px) saturate(1.04);
-}
-
-.stat-card {
-  min-height: 76px;
-  padding: 14px 16px;
-  overflow: hidden;
-}
-
-.stat-icon {
-  border: 1px solid rgb(var(--brand-hover-rgb) / 0.24);
-  background: rgba(238, 242, 255, 0.72) !important;
-  color: var(--brand-primary) !important;
-}
-
-.stat-icon.green {
-  border-color: rgba(34, 197, 94, 0.22);
-  background: rgba(220, 252, 231, 0.74) !important;
-  color: #16a34a !important;
-}
-
-.stat-icon.orange {
-  border-color: rgba(245, 158, 11, 0.24);
-  background: rgba(254, 243, 199, 0.74) !important;
-  color: #b45309 !important;
-}
-
-.stat-card small,
-.page-field b,
-.page-card-footer span,
-.action-main small,
-.action-desc,
-.drawer-page-summary span {
-  color: #4f5f81 !important;
-}
-
-.stat-card strong,
-.card-head,
-.catalog-summary,
-.page-card-title strong,
-.page-field span,
-.drawer-page-summary strong,
-.drawer-section-title span,
-.action-main strong {
-  color: #11183a !important;
-}
-
-.catalog-card :deep(.el-card__header) {
-  border-bottom-color: rgb(var(--brand-selected-rgb) / 0.42);
-  background: rgba(255, 255, 255, 0.22);
-}
-
-.catalog-card :deep(.el-card__body) {
-  background: transparent;
-}
-
-.catalog-filters :deep(.el-input__wrapper),
-.catalog-filters :deep(.el-select__wrapper),
-.renderer-form :deep(.el-input__wrapper),
-.renderer-form :deep(.el-select__wrapper) {
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow:
-    0 0 0 1px rgb(var(--brand-selected-rgb) / 0.42) inset,
-    inset 0 1px 0 rgba(255, 255, 255, 0.88);
-}
-
-.catalog-filters :deep(.el-button--primary),
-.page-card-actions :deep(.el-button--primary),
-.card-head :deep(.el-button--primary),
-.page-actions :deep(.el-button--primary) {
-  border-color: rgb(var(--brand-primary-rgb) / 0.34) !important;
-  background:
-    linear-gradient(135deg, var(--brand-primary), var(--brand-hover)),
-    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.34), transparent 42%) !important;
-  color: #ffffff !important;
-  box-shadow: 0 12px 28px rgb(var(--brand-primary-rgb) / 0.24) !important;
-}
-
-.catalog-summary :deep(.el-tag),
-.drawer-section-title :deep(.el-tag) {
-  border-color: rgb(var(--brand-hover-rgb) / 0.28) !important;
-  background: rgba(238, 242, 255, 0.68) !important;
-  color: var(--brand-active) !important;
-}
-
-.page-card {
-  overflow: hidden;
-}
-
-.page-card::before {
-  content: '';
-  position: absolute;
-  right: -16px;
-  bottom: -34px;
-  width: 110px;
-  height: 110px;
-  border-radius: 18px;
-  background:
-    linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.18), rgb(var(--brand-hover-rgb) / 0.1)),
-    linear-gradient(rgb(var(--brand-primary-rgb) / 0.18) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(var(--brand-hover-rgb) / 0.14) 1px, transparent 1px);
-  background-size: auto, 18px 18px, 18px 18px;
-  opacity: 0.62;
-  transform: rotate(-25deg);
-  pointer-events: none;
-}
-
-.page-card:hover,
-.page-card.active {
-  border-color: rgb(var(--brand-hover-rgb) / 0.58) !important;
-  box-shadow:
-    0 16px 32px rgb(var(--brand-primary-rgb) / 0.14),
-    inset 4px 0 0 rgb(var(--brand-primary-rgb) / 0.7) !important;
-}
-
-.page-card.active::after {
-  background: linear-gradient(135deg, var(--brand-primary), var(--brand-hover));
-}
-
-.page-card-footer {
-  border-top-color: rgb(var(--brand-selected-rgb) / 0.42);
-}
-
-@media (max-width: 980px) {
-  .page-hero {
-    min-height: auto;
   }
 }
 </style>

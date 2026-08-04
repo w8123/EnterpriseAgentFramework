@@ -1,13 +1,66 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createEmptySnapshot } from '../core/conversationTypes'
+import ConversationMessageList from './ConversationMessageList.vue'
+import ConversationView from './ConversationView.vue'
 
 /**
- * DOM 单测无法真实计算 container query 生效结果。
- * 这里锁定共享组件中的窄容器契约源码，真实 display 断言留给浏览器验收。
+ * Angular 12/Critters 无法解析 @container。共享会话组件改用
+ * ResizeObserver 得到真实宿主宽度，并把窄容器状态传给消息布局。
  */
-describe('Conversation avatar container-query contract', () => {
-  it('uses named conversation container query to hide both avatars at <=480px', () => {
+describe('Conversation avatar narrow-container contract', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('hides avatars at <=480px and restores them above the boundary', async () => {
+    const resizeObserverState: { callback?: ResizeObserverCallback } = {}
+    class TestResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeObserverState.callback = callback
+      }
+
+      observe() {}
+
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+
+    const wrapper = mount(ConversationView, {
+      props: {
+        snapshot: createEmptySnapshot(),
+        showAvatars: true,
+      },
+    })
+    const messageList = wrapper.findComponent(ConversationMessageList)
+    expect(messageList.props('showAvatars')).toBe(true)
+
+    resizeObserverState.callback?.(
+      [{ contentRect: { width: 480 } } as ResizeObserverEntry],
+      {} as ResizeObserver,
+    )
+    await nextTick()
+    expect(wrapper.find('.reachai-conversation').classes()).toContain(
+      'reachai-conversation--narrow',
+    )
+    expect(messageList.props('showAvatars')).toBe(false)
+
+    resizeObserverState.callback?.(
+      [{ contentRect: { width: 481 } } as ResizeObserverEntry],
+      {} as ResizeObserver,
+    )
+    await nextTick()
+    expect(wrapper.find('.reachai-conversation').classes()).not.toContain(
+      'reachai-conversation--narrow',
+    )
+    expect(messageList.props('showAvatars')).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps the package free of unsupported container-query syntax', () => {
     const viewCss = readFileSync(
       resolve(__dirname, './ConversationView.vue'),
       'utf8',
@@ -17,19 +70,16 @@ describe('Conversation avatar container-query contract', () => {
       'utf8',
     )
 
-    expect(viewCss).toMatch(/container-type:\s*inline-size/)
-    expect(viewCss).toMatch(/container-name:\s*reachai-conversation/)
-
+    expect(viewCss).toMatch(/AVATAR_HIDE_MAX_WIDTH\s*=\s*480/)
+    expect(viewCss).toMatch(/new ResizeObserver/)
+    expect(viewCss).not.toMatch(/^\s*@container\b/m)
+    expect(itemCss).not.toMatch(/^\s*@container\b/m)
+    expect(itemCss).toMatch(/reachai-conversation--narrow/)
     expect(itemCss).toMatch(
-      /@container\s+reachai-conversation\s*\(\s*max-width:\s*480px\s*\)/,
+      /reachai-message__assistant-row--without-avatar[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
     )
-    expect(itemCss).toMatch(/\.reachai-message__user-avatar[\s\S]*display:\s*none/)
-    expect(itemCss).toMatch(/\.reachai-message__prism-avatar[\s\S]*display:\s*none/)
     expect(itemCss).toMatch(
       /\.reachai-message__assistant-row\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
-    )
-    expect(itemCss).not.toMatch(
-      /@container\s*\(\s*max-width:\s*480px\s*\)\s*\{[\s\S]*grid-template-columns:\s*var\(--reachai-chat-avatar-size/,
     )
   })
 })

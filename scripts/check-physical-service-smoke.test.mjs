@@ -81,7 +81,9 @@ await withServers({
       status: 'UP',
       services: {
         runtime: { status: 'UP' },
-        capability: { status: 'UP' }
+        capability: { status: 'UP' },
+        model: { status: 'UP' },
+        knowledge: { status: 'UP' }
       }
     }]
   },
@@ -116,7 +118,9 @@ await withServers({
       status: 'UP',
       services: {
         runtime: { status: 'UP' },
-        capability: { status: 'DOWN' }
+        capability: { status: 'DOWN' },
+        model: { status: 'UP' },
+        knowledge: { status: 'UP' }
       }
     }]
   },
@@ -173,7 +177,9 @@ await withServers({
         status: 'UP',
         services: {
           runtime: { status: 'UP' },
-          capability: { status: 'UP' }
+          capability: { status: 'UP' },
+          model: { status: 'UP' },
+          knowledge: { status: 'UP' }
         }
       }]
     },
@@ -196,5 +202,43 @@ await withServers({
     assert.match(result.stdout, /physical service smoke check passed/)
     assert.match(result.stdout, /waited for services/)
     assert.ok(controlHealthAttempts >= 2, 'smoke should retry until delayed service is up')
+  })
+}
+
+{
+  let aggregateRequests = 0
+  await withServers({
+    control: {
+      '/actuator/health': [200, { status: 'UP' }],
+      '/api/internal-services/health': () => {
+        aggregateRequests += 1
+        return [200, {
+          status: 'UP',
+          services: {
+            runtime: { status: 'UP' },
+            capability: { status: 'UP' },
+            model: { status: 'UP' },
+            knowledge: { status: 'UP' }
+          }
+        }]
+      }
+    },
+    runtime: {
+      '/internal/runtime/health': [200, { status: 'UP', service: 'reachai-runtime-service' }]
+    },
+    capability: {
+      '/internal/capability/health': [200, { status: 'UP', service: 'reachai-capability-service' }]
+    },
+    knowledge: {
+      '/ai/actuator/health': [200, { status: 'UP' }]
+    },
+    model: {
+      '/actuator/health': [200, { status: 'UP' }]
+    }
+  }, async servers => {
+    const result = await runSmoke(servers)
+
+    assert.strictEqual(result.status, 0, result.stderr || result.stdout)
+    assert.strictEqual(aggregateRequests, 1, 'one smoke attempt should fetch aggregate health once')
   })
 }

@@ -9,7 +9,12 @@ import type {
   UiRequestV1,
 } from './conversationTypes'
 import { createEmptySnapshot, createId, nowIso } from './conversationTypes'
-import { normalizeUiRequest } from './normalizeUiRequest'
+import {
+  isBlockingUiRequest,
+  isCardOnlyUiRequest,
+  isTextOnlyUiRequest,
+  normalizeUiRequest,
+} from './normalizeUiRequest'
 import type { ConversationEventEnvelope } from './conversationEvents'
 
 export type ConversationAction =
@@ -143,7 +148,7 @@ function findInteractionBlock(message: ConversationMessage, interactionId: strin
 }
 
 function appendTextDelta(message: ConversationMessage, text: string) {
-  if (!text) return
+  if (!text || message.blocks.some((block) => block.type === 'interaction' && isCardOnlyUiRequest(block.request))) return
   const last = message.blocks[message.blocks.length - 1]
   if (last && last.type === 'text' && last.status !== 'completed') {
     last.text += text
@@ -164,6 +169,16 @@ function appendTextDelta(message: ConversationMessage, text: string) {
 function addInteraction(message: ConversationMessage, raw: unknown, state: InteractionRenderState = 'waiting') {
   const request = normalizeUiRequest(raw)
   if (!request) return
+  if (isTextOnlyUiRequest(request)) {
+    message.blocks = message.blocks.filter(
+      (block) => block.type !== 'interaction' || block.request.interactionId !== request.interactionId,
+    )
+    message.updatedAt = nowIso()
+    return
+  }
+  if (isCardOnlyUiRequest(request)) {
+    message.blocks = message.blocks.filter((block) => block.type !== 'text')
+  }
   const existing = findInteractionBlock(message, request.interactionId)
   if (existing) {
     existing.request = request
@@ -363,7 +378,9 @@ export function conversationReducer(
           appendTextDelta(message, action.answer)
         }
       }
-      if (action.uiRequest) addInteraction(message, action.uiRequest, 'waiting')
+      if (action.uiRequest) {
+        addInteraction(message, action.uiRequest, isBlockingUiRequest(action.uiRequest) ? 'waiting' : 'resolved')
+      }
       finalizeTextBlocks(message)
       const waiting = message.blocks.some(
         (b): b is ConversationInteractionBlock => b.type === 'interaction' && b.state === 'waiting',
@@ -466,6 +483,7 @@ function applyEvent(state: ConversationSnapshot, event: ConversationEventEnvelop
       return conversationReducer(withTurn, {
         type: 'add_interaction',
         request: data.uiRequest ?? event.data,
+        state: isBlockingUiRequest(data.uiRequest ?? event.data) ? 'waiting' : 'resolved',
         messageId: asString(data.messageId),
       })
     case 'page.action.requested':

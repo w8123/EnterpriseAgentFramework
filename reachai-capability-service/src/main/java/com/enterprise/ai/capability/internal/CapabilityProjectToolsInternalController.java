@@ -44,7 +44,9 @@ public class CapabilityProjectToolsInternalController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("toolId", tool.getId());
         body.put("keySlug", tool.getName());
-        body.put("displayName", firstText(tool.getName()));
+        String title = firstText(tool.getTitle(), tool.getName());
+        body.put("title", title);
+        body.put("displayName", title);
         body.put("description", firstText(tool.getAiDescription(), tool.getDescription()));
         body.put("status", Boolean.TRUE.equals(tool.getEnabled()) ? "ACTIVE" : "DISABLED");
         body.put("inputSchema", tool.getParametersJson());

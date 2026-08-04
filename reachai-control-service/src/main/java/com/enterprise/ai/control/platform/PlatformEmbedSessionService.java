@@ -82,7 +82,10 @@ public class PlatformEmbedSessionService {
         }
         if (!Objects.equals(entity.getAgentId(), claims.getAgentId())
                 || !Objects.equals(entity.getProjectCode(), claims.getProjectCode())
-                || !Objects.equals(entity.getExternalUserId(), claims.getExternalUserId())) {
+                || !Objects.equals(entity.getExternalUserId(), claims.getExternalUserId())
+                || !Objects.equals(
+                        entity.getPageInstanceId(),
+                        claims.getPageInstanceId())) {
             throw new PlatformEmbedTokenException("embed chat session does not match embed token");
         }
         LocalDateTime now = LocalDateTime.now();

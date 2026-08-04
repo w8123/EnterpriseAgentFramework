@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.aiassist;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -23,32 +24,6 @@ class ControlAiAssistSkillControllerTest {
     private final ControlAiAssistSkillController controller = new ControlAiAssistSkillController();
 
     @Test
-    void exposesPageAssistantSkillMetadataFromControlService() {
-        MockHttpServletRequest request = new MockHttpServletRequest(
-                "GET",
-                "/api/ai-assist/skills/reachai-page-assistant-onboarding/latest");
-        request.setScheme("http");
-        request.setServerName("localhost");
-        request.setServerPort(18603);
-
-        ResponseEntity<ControlAiAssistSkillController.SkillPackageResponse> response =
-                controller.latestPageAssistantSkill(request);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals("reachai-page-assistant-onboarding", response.getBody().name());
-        assertEquals(
-                "http://localhost:18603/api/ai-assist/skills/reachai-page-assistant-onboarding/latest.zip",
-                response.getBody().downloadUrl());
-        assertTrue(response.getBody().files().stream()
-                .anyMatch(file -> "scripts/reachai-page-assistant.ps1".equals(file.path())));
-        assertTrue(response.getBody().files().stream()
-                .anyMatch(file -> "references/page-action-result.schema.json".equals(file.path())));
-        assertTrue(response.getBody().files().stream()
-                .anyMatch(file -> "references/page-action-mock.html".equals(file.path())));
-    }
-
-    @Test
     void downloadsReachAiOnboardingSkillZipWithPageActionSchemaAndMock() throws IOException {
         ResponseEntity<byte[]> response = controller.downloadLatestSkill();
 
@@ -57,6 +32,24 @@ class ControlAiAssistSkillControllerTest {
         assertZipContains(response.getBody(), "reachai-onboarding/references/page-action-mock.html");
         assertZipContains(response.getBody(),
                 "reachai-onboarding/artifacts/reachai-embed-chat-1.0.0-SNAPSHOT.tgz");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/artifacts/manifest-artifact.json");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/scripts/install-embed-chat.mjs");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/scripts/install-java-sdk.ps1");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/scripts/set-reachai-registry-secret.ps1");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/references/page-action-contract.md");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/references/angular-page-action.md");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/templates/angular/reachai-page-action.service.ts");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/templates/angular/page-registry.example.ts");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/scripts/reachai-page-actions.ps1");
     }
 
     @Test
@@ -82,21 +75,54 @@ class ControlAiAssistSkillControllerTest {
     }
 
     @Test
+    void onboardingSkillShipsOfflineInstallerWithoutNpmLifecycleExecution() throws Exception {
+        ResponseEntity<byte[]> skillZip = controller.downloadLatestSkill();
+        byte[] installerBytes = readZipEntry(
+                skillZip.getBody(),
+                "reachai-onboarding/scripts/install-embed-chat.mjs");
+        String installer = new String(installerBytes, StandardCharsets.UTF_8);
+
+        assertTrue(installer.contains("spawnSync('tar'"));
+        assertTrue(installer.contains("lifecycleScripts=disabled lockfileFormat=preserved"));
+        assertFalse(installer.contains("spawnSync('npm'"));
+        assertFalse(installer.contains("npm install"));
+    }
+
+    @Test
+    void onboardingSkillSecretHelperUsesHiddenInputAndDoesNotPrintTheValue() throws Exception {
+        ResponseEntity<byte[]> skillZip = controller.downloadLatestSkill();
+        byte[] helperBytes = readZipEntry(
+                skillZip.getBody(),
+                "reachai-onboarding/scripts/set-reachai-registry-secret.ps1");
+        String helper = new String(helperBytes, StandardCharsets.UTF_8);
+
+        assertTrue(helper.contains("-AsSecureString"));
+        assertTrue(helper.contains("configured=$variableName target=$Target"));
+        assertFalse(helper.contains("configured=$plainValue"));
+        assertFalse(helper.contains("Write-Output $plainValue"));
+    }
+
+    @Test
+    void onboardingSkillRestrictsGlobalLauncherToAuthenticatedApplicationShell() throws Exception {
+        ResponseEntity<byte[]> skillZip = controller.downloadLatestSkill();
+        byte[] skillBytes = readZipEntry(
+                skillZip.getBody(),
+                "reachai-onboarding/SKILL.md");
+        String skill = new String(skillBytes, StandardCharsets.UTF_8);
+
+        assertTrue(skill.contains("Mount the launcher only after the authenticated application shell is ready."));
+        assertTrue(skill.contains(
+                "Do not initialize it on login, logout, silent-refresh, OAuth callback, or public routes."));
+        assertTrue(skill.contains(
+                "an unauthenticated Token Broker request from an auth page is a defect, not runtime proof."));
+    }
+
+    @Test
     void downloadsWorkflowAiCodingSkillZipFromControlResources() throws IOException {
         ResponseEntity<byte[]> response = controller.downloadLatestWorkflowAiCodingSkill();
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertZipContains(response.getBody(), "workflow-ai-coding/SKILL.md");
-    }
-
-    @Test
-    void downloadsPageAssistantHelperScriptFromControlResources() throws IOException {
-        ResponseEntity<byte[]> response = controller.downloadPageAssistantHelperScript();
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        String body = new String(response.getBody(), StandardCharsets.UTF_8);
-        assertTrue(body.contains("reachai-page-assistant.ps1 scaffold"));
-        assertTrue(body.contains("reachai-page-assistant.ps1 verify"));
     }
 
     private static void assertZipContains(byte[] body, String expectedEntry) throws IOException {

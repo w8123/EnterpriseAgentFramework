@@ -42,7 +42,7 @@ class RuntimeRunOpsQueryServiceTest {
 
     @Test
     void recentIncludesDirectAnswerSupervisorRunWithNoWorkflowOrToolCalls() {
-        RuntimeRunEntity run = supervisorRun("trace-direct", "SUCCESS");
+        RuntimeRunEntity run = supervisorRun("trace-direct", "COMPLETED");
         run.setWorkflowCallCount(0);
         run.setToolCallCount(0);
         when(runMapper.selectList(any())).thenReturn(List.of(run));
@@ -66,7 +66,7 @@ class RuntimeRunOpsQueryServiceTest {
                 RuntimeRunEntity.class);
         when(runMapper.selectList(any())).thenReturn(List.of());
 
-        service.recent("qmssmp", "success", "agent", "debug", "agent-1", "user-1", 25, 14);
+        service.recent("qmssmp", "COMPLETED", "agent", "debug", "agent-1", "user-1", 25, 14);
 
         @SuppressWarnings("rawtypes")
         ArgumentCaptor<Wrapper> captor = ArgumentCaptor.forClass(Wrapper.class);
@@ -80,7 +80,7 @@ class RuntimeRunOpsQueryServiceTest {
         assertTrue(sql.contains("agent_id"));
         assertTrue(sql.contains("user_id"));
         assertTrue(wrapper.getParamNameValuePairs().containsValue("qmssmp"));
-        assertTrue(wrapper.getParamNameValuePairs().containsValue("SUCCESS"));
+        assertTrue(wrapper.getParamNameValuePairs().containsValue("COMPLETED"));
         assertTrue(wrapper.getParamNameValuePairs().containsValue("AGENT"));
         assertTrue(wrapper.getParamNameValuePairs().containsValue("DEBUG"));
         assertTrue(wrapper.getParamNameValuePairs().containsValue("agent-1"));
@@ -139,7 +139,7 @@ class RuntimeRunOpsQueryServiceTest {
 
     @Test
     void compareUsesRootRunFieldsAndChildEvidence() {
-        RuntimeRunEntity baseline = supervisorRun("baseline", "SUCCESS");
+        RuntimeRunEntity baseline = supervisorRun("baseline", "COMPLETED");
         RuntimeRunEntity candidate = supervisorRun("candidate", "FAILED");
         candidate.setErrorCode("MODEL_FAILED");
         when(runMapper.selectOne(any())).thenReturn(baseline, candidate);
@@ -159,7 +159,7 @@ class RuntimeRunOpsQueryServiceTest {
 
     @Test
     void diagnosticsGroupsAgentRunsByPublishedConfigVersionWithoutFallbackMetrics() {
-        RuntimeRunEntity success = supervisorRun("trace-success", "SUCCESS");
+        RuntimeRunEntity success = supervisorRun("trace-success", "COMPLETED");
         RuntimeRunEntity failed = supervisorRun("trace-failed", "FAILED");
         failed.setId(2L);
         failed.setErrorCode("MODEL_FAILED");

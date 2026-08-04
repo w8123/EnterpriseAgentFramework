@@ -85,12 +85,14 @@ class TracePersistenceBoundaryTest {
                 Map.of("answer", answer, "uiRequest", Map.of("card", uiRequest),
                         "headers", Map.of("x-secret", header), "hits", List.of(Map.of("content", hit)))));
         RuntimeWorkflowDebugService service = new RuntimeWorkflowDebugService(
-                mock(RuntimeWorkflowDefinitionService.class), executor, lifecycle, spanMapper, json);
+                mock(RuntimeWorkflowDefinitionService.class), executor, lifecycle, spanMapper, json,
+                new RuntimeWorkflowDocumentCanonicalizer(json));
 
-        String graph = "{\"nodes\":[{\"id\":\"http\",\"type\":\"HTTP_REQUEST\","
-                + "\"config\":{\"body\":\"" + graphSecret + "\"}}]}";
+        String graph = "{\"schemaVersion\":2,\"entryNodeId\":\"http\",\"exitNodeIds\":[\"http\"],"
+                + "\"nodes\":[{\"id\":\"http\",\"type\":\"HTTP_REQUEST\","
+                + "\"config\":{\"body\":\"" + graphSecret + "\"}}],\"edges\":[]}";
         service.debugRun(new RuntimeWorkflowDebugService.DebugRunRequest(
-                "wf-1", "wf", "Workflow", "CHAT", "demo", "LANGGRAPH4J", null,
+                "wf-1", "wf", "Workflow", "GENERAL", "demo", "GRAPH_SPEC", null,
                 graph, null, message,
                 Map.of("headers", Map.of("authorization", token), "query", query), Map.of()));
 
@@ -141,7 +143,7 @@ class TracePersistenceBoundaryTest {
 
         saved.set(null);
         lifecycle.beginWorkflow("workflow-trace", "span", "DEBUG", "wf", "wf", "Workflow", "demo",
-                "LANGGRAPH4J", "{\"nodes\":[{\"type\":\"ANSWER\",\"config\":\"" + metadataSecret + "\"}]}",
+                "GRAPH_SPEC", "{\"nodes\":[{\"type\":\"ANSWER\",\"config\":\"" + metadataSecret + "\"}]}",
                 Map.of("message", metadataSecret));
         lifecycle.finishWorkflow("workflow-trace", false, "FAILED", answer, 1,
                 Map.of("uiRequest", Map.of("card", metadataSecret), "nodeCount", 1));

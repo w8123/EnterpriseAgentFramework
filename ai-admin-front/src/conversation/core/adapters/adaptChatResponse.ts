@@ -2,7 +2,12 @@ import type { ConversationEventEnvelope } from '../conversationEvents'
 import { createEvent } from '../conversationEvents'
 import type { ConversationSnapshot, ConversationMessage } from '../conversationTypes'
 import { createId, createEmptySnapshot, nowIso } from '../conversationTypes'
-import { normalizeUiRequest } from '../normalizeUiRequest'
+import {
+  isBlockingUiRequest,
+  isCardOnlyUiRequest,
+  isTextOnlyUiRequest,
+  normalizeUiRequest,
+} from '../normalizeUiRequest'
 
 /**
  * 将旧 ChatResponse（answer + uiRequest）转为 ConversationSnapshot。
@@ -30,7 +35,9 @@ export function adaptChatResponseToSnapshot(
   }
 
   const blocks: ConversationMessage['blocks'] = []
-  if (response.answer) {
+  const ui = normalizeUiRequest(response.uiRequest)
+  const blocking = isBlockingUiRequest(response.uiRequest)
+  if (response.answer && !isCardOnlyUiRequest(response.uiRequest)) {
     blocks.push({
       id: createId('blk'),
       type: 'text',
@@ -38,13 +45,12 @@ export function adaptChatResponseToSnapshot(
       status: 'completed',
     })
   }
-  const ui = normalizeUiRequest(response.uiRequest)
-  if (ui) {
+  if (ui && !isTextOnlyUiRequest(ui)) {
     blocks.push({
       id: createId('blk'),
       type: 'interaction',
       request: ui,
-      state: 'waiting',
+      state: blocking ? 'waiting' : 'resolved',
     })
   }
 
@@ -63,7 +69,7 @@ export function adaptChatResponseToSnapshot(
     })
   }
 
-  snapshot.turnStatus = ui ? 'waiting' : 'completed'
+  snapshot.turnStatus = ui && blocking ? 'waiting' : 'completed'
   snapshot.metadata = response.metadata
   return snapshot
 }
@@ -80,12 +86,12 @@ export function* adaptChatResponseToEvents(
     yield createEvent('session.created', { sessionId: response.sessionId }, { sessionId: response.sessionId })
   }
   yield createEvent('turn.started', {})
-  if (response.answer) {
+  if (response.answer && !isCardOnlyUiRequest(response.uiRequest)) {
     yield createEvent('message.delta', { text: response.answer }, { sessionId: response.sessionId })
   }
   if (response.uiRequest) {
     yield createEvent('ui.requested', { uiRequest: response.uiRequest }, { sessionId: response.sessionId })
-    yield createEvent('turn.waiting', {
+    yield createEvent(isBlockingUiRequest(response.uiRequest) ? 'turn.waiting' : 'turn.completed', {
       answer: response.answer,
       uiRequest: response.uiRequest,
       sessionId: response.sessionId,

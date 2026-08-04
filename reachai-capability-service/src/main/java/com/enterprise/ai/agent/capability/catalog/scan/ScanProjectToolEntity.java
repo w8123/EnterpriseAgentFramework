@@ -24,6 +24,9 @@ public class ScanProjectToolEntity {
 
     private String name;
 
+    /** 用户可读的简短名称；name 仍是稳定机器标识。 */
+    private String title;
+
     private String description;
 
     private String parametersJson;
@@ -53,10 +56,6 @@ public class ScanProjectToolEntity {
     private String sensitiveDataJson;
 
     private Boolean enabled;
-
-    private Boolean agentVisible;
-
-    private Boolean lightweightEnabled;
 
     /** 已注册为全局 Tool 时非空，对应 {@code capability_tool_definition.id} */
     private Long globalToolDefinitionId;

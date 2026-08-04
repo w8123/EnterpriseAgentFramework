@@ -7,20 +7,23 @@ description: Edit, validate, debug, publish, and inspect ReachAI Workflow drafts
 
 ## Operating Rules
 
-Treat the ReachAI platform repository and live API responses as the source of truth. Do not edit `ai_workflow` rows directly. All graph changes go through Workflow AI Coding REST endpoints under `/api/workflows/.../ai-coding`.
+Treat the ReachAI platform repository and live API responses as the source of truth. Do not edit `runtime_workflow` or `runtime_workflow_resource_binding` rows directly. All graph and binding changes go through Workflow AI Coding REST endpoints under `/api/workflows/.../ai-coding`.
+
+凡是写入 ReachAI 或展示给业务用户的名称、标题、描述、说明、System Prompt、节点名称、审计原因、进度和结果，默认使用清晰的简体中文。不要仅因 API、Schema 或字段名为英文就生成英文业务文案。Token、MCP、AI、Agent、Supervisor、Workflow、Tool、API、SDK 等熟知专业术语，以及 keySlug、toolName、代码、路径、枚举值、协议字段和技术标识可保留英文；必要时使用“中文名称（英文术语）”。不要翻译或改写技术标识。
 
 Core mental model:
 
 - `GraphSpec` is runtime semantics; `canvas_json` is layout only.
-- Create projects and lays out canvas from GraphSpec; patch defaults `layout.autoLayout=true`. The `layered-v2` policy uses LR flow, 88px inter-layer boundary gaps, 56px same-layer gaps, and cycle-safe component packing. Before reporting back, confirm `canvas_json.nodes[].position` is non-overlapping and aligned; do not patch GraphSpec only and skip canvas synchronization.
-- `START` and `END` are virtual GraphSpec edge endpoints, not node types. Do not add them to `nodes`.
-- Every workflow must include a real entry node, set `graphSpec.entry` to that node id, add `START -> <entryNode>` with `condition=always`, and connect every terminal branch to `END`.
-- Workflow AI Coding updates **draft definition** until an explicit publish request is made.
-- Workflow AI Coding may publish a validated draft through `POST /api/workflows/{workflowId}/ai-coding/publish`; publish still runs release validation and creates an ACTIVE `ai_workflow_version`.
+- Create projects and lays out canvas from GraphSpec; patch defaults `layout.autoLayout=true`. The `layered` policy uses LR flow, 88px inter-layer boundary gaps, 56px same-layer gaps, and cycle-safe component packing. Before reporting back, confirm `canvas_json.nodes[].position` is non-overlapping and aligned; do not patch GraphSpec only and skip canvas synchronization.
+- `START` and `END` are Studio-only virtual canvas nodes. They never appear in GraphSpec nodes or edges.
+- Every workflow must set `graphSpec.entryNodeId` to a real node id and list every terminal node in `graphSpec.exitNodeIds`.
+- Workflow AI Coding updates the **Working Copy** until an explicit publish request is made.
+- Workflow AI Coding may publish a validated Working Copy through `POST /api/workflows/{workflowId}/ai-coding/publish`; publish still runs release validation and creates an ACTIVE `runtime_workflow_version`.
 - Always read `GET .../context` before patching or publishing. Use the latest `workflow.updatedAt` as `baseRevision` when saving and publishing.
+- First-class resource bindings may be replaced only while the Workflow is `DRAFT`, through `PUT .../resource-bindings` with the latest `baseRevision`. They are immutable after the first publish.
 - Default patch behavior is `dryRun=true`. Only set `dryRun=false` after validation passes.
 
-Authentication: Workflow AI Coding endpoints use **aiCodingKey only** (no platform Bearer). Obtain the project-level key from ReachAI **项目详情 → AI Coding 接入秘钥**. Send it on every request as header `X-ReachAI-AiCoding-Key`; do not put the key in generated URLs, scripts, logs, or browser runtime code. Missing key returns `401`; invalid or disabled key returns `403`. API base URL depends on deployment; use relative paths from the platform manifest.
+Authentication: Workflow AI Coding endpoints use **aiCodingKey only** (no platform Bearer). Obtain the project-level key from ReachAI **项目详情 → AI Coding 接入秘钥**. Send it on every request as header `X-ReachAI-AiCoding-Key`; do not put the key in generated URLs, scripts, logs, or browser runtime code. Missing key returns `401`; invalid or disabled key returns `403`. API base URL depends on deployment; use the base URL in the current project or task handoff context.
 
 Do not use platform login cookies or Bearer tokens for `/api/workflows/**/ai-coding/**`.
 
@@ -59,18 +62,19 @@ When calling Workflow AI Coding APIs from Windows, prevent Chinese text from bei
 
 1. Optional create: `POST /api/workflows/ai-coding/workflows`
 2. Read world: `GET /api/workflows/{workflowId}/ai-coding/context`
-3. Preview edits: `POST /api/workflows/{workflowId}/ai-coding/patch` with `dryRun=true`
-4. Validate proposed graph: `POST /api/workflows/{workflowId}/ai-coding/validate` with `mode=PROPOSED`
-5. Save draft: `POST /api/workflows/{workflowId}/ai-coding/patch` with `dryRun=false` and matching `baseRevision`
-6. Debug:
+3. If an unbound DRAFT needs page scope, replace it once through `PUT .../resource-bindings`
+4. Preview edits: `POST /api/workflows/{workflowId}/ai-coding/patch` with `dryRun=true`
+5. Validate proposed graph: `POST /api/workflows/{workflowId}/ai-coding/validate` with `mode=PROPOSED`
+6. Save draft: `POST /api/workflows/{workflowId}/ai-coding/patch` with `dryRun=false` and matching `baseRevision`
+7. Debug:
    - `POST .../run` with `dryRun=true` first
    - then `POST .../run` with real input when safe
-7. Inspect runs:
+8. Inspect runs:
    - `GET .../runs?limit=&days=`
    - `GET .../runs/{traceId}`
-8. Check release readiness: `GET .../versions`
-9. Re-read context, then publish when release validation is valid: `POST .../publish` with the latest `workflow.updatedAt` as `baseRevision`
-10. Report: changed nodes/edges, validation result, traceId, release readiness, published version, and any remaining issues
+9. Check release readiness: `GET .../versions`
+10. Re-read context, then publish when release validation is valid: `POST .../publish` with the latest `workflow.updatedAt` as `baseRevision`
+11. Report: changed nodes/edges, validation result, traceId, release readiness, published version, and any remaining issues
 
 ## Endpoint Map
 
@@ -87,9 +91,10 @@ Required body fields:
 
 Optional:
 
-- `description`, `workflowType` (default `CHAT`), `runtimeType` (default `LANGGRAPH4J`)
+- `description`, `workflowKind` (default `GENERAL`), `executionEngine` (default `GRAPH_SPEC`)
 - `defaultModelInstanceId`
 - `graphSpec`, `canvas`, `extra`
+- `resourceBindings`; required for `PAGE_ASSISTANT`
 - `reason` (audit note)
 
 Returns full `WorkflowAiCodingContextResponse`.
@@ -98,30 +103,45 @@ Example:
 
 ```json
 {
-  "name": "Orders Copilot Flow",
-  "keySlug": "orders-copilot-flow",
+  "name": "订单页面助手",
+  "keySlug": "orders-page-assistant",
   "projectId": 7,
   "projectCode": "orders",
-  "workflowType": "CHAT",
-  "reason": "bootstrap draft for AI coding"
+  "workflowKind": "PAGE_ASSISTANT",
+  "resourceBindings": [
+    {
+      "resourceType": "PAGE",
+      "resourceKey": "orders.list",
+      "bindingRole": "TARGET"
+    }
+  ],
+  "reason": "为 AI Coding 创建初始草稿"
 }
 ```
+
+`PAGE_ASSISTANT` requires exactly one `TARGET` `PAGE` binding. Add other in-scope pages as `RELATED` bindings. Do not encode page ownership in `extra` or invent page keys.
+
+### Replace draft resource bindings
+
+`PUT /api/workflows/{workflowId}/ai-coding/resource-bindings`
+
+Use this only to repair or complete the resource scope of a `DRAFT` before its first publish. Send the latest context `workflow.updatedAt` as required `baseRevision`, plus the complete replacement `resourceBindings` list. PAGE_ASSISTANT still requires exactly one `TARGET PAGE`. The operation advances `workflow.updatedAt`; re-read context before any following save. Once status is `ACTIVE`, bindings are immutable and the platform rejects the request.
 
 ### Read context
 
 `GET /api/workflows/{workflowId}/ai-coding/context`
 
-Returns workflow metadata, `graphSpec`, `canvas`, release validation, node type catalog, runtime hints, page-assistant context, **`availableModels`**, **`availableTools`**, warnings.
+Returns workflow metadata, `graphSpec`, `canvas`, release validation, node type catalog, runtime hints, page-assistant context with first-class `resourceBindings`, **`availableModels`**, **`availableTools`**, warnings.
 
 Use `workflow.updatedAt` as patch and publish `baseRevision`.
 
 When building LLM nodes, pick `modelInstanceId` from `availableModels[].id` only. When building TOOL/CAPABILITY nodes, pick tools from `availableTools[]` (`toolId` / `keySlug` / `displayName`). Never invent internal ids. If either array is empty and `warnings` contains `MODEL_CATALOG_UNAVAILABLE`, `CAPABILITY_CATALOG_UNAVAILABLE`, `NO_ACTIVE_LLM`, or `NO_PROJECT_TOOLS`, fix the dependency/warning first; empty+warning means “unavailable or missing”, not “safe to guess”.
 
-Generic Workflow create defaults to `workflowType=CHAT`. Page Assistant onboarding must send `"workflowType":"PAGE_ASSISTANT"` explicitly. Attach CHAT or PAGE_ASSISTANT with:
+Generic Workflow create defaults to `workflowKind=GENERAL`. A business-page Workflow must send `"workflowKind":"PAGE_ASSISTANT"` and its `resourceBindings` explicitly. Attach GENERAL or PAGE_ASSISTANT with:
 
 `POST /api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach`
 
-Body uses `workflowId` plus optional `agentKeySlug` (preferred) or internal `agentId` (mutually exclusive). Prefer omitting agent identifiers so the project default page-copilot keySlug is used. Compatibility endpoint `/api/workflows/{id}/page-assistant/attach-tool` accepts PAGE_ASSISTANT only and returns `ai-coding-error.v1` with `WORKFLOW_TYPE_NOT_SUPPORTED` for CHAT.
+Body uses `workflowId` plus optional `agentKeySlug` (preferred) or internal `agentId` (mutually exclusive). Prefer omitting agent identifiers so the project default page-copilot keySlug is used. The Page Assistant-specific endpoint `/api/workflows/{id}/page-assistant/attach-tool` accepts PAGE_ASSISTANT only and returns `ai-coding-error.v1` with `WORKFLOW_KIND_NOT_SUPPORTED` for GENERAL.
 
 ### Validate
 
@@ -157,8 +177,8 @@ Supported ops:
 - `ADD_EDGE`
 - `UPDATE_EDGE`
 - `DELETE_EDGE`
-- `SET_ENTRY`
-- `SET_FINISH`
+- `SET_ENTRY_NODE`
+- `SET_EXIT_NODES`
 
 Example preview:
 
@@ -171,19 +191,16 @@ Example preview:
       "node": {
         "id": "answer",
         "type": "ANSWER",
-        "name": "Answer"
+        "name": "生成回答"
       }
     },
     {
-      "op": "ADD_EDGE",
-      "edge": {
-        "from": "start",
-        "to": "answer"
-      }
+      "op": "SET_ENTRY_NODE",
+      "entryNodeId": "answer"
     },
     {
-      "op": "SET_ENTRY",
-      "entry": "answer"
+      "op": "SET_EXIT_NODES",
+      "exitNodeIds": ["answer"]
     }
   ]
 }
@@ -195,7 +212,7 @@ Save draft:
 {
   "dryRun": false,
   "baseRevision": "2026-06-16T10:00:00",
-  "reason": "add answer node",
+  "reason": "添加回答节点",
   "operations": [ ... ]
 }
 ```
@@ -254,7 +271,7 @@ Returns:
 - `draftDirty` flag
 - warnings, including publish readiness and the AI Coding publish endpoint
 
-When `releaseValidation.valid=true`, re-read context and call `POST /api/workflows/{workflowId}/ai-coding/publish` with a semantic version such as `v1.0.0` plus the latest `workflow.updatedAt` as `baseRevision`. A `409` means the draft changed and no version was created; re-read context, validate again, and retry. If that version already exists, read `/versions` and choose the next version. Do not call legacy admin publish endpoints.
+When `releaseValidation.valid=true`, re-read context and call `POST /api/workflows/{workflowId}/ai-coding/publish` with a semantic version such as `v1.0.0` plus the latest `workflow.updatedAt` as `baseRevision`. A `409` means the working copy changed and no version was created; re-read context, validate again, and retry. If that version already exists, read `/versions` and choose the next version. Use only this canonical publish endpoint.
 
 ### Runs / trace
 
@@ -267,7 +284,7 @@ If a freshly returned `traceId` is not visible, first rely on `/run.nodeOutputs`
 
 ## PAGE_ASSISTANT Extensions
 
-When `workflowType=PAGE_ASSISTANT`, also use:
+When `workflowKind=PAGE_ASSISTANT`, also use:
 
 - `GET .../page-assistant/catalog`
 - `POST .../page-assistant/validate`

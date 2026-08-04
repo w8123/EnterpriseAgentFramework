@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:reachai:ai-coding:project-onboarding-report:v1",
+  "title": "ReachAI Project Onboarding Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "summary",
+    "steps",
+    "tests",
+    "browserVerification",
+    "remainingQuestions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "reachai.project-onboarding-report.v1"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    },
+    "tests": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "delivery-evidence-v1.schema.json#/$defs/check"
+      }
+    },
+    "browserVerification": {
+      "anyOf": [
+        {
+          "$ref": "delivery-evidence-v1.schema.json#/$defs/browserVerification"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "remainingQuestions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stepKey",
+        "status",
+        "message",
+        "files",
+        "evidence"
+      ],
+      "properties": {
+        "stepKey": {
+          "type": "string",
+          "enum": [
+            "PROJECT",
+            "STARTER",
+            "GATEWAY",
+            "BUSINESS_API",
+            "EMBED_TOKEN",
+            "FINAL_CHECK"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "WARN",
+            "FAIL",
+            "SKIPPED"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

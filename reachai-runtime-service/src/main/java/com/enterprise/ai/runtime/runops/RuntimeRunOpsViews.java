@@ -126,6 +126,7 @@ public final class RuntimeRunOpsViews {
             String runType,
             String entryType,
             String status,
+            String suspensionReason,
             String projectCode,
             String tenantId,
             String sessionId,

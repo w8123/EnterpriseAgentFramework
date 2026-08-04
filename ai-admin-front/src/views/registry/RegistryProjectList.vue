@@ -32,7 +32,6 @@
                   <em v-if="metric.delta" class="metric-delta" :class="metric.deltaTone">{{ metric.delta }}</em>
                 </div>
                 <strong>{{ metric.value }}</strong>
-                <small>{{ metric.caption }}</small>
               </div>
             </div>
           </template>
@@ -420,13 +419,12 @@ const metrics = computed(() => {
   const failedCount = projects.value.filter((project) => project.status === 'failed').length
   const scannedCount = projects.value.filter((project) => project.lastScannedAt).length
   return [
-    { label: '已注册项目数', value: total, caption: '统一项目目录', delta: total ? '已同步' : '待接入', deltaTone: 'brand', iconKey: 'project', tone: 'brand' },
-    { label: '已接入 API 数', value: apiCount, caption: '来自 SDK 与扫描', delta: apiCount ? '已同步' : '待接入', deltaTone: 'brand', iconKey: 'api', tone: 'brand' },
-    { label: '已生成 SDK 数', value: sdkCount, caption: 'Starter 配置可用', delta: sdkCount ? '可生成' : '待生成', deltaTone: 'success', iconKey: 'sdk', tone: 'brand' },
+    { label: '已注册项目数', value: total, delta: total ? '已同步' : '待接入', deltaTone: 'brand', iconKey: 'project', tone: 'brand' },
+    { label: '已接入 API 数', value: apiCount, delta: apiCount ? '已同步' : '待接入', deltaTone: 'brand', iconKey: 'api', tone: 'brand' },
+    { label: '已生成 SDK 数', value: sdkCount, delta: sdkCount ? '可生成' : '待生成', deltaTone: 'success', iconKey: 'sdk', tone: 'brand' },
     {
       label: '异常扫描项目',
       value: `${scannedCount} / ${failedCount}`,
-      caption: '扫描项目 / 异常项目',
       delta: failedCount ? `异常 ${failedCount}` : '稳定',
       deltaTone: failedCount ? 'warning' : 'warning',
       iconKey: 'scan',

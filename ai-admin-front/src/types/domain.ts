@@ -5,7 +5,6 @@ export interface DomainDef {
   description?: string
   keywordsJson?: string
   parentCode?: string | null
-  agentVisible?: boolean
   enabled?: boolean
   createdAt?: string
   updatedAt?: string

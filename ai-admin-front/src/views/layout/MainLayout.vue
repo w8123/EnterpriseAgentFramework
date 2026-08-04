@@ -15,7 +15,7 @@
 
     <el-container class="layout-workspace">
       <div v-if="!isStudioPage" class="breadcrumb-rail">
-        <AppBreadcrumb />
+        <AppBreadcrumb :show-back="breadcrumbShowBack" />
       </div>
 
       <el-main class="main-content">
@@ -53,6 +53,9 @@ const layoutMode = computed<LayoutMode>(
 )
 const isStudioPage = computed(() => layoutMode.value === 'studio')
 const isSidebarCollapsed = computed(() => appStore.sidebarCollapsed)
+const breadcrumbShowBack = computed(
+  () => route.meta.breadcrumbShowBack !== false,
+)
 const sidebarWidth = computed(() =>
   isSidebarCollapsed.value
     ? 'var(--layout-sidebar-collapsed-width)'

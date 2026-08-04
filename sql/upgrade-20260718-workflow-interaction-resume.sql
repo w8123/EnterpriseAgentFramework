@@ -1,5 +1,5 @@
 -- Upgrade: Workflow INTERACTION pause/resume + WAITING_USER RunOps status
--- Target: existing development/test databases that already have V2 baseline tables.
+-- Target: existing development/test databases that already have the current baseline tables.
 -- Impact:
 --   1) runtime_run / runtime_trace_span status comments include WAITING_USER
 --      (WAITING_APPROVAL remains Supervisor policy confirmation / true human approval)

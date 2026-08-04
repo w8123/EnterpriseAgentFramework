@@ -52,6 +52,13 @@ export interface UiActionPayload {
   [key: string]: unknown
 }
 
+export type UiPresentationMode = 'card_only' | 'text_and_card' | 'text_only'
+
+export interface UiPresentationPayload {
+  mode: UiPresentationMode
+  [key: string]: unknown
+}
+
 export interface UiRequestV1 {
   schemaVersion: '1.0'
   interactionId: string
@@ -69,6 +76,7 @@ export interface UiRequestV1 {
   data?: unknown
   schema?: Record<string, unknown>
   actions?: UiActionPayload[]
+  presentation?: UiPresentationPayload
   datasources?: Record<string, unknown>
   behavior?: Record<string, unknown>
   extension?: {

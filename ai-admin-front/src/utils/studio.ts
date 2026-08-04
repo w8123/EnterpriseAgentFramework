@@ -1,8 +1,9 @@
-import type { WorkflowCanvasSource, AgentForm, AgentGraphNode, AgentGraphSpec } from '@/types/agent'
+import type { WorkflowCanvasSource, AgentForm, WorkflowGraphNode, WorkflowGraphSpec } from '@/types/agent'
 import { studioNodeCategory, studioNodeColor, studioNodeRetryable } from '@/utils/studioNodeRegistry'
 import type {
   CanvasEdge,
   CanvasNode,
+  CanvasNodeData,
   CanvasNodeKind,
   CanvasSnapshot,
   ConditionNodeConfig,
@@ -28,6 +29,21 @@ import type {
   VariableAggregateNodeConfig,
 } from '@/types/studio'
 
+interface CanvasLayoutDocument {
+  schemaVersion: 1
+  layoutVersion: 1
+  nodes: Array<{
+    id: string
+    position: { x: number; y: number }
+    collapsed?: boolean
+  }>
+  edges: Array<{
+    id: string
+    label?: string
+    style?: string
+  }>
+}
+
 export function canvasToDefinition(base: AgentForm, snapshot: CanvasSnapshot): AgentForm {
   const tools: string[] = []
   const skills: string[] = []
@@ -49,7 +65,7 @@ export function canvasToDefinition(base: AgentForm, snapshot: CanvasSnapshot): A
 
   const normalized: CanvasSnapshot = normalizeCanvasSnapshot({
     version: 2,
-    nodes: snapshot.nodes.map((node) => ensureNodeV2(node, base)),
+    nodes: snapshot.nodes.map((node) => normalizeCanvasNodeData(node, base)),
     edges: snapshot.edges,
   })
 
@@ -58,18 +74,18 @@ export function canvasToDefinition(base: AgentForm, snapshot: CanvasSnapshot): A
     tools,
     skills,
     knowledgeBaseGroupId: knowledgeCodes[0] || '',
-    canvasJson: JSON.stringify(normalized),
+    canvasJson: JSON.stringify(canvasLayoutFromSnapshot(normalized)),
     graphSpec: canvasToGraphSpec(base, normalized),
   }
 }
 
-function canvasToGraphSpec(base: AgentForm, snapshot: CanvasSnapshot): AgentGraphSpec {
-  const graphNodes: AgentGraphNode[] = snapshot.nodes
+function canvasToGraphSpec(base: AgentForm, snapshot: CanvasSnapshot): WorkflowGraphSpec {
+  const graphNodes: WorkflowGraphNode[] = snapshot.nodes
     .filter((node) => node.data.kind !== 'start' && node.data.kind !== 'end')
     .map((node) => canvasNodeToGraphNode(node, base))
 
   const nodesById = new Map(snapshot.nodes.map((node) => [node.id, node]))
-  const graphEdges: AgentGraphSpec['edges'] = snapshot.edges
+  const boundaryAwareEdges: WorkflowGraphSpec['edges'] = snapshot.edges
     .map((edge) => {
       const sourceKind = nodesById.get(edge.source)?.data?.kind
       const condition = sourceKind === 'loop'
@@ -83,48 +99,38 @@ function canvasToGraphSpec(base: AgentForm, snapshot: CanvasSnapshot): AgentGrap
         sourceHandle: sourceKind === 'loop' ? undefined : edge.sourceHandle,
         targetHandle: edge.targetHandle,
         priority: edge.priority,
-        layout: {
-          label: condition,
-          style: edge.type || 'smoothstep',
-        },
       }
     })
     .filter((edge) => edge.from !== 'END' && edge.to !== 'START')
 
   const firstNode = graphNodes[0]?.id || ''
-  if (!graphEdges.some((edge) => edge.from === 'START') && firstNode) {
-    graphEdges.unshift({ from: 'START', to: firstNode, condition: 'always' })
-  }
-  if (!graphEdges.some((edge) => edge.to === 'END') && firstNode) {
-    graphEdges.push({ from: graphNodes[graphNodes.length - 1]?.id || firstNode, to: 'END', condition: 'always' })
-  }
-
-  const entry = graphEdges.find((edge) => edge.from === 'START' && edge.to !== 'END')?.to || firstNode
-  const finish = Array.from(new Set(
-    graphEdges
+  const entryNodeId = boundaryAwareEdges.find((edge) => edge.from === 'START' && edge.to !== 'END')?.to || firstNode
+  const exitNodeIds = Array.from(new Set(
+    boundaryAwareEdges
       .filter((edge) => edge.to === 'END' && edge.from !== 'START')
       .map((edge) => edge.from),
   ))
+  const graphEdges = boundaryAwareEdges.filter((edge) => (
+    edge.from !== 'START'
+    && edge.from !== 'END'
+    && edge.to !== 'START'
+    && edge.to !== 'END'
+  ))
 
   return {
-    ...base.graphSpec,
-    code: base.keySlug || base.graphSpec?.code || base.name || 'agent_graph',
-    name: base.name || base.graphSpec?.name || 'Agent Graph',
-    mode: 'WORKFLOW',
-    runtimeHint: base.runtimeType,
-    layout: {
-      ...base.graphSpec?.layout,
-      engine: 'vue-flow',
-      direction: base.graphSpec?.layout?.direction || 'LR',
-    },
+    schemaVersion: 2,
+    inputSchema: base.graphSpec?.inputSchema,
+    stateSchema: base.graphSpec?.stateSchema,
     nodes: graphNodes,
     edges: graphEdges,
-    entry,
-    finish: finish.length ? finish : firstNode ? [firstNode] : [],
+    entryNodeId,
+    exitNodeIds: exitNodeIds.length
+      ? exitNodeIds
+      : firstNode ? [graphNodes[graphNodes.length - 1]?.id || firstNode] : [],
   }
 }
 
-function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): AgentGraphNode {
+function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): WorkflowGraphNode {
   const common = commonNodeConfig(node)
   if (node.data.kind === 'userInput') {
     const userInput = node.data.userInputConfig || defaultUserInputConfig()
@@ -170,6 +176,7 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): AgentGraphNod
         outputAlias,
         dataSources: interaction.dataSources || {},
         behavior: interaction.behavior || {},
+        presentation: interaction.presentation || {},
         renderSchema: interaction.renderSchema || {},
         interactionConfig: {
           ...interaction,
@@ -524,10 +531,6 @@ function commonNodeConfig(node: CanvasNode): Record<string, unknown> {
     needsConfiguration: node.data.needsConfiguration === true,
     placeholderReason: node.data.placeholderReason,
     description: node.data.description,
-    source: node.data.source || 'CANVAS',
-    category: node.data.category,
-    collapsed: node.data.collapsed === true,
-    ui: { position: node.position, collapsed: node.data.collapsed === true },
   }
 }
 
@@ -541,38 +544,22 @@ function graphNodeChrome(node: CanvasNode) {
     outputSchema: node.data.outputSchema,
     retry: node.data.retry,
     errorPolicy: node.data.errorPolicy,
-    layout: {
-      x: node.position.x,
-      y: node.position.y,
-      collapsed: node.data.collapsed === true,
-    },
   }
 }
 
 export function definitionToCanvas(def: WorkflowCanvasSource): CanvasSnapshot {
-  if (def.canvasJson) {
-    const parsed = JSON.parse(def.canvasJson) as CanvasSnapshot
-    const canvasSnapshot = normalizeCanvasSnapshot({
-      version: 2,
-      nodes: (parsed.nodes || []).map((node) => ensureNodeV2(node, def as unknown as AgentForm)),
-      edges: parsed.edges || [],
-    })
-    if (def.graphSpec?.nodes?.length) {
-      return overlayCanvasLayout(
-        normalizeCanvasSnapshot(graphSpecToCanvas(def.graphSpec, def)),
-        canvasSnapshot,
-      )
-    }
-    return canvasSnapshot
-  }
   if (!def.graphSpec?.nodes?.length) {
     return emptyCanvas()
   }
-  return normalizeCanvasSnapshot(graphSpecToCanvas(def.graphSpec, def))
+  const semantic = normalizeCanvasSnapshot(graphSpecToCanvas(def.graphSpec, def))
+  return def.canvasJson
+    ? overlayCanvasLayout(semantic, parseCanvasLayout(def.canvasJson))
+    : semantic
 }
 
-function overlayCanvasLayout(semantic: CanvasSnapshot, layout: CanvasSnapshot): CanvasSnapshot {
+function overlayCanvasLayout(semantic: CanvasSnapshot, layout: CanvasLayoutDocument): CanvasSnapshot {
   const layoutNodes = new Map(layout.nodes.map((node) => [node.id, node]))
+  const layoutEdges = new Map(layout.edges.map((edge) => [edge.id, edge]))
   return {
     version: 2,
     nodes: semantic.nodes.map((node) => {
@@ -583,25 +570,106 @@ function overlayCanvasLayout(semantic: CanvasSnapshot, layout: CanvasSnapshot): 
         position: layoutNode.position || node.position,
         data: {
           ...node.data,
-          collapsed: typeof layoutNode.data?.collapsed === 'boolean'
-            ? layoutNode.data.collapsed
+          collapsed: typeof layoutNode.collapsed === 'boolean'
+            ? layoutNode.collapsed
             : node.data.collapsed,
         },
       }
     }),
-    edges: semantic.edges,
+    edges: semantic.edges.map((edge) => {
+      const layoutEdge = layoutEdges.get(edge.id)
+      if (!layoutEdge) return edge
+      return {
+        ...edge,
+        label: layoutEdge.label ?? edge.label,
+        type: layoutEdge.style ?? edge.type,
+      }
+    }),
   }
 }
 
-function graphSpecToCanvas(graphSpec: AgentGraphSpec, def: WorkflowCanvasSource): CanvasSnapshot {
+function canvasLayoutFromSnapshot(snapshot: CanvasSnapshot): CanvasLayoutDocument {
+  return {
+    schemaVersion: 1,
+    layoutVersion: 1,
+    nodes: snapshot.nodes.map((node) => ({
+      id: node.id,
+      position: { x: node.position.x, y: node.position.y },
+      collapsed: node.data.collapsed === true ? true : undefined,
+    })),
+    edges: snapshot.edges.map((edge) => ({
+      id: edge.id,
+      label: typeof edge.label === 'string' ? edge.label : undefined,
+      style: edge.type,
+    })),
+  }
+}
+
+function parseCanvasLayout(canvasJson: string): CanvasLayoutDocument {
+  const parsed = JSON.parse(canvasJson) as {
+    schemaVersion?: unknown
+    layoutVersion?: unknown
+    nodes?: Array<Record<string, unknown>>
+    edges?: Array<Record<string, unknown>>
+  }
+  if (parsed.schemaVersion !== 1 || parsed.layoutVersion !== 1) {
+    throw new Error('Canvas layout schemaVersion/layoutVersion must both be 1')
+  }
+  assertLayoutFields(parsed as Record<string, unknown>, new Set([
+    'schemaVersion', 'layoutVersion', 'viewport', 'layout', 'nodes', 'edges',
+  ]), 'Canvas layout')
+  return {
+    schemaVersion: 1,
+    layoutVersion: 1,
+    nodes: (Array.isArray(parsed.nodes) ? parsed.nodes : []).flatMap((raw) => {
+      assertLayoutFields(raw, new Set(['id', 'position', 'width', 'height', 'collapsed']), 'Canvas layout node')
+      const id = typeof raw.id === 'string' ? raw.id : ''
+      const position = raw.position as { x?: unknown; y?: unknown } | undefined
+      const x = Number(position?.x)
+      const y = Number(position?.y)
+      if (!id || !Number.isFinite(x) || !Number.isFinite(y)) return []
+      const collapsed = typeof raw.collapsed === 'boolean'
+        ? raw.collapsed
+        : undefined
+      return [{ id, position: { x, y }, collapsed }]
+    }),
+    edges: (Array.isArray(parsed.edges) ? parsed.edges : []).flatMap((raw) => {
+      assertLayoutFields(raw, new Set(['id', 'label', 'style']), 'Canvas layout edge')
+      const id = typeof raw.id === 'string' ? raw.id : ''
+      if (!id) return []
+      return [{
+        id,
+        label: typeof raw.label === 'string' ? raw.label : undefined,
+        style: typeof raw.style === 'string' ? raw.style : undefined,
+      }]
+    }),
+  }
+}
+
+function assertLayoutFields(value: Record<string, unknown>, allowed: Set<string>, label: string): void {
+  for (const field of Object.keys(value)) {
+    if (!allowed.has(field)) throw new Error(`${label} contains unsupported field: ${field}`)
+  }
+}
+
+function graphSpecToCanvas(graphSpec: WorkflowGraphSpec, def: WorkflowCanvasSource): CanvasSnapshot {
   const nodes: CanvasNode[] = [
     { id: 'start', type: 'start', position: { x: 60, y: 220 }, data: { label: '开始', kind: 'start', configVersion: 2 } },
   ]
   ;(graphSpec.nodes || []).forEach((node, idx) => {
     const kind = graphNodeKindToCanvas(node.type)
     const config = node.config || {}
-    const position = graphNodePosition(node) || configPosition(config) || { x: 260 + idx * 240, y: 220 }
-    const data = graphConfigToNodeData(kind, node.name || node.id, config, def, node.ref)
+    const position = { x: 260 + idx * 240, y: 220 }
+    const data: CanvasNodeData = graphConfigToNodeData(kind, node.name || node.id, config, def, node.ref)
+    if (kind === 'userInput' && !data.userInputConfig?.fields.length) {
+      const fields = jsonSchemaInputFields(graphSpec.inputSchema)
+      if (fields.length) {
+        const outputAlias = data.userInputConfig?.outputAlias || data.outputAlias || 'params'
+        data.userInputConfig = { fields, outputAlias }
+        data.outputAlias = outputAlias
+        data.outputs = userInputOutputPorts(fields, outputAlias)
+      }
+    }
     data.description = node.description || data.description
     data.inputs = portValue(node.inputs) || data.inputs
     data.outputs = portValue(node.outputs) || data.outputs
@@ -609,7 +677,6 @@ function graphSpecToCanvas(graphSpec: AgentGraphSpec, def: WorkflowCanvasSource)
     data.outputSchema = node.outputSchema || data.outputSchema
     if (node.retry) data.retry = node.retry as NonNullable<CanvasNode['data']['retry']>
     if (node.errorPolicy) data.errorPolicy = node.errorPolicy as NonNullable<CanvasNode['data']['errorPolicy']>
-    data.collapsed = node.layout?.collapsed === true || data.collapsed
     data.source = isSdkDefinition(def) ? 'SDK' : 'CANVAS'
     nodes.push({ id: node.id, type: kind, position, data })
   })
@@ -638,12 +705,30 @@ function graphSpecToCanvas(graphSpec: AgentGraphSpec, def: WorkflowCanvasSource)
   }
 }
 
+function jsonSchemaInputFields(schema: WorkflowGraphSpec['inputSchema']): StudioFieldSchema[] {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return []
+  const properties = objectRecordValue(schema.properties)
+  const required = new Set(arrayValue(schema.required))
+  return Object.entries(properties).map(([name, raw]) => {
+    const property = objectRecordValue(raw)
+    return {
+      name,
+      key: name,
+      type: fieldTypeValue(property.type),
+      required: required.has(name),
+      description: stringValue(property.description || property.title),
+      defaultValue: property.default == null ? '' : String(property.default),
+      source: `input.${name}`,
+    }
+  })
+}
+
 function graphConfigToNodeData(
   kind: CanvasNodeKind,
   label: string,
   config: Record<string, unknown>,
   def: WorkflowCanvasSource,
-  ref?: AgentGraphNode['ref'],
+  ref?: WorkflowGraphNode['ref'],
 ) {
   const common = {
     label,
@@ -693,6 +778,7 @@ function graphConfigToNodeData(
       outputAlias,
       dataSources: objectRecordValue(config.dataSources),
       behavior: objectRecordValue(config.behavior),
+      presentation: objectRecordValue(config.presentation),
       renderSchema: objectRecordValue(config.renderSchema),
     } satisfies InteractionNodeConfig
     return {
@@ -1290,7 +1376,6 @@ function defaultToolConfig(): ToolNodeConfig {
     ref: '',
     qualifiedName: null,
     projectCode: null,
-    visibility: null,
     credentialRef: '',
     maxRequestTimeMs: 180000,
     inputMapping: {},
@@ -1306,7 +1391,7 @@ function defaultOutputAlias(kind: CanvasNodeKind) {
   return ''
 }
 
-function ensureNodeV2(node: CanvasNode, base: AgentForm): CanvasNode {
+function normalizeCanvasNodeData(node: CanvasNode, base: AgentForm): CanvasNode {
   const kind = (node.data?.kind ?? node.type) as CanvasNodeKind
   const label = node.data?.label ?? kind
   const defaults = createDefaultNodeData(kind, label, base)
@@ -1342,7 +1427,7 @@ function canvasEndpoint(endpoint: string) {
   return endpoint
 }
 
-function graphNodeKindToCanvas(type: AgentGraphNode['type']): CanvasNodeKind {
+function graphNodeKindToCanvas(type: WorkflowGraphNode['type']): CanvasNodeKind {
   if (type === 'USER_INPUT') return 'userInput'
   if (type === 'INTERACTION') return 'interaction'
   if (type === 'PAGE_ACTION') return 'pageAction'
@@ -1492,31 +1577,10 @@ function decorateSerializableEdge(edge: CanvasEdge): CanvasEdge {
   }
 }
 
-function configPosition(config: Record<string, unknown>) {
-  const ui = config.ui
-  if (!ui || typeof ui !== 'object') return null
-  const position = (ui as Record<string, unknown>).position
-  if (!position || typeof position !== 'object') return null
-  const pos = position as Record<string, unknown>
-  const x = typeof pos.x === 'number' ? pos.x : Number(pos.x)
-  const y = typeof pos.y === 'number' ? pos.y : Number(pos.y)
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
-  return { x, y }
-}
-
-function graphNodePosition(node: AgentGraphNode) {
-  const layout = node.layout
-  if (!layout) return null
-  const x = typeof layout.x === 'number' ? layout.x : Number(layout.x)
-  const y = typeof layout.y === 'number' ? layout.y : Number(layout.y)
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
-  return { x, y }
-}
-
-function graphEdgesWithSemanticBoundaries(graphSpec: AgentGraphSpec): AgentGraphSpec['edges'] {
+function graphEdgesWithSemanticBoundaries(graphSpec: WorkflowGraphSpec): WorkflowGraphSpec['edges'] {
   let edges = [...(graphSpec.edges || [])]
   const nodeIds = new Set((graphSpec.nodes || []).map((node) => node.id))
-  const entry = graphSpec.entry?.trim()
+  const entry = graphSpec.entryNodeId?.trim()
   if (entry && nodeIds.has(entry)) {
     const matching = edges.find((edge) => isGraphStart(edge.from) && edge.to === entry)
     edges = edges.filter((edge) => !isGraphStart(edge.from))
@@ -1529,7 +1593,7 @@ function graphEdgesWithSemanticBoundaries(graphSpec: AgentGraphSpec): AgentGraph
   }
 
   const finish = Array.from(new Set(
-    (graphSpec.finish || [])
+    (graphSpec.exitNodeIds || [])
       .map((nodeId) => nodeId?.trim())
       .filter((nodeId): nodeId is string => !!nodeId && nodeIds.has(nodeId)),
   ))
@@ -1747,7 +1811,7 @@ function nodeCategory(kind: CanvasNodeKind) {
 function isSdkDefinition(def: WorkflowCanvasSource) {
   const sdkGraph = def.extra?.sdkGraph
   return !!sdkGraph && typeof sdkGraph === 'object'
-    && (((sdkGraph as Record<string, unknown>).managedBy === 'SDK') || ((sdkGraph as Record<string, unknown>).source === 'SDK'))
+    && (sdkGraph as Record<string, unknown>).source === 'SDK'
 }
 
 function stringValue(value: unknown) {

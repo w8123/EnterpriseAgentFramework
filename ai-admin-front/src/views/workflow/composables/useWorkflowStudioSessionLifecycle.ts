@@ -1,7 +1,7 @@
 import type { Ref } from 'vue'
 import type { ChatResponse } from '@/types/chat'
-import type { WorkflowStudioState } from '@/types/workflow'
-import type { WorkflowDebugSessionView, WorkflowDebugRunResult, WorkflowDraftEditResult, WorkflowNodeDebugResult } from '@/types/workflow'
+import type { WorkflowWorkingCopyState } from '@/types/workflow'
+import type { WorkflowDebugSessionView, WorkflowDebugRunResult, WorkflowProposalEditResult, WorkflowNodeDebugResult } from '@/types/workflow'
 import type { CanvasNode, CanvasEdge } from '@/types/studio'
 
 export interface UseWorkflowStudioSessionLifecycleDeps {
@@ -15,13 +15,13 @@ export interface UseWorkflowStudioSessionLifecycleDeps {
   debugRunResult: Ref<WorkflowDebugRunResult | WorkflowDebugSessionView | null>
   debugSession: Ref<WorkflowDebugSessionView | null>
   debugResult: Ref<ChatResponse | null>
-  aiEditPreview: Ref<WorkflowDraftEditResult | null>
+  aiEditPreview: Ref<WorkflowProposalEditResult | null>
   validation: Ref<unknown>
   visualDirty: Ref<boolean>
   historyPast: Ref<string[]>
   historyFuture: Ref<string[]>
   historyReady: Ref<boolean>
-  studio: Ref<WorkflowStudioState | null>
+  studio: Ref<WorkflowWorkingCopyState | null>
   graphSpecJson: Ref<string>
   canvasJson: Ref<string>
   nodes: Ref<CanvasNode[]>

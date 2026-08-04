@@ -34,6 +34,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -101,11 +102,13 @@ public class RuntimeRunOpsQueryService {
                                                  int days) {
         int safeLimit = safeLimit(limit);
         int safeDays = safeDays(days);
+        String canonicalStatus = StringUtils.hasText(status)
+                ? RuntimeRunStatus.parse(status).name() : null;
         LambdaQueryWrapper<RuntimeRunEntity> wrapper = new LambdaQueryWrapper<RuntimeRunEntity>()
                 .isNotNull(RuntimeRunEntity::getTraceId)
                 .ge(RuntimeRunEntity::getStartedAt, LocalDateTime.now().minusDays(safeDays))
                 .eq(StringUtils.hasText(projectCode), RuntimeRunEntity::getProjectCode, trim(projectCode))
-                .eq(StringUtils.hasText(status), RuntimeRunEntity::getStatus, upper(status))
+                .eq(StringUtils.hasText(canonicalStatus), RuntimeRunEntity::getStatus, canonicalStatus)
                 .eq(StringUtils.hasText(runType), RuntimeRunEntity::getRunType, upper(runType))
                 .eq(StringUtils.hasText(entryType), RuntimeRunEntity::getEntryType, upper(entryType))
                 .eq(StringUtils.hasText(agentId), RuntimeRunEntity::getAgentId, trim(agentId))
@@ -194,7 +197,8 @@ public class RuntimeRunOpsQueryService {
                 run.getTraceId(),
                 run.getRunType(),
                 run.getEntryType(),
-                run.getStatus(),
+                RuntimeRunStatus.parse(run.getStatus()).name(),
+                resolvedSuspensionReason(run),
                 run.getProjectCode(),
                 run.getTenantId(),
                 run.getSessionId(),
@@ -226,6 +230,13 @@ public class RuntimeRunOpsQueryService {
                 safeInt(run.getApprovalCount()),
                 run.getReplayOfTraceId(),
                 parseMap(run.getMetadataJson()));
+    }
+
+    private String resolvedSuspensionReason(RuntimeRunEntity run) {
+        if (StringUtils.hasText(run.getSuspensionReason())) {
+            return run.getSuspensionReason().trim().toUpperCase();
+        }
+        return null;
     }
 
     private RuntimeRunOpsSpanView toSpanView(RuntimeTraceSpanEntity span) {
@@ -392,8 +403,8 @@ public class RuntimeRunOpsQueryService {
                                      List<RuntimeRunOpsSpanView> spans,
                                      List<RuntimeRunOpsToolCallView> tools,
                                      List<RuntimeRunOpsGuardDecisionView> guards) {
-        boolean failed = isFailureStatus(summary.status())
-                || spans.stream().anyMatch(span -> isFailureStatus(span.status()))
+        boolean failed = isRunFailureStatus(summary.status())
+                || spans.stream().anyMatch(span -> isSpanFailureStatus(span.status()))
                 || tools.stream().anyMatch(tool -> !tool.success())
                 || guards.stream().anyMatch(this::isDenied);
         if (!failed) {
@@ -403,7 +414,7 @@ public class RuntimeRunOpsQueryService {
         if (StringUtils.hasText(summary.errorCode())) {
             hints.add("先按根运行错误码 " + summary.errorCode() + " 定位失败阶段。");
         }
-        if (spans.stream().anyMatch(span -> isFailureStatus(span.status()))) {
+        if (spans.stream().anyMatch(span -> isSpanFailureStatus(span.status()))) {
             hints.add("检查 executionPath 中失败的 Supervisor、Workflow Tool 或 Workflow Node span。");
         }
         if (tools.stream().anyMatch(tool -> !tool.success())) {
@@ -421,6 +432,7 @@ public class RuntimeRunOpsQueryService {
         addDiff(diffs, "runType", baseline.runType(), candidate.runType());
         addDiff(diffs, "entryType", baseline.entryType(), candidate.entryType());
         addDiff(diffs, "status", baseline.status(), candidate.status());
+        addDiff(diffs, "suspensionReason", baseline.suspensionReason(), candidate.suspensionReason());
         addDiff(diffs, "agentId", baseline.agentId(), candidate.agentId());
         addDiff(diffs, "agentConfigVersionId", baseline.agentConfigVersionId(), candidate.agentConfigVersionId());
         addDiff(diffs, "workflowId", baseline.workflowId(), candidate.workflowId());
@@ -534,7 +546,7 @@ public class RuntimeRunOpsQueryService {
     private FailureEvidence failureEvidence(RuntimeRunOpsDetailView detail) {
         RuntimeRunOpsSummaryView summary = detail.summary();
         RuntimeRunOpsSpanView failedSpan = detail.spans().stream()
-                .filter(span -> isFailureStatus(span.status()))
+                .filter(span -> isSpanFailureStatus(span.status()))
                 .findFirst()
                 .orElse(null);
         RuntimeRunOpsToolCallView failedTool = detail.toolCalls().stream()
@@ -545,7 +557,7 @@ public class RuntimeRunOpsQueryService {
                 .filter(this::isDenied)
                 .findFirst()
                 .orElse(null);
-        if (!isFailureStatus(summary.status()) && failedSpan == null && failedTool == null && denied == null) {
+        if (!isRunFailureStatus(summary.status()) && failedSpan == null && failedTool == null && denied == null) {
             return null;
         }
         String code = firstText(
@@ -731,11 +743,22 @@ public class RuntimeRunOpsQueryService {
         return diffs.stream().anyMatch(RuntimeRunOpsDiffItemView::changed);
     }
 
-    private boolean isFailureStatus(String status) {
-        return "FAILED".equalsIgnoreCase(status)
-                || "ERROR".equalsIgnoreCase(status)
-                || "TIMEOUT".equalsIgnoreCase(status)
-                || "CANCELLED".equalsIgnoreCase(status);
+    private boolean isRunFailureStatus(String status) {
+        RuntimeRunStatus normalized = RuntimeRunStatus.parse(status);
+        return normalized == RuntimeRunStatus.FAILED
+                || normalized == RuntimeRunStatus.TIMED_OUT
+                || normalized == RuntimeRunStatus.CANCELLED;
+    }
+
+    private boolean isSpanFailureStatus(String status) {
+        if (!StringUtils.hasText(status)) {
+            return false;
+        }
+        return switch (status.trim().toUpperCase(Locale.ROOT)) {
+            case "FAILED", "ERROR", "CANCELLED", "TIMED_OUT" -> true;
+            case "RUNNING", "SUCCESS", "SUSPENDED", "WAITING_USER" -> false;
+            default -> throw new IllegalArgumentException("Unsupported Trace span status: " + status);
+        };
     }
 
     private boolean isDenied(RuntimeRunOpsGuardDecisionView guard) {
@@ -936,11 +959,11 @@ public class RuntimeRunOpsQueryService {
             int runCount = rows.size();
             int successCount = (int) rows.stream()
                     .map(RuntimeRunOpsDetailView::summary)
-                    .filter(summary -> "SUCCESS".equalsIgnoreCase(summary.status()))
+                    .filter(summary -> RuntimeRunStatus.parse(summary.status()) == RuntimeRunStatus.COMPLETED)
                     .count();
             int failureCount = (int) rows.stream()
                     .map(RuntimeRunOpsDetailView::summary)
-                    .filter(summary -> isFailureStatus(summary.status()))
+                    .filter(summary -> isRunFailureStatus(summary.status()))
                     .count();
             List<Integer> latencies = rows.stream()
                     .map(RuntimeRunOpsDetailView::summary)

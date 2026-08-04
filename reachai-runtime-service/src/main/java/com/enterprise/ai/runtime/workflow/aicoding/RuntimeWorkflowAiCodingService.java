@@ -2,17 +2,25 @@ package com.enterprise.ai.runtime.workflow.aicoding;
 
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
+import com.enterprise.ai.runtime.execution.WorkflowExecutionStatus;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsQueryService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDocumentCanonicalizer;
+import com.enterprise.ai.runtime.workflow.WorkflowSemanticValues;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowResourceBindingService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowResourceBindingService.BindingInput;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowResourceBindingService.BindingView;
 import com.enterprise.ai.runtime.workflow.layout.RuntimeWorkflowCanvasLayoutService;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
+import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
+import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.PageActionCatalogEntry;
 import com.enterprise.ai.runtime.client.model.RuntimeModelCatalogClient;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService.MutationOperation;
@@ -21,14 +29,17 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -48,7 +59,11 @@ public class RuntimeWorkflowAiCodingService {
     private final RuntimeWorkflowGraphMutationService graphMutationService;
     private final RuntimeModelCatalogClient modelCatalogClient;
     private final RuntimeCapabilityCatalogClient capabilityCatalogClient;
+    private final RuntimeWorkflowDocumentCanonicalizer documentCanonicalizer;
+    private final RuntimeWorkflowResourceBindingService resourceBindingService;
+    private final RuntimeControlCatalogClient controlCatalogClient;
 
+    @Transactional
     public ContextView createWorkflow(CreateRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("workflow ai-coding create request is required");
@@ -59,27 +74,125 @@ public class RuntimeWorkflowAiCodingService {
         entity.setProjectId(request.projectId());
         entity.setProjectCode(request.projectCode());
         entity.setDescription(request.description());
-        entity.setWorkflowType(defaultText(request.workflowType(), "CHAT"));
-        entity.setRuntimeType(defaultText(request.runtimeType(), "LANGGRAPH4J"));
+        entity.setWorkflowKind(WorkflowSemanticValues.normalizeWorkflowKind(
+                defaultText(request.workflowKind(), WorkflowSemanticValues.KIND_GENERAL)));
+        entity.setExecutionEngine(WorkflowSemanticValues.normalizeExecutionEngine(
+                defaultText(request.executionEngine(), WorkflowSemanticValues.ENGINE_GRAPH_SPEC)));
         entity.setDefaultModelInstanceId(request.defaultModelInstanceId());
-        entity.setManagedBy("AI_CODING");
+        entity.setDefinitionAuthority(WorkflowSemanticValues.AUTHORITY_USER);
+        entity.setCreationChannel(WorkflowSemanticValues.CHANNEL_AI_CODING);
         entity.setStatus("DRAFT");
         GraphSpec graph = request.graphSpec() == null
-                ? emptyGraph(entity.getKeySlug(), entity.getName())
+                ? emptyGraph()
                 : request.graphSpec();
         Map<String, Object> canvas = canvasLayoutService.projectAndLayout(
                 graph,
                 request.canvas(),
                 RuntimeWorkflowCanvasLayoutService.Options.defaults());
+        graph = documentCanonicalizer.canonicalizeGraphSpec(graph);
         entity.setGraphSpecJson(writeJson(graph));
         entity.setCanvasJson(writeJson(canvas));
         entity.setExtraJson(writeJsonOrNull(request.extra()));
+        if (WorkflowSemanticValues.KIND_PAGE_ASSISTANT.equals(entity.getWorkflowKind())
+                && (request.resourceBindings() == null || request.resourceBindings().stream()
+                .filter(binding -> binding != null
+                        && RuntimeWorkflowResourceBindingService.RESOURCE_PAGE
+                        .equalsIgnoreCase(binding.resourceType())
+                        && (!StringUtils.hasText(binding.bindingRole())
+                        || RuntimeWorkflowResourceBindingService.ROLE_TARGET
+                        .equalsIgnoreCase(binding.bindingRole())))
+                .count() != 1)) {
+            throw new IllegalArgumentException(
+                    "PAGE_ASSISTANT workflow requires exactly one TARGET PAGE resource binding");
+        }
         RuntimeWorkflowDefinitionEntity created = workflowService.create(entity);
+        resourceBindingService.replace(created, request.resourceBindings());
         return contextFromWorkflow(created);
+    }
+
+    /**
+     * Replaces the working copy of an existing DRAFT created by Page Workbench
+     * AI Coding. Same-request retries stay on one Workflow id; corrected retries
+     * must overwrite GraphSpec/canvas/metadata instead of silently reusing the
+     * first orphan draft left by a rolled-back Control transaction.
+     */
+    @Transactional
+    public ContextView replaceDraft(String workflowId, CreateRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("workflow ai-coding replace request is required");
+        }
+        RuntimeWorkflowDefinitionEntity workflow = requireWorkflow(workflowId);
+        if (!"DRAFT".equalsIgnoreCase(workflow.getStatus())) {
+            throw new IllegalArgumentException(
+                    "task-scoped workflow is no longer a draft");
+        }
+        GraphSpec graph = request.graphSpec() == null
+                ? emptyGraph()
+                : request.graphSpec();
+        Map<String, Object> canvas = canvasLayoutService.projectAndLayout(
+                graph,
+                request.canvas(),
+                RuntimeWorkflowCanvasLayoutService.Options.defaults());
+        graph = documentCanonicalizer.canonicalizeGraphSpec(graph);
+        if (WorkflowSemanticValues.KIND_PAGE_ASSISTANT.equals(
+                WorkflowSemanticValues.normalizeWorkflowKind(
+                        defaultText(request.workflowKind(), workflow.getWorkflowKind())))
+                && (request.resourceBindings() == null || request.resourceBindings().stream()
+                .filter(binding -> binding != null
+                        && RuntimeWorkflowResourceBindingService.RESOURCE_PAGE
+                        .equalsIgnoreCase(binding.resourceType())
+                        && (!StringUtils.hasText(binding.bindingRole())
+                        || RuntimeWorkflowResourceBindingService.ROLE_TARGET
+                        .equalsIgnoreCase(binding.bindingRole())))
+                .count() != 1)) {
+            throw new IllegalArgumentException(
+                    "PAGE_ASSISTANT workflow requires exactly one TARGET PAGE resource binding");
+        }
+
+        RuntimeWorkflowDefinitionEntity update = new RuntimeWorkflowDefinitionEntity();
+        update.setName(requireText(request.name(), "workflow name is required"));
+        update.setDescription(request.description());
+        update.setDefaultModelInstanceId(request.defaultModelInstanceId());
+        update.setGraphSpecJson(writeJson(graph));
+        update.setCanvasJson(writeJson(canvas));
+        update.setExtraJson(writeJsonOrNull(request.extra()));
+        RuntimeWorkflowDefinitionEntity saved = workflowService.update(
+                workflow.getId(),
+                update);
+        resourceBindingService.replace(saved, request.resourceBindings());
+        return contextFromWorkflow(saved);
     }
 
     public ContextView context(String workflowId) {
         return contextFromWorkflow(requireWorkflow(workflowId));
+    }
+
+    @Transactional
+    public ContextView replaceResourceBindings(
+            String workflowId,
+            ResourceBindingsRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("workflow resource bindings request is required");
+        }
+        RuntimeWorkflowDefinitionEntity workflow = requireWorkflow(workflowId);
+        if (!"DRAFT".equalsIgnoreCase(workflow.getStatus())) {
+            throw new IllegalArgumentException(
+                    "workflow resource bindings are immutable after the first publish");
+        }
+        String baseRevision = requireText(
+                request.baseRevision(),
+                "baseRevision is required for workflow resource binding changes");
+        workflowService.assertRevision(workflow, baseRevision);
+        resourceBindingService.replace(workflow, request.resourceBindings());
+
+        // Touch the owning Workflow with the same optimistic revision. If another
+        // writer won the race, the outer transaction rolls the binding replacement
+        // back together with this failed revision update.
+        RuntimeWorkflowDefinitionEntity updated = workflowService.update(
+                workflow.getId(),
+                new RuntimeWorkflowDefinitionEntity(),
+                baseRevision);
+        return contextFromWorkflow(updated);
     }
 
     public ValidationView validateWorkflow(String workflowId, ValidateRequest request) {
@@ -105,6 +218,7 @@ public class RuntimeWorkflowAiCodingService {
         MutationResult mutation = graphMutationService.mutate(currentGraph, mutationOperations(actual.operations()));
         GraphSpec graph = mutation.graphSpec();
         canvas = canvasLayoutService.projectAndLayout(graph, canvas, layoutOptions(actual.layout()));
+        graph = documentCanonicalizer.canonicalizeGraphSpec(graph);
         RuntimeWorkflowReleaseValidationResult validation = validationService.validateProposed(workflow, graph);
         boolean dryRun = actual.dryRun() == null || actual.dryRun();
         boolean saveBlocked = !dryRun && !validation.valid();
@@ -151,9 +265,9 @@ public class RuntimeWorkflowAiCodingService {
                         workflow.getId(),
                         workflow.getKeySlug(),
                         workflow.getName(),
-                        workflow.getWorkflowType(),
+                        workflow.getWorkflowKind(),
                         workflow.getProjectCode(),
-                        workflow.getRuntimeType(),
+                        workflow.getExecutionEngine(),
                         workflow.getDefaultModelInstanceId(),
                         workflow.getGraphSpecJson(),
                         workflow.getCanvasJson(),
@@ -168,7 +282,7 @@ public class RuntimeWorkflowAiCodingService {
                 result.steps(),
                 result.success() ? List.of() : errorList(result.errorMessage(), result.errorCode()),
                 List.of(),
-                Map.of("finalState", result.finalState() == null ? Map.of() : result.finalState()));
+                debugStateArtifact(result));
     }
 
     public VersionsView versions(String workflowId) {
@@ -220,16 +334,50 @@ public class RuntimeWorkflowAiCodingService {
     }
 
     public PageAssistantCatalogView pageAssistantCatalog(String workflowId) {
-        RuntimeWorkflowDefinitionEntity workflow = requireWorkflow(workflowId);
-        Map<String, Object> context = new LinkedHashMap<>();
-        context.put("workflowId", workflowId);
-        context.put("projectId", workflow.getProjectId());
-        context.put("projectCode", workflow.getProjectCode());
-        context.put("workflowType", workflow.getWorkflowType());
-        return new PageAssistantCatalogView(workflowId, context, List.of(), List.of());
+        RuntimeWorkflowDefinitionEntity workflow = requirePageAssistantWorkflow(workflowId);
+        GraphSpec graph = readGraph(workflow.getGraphSpecJson());
+        List<BindingView> bindings = resourceBindingService.list(workflowId);
+        Set<String> boundPages = bindings.stream()
+                .filter(binding -> RuntimeWorkflowResourceBindingService.RESOURCE_PAGE
+                        .equals(binding.resourceType()))
+                .map(BindingView::resourceKey)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        List<PageActionCatalogEntry> actions = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        for (String boundPage : boundPages) {
+            try {
+                List<PageActionCatalogEntry> pageActions = controlCatalogClient.listPageActions(
+                        workflow.getProjectCode(),
+                        boundPage,
+                        null,
+                        1000);
+                if (pageActions != null) {
+                    actions.addAll(pageActions);
+                }
+            } catch (RuntimeException ex) {
+                warnings.add("Page action catalog is unavailable for " + boundPage + ": " + ex.getMessage());
+            }
+        }
+        Map<String, PageActionCatalogEntry> actionsByKey = new LinkedHashMap<>();
+        for (PageActionCatalogEntry action : actions) {
+            actionsByKey.put(action.pageKey() + "\u0000" + action.actionKey(), action);
+        }
+        List<PageActionNodeMatch> nodes = graph.getNodes() == null
+                ? List.of()
+                : graph.getNodes().stream()
+                .filter(node -> node != null && "PAGE_ACTION".equals(node.getType()))
+                .map(node -> pageActionMatch(node, boundPages, actionsByKey))
+                .toList();
+        return new PageAssistantCatalogView(
+                workflowId,
+                pageAssistantContext(workflow, graph),
+                nodes,
+                actions,
+                warnings);
     }
 
     public PageAssistantValidateView validatePageAssistant(String workflowId, PageAssistantValidateRequest request) {
+        requirePageAssistantWorkflow(workflowId);
         GraphSpec proposed = request == null ? null : request.graphSpec();
         ValidationView validation = validateWorkflow(workflowId,
                 new ValidateRequest(proposed == null ? ValidateRequest.Mode.CURRENT : ValidateRequest.Mode.PROPOSED, proposed));
@@ -237,7 +385,31 @@ public class RuntimeWorkflowAiCodingService {
     }
 
     public RunView smokeTestPageAssistant(String workflowId, RunRequest request) {
+        requirePageAssistantWorkflow(workflowId);
         return runWorkflow(workflowId, request);
+    }
+
+    private PageActionNodeMatch pageActionMatch(
+            GraphSpec.Node node,
+            Set<String> boundPages,
+            Map<String, PageActionCatalogEntry> actionsByKey) {
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        String pageKey = text(config.get("pageKey"));
+        String actionKey = text(config.get("actionKey"));
+        String matchStatus;
+        if (!StringUtils.hasText(pageKey)) {
+            matchStatus = "PAGE_KEY_EMPTY";
+        } else if (!StringUtils.hasText(actionKey)) {
+            matchStatus = "ACTION_KEY_EMPTY";
+        } else if (!boundPages.contains(pageKey)) {
+            matchStatus = "UNBOUND_PAGE";
+        } else {
+            PageActionCatalogEntry action = actionsByKey.get(pageKey + "\u0000" + actionKey);
+            matchStatus = action == null
+                    ? "MISSING"
+                    : ("ACTIVE".equalsIgnoreCase(action.status()) ? "MATCHED" : "INACTIVE");
+        }
+        return new PageActionNodeMatch(node.getId(), pageKey, actionKey, matchStatus);
     }
 
     private ContextView contextFromWorkflow(RuntimeWorkflowDefinitionEntity workflow) {
@@ -315,19 +487,28 @@ public class RuntimeWorkflowAiCodingService {
         context.put("workflowId", workflow.getId());
         context.put("projectId", workflow.getProjectId());
         context.put("projectCode", workflow.getProjectCode());
-        context.put("workflowType", workflow.getWorkflowType());
-        Map<String, Object> extra = readMap(workflow.getExtraJson());
-        if (extra.containsKey("pageKey")) {
-            context.put("pageKey", extra.get("pageKey"));
+        context.put("workflowKind", workflow.getWorkflowKind());
+        List<BindingView> bindings = resourceBindingService.list(workflow.getId());
+        context.put("resourceBindings", bindings);
+        bindings.stream()
+                .filter(binding -> RuntimeWorkflowResourceBindingService.RESOURCE_PAGE
+                        .equals(binding.resourceType()))
+                .filter(binding -> RuntimeWorkflowResourceBindingService.ROLE_TARGET
+                        .equals(binding.bindingRole()))
+                .findFirst()
+                .ifPresent(binding -> context.put("pageKey", binding.resourceKey()));
+        if (graphSpec != null && graphSpec.getNodes() != null) {
+            List<String> actionKeys = graphSpec.getNodes().stream()
+                    .filter(node -> node != null && node.getConfig() != null)
+                    .map(node -> text(node.getConfig().get("actionKey")))
+                    .filter(StringUtils::hasText)
+                    .distinct()
+                    .toList();
+            context.put("actionKeys", actionKeys);
         }
-        if (extra.containsKey("routePattern")) {
-            context.put("routePattern", extra.get("routePattern"));
-        }
-        if (extra.containsKey("actionKeys")) {
-            context.put("actionKeys", extra.get("actionKeys"));
-        }
-        if ("PAGE_ASSISTANT".equalsIgnoreCase(String.valueOf(workflow.getWorkflowType()))) {
-            context.put("graphEntry", graphSpec == null ? null : graphSpec.getEntry());
+        if (WorkflowSemanticValues.KIND_PAGE_ASSISTANT.equalsIgnoreCase(
+                String.valueOf(workflow.getWorkflowKind()))) {
+            context.put("graphEntry", graphSpec == null ? null : graphSpec.getEntryNodeId());
         }
         return context;
     }
@@ -340,9 +521,18 @@ public class RuntimeWorkflowAiCodingService {
                 .orElseThrow(() -> new IllegalArgumentException("workflow not found: " + workflowId));
     }
 
+    private RuntimeWorkflowDefinitionEntity requirePageAssistantWorkflow(String workflowId) {
+        RuntimeWorkflowDefinitionEntity workflow = requireWorkflow(workflowId);
+        if (!WorkflowSemanticValues.KIND_PAGE_ASSISTANT.equals(workflow.getWorkflowKind())) {
+            throw new IllegalArgumentException(
+                    "page-assistant endpoints require workflowKind PAGE_ASSISTANT");
+        }
+        return workflow;
+    }
+
     private GraphSpec readGraph(String graphSpecJson) {
         if (!StringUtils.hasText(graphSpecJson)) {
-            return emptyGraph(null, null);
+            return emptyGraph();
         }
         try {
             return objectMapper.readValue(graphSpecJson, GraphSpec.class);
@@ -385,19 +575,18 @@ public class RuntimeWorkflowAiCodingService {
                             patch,
                             operation.edge(),
                             operation.edgeId(),
-                            operation.entry(),
-                            operation.finish());
+                            operation.entryNodeId(),
+                            operation.exitNodeIds());
                 })
                 .toList();
     }
 
-    private GraphSpec emptyGraph(String code, String name) {
+    private GraphSpec emptyGraph() {
         GraphSpec graph = new GraphSpec();
-        graph.setCode(code);
-        graph.setName(name);
-        graph.setMode("WORKFLOW");
+        graph.setSchemaVersion(2);
         graph.setNodes(List.of());
         graph.setEdges(List.of());
+        graph.setExitNodeIds(List.of());
         return graph;
     }
 
@@ -409,11 +598,12 @@ public class RuntimeWorkflowAiCodingService {
                 workflow.getDescription(),
                 workflow.getProjectId(),
                 workflow.getProjectCode(),
-                workflow.getWorkflowType(),
-                workflow.getRuntimeType(),
+                workflow.getWorkflowKind(),
+                workflow.getExecutionEngine(),
+                workflow.getDefinitionAuthority(),
+                workflow.getCreationChannel(),
                 workflow.getDefaultModelInstanceId(),
                 workflow.getStatus(),
-                workflow.getManagedBy(),
                 workflow.getUpdatedAt());
     }
 
@@ -448,7 +638,7 @@ public class RuntimeWorkflowAiCodingService {
 
     private Map<String, Object> runtimeHints(RuntimeWorkflowDefinitionEntity workflow) {
         Map<String, Object> hints = new LinkedHashMap<>();
-        hints.put("runtimeType", workflow.getRuntimeType());
+        hints.put("executionEngine", workflow.getExecutionEngine());
         hints.put("projectCode", workflow.getProjectCode());
         hints.put("defaultModelInstanceId", workflow.getDefaultModelInstanceId());
         return hints;
@@ -480,6 +670,10 @@ public class RuntimeWorkflowAiCodingService {
         return StringUtils.hasText(value) ? value.trim() : fallback;
     }
 
+    private String text(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
     private String nonBlank(String first, String second) {
         return StringUtils.hasText(first) ? first : second;
     }
@@ -490,7 +684,14 @@ public class RuntimeWorkflowAiCodingService {
     }
 
     private String normalizeStatus(String status) {
-        return "WAITING_USER".equals(status) ? "WAITING" : status;
+        return WorkflowExecutionStatus.parse(status).name();
+    }
+
+    private Map<String, Object> debugStateArtifact(RuntimeWorkflowDebugService.DebugRunResult result) {
+        Map<String, Object> stateSnapshot = result.stateSnapshot() == null ? Map.of() : result.stateSnapshot();
+        Map<String, Object> artifact = new LinkedHashMap<>();
+        artifact.put("stateSnapshot", stateSnapshot);
+        return artifact;
     }
 
     private RuntimeWorkflowCanvasLayoutService.Options layoutOptions(LayoutOptions options) {
@@ -506,16 +707,33 @@ public class RuntimeWorkflowAiCodingService {
 
     public record CreateRequest(String name,
                                 String keySlug,
-                                Long projectId,
-                                String projectCode,
-                                String description,
-                                String workflowType,
-                                String runtimeType,
+                                 Long projectId,
+                                 String projectCode,
+                                 String description,
+                                 String workflowKind,
+                                 String executionEngine,
                                 String defaultModelInstanceId,
                                 GraphSpec graphSpec,
                                 Map<String, Object> canvas,
                                 Map<String, Object> extra,
+                                List<BindingInput> resourceBindings,
                                 String reason) {
+        public CreateRequest(String name,
+                             String keySlug,
+                             Long projectId,
+                             String projectCode,
+                             String description,
+                             String workflowKind,
+                             String executionEngine,
+                             String defaultModelInstanceId,
+                             GraphSpec graphSpec,
+                             Map<String, Object> canvas,
+                             Map<String, Object> extra,
+                             String reason) {
+            this(name, keySlug, projectId, projectCode, description, workflowKind,
+                    executionEngine, defaultModelInstanceId, graphSpec, canvas, extra,
+                    List.of(), reason);
+        }
     }
 
     public record ContextView(WorkflowSnapshot workflow,
@@ -533,17 +751,24 @@ public class RuntimeWorkflowAiCodingService {
     public record WarningView(String code, String message, String source, boolean retryable) {
     }
 
+    public record ResourceBindingsRequest(
+            String baseRevision,
+            List<BindingInput> resourceBindings,
+            String reason) {
+    }
+
     public record WorkflowSnapshot(String id,
                                    String keySlug,
                                    String name,
                                    String description,
                                    Long projectId,
                                    String projectCode,
-                                   String workflowType,
-                                   String runtimeType,
+                                   String workflowKind,
+                                   String executionEngine,
+                                   String definitionAuthority,
+                                   String creationChannel,
                                    String defaultModelInstanceId,
                                    String status,
-                                   String managedBy,
                                    LocalDateTime updatedAt) {
     }
 
@@ -578,17 +803,8 @@ public class RuntimeWorkflowAiCodingService {
                                       Map<String, Object> patch,
                                       GraphSpec.Edge edge,
                                       String edgeId,
-                                      String entry,
-                                      List<String> finish) {
-        public GraphPatchOperation(Op op,
-                                   GraphSpec.Node node,
-                                   String nodeId,
-                                   Map<String, Object> patch,
-                                   GraphSpec.Edge edge,
-                                   String edgeId,
-                                   String entry) {
-            this(op, node, nodeId, patch, edge, edgeId, entry, null);
-        }
+                                      String entryNodeId,
+                                      List<String> exitNodeIds) {
 
         public enum Op {
             ADD_NODE,
@@ -597,8 +813,9 @@ public class RuntimeWorkflowAiCodingService {
             ADD_EDGE,
             UPDATE_EDGE,
             DELETE_EDGE,
-            SET_ENTRY,
-            SET_FINISH
+            SET_ENTRY_NODE,
+            SET_EXIT_NODES,
+            SET_INPUT_SCHEMA
         }
     }
 
@@ -645,7 +862,7 @@ public class RuntimeWorkflowAiCodingService {
                                VersionView publishedVersion,
                                List<VersionView> versions,
                                ValidationView releaseValidation,
-                               boolean draftDirty,
+                               boolean hasUnpublishedChanges,
                                List<String> warnings) {
     }
 
@@ -697,8 +914,16 @@ public class RuntimeWorkflowAiCodingService {
 
     public record PageAssistantCatalogView(String workflowId,
                                            Map<String, Object> context,
-                                           List<Object> pages,
+                                           List<PageActionNodeMatch> pageActionNodes,
+                                           List<PageActionCatalogEntry> catalogActions,
                                            List<String> warnings) {
+    }
+
+    public record PageActionNodeMatch(
+            String nodeId,
+            String pageKey,
+            String actionKey,
+            String matchStatus) {
     }
 
     public record PageAssistantValidateRequest(GraphSpec graphSpec,

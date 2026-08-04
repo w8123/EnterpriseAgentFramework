@@ -72,7 +72,7 @@ public class CapabilityScanProjectCatalogController {
                                                      @RequestParam(required = false) String projectKind,
                                                      @RequestParam(required = false) String status) {
         return ResponseEntity.ok(scanProjectCatalogService.list(keyword, projectKind, status).stream()
-                .map(this::toDto)
+                .map(this::toListDto)
                 .toList());
     }
 
@@ -118,8 +118,7 @@ public class CapabilityScanProjectCatalogController {
 
     @PostMapping("/{id}/sdk-access-check")
     public ResponseEntity<CapabilityScanProjectCatalogService.SdkAccessCheckResponse> sdkAccessCheck(
-            @PathVariable Long id,
-            @RequestBody(required = false) SdkAccessCheckRequest request) {
+            @PathVariable Long id) {
         try {
             return ResponseEntity.ok(scanProjectCatalogService.sdkAccessCheck(id));
         } catch (IllegalArgumentException ex) {
@@ -388,6 +387,16 @@ public class CapabilityScanProjectCatalogController {
     }
 
     private ScanProjectDTO toDto(ScanProjectEntity entity) {
+        return toDto(
+                entity,
+                scanProjectCatalogService.hasActiveRegistryCredential(entity.getProjectCode()));
+    }
+
+    private ScanProjectDTO toListDto(ScanProjectEntity entity) {
+        return toDto(entity, null);
+    }
+
+    private ScanProjectDTO toDto(ScanProjectEntity entity, Boolean registryCredentialConfigured) {
         ScanSettings settings = ScanSettingsJson.parseOrDefault(entity.getScanSettings(), objectMapper);
         String lastScanned = entity.getLastScannedAt() == null
                 ? null
@@ -419,7 +428,7 @@ public class CapabilityScanProjectCatalogController {
                 toolCount,
                 resolveRegistryStatusSummary(entity),
                 lastScanned,
-                false,
+                registryCredentialConfigured,
                 null,
                 null
         );
@@ -448,6 +457,7 @@ public class CapabilityScanProjectCatalogController {
         String linkStatus = toolLink.status();
         return new ProjectToolDTO(
                 tool.getName(),
+                tool.getTitle(),
                 tool.getDescription(),
                 parameters,
                 tool.getSource() == null || tool.getSource().isBlank() ? "code" : tool.getSource(),
@@ -462,12 +472,9 @@ public class CapabilityScanProjectCatalogController {
                 null,
                 null,
                 null,
-                null,
                 tool.getAiDescription(),
                 tool.getCapabilityMetadataJson(),
                 Boolean.TRUE.equals(tool.getEnabled()),
-                Boolean.TRUE.equals(tool.getAgentVisible()),
-                Boolean.TRUE.equals(tool.getLightweightEnabled()),
                 tool.getId(),
                 linkStatus,
                 null,
@@ -575,16 +582,9 @@ public class CapabilityScanProjectCatalogController {
         }
     }
 
-    record SdkAccessCheckRequest(
-            Long scanToolId,
-            Map<String, Object> args,
-            String gatewayBaseUrl,
-            String embedTokenPath
-    ) {
-    }
-
     record ScanProjectToolUpsertRequest(
             String name,
+            String title,
             String description,
             List<ToolDefinitionParameter> parameters,
             String source,
@@ -595,13 +595,12 @@ public class CapabilityScanProjectCatalogController {
             String endpointPath,
             String requestBodyType,
             String responseType,
-            Boolean enabled,
-            Boolean agentVisible,
-            Boolean lightweightEnabled
+            Boolean enabled
     ) {
         CapabilityScanProjectCatalogService.ScanProjectToolUpsertRequest toServiceRequest() {
             return new CapabilityScanProjectCatalogService.ScanProjectToolUpsertRequest(
                     name,
+                    title,
                     description,
                     parameters,
                     source,
@@ -612,9 +611,7 @@ public class CapabilityScanProjectCatalogController {
                     endpointPath,
                     requestBodyType,
                     responseType,
-                    enabled,
-                    agentVisible,
-                    lightweightEnabled
+                    enabled
             );
         }
     }
@@ -700,13 +697,14 @@ public class CapabilityScanProjectCatalogController {
             int apiCount,
             String registryStatusSummary,
             String lastScannedAt,
-            boolean registryCredentialConfigured,
+            Boolean registryCredentialConfigured,
             String registryAppKey,
             String registryAppSecret
     ) {
     }
 
     record ProjectToolDTO(String name,
+                          String title,
                           String description,
                           List<ToolParameterDTO> parameters,
                           String source,
@@ -719,14 +717,11 @@ public class CapabilityScanProjectCatalogController {
                           String responseType,
                           Long projectId,
                           String projectCode,
-                          String visibility,
                           String qualifiedName,
                           String sourceProjectName,
                           String aiDescription,
                           String capabilityMetadataJson,
                           boolean enabled,
-                          boolean agentVisible,
-                          boolean lightweightEnabled,
                           Long catalogScanToolId,
                           String catalogLinkStatus,
                           String catalogLinkMessage,

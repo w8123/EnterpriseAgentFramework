@@ -70,11 +70,18 @@ class SupervisorToolPolicyServiceTest {
                 trace, agent, config, tool, input("打开班组档案页面并查询第一条信息"), Map.of(), null);
         SupervisorToolPolicyService.PolicyDecision operateCurrentPage = service.evaluate(
                 trace, agent, config, tool, input("请只操作当前班组档案页面，查询负责人为管理员的班组"), Map.of(), null);
+        SupervisorToolPolicyService.PolicyDecision readCurrentPageState = service.evaluate(
+                trace, agent, config, tool,
+                input("请读取并告诉我当前页面状态，包括页面标识、筛选值和当前可见行数"), Map.of(), null);
+        SupervisorToolPolicyService.PolicyDecision readCurrentPageStateInEnglish = service.evaluate(
+                trace, agent, config, tool, input("Read the current page state and visible rows"), Map.of(), null);
 
         assertFalse(denied.allowed());
         assertEquals("DENY", denied.decision());
         assertTrue(allowed.allowed());
         assertTrue(operateCurrentPage.allowed());
+        assertTrue(readCurrentPageState.allowed());
+        assertTrue(readCurrentPageStateInEnglish.allowed());
     }
 
     @Test

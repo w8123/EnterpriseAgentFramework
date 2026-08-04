@@ -22,7 +22,7 @@ public final class RuntimeAgentGraphSyncContracts {
             String code,
             String name,
             String description,
-            String runtimeType,
+            String executionEngine,
             String modelInstanceId,
             String systemPrompt,
             String visibility,

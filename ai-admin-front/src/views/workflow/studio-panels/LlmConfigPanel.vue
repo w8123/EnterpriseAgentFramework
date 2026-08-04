@@ -51,7 +51,7 @@
             <el-button :icon="Bottom" size="small" circle :disabled="index === activeMessages.length - 1" @click="moveMessage(index, 1)" />
             <el-button :icon="Delete" size="small" circle type="danger" :disabled="activeMessages.length <= 1" @click="removeMessage(index)" />
           </div>
-          <el-input v-model="message.content" type="textarea" :rows="5" resize="vertical" placeholder="输入提示词，可引用 {{ input }}、{{ lastOutput }} 或上游节点输出" @focus="focusedMessageId = message.id" @change="syncLegacyPrompts" />
+          <el-input v-model="message.content" type="textarea" :rows="5" resize="vertical" placeholder="输入提示词，可引用 {{ input }}、{{ lastOutput }} 或上游节点输出" @focus="focusedMessageId = message.id" @change="syncPromptShortcuts" />
         </div>
       </div>
       <div class="quick-add-row">
@@ -423,12 +423,12 @@ function addMessage(role: LlmPromptMessage['role']) {
   }
   config.value.messages = [...activeMessages.value, message]
   focusedMessageId.value = message.id
-  syncLegacyPrompts()
+  syncPromptShortcuts()
 }
 
 function removeMessage(index: number) {
   config.value.messages = activeMessages.value.filter((_, idx) => idx !== index)
-  syncLegacyPrompts()
+  syncPromptShortcuts()
 }
 
 function moveMessage(index: number, delta: number) {
@@ -451,10 +451,10 @@ function insertVariable(name: string) {
   if (!config.value.contextVariables?.includes(name)) {
     config.value.contextVariables = [...(config.value.contextVariables || []), name]
   }
-  syncLegacyPrompts()
+  syncPromptShortcuts()
 }
 
-function syncLegacyPrompts() {
+function syncPromptShortcuts() {
   const system = activeMessages.value.find((message) => message.role === 'system' && message.enabled !== false)
   const user = [...activeMessages.value].reverse().find((message) => message.role === 'user' && message.enabled !== false)
   config.value.systemPrompt = system?.content || ''

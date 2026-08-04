@@ -70,6 +70,8 @@ public class CapabilityRegistryService {
         validateProjectRequest(request);
         String projectCode = normalizeCode(request.projectCode());
         ScanProjectEntity project = findProject(projectCode);
+        boolean inserting = project == null;
+        boolean registrationChanged = inserting || registrationChanged(project, projectCode, request);
         if (project == null) {
             project = new ScanProjectEntity();
             project.setCreateTime(LocalDateTime.now());
@@ -86,10 +88,12 @@ public class CapabilityRegistryService {
         project.setContextPath(defaultString(request.contextPath(), ""));
         project.setScanPath("");
         project.setScanType("auto");
-        project.setUpdateTime(LocalDateTime.now());
-        if (project.getId() == null) {
+        if (registrationChanged) {
+            project.setUpdateTime(LocalDateTime.now());
+        }
+        if (inserting) {
             scanProjectMapper.insert(project);
-        } else {
+        } else if (registrationChanged) {
             scanProjectMapper.updateById(project);
         }
         registrySecurityService.upsertCredential(project.getId(), project.getProjectCode(),
@@ -101,6 +105,21 @@ public class CapabilityRegistryService {
                 request.allowedAgentIds(),
                 request.tokenTtlSeconds());
         return toProjectResponse(project);
+    }
+
+    private boolean registrationChanged(ScanProjectEntity project,
+                                        String projectCode,
+                                        ProjectRegisterRequest request) {
+        return !Objects.equals(project.getName(), request.name())
+                || !Objects.equals(project.getProjectCode(), projectCode)
+                || !Objects.equals(project.getProjectKind(), "REGISTERED")
+                || !Objects.equals(project.getEnvironment(), defaultString(request.environment(), "default"))
+                || !Objects.equals(project.getOwner(), request.owner())
+                || !Objects.equals(project.getVisibility(), defaultString(request.visibility(), "PRIVATE"))
+                || !Objects.equals(project.getBaseUrl(), request.baseUrl())
+                || !Objects.equals(project.getContextPath(), defaultString(request.contextPath(), ""))
+                || !Objects.equals(project.getScanPath(), "")
+                || !Objects.equals(project.getScanType(), "auto");
     }
 
     @Transactional
@@ -568,6 +587,7 @@ public class CapabilityRegistryService {
             row.setGlobalToolDefinitionId(null);
             row.setCreateTime(LocalDateTime.now());
         }
+        row.setTitle(firstText(registration.title(), registration.name()));
         row.setDescription(firstText(registration.description(), registration.title(), registration.name()));
         row.setParametersJson(writeJson(registration.parameters()));
         row.setSource("scanner");
@@ -579,8 +599,6 @@ public class CapabilityRegistryService {
         row.setRequestBodyType(registration.requestBodyType());
         row.setResponseType(registration.responseType());
         row.setEnabled(registration.enabled() == null || Boolean.TRUE.equals(registration.enabled()));
-        row.setAgentVisible(registration.agentVisible() == null || Boolean.TRUE.equals(registration.agentVisible()));
-        row.setLightweightEnabled(Boolean.TRUE.equals(registration.lightweightEnabled()));
         row.setCapabilityMetadataJson(writeJson(mergeSdkMetadata(registration)));
         row.setRemovedFromSource(false);
         row.setRemovedAt(null);
@@ -619,6 +637,7 @@ public class CapabilityRegistryService {
 
     private List<FieldDiff> fieldDiffsFromCatalog(ScanProjectToolEntity row, CapabilityRegistration registration) {
         List<FieldDiff> diffs = new ArrayList<>();
+        addDiff(diffs, "title", row.getTitle(), firstText(registration.title(), registration.name()));
         addDiff(diffs, "description", row.getDescription(), firstText(registration.description(), registration.title(), registration.name()));
         addDiff(diffs, "httpMethod", row.getHttpMethod(), firstText(registration.httpMethod(), "POST"));
         addDiff(diffs, "baseUrl", row.getBaseUrl(), registration.baseUrl());
@@ -627,8 +646,6 @@ public class CapabilityRegistryService {
         addDiff(diffs, "requestBodyType", row.getRequestBodyType(), registration.requestBodyType());
         addDiff(diffs, "responseType", row.getResponseType(), registration.responseType());
         addDiff(diffs, "enabled", row.getEnabled(), registration.enabled());
-        addDiff(diffs, "agentVisible", row.getAgentVisible(), registration.agentVisible());
-        addDiff(diffs, "lightweightEnabled", row.getLightweightEnabled(), registration.lightweightEnabled());
         addDiff(diffs, "parameters", row.getParametersJson(), writeJson(registration.parameters()));
         addDiff(diffs, "metadata", row.getCapabilityMetadataJson(), writeJson(mergeSdkMetadata(registration)));
         return diffs;
@@ -636,6 +653,7 @@ public class CapabilityRegistryService {
 
     private List<FieldDiff> fieldDiffsFromDefinition(ToolDefinitionEntity entity, CapabilityRegistration registration) {
         List<FieldDiff> diffs = new ArrayList<>();
+        addDiff(diffs, "title", entity.getTitle(), firstText(registration.title(), registration.name()));
         addDiff(diffs, "description", entity.getDescription(), firstText(registration.description(), registration.title(), registration.name()));
         addDiff(diffs, "httpMethod", entity.getHttpMethod(), firstText(registration.httpMethod(), "POST"));
         addDiff(diffs, "baseUrl", entity.getBaseUrl(), registration.baseUrl());
@@ -644,10 +662,7 @@ public class CapabilityRegistryService {
         addDiff(diffs, "requestBodyType", entity.getRequestBodyType(), registration.requestBodyType());
         addDiff(diffs, "responseType", entity.getResponseType(), registration.responseType());
         addDiff(diffs, "sideEffect", entity.getSideEffect(), firstText(registration.sideEffect(), entity.getSideEffect()));
-        addDiff(diffs, "visibility", entity.getVisibility(), registration.visibility());
         addDiff(diffs, "enabled", entity.getEnabled(), registration.enabled());
-        addDiff(diffs, "agentVisible", entity.getAgentVisible(), registration.agentVisible());
-        addDiff(diffs, "lightweightEnabled", entity.getLightweightEnabled(), registration.lightweightEnabled());
         addDiff(diffs, "parameters", entity.getParametersJson(), writeJson(registration.parameters()));
         addDiff(diffs, "metadata", entity.getCapabilityMetadataJson(), writeJson(registration.metadata()));
         return diffs;

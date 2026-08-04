@@ -56,6 +56,23 @@ live smoke 检查：
 & "C:\Users\jsh\AppData\Local\Temp\apache-maven-3.9.9\bin\mvn.cmd" -pl reachai-model-service -am test
 ```
 
+AI Coding Task Kernel 的 Windows 协议测试会真实启动两个独立 PowerShell 进程，验证 Trae 激活、DPAPI 恢复、UTF-8 中文事件、Artifact 应用、验收硬门禁、服务端 Embed E2E 依据和本地缓存清理：
+
+真实交接或业务系统联调后，先检查工作树中没有遗留一次性交接码或任务 Token。检查器只报告文件、行号和类型，不回显命中的敏感值：
+
+```powershell
+node scripts/check-ai-coding-secret-hygiene.test.mjs
+node scripts/check-ai-coding-secret-hygiene.mjs
+```
+
+```powershell
+& 'D:\software\apache-maven-3.9.9\bin\mvn.cmd' `
+  -pl reachai-control-service `
+  '-Dtest=AiCodingHandoffPromptFactoryTest,AiCodingTaskProtocolHttpTest,ProjectOnboardingTaskProviderTest,PlatformEmbedE2eEvidenceServiceTest' `
+  '-Dsurefire.failIfNoSpecifiedTests=false' `
+  test
+```
+
 Workflow 第一阶段节点能力（变量/转换/Knowledge/HTTP）目标测试（不可再遗漏 Draft/Credential/Supervisor）：
 
 ```powershell
@@ -63,7 +80,7 @@ $env:JAVA_HOME='C:\Program Files\Java\jdk-17'
 $env:Path="$env:JAVA_HOME\bin;$env:Path"
 & 'D:\software\apache-maven-3.9.9\bin\mvn.cmd' `
   -pl reachai-runtime-service -am `
-  '-Dtest=RuntimeGraphSpecExecutorTest,RuntimeGraphSpecExecutorHandlerConformanceTest,RuntimeGraphSpecPhase1NodesTest,RuntimeGraphSpecRetryDeterminismTest,RuntimeWorkflowNodeCapabilityRegistryTest,RuntimeWorkflowReleaseValidationServiceTest,RuntimeWorkflowDraftGenerationServiceTest,RuntimeWorkflowGraphMutationServiceTest,RuntimeWorkflowCredentialServiceTest,RuntimeWorkflowDebugServiceTest,AgentScopeSupervisorRuntimeAdapterTest,WorkflowHttpClientTest,WorkflowExecutionIdentityTest,WorkflowTraceSanitizerPersistenceTest,WorkflowVariableNamespacesTest' `
+  '-Dtest=RuntimeGraphSpecExecutorTest,RuntimeGraphSpecExecutorHandlerConformanceTest,RuntimeGraphSpecPhase1NodesTest,RuntimeGraphSpecRetryDeterminismTest,RuntimeWorkflowNodeCapabilityRegistryTest,RuntimeWorkflowReleaseValidationServiceTest,RuntimeWorkflowProposalGenerationServiceTest,RuntimeWorkflowProposalEditServiceTest,RuntimeWorkflowGraphMutationServiceTest,RuntimeWorkflowCredentialServiceTest,RuntimeWorkflowDebugServiceTest,AgentScopeSupervisorRuntimeAdapterTest,WorkflowHttpClientTest,WorkflowExecutionIdentityTest,WorkflowTraceSanitizerPersistenceTest,WorkflowVariableNamespacesTest' `
   '-Dsurefire.failIfNoSpecifiedTests=false' `
   test
 & 'D:\software\apache-maven-3.9.9\bin\mvn.cmd' -pl reachai-runtime-service -am test
@@ -106,6 +123,7 @@ git diff --check
 
 ```powershell
 Set-Location ai-admin-front
+npm run check:page-workbench
 npm run test:workflow
 npm run check:workflow-layout
 npm run check:studio-canvas
@@ -120,6 +138,7 @@ npm run build
 
 ```powershell
 cd ai-admin-front
+npm run check:page-workbench
 npm run build
 ```
 
@@ -148,7 +167,7 @@ node scripts/check-service-table-ownership.test.mjs
 node scripts/check-service-table-ownership.mjs
 ```
 
-有 MySQL 环境且当前任务新增了 upgrade SQL 时，执行对应 upgrade SQL，并确认新环境可以只依赖 `sql/initV2.sql`。当前 V2 新库重建场景不要求旧数据迁移。
+有 MySQL 环境且当前任务新增了 upgrade SQL 时，执行对应 upgrade SQL，并确认新环境可以只依赖 `sql/initV2.sql`。当前新库重建场景不要求旧数据迁移。
 
 ## 文档与规则验证
 

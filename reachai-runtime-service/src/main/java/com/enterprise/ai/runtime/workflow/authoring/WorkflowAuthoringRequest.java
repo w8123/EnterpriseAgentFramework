@@ -11,7 +11,7 @@ public record WorkflowAuthoringRequest(
         String workflowId,
         String workflowName,
         String projectCode,
-        String workflowType,
+        String workflowKind,
         String instruction,
         String modelInstanceId,
         GraphSpec currentGraphSpec,

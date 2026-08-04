@@ -164,7 +164,7 @@ class RuntimeAgentConfigServiceTest {
         activeWorkflowVersion.setWorkflowId("wf-orders");
         activeWorkflowVersion.setVersion("v2.0.0");
         activeWorkflowVersion.setStatus("ACTIVE");
-        activeWorkflowVersion.setGraphSpecSnapshotJson("{\"entry\":\"start\"}");
+        activeWorkflowVersion.setGraphSpecSnapshotJson("{\"entryNodeId\":\"start\"}");
         when(versionMapper.listActive("wf-orders")).thenReturn(List.of(activeWorkflowVersion));
         when(versionMapper.selectById(42L)).thenReturn(activeWorkflowVersion);
         when(versionMapper.selectBatchIds(any())).thenReturn(List.of(activeWorkflowVersion));

@@ -9,10 +9,10 @@
     >
       <template #tags>
         <el-tag v-if="summary" size="small" effect="plain" :type="summary.runType === 'AGENT' ? 'success' : 'primary'">
-          {{ summary.runType }}
+          {{ runTypeLabel(summary.runType) }}
         </el-tag>
         <el-tag v-if="summary" :type="statusTagType(summary.status)">
-          {{ statusLabel(summary.status) }}
+          {{ runStatusLabel(summary) }}
         </el-tag>
       </template>
       <template #meta>
@@ -33,7 +33,7 @@
           v-if="summary?.runType === 'WORKFLOW' && summary.workflowId"
           @click="router.push(`/workflows/${summary.workflowId}/studio`)"
         >
-          打开 Workflow Studio
+          打开工作流编排
         </el-button>
         <el-button
           type="primary"
@@ -93,13 +93,13 @@
         </template>
         <section class="compare-summary">
           <div v-for="item in changedSummaryDiffs" :key="item.field" class="diff-chip">
-            <span>{{ item.field }}</span>
-            <strong>{{ displayValue(item.baseline) }} → {{ displayValue(item.candidate) }}</strong>
+            <span>{{ diffFieldLabel(item.field) }}</span>
+            <strong>{{ displayDiffValue(item.field, item.baseline) }} → {{ displayDiffValue(item.field, item.candidate) }}</strong>
           </div>
           <el-empty v-if="!changedSummaryDiffs.length" description="摘要指标一致" />
         </section>
         <el-tabs>
-          <el-tab-pane label="Span 差异">
+          <el-tab-pane label="链路差异">
             <el-table :data="changedSpanDiffs" stripe>
               <el-table-column type="expand">
                 <template #default="{ row }">
@@ -115,7 +115,7 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column prop="key" label="Span" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="key" label="链路片段" min-width="180" show-overflow-tooltip />
               <el-table-column label="原运行" min-width="240" show-overflow-tooltip>
                 <template #default="{ row }">{{ spanDigest(row.baseline) }}</template>
               </el-table-column>
@@ -123,9 +123,9 @@
                 <template #default="{ row }">{{ spanDigest(row.candidate) }}</template>
               </el-table-column>
             </el-table>
-            <el-empty v-if="!changedSpanDiffs.length" description="Span 链路一致" />
+            <el-empty v-if="!changedSpanDiffs.length" description="执行链路一致" />
           </el-tab-pane>
-          <el-tab-pane label="Tool 差异">
+          <el-tab-pane label="工具差异">
             <el-table :data="changedToolDiffs" stripe>
               <el-table-column type="expand">
                 <template #default="{ row }">
@@ -141,7 +141,7 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column prop="key" label="Tool" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="key" label="工具" min-width="180" show-overflow-tooltip />
               <el-table-column label="原运行" min-width="240" show-overflow-tooltip>
                 <template #default="{ row }">{{ toolDigest(row.baseline) }}</template>
               </el-table-column>
@@ -149,7 +149,7 @@
                 <template #default="{ row }">{{ toolDigest(row.candidate) }}</template>
               </el-table-column>
             </el-table>
-            <el-empty v-if="!changedToolDiffs.length" description="Tool 调用一致" />
+            <el-empty v-if="!changedToolDiffs.length" description="工具调用一致" />
           </el-tab-pane>
           <el-tab-pane label="治理差异">
             <el-table :data="changedGuardDiffs" stripe>
@@ -181,7 +181,7 @@
       </el-card>
 
       <el-tabs>
-        <el-tab-pane v-if="summary.runType === 'AGENT'" label="Supervisor 决策">
+        <el-tab-pane v-if="summary.runType === 'AGENT'" label="调度决策">
           <section class="supervisor-metrics">
             <div v-for="item in supervisorMetrics" :key="item.label" class="supervisor-metric">
               <span>{{ item.label }}</span>
@@ -199,29 +199,29 @@
               <template #default="{ row }">{{ supervisorEventLabel(row) }}</template>
             </el-table-column>
             <el-table-column label="结果" min-width="260" show-overflow-tooltip>
-              <template #default="{ row }">{{ row.outputSummary || '-' }}</template>
+              <template #default="{ row }">{{ supervisorEventResultLabel(row) }}</template>
             </el-table-column>
             <el-table-column label="状态" width="112">
-              <template #default="{ row }"><el-tag :type="statusTagType(row.status)">{{ row.status || '-' }}</el-tag></template>
+              <template #default="{ row }"><el-tag :type="statusTagType(row.status)">{{ executionStatusLabel(row.status) }}</el-tag></template>
             </el-table-column>
             <el-table-column label="耗时" width="100">
               <template #default="{ row }">{{ row.latencyMs ?? 0 }} ms</template>
             </el-table-column>
           </el-table>
-          <el-empty v-if="!supervisorEvents.length" description="该运行尚无结构化 Supervisor 决策事件" />
+          <el-empty v-if="!supervisorEvents.length" description="该运行尚无结构化调度决策事件" />
         </el-tab-pane>
 
         <el-tab-pane label="执行路径">
           <div class="execution-model" :class="{ 'workflow-only': summary.runType === 'WORKFLOW' }">
             <template v-if="summary.runType === 'AGENT'">
-              <div><strong>Supervisor</strong><small>理解与调度</small></div>
+              <div><strong>调度器</strong><small>理解与调度</small></div>
               <span>→</span>
-              <div><strong>Plan / Replan</strong><small>规划与有限重规划</small></div>
+              <div><strong>规划 / 重规划</strong><small>规划与有限重规划</small></div>
               <span>→</span>
-              <div><strong>Workflow Tool</strong><small>选择并调用 Workflow</small></div>
+              <div><strong>工作流工具</strong><small>选择并调用工作流</small></div>
               <span>→</span>
             </template>
-            <div><strong>Workflow Node</strong><small>执行 GraphSpec 节点</small></div>
+            <div><strong>工作流节点</strong><small>执行 GraphSpec 节点</small></div>
           </div>
 
           <el-table :data="executionPath" row-key="spanId" stripe>
@@ -232,13 +232,15 @@
                   <el-tag size="small" effect="plain" :type="phaseTagType(row.spanType)">
                     {{ phaseLabel(row.spanType) }}
                   </el-tag>
-                  <strong>{{ row.label || row.nodeId || row.toolName || row.spanId || '-' }}</strong>
+                  <strong>{{ executionPathLabel(row) }}</strong>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="runtimeType" label="Runtime" width="150" show-overflow-tooltip />
+            <el-table-column label="运行时" width="150" show-overflow-tooltip>
+              <template #default="{ row }">{{ formatRuntimeTypeLabel(row.runtimeType) }}</template>
+            </el-table-column>
             <el-table-column label="状态" width="112">
-              <template #default="{ row }"><el-tag size="small" :type="statusTagType(row.status)">{{ row.status || '-' }}</el-tag></template>
+              <template #default="{ row }"><el-tag size="small" :type="statusTagType(row.status)">{{ executionStatusLabel(row.status) }}</el-tag></template>
             </el-table-column>
             <el-table-column prop="startedAt" label="开始时间" width="180" />
             <el-table-column prop="endedAt" label="结束时间" width="180" />
@@ -246,7 +248,7 @@
           <el-empty v-if="!executionPath.length" description="暂无结构化执行路径" />
         </el-tab-pane>
 
-        <el-tab-pane label="Span 明细">
+        <el-tab-pane label="链路明细">
           <el-timeline class="span-timeline">
             <el-timeline-item
               v-for="span in detail.spans"
@@ -259,66 +261,72 @@
                 <div class="span-head">
                   <div>
                     <strong>{{ spanDisplayName(span) }}</strong>
-                    <span>{{ phaseLabel(span.spanType) }} · {{ span.runtimeType || '-' }}</span>
+                    <span>{{ phaseLabel(span.spanType) }} · {{ formatRuntimeTypeLabel(span.runtimeType) }}</span>
                   </div>
                   <div class="span-tags">
-                    <el-tag size="small" :type="statusTagType(span.status)">{{ span.status || '-' }}</el-tag>
+                    <el-tag size="small" :type="statusTagType(span.status)">{{ executionStatusLabel(span.status) }}</el-tag>
                     <el-tag size="small" effect="plain">{{ span.latencyMs ?? 0 }} ms</el-tag>
                   </div>
                 </div>
                 <div v-if="span.errorMessage" class="error-text">{{ span.errorCode || 'SPAN_FAILED' }}：{{ span.errorMessage }}</div>
                 <div class="io-grid">
-                  <pre>{{ span.inputSummary || '-' }}</pre>
-                  <pre>{{ span.outputSummary || '-' }}</pre>
+                  <pre>{{ executionSummaryLabel(span.inputSummary) }}</pre>
+                  <pre>{{ executionSummaryLabel(span.outputSummary) }}</pre>
                 </div>
               </div>
             </el-timeline-item>
           </el-timeline>
-          <el-empty v-if="!detail.spans.length" description="暂无结构化 Span" />
+          <el-empty v-if="!detail.spans.length" description="暂无结构化链路片段" />
         </el-tab-pane>
 
-        <el-tab-pane label="Tool 调用">
+        <el-tab-pane label="工具调用">
           <el-table :data="detail.toolCalls" stripe>
             <el-table-column prop="success" label="状态" width="100">
               <template #default="{ row }">
-                <el-tag size="small" :type="row.success ? 'success' : 'danger'">{{ row.success ? 'SUCCESS' : 'FAILED' }}</el-tag>
+                <el-tag size="small" :type="row.success ? 'success' : 'danger'">{{ row.success ? '成功' : '失败' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="toolName" label="Tool" min-width="220" show-overflow-tooltip />
+            <el-table-column prop="toolName" label="工具" min-width="220" show-overflow-tooltip />
             <el-table-column prop="elapsedMs" label="耗时" width="100">
               <template #default="{ row }">{{ row.elapsedMs ?? 0 }} ms</template>
             </el-table-column>
-            <el-table-column prop="tokenCost" label="Token" width="100" />
+            <el-table-column prop="tokenCost" label="Token 数" width="100" />
             <el-table-column prop="errorCode" label="错误" width="180" show-overflow-tooltip />
             <el-table-column prop="createdAt" label="时间" width="180" />
           </el-table>
-          <el-empty v-if="!detail.toolCalls.length" description="该运行未调用 Tool" />
+          <el-empty v-if="!detail.toolCalls.length" description="该运行未调用工具" />
         </el-tab-pane>
 
         <el-tab-pane label="治理决策">
           <el-table :data="detail.guardDecisions" stripe>
             <el-table-column prop="decision" label="决策" width="100">
               <template #default="{ row }">
-                <el-tag size="small" :type="row.decision === 'DENY' ? 'danger' : 'success'">{{ row.decision }}</el-tag>
+                <el-tag size="small" :type="row.decision === 'DENY' ? 'danger' : 'success'">{{ guardDecisionLabel(row.decision) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="decisionType" label="类型" width="140" />
-            <el-table-column prop="targetKind" label="对象类型" width="120" />
+            <el-table-column label="类型" width="140">
+              <template #default="{ row }">{{ guardDecisionTypeLabel(row.decisionType) }}</template>
+            </el-table-column>
+            <el-table-column label="对象类型" width="120">
+              <template #default="{ row }">{{ guardTargetKindLabel(row.targetKind) }}</template>
+            </el-table-column>
             <el-table-column prop="targetName" label="对象" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="reason" label="原因" min-width="240" show-overflow-tooltip />
+            <el-table-column label="原因" min-width="240" show-overflow-tooltip>
+              <template #default="{ row }">{{ executionSummaryLabel(row.reason) }}</template>
+            </el-table-column>
             <el-table-column prop="createdAt" label="时间" width="180" />
           </el-table>
           <el-empty v-if="!detail.guardDecisions.length" description="暂无治理决策记录" />
         </el-tab-pane>
 
-        <el-tab-pane label="发布配置与 Metadata">
+        <el-tab-pane label="发布配置与元数据">
           <section class="snapshot-grid">
             <div class="snapshot-panel">
-              <div class="panel-title">根运行 Metadata</div>
+              <div class="panel-title">根运行元数据</div>
               <pre>{{ pretty(summary.metadata) }}</pre>
             </div>
             <div class="snapshot-panel">
-              <div class="panel-title">已发布 Runtime 配置</div>
+              <div class="panel-title">已发布运行时配置</div>
               <pre>{{ pretty(detail.snapshot?.runtimeConfig) }}</pre>
             </div>
             <div class="snapshot-panel">
@@ -341,7 +349,7 @@
         :closable="false"
         show-icon
         title="重放使用原运行的已发布配置版本"
-        description="重放不会切换到当前活动配置；新 Trace 将自动与原运行建立对比关系。"
+        description="重放不会切换到当前活动配置；新的追踪记录将自动与原运行建立对比关系。"
       />
       <el-form label-width="110px">
         <el-form-item label="覆盖输入">
@@ -349,14 +357,14 @@
             v-model="replayForm.messageOverride"
             type="textarea"
             :rows="4"
-            placeholder="留空则复用原 Trace 输入"
+            placeholder="留空则复用原追踪输入"
           />
         </el-form-item>
-        <el-form-item label="User ID">
+        <el-form-item label="用户 ID">
           <el-input v-model="replayForm.userId" clearable placeholder="留空则复用原运行用户" />
         </el-form-item>
-        <el-form-item label="Session ID">
-          <el-input v-model="replayForm.sessionId" clearable placeholder="留空则自动生成 replay session" />
+        <el-form-item label="会话 ID">
+          <el-input v-model="replayForm.sessionId" clearable placeholder="留空则自动生成重放会话" />
         </el-form-item>
         <el-form-item label="角色">
           <el-select
@@ -387,6 +395,7 @@ import HeaderMetaList from '@/components/common/HeaderMetaList.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import { compareRunOpsTrace, getRunOpsDetail, replayRunOpsTrace } from '@/api/runops'
+import { formatRuntimeTypeLabel } from '@/utils/registryLabels'
 import type {
   ReplayRequest,
   RunComparison,
@@ -419,10 +428,10 @@ const supervisorMetrics = computed(() => {
   const run = summary.value
   if (!run) return []
   return [
-    { label: '配置版本', value: run.agentConfigVersion || '-', hint: run.agentConfigVersionId == null ? '未记录版本 ID' : `versionId ${run.agentConfigVersionId}` },
-    { label: '计划次数', value: run.planCount ?? 0, hint: 'Supervisor 首次规划' },
+    { label: '配置版本', value: run.agentConfigVersion || '-', hint: run.agentConfigVersionId == null ? '未记录版本 ID' : `版本 ID ${run.agentConfigVersionId}` },
+    { label: '计划次数', value: run.planCount ?? 0, hint: '调度器首次规划' },
     { label: '重规划', value: run.replanCount ?? 0, hint: '有限重规划次数' },
-    { label: 'Workflow 调用', value: run.workflowCallCount ?? 0, hint: 'Workflow-as-Tool' },
+    { label: '工作流调用', value: run.workflowCallCount ?? 0, hint: '工作流工具' },
   ]
 })
 
@@ -443,6 +452,18 @@ const executionPath = computed<RunExecutionPathItem[]>(() => {
   }))
 })
 
+function executionPathLabel(item: RunExecutionPathItem) {
+  const labels: Record<string, string> = {
+    Supervisor: '智能体调度',
+    Plan: '首次规划',
+    Replan: '有限重规划',
+    'Workflow Tool': '工作流工具',
+    'Workflow Node': '工作流节点',
+  }
+  const label = item.label || item.nodeId || item.toolName || item.spanId
+  return label ? labels[label] || label : '-'
+}
+
 const changedSummaryDiffs = computed(() => comparison.value?.summaryDiffs.filter((item) => item.changed) ?? [])
 const changedSpanDiffs = computed(() => comparison.value?.spanDiffs.filter((item) => item.changed) ?? [])
 const changedToolDiffs = computed(() => comparison.value?.toolDiffs.filter((item) => item.changed) ?? [])
@@ -452,13 +473,13 @@ const summaryItems = computed(() => {
   const run = summary.value
   if (!run) return []
   return [
-    { label: run.runType === 'AGENT' ? 'Agent' : 'Workflow', value: runObjectLabel(run), hint: runObjectId(run) },
-    { label: '发布版本', value: runVersionLabel(run), hint: run.runtimeType || '未记录 Runtime' },
+    { label: runTypeLabel(run.runType), value: runObjectLabel(run), hint: runObjectId(run) },
+    { label: '发布版本', value: runVersionLabel(run), hint: run.runtimeType ? formatRuntimeTypeLabel(run.runtimeType) : '未记录运行时' },
     { label: '入口', value: entryTypeLabel(run.entryType), hint: `${run.projectCode || '-'} · ${run.userId || '匿名用户'}` },
-    { label: '规划 / 重规划', value: `${run.planCount ?? 0} / ${run.replanCount ?? 0}`, hint: 'Supervisor 决策' },
-    { label: 'Workflow / Tool', value: `${run.workflowCallCount ?? 0} / ${run.toolCallCount ?? 0}`, hint: '运行内调用' },
+    { label: '规划 / 重规划', value: `${run.planCount ?? 0} / ${run.replanCount ?? 0}`, hint: '调度决策' },
+    { label: '工作流 / 工具', value: `${run.workflowCallCount ?? 0} / ${run.toolCallCount ?? 0}`, hint: '运行内调用' },
     { label: '治理 / 审批', value: `${run.guardDenyCount ?? 0} / ${run.approvalCount ?? 0}`, hint: '拒绝与审批事件' },
-    { label: '耗时', value: `${run.latencyMs ?? 0} ms`, hint: `${run.tokenCost ?? 0} token` },
+    { label: '耗时', value: `${run.latencyMs ?? 0} ms`, hint: `${run.tokenCost ?? 0} Token` },
     { label: '会话', value: run.sessionId || '-', hint: run.replayOfTraceId ? `重放自 ${run.replayOfTraceId}` : '原始运行' },
   ]
 })
@@ -466,11 +487,11 @@ const summaryItems = computed(() => {
 const detailTitle = computed(() => {
   const run = summary.value
   if (!run) return '运行详情'
-  return `${run.runType === 'AGENT' ? 'Agent' : 'Workflow'} 运行 · ${runObjectLabel(run)}`
+  return `${runTypeLabel(run.runType)}运行 · ${runObjectLabel(run)}`
 })
 
 const headerMetaItems = computed(() => [
-  { key: 'trace', label: 'Trace', value: traceId.value },
+  { key: 'trace', label: '追踪 ID', value: traceId.value },
   { key: 'project', label: '项目', value: summary.value?.projectCode || '-' },
   { key: 'entry', label: '入口', value: summary.value ? entryTypeLabel(summary.value.entryType) : '-' },
 ])
@@ -531,11 +552,11 @@ async function replayTrace() {
     const request: ReplayRequest = { ...replayForm.value, roles: replayRoles.value }
     const { data } = await replayRunOpsTrace(traceId.value, request)
     if (!data?.replayTraceId) {
-      ElMessage.warning('重放完成，但未返回新 traceId')
+      ElMessage.warning('重放完成，但未返回新的追踪 ID')
       return
     }
     replayDialogVisible.value = false
-    ElMessage.success('已按原发布配置完成重放，正在打开新 Trace')
+    ElMessage.success('已按原发布配置完成重放，正在打开新的运行详情')
     router.push({ path: `/runops/${data.replayTraceId}`, query: { compareWith: traceId.value } })
   } catch {
     ElMessage.error('重放运行失败')
@@ -563,6 +584,14 @@ function runVersionLabel(run: RunSummary) {
   return `${version || '-'}${versionId == null ? '' : ` · #${versionId}`}`
 }
 
+function runTypeLabel(runType?: string) {
+  const labels: Record<string, string> = {
+    AGENT: '智能体',
+    WORKFLOW: '工作流',
+  }
+  return runType ? labels[runType] || runType : '-'
+}
+
 function entryTypeLabel(entryType?: string) {
   const labels: Record<string, string> = {
     DEBUG: '调试',
@@ -578,32 +607,57 @@ function entryTypeLabel(entryType?: string) {
 function statusLabel(status: RunStatus) {
   const labels: Record<RunStatus, string> = {
     RUNNING: '运行中',
-    SUCCESS: '成功',
+    SUSPENDED: '已暂停',
+    COMPLETED: '已完成',
     FAILED: '失败',
-    WAITING_USER: '等待用户交互',
-    WAITING_APPROVAL: '等待审批',
     CANCELLED: '已取消',
-    TIMEOUT: '超时',
+    TIMED_OUT: '已超时',
   }
   return labels[status]
 }
 
+function runStatusLabel(run: RunSummary) {
+  if (run.status !== 'SUSPENDED') return statusLabel(run.status)
+  if (run.suspensionReason === 'APPROVAL') return '等待审批'
+  if (run.suspensionReason === 'USER_INPUT') return '等待用户交互'
+  return statusLabel(run.status)
+}
+
 function statusTagType(status?: string) {
-  if (status === 'SUCCESS') return 'success'
+  if (status === 'COMPLETED' || status === 'SUCCESS') return 'success'
   if (status === 'RUNNING') return 'primary'
-  if (status === 'WAITING' || status === 'WAITING_APPROVAL' || status === 'WAITING_USER') return 'warning'
+  if (status === 'SUSPENDED' || status === 'WAITING' || status === 'WAITING_APPROVAL' || status === 'WAITING_USER') return 'warning'
   if (status === 'CANCELLED') return 'info'
   return 'danger'
 }
 
+function executionStatusLabel(status?: string) {
+  const labels: Record<string, string> = {
+    RUNNING: '运行中',
+    SUSPENDED: '已暂停',
+    COMPLETED: '已完成',
+    SUCCESS: '成功',
+    FAILED: '失败',
+    CANCELLED: '已取消',
+    TIMED_OUT: '已超时',
+    TIMEOUT: '已超时',
+    WAITING: '等待中',
+    WAITING_APPROVAL: '等待审批',
+    WAITING_USER: '等待用户交互',
+    RECORDED: '已记录',
+    EXPIRED: '已过期',
+  }
+  return status ? labels[status] || status : '-'
+}
+
 function phaseLabel(spanType?: string) {
   const labels: Record<string, string> = {
-    SUPERVISOR: 'Supervisor',
-    PLAN: 'Plan',
-    REPLAN: 'Replan',
-    WORKFLOW_TOOL: 'Workflow Tool',
+    SUPERVISOR: '调度器',
+    PLAN: '规划',
+    REPLAN: '重规划',
+    WORKFLOW_TOOL: '工作流工具',
   }
-  return spanType ? labels[spanType] || 'Workflow Node' : 'Workflow Node'
+  return spanType ? labels[spanType] || '工作流节点' : '工作流节点'
 }
 
 function phaseTagType(spanType?: string) {
@@ -623,54 +677,149 @@ function semanticDepth(span: RunSpan) {
 
 function spanDisplayName(span: RunSpan) {
   const nodeName = span.metadata?.nodeName
-  const base = span.nodeId || span.toolName || span.spanType || span.spanId || '-'
+  const spanTypeLabels: Record<string, string> = {
+    SUPERVISOR: '智能体调度',
+    PLAN: '规划',
+    REPLAN: '重规划',
+    WORKFLOW_TOOL: '工作流工具',
+  }
+  const spanTypeLabel = span.spanType ? spanTypeLabels[span.spanType] || span.spanType : undefined
+  const base = span.nodeId || span.toolName || spanTypeLabel || span.spanId || '-'
   return nodeName ? `${base} · ${nodeName}` : base
 }
 
 function supervisorEventLabel(span: RunSpan) {
   if (span.spanType === 'WORKFLOW_TOOL') {
     const version = span.metadata?.workflowVersion
-    return `${span.toolName || span.nodeId || 'Workflow'}${version ? ` · ${version}` : ''}`
+    return `${span.toolName || span.nodeId || '工作流'}${version ? ` · ${version}` : ''}`
   }
   const planNo = span.metadata?.planNo
   return planNo ? `第 ${planNo} 次规划` : span.nodeId || phaseLabel(span.spanType)
 }
 
-function displayValue(value: unknown) {
+function supervisorEventResultLabel(span: RunSpan) {
+  const summaryText = executionSummaryLabel(span.outputSummary)
+  if (!['PLAN', 'REPLAN'].includes(span.spanType || '') || !span.outputSummary?.startsWith('{')) {
+    return summaryText
+  }
+  try {
+    const result = JSON.parse(span.outputSummary) as Record<string, unknown>
+    const planNo = Number(result.planNo || span.metadata?.planNo || 0)
+    const stepCount = Number(result.stepCount || 0)
+    const status = executionStatusLabel(typeof result.status === 'string' ? result.status : undefined)
+    const planText = planNo > 0 ? `第 ${planNo} 次规划` : '规划'
+    const stepText = Number.isFinite(stepCount) ? `，共 ${stepCount} 个步骤` : ''
+    return `${status === '-' ? '' : status}${planText}${stepText}`
+  } catch {
+    return summaryText
+  }
+}
+
+function diffFieldLabel(field: string) {
+  const labels: Record<string, string> = {
+    runType: '运行类型',
+    entryType: '运行入口',
+    status: '运行状态',
+    suspensionReason: '暂停原因',
+    agentId: '智能体 ID',
+    agentConfigVersionId: '智能体配置版本 ID',
+    workflowId: '工作流 ID',
+    workflowVersionId: '工作流版本 ID',
+    runtimeType: '运行时类型',
+    latencyMs: '耗时',
+    tokenCost: 'Token 数',
+    planCount: '规划次数',
+    replanCount: '重规划次数',
+    workflowCallCount: '工作流调用次数',
+    toolCallCount: '工具调用次数',
+    guardDenyCount: '治理拒绝次数',
+    approvalCount: '审批次数',
+    errorCode: '错误码',
+  }
+  return labels[field] || field
+}
+
+function displayDiffValue(field: string, value: unknown) {
   if (value == null || value === '') return '-'
-  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (field === 'runType') return runTypeLabel(String(value))
+  if (field === 'entryType') return entryTypeLabel(String(value))
+  if (field === 'status') return executionStatusLabel(String(value))
+  if (field === 'suspensionReason') {
+    const labels: Record<string, string> = {
+      APPROVAL: '等待审批',
+      USER_INPUT: '等待用户输入',
+    }
+    return labels[String(value)] || String(value)
+  }
+  if (field === 'runtimeType') return formatRuntimeTypeLabel(String(value))
+  if (field === 'latencyMs') return `${value} ms`
+  if (field === 'tokenCost') return `${value} Token`
+  if (typeof value === 'boolean') return value ? '是' : '否'
   return String(value)
+}
+
+function executionSummaryLabel(summary?: string) {
+  if (!summary) return '-'
+  if (summary === '[omitted]') return '[已省略]'
+  if (summary === '[redacted]') return '[已脱敏]'
+  return summary
+}
+
+function guardDecisionLabel(decision?: string) {
+  const labels: Record<string, string> = {
+    ALLOW: '允许',
+    DENY: '拒绝',
+    WAITING_APPROVAL: '等待审批',
+  }
+  return decision ? labels[decision] || decision : '-'
+}
+
+function guardDecisionTypeLabel(decisionType?: string) {
+  const labels: Record<string, string> = {
+    SUPERVISOR_TOOL_POLICY: '调度工具策略',
+  }
+  return decisionType ? labels[decisionType] || decisionType : '-'
+}
+
+function guardTargetKindLabel(targetKind?: string) {
+  const labels: Record<string, string> = {
+    WORKFLOW_TOOL: '工作流工具',
+  }
+  return targetKind ? labels[targetKind] || targetKind : '-'
 }
 
 function spanDigest(span?: RunSpan) {
   if (!span) return '缺失'
-  return `${span.status || '-'} · ${span.latencyMs ?? 0} ms · ${span.errorCode || span.outputSummary || '-'}`
+  const summaryText = ['PLAN', 'REPLAN'].includes(span.spanType || '')
+    ? supervisorEventResultLabel(span)
+    : executionSummaryLabel(span.outputSummary)
+  return `${executionStatusLabel(span.status)} · ${span.latencyMs ?? 0} ms · ${span.errorCode || summaryText}`
 }
 
 function toolDigest(tool?: RunToolCall) {
   if (!tool) return '缺失'
-  return `${tool.success ? 'SUCCESS' : 'FAILED'} · ${tool.elapsedMs ?? 0} ms · ${tool.errorCode || tool.resultSummary || '-'}`
+  return `${tool.success ? '成功' : '失败'} · ${tool.elapsedMs ?? 0} ms · ${tool.errorCode || tool.resultSummary || '-'}`
 }
 
 function guardDigest(guard?: RunGuardDecision) {
   if (!guard) return '缺失'
-  return `${guard.decision || '-'} · ${guard.reason || '-'}`
+  return `${guardDecisionLabel(guard.decision)} · ${guard.reason || '-'}`
 }
 
 async function copyIssueSummary() {
   const run = summary.value
   if (!run) return
   const text = [
-    `Trace: ${run.traceId}`,
-    `RunType: ${run.runType}`,
-    `Object: ${runObjectLabel(run)} (${runObjectId(run)})`,
-    `Version: ${runVersionLabel(run)}`,
-    `Entry: ${run.entryType}`,
-    `Status: ${run.status}`,
-    `Error: ${run.errorCode || '-'} ${run.errorMessage || ''}`.trim(),
-    `Plan/Replan: ${run.planCount ?? 0}/${run.replanCount ?? 0}`,
-    `Workflow/Tool: ${run.workflowCallCount ?? 0}/${run.toolCallCount ?? 0}`,
-    `Hints: ${(detail.value?.repairHints || []).join(' | ') || '-'}`,
+    `追踪 ID: ${run.traceId}`,
+    `运行类型: ${runTypeLabel(run.runType)} (${run.runType})`,
+    `运行对象: ${runObjectLabel(run)} (${runObjectId(run)})`,
+    `发布版本: ${runVersionLabel(run)}`,
+    `运行入口: ${entryTypeLabel(run.entryType)} (${run.entryType})`,
+    `运行状态: ${runStatusLabel(run)} (${run.status})`,
+    `错误: ${run.errorCode || '-'} ${run.errorMessage || ''}`.trim(),
+    `规划/重规划: ${run.planCount ?? 0}/${run.replanCount ?? 0}`,
+    `工作流/工具调用: ${run.workflowCallCount ?? 0}/${run.toolCallCount ?? 0}`,
+    `修复建议: ${(detail.value?.repairHints || []).join(' | ') || '-'}`,
   ].join('\n')
   try {
     await navigator.clipboard.writeText(text)
@@ -694,8 +843,7 @@ onMounted(loadDetail)
 </script>
 
 <style scoped lang="scss">
-.replay-alert,
-.run-alert {
+.replay-alert {
   margin-bottom: 16px;
 }
 

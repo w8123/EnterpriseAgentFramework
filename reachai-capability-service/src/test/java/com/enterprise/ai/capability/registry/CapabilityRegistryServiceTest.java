@@ -41,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -114,6 +115,45 @@ class CapabilityRegistryServiceTest {
                 List.of("agent-1"),
                 300
         );
+    }
+
+    @Test
+    void doesNotRewriteProjectForIdempotentStarterRegistration() {
+        LocalDateTime previousUpdateTime = LocalDateTime.of(2026, 7, 30, 10, 0);
+        ScanProjectEntity project = new ScanProjectEntity();
+        project.setId(42L);
+        project.setName("Orders");
+        project.setProjectCode("orders-api");
+        project.setProjectKind("REGISTERED");
+        project.setEnvironment("dev");
+        project.setOwner("platform");
+        project.setVisibility("SHARED");
+        project.setBaseUrl("http://orders.local");
+        project.setContextPath("/orders");
+        project.setScanPath("");
+        project.setScanType("auto");
+        project.setUpdateTime(previousUpdateTime);
+        when(scanProjectMapper.selectOne(any())).thenReturn(project);
+
+        RegistryProjectResponse response = service.registerProject(new ProjectRegisterRequest(
+                "Orders API",
+                "Orders",
+                "dev",
+                "platform",
+                "SHARED",
+                "http://orders.local",
+                "/orders",
+                "app-key",
+                "app-secret",
+                List.of("http://localhost:5173"),
+                List.of("agent-1"),
+                300,
+                Map.of("source", "test")
+        ));
+
+        assertEquals(42L, response.projectId());
+        assertEquals(previousUpdateTime, project.getUpdateTime());
+        verify(scanProjectMapper, never()).updateById(any());
     }
 
     @Test
@@ -246,11 +286,11 @@ class CapabilityRegistryServiceTest {
         ToolDefinitionEntity existing = new ToolDefinitionEntity();
         existing.setId(12L);
         existing.setName("orders_create_order");
+        existing.setTitle("Create order");
         existing.setQualifiedName("orders:createOrder");
         existing.setDescription("Old description");
         existing.setHttpMethod("POST");
         existing.setEnabled(true);
-        existing.setAgentVisible(true);
         when(toolDefinitionMapper.selectOne(any())).thenReturn(existing);
         AtomicReference<CapabilitySnapshotEntity> insertedSnapshot = new AtomicReference<>();
         AtomicReference<CapabilityDiffItemEntity> insertedDiffItem = new AtomicReference<>();
@@ -288,9 +328,6 @@ class CapabilityRegistryServiceTest {
                         "JSON",
                         "WRITE",
                         true,
-                        true,
-                        true,
-                        "PROJECT",
                         List.of(),
                         Map.of("source", "sdk")
                 ))
@@ -376,6 +413,7 @@ class CapabilityRegistryServiceTest {
         assertNotNull(tool);
         assertEquals(7L, tool.getProjectId());
         assertEquals("orders_createOrder", tool.getName());
+        assertEquals("创建订单", tool.getTitle());
         assertEquals("sdk:orders:createOrder", tool.getSourceLocation());
         assertEquals("POST", tool.getHttpMethod());
         assertEquals("http://orders.local", tool.getBaseUrl());
@@ -431,6 +469,7 @@ class CapabilityRegistryServiceTest {
         assertNotNull(tool);
         assertEquals(7L, tool.getProjectId());
         assertEquals("orders_createOrder", tool.getName());
+        assertEquals("创建订单", tool.getTitle());
         assertEquals("sdk:orders:createOrder", tool.getSourceLocation());
         assertEquals("POST", tool.getHttpMethod());
         assertEquals("http://orders.local", tool.getBaseUrl());
@@ -594,7 +633,7 @@ class CapabilityRegistryServiceTest {
                 + "{\"name\":\"createOrder\",\"description\":\"Create order\",\"httpMethod\":\"POST\","
                 + "\"baseUrl\":\"http://orders.local\",\"contextPath\":\"/orders\",\"endpointPath\":\"/create\","
                 + "\"requestBodyType\":\"JSON\",\"responseType\":\"JSON\",\"enabled\":true,"
-                + "\"agentVisible\":true,\"lightweightEnabled\":true,\"visibility\":\"PROJECT\"}]}");
+                + "\"sideEffect\":\"WRITE\"}]}");
 
         CapabilityDiffItemDTO dto = service.reviewDiffItem(
                 31L,
@@ -667,7 +706,7 @@ class CapabilityRegistryServiceTest {
     private CapabilityRegistration newCapabilityRegistration() {
         return new CapabilityRegistration(
                 "createOrder",
-                "Create order",
+                "创建订单",
                 "Create order",
                 "POST",
                 "http://orders.local",
@@ -677,9 +716,6 @@ class CapabilityRegistryServiceTest {
                 "JSON",
                 "WRITE",
                 true,
-                true,
-                true,
-                "PROJECT",
                 List.of(),
                 Map.of("source", "sdk")
         );

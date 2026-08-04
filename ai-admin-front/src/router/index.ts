@@ -85,13 +85,13 @@ const routes: RouteRecordRaw[] = [
         path: 'runops',
         name: 'RunOpsList',
         component: () => import('@/views/runops/RunOpsList.vue'),
-        meta: { title: 'RunOps 运行中心', layoutMode: 'standard' },
+        meta: { title: '运行中心', layoutMode: 'standard' },
       },
       {
         path: 'runops/:traceId',
         name: 'RunOpsDetail',
         component: () => import('@/views/runops/RunOpsDetail.vue'),
-        meta: { title: 'RunOps 运行详情', layoutMode: 'standard' },
+        meta: { title: '运行详情', layoutMode: 'standard' },
       },
 
       // ── 知识管理 ──
@@ -292,6 +292,7 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: '项目中心 · 项目详情',
           layoutMode: 'project-workbench',
+          hideSidebarProjectPanel: true,
           activeMenu: '/registry/projects',
           breadcrumb: [
             { title: '项目中心' },
@@ -335,14 +336,15 @@ const routes: RouteRecordRaw[] = [
         name: 'PageAssistantWizard',
         component: () => import('@/views/registry/PageAssistantWizard.vue'),
         meta: {
-          title: '创建页面助手',
+          title: '业务页面工作台',
           layoutMode: 'project-workbench',
+          breadcrumbShowBack: false,
           activeMenu: '/registry/projects',
           breadcrumb: [
             { title: '项目中心' },
             { title: '项目管理', to: { path: '/registry/projects' } },
             { title: '项目详情', to: toProjectDetail },
-            { title: '创建页面助手' },
+            { title: '业务页面工作台' },
           ],
         },
       },
@@ -351,14 +353,14 @@ const routes: RouteRecordRaw[] = [
         name: 'SdkAccessWizard',
         component: () => import('@/views/registry/SdkAccessWizard.vue'),
         meta: {
-          title: 'SDK 接入向导',
+          title: '项目接入工作台',
           layoutMode: 'project-workbench',
           activeMenu: '/registry/projects',
           breadcrumb: [
             { title: '项目中心' },
             { title: '项目管理', to: { path: '/registry/projects' } },
             { title: '项目详情', to: toProjectDetail },
-            { title: 'SDK 接入向导' },
+            { title: '项目接入工作台' },
           ],
         },
       },

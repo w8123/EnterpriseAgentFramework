@@ -1025,15 +1025,6 @@ function scopeProjectCode() {
   return projectStore.currentProjectCode || queryProjectCode()
 }
 
-function syncProjectScopeFromRoute() {
-  const projectId = queryProjectId()
-  if (projectId !== null && projectStore.currentProjectId !== projectId) {
-    projectStore.setCurrentProject(projectId)
-    return true
-  }
-  return false
-}
-
 const projectLabel = computed(() => {
   if (!projectStore.currentProject) {
     const code = scopeProjectCode()
@@ -1896,9 +1887,7 @@ watch(
 watch(
   () => [route.query.projectId, route.query.projectCode],
   () => {
-    if (!syncProjectScopeFromRoute()) {
-      reloadAll()
-    }
+    reloadAll()
   },
 )
 
@@ -1924,7 +1913,6 @@ onMounted(async () => {
   if (!projectStore.projects.length) {
     await projectStore.fetchProjects()
   }
-  syncProjectScopeFromRoute()
   await reloadAll()
 })
 </script>

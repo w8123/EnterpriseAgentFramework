@@ -57,11 +57,11 @@ final class WorkflowAuthoringMutationErrors {
         if (normalized.contains("delete_edge") && normalized.contains("edgeid")) {
             return "DELETE_EDGE_ID_REQUIRED";
         }
-        if (normalized.contains("set_entry")) {
-            return "SET_ENTRY_INVALID";
+        if (normalized.contains("set_entry_node")) {
+            return "SET_ENTRY_NODE_INVALID";
         }
-        if (normalized.contains("set_finish")) {
-            return "SET_FINISH_INVALID";
+        if (normalized.contains("set_exit_nodes")) {
+            return "SET_EXIT_NODES_INVALID";
         }
         if (normalized.contains(".op is required") || normalized.contains("op is required")) {
             return "OPERATION_OP_REQUIRED";

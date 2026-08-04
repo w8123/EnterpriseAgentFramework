@@ -104,6 +104,26 @@ describe('adaptEmbedEvent', () => {
     expect(data.toolCalls).toEqual([{ name: 'x' }])
     expect((data.metadata as Record<string, unknown>).metadata).toBeUndefined()
   })
+
+  it('keeps readonly output cards non-blocking while retaining interactive waiting', () => {
+    const readonly = [...expandEmbedAdapted(adaptEmbedEvent('message.completed', {
+      sessionId: 's-readonly',
+      answer: 'done',
+      uiRequest: {
+        interactionId: 'output-1',
+        component: 'list_card',
+        behavior: { blocking: false },
+      },
+    }))]
+    const interactive = [...expandEmbedAdapted(adaptEmbedEvent('message.completed', {
+      sessionId: 's-confirm',
+      answer: 'confirm',
+      uiRequest: { interactionId: 'confirm-1', component: 'confirm' },
+    }))]
+
+    expect(readonly.map((event) => event.type)).toEqual(['ui.requested', 'turn.completed'])
+    expect(interactive.map((event) => event.type)).toEqual(['ui.requested', 'turn.waiting'])
+  })
 })
 
 describe('adaptWorkflowDebugStreamEvent', () => {
@@ -210,6 +230,34 @@ describe('adaptWorkflowSessionView', () => {
     expect(events.some((e) => e.type === 'turn.cancelled')).toBe(true)
     expect(events.some((e) => e.type === 'turn.failed')).toBe(false)
   })
+
+  it('restores card-only output without reintroducing persisted fallback text', () => {
+    const uiRequest = {
+      component: 'list_card',
+      interactionId: 'history-card-only',
+      presentation: { mode: 'card_only' },
+    }
+    const view = {
+      sessionId: 'ws-card-only',
+      status: 'COMPLETED',
+      answer: 'persisted fallback details',
+      messages: [
+        { id: 'm-card-only', role: 'assistant', content: 'persisted fallback details', uiRequest },
+      ],
+      uiRequest,
+    }
+
+    const snapshot = adaptWorkflowSessionViewToSnapshot(view)
+    expect(snapshot.messages[0].blocks.some((block) => block.type === 'text')).toBe(false)
+    expect(snapshot.messages[0].blocks.some((block) => block.type === 'interaction')).toBe(true)
+    const events = [...adaptWorkflowSessionViewToEvents(view)]
+    expect(events.some((event) => event.type === 'message.delta')).toBe(false)
+    expect(events.some((event) => event.type === 'ui.requested')).toBe(true)
+    expect(events.find((event) => event.type === 'turn.completed')?.data).toMatchObject({
+      answer: 'persisted fallback details',
+      uiRequest,
+    })
+  })
 })
 
 describe('adaptChatResponse', () => {
@@ -221,5 +269,21 @@ describe('adaptChatResponse', () => {
     }, { userMessage: 'q' })
     expect(snapshot.messages).toHaveLength(2)
     expect(snapshot.turnStatus).toBe('waiting')
+  })
+
+  it('keeps the answer as transport fallback but renders only a card in card-only snapshots', () => {
+    const snapshot = adaptChatResponseToSnapshot({
+      answer: 'duplicated details',
+      uiRequest: {
+        component: 'list_card',
+        interactionId: 'output-card-only',
+        presentation: { mode: 'card_only' },
+      },
+      sessionId: 's-card-only',
+    })
+    const assistant = snapshot.messages.find((message) => message.role === 'assistant')
+    expect(assistant?.blocks.filter((block) => block.type === 'text')).toHaveLength(0)
+    expect(assistant?.blocks.filter((block) => block.type === 'interaction')).toHaveLength(1)
+    expect(snapshot.turnStatus).toBe('completed')
   })
 })

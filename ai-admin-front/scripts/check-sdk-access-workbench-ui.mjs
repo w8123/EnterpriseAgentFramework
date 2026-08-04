@@ -11,6 +11,11 @@ const snippetSource = readFileSync(join(process.cwd(), 'src/views/registry/compo
 const dataSource = readFileSync(join(process.cwd(), 'src/views/registry/composables/useSdkAccessWizardData.ts'), 'utf8')
 const uiStateSource = readFileSync(join(process.cwd(), 'src/views/registry/composables/useSdkAccessWizardUiState.ts'), 'utf8')
 const codeSnippetBlockSource = readFileSync(join(process.cwd(), 'src/components/common/CodeSnippetBlock.vue'), 'utf8')
+const providerSelectorSource = readFileSync(join(process.cwd(), 'src/components/ai-coding/AiCodingProviderSelector.vue'), 'utf8')
+const loadErrorStateSource = readFileSync(
+  join(process.cwd(), 'src/views/registry/components/ProjectWorkbenchLoadErrorState.vue'),
+  'utf8',
+)
 const skillRoot = join(process.cwd(), '..', 'reachai-control-service/src/main/resources/ai-assist/skills/reachai-onboarding')
 const onboardingSkillSource = readFileSync(join(skillRoot, 'SKILL.md'), 'utf8')
 const onboardingTemplateSource = readFileSync(join(skillRoot, 'templates/application-reachai.yml'), 'utf8')
@@ -28,11 +33,17 @@ assert.match(wizardSource, /ai-coding-access-pane/, 'AI Coding access pane shoul
 assert.match(wizardSource, /import CodeSnippetBlock from '@\/components\/common\/CodeSnippetBlock\.vue'/, 'SdkAccessWizard should reuse the shared code snippet block')
 assert.equal(
   (wizardSource.match(/<CodeSnippetBlock/g) || []).length,
-  4,
-  'SdkAccessWizard should render all Starter, gateway, and frontend snippets through the shared code snippet block',
+  6,
+  'SdkAccessWizard should render Java artifact install, Starter, secret, gateway, and frontend snippets through the shared code snippet block',
 )
 assert.match(wizardSource, /AI Coding 接入/, 'AI Coding should be visible as a primary access mode')
 assert.match(wizardSource, /手动接入/, 'Manual access should be visible as a primary access mode')
+assert.match(wizardSource, /ProjectWorkbenchLoadErrorState/, 'SdkAccessWizard should reuse the shared blocking load-error state')
+assert.match(wizardSource, /v-else-if="loadError"/, 'SdkAccessWizard should distinguish load failures from missing projects and valid content')
+assert.match(wizardSource, /@retry="loadAll"/, 'SdkAccessWizard load failure should offer a real retry')
+assert.match(dataSource, /const loadError = ref\(''\)/, 'SDK access data should expose truthful initial-load failure state')
+assert.match(dataSource, /clearWorkbenchData\(\)/, 'SDK access data should clear stale project data before retrying')
+assert.match(loadErrorStateSource, /重新加载/, 'Shared project-workbench load failure state should expose retry')
 assert.doesNotMatch(wizardSource, /class="header-actions"/, 'SdkAccessWizard header should not render legacy action buttons above the tabs')
 assert.doesNotMatch(wizardSource, /使用 AI 快速接入/, 'SdkAccessWizard header should not render the legacy quick AI access button')
 assert.doesNotMatch(wizardSource, /刷新状态/, 'SdkAccessWizard header should not render the legacy refresh button')
@@ -56,7 +67,8 @@ assert.doesNotMatch(manualPane, /<h2>项目识别<\/h2>/, 'Manual access pane sh
 assert.doesNotMatch(progressSource, /key:\s*'overview'/, 'Manual step model should not include the project identification step')
 assert.doesNotMatch(progressSource, /title:\s*'项目识别'/, 'Manual step model should not include project identification as a step title')
 assert.match(progressSource, /index:\s*1,[\s\S]*?key:\s*'starter'[\s\S]*?title:\s*'后端 Starter'/, 'Manual steps should start with backend Starter')
-assert.match(progressSource, /index:\s*5,[\s\S]*?key:\s*'self-check'[\s\S]*?title:\s*'最终自检'/, 'Manual steps should end at step 5 after removing project identification')
+assert.match(progressSource, /index:\s*5,[\s\S]*?key:\s*'self-check'[\s\S]*?title:\s*'平台接入自检'/, 'Manual steps should end with the scoped platform SDK self-check')
+assert.match(progressSource, /SDK 注册、心跳与签名回调/, 'Manual self-check scope should stay within platform-observed SDK facts')
 assert.doesNotMatch(progressSource, /确认实例与旧接口资产/, 'SDK onboarding should not require legacy interface assets to complete backend service validation')
 assert.doesNotMatch(progressSource, /legacyAssetSelectionRequired/, 'Backend service validation should complete on SDK heartbeat without legacy interface sync')
 assert.match(progressSource, /确认 SDK 实例心跳/, 'Backend service validation should be framed around SDK instance heartbeat')
@@ -68,13 +80,33 @@ assert.doesNotMatch(aiCodingPane, /<span class="step-kicker">AI Coding 接入<\/
 assert.doesNotMatch(aiCodingPane, /ai-coding-key-panel/, 'AI Coding pane should not render the access key card inline')
 assert.doesNotMatch(aiCodingPane, /AI Coding 接入秘钥/, 'AI Coding pane should not render the access key card title inline')
 assert.match(aiCodingPane, /将接入任务交给AI 编程工具/, 'AI Coding pane should use the shorter main heading')
+assert.match(wizardSource, /真实浏览器 Embed 会话由 AI Coding 任务的“浏览器 Embed 闭环”单独验收/, 'SDK self-check must not claim browser acceptance')
+assert.match(wizardSource, /SDK 回调与平台自检/, 'AI Coding pane should name the SDK callback self-check precisely')
+assert.doesNotMatch(wizardSource, /可选 API 调用|参数 JSON/, 'SDK self-check must not render request fields ignored by the backend')
 assert.doesNotMatch(aiCodingPane, /把 SDK 接入任务交给外部 AI 编程工具/, 'AI Coding pane should not use the old verbose heading')
 assert.doesNotMatch(aiCodingPane, /切换工具后复制同一套接入任务，AI 会按步骤向平台回传进度。/, 'AI Coding prompt card should not render the explanatory sentence')
 assert.doesNotMatch(aiCodingPane, /打开完整提示词/, 'AI Coding pane should not render the full prompt dialog button')
+assert.match(wizardSource, /import AiCodingProviderSelector from '@\/components\/ai-coding\/AiCodingProviderSelector\.vue'/, 'SdkAccessWizard should reuse the shared icon provider selector')
+assert.equal(
+  (wizardSource.match(/<AiCodingProviderSelector/g) || []).length,
+  2,
+  'SDK access main pane and handoff dialog should share the icon provider selector',
+)
+assert.doesNotMatch(aiCodingPane, /\{\{\s*option\.label\s*\}\}/, 'AI Coding provider selector should not render text tabs')
+assert.doesNotMatch(wizardSource, /ai-tool-tabs-track/, 'SDK access should remove the legacy text-tab underline')
+assert.match(providerSelectorSource, /<el-tooltip[\s\S]*?:content="option\.label"/, 'Each AI Coding provider icon should expose its software name on hover')
+assert.match(providerSelectorSource, /role="tab"[\s\S]*?:aria-label="option\.label"[\s\S]*?:aria-selected=/, 'Provider icon buttons should preserve accessible labels and selection state')
+for (const iconName of ['codex', 'cursor', 'trae', 'claude-code']) {
+  assert.match(
+    providerSelectorSource,
+    new RegExp(`@/assets/ai-coding-providers/${iconName}\\.svg`),
+    `AI Coding provider selector should use the local ${iconName} icon`,
+  )
+}
 assert.match(
   aiCodingPane,
-  /:disabled="!aiOnboardingPromptReady"[\s\S]*?@click="copyAiOnboardingPrompt"/,
-  'AI Coding prompt copy must remain disabled until all prompt data is ready',
+  /:disabled="aiOnboardingPromptLoading \|\| Boolean\(aiTaskLoadError\)"[\s\S]*?: prepareAiOnboardingTask\(\)/,
+  'AI Coding prompt action should generate a handoff when absent and disable while loading or task state is unknown',
 )
 assert.match(
   aiCodingPane,
@@ -88,18 +120,30 @@ assert.match(
 )
 assert.match(
   dataSource,
-  /manifest\?\.project\?\.id === projectId[\s\S]*?session\?\.projectId === projectId[\s\S]*?session\.sessionId\?\.trim\(\)/,
-  'AI Coding prompt readiness must require matching project, manifest, and access-session data',
+  /handoff\?\.prompt[\s\S]*?onboardingTask\.value\?\.executorProvider === selectedExecutorProvider\.value[\s\S]*?new Date\(handoff\.activationExpiresAt\)\.getTime\(\) > Date\.now\(\)/,
+  'AI Coding prompt readiness must require a live handoff for the selected executor',
 )
 assert.match(
   dataSource,
-  /await Promise\.all\(\[[\s\S]*?loadAccessSession\(detail\.id\)[\s\S]*?loadAiOnboardingManifest\(detail\.id\)/,
-  'Access session and onboarding manifest should load in parallel',
+  /loadOnboardingTask\(detail\.id\)\.catch\(\(\) => undefined\)/,
+  'AI Coding task-state failure must not make the manual SDK workbench unavailable',
 )
+assert.match(
+  dataSource,
+  /if \(aiTaskLoadError\.value\)[\s\S]*?请先重新加载当前项目的 AI Coding 任务状态/,
+  'Unknown AI Coding task state must block duplicate task creation',
+)
+assert.match(
+  dataSource,
+  /taskKind:\s*'PROJECT_ONBOARDING'[\s\S]*?targetType:\s*'PROJECT'[\s\S]*?accessMode:\s*'READ_WRITE'/,
+  'Project onboarding must create a shared-kernel task with an explicit project write target',
+)
+assert.match(dataSource, /taskKernel\.reissueHandoff\(existing\.taskId\)/, 'A live onboarding task should reissue its one-time handoff')
+assert.match(wizardSource, /AiCodingTaskDetailPanel/, 'SdkAccessWizard should reuse the common task detail panel')
 
 assert.match(
   wizardSource,
-  /class="sdk-access-page project-workbench-page"/,
+  /class="sdk-access-page project-workbench-page(?: workbench-page--list)?"/,
   'SdkAccessWizard should consume the shared project-workbench page rhythm',
 )
 assert.doesNotMatch(
@@ -134,8 +178,8 @@ assert.match(
 )
 assert.match(
   wizardStyle,
-  /\.manual-access-pane\s*\{[\s\S]*?flex:\s*1 1 auto[\s\S]*?\.ai-coding-access-pane\s*\{[\s\S]*?flex:\s*0 0 auto/,
-  'AI Coding pane should size to its cards instead of stretching into a large empty bottom area',
+  /\.manual-access-pane\s*\{[\s\S]*?flex:\s*1 1 auto[\s\S]*?\.ai-coding-access-pane\s*\{[\s\S]*?flex:\s*1 1 auto/,
+  'AI Coding pane should grow with the workbench so the progress card can reach the sidebar bottom',
 )
 assert.match(
   wizardStyle,
@@ -149,13 +193,23 @@ assert.doesNotMatch(
 )
 assert.match(
   aiCodingFigmaStyle,
-  /\.sdk-access-page \.ai-coding-side\.access-progress--refined\s*\{[\s\S]*?position:\s*relative\s*!important[\s\S]*?top:\s*0\s*!important[\s\S]*?height:\s*580px\s*!important/,
-  'AI Coding progress card should override the sticky rail offset and align with the right workbench card',
+  /\.sdk-access-page \.ai-coding-side\.access-progress--refined\s*\{[\s\S]*?position:\s*relative\s*!important[\s\S]*?top:\s*0\s*!important[\s\S]*?min-height:\s*100%\s*!important/,
+  'AI Coding progress card should stretch to the workbench bottom instead of using a fixed height',
+)
+assert.match(
+  wizardSource,
+  /workbench-page--list/,
+  'SdkAccessWizard should use the list-fill bottom inset so the progress card aligns with the sidebar',
 )
 assert.match(
   aiCodingFigmaStyle,
   /\.sdk-access-page \.ai-coding-side\.access-progress--refined \.progress-step\s*\{[\s\S]*?min-height:\s*64px\s*!important[\s\S]*?padding-top:\s*9px\s*!important[\s\S]*?padding-bottom:\s*9px\s*!important/,
   'AI Coding progress node cards should stay tall enough to read comfortably',
+)
+assert.match(
+  aiCodingFigmaStyle,
+  /\.sdk-access-page \.ai-progress-meta\s*\{[\s\S]*?display:\s*grid[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto[\s\S]*?:deep\(\.el-tag\)\s*\{[\s\S]*?grid-column:\s*1\s*\/\s*-1[\s\S]*?max-width:\s*100%[\s\S]*?white-space:\s*normal/,
+  'AI Coding session status should use its own full-width row and remain readable without clipping',
 )
 assert.doesNotMatch(
   aiCodingFigmaStyle,
@@ -191,18 +245,64 @@ for (const [name, source] of [
 
 assert.doesNotMatch(capabilityPropertiesSource, /syncOnStartup|isSyncOnStartup|setSyncOnStartup/, 'ReachAi capability properties should not keep the removed startup sync setting')
 assert.doesNotMatch(starterClientSource, /getCapability\(\)\.isSyncOnStartup|syncOnStartup/, 'ReachAiRegistryClient should not check startup sync during registration')
+assert.match(
+  starterPropertiesSource,
+  /enum ScanMode[\s\S]*ALL_CONTROLLERS[\s\S]*ANNOTATED_ONLY/,
+  'ReachAi Starter should expose explicit all-controller and annotated-only scan modes',
+)
+for (const [name, source] of [
+  ['SDK access prompt snippets', snippetSource],
+  ['ReachAI onboarding application template', onboardingTemplateSource],
+  ['ReachAI Java SDK reference', javaSdkAccessSource],
+]) {
+  assert.match(
+    source,
+    /scan-mode:\s*ANNOTATED_ONLY/,
+    `${name} should recommend the curated annotated-only capability surface`,
+  )
+}
 assert.match(snippetSource, /API 管理[\s\S]*手动触发/, 'AI Coding prompt should say SDK interface scanning is manually triggered from API management')
 assert.match(onboardingSkillSource, /API 管理[\s\S]*手动触发/, 'Packaged onboarding skill should say SDK interface scanning is manually triggered from API management')
 assert.match(javaSdkAccessSource, /API 管理[\s\S]*手动触发/, 'Java SDK reference should say SDK interface scanning is manually triggered from API management')
 assert.match(
-  snippetSource,
-  /\/reachai\/registry\/capabilities\/sync[\s\S]*业务登录\/JWT[\s\S]*CSRF[\s\S]*Starter[\s\S]*签名校验/,
-  'AI Coding prompt should prepare the signed inbound SDK sync callback without weakening Starter authentication',
+  onboardingSkillSource,
+  /\/reachai\/registry\/capabilities\/sync[\s\S]*normal business login\/JWT filters and CSRF[\s\S]*Starter must still validate the ReachAI registry signature/,
+  'The onboarding task guidance should prepare the signed inbound SDK sync callback without weakening Starter authentication',
 )
 assert.match(
   snippetSource,
   /Path=\/reachai\/capabilities\/\*\*,\/reachai\/registry\/\*\*/,
   'Gateway example should route both capability invocation and registry callback traffic',
+)
+assert.match(
+  snippetSource,
+  /Path=\/api\/reachai\/embed\/\*\*[\s\S]*?RewritePath=\/api\/reachai\/embed\/\(\?<segment>\.\*\), \/api\/embed\/\\\$\{segment\}/,
+  'Gateway example should proxy the browser Embed API to ReachAI without changing its token',
+)
+assert.match(
+  snippetSource,
+  /Path=\/api\/reachai\/embed-token/,
+  'Gateway example should keep the authenticated business Token Broker separately addressable',
+)
+assert.match(
+  snippetSource,
+  /Starter validates the registry signature or invocation token/,
+  'Gateway example should keep Starter-owned callback and invocation authentication explicit',
+)
+assert.match(
+  snippetSource,
+  /embed-token intentionally remains on the normal business login chain/,
+  'Gateway example should not whitelist the business-authenticated Token Broker',
+)
+assert.match(
+  snippetSource,
+  /embedPathPrefix: '\$\{embedPathPrefix\}'/,
+  'Browser SDK example should declare the business gateway Embed prefix explicitly',
+)
+assert.match(
+  snippetSource,
+  /credentials: 'include'/,
+  'Generic Token Broker fetch should preserve cookie-based business identity',
 )
 assert.match(
   snippetSource,
@@ -229,9 +329,10 @@ for (const retainedCopy of [
   '网关路由',
   '业务服务校验',
   '前端 Embed Token',
-  '最终自检',
+  '平台接入自检',
   'aiPromptDialogVisible',
-  'accessSession',
+  'onboardingTask',
+  'AiCodingTaskDetailPanel',
   'readiness-list',
 ]) {
   assert.match(wizardSource, new RegExp(retainedCopy), `SdkAccessWizard lost existing content: ${retainedCopy}`)

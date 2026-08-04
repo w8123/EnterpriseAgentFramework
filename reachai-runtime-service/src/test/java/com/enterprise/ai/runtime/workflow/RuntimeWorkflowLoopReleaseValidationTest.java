@@ -17,7 +17,8 @@ class RuntimeWorkflowLoopReleaseValidationTest {
     void acceptsBoundedForeachWithOwnedBody() {
         RuntimeWorkflowDefinitionEntity workflow = workflow("""
                 {
-                  "entry":"assign",
+                  "entryNodeId":"assign",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"assign","type":"VARIABLE_ASSIGN","config":{"assignments":{"var.items":["a","b"]}}},
                     {"id":"loop","type":"LOOP","config":{
@@ -46,7 +47,8 @@ class RuntimeWorkflowLoopReleaseValidationTest {
     void rejectsExternalJumpIntoBodyAndNestedLoop() {
         RuntimeWorkflowDefinitionEntity jump = workflow("""
                 {
-                  "entry":"in",
+                  "entryNodeId":"in",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"in","type":"USER_INPUT"},
                     {"id":"loop","type":"LOOP","config":{
@@ -68,7 +70,8 @@ class RuntimeWorkflowLoopReleaseValidationTest {
 
         RuntimeWorkflowDefinitionEntity nested = workflow("""
                 {
-                  "entry":"loop",
+                  "entryNodeId":"loop",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"loop","type":"LOOP","config":{
                       "collection":"var.items","itemAlias":"item","indexAlias":"index",
@@ -94,7 +97,8 @@ class RuntimeWorkflowLoopReleaseValidationTest {
     void rejectsInvalidMaxIterations() {
         RuntimeWorkflowDefinitionEntity workflow = workflow("""
                 {
-                  "entry":"loop",
+                  "entryNodeId":"loop",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"loop","type":"LOOP","config":{
                       "collection":"var.items","itemAlias":"item","indexAlias":"index",
@@ -114,7 +118,8 @@ class RuntimeWorkflowLoopReleaseValidationTest {
     void rejectsDualBodyOwnershipAndUnreachableBody() {
         RuntimeWorkflowDefinitionEntity dual = workflow("""
                 {
-                  "entry":"l1",
+                  "entryNodeId":"l1",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"l1","type":"LOOP","config":{
                       "collection":"var.items","itemAlias":"item","indexAlias":"index",
@@ -139,7 +144,8 @@ class RuntimeWorkflowLoopReleaseValidationTest {
 
         RuntimeWorkflowDefinitionEntity unreachable = workflow("""
                 {
-                  "entry":"loop",
+                  "entryNodeId":"loop",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"loop","type":"LOOP","config":{
                       "collection":"var.items","itemAlias":"item","indexAlias":"index",
@@ -160,7 +166,8 @@ class RuntimeWorkflowLoopReleaseValidationTest {
     void rejectsFallbackOutsideBody() {
         RuntimeWorkflowDefinitionEntity workflow = workflow("""
                 {
-                  "entry":"loop",
+                  "entryNodeId":"loop",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"loop","type":"LOOP","config":{
                       "collection":"var.items","itemAlias":"item","indexAlias":"index",

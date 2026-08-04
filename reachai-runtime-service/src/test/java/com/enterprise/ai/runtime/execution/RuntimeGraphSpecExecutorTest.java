@@ -9,6 +9,7 @@ import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelCha
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.ModelChatResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,7 +35,7 @@ class RuntimeGraphSpecExecutorTest {
     @Test
     void executesAnswerEntryNodeWithInputTemplate() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
-                {"entry":"answer","nodes":[{"id":"answer","type":"ANSWER","config":{"template":"收到：{{ input }}"}}]}
+                {"entryNodeId":"answer","exitNodeIds":["answer"],"nodes":[{"id":"answer","type":"ANSWER","config":{"template":"收到：{{ input }}"}}]}
                 """, Map.of("message", "hello"));
 
         assertEquals(true, result.success());
@@ -48,7 +49,8 @@ class RuntimeGraphSpecExecutorTest {
     void executesLlmEntryNodeThroughModelGateway() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"llm",
+                  "entryNodeId":"llm",
+                  "exitNodeIds":["llm"],
                   "nodes":[{
                     "id":"llm",
                     "type":"LLM",
@@ -77,7 +79,8 @@ class RuntimeGraphSpecExecutorTest {
     void publishedWorkflowDefaultModelTakesPrecedenceOverRequestInputModel() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"llm",
+                  "entryNodeId":"llm",
+                  "exitNodeIds":["llm"],
                   "nodes":[{"id":"llm","type":"LLM","config":{"userPrompt":"{{ input }}"}}]
                 }
                 """, Map.of(
@@ -93,7 +96,8 @@ class RuntimeGraphSpecExecutorTest {
     void explicitBlankPublishedWorkflowDefaultDoesNotFallBackToRequestInputModel() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"llm",
+                  "entryNodeId":"llm",
+                  "exitNodeIds":["llm"],
                   "nodes":[{"id":"llm","type":"LLM","config":{"userPrompt":"{{ input }}"}}]
                 }
                 """, Map.of(
@@ -123,9 +127,9 @@ class RuntimeGraphSpecExecutorTest {
                                 Map.of("phase", "PAGE_ACTION", "status", "SUCCESS"))));
 
         RuntimeGraphSpecExecutionResult result = pageExecutor.execute("""
-                {"entry":"team","nodes":[{"id":"team","type":"PAGE_ACTION","config":{
+                {"entryNodeId":"team","exitNodeIds":["team"],"nodes":[{"id":"team","type":"PAGE_ACTION","config":{
                   "projectCode":"qmssmp","pageKey":"team.departments","route":"/team-build/depart-management",
-                  "actionKey":"queryFirstTeam","args":{"keyword":"{{ teamName }}"}
+                  "actionKey":"queryFirstTeam","inputMapping":{},"args":{"keyword":"{{ teamName }}"}
                 }}]}
                 """, Map.of(
                 "sessionId", "s1",
@@ -139,7 +143,10 @@ class RuntimeGraphSpecExecutorTest {
         assertEquals("RUNTIME_PAGE_ACTION_EXECUTED", result.code());
         assertEquals("PAGE_ACTION", result.nodeType());
         assertEquals("PAGE_BRIDGE_COMPLETED", result.metadata().get("pageBridgeCode"));
-        verify(controlClient).executePageBridge(any());
+        ArgumentCaptor<RuntimeControlCatalogClient.PageBridgeExecutionRequest> request =
+                ArgumentCaptor.forClass(RuntimeControlCatalogClient.PageBridgeExecutionRequest.class);
+        verify(controlClient).executePageBridge(request.capture());
+        assertEquals("一班", request.getValue().args().get("keyword"));
     }
 
     @Test
@@ -157,7 +164,8 @@ class RuntimeGraphSpecExecutorTest {
 
         RuntimeGraphSpecExecutionResult result = pageExecutor.execute("""
                 {
-                  "entry":"open",
+                  "entryNodeId":"open",
+                  "exitNodeIds":["answer","failed"],
                   "nodes":[
                     {"id":"open","type":"PAGE_ACTION","config":{
                       "projectCode":"demo","pageKey":"teams","actionKey":"openTeam"
@@ -193,7 +201,8 @@ class RuntimeGraphSpecExecutorTest {
     void preservesInteractionPayloadForDownstreamParameterExtraction() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"form",
+                  "entryNodeId":"form",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"form","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[
                       {"key":"approved","type":"boolean","required":true},
@@ -232,7 +241,8 @@ class RuntimeGraphSpecExecutorTest {
     void interactionWithoutPayloadSuspendsWithUiRequest() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"form",
+                  "entryNodeId":"form",
+                  "exitNodeIds":["form"],
                   "nodes":[{"id":"form","type":"INTERACTION","config":{
                     "interactionType":"COLLECT_INPUT",
                     "title":"查询条件",
@@ -243,7 +253,7 @@ class RuntimeGraphSpecExecutorTest {
 
         assertEquals(false, result.success());
         assertTrue(result.isWaitingUser());
-        assertEquals("SUSPENDED", result.executionStatus());
+        assertEquals(WorkflowExecutionStatus.SUSPENDED, result.executionStatus());
         assertTrue(result.interactionId() != null && result.interactionId().startsWith("wfi_"));
         @SuppressWarnings("unchecked")
         Map<String, Object> ui = (Map<String, Object>) result.uiRequest();
@@ -256,7 +266,7 @@ class RuntimeGraphSpecExecutorTest {
     @Test
     void interactionRejectsMismatchedResumeNode() {
         RuntimeGraphSpecExecutionResult waiting = executor.execute("""
-                {"entry":"a","nodes":[
+                {"entryNodeId":"a","exitNodeIds":["b"],"nodes":[
                   {"id":"a","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"x","required":true}]}},
                   {"id":"b","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"y","required":true}]}}
                 ],"edges":[{"from":"a","to":"b"}]}
@@ -264,7 +274,7 @@ class RuntimeGraphSpecExecutorTest {
         assertTrue(waiting.isWaitingUser());
 
         RuntimeGraphSpecExecutionResult resumed = executor.executeFromNode("""
-                {"entry":"a","nodes":[
+                {"entryNodeId":"a","exitNodeIds":["b"],"nodes":[
                   {"id":"a","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"x","required":true}]}},
                   {"id":"b","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"y","required":true}]}}
                 ],"edges":[{"from":"a","to":"b"}]}
@@ -283,13 +293,13 @@ class RuntimeGraphSpecExecutorTest {
     @Test
     void collectInputRequiredValidationKeepsWaiting() {
         RuntimeGraphSpecExecutionResult waiting = executor.execute("""
-                {"entry":"form","nodes":[{"id":"form","type":"INTERACTION","config":{
+                {"entryNodeId":"form","exitNodeIds":["form"],"nodes":[{"id":"form","type":"INTERACTION","config":{
                   "interactionType":"COLLECT_INPUT",
                   "fields":[{"key":"q","required":true,"type":"string"}]
                 }}]}
                 """, Map.of());
         RuntimeGraphSpecExecutionResult resumed = executor.executeFromNode("""
-                {"entry":"form","nodes":[{"id":"form","type":"INTERACTION","config":{
+                {"entryNodeId":"form","exitNodeIds":["form"],"nodes":[{"id":"form","type":"INTERACTION","config":{
                   "interactionType":"COLLECT_INPUT",
                   "fields":[{"key":"q","required":true,"type":"string"}]
                 }}]}
@@ -308,7 +318,7 @@ class RuntimeGraphSpecExecutorTest {
     @Test
     void userChoiceRejectsUndeclaredOption() {
         String graph = """
-                {"entry":"choice","nodes":[{"id":"choice","type":"INTERACTION","config":{
+                {"entryNodeId":"choice","exitNodeIds":["choice"],"nodes":[{"id":"choice","type":"INTERACTION","config":{
                   "interactionType":"USER_CHOICE",
                   "options":[{"value":"a","label":"A"},{"value":"b","label":"B"}]
                 }}]}
@@ -329,7 +339,8 @@ class RuntimeGraphSpecExecutorTest {
     void confirmActionRoutesAndRejectDoesNotFollowAlwaysEdge() {
         String graph = """
                 {
-                  "entry":"confirm",
+                  "entryNodeId":"confirm",
+                  "exitNodeIds":["done"],
                   "nodes":[
                     {"id":"confirm","type":"INTERACTION","config":{"interactionType":"CONFIRM_ACTION"}},
                     {"id":"write","type":"TOOL","ref":{"qualifiedName":"system.echo"},"config":{}},
@@ -358,7 +369,8 @@ class RuntimeGraphSpecExecutorTest {
     void presentOutputIsNonBlocking() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"show",
+                  "entryNodeId":"show",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"show","type":"INTERACTION","config":{
                       "interactionType":"PRESENT_OUTPUT",
@@ -382,7 +394,8 @@ class RuntimeGraphSpecExecutorTest {
     void sequentialInteractionsDoNotReuseStalePayload() {
         String graph = """
                 {
-                  "entry":"a",
+                  "entryNodeId":"a",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"a","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"x","required":true}]}},
                     {"id":"b","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"y","required":true}]}},
@@ -419,7 +432,8 @@ class RuntimeGraphSpecExecutorTest {
     void resumeDoesNotReExecutePriorToolSideEffect() {
         String graph = """
                 {
-                  "entry":"tool",
+                  "entryNodeId":"tool",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"tool","type":"TOOL","ref":{"qualifiedName":"system.echo"},"config":{"inputMapping":{"message":"hi"}}},
                     {"id":"form","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"q","required":true}]}},
@@ -431,12 +445,12 @@ class RuntimeGraphSpecExecutorTest {
         RuntimeGraphSpecExecutionResult waiting = executor.execute(graph, Map.of());
         assertTrue(waiting.isWaitingUser());
         assertEquals(1, capabilityClient.requests.size());
-        assertFalse(waiting.contextSnapshot().isEmpty(), "pause must return live executor contextSnapshot");
-        assertTrue(waiting.contextSnapshot().containsKey("nodeOutput")
-                        || waiting.contextSnapshot().containsKey("lastOutput"),
-                "snapshot must keep TOOL output: " + waiting.contextSnapshot().keySet());
+        assertFalse(waiting.resumeCheckpoint().isEmpty(), "pause must return live executor resumeCheckpoint");
+        assertTrue(waiting.resumeCheckpoint().containsKey("nodeOutput")
+                        || waiting.resumeCheckpoint().containsKey("lastOutput"),
+                "snapshot must keep TOOL output: " + waiting.resumeCheckpoint().keySet());
 
-        Map<String, Object> resumeContext = new java.util.LinkedHashMap<>(waiting.contextSnapshot());
+        Map<String, Object> resumeContext = new java.util.LinkedHashMap<>(waiting.resumeCheckpoint());
         resumeContext.put("__pendingInteractionId", waiting.interactionId());
         resumeContext.put("__pendingInteractionNodeId", "form");
         resumeContext.put("__interactionResume", Map.of(
@@ -451,10 +465,11 @@ class RuntimeGraphSpecExecutorTest {
     }
 
     @Test
-    void waitingContextSnapshotKeepsAccumulatedStateAcrossTwoInteractions() {
+    void waitingResumeCheckpointKeepsAccumulatedStateAcrossTwoInteractions() {
         String graph = """
                 {
-                  "entry":"a",
+                  "entryNodeId":"a",
+                  "exitNodeIds":["final"],
                   "nodes":[
                     {"id":"a","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT","fields":[{"key":"x","required":true}]}},
                     {"id":"mid","type":"PARAMETER_EXTRACT","config":{
@@ -473,9 +488,9 @@ class RuntimeGraphSpecExecutorTest {
                 """;
         RuntimeGraphSpecExecutionResult first = executor.execute(graph, Map.of("seed", 1));
         assertTrue(first.isWaitingUser());
-        assertTrue(first.contextSnapshot().containsKey("seed"));
+        assertTrue(first.resumeCheckpoint().containsKey("seed"));
 
-        Map<String, Object> afterA = new java.util.LinkedHashMap<>(first.contextSnapshot());
+        Map<String, Object> afterA = new java.util.LinkedHashMap<>(first.resumeCheckpoint());
         afterA.put("__interactionResume", Map.of(
                 "interactionId", first.interactionId(),
                 "nodeId", "a",
@@ -484,11 +499,11 @@ class RuntimeGraphSpecExecutorTest {
         RuntimeGraphSpecExecutionResult second = executor.executeFromNode(graph, afterA, "a");
         assertTrue(second.isWaitingUser());
         assertEquals("b", second.nodeId());
-        assertTrue(second.contextSnapshot().containsKey("x")
-                        || String.valueOf(second.contextSnapshot().get("lastOutput")).contains("1"),
+        assertTrue(second.resumeCheckpoint().containsKey("x")
+                        || String.valueOf(second.resumeCheckpoint().get("lastOutput")).contains("1"),
                 "second wait must accumulate first interaction output");
 
-        Map<String, Object> afterB = new java.util.LinkedHashMap<>(second.contextSnapshot());
+        Map<String, Object> afterB = new java.util.LinkedHashMap<>(second.resumeCheckpoint());
         afterB.put("__interactionResume", Map.of(
                 "interactionId", second.interactionId(),
                 "nodeId", "b",
@@ -503,7 +518,8 @@ class RuntimeGraphSpecExecutorTest {
     void preservesStructuredToolInputTypes() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"team",
+                  "entryNodeId":"team",
+                  "exitNodeIds":["team"],
                   "nodes":[{
                     "id":"team",
                     "type":"TOOL",
@@ -523,7 +539,8 @@ class RuntimeGraphSpecExecutorTest {
     void executesLinearUserInputLlmAnswerGraph() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"user_input",
+                  "entryNodeId":"user_input",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"user_input","type":"USER_INPUT"},
                     {"id":"llm","type":"LLM","config":{"modelInstanceId":"model-1","userPrompt":"{{ input }}"}},
@@ -531,8 +548,7 @@ class RuntimeGraphSpecExecutorTest {
                   ],
                   "edges":[
                     {"from":"user_input","to":"llm"},
-                    {"from":"llm","to":"answer"},
-                    {"from":"answer","to":"END"}
+                    {"from":"llm","to":"answer"}
                   ]
                 }
                 """, Map.of("message", "查订单"));
@@ -554,7 +570,8 @@ class RuntimeGraphSpecExecutorTest {
 
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"user_input",
+                  "entryNodeId":"user_input",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"user_input","type":"USER_INPUT"},
                     {"id":"query_order","type":"TOOL","ref":{"qualifiedName":"orders:queryOrder"},"config":{"inputMapping":{"orderNo":"{{ input }}"}}},
@@ -579,6 +596,52 @@ class RuntimeGraphSpecExecutorTest {
     }
 
     @Test
+    void stopsToolWorkflowWhenCapabilityReportsBusinessFailure() {
+        capabilityClient.nextResult = Map.of(
+                "success", false,
+                "code", "CAPABILITY_BUSINESS_RESPONSE_FAILED",
+                "businessCode", "500",
+                "message", "查询失败：无权查看班组",
+                "data", Map.of("code", "500", "success", false, "message", "无权查看班组"));
+
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entryNodeId":"query",
+                  "exitNodeIds":["answer"],
+                  "nodes":[
+                    {"id":"query","type":"TOOL","ref":{"qualifiedName":"qmssmp:team.search"}},
+                    {"id":"answer","type":"ANSWER","config":{"template":"不应执行"}}
+                  ],
+                  "edges":[{"from":"query","to":"answer"}]
+                }
+                """, Map.of());
+
+        assertFalse(result.success());
+        assertEquals("RUNTIME_GRAPH_TOOL_BUSINESS_RESPONSE_FAILED", result.code());
+        assertEquals("查询失败：无权查看班组", result.answer());
+        assertEquals("500", result.metadata().get("businessCode"));
+        assertEquals(1, capabilityClient.requests.size());
+    }
+
+    @Test
+    void rejectsBusinessFailurePayloadFromOlderCapabilityService() {
+        capabilityClient.nextResult = Map.of(
+                "success", true,
+                "data", Map.of("code", 403, "success", false, "message", "角色无权限"));
+
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {"entryNodeId":"query","exitNodeIds":["query"],"nodes":[
+                  {"id":"query","type":"CAPABILITY","ref":{"qualifiedName":"qmssmp:team.search"}}
+                ]}
+                """, Map.of());
+
+        assertFalse(result.success());
+        assertEquals("RUNTIME_GRAPH_TOOL_BUSINESS_RESPONSE_FAILED", result.code());
+        assertEquals("查询失败：角色无权限", result.answer());
+        assertEquals("403", result.metadata().get("businessCode"));
+    }
+
+    @Test
     void preservesToolMapOutputForConditionAndParameterExtraction() {
         capabilityClient.nextResult = Map.of(
                 "success", true,
@@ -589,7 +652,8 @@ class RuntimeGraphSpecExecutorTest {
 
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"lookup",
+                  "entryNodeId":"lookup",
+                  "exitNodeIds":["answer","unpaid"],
                   "nodes":[
                     {"id":"lookup","type":"TOOL","ref":{"qualifiedName":"orders:query"}},
                     {"id":"judge","type":"IF_ELSE","config":{
@@ -630,7 +694,8 @@ class RuntimeGraphSpecExecutorTest {
 
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"tool",
+                  "entryNodeId":"tool",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"tool","type":"CAPABILITY","config":{
                       "capabilityConfig":{"ref":{"qualifiedName":"orders:plain"}}
@@ -650,7 +715,8 @@ class RuntimeGraphSpecExecutorTest {
     void keywordClassifierUsesInputExpressionAndRoutesToMatchedBranchWithoutModel() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"classifier",
+                  "entryNodeId":"classifier",
+                  "exitNodeIds":["search_answer","reset_answer","fallback_answer"],
                   "nodes":[
                     {"id":"classifier","type":"INTENT_CLASSIFIER","config":{
                       "strategy":"KEYWORD",
@@ -684,7 +750,8 @@ class RuntimeGraphSpecExecutorTest {
     void keywordClassifierUsesDefaultRouteWhenNoKeywordMatches() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"classifier",
+                  "entryNodeId":"classifier",
+                  "exitNodeIds":["search_answer","fallback_answer"],
                   "nodes":[
                     {"id":"classifier","type":"INTENT_CLASSIFIER","config":{
                       "strategy":"KEYWORD",
@@ -707,6 +774,44 @@ class RuntimeGraphSpecExecutorTest {
     }
 
     @Test
+    void hybridClassifierDefersAnEquallySpecificCrossIntentKeywordTieToModel() {
+        CapturingModelClient classifierModel = new CapturingModelClient(
+                "{\"route\":\"page_state\",\"confidence\":0.96}");
+        RuntimeGraphSpecExecutor classifierExecutor = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), classifierModel, capabilityClient, mock(RuntimeControlCatalogClient.class));
+
+        RuntimeGraphSpecExecutionResult result = classifierExecutor.execute("""
+                {
+                  "entryNodeId":"classifier",
+                  "exitNodeIds":["search_answer","state_answer"],
+                  "nodes":[
+                    {"id":"classifier","type":"INTENT_CLASSIFIER","config":{
+                      "strategy":"HYBRID",
+                      "modelInstanceId":"model-1",
+                      "classes":[
+                        {"id":"search","keywords":["班组名称"]},
+                        {"id":"page_state","keywords":["页面状态"]}
+                      ],
+                      "defaultRoute":"search",
+                      "confidenceThreshold":0.7
+                    }},
+                    {"id":"search_answer","type":"ANSWER","config":{"template":"search"}},
+                    {"id":"state_answer","type":"ANSWER","config":{"template":"state"}}
+                  ],
+                  "edges":[
+                    {"from":"classifier","to":"search_answer","condition":"route:search"},
+                    {"from":"classifier","to":"state_answer","condition":"route:page_state"}
+                  ]
+                }
+                """, Map.of("message", "读取页面状态和班组名称筛选值"));
+
+        assertEquals(true, result.success());
+        assertEquals("state", result.answer());
+        assertEquals("page_state", result.steps().get(0).get("route"));
+        assertEquals(1, classifierModel.requests.size());
+    }
+
+    @Test
     void llmClassifierParsesStructuredDecisionAndRoutesToMatchedBranch() {
         CapturingModelClient classifierModel = new CapturingModelClient("{\"route\":\"reset\",\"confidence\":0.92}");
         RuntimeGraphSpecExecutor classifierExecutor = new RuntimeGraphSpecExecutor(
@@ -714,7 +819,8 @@ class RuntimeGraphSpecExecutorTest {
 
         RuntimeGraphSpecExecutionResult result = classifierExecutor.execute("""
                 {
-                  "entry":"classifier",
+                  "entryNodeId":"classifier",
+                  "exitNodeIds":["reset_answer","fallback_answer"],
                   "nodes":[
                     {"id":"classifier","type":"INTENT_CLASSIFIER","config":{
                       "strategy":"LLM",
@@ -746,7 +852,8 @@ class RuntimeGraphSpecExecutorTest {
     void intentClassifierRouteDoesNotReplaceDownstreamDefaultInput() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"classifier",
+                  "entryNodeId":"classifier",
+                  "exitNodeIds":["tool"],
                   "nodes":[
                     {"id":"classifier","type":"INTENT_CLASSIFIER","config":{
                       "strategy":"KEYWORD",
@@ -767,7 +874,8 @@ class RuntimeGraphSpecExecutorTest {
     void conditionNodeEvaluatesGroupsRoutesAndPreservesPreviousOutput() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"input",
+                  "entryNodeId":"input",
+                  "exitNodeIds":["answer","reject"],
                   "nodes":[
                     {"id":"input","type":"USER_INPUT"},
                     {"id":"judge","type":"IF_ELSE","config":{
@@ -801,7 +909,8 @@ class RuntimeGraphSpecExecutorTest {
     void conditionRouteWithoutMatchingEdgeFailsClearly() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"judge",
+                  "entryNodeId":"judge",
+                  "exitNodeIds":["other"],
                   "nodes":[
                     {"id":"judge","type":"IF_ELSE","config":{
                       "conditionGroups":[{"id":"paid","conditions":[
@@ -822,17 +931,17 @@ class RuntimeGraphSpecExecutorTest {
     }
 
     @Test
-    void conditionRouteToEndCompletesSuccessfully() {
+    void conditionExitNodeCompletesSuccessfully() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"judge",
+                  "entryNodeId":"judge",
+                  "exitNodeIds":["judge"],
                   "nodes":[{"id":"judge","type":"IF_ELSE","config":{
                     "conditionGroups":[{"id":"paid","conditions":[
                       {"left":"params.status","operator":"equals","right":"PAID"}
                     ]}],
                     "defaultRoute":"else"
-                  }}],
-                  "edges":[{"from":"judge","to":"END","condition":"route:paid"}]
+                  }}]
                 }
                 """, Map.of("params", Map.of("status", "PAID")));
 
@@ -846,7 +955,8 @@ class RuntimeGraphSpecExecutorTest {
     void classifierRouteWithoutMatchingEdgeUsesSameFailureContract() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"classifier",
+                  "entryNodeId":"classifier",
+                  "exitNodeIds":["fallback"],
                   "nodes":[
                     {"id":"classifier","type":"INTENT_CLASSIFIER","config":{
                       "strategy":"KEYWORD",
@@ -869,7 +979,8 @@ class RuntimeGraphSpecExecutorTest {
     void expressionParameterExtractPublishesTypedNodeOutputForToolMapping() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"extract",
+                  "entryNodeId":"extract",
+                  "exitNodeIds":["tool"],
                   "nodes":[
                     {"id":"extract","type":"PARAMETER_EXTRACT","config":{
                       "extractMode":"expression",
@@ -901,7 +1012,8 @@ class RuntimeGraphSpecExecutorTest {
 
         RuntimeGraphSpecExecutionResult result = extractExecutor.execute("""
                 {
-                  "entry":"extract",
+                  "entryNodeId":"extract",
+                  "exitNodeIds":["answer"],
                   "nodes":[
                     {"id":"extract","type":"PARAMETER_EXTRACT","config":{
                       "extractMode":"llm",
@@ -928,7 +1040,7 @@ class RuntimeGraphSpecExecutorTest {
     @Test
     void reportsUnsupportedEntryNodeTypeWithoutFallingBackToLegacyAgent() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
-                {"entry":"code","nodes":[{"id":"code","type":"CODE","config":{"code":"input"}}]}
+                {"entryNodeId":"code","exitNodeIds":["code"],"nodes":[{"id":"code","type":"CODE","config":{"code":"input"}}]}
                 """, Map.of("message", "hello"));
 
         assertEquals(false, result.success());
@@ -942,8 +1054,12 @@ class RuntimeGraphSpecExecutorTest {
     void stopsLinearExecutionWhenStepLimitIsExceeded() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"user_input",
-                  "nodes":[{"id":"user_input","type":"USER_INPUT"}],
+                  "entryNodeId":"user_input",
+                  "exitNodeIds":["done"],
+                  "nodes":[
+                    {"id":"user_input","type":"USER_INPUT"},
+                    {"id":"done","type":"ANSWER","config":{"template":"done"}}
+                  ],
                   "edges":[{"from":"user_input","to":"user_input"}]
                 }
                 """, Map.of("message", "hello"));
@@ -1052,7 +1168,8 @@ class RuntimeGraphSpecExecutorTest {
 
         RuntimeGraphSpecExecutionResult result = timed.execute("""
                 {
-                  "entry":"n1",
+                  "entryNodeId":"n1",
+                  "exitNodeIds":["n2"],
                   "nodes":[
                     {"id":"n1","type":"LLM","name":"one","config":{"modelInstanceId":"m1","userPrompt":"{{input}}"}},
                     {"id":"n2","type":"ANSWER","name":"two","config":{"template":"{{lastOutput}}"}}
@@ -1093,7 +1210,8 @@ class RuntimeGraphSpecExecutorTest {
 
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"n1",
+                  "entryNodeId":"n1",
+                  "exitNodeIds":["n2"],
                   "nodes":[
                     {"id":"n1","type":"USER_INPUT","name":"one"},
                     {"id":"n2","type":"ANSWER","name":"two","config":{"template":"done"}}
@@ -1140,7 +1258,8 @@ class RuntimeGraphSpecExecutorTest {
 
         RuntimeGraphSpecExecutionResult result = cancellingExecutor.execute("""
                 {
-                  "entry":"llm",
+                  "entryNodeId":"llm",
+                  "exitNodeIds":["llm"],
                   "nodes":[{
                     "id":"llm","type":"LLM",
                     "config":{"modelInstanceId":"m1","userPrompt":"{{input}}"}
@@ -1178,7 +1297,8 @@ class RuntimeGraphSpecExecutorTest {
 
         RuntimeGraphSpecExecutionResult result = failingExecutor.execute("""
                 {
-                  "entry":"llm",
+                  "entryNodeId":"llm",
+                  "exitNodeIds":["llm"],
                   "nodes":[{
                     "id":"llm","type":"LLM",
                     "config":{"modelInstanceId":"m1","userPrompt":"{{input}}"}
@@ -1202,7 +1322,8 @@ class RuntimeGraphSpecExecutorTest {
         };
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
-                  "entry":"cls",
+                  "entryNodeId":"cls",
+                  "exitNodeIds":["ans"],
                   "nodes":[
                     {"id":"cls","type":"INTENT_CLASSIFIER","config":{
                       "strategy":"LLM","modelInstanceId":"m1",

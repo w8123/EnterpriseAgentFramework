@@ -81,7 +81,7 @@ class RuntimeTraceQueryServiceTest {
         RuntimeTraceQueryService service = new RuntimeTraceQueryService(
                 toolLogMapper, spanMapper, runMapper, new ObjectMapper());
         when(runMapper.selectList(org.mockito.ArgumentMatchers.<Wrapper<RuntimeRunEntity>>any())).thenReturn(List.of(
-                run(2L, "trace-b", "SUCCESS", 1,
+                run(2L, "trace-b", "COMPLETED", 1,
                         LocalDateTime.parse("2026-06-29T12:02:00"), LocalDateTime.parse("2026-06-29T12:02:00")),
                 run(1L, "trace-a", "FAILED", 2,
                         LocalDateTime.parse("2026-06-29T12:00:00"), LocalDateTime.parse("2026-06-29T12:01:00"))));

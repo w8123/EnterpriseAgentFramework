@@ -25,20 +25,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class RuntimeProxyExceptionHandlerTest {
 
     @Test
-    void preservesRuntimeConflictForWorkflowStudioSave() throws Exception {
+    void preservesRuntimeConflictForWorkflowWorkingCopySave() throws Exception {
         RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
         Map<String, Object> request = Map.of("baseRevision", "revision-1");
-        when(runtimeClient.saveWorkflowStudio("wf-1", request))
-                .thenThrow(conflict(Request.HttpMethod.PUT, "/api/workflows/wf-1/studio"));
+        when(runtimeClient.saveWorkflowWorkingCopy("wf-1", request))
+                .thenThrow(conflict(Request.HttpMethod.PUT, "/api/workflows/wf-1/working-copy"));
 
         mockMvc(runtimeClient)
-                .perform(put("/api/workflows/wf-1/studio")
+                .perform(put("/api/workflows/wf-1/working-copy")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"baseRevision\":\"revision-1\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(header().string(HttpHeaders.ETAG, "\"revision-2\""))
-                .andExpect(jsonPath("$.code").value("WORKFLOW_DRAFT_CONFLICT"))
+                .andExpect(jsonPath("$.code").value("WORKFLOW_WORKING_COPY_CONFLICT"))
                 .andExpect(jsonPath("$.currentRevision").value("revision-2"));
     }
 
@@ -56,7 +56,7 @@ class RuntimeProxyExceptionHandlerTest {
                 .andExpect(status().isConflict())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(header().string(HttpHeaders.ETAG, "\"revision-2\""))
-                .andExpect(jsonPath("$.code").value("WORKFLOW_DRAFT_CONFLICT"))
+                .andExpect(jsonPath("$.code").value("WORKFLOW_WORKING_COPY_CONFLICT"))
                 .andExpect(jsonPath("$.currentRevision").value("revision-2"));
     }
 
@@ -68,8 +68,8 @@ class RuntimeProxyExceptionHandlerTest {
     }
 
     private static FeignException.Conflict conflict(Request.HttpMethod method, String path) {
-        byte[] body = ("{\"code\":\"WORKFLOW_DRAFT_CONFLICT\","
-                + "\"message\":\"Workflow draft changed after it was loaded\","
+        byte[] body = ("{\"code\":\"WORKFLOW_WORKING_COPY_CONFLICT\","
+                + "\"message\":\"Workflow working copy changed after it was loaded\","
                 + "\"currentRevision\":\"revision-2\"}").getBytes(StandardCharsets.UTF_8);
         return new FeignException.Conflict(
                 "conflict",

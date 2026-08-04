@@ -28,7 +28,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class RuntimeWorkflowCanvasLayoutService {
 
-    public static final String ENGINE = "layered-v2";
+    public static final String ENGINE = "layered";
     public static final int DEFAULT_COLUMN_GAP = 88;
     public static final int DEFAULT_ROW_GAP = 56;
     public static final int DEFAULT_COMPONENT_GAP = 96;
@@ -54,6 +54,8 @@ public class RuntimeWorkflowCanvasLayoutService {
     public Map<String, Object> layoutCanvas(Map<String, Object> currentCanvas, Options options) {
         Map<String, Object> canvas = mutableCanvas(currentCanvas);
         Options actual = options == null ? Options.defaults() : options.normalized();
+        boolean layoutOnlyWithoutTopology = isLayoutDocument(canvas)
+                && edges(canvas).stream().noneMatch(this::hasTopology);
         Set<String> positionedNodeIds = new HashSet<>();
         for (Map<String, Object> node : nodes(canvas)) {
             if (hasPosition(node)) {
@@ -69,7 +71,9 @@ public class RuntimeWorkflowCanvasLayoutService {
         for (Map<String, Object> node : nodes(canvas)) {
             String nodeId = text(node.get("id"));
             Point point = positions.get(nodeId);
-            if (point == null || (!actual.autoLayout() && positionedNodeIds.contains(nodeId))) {
+            if (point == null
+                    || ((!actual.autoLayout() || layoutOnlyWithoutTopology)
+                    && positionedNodeIds.contains(nodeId))) {
                 continue;
             }
             node.put("position", Map.of("x", point.x(), "y", point.y()));
@@ -83,7 +87,68 @@ public class RuntimeWorkflowCanvasLayoutService {
                 "columnGap", actual.columnGap(),
                 "rowGap", actual.rowGap(),
                 "autoLayout", actual.autoLayout()));
-        return canvas;
+        return toLayoutDocument(canvas);
+    }
+
+    private Map<String, Object> toLayoutDocument(Map<String, Object> canvas) {
+        Map<String, Object> document = new LinkedHashMap<>();
+        document.put("schemaVersion", 1);
+        document.put("layoutVersion", 1);
+        if (canvas.get("viewport") != null) {
+            document.put("viewport", mutableMap(canvas.get("viewport")));
+        }
+        if (canvas.get("layout") != null) {
+            document.put("layout", mutableMap(canvas.get("layout")));
+        }
+
+        List<Map<String, Object>> layoutNodes = new ArrayList<>();
+        for (Map<String, Object> node : nodes(canvas)) {
+            String id = text(node.get("id"));
+            if (!StringUtils.hasText(id)) continue;
+            Map<String, Object> layoutNode = new LinkedHashMap<>();
+            layoutNode.put("id", id);
+            if (node.get("position") != null) {
+                layoutNode.put("position", mutableMap(node.get("position")));
+            }
+            copyIfPresent(node, layoutNode, "width");
+            copyIfPresent(node, layoutNode, "height");
+            Map<String, Object> data = mutableMap(node.get("data"));
+            Object collapsedValue = node.get("collapsed") == null ? data.get("collapsed") : node.get("collapsed");
+            if (collapsedValue instanceof Boolean collapsed) {
+                layoutNode.put("collapsed", collapsed);
+            }
+            layoutNodes.add(layoutNode);
+        }
+        document.put("nodes", layoutNodes);
+
+        List<Map<String, Object>> layoutEdges = new ArrayList<>();
+        for (Map<String, Object> edge : edges(canvas)) {
+            String id = text(edge.get("id"));
+            if (!StringUtils.hasText(id)) continue;
+            Map<String, Object> layoutEdge = new LinkedHashMap<>();
+            layoutEdge.put("id", id);
+            copyIfPresent(edge, layoutEdge, "label");
+            Object style = edge.get("style") == null ? edge.get("type") : edge.get("style");
+            if (style != null) layoutEdge.put("style", style);
+            layoutEdges.add(layoutEdge);
+        }
+        document.put("edges", layoutEdges);
+        return document;
+    }
+
+    private void copyIfPresent(Map<String, Object> source,
+                               Map<String, Object> target,
+                               String key) {
+        if (source.get(key) != null) target.put(key, source.get(key));
+    }
+
+    private boolean isLayoutDocument(Map<String, Object> canvas) {
+        return positiveInt(canvas.get("schemaVersion"), -1) == 1;
+    }
+
+    private boolean hasTopology(Map<String, Object> edge) {
+        return StringUtils.hasText(text(edge.get("source")))
+                && StringUtils.hasText(text(edge.get("target")));
     }
 
     private void reconcileNodes(GraphSpec graph, Map<String, Object> canvas) {
@@ -139,13 +204,6 @@ public class RuntimeWorkflowCanvasLayoutService {
         AgentGraphNodeType.find(graphNode.getType())
                 .map(AgentGraphNodeType::canvasCategory)
                 .ifPresent(category -> data.put("category", category));
-        if (graphNode.getLayout() != null && graphNode.getLayout().getCollapsed() != null) {
-            data.put("collapsed", graphNode.getLayout().getCollapsed());
-        }
-        if (graphNode.getLayout() != null) {
-            putPositiveDimension(node, "width", graphNode.getLayout().getWidth());
-            putPositiveDimension(node, "height", graphNode.getLayout().getHeight());
-        }
         node.put("id", graphNode.getId());
         node.put("type", kind);
         node.put("data", data);
@@ -181,7 +239,6 @@ public class RuntimeWorkflowCanvasLayoutService {
                         || !validNodeIds.contains(source)
                         || !validNodeIds.contains(target)) continue;
                 String id = firstText(graphEdge.getId(), "e-" + index++ + "-" + source + "-" + target);
-                String label = graphEdge.getLayout() == null ? null : graphEdge.getLayout().getLabel();
                 desired.add(new EdgeProjection(
                         id,
                         source,
@@ -189,7 +246,7 @@ public class RuntimeWorkflowCanvasLayoutService {
                         firstText(graphEdge.getCondition(), "always"),
                         blankToNull(graphEdge.getSourceHandle()),
                         blankToNull(graphEdge.getTargetHandle()),
-                        blankToNull(label)));
+                        null));
             }
         }
 
@@ -197,8 +254,8 @@ public class RuntimeWorkflowCanvasLayoutService {
         for (EdgeProjection edge : desired) {
             existingPairs.add(edge.source() + "->" + edge.target());
         }
-        if (graph != null && StringUtils.hasText(graph.getEntry())) {
-            String target = canvasEndpoint(graph.getEntry());
+        if (graph != null && StringUtils.hasText(graph.getEntryNodeId())) {
+            String target = canvasEndpoint(graph.getEntryNodeId());
             if (validNodeIds.contains(target) && !existingPairs.contains("start->" + target)) {
                 desired.add(0, new EdgeProjection(
                         "e-start-" + target,
@@ -212,8 +269,8 @@ public class RuntimeWorkflowCanvasLayoutService {
         }
 
         Set<String> finish = new LinkedHashSet<>();
-        if (graph != null && graph.getFinish() != null) {
-            graph.getFinish().stream()
+        if (graph != null) {
+            graph.getExitNodeIds().stream()
                     .filter(StringUtils::hasText)
                     .map(this::canvasEndpoint)
                     .filter(validNodeIds::contains)
@@ -506,8 +563,6 @@ public class RuntimeWorkflowCanvasLayoutService {
     }
 
     private String canvasEndpoint(String endpoint) {
-        if ("START".equalsIgnoreCase(endpoint)) return "start";
-        if ("END".equalsIgnoreCase(endpoint)) return "end";
         return blankToNull(endpoint);
     }
 

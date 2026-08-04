@@ -37,6 +37,8 @@ public final class WorkflowInteractionUiRequestFactory {
         Map<String, Object> behavior = new LinkedHashMap<>(mapValue(config.get("behavior")));
         behavior.put("blocking", type.blocking());
         behavior.putIfAbsent("askMissing", true);
+        Map<String, Object> presentation = WorkflowInteractionPresentationPolicy.resolve(
+                type, config.get("presentation"));
 
         List<Map<String, Object>> fields = normalizeFields(config.get("fields"));
         List<Map<String, Object>> options = normalizeOptions(config.get("options"), fields);
@@ -80,6 +82,7 @@ public final class WorkflowInteractionUiRequestFactory {
                 summary.isEmpty() ? null : summary,
                 resolveUiSchema(config, renderSchema),
                 actions,
+                presentation,
                 behavior,
                 extension);
     }

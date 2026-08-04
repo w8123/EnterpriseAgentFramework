@@ -8,6 +8,7 @@ import com.enterprise.ai.runtime.registry.RuntimeAgentGraphSyncContracts.AgentGr
 import com.enterprise.ai.runtime.registry.RuntimeAgentGraphSyncContracts.AgentGraphSyncResponse;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
+import com.enterprise.ai.runtime.workflow.WorkflowSemanticValues;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -19,7 +20,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -48,7 +48,7 @@ public class RuntimeAgentGraphSyncService {
         List<AgentGraphSyncItem> items = new ArrayList<>();
         for (AgentGraphRegistration graph : graphs) {
             GraphSpec spec = requireGraphSpec(graph);
-            String graphCode = normalizeGraphCode(firstText(graph.code(), spec.getCode()));
+            String graphCode = normalizeGraphCode(graph.code());
             String keySlug = agentKeySlug(project.projectCode(), graphCode);
             RuntimeWorkflowDefinitionEntity existing =
                     workflowDefinitionService.findByKeySlug(keySlug).orElse(null);
@@ -78,7 +78,7 @@ public class RuntimeAgentGraphSyncService {
                                                                    String keySlug,
                                                                    String syncId,
                                                                    RuntimeWorkflowDefinitionEntity existing) {
-        normalizeGraphSpec(registration, spec, graphCode);
+        validateGraphSpec(spec);
         String modelInstanceId = firstText(
                 registration == null ? null : registration.modelInstanceId(),
                 modelInstanceIdFromGraph(spec));
@@ -87,7 +87,6 @@ public class RuntimeAgentGraphSyncService {
         }
 
         Map<String, Object> sdkGraph = new LinkedHashMap<>();
-        sdkGraph.put("managedBy", "SDK");
         sdkGraph.put("source", "SDK");
         sdkGraph.put("projectCode", project.projectCode());
         sdkGraph.put("graphCode", graphCode);
@@ -103,25 +102,26 @@ public class RuntimeAgentGraphSyncService {
         if (existing != null && StringUtils.hasText(existing.getExtraJson())) {
             extra.put("previousExtraJson", existing.getExtraJson());
         }
-        extra.put("managedBy", "SDK");
         extra.put("overwriteMode", "DRAFT_ONLY");
         extra.put("sdkGraph", sdkGraph);
 
         RuntimeWorkflowDefinitionEntity draft = new RuntimeWorkflowDefinitionEntity();
         draft.setKeySlug(keySlug);
-        draft.setName(firstText(registration == null ? null : registration.name(), spec.getName(), graphCode));
+        draft.setName(firstText(registration == null ? null : registration.name(), graphCode));
         draft.setDescription(registration == null ? null : registration.description());
         draft.setProjectId(project.projectId());
         draft.setProjectCode(project.projectCode());
-        draft.setWorkflowType("SDK_GRAPH");
-        draft.setRuntimeType(firstText(registration == null ? null : registration.runtimeType(),
-                spec.getRuntimeHint(), "LANGGRAPH4J"));
+        draft.setWorkflowKind(WorkflowSemanticValues.KIND_GENERAL);
+        draft.setExecutionEngine(WorkflowSemanticValues.normalizeExecutionEngine(firstText(
+                registration == null ? null : registration.executionEngine(),
+                WorkflowSemanticValues.ENGINE_GRAPH_SPEC)));
         draft.setGraphSpecJson(writeJson(spec));
         draft.setCanvasJson(canvasJsonFromGraphSpec(spec));
         draft.setInputSchemaJson(writeJson(spec.getInputSchema()));
         draft.setDefaultModelInstanceId(modelInstanceId);
         draft.setStatus(existing == null ? "DRAFT" : existing.getStatus());
-        draft.setManagedBy("SDK");
+        draft.setDefinitionAuthority(WorkflowSemanticValues.AUTHORITY_SDK);
+        draft.setCreationChannel(WorkflowSemanticValues.CHANNEL_SDK_SYNC);
         draft.setExtraJson(writeJson(extra));
         if (existing == null) {
             return workflowDefinitionService.create(draft);
@@ -158,114 +158,61 @@ public class RuntimeAgentGraphSyncService {
         return spec;
     }
 
-    private void normalizeGraphSpec(AgentGraphRegistration registration, GraphSpec spec, String graphCode) {
-        if (!StringUtils.hasText(spec.getCode())) {
-            spec.setCode(graphCode);
+    private void validateGraphSpec(GraphSpec spec) {
+        if (!Integer.valueOf(2).equals(spec.getSchemaVersion())) {
+            throw new IllegalArgumentException("SDK Agent Graph schemaVersion 必须为 2");
         }
-        if (!StringUtils.hasText(spec.getName())) {
-            spec.setName(firstText(registration == null ? null : registration.name(), graphCode));
+        if (!StringUtils.hasText(spec.getEntryNodeId())) {
+            throw new IllegalArgumentException("SDK Agent Graph 缺少 entryNodeId");
         }
-        if (!StringUtils.hasText(spec.getMode())) {
-            spec.setMode("WORKFLOW");
+        if (spec.getExitNodeIds().isEmpty()) {
+            throw new IllegalArgumentException("SDK Agent Graph 缺少 exitNodeIds");
         }
-        if (!StringUtils.hasText(spec.getRuntimeHint())) {
-            spec.setRuntimeHint("LANGGRAPH4J");
-        }
-        if (!StringUtils.hasText(spec.getEntry())) {
-            spec.setEntry(firstExecutableNodeId(spec));
-        }
-        if (spec.getFinish() == null || spec.getFinish().isEmpty()) {
-            spec.setFinish(List.of(lastExecutableNodeId(spec)));
+        if (spec.getNodes().stream().anyMatch(node -> node != null && isBoundaryNode(node))
+                || (spec.getEdges() != null && spec.getEdges().stream().anyMatch(edge -> edge != null
+                && (isBoundaryEndpoint(edge.getFrom()) || isBoundaryEndpoint(edge.getTo()))))) {
+            throw new IllegalArgumentException("SDK Agent Graph 不允许 START/END 边界节点");
         }
     }
 
     private String canvasJsonFromGraphSpec(GraphSpec spec) {
         List<Map<String, Object>> nodes = new ArrayList<>();
         List<Map<String, Object>> edges = new ArrayList<>();
-        nodes.add(canvasNode("start", "start", 60, 220, Map.of("label", "开始", "kind", "start")));
+        nodes.add(layoutNode("start", 60, 220, false));
         int index = 0;
         for (GraphSpec.Node graphNode : spec.getNodes() == null ? List.<GraphSpec.Node>of() : spec.getNodes()) {
-            String kind = canvasKind(graphNode);
-            Map<String, Object> config = graphNode.getConfig() == null ? Map.of() : graphNode.getConfig();
-            Map<String, Object> data = new LinkedHashMap<>();
-            data.put("label", firstText(graphNode.getName(), graphNode.getId()));
-            data.put("kind", kind);
-            data.put("configVersion", 2);
-            data.put("source", "SDK");
-            data.put("category", canvasCategory(kind));
-            data.put("collapsed", graphNode.getLayout() != null && Boolean.TRUE.equals(graphNode.getLayout().getCollapsed()));
-            data.put("inputs", graphNode.getInputs() == null ? List.of() : graphNode.getInputs());
-            data.put("outputs", graphNode.getOutputs() == null ? List.of() : graphNode.getOutputs());
-            data.put("description", firstText(graphNode.getDescription(), stringValue(config.get("description")), ""));
-            applyCanvasNodeConfig(kind, data, config);
-            int x = canvasPosition(graphNode, config, "x", 260 + (index * 220));
-            int y = canvasPosition(graphNode, config, "y", 220);
-            nodes.add(canvasNode(graphNode.getId(), kind, x, y, data));
+            int x = 260 + (index * 220);
+            int y = 220;
+            nodes.add(layoutNode(
+                    graphNode.getId(),
+                    x,
+                    y,
+                    false));
             index++;
         }
-        nodes.add(canvasNode("end", "end", 260 + (Math.max(index, 1) * 220), 220, Map.of("label", "结束", "kind", "end")));
+        nodes.add(layoutNode("end", 260 + (Math.max(index, 1) * 220), 220, false));
         int edgeIndex = 0;
         for (GraphSpec.Edge graphEdge : spec.getEdges() == null ? List.<GraphSpec.Edge>of() : spec.getEdges()) {
             String condition = firstText(graphEdge.getCondition(), "always");
             Map<String, Object> edge = new LinkedHashMap<>();
-            edge.put("id", "sdk-e-" + edgeIndex++);
-            edge.put("source", canvasEndpoint(graphEdge.getFrom()));
-            edge.put("target", canvasEndpoint(graphEdge.getTo()));
-            edge.put("condition", condition);
+            edge.put("id", firstText(graphEdge.getId(), "sdk-e-" + edgeIndex++));
             edge.put("label", condition);
-            edge.put("type", "smoothstep");
-            edge.put("markerEnd", "arrowclosed");
-            edge.put("interactionWidth", 18);
-            edge.put("animated", !"always".equalsIgnoreCase(condition) && !"default".equalsIgnoreCase(condition));
+            edge.put("style", "smoothstep");
             edges.add(edge);
         }
-        return writeJson(Map.of("version", 2, "nodes", nodes, "edges", edges));
+        return writeJson(Map.of(
+                "schemaVersion", 1,
+                "layoutVersion", 1,
+                "nodes", nodes,
+                "edges", edges));
     }
 
-    private void applyCanvasNodeConfig(String kind, Map<String, Object> data, Map<String, Object> config) {
-        if ("llm".equals(kind)) {
-            data.put("llmConfig", Map.of(
-                    "modelInstanceId", defaultText(stringValue(config.get("modelInstanceId")), ""),
-                    "systemPrompt", defaultText(stringValue(config.get("systemPrompt")), ""),
-                    "userPrompt", defaultText(stringValue(config.get("userPrompt")), "{{ input }}"),
-                    "contextVariables", defaultObject(config.get("contextVariables"), List.of()),
-                    "modelParams", defaultObject(config.get("modelParams"), Map.of()),
-                    "outputFormat", defaultText(stringValue(config.get("outputFormat")), "text"),
-                    "outputSchema", defaultObject(config.get("outputSchema"), List.of())
-            ));
-        } else if ("tool".equals(kind) && config.get("inputMapping") != null) {
-            data.put("toolConfig", Map.of("inputMapping", config.get("inputMapping")));
-        }
-    }
-
-    private int canvasPosition(GraphSpec.Node node, Map<String, Object> config, String axis, int fallback) {
-        GraphSpec.Layout.NodeLayout layout = node.getLayout();
-        if (layout != null) {
-            Double value = "x".equals(axis) ? layout.getX() : layout.getY();
-            if (value != null) {
-                return value.intValue();
-            }
-        }
-        Object ui = config.get("ui");
-        if (!(ui instanceof Map<?, ?> uiMap)) {
-            return fallback;
-        }
-        Object position = uiMap.get("position");
-        if (!(position instanceof Map<?, ?> positionMap)) {
-            return fallback;
-        }
-        Object raw = positionMap.get(axis);
-        if (raw instanceof Number number) {
-            return number.intValue();
-        }
-        if (raw instanceof String text && StringUtils.hasText(text)) {
-            try {
-                return Integer.parseInt(text.trim());
-            } catch (NumberFormatException ignored) {
-                return fallback;
-            }
-        }
-        return fallback;
+    private Map<String, Object> layoutNode(String id, int x, int y, boolean collapsed) {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("id", id);
+        node.put("position", Map.of("x", x, "y", y));
+        if (collapsed) node.put("collapsed", true);
+        return node;
     }
 
     private String modelInstanceIdFromGraph(GraphSpec spec) {
@@ -281,66 +228,22 @@ public class RuntimeAgentGraphSyncService {
         return null;
     }
 
-    private String firstExecutableNodeId(GraphSpec spec) {
-        return spec.getNodes().stream()
-                .map(GraphSpec.Node::getId)
-                .filter(StringUtils::hasText)
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("SDK Agent Graph 缺少可执行节点"));
+    private boolean isBoundaryNode(GraphSpec.Node node) {
+        return isBoundaryEndpoint(node.getId())
+                || isStartBoundary(node.getType())
+                || isEndBoundary(node.getType());
     }
 
-    private String lastExecutableNodeId(GraphSpec spec) {
-        List<GraphSpec.Node> nodes = spec.getNodes();
-        for (int i = nodes.size() - 1; i >= 0; i--) {
-            String id = nodes.get(i).getId();
-            if (StringUtils.hasText(id)) {
-                return id;
-            }
-        }
-        throw new IllegalArgumentException("SDK Agent Graph 缺少可执行节点");
+    private boolean isBoundaryEndpoint(String value) {
+        return isStartBoundary(value) || isEndBoundary(value);
     }
 
-    private Map<String, Object> canvasNode(String id, String type, int x, int y, Map<String, Object> data) {
-        Map<String, Object> node = new LinkedHashMap<>();
-        node.put("id", id);
-        node.put("type", type);
-        node.put("position", Map.of("x", x, "y", y));
-        node.put("data", data);
-        return node;
+    private boolean isStartBoundary(String value) {
+        return "START".equalsIgnoreCase(value);
     }
 
-    private String canvasKind(GraphSpec.Node node) {
-        String type = node == null ? "" : stringValue(node.getType()).trim().toUpperCase(Locale.ROOT);
-        return switch (type) {
-            case "LLM" -> "llm";
-            case "IF_ELSE" -> "condition";
-            case "INTENT_CLASSIFIER" -> "classifier";
-            case "VARIABLE_ASSIGN" -> "variable";
-            case "TEMPLATE" -> "template";
-            case "USER_INPUT" -> "userInput";
-            case "HTTP_REQUEST" -> "http";
-            case "KNOWLEDGE_RETRIEVAL" -> "knowledge";
-            default -> "tool";
-        };
-    }
-
-    private String canvasCategory(String kind) {
-        return switch (kind) {
-            case "condition", "classifier", "variable", "template", "userInput" -> "flow";
-            case "knowledge" -> "knowledge";
-            case "http" -> "integration";
-            default -> "action";
-        };
-    }
-
-    private String canvasEndpoint(String endpoint) {
-        if ("START".equalsIgnoreCase(endpoint)) {
-            return "start";
-        }
-        if ("END".equalsIgnoreCase(endpoint)) {
-            return "end";
-        }
-        return endpoint;
+    private boolean isEndBoundary(String value) {
+        return "END".equalsIgnoreCase(value);
     }
 
     private String normalizeGraphCode(String value) {
@@ -366,14 +269,6 @@ public class RuntimeAgentGraphSyncService {
             }
         }
         return null;
-    }
-
-    private String defaultText(String value, String fallback) {
-        return StringUtils.hasText(value) ? value.trim() : fallback;
-    }
-
-    private Object defaultObject(Object value, Object fallback) {
-        return value == null ? fallback : value;
     }
 
     private String stringValue(Object value) {

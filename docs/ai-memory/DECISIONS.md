@@ -26,6 +26,22 @@
 
 剩余 public route 必须由 owning service 本地实现，或正式删除并同步前端/文档契约。
 
+## AI Coding Task Kernel
+
+- 项目接入工作台与业务页面工作台共用 Control 内唯一的 AI Coding Task Kernel；领域 Provider 只拥有 Context、Artifact `content` Schema、校验和应用规则。
+- 正式客户端枚举为 `CODEX`、`CURSOR`、`TRAE`、`CLAUDE_CODE`，任务创建、激活和 Artifact reporter 必须一致；领域页面不得自行维护客户端别名。
+- 聊天框只承载不超过 5000 字符的紧凑激活 bootstrap；完整 PowerShell 恢复能力由一次性激活响应的 `clientSetup` 以 Base64 UTF-8 + SHA-256 下发，任务规则仍以 `/context` 为唯一事实源。
+- Windows 交接使用当前用户 DPAPI 加密任务缓存和不含秘密的任务级恢复脚本跨进程恢复，不安装 Runner 或常驻程序。所有 JSON helper 固定发送 UTF-8 字节。
+- Event API 不接受 `COMPLETED`。客户端自然语言和普通事件没有完成权限；Artifact 成功校验并应用后先进入 `RESULT_APPLIED`。Task Kind 如声明验收 readiness 门禁，只有服务端计算的目标项全部 `PASS` 才能进入 `ACCEPTANCE_READY`；前端将其表述为“已回传，待验证”。
+- 项目接入的验收门禁固定为 `CODE_READY`、`RUNTIME_READY`、`SDK_CALLBACK_READY`、`E2E_READY`。`CODE_READY` 必须包含 Capability owning service 已观测到的业务实例注册事实，仅有代码、配置和客户端报告时保持 `PENDING`；Runtime 依据 owning service 的实例心跳；SDK Callback 依据当前项目配置之后真实收到的签名能力快照；E2E 依据当前任务启动后 Control 记录的 Embed SDK Session、用户消息和助手回复，不信任客户端报告中的 `performed/passed` 布尔值。领域步骤在 UI 中只能表述为“AI 已报告”，不得表述成平台完成。
+- Capability owning service 的 `/api/scan-projects/{projectId}/sdk-access-check` 只负责平台 SDK 自检，返回 `CODE_READY / RUNTIME_READY / SDK_CALLBACK_READY`；`SDK_CALLBACK_READY` 表示签名回调和能力快照闭环。任务级 `E2E_READY` 仍由 Control 独立计算真实浏览器 Embed 会话，两个状态不得共用名称、相互代替或自动折算。
+- 项目接入、代码实施和浏览器验收共用 `delivery-evidence-v1` 的测试与浏览器材料结构。浏览器验证可选的领域在未运行时必须报告 `null`；代码实施和浏览器验收的最终交付必须包含真实业务 URL、场景、截图路径和观察结果。材料只供复核，不替代平台 readiness；公共任务详情必须真正展示材料，不能只显示 Artifact 状态。
+- 业务页面工作台对最终交付执行确定性一致性门槛：代码实施缺少改动文件、全部通过的测试或通过的浏览器材料时 Artifact `REJECTED` 且任务回到 `RUNNING`；浏览器验收或发布前检查报告失败时保留 `APPLIED` 材料并由 Task Kernel 进入 `FAILED`；只有完整且报告通过的材料可进入 `ACCEPTANCE_READY`，仍需用户确认。
+- 业务页面工作台的发布前检查以最新 `APPLIED` Artifact 的 `applicationResult.preRelease` 作为精确目标，不从 Event 或任意历史 Workflow 猜测对象。Runtime owning service 独立验证项目、`PAGE_ASSISTANT` 类型、唯一 `TARGET PAGE`、当前发布校验和目标版本状态；`PRE_RELEASE_READY` 只有服务端确定返回 `PASS` 才放行，Runtime 不可用或响应不确定时保持 `PENDING`。该门禁不自动发布 Workflow。
+- 业务页面工作台的浏览器验收在客户端报告通过后仍先停留于 `RESULT_APPLIED`。`PAGE_BROWSER_E2E_READY` 只接受任务启动后、精确 `projectCode + pageKey` 的 Control 服务端观测事实：带 SDK 版本的真实 Embed Session、至少一条用户消息和一条助手回复。其他页面、旧会话、截图路径和客户端 `passed=true` 都不能替代该 readiness；缺失时保持 `PENDING` 并允许重新验证。
+- 从“已发布”发起浏览器验收时，任务使用 `RELATED WORKFLOW` 保存精确 `workflowVersionId + workflowVersion`，并在创建期通过 Runtime 已发布查询复核，拒绝前端快照漂移。`PAGE_WORKFLOW_TRACE_READY` 只在当前任务启动后的当前页面 Embed Run 已完成、且成功 `WORKFLOW_TOOL` Span 精确命中指定 Workflow 版本时通过。Artifact 指定 `traceId` 时只能验证该 Trace；未指定时仅唯一符合条件的 Trace 可自动关联，多条候选保持 `PENDING`。该门禁不从 GraphSpec 推断 `PAGE_ACTION`，也不替代入口可见性、业务结果和人工体验验收。
+- Embed SDK 由 Onboarding Skill 同包携带 tgz、Manifest 和 Node 安装脚本。脚本校验 SHA-256 后将制品复制到业务前端 `vendor/reachai/`，再以相对路径执行 npm；不得让临时 Skill 解压目录或本机绝对路径进入业务依赖声明。
+
 ## Workflow 与 Runtime
 
 `GraphSpec` 是运行语义，归属 Workflow；`canvas_json` 只是画布布局。
@@ -34,7 +50,7 @@
 - Workflow Studio 负责 AI 生成、局部编辑、调试、发布校验和运行预览。
 - Agent 是稳定聚合根；可执行设置进入版本化 `runtime_agent_config_version`，允许选择的 Workflow 进入同版本的 `runtime_agent_workflow_tool`。
 - AgentScope Java `2.0.0` 正式版 Supervisor 负责理解、规划、选择一个或多个 Workflow 和有限重规划；单个 Workflow 仍按其已发布 `GraphSpec` 快照执行。
-- “项目接入工作台”的 Agent provisioning 只创建/复用项目 Agent 并发布 ACTIVE Supervisor 配置，不创建占位 Workflow；“创建页面助手”先发布 PAGE_ASSISTANT Workflow，再把它加入 Supervisor Workflow-as-Tool 白名单并发布新版 Agent 配置。
+- “项目接入工作台”的 Agent provisioning 只创建/复用项目 Agent 并发布 ACTIVE Supervisor 配置，不创建占位 Workflow；“业务页面工作台”以 AI Coding 任务完成分析和建设。PAGE_ASSISTANT Workflow 必须先绑定恰好一个 TARGET PAGE、发布 ACTIVE 版本，再加入 Supervisor Workflow-as-Tool 白名单并发布新版 Agent 配置。
 - Agent 与 Workflow 的唯一执行关系是已发布 Agent 配置版本中的 `runtime_agent_workflow_tool` 目录。
 - Agent 身份写入和 Supervisor 配置写入必须使用独立 API；`POST/PUT /api/agents` 不再隐式创建或修改配置草稿。
 - 产品统一称为 Agent；Agent 是通用 Supervisor 聚合根，不再保留 `agent_kind` 接入形态字段。页面副驾驶按稳定 keySlug 创建或复用，Embed / Gateway / A2A 属于开放渠道而非 Agent 类型。
@@ -53,7 +69,7 @@
 - 业务输出别名统一写入 `var.<alias>`；保留 `input/message/params/sys/nodeOutput/lastOutput/previousOutput`；裸别名仅作只读兼容解析，不双写两套真相。`VARIABLE_ASSIGN` GraphSpec 保存原生 JSON 类型。
 - `RetryPolicy` 必须同时受 `retryable()`、失败分类与 HTTP 幂等约束；`ErrorPolicy` 只在重试耗尽后消费一次。
 - Knowledge 检索只走 Knowledge owning service 的 `POST /internal/knowledge/retrieval/query`（hits only），并由 `KnowledgeRetrievalCore` 承载正式生产检索；Runtime Internal API 不得构造 `RetrievalTestRequest` 或调用 `retrievalTest` 命名入口。`searchMode`/`rerankEnabled` 为 request override，不改 KB 持久化配置；Workflow GraphSpec/AI Draft 不得写入 `directReturnEnabled`/`directReturnThreshold`。
-- HTTP 凭据 canonical 类型：`BEARER` / `BASIC` / `API_KEY_HEADER` / `API_KEY_QUERY` / `CUSTOM_HEADERS`；scope fail-closed；仅 2xx 成功；credentialed 跨 origin redirect 拒绝；HTTPS→HTTP 拒绝。Egress 校验与连接 pin 必须共用同一组 DNS 解析结果（每 hop 只解析一次）；普通节点不得覆盖 Host/Content-Length/Transfer-Encoding/Connection/Proxy-Authorization。
+- HTTP 凭据 canonical 类型：`BEARER` / `BASIC` / `API_KEY_HEADER` / `API_KEY_QUERY` / `CUSTOM_HEADERS`；scope fail-closed；传输层仅 2xx 成功；若 JSON 顶层存在业务 `code`，则仅字符串/数值 `200` 成功，`code != 200` 或 `success=false` 必须作为不可重试的节点失败并明确提示“查询失败”（Capability/Tool 同规则）；credentialed 跨 origin redirect 拒绝；HTTPS→HTTP 拒绝。Egress 校验与连接 pin 必须共用同一组 DNS 解析结果（每 hop 只解析一次）；普通节点不得覆盖 Host/Content-Length/Transfer-Encoding/Connection/Proxy-Authorization。
 - 可信执行身份：`WorkflowExecutionIdentity` 仅由受控 factory 构造（无公共 `@JsonCreator` / 不可由外部 JSON 设置 trust 布尔）。`SupervisorRequest.identity` 显式携带身份；Supervisor 不得从 `request.input`/metadata/模型 args 构造可信用户。Control→Runtime 使用 HMAC-SHA256 内部服务认证（canonical 含 method/path/caller/source/userId/timestamp/nonce/**BODY_SHA256**；恒定时间验签；JDBC nonce 仅清理过期条目，满容 fail-closed 拒绝新 nonce，绝不为腾容量删除有效 nonce；`nonceTtlSeconds >= 2 * skewSeconds`；缺密钥 fail-closed；actuator `INTERNAL_AUTH_NOT_CONFIGURED`）。RunOps/`runtime_run.userId`/ToolCallLog 审计主体必须来自可信身份，禁止从业务 body 提升。公开 `/api/runtime/agents/execute(+stream)`：有平台 Bearer 则经签名 internal 传 `AGENT` 身份，否则 `userTrusted=false`。Embed sync/stream 必须从已验签 claims 经签名 internal 传 `EMBED_SESSION`。Debug/Composition 保持 untrusted。`projectId`/`projectCode` 冲突 fail-closed。
 - Trace 持久化边界：按数据来源构造 `TraceSafeSummary` allowlist（statusCode/hitCount/attempt/latency 等）；`inputSummary` 只存 inputType/messageLength/hasMessage 与非敏感 id，永不存用户原文；禁止内容猜测与固定 marker 特判；plan/replan 只存工具名与步骤数；HTTP 非 2xx raw body 可留内存供 ErrorPolicy，不得落库。Replay 若安全策略禁止原文，必须显式 `messageOverride`，不得从脱敏摘要伪造输入。
 - Retry 默认 fail-closed：仅显式 transient（HTTP 408/429/5xx、timeout/connect，或 metadata `retryableFailure=true`）可重试；`*_REQUIRED` / `*_DENIED` / `*_UNAVAILABLE` / 配置与权限错误不可重试。
@@ -64,7 +80,7 @@
 
 产品和文档默认使用 `Capability / 能力`。
 
-`Skill` 多为历史命名或兼容存储名。V2 新库基线已把历史 SQL 表 `skill_draft`、`skill_eval_snapshot`、`skill_interaction` 收敛为 `capability_draft`、`capability_eval_snapshot`、`runtime_skill_interaction`。`skill_name`、`skill_kind` 等字段如仍承载业务语义，不做无关改名。
+`Skill` 多为历史命名或兼容存储名。当前新库基线已把历史 SQL 表 `skill_draft`、`skill_eval_snapshot`、`skill_interaction` 收敛为 `capability_draft`、`capability_eval_snapshot`、`runtime_skill_interaction`。`skill_name`、`skill_kind` 等字段如仍承载业务语义，不做无关改名。
 
 `reachai-knowledge-service` 是 Knowledge / Retrieval 部署单元，不再称为“技能服务”。
 
@@ -95,7 +111,7 @@
 - `sql/upgrade-YYYYMMDD-short-name.sql`
 - `sql/README.md` 或相关说明
 
-默认不为旧数据做复杂兼容迁移。V2 按新库重建处理，不提供旧表名兼容视图或旧数据迁移脚本；后续如需要面向存量库升级，再新增当次 upgrade SQL 并写清影响。
+默认不为旧数据做复杂兼容迁移。当前基线按新库重建处理，不提供旧表名兼容视图或旧数据迁移脚本；后续如需要面向存量库升级，再新增当次 upgrade SQL 并写清影响。
 
 ## ModelInstanceRuntimeCache 跨实例一致性
 

@@ -27,7 +27,7 @@
 任何数据库变化必须先完成：
 
 1. 修改 `sql/initV2.sql`，保证全新环境直接可用。
-2. 如果已有开发/测试库需要升级，新增当次 `sql/upgrade-YYYYMMDD-short-name.sql`，并在确认合入新基线后按规则清理历史 upgrade；当前 V2 新库重建场景不要求旧数据迁移。
+2. 如果已有开发/测试库需要升级，新增当次 `sql/upgrade-YYYYMMDD-short-name.sql`，并在确认合入新基线后按规则清理历史 upgrade；当前新库重建场景不要求旧数据迁移。
 3. 更新 `sql/README.md` 或相关文档。
 4. 检查实体、Mapper、前端类型和 API DTO 是否同步。
 5. 更新 `docs/architecture/service-table-ownership.md`，确保 `sql/initV2.sql` 中新增或保留的 `CREATE TABLE` 有唯一 owning service。
@@ -62,7 +62,7 @@
 - 管理端是工作台产品，优先密度、稳定布局和重复操作效率。
 - 主题、色彩、暗色/亮色优先改 CSS 变量和共享主题，不要页面级硬编码。
 - Workflow Studio 改动要关注画布、配置面板、AI 预览/应用、发布校验、调试会话和 Runtime 合同。
-- Registry/Scan 大页已拆出 `components/page-assistant/`、`components/scan-project/`、registry/scan composables 和 viewModel；继续改页面前先复用这些边界，不要把逻辑重新塞回主 `.vue`。
+- Registry/Scan 大页已拆出 `components/page-workbench/`、`components/scan-project/` 和对应 composables；继续改页面前先复用这些边界，不要把数据访问、状态机或提示词规则塞回主 `.vue`。
 - 改路由、侧边栏、项目范围选择时先看 `MainLayout.vue`、`ProjectSelector.vue`、router 和 project store。
 - 前端代理保持 `/api -> 18603`、`/ai -> 18602`、`/model -> 18601`；不要直接依赖 Runtime 或 Capability 内部端口。
 

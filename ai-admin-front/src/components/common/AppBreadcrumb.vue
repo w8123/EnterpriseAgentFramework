@@ -87,7 +87,13 @@ const parentCrumbTarget = computed<RouteLocationRaw | undefined>(() => {
     if (target) return target
   }
 
-  // Not every nested route has a fully configured breadcrumb tree yet.
+  // A configured breadcrumb tree is authoritative. Falling back to URL
+  // truncation here would ask Vue Router to resolve non-routes such as
+  // `/registry`, which emits a warning on valid top-level workbench pages.
+  const configured = route.meta.breadcrumb as AppBreadcrumbItem[] | undefined
+  if (configured?.length) return undefined
+
+  // Routes without metadata may still use the nearest registered URL parent.
   return autoParentCrumbTarget.value
 })
 

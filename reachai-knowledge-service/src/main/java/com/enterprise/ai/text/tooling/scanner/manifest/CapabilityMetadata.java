@@ -13,7 +13,6 @@ public record CapabilityMetadata(
         String module,
         @JsonInclude(JsonInclude.Include.NON_EMPTY) List<String> tags,
         String sideEffect,
-        Boolean agentVisible,
         @JsonInclude(JsonInclude.Include.NON_EMPTY) List<String> requiredRoles,
         Integer timeoutMs,
         Integer retryLimit,

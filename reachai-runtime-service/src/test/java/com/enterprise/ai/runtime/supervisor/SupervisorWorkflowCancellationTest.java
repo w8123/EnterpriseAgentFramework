@@ -290,7 +290,7 @@ class SupervisorWorkflowCancellationTest {
         version.setWorkflowId(tool.getWorkflowId());
         version.setVersion("1.0.0");
         version.setStatus("ACTIVE");
-        version.setGraphSpecSnapshotJson("{\"entry\":\"a\",\"nodes\":[{\"id\":\"a\",\"type\":\"ANSWER\"}]}");
+        version.setGraphSpecSnapshotJson("{\"entryNodeId\":\"a\",\"nodes\":[{\"id\":\"a\",\"type\":\"ANSWER\"}]}");
         when(workflowMapper.selectById(tool.getWorkflowId())).thenReturn(workflow);
         when(versionMapper.selectById(version.getId())).thenReturn(version);
         workflowTargets.put(workflow.getId(), workflow);

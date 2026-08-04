@@ -4,8 +4,13 @@
   position: relative;
   isolation: isolate;
   display: flex;
+  flex: 1;
   flex-direction: column;
-  min-height: calc(100vh - 56px);
+  min-height: 0;
+  min-height: 100%;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   background: transparent;
   color: #111b2f;
 }
@@ -19,100 +24,10 @@
   z-index: 0;
 }
 
-/* ── Metric strip ── */
-.metric-strip {
-  display: flex;
-  align-items: stretch;
-  min-height: 104px;
-  max-height: 104px;
-  padding: 0;
-  gap: 0;
-  border: 1px solid rgb(var(--brand-primary-rgb) / 0.16);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.5);
-  box-shadow: 0 18px 42px rgb(var(--brand-primary-rgb) / 0.052);
-  backdrop-filter: blur(9px);
-  overflow: hidden;
-}
-
-.metric-divider {
-  flex: 0 0 1px;
-  align-self: center;
-  width: 1px;
-  height: 68px;
-  background: rgba(217, 227, 242, 0.95);
-}
-
-.metric-segment {
-  display: flex;
-  flex: 1 1 0;
-  gap: 14px;
-  align-items: center;
-  min-width: 0;
-  min-height: 104px;
-  padding: 18px 22px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  text-align: left;
-
-  &.is-clickable {
-    cursor: pointer;
-    transition: background-color 0.18s ease;
-
-    &:hover {
-      background: rgb(var(--brand-selected-rgb) / 0.28);
-    }
-  }
-}
-
-.metric-segment-icon {
-  flex-shrink: 0;
-  --metric-icon-glyph-size: 24px;
-}
-
-.metric-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.metric-label {
-  display: block;
-  margin-bottom: 2px;
-  color: #73839a;
-  font-size: 12px;
-  line-height: 17px;
-}
-
-.metric-segment strong {
-  display: block;
-  margin: 2px 0;
-  color: #13223a;
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 27px;
-  white-space: nowrap;
-}
-
-.metric-segment small {
-  display: block;
-  color: #7b8ea7;
-  font-size: 11.2px;
-  line-height: 18px;
-}
-
-.metric-segment.tone-attention small {
-  color: #d97706;
-}
-
-.metric-segment.tone-good small {
-  color: #10b981;
-}
-
 /* ── Workbench cards ── */
 .workbench-grid {
   display: grid;
+  flex-shrink: 0;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 21px;
 }
@@ -237,6 +152,12 @@
 
 /* ── Instance table card ── */
 .instance-card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   border-radius: 16px;
   border-color: rgb(var(--brand-primary-rgb) / 0.18);
@@ -244,9 +165,18 @@
   box-shadow: 0 18px 42px -16px rgba(51, 65, 85, 0.08);
 
   :deep(.el-card__header) {
+    flex-shrink: 0;
     padding: 24px 24px 8px;
     border-bottom: 0;
     background: transparent;
+  }
+
+  :deep(.el-card__body) {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0;
   }
 }
 
@@ -374,10 +304,12 @@
 
 .table-footer {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   min-height: 64px;
+  margin-top: auto;
   padding: 14px 28px 16px;
   border-top: 1px solid #dbe6f8;
   color: #687b95;
@@ -529,31 +461,7 @@
   }
 }
 
-@media (min-width: 981px) and (max-width: 1680px) {
-  .metric-segment strong {
-    font-size: 20px;
-    line-height: 26px;
-  }
-}
-
 @media (max-width: 980px) {
-  .metric-strip {
-    flex-direction: column;
-    min-height: 0;
-    max-height: none;
-  }
-
-  .metric-divider {
-    width: auto;
-    height: 1px;
-    align-self: stretch;
-    margin: 0 22px;
-  }
-
-  .metric-segment {
-    min-height: 84px;
-  }
-
   .workbench-grid {
     grid-template-columns: 1fr;
   }
@@ -576,26 +484,19 @@
   color: #e5e7eb;
 
   .section-title,
-  .metric-segment strong,
   .task-topline strong {
     color: #f8fafc;
   }
 
-  .metric-label,
   .table-footer {
     color: #94a3b8;
   }
 
-  .metric-strip,
   .detail-card,
   .instance-card {
     background: rgba(15, 23, 42, 0.72);
     border-color: rgba(148, 163, 184, 0.18);
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
-  }
-
-  .metric-divider {
-    background: rgba(148, 163, 184, 0.18);
   }
 
   .task-entry {

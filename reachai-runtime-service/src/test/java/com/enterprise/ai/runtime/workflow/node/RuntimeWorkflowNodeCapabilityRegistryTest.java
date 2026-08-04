@@ -111,10 +111,12 @@ class RuntimeWorkflowNodeCapabilityRegistryTest {
     }
 
     @Test
-    void findsByAliasAndCanvasKind() {
+    void findsByCanonicalTypeAndCanvasKindOnly() {
         assertEquals("CAPABILITY", registry.find("skill").orElseThrow().type());
         assertEquals("INTENT_CLASSIFIER", registry.find("classifier").orElseThrow().type());
-        assertEquals("PAGE_ACTION", registry.find("ui_action").orElseThrow().type());
+        assertEquals("PAGE_ACTION", registry.find("pageAction").orElseThrow().type());
         assertEquals("LOOP", registry.find("loop").orElseThrow().type());
+        assertTrue(registry.find("ui_action").isEmpty());
+        assertTrue(registry.find("form_input").isEmpty());
     }
 }

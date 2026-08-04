@@ -4,6 +4,7 @@ import java.util.List;
 
 public record ToolDefinitionUpsertRequest(
         String name,
+        String title,
         String kind,
         String description,
         List<ToolDefinitionParameter> parameters,
@@ -17,11 +18,8 @@ public record ToolDefinitionUpsertRequest(
         String responseType,
         Long projectId,
         String projectCode,
-        String visibility,
         String qualifiedName,
         boolean enabled,
-        boolean agentVisible,
-        boolean lightweightEnabled,
         String sideEffect,
         String skillKind,
         String specJson,
@@ -31,6 +29,7 @@ public record ToolDefinitionUpsertRequest(
 
     public ToolDefinitionUpsertRequest(
             String name,
+            String title,
             String description,
             List<ToolDefinitionParameter> parameters,
             String source,
@@ -43,16 +42,12 @@ public record ToolDefinitionUpsertRequest(
             String responseType,
             Long projectId,
             String projectCode,
-            String visibility,
             String qualifiedName,
-            boolean enabled,
-            boolean agentVisible,
-            boolean lightweightEnabled) {
-        this(name, "TOOL", description, parameters, source, sourceLocation,
+            boolean enabled) {
+        this(name, title, "TOOL", description, parameters, source, sourceLocation,
                 httpMethod, baseUrl, contextPath, endpointPath,
                 requestBodyType, responseType, projectId,
-                projectCode, visibility, qualifiedName,
-                enabled, agentVisible, lightweightEnabled,
+                projectCode, qualifiedName, enabled,
                 null, null, null, false, null);
     }
 
@@ -63,12 +58,11 @@ public record ToolDefinitionUpsertRequest(
             String source,
             String sourceLocation,
             boolean enabled,
-            boolean agentVisible,
             String sideEffect,
             String skillKind,
             String specJson) {
         return skill(name, description, parameters, source, sourceLocation,
-                enabled, agentVisible, sideEffect, skillKind, specJson, false);
+                enabled, sideEffect, skillKind, specJson, false);
     }
 
     public static ToolDefinitionUpsertRequest skill(
@@ -78,29 +72,26 @@ public record ToolDefinitionUpsertRequest(
             String source,
             String sourceLocation,
             boolean enabled,
-            boolean agentVisible,
             String sideEffect,
             String skillKind,
             String specJson,
             boolean draft) {
         return new ToolDefinitionUpsertRequest(
-                name, "SKILL", description, parameters, source, sourceLocation,
+                name, name, "SKILL", description, parameters, source, sourceLocation,
                 null, null, null, null,
-                null, null, null, null, null, null,
-                enabled, agentVisible, false,
+                null, null, null, null, null,
+                enabled,
                 sideEffect, skillKind, specJson, draft, null);
     }
 
     public ToolDefinitionUpsertRequest withProjectScope(Long scopedProjectId,
                                                         String scopedProjectCode,
-                                                        String scopedVisibility,
                                                         String scopedQualifiedName) {
         return new ToolDefinitionUpsertRequest(
-                name, kind, description, parameters, source, sourceLocation,
+                name, title, kind, description, parameters, source, sourceLocation,
                 httpMethod, baseUrl, contextPath, endpointPath,
                 requestBodyType, responseType, scopedProjectId,
-                scopedProjectCode, scopedVisibility, scopedQualifiedName,
-                enabled, agentVisible, lightweightEnabled,
+                scopedProjectCode, scopedQualifiedName, enabled,
                 sideEffect, skillKind, specJson, draft, capabilityMetadata);
     }
 }

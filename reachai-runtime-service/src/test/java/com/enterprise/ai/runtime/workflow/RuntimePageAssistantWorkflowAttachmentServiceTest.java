@@ -61,13 +61,13 @@ class RuntimePageAssistantWorkflowAttachmentServiceTest {
                 new RuntimePageAssistantWorkflowAttachmentService(generic);
         when(generic.attachPageAssistantOnly(eq("wf-1"), any(PageAssistantAttachRequest.class)))
                 .thenThrow(new AiCodingAttachmentException(
-                        "WORKFLOW_TYPE_NOT_SUPPORTED",
-                        "Page Assistant attach endpoint only accepts PAGE_ASSISTANT, got: CHAT"));
+                        "WORKFLOW_KIND_NOT_SUPPORTED",
+                        "Page Assistant attach endpoint only accepts PAGE_ASSISTANT, got: GENERAL"));
 
         AiCodingAttachmentException ex = assertThrows(AiCodingAttachmentException.class,
                 () -> service.attachPublishedPageWorkflow("wf-1",
                         new RuntimePageAssistantWorkflowAttachRequest(
                                 null, "orders", "agent-1", "model-1", "wizard")));
-        assertEquals("WORKFLOW_TYPE_NOT_SUPPORTED", ex.code());
+        assertEquals("WORKFLOW_KIND_NOT_SUPPORTED", ex.code());
     }
 }

@@ -30,7 +30,10 @@
 
     <!-- 智能体 / 系统 / runtime：棱镜卡片 -->
     <template v-else>
-      <div class="reachai-message__assistant-row">
+      <div
+        class="reachai-message__assistant-row"
+        :class="{ 'reachai-message__assistant-row--without-avatar': !showAvatars }"
+      >
         <div v-if="showAvatars" class="reachai-message__prism-avatar" aria-hidden="true">
           <span class="reachai-message__prism-avatar-img" />
         </div>
@@ -263,6 +266,11 @@ const statusCapsule = computed(() => {
   grid-template-columns: var(--reachai-chat-avatar-size, 56px) minmax(0, min(var(--reachai-chat-card-max-width, 820px), calc(100% - 76px)));
   gap: 14px;
   align-items: start;
+}
+
+.reachai-message__assistant-row--without-avatar {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
 }
 
 .reachai-message__prism-avatar {
@@ -611,7 +619,7 @@ const statusCapsule = computed(() => {
   border-top: 1px solid var(--reachai-chat-glass-border-soft);
 }
 
-.reachai-message__meta:not(:has(> *)) {
+.reachai-message__meta:empty {
   display: none;
   padding: 0;
   border: 0;
@@ -625,8 +633,35 @@ const statusCapsule = computed(() => {
   }
 }
 
-/* 基于 Conversation 容器宽度（非 viewport）：窄容器隐藏双方头像并单列重排 */
-@container reachai-conversation (max-width: 480px) {
+/*
+ * Compact mode and the ResizeObserver-driven narrow state share one
+ * Angular 12/Critters-compatible layout contract. Do not replace these
+ * selectors with @container: older enterprise CSS optimizers cannot parse it.
+ */
+:global(.reachai-conversation--compact) .reachai-message__user-avatar,
+:global(.reachai-conversation--compact) .reachai-message__prism-avatar,
+:global(.reachai-conversation--narrow) .reachai-message__user-avatar,
+:global(.reachai-conversation--narrow) .reachai-message__prism-avatar {
+  display: none;
+}
+
+:global(.reachai-conversation--compact) .reachai-message__assistant-row,
+:global(.reachai-conversation--narrow) .reachai-message__assistant-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+:global(.reachai-conversation--compact) .reachai-message__user-row,
+:global(.reachai-conversation--narrow) .reachai-message__user-row {
+  gap: 0;
+}
+
+:global(.reachai-conversation--compact) .reachai-message__user-bubble,
+:global(.reachai-conversation--narrow) .reachai-message__user-bubble {
+  max-width: min(var(--reachai-chat-card-max-width, 820px), 92%);
+}
+
+@media (max-width: 520px) {
   .reachai-message__user-avatar,
   .reachai-message__prism-avatar {
     display: none;

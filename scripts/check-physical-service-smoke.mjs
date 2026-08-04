@@ -46,17 +46,14 @@ const services = {
   }
 }
 
-const checks = [
+const endpointChecks = [
   endpointCheck(services.control, '/actuator/health'),
   endpointCheck(services.runtime, '/internal/runtime/health'),
   endpointCheck(services.capability, '/internal/capability/health'),
   endpointCheck(services.knowledge, '/ai/actuator/health'),
-  endpointCheck(services.model, '/actuator/health'),
-  controlInternalServiceCheck('runtime'),
-  controlInternalServiceCheck('capability'),
-  controlInternalServiceCheck('model'),
-  controlInternalServiceCheck('knowledge')
+  endpointCheck(services.model, '/actuator/health')
 ]
+const internalServiceKeys = ['runtime', 'capability', 'model', 'knowledge']
 
 const { results, attempts, waited } = await runChecksUntilReady()
 const failures = results.filter(result => !result.ok)
@@ -105,7 +102,11 @@ async function runChecksUntilReady() {
   let lastResults = []
   while (true) {
     attempts += 1
-    lastResults = await Promise.all(checks.map(check => check()))
+    const [endpointResults, internalResults] = await Promise.all([
+      Promise.all(endpointChecks.map(check => check())),
+      controlInternalServiceChecks()
+    ])
+    lastResults = [...endpointResults, ...internalResults]
     if (lastResults.every(result => result.ok)) {
       return {
         results: lastResults,
@@ -178,19 +179,19 @@ function endpointCheck(service, healthPath) {
   }
 }
 
-function controlInternalServiceCheck(serviceKey) {
-  return async () => {
+async function controlInternalServiceChecks() {
+  const response = await requestJson(services.control.baseUrl, '/api/internal-services/health', {
+    acceptedStatuses: new Set([200])
+  })
+  if (!response.ok) {
+    return internalServiceKeys.map(serviceKey => ({
+      ok: false,
+      label: `control internal service ${serviceKey}`,
+      detail: response.detail
+    }))
+  }
+  return internalServiceKeys.map(serviceKey => {
     const label = `control internal service ${serviceKey}`
-    const response = await requestJson(services.control.baseUrl, '/api/internal-services/health', {
-      acceptedStatuses: new Set([200])
-    })
-    if (!response.ok) {
-      return {
-        ok: false,
-        label,
-        detail: response.detail
-      }
-    }
     const status = response.body?.services?.[serviceKey]?.status
     if (status !== 'UP') {
       return {
@@ -203,7 +204,7 @@ function controlInternalServiceCheck(serviceKey) {
       ok: true,
       label
     }
-  }
+  })
 }
 
 async function requestJson(baseUrl, path, options = {}) {

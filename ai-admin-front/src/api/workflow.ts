@@ -5,14 +5,14 @@ import type {
   PublishWorkflowVersionRequest,
   WorkflowReleaseValidationResult,
   WorkflowGraphNodeTypeDescriptor,
-  WorkflowDefinition,
-  WorkflowDefinitionDraft,
+  WorkflowWorkingCopy,
+  WorkflowWorkingCopyInput,
   WorkflowDebugRunRequest,
   WorkflowDebugRunResult,
-  WorkflowDraftEditRequest,
-  WorkflowDraftEditResult,
-  WorkflowDraftGenerationRequest,
-  WorkflowDraftGenerationResult,
+  WorkflowProposalEditRequest,
+  WorkflowProposalEditResult,
+  WorkflowProposalGenerationRequest,
+  WorkflowProposalGenerationResult,
   PageAssistantWorkflowAttachRequest,
   PageAssistantWorkflowAttachmentResult,
   WorkflowRuntimeValidationRequest,
@@ -22,11 +22,13 @@ import type {
   WorkflowDebugSessionCreateRequest,
   WorkflowDebugSessionSubmitRequest,
   WorkflowDebugSessionView,
-  WorkflowStudioSaveRequest,
-  WorkflowStudioState,
+  SaveWorkflowWorkingCopyRequest,
+  WorkflowWorkingCopyState,
   WorkflowVersion,
 } from '@/types/workflow'
 import type { AgentConfigDraft, AgentConfigVersion } from '@/types/agent'
+
+const WORKFLOW_AI_AUTHORING_TIMEOUT_MS = 300000
 
 export function listAgents(params?: {
   projectId?: number
@@ -87,14 +89,15 @@ export function copyAgentConfigToDraft(agentId: string, configVersionId: number)
 export function listWorkflows(params?: {
   projectId?: number
   projectCode?: string
-  workflowType?: string
+  workflowKind?: string
+  definitionAuthority?: string
   status?: string
 }) {
-  return controlRequest.get<WorkflowDefinition[]>('/api/workflows', { params })
+  return controlRequest.get<WorkflowWorkingCopy[]>('/api/workflows', { params })
 }
 
 export interface WorkflowSearchPage {
-  records: WorkflowDefinition[]
+  records: WorkflowWorkingCopy[]
   total: number
   current: number
   size: number
@@ -103,7 +106,8 @@ export interface WorkflowSearchPage {
 export function searchWorkflows(params: {
   projectId?: number
   projectCode?: string
-  workflowType?: string
+  workflowKind?: string
+  definitionAuthority?: string
   status?: string
   keyword?: string
   current?: number
@@ -113,27 +117,27 @@ export function searchWorkflows(params: {
 }
 
 export function getWorkflow(id: string) {
-  return controlRequest.get<WorkflowDefinition>(`/api/workflows/${encodeURIComponent(id)}`)
+  return controlRequest.get<WorkflowWorkingCopy>(`/api/workflows/${encodeURIComponent(id)}`)
 }
 
-export function getWorkflowStudio(id: string) {
-  return controlRequest.get<WorkflowStudioState>(`/api/workflows/${encodeURIComponent(id)}/studio`)
+export function getWorkflowWorkingCopy(id: string) {
+  return controlRequest.get<WorkflowWorkingCopyState>(`/api/workflows/${encodeURIComponent(id)}/working-copy`)
 }
 
-export function createWorkflow(data: WorkflowDefinitionDraft) {
-  return controlRequest.post<WorkflowDefinition>('/api/workflows', normalizeWorkflowDraft(data))
+export function createWorkflow(data: WorkflowWorkingCopyInput) {
+  return controlRequest.post<WorkflowWorkingCopy>('/api/workflows', normalizeWorkingCopyInput(data))
 }
 
-export function updateWorkflow(id: string, data: WorkflowDefinitionDraft) {
-  return controlRequest.put<WorkflowDefinition>(
+export function updateWorkflow(id: string, data: WorkflowWorkingCopyInput) {
+  return controlRequest.put<WorkflowWorkingCopy>(
     `/api/workflows/${encodeURIComponent(id)}`,
-    normalizeWorkflowDraft(data),
+    normalizeWorkingCopyInput(data),
   )
 }
 
-export function saveWorkflowStudio(id: string, data: WorkflowStudioSaveRequest) {
-  return controlRequest.put<WorkflowStudioState>(
-    `/api/workflows/${encodeURIComponent(id)}/studio`,
+export function saveWorkflowWorkingCopy(id: string, data: SaveWorkflowWorkingCopyRequest) {
+  return controlRequest.put<WorkflowWorkingCopyState>(
+    `/api/workflows/${encodeURIComponent(id)}/working-copy`,
     data,
   )
 }
@@ -146,12 +150,20 @@ export function validateWorkflowRuntime(data: WorkflowRuntimeValidationRequest) 
   return controlRequest.post<WorkflowRuntimeValidationResult>('/api/workflows/runtime-validation', data)
 }
 
-export function generateWorkflowDraft(data: WorkflowDraftGenerationRequest) {
-  return controlRequest.post<WorkflowDraftGenerationResult>('/api/workflows/studio/generate-draft', data)
+export function generateWorkflowProposal(data: WorkflowProposalGenerationRequest) {
+  return controlRequest.post<WorkflowProposalGenerationResult>(
+    '/api/workflows/studio/proposals/generate',
+    data,
+    { timeout: WORKFLOW_AI_AUTHORING_TIMEOUT_MS },
+  )
 }
 
-export function editWorkflowDraft(data: WorkflowDraftEditRequest) {
-  return controlRequest.post<WorkflowDraftEditResult>('/api/workflows/studio/edit-draft', data)
+export function editWorkflowProposal(data: WorkflowProposalEditRequest) {
+  return controlRequest.post<WorkflowProposalEditResult>(
+    '/api/workflows/studio/proposals/edit',
+    data,
+    { timeout: WORKFLOW_AI_AUTHORING_TIMEOUT_MS },
+  )
 }
 
 export function debugWorkflowNode(data: WorkflowNodeDebugRequest) {
@@ -162,7 +174,7 @@ export function debugWorkflowRun(data: WorkflowDebugRunRequest) {
   return controlRequest.post<WorkflowDebugRunResult>('/api/workflows/studio/debug-run', data)
 }
 
-/** Workflow Studio 可恢复调试会话（GraphSpec-native，targetType=WORKFLOW_DRAFT） */
+/** Workflow Studio 可恢复调试会话（GraphSpec-native，targetType=WORKFLOW_WORKING_COPY） */
 export function createWorkflowDebugSession(data: WorkflowDebugSessionCreateRequest) {
   return controlRequest.post<WorkflowDebugSessionView>('/api/runtime/debug-sessions', data)
 }
@@ -223,7 +235,7 @@ export function attachPageAssistantWorkflowTool(workflowId: string, data: PageAs
   )
 }
 
-function normalizeWorkflowDraft(data: WorkflowDefinitionDraft) {
+function normalizeWorkingCopyInput(data: WorkflowWorkingCopyInput) {
   if (!data.graphSpec) {
     return data
   }

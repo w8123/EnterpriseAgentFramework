@@ -61,9 +61,9 @@
           :disabled="projectScoped"
           placeholder="项目编码"
         />
-        <el-select v-model="filters.workflowType" clearable placeholder="Workflow 类型">
+        <el-select v-model="filters.workflowKind" clearable placeholder="Workflow 形态">
           <el-option
-            v-for="item in WORKFLOW_TYPE_SELECT_OPTIONS"
+            v-for="item in WORKFLOW_KIND_SELECT_OPTIONS"
             :key="item.value"
             :label="item.label"
             :value="item.value"
@@ -99,7 +99,7 @@
           <el-table-column label="Workflow 名称" min-width="260">
             <template #default="{ row }">
               <button type="button" class="workflow-name-cell workflow-name-cell-btn" @click="openStudio(row.id)">
-                <div class="workflow-avatar" :class="workflowAvatarClass(row.workflowType)">
+                <div class="workflow-avatar" :class="workflowAvatarClass(effectiveWorkflowKind(row))">
                   {{ workflowInitial(row.name) }}
                 </div>
                 <div>
@@ -119,16 +119,16 @@
               <span class="muted">{{ row.projectCode || '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="类型" width="130">
+          <el-table-column label="业务形态" width="130">
             <template #default="{ row }">
-              <el-tag :type="workflowTypeTagType(row.workflowType)" effect="light">
-                {{ formatWorkflowTypeLabel(row.workflowType) }}
+              <el-tag :type="workflowKindTagType(effectiveWorkflowKind(row))" effect="light">
+                {{ formatWorkflowKindLabel(effectiveWorkflowKind(row)) }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="运行时" width="130">
+          <el-table-column label="执行引擎" width="130">
             <template #default="{ row }">
-              <span class="muted">{{ formatRuntimeTypeLabel(row.runtimeType) }}</span>
+              <span class="muted">{{ formatWorkflowExecutionEngineLabel(row.executionEngine) }}</span>
             </template>
           </el-table-column>
           <el-table-column label="状态" width="112">
@@ -139,9 +139,12 @@
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="管理来源" width="130">
+          <el-table-column label="定义 / 来源" width="180">
             <template #default="{ row }">
-              <span class="muted">{{ formatWorkflowManagedByLabel(row.managedBy) }}</span>
+              <span class="muted">
+                {{ formatWorkflowDefinitionAuthorityLabel(row.definitionAuthority) }}
+                · {{ formatWorkflowCreationChannelLabel(row.creationChannel) }}
+              </span>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="204" fixed="right">
@@ -229,18 +232,18 @@
         </el-form-item>
         <div class="create-form-grid">
           <el-form-item label="类型">
-            <el-select v-model="createForm.workflowType">
+            <el-select v-model="createForm.workflowKind">
               <el-option
-                v-for="item in WORKFLOW_TYPE_SELECT_OPTIONS"
+                v-for="item in WORKFLOW_KIND_SELECT_OPTIONS"
                 :key="item.value"
                 :label="item.label"
                 :value="item.value"
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="运行时">
-            <el-select v-model="createForm.runtimeType">
-              <el-option label="LangGraph4j 工作流" value="LANGGRAPH4J" />
+          <el-form-item label="执行引擎">
+            <el-select v-model="createForm.executionEngine">
+              <el-option label="GraphSpec" value="GRAPH_SPEC" />
             </el-select>
           </el-form-item>
         </div>
@@ -278,16 +281,18 @@ import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion
 import MetricIconBg from '@/components/common/MetricIconBg.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '@/api/workflow'
-import type { WorkflowDefinition } from '@/types/workflow'
+import { getScanProjects } from '@/api/scanProject'
+import type { WorkflowWorkingCopy } from '@/types/workflow'
 import { useTheme } from '@/composables/useTheme'
 import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
-import { formatRuntimeTypeLabel } from '@/utils/registryLabels'
 import {
   WORKFLOW_STATUS_SELECT_OPTIONS,
-  WORKFLOW_TYPE_SELECT_OPTIONS,
-  formatWorkflowManagedByLabel,
+  WORKFLOW_KIND_SELECT_OPTIONS,
+  formatWorkflowCreationChannelLabel,
+  formatWorkflowExecutionEngineLabel,
+  formatWorkflowKindLabel,
+  formatWorkflowDefinitionAuthorityLabel,
   formatWorkflowStatusLabel,
-  formatWorkflowTypeLabel,
 } from '@/utils/workflowLabels'
 
 const route = useRoute()
@@ -298,7 +303,7 @@ const loading = ref(false)
 const creating = ref(false)
 const deletingId = ref('')
 const createDialogVisible = ref(false)
-const workflows = ref<WorkflowDefinition[]>([])
+const workflows = ref<WorkflowWorkingCopy[]>([])
 const keyword = ref('')
 const appliedKeyword = ref('')
 const currentPage = ref(1)
@@ -306,20 +311,20 @@ const pageSize = ref(10)
 const workflowTableMaxHeight = ref(480)
 const filters = reactive({
   projectCode: String(route.query.projectCode || ''),
-  workflowType: '',
+  workflowKind: '',
   status: '',
 })
 const appliedFilters = reactive({
   projectCode: String(route.query.projectCode || ''),
-  workflowType: '',
+  workflowKind: '',
   status: '',
 })
 const createForm = reactive({
   name: '',
   keySlug: '',
   projectCode: '',
-  workflowType: 'CHAT',
-  runtimeType: 'LANGGRAPH4J',
+  workflowKind: 'GENERAL',
+  executionEngine: 'GRAPH_SPEC',
   description: '',
 })
 
@@ -344,7 +349,7 @@ const pageTitle = computed(() => (projectScoped.value ? '项目 Workflow' : 'Wor
 const pageDescription = computed(() =>
   projectScoped.value
     ? '当前项目下的可执行 Workflow 资产。'
-    : '面向页面动作、SDK 图和对话流的可执行图资产。',
+    : '面向通用流程、页面助手和 SDK 同步图的可执行 Workflow 资产。',
 )
 
 const filteredWorkflows = computed(() => {
@@ -356,9 +361,10 @@ const filteredWorkflows = computed(() => {
       workflow.keySlug,
       workflow.description,
       workflow.projectCode,
-      formatWorkflowTypeLabel(workflow.workflowType),
+      formatWorkflowKindLabel(effectiveWorkflowKind(workflow)),
       formatWorkflowStatusLabel(workflow.status),
-      formatWorkflowManagedByLabel(workflow.managedBy),
+      formatWorkflowDefinitionAuthorityLabel(workflow.definitionAuthority),
+      formatWorkflowCreationChannelLabel(workflow.creationChannel),
     ]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(text))
@@ -374,10 +380,10 @@ const metrics = computed(() => {
   const total = workflows.value.length
   const activeCount = workflows.value.filter((workflow) => workflowStatusKey(workflow.status) === 'ACTIVE').length
   const draftCount = workflows.value.filter((workflow) => workflowStatusKey(workflow.status) === 'DRAFT').length
-  const pageActionCount = workflows.value.filter((workflow) => workflowTypeKey(workflow.workflowType) === 'PAGE_ACTION').length
-  const sdkGraphCount = workflows.value.filter((workflow) => workflowTypeKey(workflow.workflowType) === 'SDK_GRAPH').length
+  const pageAssistantCount = workflows.value.filter((workflow) => workflowKindKey(effectiveWorkflowKind(workflow)) === 'PAGE_ASSISTANT').length
+  const sdkManagedCount = workflows.value.filter((workflow) => definitionAuthorityKey(workflow.definitionAuthority) === 'SDK').length
   const projectCount = new Set(workflows.value.map((workflow) => workflow.projectCode).filter(Boolean)).size
-  const manualCount = workflows.value.filter((workflow) => workflowManagedByKey(workflow.managedBy) === 'MANUAL').length
+  const userManagedCount = workflows.value.filter((workflow) => definitionAuthorityKey(workflow.definitionAuthority) === 'USER').length
   return [
     {
       label: 'Workflow 总数',
@@ -398,19 +404,19 @@ const metrics = computed(() => {
       tone: 'green',
     },
     {
-      label: '页面动作 / SDK 图',
-      value: `${pageActionCount} / ${sdkGraphCount}`,
-      caption: '业务页面与能力图',
-      delta: pageActionCount || sdkGraphCount ? 'GraphSpec 管理' : '',
+      label: '页面助手 / SDK 管理',
+      value: `${pageAssistantCount} / ${sdkManagedCount}`,
+      caption: '业务形态与定义权威',
+      delta: pageAssistantCount || sdkManagedCount ? '语义已分维度' : '',
       deltaTone: 'brand',
       iconKey: 'workflow-sources',
       tone: 'info',
     },
     {
-      label: '手动编排',
-      value: manualCount,
-      caption: '人工创建与维护',
-      delta: total ? `${Math.max(total - manualCount, 0)} 个托管` : '',
+      label: '用户维护',
+      value: userManagedCount,
+      caption: 'Studio 与 AI Coding',
+      delta: total ? `${Math.max(total - userManagedCount, 0)} 个托管` : '',
       deltaTone: 'warning',
       iconKey: 'workflow-manual',
       tone: 'orange',
@@ -500,7 +506,7 @@ async function loadWorkflows() {
   try {
     const { data } = await listWorkflows({
       projectCode: appliedFilters.projectCode || undefined,
-      workflowType: appliedFilters.workflowType || undefined,
+      workflowKind: appliedFilters.workflowKind || undefined,
       status: appliedFilters.status || undefined,
     })
     workflows.value = Array.isArray(data) ? data : []
@@ -513,7 +519,7 @@ async function loadWorkflows() {
 function searchWorkflows() {
   appliedKeyword.value = keyword.value
   appliedFilters.projectCode = filters.projectCode.trim()
-  appliedFilters.workflowType = filters.workflowType
+  appliedFilters.workflowKind = filters.workflowKind
   appliedFilters.status = filters.status
   currentPage.value = 1
   void loadWorkflows()
@@ -523,10 +529,10 @@ function showAllWorkflows() {
   keyword.value = ''
   appliedKeyword.value = ''
   filters.projectCode = routeProjectCode.value || ''
-  filters.workflowType = ''
+  filters.workflowKind = ''
   filters.status = ''
   appliedFilters.projectCode = filters.projectCode
-  appliedFilters.workflowType = ''
+  appliedFilters.workflowKind = ''
   appliedFilters.status = ''
   currentPage.value = 1
   void loadWorkflows()
@@ -540,11 +546,11 @@ function openVersions(id: string) {
   router.push(`/workflows/${id}/versions`)
 }
 
-function canDeleteWorkflow(row: WorkflowDefinition) {
+function canDeleteWorkflow(row: WorkflowWorkingCopy) {
   return row.deletable === true
 }
 
-async function confirmDeleteWorkflow(row: WorkflowDefinition) {
+async function confirmDeleteWorkflow(row: WorkflowWorkingCopy) {
   try {
     await ElMessageBox.confirm(
       `确认删除草稿 Workflow「${row.name}」吗？删除后不可恢复。`,
@@ -580,8 +586,8 @@ function openCreateDialog() {
   createForm.name = ''
   createForm.keySlug = ''
   createForm.projectCode = routeProjectCode.value || filters.projectCode || ''
-  createForm.workflowType = 'CHAT'
-  createForm.runtimeType = 'LANGGRAPH4J'
+  createForm.workflowKind = 'GENERAL'
+  createForm.executionEngine = 'GRAPH_SPEC'
   createForm.description = ''
   createDialogVisible.value = true
 }
@@ -617,17 +623,21 @@ async function submitCreateWorkflow() {
   if (!validateCreateForm()) return
   creating.value = true
   try {
+    const projectCode = createForm.projectCode.trim()
+    const projectId = await resolveCreateProjectId(projectCode)
     const { data } = await createWorkflow({
       name: createForm.name.trim(),
       keySlug: createForm.keySlug.trim(),
-      projectCode: createForm.projectCode.trim() || null,
-      workflowType: createForm.workflowType,
-      runtimeType: createForm.runtimeType,
+      projectId,
+      projectCode: projectCode || null,
+      workflowKind: createForm.workflowKind,
+      executionEngine: createForm.executionEngine,
+      definitionAuthority: 'USER',
+      creationChannel: 'STUDIO',
       description: createForm.description.trim() || null,
       status: 'DRAFT',
-      managedBy: 'MANUAL',
-      graphSpecJson: '{"nodes":[],"edges":[]}',
-      canvasJson: '{"version":2,"nodes":[],"edges":[]}',
+      graphSpecJson: '{"schemaVersion":2,"nodes":[],"edges":[],"entryNodeId":"","exitNodeIds":[]}',
+      canvasJson: '{"schemaVersion":1,"layoutVersion":1,"nodes":[],"edges":[]}',
     })
     createDialogVisible.value = false
     ElMessage.success('Workflow 已创建')
@@ -639,35 +649,47 @@ async function submitCreateWorkflow() {
   }
 }
 
+async function resolveCreateProjectId(projectCode: string) {
+  if (!projectCode) return null
+  const { data } = await getScanProjects({ keyword: projectCode })
+  const project = (data || []).find((item) => item.projectCode?.trim() === projectCode)
+  if (!project) {
+    throw new Error(`未找到项目编码“${projectCode}”，请先从项目中心创建或选择有效项目`)
+  }
+  return project.id
+}
+
 function workflowInitial(value?: string | null) {
   const trimmed = (value || 'W').trim()
   return trimmed.slice(0, 1).toUpperCase()
 }
 
-function workflowTypeKey(value?: string | null) {
-  return String(value || 'CHAT').toUpperCase()
+function workflowKindKey(value?: string | null) {
+  return String(value || 'GENERAL').toUpperCase()
 }
 
 function workflowStatusKey(value?: string | null) {
   return String(value || 'DRAFT').toUpperCase()
 }
 
-function workflowManagedByKey(value?: string | null) {
-  return String(value || 'MANUAL').toUpperCase()
+function definitionAuthorityKey(value?: string | null) {
+  return String(value || 'USER').toUpperCase()
 }
 
 function workflowAvatarClass(type?: string | null) {
-  const key = workflowTypeKey(type)
-  if (key === 'PAGE_ACTION') return 'page-action'
-  if (key === 'SDK_GRAPH') return 'sdk-graph'
+  const key = workflowKindKey(type)
+  if (key === 'PAGE_ASSISTANT') return 'page-action'
   return 'chat'
 }
 
-function workflowTypeTagType(type?: string | null) {
-  const key = workflowTypeKey(type)
-  if (key === 'PAGE_ACTION') return 'success'
-  if (key === 'SDK_GRAPH') return 'warning'
+function workflowKindTagType(type?: string | null) {
+  const key = workflowKindKey(type)
+  if (key === 'PAGE_ASSISTANT') return 'success'
   return 'info'
+}
+
+function effectiveWorkflowKind(workflow: WorkflowWorkingCopy) {
+  return workflow.workflowKind || 'GENERAL'
 }
 
 function workflowStatusClass(status?: string | null) {

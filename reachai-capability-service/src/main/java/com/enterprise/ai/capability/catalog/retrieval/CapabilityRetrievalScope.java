@@ -9,7 +9,6 @@ public record CapabilityRetrievalScope(
         List<Long> projectIds,
         List<Long> moduleIds,
         List<Long> toolWhitelist,
-        boolean enabledOnly,
-        boolean agentVisibleOnly
+        boolean enabledOnly
 ) {
 }

@@ -30,7 +30,6 @@ export function isProjectApiToolLinked(tool: ProjectToolInfo): boolean {
 export function isProjectApiToolSelectable(tool: ProjectToolInfo): boolean {
   return isProjectApiToolLinked(tool)
     && tool.enabled
-    && tool.agentVisible
     && !tool.removedFromSource
 }
 
@@ -39,7 +38,6 @@ export function projectApiToolStatusLabel(tool: ProjectToolInfo): string {
   if (!tool.globalToolDefinitionId || tool.toolLinkStatus === 'NOT_LINKED') return '需先添加为 Tool'
   if (tool.toolLinkStatus === 'GLOBAL_MISSING') return 'Tool 缺失'
   if (!tool.enabled) return '未启用'
-  if (!tool.agentVisible) return 'Agent 不可见'
   if (tool.toolLinkStatus === 'PENDING_UPDATE') return '可选，待更新'
   return '可选择'
 }
@@ -75,6 +73,7 @@ export function pageProjectApiTools(
 
 function projectApiToolMatchesKeyword(tool: ProjectToolInfo, keyword: string): boolean {
   return [
+    tool.title,
     tool.name,
     tool.description,
     tool.aiDescription,

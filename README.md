@@ -38,6 +38,10 @@
 | --- | --- |
 | <img src="docs/系统截图/嵌入到业务系统.png" alt="嵌入到业务系统" width="420" /> | <img src="docs/系统截图/使用AiCoding快速接入.png" alt="使用 AI Coding 快速接入" width="420" /> |
 
+| 页面接入中心            | AI Coding完成页面智能化改造                                                             |
+|-------------------------------------------------------------|--------------------------------------------------------------------------------|
+| <img src="docs/系统截图/页面接入中心.png" alt="页面接入中心" width="420" /> | <img src="docs/系统截图/页面智能化改造.png" alt="页面智能化改造" width="420" /> |
+
 | AI 生成 Workflow 草稿 | 接口图谱与业务能力 |
 | --- | --- |
 | <img src="docs/系统截图/05AI自动生成workflow草稿.png" alt="AI 生成 Workflow 草稿" width="420" /> | <img src="docs/系统截图/接口图谱1.png" alt="接口图谱与业务能力" width="420" /> |
@@ -156,21 +160,23 @@ ReachAI 支持用 AI 生成 Workflow 草稿，也支持用自然语言对局部�
 
 ### AI Coding 原生：让 Codex、Cursor 直接操作 ReachAI
 
-ReachAI 将系统接入和 Workflow 工程能力设计成面向 AI Coding 工具的一等接口，而不是只提供一套需要人工阅读的 SDK 文档。平台为项目生成 Manifest、接入提示词和可安装 Skill；Codex、Cursor、Claude Code 等工具据此理解当前项目、修改真实业务代码，并调用 ReachAI API 完成平台侧配置与验证。
+ReachAI 将系统接入和 Workflow 工程能力设计成面向 AI Coding 工具的一等接口，而不是只提供一套需要人工阅读的 SDK 文档。项目接入和业务页面任务由平台签发一次性交接包；Cursor 或 Codex 激活后只获得当前任务的短期 Token，读取受限上下文并回传事件、问题和结构化结果。Workflow 工程接口是另一条独立链路，继续使用显式项目级鉴权完成 GraphSpec 的创建、修改、校验、调试和发布。
 
 | AI Coding 场景 | 可完成的工作 | ReachAI 的控制边界 |
 | --- | --- | --- |
-| 业务系统接入 | 识别 Maven 模块、Java / Spring Boot 版本，接入 SDK / Starter，补充注册配置、网关路由、Embed Token Broker 和前端嵌入 | 项目级 AI Coding Key、Manifest、接入进度回传和 `CODE_READY / RUNTIME_READY / E2E_READY` 分层自检 |
-| 页面助手建设 | 声明页面上下文与 Page Action，准备页面助手 Workflow，把它加入 Page Copilot Agent 的 Workflow-as-Tool 配置，并执行安全 smoke test | 页面目录、项目边界、短期 token、Agent 配置版本、Page Bridge 和页面实例审计 |
+| 业务系统接入 | 识别 Maven 模块、Java / Spring Boot 版本，接入 SDK / Starter，补充注册配置、网关路由、Embed Token Broker 和前端嵌入 | 一次性交接、任务级短期 Token、事件/问题/Artifact 回传和 `CODE_READY / RUNTIME_READY / E2E_READY` 分层自检 |
+| 业务页面工作台 | 扫描业务模块、路由、页面组件和直接关联 API；按选定页面发起只读分析、明确实施和浏览器验收任务 | 页面目录、目标级读写范围、结构化结果契约、状态机、Page Bridge、发布数据与验收审计 |
 | Workflow 工程 | 创建 Workflow，读取上下文，结构化 patch `GraphSpec`，校验、调试运行、查看 Trace / RunOps、检查版本并发布 | `dryRun` 预览、并发 revision、发布校验、版本快照、权限与审计 |
 | 项目上下文治理 | 提交从代码中提取的项目、页面、API、模块和 Workflow 上下文候选，回查状态与审计记录 | 候选评审后进入治理资产，不允许 AI 绕过审核直接污染正式上下文 |
 
 典型使用方式是：
 
-1. 在 ReachAI 项目详情中启用 **AI Coding 接入**，获取项目 Manifest、Skill 和接入提示词。
-2. 把提示词交给 Codex、Cursor 或 Claude Code；AI 工具先读取业务仓库，再按项目真实技术栈实施改造。
-3. AI 工具使用项目级 `X-ReachAI-AiCoding-Key` 调用工程接口，持续回传接入进度、验证结果和待人工处理项。
-4. 开发者在 ReachAI 中复核能力资产、`GraphSpec`、版本、Trace 与审计记录，再进入发布和运行阶段。
+1. 在 ReachAI 的 **项目接入工作台** 或 **业务页面工作台** 创建任务并生成一次性交接包。
+2. 把交接包复制一次给当前仍活跃的 Cursor 或 Codex 会话；客户端激活一次性代码并读取当前任务上下文。
+3. AI 工具只使用短期任务 Token 回传真实进度、待回答问题和符合 JSON Schema 的 Artifact；终态、取消或交接关闭后 Token 立即失效。
+4. ReachAI 校验并应用结果，开发者在工作台复核平台检查、页面地图、Trace 和真实浏览器验收结果。
+
+Workflow AI Coding 不复用任务 Token：它继续使用项目级 `X-ReachAI-AiCoding-Key` 调用受版本、revision、dry-run、发布校验和审计约束的工程接口。ReachAI 不安装 Runner，也不承诺在本地 AI Coding 会话停止后自动唤醒它。
 
 例如，开发者可以直接提出：
 
@@ -398,7 +404,7 @@ npm run dev
 ## 命名说明
 
 - 产品语义中，可编排、可治理、可复用的业务单元统一称为 **Capability / 能力**。
-- 历史代码和接口中仍可能出现 `skill`、`skills` 等命名；V2 新库表名已收敛为 service/domain 前缀，例如 `capability_draft`、`runtime_skill_interaction`。
+- 历史代码和接口中仍可能出现 `skill`、`skills` 等命名；当前新库表名已收敛为 service/domain 前缀，例如 `capability_draft`、`runtime_skill_interaction`。
 - `GraphSpec` 是 Workflow 的运行语义，`canvas_json` 是画布布局，不应把画布 JSON 当作运行时语义来源。
 - `eaf.*`、`X-EAF-*`、`Eaf*` 等历史技术标识仍可能作为兼容边界存在；产品品牌和新接入默认使用 ReachAI。
 

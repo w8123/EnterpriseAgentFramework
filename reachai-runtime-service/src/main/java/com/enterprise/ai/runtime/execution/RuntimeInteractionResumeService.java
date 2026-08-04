@@ -139,32 +139,33 @@ public class RuntimeInteractionResumeService {
                     "Interaction GraphSpec snapshot is missing: " + session.getId(), session.getId());
         }
 
-        Map<String, Object> context = new LinkedHashMap<>(sessionService.readMap(session.getStateJson()));
-        context.putAll(safeMap(request == null ? null : request.get("context")));
-        context.put("runId", firstText(session.getRunId(), text(context.get("runId"))));
-        context.put("traceId", firstText(session.getTraceId(), text(context.get("traceId"))));
-        context.put("workflowId", firstText(session.getWorkflowId(), text(context.get("workflowId"))));
+        Map<String, Object> resumeCheckpoint = new LinkedHashMap<>(
+                sessionService.readMap(session.getResumeCheckpointJson()));
+        resumeCheckpoint.putAll(safeMap(request == null ? null : request.get("context")));
+        resumeCheckpoint.put("runId", firstText(session.getRunId(), text(resumeCheckpoint.get("runId"))));
+        resumeCheckpoint.put("traceId", firstText(session.getTraceId(), text(resumeCheckpoint.get("traceId"))));
+        resumeCheckpoint.put("workflowId", firstText(session.getWorkflowId(), text(resumeCheckpoint.get("workflowId"))));
         if (session.getWorkflowVersionId() != null) {
-            context.put("workflowVersionId", session.getWorkflowVersionId());
+            resumeCheckpoint.put("workflowVersionId", session.getWorkflowVersionId());
         }
-        context.put(WorkflowInteractionCodes.PENDING_INTERACTION_ID_KEY, session.getId());
-        context.put(WorkflowInteractionCodes.PENDING_INTERACTION_NODE_KEY, session.getNodeId());
-        context.put(WorkflowInteractionCodes.RESUME_CONTEXT_KEY, Map.of(
+        resumeCheckpoint.put(WorkflowInteractionCodes.PENDING_INTERACTION_ID_KEY, session.getId());
+        resumeCheckpoint.put(WorkflowInteractionCodes.PENDING_INTERACTION_NODE_KEY, session.getNodeId());
+        resumeCheckpoint.put(WorkflowInteractionCodes.RESUME_CONTEXT_KEY, Map.of(
                 "interactionId", session.getId(),
                 "nodeId", session.getNodeId(),
                 "action", action,
                 "values", submittedPayload,
                 "idempotencyKey", idempotencyKey == null ? "" : idempotencyKey));
         // Never leave global submittedPayload for the next INTERACTION.
-        context.remove("submittedPayload");
+        resumeCheckpoint.remove("submittedPayload");
 
         RuntimeGraphSpecExecutionResult result =
-                graphSpecExecutor.executeFromNode(graphSpecJson, context, session.getNodeId());
-        Map<String, Object> resumeSnapshot = result.contextSnapshot() == null || result.contextSnapshot().isEmpty()
-                ? context
-                : new LinkedHashMap<>(result.contextSnapshot());
-        resumeSnapshot.remove("submittedPayload");
-        resumeSnapshot.remove(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
+                graphSpecExecutor.executeFromNode(graphSpecJson, resumeCheckpoint, session.getNodeId());
+        Map<String, Object> nextResumeCheckpoint = result.resumeCheckpoint() == null || result.resumeCheckpoint().isEmpty()
+                ? resumeCheckpoint
+                : new LinkedHashMap<>(result.resumeCheckpoint());
+        nextResumeCheckpoint.remove("submittedPayload");
+        nextResumeCheckpoint.remove(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
 
         if (result.isWaitingUser()) {
             Object uiRequest = result.uiRequest();
@@ -173,7 +174,7 @@ public class RuntimeInteractionResumeService {
                     && session.getNodeId().equals(result.nodeId());
             if (sameInteraction) {
                 // 校验失败：回滚 WAITING_USER，不消费幂等键，不新建 session
-                rollbackToWaiting(session, resumeSnapshot, uiRequest, operatorId);
+                rollbackToWaiting(session, nextResumeCheckpoint, uiRequest, operatorId);
                 Map<String, Object> body = successBody(result, session, WAITING_USER, uiRequest);
                 body.put("success", false);
                 body.put("validationFailed", true);
@@ -201,7 +202,7 @@ public class RuntimeInteractionResumeService {
                             graphSpecJson,
                             result.nodeId(),
                             interactionType(result),
-                            resumeSnapshot,
+                            nextResumeCheckpoint,
                             uiRequest,
                             sessionService.readMap(session.getContinuationJson()),
                             session.getAppId(),
@@ -296,7 +297,7 @@ public class RuntimeInteractionResumeService {
     }
 
     private void rollbackToWaiting(RuntimeInteractionSessionEntity session,
-                                   Map<String, Object> context,
+                                   Map<String, Object> resumeCheckpoint,
                                    Object uiRequest,
                                    String operatorId) {
         UpdateWrapper<RuntimeInteractionSessionEntity> update = new UpdateWrapper<>();
@@ -305,7 +306,7 @@ public class RuntimeInteractionResumeService {
                 .set("status", WAITING_USER)
                 .set("revision", (session.getRevision() == null ? 0 : session.getRevision()) + 1)
                 .set("idempotency_key", null)
-                .set("state_json", sessionService.writeJson(context))
+                .set("resume_checkpoint_json", sessionService.writeJson(resumeCheckpoint))
                 .set("ui_request_json", sessionService.writeJson(uiRequest))
                 .set("update_time", LocalDateTime.now());
         sessionMapper.update(null, update);
@@ -377,7 +378,7 @@ public class RuntimeInteractionResumeService {
         body.put("interactionId", session.getId());
         body.put("status", status);
         putIdentity(body, session);
-        // Internal-only: never expose raw executor context / finalState on public resume responses.
+        // Internal-only: never expose raw executor context on public resume responses.
         if (uiRequest != null) {
             body.put("uiRequest", uiRequest);
         } else if (result.uiRequest() != null) {
@@ -410,8 +411,7 @@ public class RuntimeInteractionResumeService {
             return Map.of();
         }
         Map<String, Object> copy = new LinkedHashMap<>(metadata);
-        copy.remove("contextSnapshot");
-        copy.remove("finalState");
+        copy.remove("resumeCheckpoint");
         copy.remove(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
         return copy;
     }
@@ -428,6 +428,17 @@ public class RuntimeInteractionResumeService {
     }
 
     private Map<String, Object> replayResult(RuntimeInteractionSessionEntity session) {
+        if (RESUMING.equalsIgnoreCase(text(session.getStatus()))) {
+            Map<String, Object> inProgress = failure(
+                    "RUNTIME_INTERACTION_CONFLICT",
+                    "identical interaction submit is still being processed",
+                    session.getId());
+            inProgress.put("status", RESUMING);
+            inProgress.put("idempotentReplay", true);
+            inProgress.put("retryable", true);
+            putIdentity(inProgress, session);
+            return inProgress;
+        }
         Map<String, Object> result = sessionService.readMap(session.getResultJson());
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("success", true);

@@ -46,7 +46,8 @@ public class RuntimeWorkflowInteractionSessionService {
         entity.setInteractionType(firstText(request.interactionType(), "COLLECT_INPUT"));
         entity.setStatus("WAITING_USER");
         entity.setRevision(0);
-        entity.setStateJson(writeJson(request.state() == null ? Map.of() : request.state()));
+        entity.setResumeCheckpointJson(writeJson(
+                request.resumeCheckpoint() == null ? Map.of() : request.resumeCheckpoint()));
         entity.setUiRequestJson(writeJson(request.uiRequest()));
         entity.setContinuationJson(writeJson(request.continuation()));
         entity.setAppId(request.appId());
@@ -175,7 +176,7 @@ public class RuntimeWorkflowInteractionSessionService {
             String graphSpecSnapshotJson,
             String nodeId,
             String interactionType,
-            Map<String, Object> state,
+            Map<String, Object> resumeCheckpoint,
             Object uiRequest,
             Map<String, Object> continuation,
             String appId,

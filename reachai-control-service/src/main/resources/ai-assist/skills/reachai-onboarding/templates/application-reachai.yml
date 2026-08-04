@@ -14,6 +14,9 @@ reachai:
     environment: ${REACHAI_PROJECT_ENV:dev}
   capability:
     scan-beans: true
+    # Register only methods explicitly marked with @ReachCapability.
+    # Use ALL_CONTROLLERS only when broad Spring MVC endpoint discovery is intended.
+    scan-mode: ANNOTATED_ONLY
     # SDK onboarding only registers the project and SDK instance.
     # SDK interface scan/sync is manually triggered later from ReachAI API Management.
     # Replace these examples only when preparing that manual SDK sync boundary.

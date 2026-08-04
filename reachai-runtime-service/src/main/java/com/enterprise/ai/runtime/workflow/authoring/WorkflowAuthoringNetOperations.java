@@ -1,8 +1,8 @@
 package com.enterprise.ai.runtime.workflow.authoring;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
-import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftEditOperationType;
-import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftEditOperationView;
+import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalEditOperationType;
+import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalEditOperationView;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.util.StringUtils;
@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Builds the net GraphSpec operations from the original draft to the final candidate.
+ * Builds the net GraphSpec operations from the original working copy to the final proposal.
  */
 final class WorkflowAuthoringNetOperations {
 
@@ -24,7 +24,7 @@ final class WorkflowAuthoringNetOperations {
     private WorkflowAuthoringNetOperations() {
     }
 
-    static List<RuntimeWorkflowDraftEditOperationView> diff(ObjectMapper objectMapper,
+    static List<RuntimeWorkflowProposalEditOperationView> diff(ObjectMapper objectMapper,
                                                             GraphSpec original,
                                                             GraphSpec candidate) {
         GraphSpec from = original == null
@@ -38,18 +38,18 @@ final class WorkflowAuthoringNetOperations {
         Map<String, GraphSpec.Edge> fromEdges = indexEdges(from);
         Map<String, GraphSpec.Edge> toEdges = indexEdges(to);
 
-        List<RuntimeWorkflowDraftEditOperationView> operations = new ArrayList<>();
+        List<RuntimeWorkflowProposalEditOperationView> operations = new ArrayList<>();
         for (Map.Entry<String, GraphSpec.Node> entry : toNodes.entrySet()) {
             GraphSpec.Node previous = fromNodes.get(entry.getKey());
             if (previous == null) {
-                operations.add(RuntimeWorkflowDraftEditOperationView.builder()
-                        .type(RuntimeWorkflowDraftEditOperationType.ADD_NODE)
+                operations.add(RuntimeWorkflowProposalEditOperationView.builder()
+                        .type(RuntimeWorkflowProposalEditOperationType.ADD_NODE)
                         .node(toMap(objectMapper, entry.getValue()))
                         .reason("net add node")
                         .build());
             } else if (!sameJson(objectMapper, previous, entry.getValue())) {
-                operations.add(RuntimeWorkflowDraftEditOperationView.builder()
-                        .type(RuntimeWorkflowDraftEditOperationType.UPDATE_NODE)
+                operations.add(RuntimeWorkflowProposalEditOperationView.builder()
+                        .type(RuntimeWorkflowProposalEditOperationType.UPDATE_NODE)
                         .nodeId(entry.getKey())
                         .patch(toMap(objectMapper, entry.getValue()))
                         .reason("net update node")
@@ -58,8 +58,8 @@ final class WorkflowAuthoringNetOperations {
         }
         for (String nodeId : fromNodes.keySet()) {
             if (!toNodes.containsKey(nodeId)) {
-                operations.add(RuntimeWorkflowDraftEditOperationView.builder()
-                        .type(RuntimeWorkflowDraftEditOperationType.DELETE_NODE)
+                operations.add(RuntimeWorkflowProposalEditOperationView.builder()
+                        .type(RuntimeWorkflowProposalEditOperationType.DELETE_NODE)
                         .nodeId(nodeId)
                         .reason("net delete node")
                         .build());
@@ -68,14 +68,14 @@ final class WorkflowAuthoringNetOperations {
         for (Map.Entry<String, GraphSpec.Edge> entry : toEdges.entrySet()) {
             GraphSpec.Edge previous = fromEdges.get(entry.getKey());
             if (previous == null) {
-                operations.add(RuntimeWorkflowDraftEditOperationView.builder()
-                        .type(RuntimeWorkflowDraftEditOperationType.ADD_EDGE)
+                operations.add(RuntimeWorkflowProposalEditOperationView.builder()
+                        .type(RuntimeWorkflowProposalEditOperationType.ADD_EDGE)
                         .edge(toMap(objectMapper, entry.getValue()))
                         .reason("net add edge")
                         .build());
             } else if (!sameJson(objectMapper, previous, entry.getValue())) {
-                operations.add(RuntimeWorkflowDraftEditOperationView.builder()
-                        .type(RuntimeWorkflowDraftEditOperationType.UPDATE_EDGE)
+                operations.add(RuntimeWorkflowProposalEditOperationView.builder()
+                        .type(RuntimeWorkflowProposalEditOperationType.UPDATE_EDGE)
                         .edgeId(entry.getKey())
                         .patch(toMap(objectMapper, entry.getValue()))
                         .reason("net update edge")
@@ -84,29 +84,38 @@ final class WorkflowAuthoringNetOperations {
         }
         for (String edgeId : fromEdges.keySet()) {
             if (!toEdges.containsKey(edgeId)) {
-                operations.add(RuntimeWorkflowDraftEditOperationView.builder()
-                        .type(RuntimeWorkflowDraftEditOperationType.DELETE_EDGE)
+                operations.add(RuntimeWorkflowProposalEditOperationView.builder()
+                        .type(RuntimeWorkflowProposalEditOperationType.DELETE_EDGE)
                         .edgeId(edgeId)
                         .reason("net delete edge")
                         .build());
             }
         }
-        String fromEntry = text(from.getEntry());
-        String toEntry = text(to.getEntry());
-        if (!Objects.equals(fromEntry, toEntry) && StringUtils.hasText(toEntry)) {
-            operations.add(RuntimeWorkflowDraftEditOperationView.builder()
-                    .type(RuntimeWorkflowDraftEditOperationType.SET_ENTRY)
-                    .patch(Map.of("entry", toEntry))
-                    .reason("net set entry")
+        if (!sameJson(objectMapper, from.getInputSchema(), to.getInputSchema())
+                && to.getInputSchema() != null
+                && !to.getInputSchema().isEmpty()) {
+            operations.add(RuntimeWorkflowProposalEditOperationView.builder()
+                    .type(RuntimeWorkflowProposalEditOperationType.SET_INPUT_SCHEMA)
+                    .patch(toMap(objectMapper, to.getInputSchema()))
+                    .reason("net set input schema")
                     .build());
         }
-        List<String> fromFinish = from.getFinish() == null ? List.of() : from.getFinish();
-        List<String> toFinish = to.getFinish() == null ? List.of() : to.getFinish();
+        String fromEntry = text(from.getEntryNodeId());
+        String toEntry = text(to.getEntryNodeId());
+        if (!Objects.equals(fromEntry, toEntry) && StringUtils.hasText(toEntry)) {
+            operations.add(RuntimeWorkflowProposalEditOperationView.builder()
+                    .type(RuntimeWorkflowProposalEditOperationType.SET_ENTRY_NODE)
+                    .patch(Map.of("entryNodeId", toEntry))
+                    .reason("net set entry node")
+                    .build());
+        }
+        List<String> fromFinish = from.getExitNodeIds();
+        List<String> toFinish = to.getExitNodeIds();
         if (!fromFinish.equals(toFinish)) {
-            operations.add(RuntimeWorkflowDraftEditOperationView.builder()
-                    .type(RuntimeWorkflowDraftEditOperationType.SET_FINISH)
-                    .patch(Map.of("finish", toFinish))
-                    .reason("net set finish")
+            operations.add(RuntimeWorkflowProposalEditOperationView.builder()
+                    .type(RuntimeWorkflowProposalEditOperationType.SET_EXIT_NODES)
+                    .patch(Map.of("exitNodeIds", toFinish))
+                    .reason("net set exit nodes")
                     .build());
         }
         return List.copyOf(operations);

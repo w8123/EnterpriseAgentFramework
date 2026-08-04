@@ -45,7 +45,7 @@ class CapabilityToolRetrievalControllerTest {
 
         ResponseEntity<CapabilityToolRetrievalController.SearchResponse> response =
                 controller.search(new CapabilityToolRetrievalController.SearchRequest(
-                        "  ", 5, null, null, null, true, true, null));
+                        "  ", 5, null, null, null, true, null));
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -58,18 +58,19 @@ class CapabilityToolRetrievalControllerTest {
         CapabilityToolRetrievalController controller = new CapabilityToolRetrievalController(
                 service,
                 mock(CapabilityToolRetrievalRebuildManager.class));
-        when(service.retrieve("订单", new CapabilityRetrievalScope(List.of(7L), null, null, true, false), 3, 0.1))
-                .thenReturn(List.of(new CapabilityToolCandidate(11L, "order.create", 7L, 2L, 0.92f,
+        when(service.retrieve("订单", new CapabilityRetrievalScope(List.of(7L), null, null, true), 3, 0.1))
+                .thenReturn(List.of(new CapabilityToolCandidate(11L, "order.create", "创建订单", 7L, 2L, 0.92f,
                         "创建订单\norder.create")));
 
         ResponseEntity<CapabilityToolRetrievalController.SearchResponse> response =
                 controller.search(new CapabilityToolRetrievalController.SearchRequest(
-                        "订单", 3, List.of(7L), null, null, true, false, 0.1));
+                        "订单", 3, List.of(7L), null, null, true, 0.1));
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
         assertEquals(1, response.getBody().candidates().size());
         assertEquals("order.create", response.getBody().candidates().get(0).toolName());
+        assertEquals("创建订单", response.getBody().candidates().get(0).toolTitle());
     }
 
     @Test

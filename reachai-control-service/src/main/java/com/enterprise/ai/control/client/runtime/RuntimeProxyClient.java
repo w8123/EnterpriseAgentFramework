@@ -1,5 +1,10 @@
 package com.enterprise.ai.control.client.runtime;
 
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PublishedWorkflowView;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowDeliveryView;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowEngineeringDraftView;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowExecutionReadinessView;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowReleaseReadinessView;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -82,8 +87,19 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.GET, path = "/api/workflows")
     ResponseEntity<Object> listWorkflows(@RequestParam(value = "projectId", required = false) Long projectId,
                                          @RequestParam(value = "projectCode", required = false) String projectCode,
-                                         @RequestParam(value = "workflowType", required = false) String workflowType,
+                                         @RequestParam(value = "workflowKind", required = false) String workflowKind,
+                                         @RequestParam(value = "definitionAuthority", required = false) String definitionAuthority,
                                          @RequestParam(value = "status", required = false) String status);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/search")
+    ResponseEntity<Object> searchWorkflows(@RequestParam(value = "projectId", required = false) Long projectId,
+                                           @RequestParam(value = "projectCode", required = false) String projectCode,
+                                           @RequestParam(value = "workflowKind", required = false) String workflowKind,
+                                           @RequestParam(value = "definitionAuthority", required = false) String definitionAuthority,
+                                           @RequestParam(value = "status", required = false) String status,
+                                           @RequestParam(value = "keyword", required = false) String keyword,
+                                           @RequestParam(value = "current", required = false) Integer current,
+                                           @RequestParam(value = "size", required = false) Integer size);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/workflows")
     ResponseEntity<Object> createWorkflow(@RequestBody Map<String, Object> body);
@@ -104,12 +120,12 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/runtime-validation")
     ResponseEntity<Object> validateWorkflowRuntime(@RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/{id}/studio")
-    ResponseEntity<Object> workflowStudio(@PathVariable("id") String id);
+    @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/{id}/working-copy")
+    ResponseEntity<Object> workflowWorkingCopy(@PathVariable("id") String id);
 
-    @RequestMapping(method = RequestMethod.PUT, path = "/api/workflows/{id}/studio")
-    ResponseEntity<Object> saveWorkflowStudio(@PathVariable("id") String id,
-                                              @RequestBody Map<String, Object> body);
+    @RequestMapping(method = RequestMethod.PUT, path = "/api/workflows/{id}/working-copy")
+    ResponseEntity<Object> saveWorkflowWorkingCopy(@PathVariable("id") String id,
+                                                   @RequestBody Map<String, Object> body);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/studio/debug-node")
     ResponseEntity<Object> debugWorkflowNode(@RequestBody Map<String, Object> body);
@@ -117,17 +133,22 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/studio/debug-run")
     ResponseEntity<Object> debugWorkflowRun(@RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/studio/generate-draft")
-    ResponseEntity<Object> generateWorkflowStudioDraft(@RequestBody Map<String, Object> body);
+    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/studio/proposals/generate")
+    ResponseEntity<Object> generateWorkflowProposal(@RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/studio/edit-draft")
-    ResponseEntity<Object> editWorkflowStudioDraft(@RequestBody Map<String, Object> body);
+    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/studio/proposals/edit")
+    ResponseEntity<Object> editWorkflowProposal(@RequestBody Map<String, Object> body);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/ai-coding/workflows")
     ResponseEntity<Object> createWorkflowAiCodingWorkflow(@RequestBody Map<String, Object> body);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/{workflowId}/ai-coding/context")
     ResponseEntity<Object> workflowAiCodingContext(@PathVariable("workflowId") String workflowId);
+
+    @RequestMapping(method = RequestMethod.PUT, path = "/api/workflows/{workflowId}/ai-coding/resource-bindings")
+    ResponseEntity<Object> replaceWorkflowAiCodingResourceBindings(
+            @PathVariable("workflowId") String workflowId,
+            @RequestBody Map<String, Object> body);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{workflowId}/ai-coding/validate")
     ResponseEntity<Object> validateWorkflowAiCoding(@PathVariable("workflowId") String workflowId,
@@ -171,13 +192,9 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/{workflowId}/versions")
     ResponseEntity<Object> listWorkflowVersions(@PathVariable("workflowId") String workflowId);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{workflowId}/versions")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{workflowId}/versions/publish")
     ResponseEntity<Object> publishWorkflowVersion(@PathVariable("workflowId") String workflowId,
                                                   @RequestBody Map<String, Object> body);
-
-    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{workflowId}/versions/publish")
-    ResponseEntity<Object> publishWorkflowVersionExplicit(@PathVariable("workflowId") String workflowId,
-                                                          @RequestBody Map<String, Object> body);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{workflowId}/versions/validate")
     ResponseEntity<Object> validateWorkflowVersion(@PathVariable("workflowId") String workflowId);
@@ -196,18 +213,58 @@ public interface RuntimeProxyClient {
     ResponseEntity<Object> attachAgentSupervisorWorkflowTool(@PathVariable("projectId") Long projectId,
                                                              @RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.GET, path = "/api/agent/workflow-credentials")
+    @RequestMapping(method = RequestMethod.POST,
+            path = "/internal/runtime/page-workbench/projects/{projectCode}/workflow-drafts")
+    ResponseEntity<WorkflowEngineeringDraftView>
+            createPageWorkbenchWorkflowDraft(
+                    @PathVariable("projectCode") String projectCode,
+                    @RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.POST,
+            path = "/internal/runtime/page-workbench/projects/{projectCode}/workflows/{workflowId}/deliver")
+    ResponseEntity<WorkflowDeliveryView> deliverPageWorkbenchWorkflow(
+            @PathVariable("projectCode") String projectCode,
+            @PathVariable("workflowId") String workflowId,
+            @RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.GET,
+            path = "/internal/runtime/page-workbench/projects/{projectCode}/published")
+    ResponseEntity<List<PublishedWorkflowView>> pageWorkbenchPublished(
+            @PathVariable("projectCode") String projectCode,
+            @RequestParam(value = "pageKey", required = false) String pageKey);
+
+    @RequestMapping(method = RequestMethod.GET,
+            path = "/internal/runtime/page-workbench/projects/{projectCode}/release-readiness")
+    ResponseEntity<WorkflowReleaseReadinessView> pageWorkbenchReleaseReadiness(
+            @PathVariable("projectCode") String projectCode,
+            @RequestParam("pageKey") String pageKey,
+            @RequestParam("workflowId") String workflowId,
+            @RequestParam("workflowVersion") String workflowVersion);
+
+    @RequestMapping(method = RequestMethod.GET,
+            path = "/internal/runtime/page-workbench/projects/{projectCode}/execution-readiness")
+    ResponseEntity<WorkflowExecutionReadinessView> pageWorkbenchExecutionReadiness(
+            @PathVariable("projectCode") String projectCode,
+            @RequestParam("pageKey") String pageKey,
+            @RequestParam("sessionId") String sessionId,
+            @RequestParam("pageInstanceId") String pageInstanceId,
+            @RequestParam("traceId") String traceId,
+            @RequestParam("workflowId") String workflowId,
+            @RequestParam("workflowVersionId") Long workflowVersionId,
+            @RequestParam("workflowVersion") String workflowVersion);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/credentials")
     ResponseEntity<Object> listWorkflowCredentials(@RequestParam(value = "projectId", required = false) Long projectId,
                                                    @RequestParam(value = "projectCode", required = false) String projectCode);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/agent/workflow-credentials")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/credentials")
     ResponseEntity<Object> createWorkflowCredential(@RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.PUT, path = "/api/agent/workflow-credentials/{id}")
+    @RequestMapping(method = RequestMethod.PUT, path = "/api/workflows/credentials/{id}")
     ResponseEntity<Object> updateWorkflowCredential(@PathVariable("id") Long id,
                                                     @RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.DELETE, path = "/api/agent/workflow-credentials/{id}")
+    @RequestMapping(method = RequestMethod.DELETE, path = "/api/workflows/credentials/{id}")
     ResponseEntity<Object> deleteWorkflowCredential(@PathVariable("id") Long id);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/evals/datasets")

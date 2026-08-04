@@ -1,10 +1,12 @@
 package com.enterprise.ai.runtime.workflow;
 
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -12,6 +14,39 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RuntimeWorkflowDefinitionServiceTest {
+
+    @Test
+    void createPersistsCanonicalWorkflowSemantics() {
+        RuntimeWorkflowDefinitionMapper mapper = mock(RuntimeWorkflowDefinitionMapper.class);
+        when(mapper.selectOne(any())).thenReturn(null);
+        RuntimeWorkflowDefinitionService service = service(mapper);
+
+        RuntimeWorkflowDefinitionEntity created = service.create(workflow(null, "orders"));
+
+        assertEquals("GENERAL", created.getWorkflowKind());
+        assertEquals("GRAPH_SPEC", created.getExecutionEngine());
+        assertEquals("USER", created.getDefinitionAuthority());
+        assertEquals("STUDIO", created.getCreationChannel());
+    }
+
+    @Test
+    void createAcceptsExplicitCanonicalSdkSemantics() {
+        RuntimeWorkflowDefinitionMapper mapper = mock(RuntimeWorkflowDefinitionMapper.class);
+        when(mapper.selectOne(any())).thenReturn(null);
+        RuntimeWorkflowDefinitionService service = service(mapper);
+        RuntimeWorkflowDefinitionEntity draft = workflow(null, "sdk-orders");
+        draft.setWorkflowKind("GENERAL");
+        draft.setExecutionEngine("GRAPH_SPEC");
+        draft.setDefinitionAuthority("SDK");
+        draft.setCreationChannel("SDK_SYNC");
+
+        RuntimeWorkflowDefinitionEntity created = service.create(draft);
+
+        assertEquals("GENERAL", created.getWorkflowKind());
+        assertEquals("GRAPH_SPEC", created.getExecutionEngine());
+        assertEquals("SDK", created.getDefinitionAuthority());
+        assertEquals("SDK_SYNC", created.getCreationChannel());
+    }
 
     @Test
     void createRejectsExistingKeyBeforeInsert() {
@@ -43,7 +78,9 @@ class RuntimeWorkflowDefinitionServiceTest {
         return new RuntimeWorkflowDefinitionService(
                 mapper,
                 mock(RuntimeWorkflowVersionMapper.class),
-                mock(RuntimeAgentWorkflowToolMapper.class));
+                mock(RuntimeAgentWorkflowToolMapper.class),
+                new RuntimeWorkflowDocumentCanonicalizer(new ObjectMapper()),
+                mock(RuntimeWorkflowResourceBindingService.class));
     }
 
     private RuntimeWorkflowDefinitionEntity workflow(String id, String keySlug) {

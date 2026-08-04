@@ -20,12 +20,15 @@ import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocEntity;
 import com.enterprise.ai.agent.capability.catalog.semantic.SemanticDocMapper;
 import com.enterprise.ai.agent.registry.ProjectInstanceEntity;
 import com.enterprise.ai.agent.registry.ProjectInstanceMapper;
+import com.enterprise.ai.agent.registry.CapabilitySnapshotEntity;
+import com.enterprise.ai.agent.registry.CapabilitySnapshotMapper;
 import com.enterprise.ai.agent.registry.RegistryCredentialEntity;
 import com.enterprise.ai.agent.registry.RegistryCredentialMapper;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
 import com.enterprise.ai.capability.aicoding.AiCodingAccessKeys;
 import com.enterprise.ai.capability.internal.CapabilityToolExecutionService;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -57,6 +60,7 @@ public class CapabilityScanProjectCatalogService {
     private final ToolDefinitionMapper toolDefinitionMapper;
     private final CapabilityScannerClient scannerClient;
     private final ProjectInstanceMapper projectInstanceMapper;
+    private final CapabilitySnapshotMapper capabilitySnapshotMapper;
     private final ObjectMapper objectMapper;
 
     public List<ScanProjectEntity> list() {
@@ -178,6 +182,10 @@ public class CapabilityScanProjectCatalogService {
         return entity;
     }
 
+    public boolean hasActiveRegistryCredential(String projectCode) {
+        return primaryCredential(projectCode) != null;
+    }
+
     public ScanProjectEntity updateScanSettings(Long id, ScanSettings settings) {
         ScanProjectEntity entity = get(id);
         try {
@@ -194,6 +202,7 @@ public class CapabilityScanProjectCatalogService {
         ProjectInstanceEntity latest = latestInstance(projectId);
         boolean instanceExists = latest != null;
         boolean online = CapabilityProjectInstanceOnlineSupport.isOnline(latest);
+        SdkAccessCheckItem callbackCheck = sdkSyncCallbackCheck(project);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("schema", "capability.project-readiness-facts.v1");
         body.put("projectId", project.getId());
@@ -207,6 +216,9 @@ public class CapabilityScanProjectCatalogService {
         body.put("online", online);
         body.put("heartbeatOnlineThresholdMinutes", CapabilityProjectInstanceOnlineSupport.HEARTBEAT_ONLINE_MINUTES);
         body.put("instanceCount", instanceExists ? 1 : 0);
+        body.put("sdkCallbackStatus", callbackCheck.status());
+        body.put("sdkCallbackMessage", callbackCheck.message());
+        body.put("sdkCallbackEvidence", callbackCheck.evidence());
         return body;
     }
 
@@ -232,7 +244,7 @@ public class CapabilityScanProjectCatalogService {
                         "REGISTRY_CREDENTIAL",
                         "注册凭据",
                         credentialConfigured ? "PASS" : "WARN",
-                        credentialConfigured ? "已配置 active registry credential" : "尚未配置 active registry credential",
+                        credentialConfigured ? "已配置启用中的注册凭据" : "尚未配置启用中的注册凭据",
                         null),
                 new SdkAccessCheckItem(
                         "AI_CODING_ACCESS",
@@ -246,30 +258,43 @@ public class CapabilityScanProjectCatalogService {
                         "业务实例心跳",
                         online ? "PASS" : (instanceExists ? "WARN" : "FAIL"),
                         online
-                                ? "Latest project instance is ONLINE with a fresh heartbeat"
+                                ? "业务实例在线，且最近心跳有效"
                                 : (instanceExists
-                                ? "Project instance exists but is not ONLINE with a fresh heartbeat; start/restart the business service"
-                                : "No project instance registered; start the business service with ReachAI starter"),
+                                ? "业务实例已注册，但没有有效的在线心跳；请启动或重启业务服务"
+                                : "尚无业务实例注册；请使用 ReachAI Starter 启动业务服务"),
                         lastHeartbeatAt));
-        String codeReady = aiCodingEnabled && credentialConfigured ? "PASS" : "WARN";
+        String codeReady;
+        if (!aiCodingEnabled || !credentialConfigured) {
+            codeReady = "WARN";
+        } else if (!instanceExists) {
+            codeReady = "PENDING";
+        } else {
+            codeReady = "PASS";
+        }
         String runtimeReady = online ? "PASS" : (instanceExists ? "WARN" : "FAIL");
-        String e2eReady = "PENDING";
+        String sdkCallbackReady = "PASS".equals(sdkSyncCallbackCheck.status()) ? "PASS" : "PENDING";
         String overall = checks.stream().anyMatch(check -> "FAIL".equals(check.status()))
                 ? "FAIL"
-                : "WARN";
+                : (checks.stream().allMatch(check -> "PASS".equals(check.status())) ? "PASS" : "WARN");
         return new SdkAccessCheckResponse(
                 entity.getId(),
                 entity.getProjectCode(),
                 overall,
                 List.of(
                         new SdkAccessReadiness("CODE_READY", "代码接入", codeReady,
-                                "Manifest/config contracts for coding; independent from runtime heartbeat"),
+                                "PASS".equals(codeReady)
+                                        ? "项目接入配置已启用，且已观测到业务实例通过 ReachAI Starter 注册"
+                                        : (instanceExists
+                                        ? "业务实例已注册，但项目凭据或 AI Coding 接入尚未配置完整"
+                                        : "尚未观测到业务实例通过 ReachAI Starter 注册")),
                         new SdkAccessReadiness("RUNTIME_READY", "Runtime 就绪", runtimeReady,
                                 online
-                                        ? "Business instance is ONLINE with a fresh heartbeat"
-                                        : "Business service is not ONLINE with a fresh heartbeat; start it and wait for heartbeat"),
-                        new SdkAccessReadiness("E2E_READY", "端到端", e2eReady,
-                                "No explicit E2E evidence yet; do not treat configured callback URL as PASS")),
+                                        ? "业务实例在线，且最近心跳有效"
+                                        : "业务服务当前没有有效的在线心跳；请启动服务并等待心跳"),
+                        new SdkAccessReadiness("SDK_CALLBACK_READY", "SDK 回调闭环", sdkCallbackReady,
+                                "PASS".equals(sdkCallbackReady)
+                                        ? "ReachAI 已完成签名 SDK 回调并收到能力快照"
+                                        : "尚无签名 SDK 回调证据；仅配置回调地址不能视为通过")),
                 checks);
     }
 
@@ -363,6 +388,7 @@ public class CapabilityScanProjectCatalogService {
         validateToolRequest(request);
         ScanProjectToolEntity tool = getTool(projectId, scanToolId);
         tool.setName(request.name().trim());
+        tool.setTitle(request.title().trim());
         tool.setDescription(request.description().trim());
         tool.setParametersJson(writeJson(request.parameters() == null ? List.of() : request.parameters()));
         tool.setSource(StringUtils.hasText(request.source()) ? request.source().trim() : "code");
@@ -376,8 +402,6 @@ public class CapabilityScanProjectCatalogService {
         tool.setRequestBodyType(trimToNull(request.requestBodyType()));
         tool.setResponseType(trimToNull(request.responseType()));
         tool.setEnabled(Boolean.TRUE.equals(request.enabled()));
-        tool.setAgentVisible(Boolean.TRUE.equals(request.agentVisible()));
-        tool.setLightweightEnabled(Boolean.TRUE.equals(request.lightweightEnabled()));
         scanProjectToolMapper.updateById(tool);
         return tool;
     }
@@ -654,6 +678,7 @@ public class CapabilityScanProjectCatalogService {
         }
         ScanSettings settings = ScanSettingsJson.parseOrDefault(project.getScanSettings(), objectMapper);
         ScanDefaultFlags flags = settings.getDefaultFlags() == null ? ScanDefaultFlags.defaults() : settings.getDefaultFlags();
+        entity.setTitle(resolveManifestToolTitle(tool, name));
         entity.setDescription(tool.description());
         entity.setParametersJson(writeJson(toToolDefinitionParameters(tool.parameters())));
         entity.setSource("scanner");
@@ -667,8 +692,6 @@ public class CapabilityScanProjectCatalogService {
         entity.setCapabilityMetadataJson(tool.capabilityMetadata() == null ? null : writeJson(tool.capabilityMetadata()));
         if (inserting) {
             entity.setEnabled(flags.isEnabled());
-            entity.setAgentVisible(agentVisibleFromMetadata(tool.capabilityMetadata(), flags.isAgentVisible()));
-            entity.setLightweightEnabled(flags.isLightweightEnabled());
         }
         entity.setRemovedFromSource(false);
         entity.setRemovedAt(null);
@@ -687,6 +710,16 @@ public class CapabilityScanProjectCatalogService {
                 toToolDefinitionParameters(parameter.children()),
                 parameter.metadata()
         )).toList();
+    }
+
+    private String resolveManifestToolTitle(CapabilityScannerClient.ToolData tool, String fallbackName) {
+        if (tool.capabilityMetadata() instanceof Map<?, ?> metadata) {
+            Object rawTitle = metadata.get("title");
+            if (rawTitle != null && StringUtils.hasText(String.valueOf(rawTitle))) {
+                return String.valueOf(rawTitle).trim();
+            }
+        }
+        return StringUtils.hasText(tool.name()) ? tool.name().trim() : fallbackName;
     }
 
     private CapabilityScannerClient.ToolData findManifestTool(ScanProjectEntity project,
@@ -827,22 +860,6 @@ public class CapabilityScanProjectCatalogService {
         return true;
     }
 
-    private boolean agentVisibleFromMetadata(Object metadata, boolean fallback) {
-        if (metadata instanceof Map<?, ?> map) {
-            Object raw = map.get("agentVisible");
-            if (raw instanceof Boolean bool) {
-                return bool;
-            }
-            if (raw != null) {
-                String text = String.valueOf(raw).trim();
-                if ("true".equalsIgnoreCase(text) || "false".equalsIgnoreCase(text)) {
-                    return Boolean.parseBoolean(text);
-                }
-            }
-        }
-        return fallback;
-    }
-
     private String resolveManifestBaseUrl(ScanProjectEntity project) {
         return StringUtils.hasText(project.getBaseUrl()) ? project.getBaseUrl().trim() : null;
     }
@@ -860,6 +877,37 @@ public class CapabilityScanProjectCatalogService {
         String targetUrl = baseUrl.replaceAll("/+$", "")
                 + normalizeContextPath(project.getContextPath())
                 + "/reachai/registry/capabilities/sync";
+        CapabilitySnapshotEntity callbackSnapshot = capabilitySnapshotMapper.selectOne(
+                Wrappers.<CapabilitySnapshotEntity>lambdaQuery()
+                        .eq(CapabilitySnapshotEntity::getProjectId, project.getId())
+                        .eq(CapabilitySnapshotEntity::getSource, "SDK_CALLBACK")
+                        .orderByDesc(CapabilitySnapshotEntity::getCreatedAt)
+                        .orderByDesc(CapabilitySnapshotEntity::getId)
+                        .last("LIMIT 1"));
+        if (callbackSnapshot != null) {
+            if (project.getUpdateTime() != null
+                    && (callbackSnapshot.getCreatedAt() == null
+                    || callbackSnapshot.getCreatedAt().isBefore(project.getUpdateTime()))
+                    && !callbackSnapshotMatchesCurrentEndpoint(callbackSnapshot, project)) {
+                return new SdkAccessCheckItem(
+                        "SDK_SYNC_CALLBACK",
+                        "SDK 同步回调",
+                        "WARN",
+                        "STALE_EVIDENCE: 项目接入配置已在上次签名回调后更新，请重新执行 SDK 同步验证",
+                        targetUrl);
+            }
+            String verifiedAt = callbackSnapshot.getCreatedAt() == null
+                    ? null
+                    : callbackSnapshot.getCreatedAt().toString();
+            return new SdkAccessCheckItem(
+                    "SDK_SYNC_CALLBACK",
+                    "SDK 同步回调",
+                    "PASS",
+                    verifiedAt == null
+                            ? "ReachAI 已完成签名回调并收到能力快照"
+                            : "ReachAI 已完成签名回调并收到能力快照，验证时间：" + verifiedAt,
+                    targetUrl);
+        }
         boolean loopback = isLoopbackUrl(targetUrl);
         String message = "CONFIGURED_NOT_PROBED: "
                 + (loopback
@@ -871,6 +919,32 @@ public class CapabilityScanProjectCatalogService {
                 "WARN",
                 message,
                 targetUrl);
+    }
+
+    private boolean callbackSnapshotMatchesCurrentEndpoint(CapabilitySnapshotEntity snapshot,
+                                                           ScanProjectEntity project) {
+        if (!StringUtils.hasText(snapshot.getPayloadJson())) {
+            return false;
+        }
+        try {
+            JsonNode capabilities = objectMapper.readTree(snapshot.getPayloadJson()).path("capabilities");
+            if (!capabilities.isArray() || capabilities.isEmpty()) {
+                return false;
+            }
+            String currentBaseUrl = normalizeHttpBaseUrl(project.getBaseUrl());
+            String currentContextPath = normalizeContextPath(project.getContextPath());
+            for (JsonNode capability : capabilities) {
+                String snapshotBaseUrl = normalizeHttpBaseUrl(capability.path("baseUrl").asText(null));
+                String snapshotContextPath = normalizeContextPath(capability.path("contextPath").asText(null));
+                if (!Objects.equals(currentBaseUrl, snapshotBaseUrl)
+                        || !Objects.equals(currentContextPath, snapshotContextPath)) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (JsonProcessingException ex) {
+            return false;
+        }
     }
 
     private boolean isLoopbackUrl(String value) {
@@ -1012,6 +1086,7 @@ public class CapabilityScanProjectCatalogService {
     private List<String> diffFields(ScanProjectToolEntity scanTool, ToolDefinitionEntity globalTool) {
         List<String> fields = new ArrayList<>();
         compare(fields, "name", scanTool.getName(), globalTool.getName());
+        compare(fields, "title", scanTool.getTitle(), globalTool.getTitle());
         compare(fields, "description", scanTool.getDescription(), globalTool.getDescription());
         compare(fields, "parameters", scanTool.getParametersJson(), globalTool.getParametersJson());
         compare(fields, "httpMethod", scanTool.getHttpMethod(), globalTool.getHttpMethod());
@@ -1021,8 +1096,6 @@ public class CapabilityScanProjectCatalogService {
         compare(fields, "requestBodyType", scanTool.getRequestBodyType(), globalTool.getRequestBodyType());
         compare(fields, "responseType", scanTool.getResponseType(), globalTool.getResponseType());
         compare(fields, "enabled", scanTool.getEnabled(), globalTool.getEnabled());
-        compare(fields, "agentVisible", scanTool.getAgentVisible(), globalTool.getAgentVisible());
-        compare(fields, "lightweightEnabled", scanTool.getLightweightEnabled(), globalTool.getLightweightEnabled());
         return fields;
     }
 
@@ -1037,6 +1110,7 @@ public class CapabilityScanProjectCatalogService {
                                            ToolDefinitionEntity globalTool) {
         String sdkCapabilityName = sdkCapabilityName(project, scanTool);
         globalTool.setName(scanTool.getName());
+        globalTool.setTitle(scanTool.getTitle());
         globalTool.setKind("TOOL");
         globalTool.setDescription(scanTool.getDescription());
         globalTool.setAiDescription(scanTool.getAiDescription());
@@ -1052,13 +1126,10 @@ public class CapabilityScanProjectCatalogService {
         globalTool.setResponseType(scanTool.getResponseType());
         globalTool.setProjectId(project.getId());
         globalTool.setProjectCode(project.getProjectCode());
-        globalTool.setVisibility(StringUtils.hasText(project.getVisibility()) ? project.getVisibility() : "PRIVATE");
         globalTool.setQualifiedName(project.getProjectCode() + ":"
                 + (sdkCapabilityName == null ? scanTool.getName() : sdkCapabilityName));
         globalTool.setModuleId(scanTool.getModuleId());
         globalTool.setEnabled(Boolean.TRUE.equals(scanTool.getEnabled()));
-        globalTool.setAgentVisible(Boolean.TRUE.equals(scanTool.getAgentVisible()));
-        globalTool.setLightweightEnabled(Boolean.TRUE.equals(scanTool.getLightweightEnabled()));
         globalTool.setSideEffect(sdkCapabilityName == null
                 ? "WRITE"
                 : sdkSideEffect(scanTool.getCapabilityMetadataJson()));
@@ -1136,6 +1207,9 @@ public class CapabilityScanProjectCatalogService {
         }
         if (!StringUtils.hasText(request.name())) {
             throw new IllegalArgumentException("Tool name is required");
+        }
+        if (!StringUtils.hasText(request.title())) {
+            throw new IllegalArgumentException("Tool title is required");
         }
         if (!StringUtils.hasText(request.description())) {
             throw new IllegalArgumentException("Tool description is required");
@@ -1276,6 +1350,7 @@ public class CapabilityScanProjectCatalogService {
 
     public record ScanProjectToolUpsertRequest(
             String name,
+            String title,
             String description,
             List<ToolDefinitionParameter> parameters,
             String source,
@@ -1286,9 +1361,7 @@ public class CapabilityScanProjectCatalogService {
             String endpointPath,
             String requestBodyType,
             String responseType,
-            Boolean enabled,
-            Boolean agentVisible,
-            Boolean lightweightEnabled
+            Boolean enabled
     ) {
     }
 

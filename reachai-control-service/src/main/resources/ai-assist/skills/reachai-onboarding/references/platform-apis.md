@@ -10,7 +10,7 @@ Do not assume every ReachAI endpoint uses the same JSON wrapper.
 | --- | --- | --- |
 | Embed 对外 API：`POST /api/embed/token/exchange`、`/api/embed/chat/sessions`、messages、page-actions | **Yes** | `data.token`, `data.sessionId`, `data.answer`, ... |
 | `POST /api/ai-coding/projects/{projectId}/agents/provision` | **No** | `agent.keySlug` (not `data.agent.keySlug`) |
-| AI access sessions：`/api/ai-coding/.../access-sessions/**` | **No** | top-level `sessionId`, `status`, steps, ... |
+| AI Coding handoff activation and task protocol | **No** | top-level `taskToken`, `taskRoot`, task/event/question/artifact fields |
 | `POST /api/scan-projects/{projectId}/sdk-access-check` | **No** | top-level `overallStatus`, `checks` |
 | `GET /api/ai-coding/projects/{projectId}/onboarding-manifest` | **No** | top-level `project`, `embed`, `agentProvisioning`, ... |
 
@@ -59,9 +59,10 @@ Important fields:
 - `aiCodingAccess.enabled`: whether external AI coding access is enabled.
 - `aiCodingAccess.accessKey`: the project-level key used only to fetch this manifest; it is not the registry app secret. It is `null` for header-auth manifests.
 - `sdk.dependencies`: Maven coordinates to add.
-- `sdkArtifacts`: machine-readable Java and browser SDK coordinates, source policies, repository hints, and local install/build commands.
+- `sdkArtifacts`: machine-readable Java and browser SDK coordinates, source policies, exact versioned download URLs, integrity hashes, and local install commands. Java entries expose both JAR and standalone consumer POM URLs/hashes.
 - `responseShapes`: machine-readable map that tells tools whether each API family is `ApiResult` wrapped or bare JSON.
 - `sdk.config.appSecretEnv`: environment variable name for the app secret.
+- `security.secretSetupScriptWithinSkill` / `security.secretSetupCommandTemplate`: prompt-only Windows helper that stores the secret without printing it. User-scoped setup is inherited only by newly started terminals/processes.
 - `endpoints.skillPackageUrl`: zip URL for this skill.
 - `endpoints.sdkAccessCheckUrl`: platform self-check endpoint.
 - `embed.tokenPath`: the business gateway token broker path the front end should call.
@@ -82,7 +83,7 @@ Important fields:
 
 The manifest does not include `appSecret`.
 
-Read `sdkArtifacts` from the manifest for Java and browser package coordinates, source policy, and local build/install hints. Do not derive artifact URLs from the platform base URL. In particular, do not request `/repository/**`, `/maven/**`, `/repository/maven/**`, `/api/embed/sdk`, or `/npm/**` from the ReachAI platform. If SDK artifacts are not available from the declared artifact sources, report the missing artifact source instead of guessing a platform URL.
+Read `sdkArtifacts` from the manifest for Java and browser package coordinates, source policy, declared download URLs/hashes, and local install commands. Java SDK links are versioned platform artifact APIs and are intentionally usable without a ReachAI source checkout; they are not Maven repository roots. Do not derive other artifact URLs from the platform base URL. In particular, do not request `/repository/**`, `/maven/**`, `/repository/maven/**`, `/api/embed/sdk`, or `/npm/**`. If a declared artifact URL/hash is unavailable, report the platform contract defect instead of guessing a replacement.
 
 Before front-end embed work, call `agentProvisioning.provisionAgentUrl` when present. Use the response `agent.keySlug` as the business front-end `agentId`. The call is idempotent, so it is safe for Cursor or another AI coding tool to retry. Do not ask the business user to choose an Agent id. If provisioning is unavailable, fall back to `agentProvisioning.defaultKeySlug`, `agentSupervisor.globalAgentKeySlug`, `embed.defaultAgentKeySlug`, or `embed.defaultAgentId`.
 
@@ -212,12 +213,14 @@ The token broker must read `data.token` and `data.expiresIn`. It may keep a back
 
 Business front-end flow:
 
-1. Generate or reuse a stable page instance id for the current page.
+1. Let `@reachai/embed-chat` generate or reuse the current Page Bridge identity. Read `pageKey`, `pageInstanceId`, `route`, and `origin` from its `tokenProvider` context.
 2. Determine the stable current page key, for example `teamArchive.list`.
-3. Call the business gateway token broker, for example `/api/reachai/embed-token`, with the normal business login token and include `agentId=<provisionedAgentKeySlug>`, `pageKey`, `pageInstanceId`, `route`, and `origin`.
+3. Call the business gateway token broker, for example `/api/reachai/embed-token`, with the normal business login token and forward `agentId=<provisionedAgentKeySlug>`, `pageKey`, `pageInstanceId`, `route`, and `origin` unchanged.
 4. Use the returned embed token as `Authorization: Bearer <token>` for ReachAI chat session and message APIs.
 5. Create the chat session with the same `pageKey`. The ReachAI SDK does this when `createEafChat({ page: { pageKey, routePattern } })` is configured.
 6. Never send `appSecret` or project signing material to the browser.
+
+Never generate a replacement `pageInstanceId` in the browser token provider or business broker. The token exchange, Chat Session, and Page Bridge must use the SDK-owned identity; otherwise the first exchange may succeed while session creation or Page Action routing fails.
 
 Token boundary note: the business login token and the ReachAI embed token are different credentials. The business login token belongs only on the token broker request. `/api/reachai/embed/**`, `/api/embed/chat/sessions`, and message APIs must use the short-lived embed token returned by the broker.
 
@@ -259,97 +262,70 @@ The skill package includes:
 
 `POST /api/scan-projects/{projectId}/sdk-access-check`
 
-Example body:
+No request body is required:
 
-```json
-{
-  "args": {},
-  "gatewayBaseUrl": "http://localhost:8080",
-  "embedTokenPath": "/api/reachai/embed-token"
-}
+```http
+POST /api/scan-projects/{projectId}/sdk-access-check
 ```
 
 Run this only after the business service compiles and has a reachable local or test instance.
 
-Set `gatewayBaseUrl` to the real business gateway entry when available. Set `embedTokenPath` to the business gateway token broker path that the front end will call.
+The response summarizes platform-observed `CODE_READY`, `RUNTIME_READY`, and `SDK_CALLBACK_READY` facts. It does not invoke a project API and does not prove the browser Embed path. AI Coding task readiness `E2E_READY` is a separate Control-side gate based on a real Embed session, user message and assistant reply observed after the current task started.
 
-`scanToolId` is optional. Use it only after SDK interfaces have been manually synced from ReachAI API Management and the user wants a real project interface invocation as extra evidence. SDK onboarding readiness must not depend on project API rows already existing.
+## AI Coding Task Protocol
 
-## AI Access Session Progress
-
-ReachAI can show onboarding progress in the platform page when the prompt includes an access session id or URL.
-
-Read the current session:
+A ReachAI task prompt contains a one-time activation URL and activation code. Activate it once:
 
 ```http
-GET /api/ai-coding/projects/{projectId}/access-sessions/latest
-X-ReachAI-AiCoding-Key: {key}
-```
-
-Report one step:
-
-```http
-POST /api/ai-coding/projects/{projectId}/access-sessions/{sessionId}/steps/{stepKey}/report
-X-ReachAI-AiCoding-Key: {key}
+POST /api/ai-coding/handoffs/{handoffId}/activate
 Content-Type: application/json
 ```
 
-Do not put `aiCodingKey` in access-session URLs generated for new tool runs.
-
-Request body:
-
 ```json
 {
-  "status": "PASS",
-  "message": "Gateway whitelist has been configured.",
-  "files": ["qmssmp-gateway/src/main/java/SecurityConfiguration.java"],
-  "evidence": {
-    "command": "mvn -DskipTests compile",
-    "exitCode": 0
-  },
-  "reportedBy": "Cursor"
+  "schema": "reachai.ai-coding.activation.v1",
+  "activationCode": "<one-time-code>",
+  "client": {
+    "provider": "CURSOR",
+    "sessionRef": "optional-current-session-reference"
+  }
 }
 ```
 
-Valid `status` values are `TODO`, `RUNNING`, `PASS`, `WARN`, `FAIL`, and `SKIPPED`. Use `WARN` when a step needs human configuration such as an environment variable or external config center change.
-
-Standard `stepKey` values:
-- `project-manifest`
-- `backend-sdk`
-- `reachai-config`
-- `api-management-handoff`
-- `gateway-route`
-- `embed-token-broker`
-- `gateway-whitelist`
-- `frontend-embed`
-- `connectivity-check`
-- `handoff-summary`
-
-Run the platform self-check and write the result into the session:
+The bare JSON response contains a short-lived `taskToken` and `taskRoot`. Keep the token only in the current process and send it on every task request:
 
 ```http
-POST /api/ai-coding/projects/{projectId}/access-sessions/{sessionId}/checks/run
-X-ReachAI-AiCoding-Key: {key}
+Authorization: Bearer <taskToken>
 ```
 
-Use the same body as `sdkAccessCheckUrl`. This endpoint requires normal platform login when called from the console. External AI tools should use the report endpoint for step progress and call the check endpoint only when the prompt explicitly provides credentials or a reachable authenticated context.
+Read `GET <taskRoot>/context` before scanning or editing. The response freezes task targets, scope and domain context, while readiness can reflect current ReachAI facts. Use:
+
+- `POST <taskRoot>/events` for `STARTED`, real `PROGRESS`, `RESUMED`, or `FAILED`.
+- `POST <taskRoot>/questions` for blocking ambiguity; poll `GET <taskRoot>/questions` for the answer.
+- `POST <taskRoot>/heartbeat` while the current AI coding session remains active.
+- `POST <taskRoot>/verifications/SDK_SYNC` once, after Starter registration and heartbeat pass, to request the task's project-scoped signed SDK callback. No request body is required.
+- `POST <taskRoot>/artifacts` exactly once per logical result, following the contract key, version and JSON Schema returned by context.
+
+Every event and artifact uses a caller-generated idempotency key. Retrying the same key with different content is a conflict. Verification operations are explicit, task-token scoped, valid only while the onboarding task is `RUNNING`, and generate a server-side task event. Client completion first means `RESULT_SUBMITTED`; only ReachAI validation and domain application can produce `RESULT_APPLIED`, `ACCEPTANCE_READY`, or `COMPLETED`.
+
+ReachAI cannot wake an inactive local Cursor/Codex session without installing a local component. Do not claim otherwise and do not install a Runner, resident process, global package, or system software.
 
 ## Tool Reconcile
 
 `POST /api/scan-projects/{projectId}/tools/reconcile`
 
-Use after API Management manual SDK sync when the platform has received capability snapshots and the user wants API catalog rows reconciled.
+Use after task-scoped or API Management SDK sync when the platform has received capability snapshots and the user wants API catalog rows reconciled. Task `SDK_SYNC` does not auto-reconcile or publish Tools.
 
-## Manual SDK Sync Callback
+## Explicit SDK Sync Callback
 
-API Management manual SDK sync is a two-hop server-side flow:
+Task-scoped `SDK_SYNC` verification and API Management manual SDK sync use the same two-hop server-side flow:
 
 1. ReachAI sends signed `POST {project.baseUrl}{project.contextPath}/reachai/registry/capabilities/sync` to the latest online SDK instance.
 2. The Starter scans the configured business packages and sends the capability snapshot back to ReachAI `POST /api/registry/projects/{projectCode}/capabilities/sync`.
 
 The inbound business-system callback must bypass ordinary business login/JWT authentication and CSRF, but it is not anonymous: the Starter validates `X-ReachAI-App-Key`, `X-ReachAI-Timestamp`, `X-ReachAI-Nonce`, and `X-ReachAI-Signature`. If the registered base URL is a gateway, route `/reachai/registry/**` to the Starter service and preserve those headers. CORS is not involved because both hops are server-to-server.
 
-The SDK access check may report the computed callback target, but only an actual API Management manual sync proves reachability and security-chain compatibility. Diagnose failures by status/signature: connection refused or timeout means address/network/firewall, 401/403 usually means business security or credential mismatch, and 404/405 usually means gateway route or context-path mismatch.
+The SDK access check may report the computed callback target, but only an actual signed sync and received `SDK_CALLBACK` snapshot proves reachability and security-chain compatibility. `SDK_CALLBACK_READY` and browser `E2E_READY` remain independent acceptance gates. Diagnose failures by status/signature: connection refused or timeout means address/network/firewall, 401/403 usually means business security or credential mismatch, and 404/405 usually means gateway route or context-path mismatch.
 
 ## Future Extension Points
 

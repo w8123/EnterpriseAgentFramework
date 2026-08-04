@@ -11,17 +11,17 @@
 - `sql/initV2.sql` is the long-term SQL baseline and every `CREATE TABLE` row must appear in this matrix, even if the table has no current direct code access.
 - Temporary same-database reads or compatibility writes must be documented in `Additional direct access` with the accessing service and reason.
 - The current target state is zero cross-service direct table access in application code; service collaboration must go through internal HTTP APIs, explicit clients, or service-owned read models.
-- V2 is a new-database baseline: legacy names such as `ai_workflow`, `ai_agent`, `skill_draft`, `skill_interaction`, `eaf_page_registry`, and `tool_call_log` are replaced by service/domain-prefixed names. No old-table compatibility views or data migration scripts are required for V2.
+- The current baseline targets a new database: legacy names such as `ai_workflow`, `ai_agent`, `skill_draft`, `skill_interaction`, `eaf_page_registry`, and `tool_call_log` are replaced by service/domain-prefixed names. No old-table compatibility views or data migration scripts are required.
 
 ## Shared Table Exceptions Retired
 
 The current scan finds no direct table access shared across physical services. Former first-phase exceptions have been moved behind internal service APIs:
 
-- `control_page_action_registry`: owned by `reachai-control-service`; Runtime now calls Control internal page-action catalog API.
+- `control_page_action`: owned by `reachai-control-service`; Runtime calls the Control internal page-action catalog API.
 - `runtime_skill_interaction`: owned by `reachai-runtime-service`; Capability now calls Runtime internal interaction APIs.
 - `runtime_tool_call_log`: owned by `reachai-runtime-service`; Capability now calls Runtime internal trace/tool-call-log APIs.
 
-These rows remain in the ownership matrix because V2 still records their owner service, not because direct cross-service table access is still allowed.
+These rows remain in the ownership matrix because the current baseline still records their owner service, not because direct cross-service table access is still allowed.
 
 ## Ownership Matrix
 
@@ -46,6 +46,7 @@ These rows remain in the ownership matrix because V2 still records their owner s
 | `capability_project_instance` | `reachai-capability-service` | - | SDK access-instance heartbeat |
 | `runtime_workflow` | `reachai-runtime-service` | - | Workflow runtime definition |
 | `runtime_workflow_version` | `reachai-runtime-service` | - | Workflow release snapshot |
+| `runtime_workflow_resource_binding` | `reachai-runtime-service` | - | Workflow to PAGE and other stable resource bindings |
 | `capability_api_graph_edge` | `reachai-capability-service` | - | Capability API graph edge |
 | `capability_api_graph_layout` | `reachai-capability-service` | - | Capability API graph layout |
 | `capability_api_graph_node` | `reachai-capability-service` | - | Capability API graph node |
@@ -68,8 +69,13 @@ These rows remain in the ownership matrix because V2 still records their owner s
 | `control_context_runtime_user_mapping` | `reachai-control-service` | - | Control to Runtime user mapping |
 | `capability_domain_assignment` | `reachai-capability-service` | - | Capability domain assignment |
 | `capability_domain_def` | `reachai-capability-service` | - | Capability domain definition |
-| `control_ai_access_session` | `reachai-control-service` | - | Control AI assisted SDK access session |
-| `control_ai_access_step` | `reachai-control-service` | - | Control AI assisted SDK access step |
+| `control_ai_coding_task` | `reachai-control-service` | - | ReachAI-wide AI Coding task root |
+| `control_ai_coding_task_artifact` | `reachai-control-service` | - | Generic contracted artifacts and domain apply results |
+| `control_ai_coding_task_event` | `reachai-control-service` | - | Immutable AI Coding task events |
+| `control_ai_coding_task_handoff` | `reachai-control-service` | - | One-time activation and short-lived task connection facts |
+| `control_ai_coding_project_policy` | `reachai-control-service` | - | Per-project handoff activation and task-token TTL policy |
+| `control_ai_coding_task_question` | `reachai-control-service` | - | AI Coding questions and user answers |
+| `control_ai_coding_task_target` | `reachai-control-service` | - | Typed task targets and access scope |
 | `control_business_user` | `reachai-control-service` | - | Control business user directory |
 | `control_embed_chat_event` | `reachai-control-service` | - | Embed chat transcript |
 | `control_embed_renderer` | `reachai-control-service` | - | Embed renderer catalog |
@@ -78,8 +84,10 @@ These rows remain in the ownership matrix because V2 still records their owner s
 | `control_external_user_binding` | `reachai-control-service` | - | External user binding |
 | `control_external_user_role_binding` | `reachai-control-service` | - | External user role binding |
 | `control_page_action_event` | `reachai-control-service` | - | Browser page action event |
-| `control_page_action_registry` | `reachai-control-service` | - | Runtime release validation reads page action definitions through Control internal API |
-| `control_page_registry` | `reachai-control-service` | - | SDK page registry |
+| `control_page_action` | `reachai-control-service` | - | Stable page action contract exposed through Control internal API |
+| `control_page_analysis_finding` | `reachai-control-service` | - | Per-page read-only AI Coding analysis results |
+| `control_project_page` | `reachai-control-service` | - | Canonical project page definition |
+| `control_project_page_resource` | `reachai-control-service` | - | Page routes, components, APIs, permissions, config and test locations |
 | `runtime_executable_debug_session` | `reachai-runtime-service` | - | Runtime executable debug session |
 | `control_field_extractor_binding` | `reachai-control-service` | - | Control slot extraction binding |
 | `knowledge_file_info` | `reachai-knowledge-service` | - | Knowledge file metadata |

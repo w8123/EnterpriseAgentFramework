@@ -183,9 +183,7 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
     try {
       await deleteScanProject(p.id)
       ElMessage.success('已删除')
-      if (projectStore.currentProjectId === p.id) {
-        projectStore.setCurrentProject(null)
-      }
+      projectStore.clearCurrentProject(p.id)
       await router.push('/registry/projects')
     } catch (error) {
       const blockers = parseScanProjectBlockersFromError(error)
@@ -202,18 +200,11 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
     }
   }
 
-  function setCurrentProject() {
-    if (!deps.project.value) return
-    projectStore.setCurrentProject(deps.project.value.id)
-    ElMessage.success(`已切换到项目：${deps.project.value.name}`)
-  }
-
   return {
     purgeOfflineInstances,
     setInstanceStatus,
     openEditDialog,
     saveEditProject,
     handleDeleteProject,
-    setCurrentProject,
   }
 }

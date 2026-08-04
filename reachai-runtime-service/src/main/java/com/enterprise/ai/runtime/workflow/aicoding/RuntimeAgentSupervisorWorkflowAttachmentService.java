@@ -36,7 +36,22 @@ import java.util.regex.Pattern;
 public class RuntimeAgentSupervisorWorkflowAttachmentService {
 
     private static final Pattern UNSAFE_KEY_CHARS = Pattern.compile("[^A-Za-z0-9_-]+");
-    private static final Set<String> SUPPORTED_WORKFLOW_TYPES = Set.of("CHAT", "PAGE_ASSISTANT");
+    private static final Set<String> SUPPORTED_WORKFLOW_KINDS = Set.of("GENERAL", "PAGE_ASSISTANT");
+    private static final String DEFAULT_PAGE_COPILOT_DESCRIPTION =
+            "项目页面副驾驶 Agent，用于嵌入式对话、页面理解和 Workflow 路由。";
+    private static final String DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT =
+            "你是当前项目的页面副驾驶 Supervisor。理解用户请求并制定计划，"
+                    + "从允许的 Workflow 中选择一个或多个作为 Tool 执行。"
+                    + "只有当用户明确要求打开、跳转、查询或操作页面时，"
+                    + "才使用包含页面操作的 Workflow。"
+                    + "名称、说明和回复默认使用简体中文；Token、MCP、AI、Agent、"
+                    + "Supervisor、Workflow、Tool、API、SDK 等熟知专业术语和技术标识可保留英文。";
+    private static final Set<String> LEGACY_PAGE_COPILOT_DESCRIPTIONS = Set.of(
+            "Project page copilot Agent for embedded chat and Workflow routing.",
+            "Project page copilot Agent for embedded chat, page understanding, and Workflow routing.");
+    private static final Set<String> LEGACY_PAGE_COPILOT_SYSTEM_PROMPTS = Set.of(
+            "You are the project's page copilot Supervisor. Understand the request, plan, and select one or more permitted Workflows as tools. Use page-action Workflows only when the user explicitly asks to open, navigate, query, or operate a page.",
+            "You are the project's page copilot. Understand the user's intent and select the permitted Workflows as tools.");
 
     private final RuntimeCapabilityCatalogClient capabilityClient;
     private final RuntimeModelCatalogClient modelCatalogClient;
@@ -55,14 +70,15 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                 .orElseThrow(() -> new AiCodingAttachmentException(
                         "WORKFLOW_NOT_FOUND", "workflow not found: " + request.workflowId(), HttpStatus.NOT_FOUND));
         validateWorkflowProject(workflow, project);
-        String workflowType = String.valueOf(workflow.getWorkflowType());
-        if (!SUPPORTED_WORKFLOW_TYPES.contains(workflowType == null ? "" : workflowType.trim().toUpperCase(Locale.ROOT))) {
+        String workflowKind = workflow.getWorkflowKind();
+        if (!SUPPORTED_WORKFLOW_KINDS.contains(
+                workflowKind == null ? "" : workflowKind.trim().toUpperCase(Locale.ROOT))) {
             throw new AiCodingAttachmentException(
-                    "WORKFLOW_TYPE_NOT_SUPPORTED",
-                    "workflow type is not supported by the generic attach endpoint: " + workflow.getWorkflowType(),
+                    "WORKFLOW_KIND_NOT_SUPPORTED",
+                    "workflow kind is not supported by the generic attach endpoint: " + workflow.getWorkflowKind(),
                     HttpStatus.BAD_REQUEST,
-                    Map.of("workflowType", String.valueOf(workflow.getWorkflowType()),
-                            "supported", SUPPORTED_WORKFLOW_TYPES));
+                    Map.of("workflowKind", String.valueOf(workflow.getWorkflowKind()),
+                            "supported", SUPPORTED_WORKFLOW_KINDS));
         }
         if (!"ACTIVE".equalsIgnoreCase(String.valueOf(workflow.getStatus()))) {
             throw new AiCodingAttachmentException(
@@ -80,14 +96,23 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
 
         RuntimeAgentEntity agent = resolveAgent(project, request.agentId(), request.agentKeySlug());
         String modelInstanceId = resolveModelInstanceId(agent, request.modelInstanceId());
+        String toolName = StringUtils.hasText(request.toolName())
+                ? request.toolName().trim()
+                : fallbackToolName(workflow.getKeySlug());
 
         Optional<com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity> activeEntity =
                 agentConfigService.resolveActive(agent.getId());
+        boolean legacyActiveSystemPrompt = activeEntity
+                .map(com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity::getSystemPrompt)
+                .filter(StringUtils::hasText)
+                .filter(LEGACY_PAGE_COPILOT_SYSTEM_PROMPTS::contains)
+                .isPresent();
         if (activeEntity.isPresent()) {
             List<WorkflowToolView> tools = agentConfigService.listTools(agent.getId(), activeEntity.get().getId());
             boolean alreadyAttached = tools.stream().anyMatch(tool -> workflow.getId().equals(tool.workflowId()));
             if (alreadyAttached && !hasToolOverrides(request)
-                    && modelMatches(activeEntity.get().getModelInstanceId(), modelInstanceId)) {
+                    && modelMatches(activeEntity.get().getModelInstanceId(), modelInstanceId)
+                    && !legacyActiveSystemPrompt) {
                 AgentConfigVersionView activeView = agentConfigService.list(agent.getId()).stream()
                         .filter(view -> Objects.equals(view.id(), activeEntity.get().getId()))
                         .findFirst()
@@ -100,7 +125,9 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
         try {
             agentConfigService.saveDraft(agent.getId(), new AgentConfigDraftRequest(
                     "AGENTSCOPE",
-                    null,
+                    legacyActiveSystemPrompt
+                            ? DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT
+                            : null,
                     modelInstanceId,
                     null,
                     null,
@@ -113,13 +140,13 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                     null,
                     null,
                     null));
-            boolean defaultReadOnly = "CHAT".equalsIgnoreCase(workflowType);
+            boolean defaultReadOnly = !"PAGE_ASSISTANT".equalsIgnoreCase(workflowKind);
             String riskLevel = firstText(request.riskLevel(), defaultReadOnly ? "READ" : "PAGE_ACTION");
             boolean readOnly = request.readOnly() == null ? defaultReadOnly : request.readOnly();
             AgentConfigVersionView draft = agentConfigService.upsertWorkflowToolInDraft(
                     agent.getId(), new WorkflowToolRequest(
                             workflow.getId(),
-                            firstText(request.toolName(), workflow.getKeySlug()),
+                            toolName,
                             firstText(request.descriptionOverride(), workflow.getDescription()),
                             writeJsonOrNull(request.inputSchema()),
                             writeJsonOrNull(request.outputSchema()),
@@ -150,12 +177,12 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                         requireText(workflowId, "WORKFLOW_NOT_FOUND", "workflow id is required"))
                 .orElseThrow(() -> new AiCodingAttachmentException(
                         "WORKFLOW_NOT_FOUND", "workflow not found: " + workflowId, HttpStatus.NOT_FOUND));
-        if (!"PAGE_ASSISTANT".equalsIgnoreCase(String.valueOf(workflow.getWorkflowType()))) {
+        if (!"PAGE_ASSISTANT".equalsIgnoreCase(String.valueOf(workflow.getWorkflowKind()))) {
             throw new AiCodingAttachmentException(
-                    "WORKFLOW_TYPE_NOT_SUPPORTED",
-                    "Page Assistant attach endpoint only accepts PAGE_ASSISTANT, got: " + workflow.getWorkflowType(),
+                    "WORKFLOW_KIND_NOT_SUPPORTED",
+                    "Page Assistant attach endpoint only accepts PAGE_ASSISTANT, got: " + workflow.getWorkflowKind(),
                     HttpStatus.BAD_REQUEST,
-                    Map.of("workflowType", String.valueOf(workflow.getWorkflowType())));
+                    Map.of("workflowKind", String.valueOf(workflow.getWorkflowKind())));
         }
         return attach(project.projectId(), new AttachRequest(
                 workflow.getId(),
@@ -176,7 +203,7 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                 project.projectId(),
                 project.projectCode(),
                 new AgentRef(agent.getId(), agent.getKeySlug()),
-                new WorkflowRef(workflow.getId(), workflow.getKeySlug(), workflow.getWorkflowType()),
+                new WorkflowRef(workflow.getId(), workflow.getKeySlug(), workflow.getWorkflowKind()),
                 new ActiveConfigRef(config.id(), config.versionNo(), config.status()),
                 resolveToolName(config, workflow),
                 created,
@@ -270,6 +297,7 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                 .last("LIMIT 1"));
         if (existing != null) {
             validateAgentProject(existing, project);
+            localizeLegacyAgentDefaults(existing);
             return existing;
         }
         RuntimeAgentEntity entity = new RuntimeAgentEntity();
@@ -277,8 +305,8 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
         entity.setProjectId(project.projectId());
         entity.setProjectCode(project.projectCode());
         entity.setKeySlug(keySlug);
-        entity.setName(project.projectCode() + " Page Copilot");
-        entity.setDescription("Project page copilot Agent for embedded chat, page understanding, and Workflow routing.");
+        entity.setName(project.projectCode() + " 页面副驾驶 Agent");
+        entity.setDescription(DEFAULT_PAGE_COPILOT_DESCRIPTION);
         entity.setVisibility(firstText(stringValue(project.visibility()), "PROJECT"));
         entity.setEnabled(true);
         LocalDateTime now = LocalDateTime.now();
@@ -287,7 +315,7 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
         agentMapper.insert(entity);
         agentConfigService.createInitialDraft(
                 entity.getId(),
-                "You are the project's page copilot. Understand the user's intent and select the permitted Workflows as tools.",
+                DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT,
                 null,
                 writeJson(Map.of(
                         "source", "ai-coding-attach",
@@ -295,6 +323,34 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                         "routing", "supervisor-workflow-tools"
                 )));
         return entity;
+    }
+
+    private void localizeLegacyAgentDefaults(
+            RuntimeAgentEntity existing) {
+        boolean changed = false;
+        String currentName = existing.getName();
+        if (StringUtils.hasText(currentName)
+                && currentName.endsWith(" Page Copilot")) {
+            existing.setName(
+                    currentName.substring(
+                            0,
+                            currentName.length()
+                                    - " Page Copilot".length())
+                            + " 页面副驾驶 Agent");
+            changed = true;
+        }
+        String currentDescription = existing.getDescription();
+        if (StringUtils.hasText(currentDescription)
+                && LEGACY_PAGE_COPILOT_DESCRIPTIONS.contains(
+                        currentDescription)) {
+            existing.setDescription(
+                    DEFAULT_PAGE_COPILOT_DESCRIPTION);
+            changed = true;
+        }
+        if (changed) {
+            existing.setUpdatedAt(LocalDateTime.now());
+            agentMapper.updateById(existing);
+        }
     }
 
     private String resolveModelInstanceId(RuntimeAgentEntity agent, String requested) {
@@ -499,7 +555,7 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
     public record AgentRef(String id, String keySlug) {
     }
 
-    public record WorkflowRef(String id, String keySlug, String workflowType) {
+    public record WorkflowRef(String id, String keySlug, String workflowKind) {
     }
 
     public record ActiveConfigRef(Long id, Integer version, String status) {

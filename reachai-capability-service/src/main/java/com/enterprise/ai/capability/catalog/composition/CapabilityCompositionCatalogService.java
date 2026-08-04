@@ -153,6 +153,7 @@ public class CapabilityCompositionCatalogService {
         if (!updating) {
             entity.setName(request.name().trim());
         }
+        entity.setTitle(StringUtils.hasText(request.title()) ? request.title().trim() : entity.getName());
         boolean draft = Boolean.TRUE.equals(request.draft());
         entity.setKind(KIND_SKILL);
         entity.setDescription(resolveDescription(request.description(), draft));
@@ -164,14 +165,9 @@ public class CapabilityCompositionCatalogService {
         entity.setProjectCode(updating && !StringUtils.hasText(request.projectCode())
                 ? entity.getProjectCode()
                 : trimToNull(request.projectCode()));
-        entity.setVisibility(updating && !StringUtils.hasText(request.visibility())
-                ? defaultString(entity.getVisibility(), "PRIVATE")
-                : defaultString(request.visibility(), "PRIVATE"));
         String qualifiedName = resolveQualifiedName(request.qualifiedName(), entity.getProjectCode(), entity.getName());
         entity.setQualifiedName(updating && qualifiedName == null ? entity.getQualifiedName() : qualifiedName);
         entity.setEnabled(draft ? false : request.enabled());
-        entity.setAgentVisible(request.agentVisible());
-        entity.setLightweightEnabled(false);
         entity.setSideEffect(normalizeSideEffect(request.sideEffect()));
         entity.setDraft(draft);
         entity.setSkillKind(normalizeSkillKind(request.skillKind()));

@@ -1,5 +1,5 @@
 <template>
-  <div class="sdk-access-page project-workbench-page" :class="theme === 'dark' ? 'is-dark-skin' : 'is-light-skin'">
+  <div class="sdk-access-page project-workbench-page workbench-page--list" :class="theme === 'dark' ? 'is-dark-skin' : 'is-light-skin'">
     <AppPageBackground local />
     <span class="page-ambient-center" aria-hidden="true" />
     <PageHeader variant="workbench" domain="project" title="项目接入工作台">
@@ -8,6 +8,7 @@
       </template>
       <template #mode>
         <HeaderModeSwitch
+          v-if="!projectMissing && !loadError"
           v-model="accessMode"
           :options="accessModeOptions"
           aria-label="SDK 接入方式"
@@ -22,10 +23,23 @@
       show-icon
       :closable="false"
       title="当前项目不是 SDK 接入项目"
-      description="SDK 接入向导仅适用于 SDK 接入或混合接入项目；扫描方式项目请继续使用 API 目录和扫描项目工作台。"
+      description="项目接入工作台仅适用于 SDK 接入或混合接入项目；扫描方式项目请继续使用 API 目录和扫描项目工作台。"
     />
 
-    <main class="access-workbench">
+    <ProjectRouteMissingState
+      v-if="projectMissing"
+      :project-code="projectCode"
+    />
+
+    <ProjectWorkbenchLoadErrorState
+      v-else-if="loadError"
+      title="项目接入工作台加载失败"
+      :message="loadError"
+      :loading="loading"
+      @retry="loadAll"
+    />
+
+    <main v-else class="access-workbench">
       <section v-show="accessMode === 'manual'" class="manual-access-pane wizard-shell">
         <section class="step-progress access-progress--refined" aria-label="SDK 接入步骤">
           <div class="access-progress">
@@ -74,8 +88,26 @@
             </div>
 
             <section class="config-section">
-              <h3>1. 引入依赖（Maven）</h3>
-              <p>将以下依赖添加到业务服务的 pom.xml 中；依赖必须来自已有 Maven 仓库或本机 install，平台地址不是 Maven 仓库。</p>
+              <h3>1. 下载并安装 Java SDK 制品</h3>
+              <p>无需 ReachAI 源码仓库。平台给出固定版本的 JAR、独立 POM 和双 SHA-256；先安装 capability-sdk，再安装 Starter。</p>
+              <CodeSnippetBlock
+                v-if="javaSdkInstallSnippet"
+                title="PowerShell · 平台制品安装"
+                :code="javaSdkInstallSnippet"
+                @copy="copyText"
+              />
+              <el-alert
+                v-else
+                type="warning"
+                :closable="false"
+                title="平台尚未返回 Java SDK 制品链接"
+                description="请刷新项目接入信息；不要猜测 /maven、/repository 等下载地址。"
+              />
+            </section>
+
+            <section class="config-section">
+              <h3>2. 引入依赖（Maven）</h3>
+              <p>制品安装完成后，将以下依赖添加到业务服务的 pom.xml。平台下载 API 不是 Maven 仓库，无需添加 repository。</p>
               <CodeSnippetBlock
                 title="pom.xml"
                 :code="starterDependencySnippet"
@@ -85,18 +117,24 @@
             </section>
 
             <section class="config-section">
-              <h3>2. 配置文件（application.yml）</h3>
-              <p>在 application.yml 中添加以下配置；项目密钥只通过环境变量注入。</p>
+              <h3>3. 配置文件（application.yml）</h3>
+              <p>在 application.yml 中添加以下配置；项目密钥只通过环境变量注入。可用隐藏输入脚本写入当前 Windows 用户环境，随后用新终端启动业务服务。</p>
               <CodeSnippetBlock
                 title="application.yml"
                 :code="starterApplicationSnippet"
                 :highlighted-code="highlightedStarterApplicationSnippet"
                 @copy="copyText"
               />
+              <CodeSnippetBlock
+                v-if="registrySecretSetupSnippet"
+                title="PowerShell · 隐藏输入 Secret"
+                :code="registrySecretSetupSnippet"
+                @copy="copyText"
+              />
             </section>
 
             <section class="config-section config-check">
-              <h3>3. 完成后请勾选</h3>
+              <h3>4. 完成后请勾选</h3>
               <el-checkbox v-model="manualChecks.starter">我已完成 Starter 引入与配置</el-checkbox>
             </section>
           </div>
@@ -166,26 +204,17 @@
             <div class="panel-head">
               <div>
                 <span class="step-kicker">步骤 5</span>
-                <h2>最终自检</h2>
+                <h2>平台接入自检</h2>
               </div>
               <el-button type="primary" :loading="checking" @click="runCheck">发起自检</el-button>
             </div>
-            <el-form label-width="120px" class="inline-form">
-              <el-form-item label="可选 API 调用">
-                <el-select v-model="selectedScanToolId" filterable placeholder="完成 API 管理手动同步后，可选择项目接口做真实调用">
-                  <el-option
-                    v-for="tool in projectApiTools"
-                    :key="tool.scanToolId"
-                    :label="projectApiLabel(tool)"
-                    :value="tool.scanToolId"
-                  />
-                </el-select>
-                <div class="form-hint">接口扫描与同步请在 API 管理的“添加接口 / SDK 同步”中手动触发；这里不作为 SDK 接入完成条件。</div>
-              </el-form-item>
-              <el-form-item label="参数 JSON">
-                <el-input v-model="argsText" type="textarea" :rows="7" placeholder='例如 { "teamName": "一班" }' />
-              </el-form-item>
-            </el-form>
+            <el-alert
+              title="自检范围：项目配置、实例心跳与 SDK 签名回调"
+              description="真实浏览器 Embed 会话由 AI Coding 任务的“浏览器 Embed 闭环”单独验收，不会由本自检代替。"
+              type="info"
+              :closable="false"
+              show-icon
+            />
 
             <div v-if="checkResult" class="check-result">
               <div class="result-head" :class="checkResult.overallStatus.toLowerCase()">
@@ -231,9 +260,9 @@
         <aside class="ai-coding-side step-progress ai-progress-panel access-progress--refined" aria-label="AI Coding 接入进度">
           <div class="access-progress">
             <span>
-              AI 接入进度
+              AI 回传进度
               <strong class="ai-coding-progress-value">{{ aiAccessCompletedSteps }}/{{ aiAccessTotalSteps }}</strong>
-              已回传
+              项已报告
             </span>
             <div class="access-progress-track" aria-hidden="true">
               <i :style="{ width: `${aiAccessProgressPercent}%` }" />
@@ -242,11 +271,19 @@
           <div class="ai-progress-meta">
             <span>
               <strong>AI 接入会话</strong>
-              <small>{{ accessSession?.sessionId || '等待创建会话' }}</small>
+              <small>{{ onboardingTask?.taskId || '等待创建任务' }}</small>
             </span>
             <el-tag size="small" effect="plain" :type="accessSessionTagType">
-              {{ accessStatusLabel(accessSession?.status || 'OPEN') }}
+              {{ aiTaskStateLabel }}
             </el-tag>
+            <el-button
+              v-if="onboardingTask"
+              text
+              size="small"
+              @click="openOnboardingTaskDetail"
+            >
+              任务详情
+            </el-button>
           </div>
           <button
             v-for="(item, index) in aiDisplaySteps"
@@ -278,10 +315,27 @@
 
         <section class="ai-coding-main">
           <span class="panel-glass-highlight" aria-hidden="true" />
+          <el-alert
+            v-if="aiTaskLoadError"
+            class="page-alert"
+            type="error"
+            show-icon
+            :closable="false"
+            :title="aiTaskLoadError"
+          >
+            <el-button
+              link
+              type="primary"
+              :loading="aiOnboardingPromptLoading"
+              @click="retryOnboardingTaskLoad"
+            >
+              重新加载任务状态
+            </el-button>
+          </el-alert>
           <div class="panel-head">
             <div>
               <h2>将接入任务交给AI 编程工具</h2>
-              <p>复制提示词到 Cursor、Claude Code 或 Codex，让它在业务系统仓库完成 Starter、网关、前端 Embed、Workflow 发布和平台自检。</p>
+              <p>生成一次性交接包并复制到所选 AI 编程工具；进度、问题和结果通过当前任务回到 ReachAI。</p>
             </div>
           </div>
 
@@ -296,43 +350,36 @@
                   <button
                     type="button"
                     class="btn-copy-prompt"
-                    :disabled="!aiOnboardingPromptReady"
+                    :disabled="aiOnboardingPromptLoading || Boolean(aiTaskLoadError)"
                     :aria-busy="aiOnboardingPromptLoading"
                     :title="aiOnboardingPromptUnavailableReason"
-                    @click="copyAiOnboardingPrompt"
+                    @click="
+                      aiOnboardingPromptReady
+                        ? copyAiOnboardingPrompt()
+                        : prepareAiOnboardingTask()
+                    "
                   >
-                    {{ aiOnboardingPromptLoading ? '参数加载中…' : aiOnboardingPromptReady ? '复制提示词' : '数据未就绪' }}
+                    {{
+                      aiOnboardingPromptLoading
+                        ? '生成中…'
+                        : aiOnboardingPromptReady
+                          ? '复制交接包'
+                          : '生成交接包'
+                    }}
                   </button>
                 </div>
-                <div class="ai-tool-tabs" role="tablist" aria-label="AI 工具类型">
-                  <button
-                    type="button"
-                    role="tab"
-                    :class="{ active: aiPromptTool === 'cursor' }"
-                    :aria-selected="aiPromptTool === 'cursor'"
-                    @click="aiPromptTool = 'cursor'"
-                  >
-                    Cursor
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    :class="{ active: aiPromptTool === 'claude' }"
-                    :aria-selected="aiPromptTool === 'claude'"
-                    @click="aiPromptTool = 'claude'"
-                  >
-                    Claude Code
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    :class="{ active: aiPromptTool === 'codex' }"
-                    :aria-selected="aiPromptTool === 'codex'"
-                    @click="aiPromptTool = 'codex'"
-                  >
-                    Codex
-                  </button>
-                  <span class="ai-tool-tabs-track" aria-hidden="true" />
+                <AiCodingProviderSelector
+                  v-model="aiPromptTool"
+                  class="sdk-ai-provider-selector"
+                  aria-label="选择 AI 编程工具"
+                />
+                <div
+                  v-if="aiOnboardingPromptReady"
+                  class="compact-handoff-meta"
+                  aria-live="polite"
+                >
+                  <span>紧凑交接包</span>
+                  <strong>{{ aiOnboardingPromptCharacterSummary }}</strong>
                 </div>
                 <el-input
                   class="ai-prompt-input ai-prompt-preview"
@@ -349,16 +396,45 @@
               <div class="ai-coding-card-inner">
                 <div class="ai-coding-card-head">
                   <div>
-                    <h3>2. 平台会话与最终自检</h3>
-                    <p>AI 回传步骤会沉淀到左侧会话；自检仍复用原来的接入检查结果。</p>
+                    <h3>2. SDK 回调与平台自检</h3>
+                    <p>核对项目配置、实例心跳和签名回调；AI 回传报告仍沉淀到当前任务。</p>
                   </div>
-                  <button type="button" class="btn-self-check" :disabled="checking" @click="runCheck">
-                    {{ checking ? '自检中…' : '发起自检' }}
-                  </button>
+                  <el-tooltip
+                    :content="checking ? '自检中…' : (checkResult ? '重新发起手动自检' : '发起手动自检')"
+                    placement="top"
+                  >
+                    <span class="btn-self-check-wrap">
+                      <button
+                        type="button"
+                        class="btn-self-check"
+                        :disabled="checking"
+                        :aria-label="checking ? '自检中…' : (checkResult ? '重新发起手动自检' : '发起手动自检')"
+                        @click="runCheck"
+                      >
+                        <el-icon :class="{ 'is-loading': checking }"><Refresh /></el-icon>
+                      </button>
+                    </span>
+                  </el-tooltip>
                 </div>
-                <div v-if="checkResult?.readiness?.length" class="readiness-list ai-readiness-list">
+                <div
+                  v-if="selfCheckSource !== 'NONE'"
+                  class="ai-self-check-summary"
+                  :class="{ pass: selfCheckVerified }"
+                >
+                  <strong>
+                    {{
+                      selfCheckSource === 'TASK'
+                        ? (selfCheckVerified ? '当前任务平台验证已通过' : '当前任务平台验证仍有待处理项')
+                        : (selfCheckVerified ? '最近一次手动自检已通过' : '最近一次手动自检仍有待处理项')
+                    }}
+                  </strong>
+                  <span>
+                    {{ selfCheckSource === 'TASK' ? '结果来自当前 AI Coding 任务' : '结果来自最近一次手动自检' }}
+                  </span>
+                </div>
+                <div v-if="selfCheckReadiness.length" class="readiness-list ai-readiness-list">
                   <div
-                    v-for="item in checkResult.readiness"
+                    v-for="item in selfCheckReadiness"
                     :key="item.key"
                     class="readiness-row"
                     :class="item.status.toLowerCase()"
@@ -371,8 +447,8 @@
                 <div v-else class="ai-self-check-empty">
                   <span class="ai-self-check-glow" aria-hidden="true" />
                   <img class="ai-self-check-shield" src="/sdk-access-self-check-shield.png" alt="" />
-                  <strong>等待平台自检</strong>
-                  <p>完成 AI 接入或手动配置后，可在这里或“最终自检”步骤发起同一套检查。</p>
+                  <strong>尚无平台验证结果</strong>
+                  <p>完成 AI 接入后，任务验证结果会自动显示在这里；也可以发起一次手动自检。</p>
                 </div>
                 <div v-if="checkResult?.checks?.length" class="result-list ai-result-list">
                   <div v-for="item in checkResult.checks" :key="item.key" class="result-row" :class="item.status.toLowerCase()">
@@ -403,34 +479,23 @@
         type="info"
         show-icon
         :closable="false"
-        title="复制提示词到 Cursor、Claude Code 或 Codex，让 AI 在业务系统代码仓库里完成 SDK 接入。"
+        title="复制交接包到所选 AI 编程工具，让 AI 在业务系统代码仓库里完成 SDK 接入。"
         description="提示词不会包含 App Secret；AI 只会被要求使用本机环境变量或密钥管理器。"
       />
-      <section class="ai-coding-key-panel ai-coding-key-readonly">
-        <div class="ai-coding-key-head">
-          <div>
-            <strong>AI Coding 接入秘钥</strong>
-            <span>在项目详情中统一管理；此处只读展示，用于生成 AI 提示词 URL。</span>
-          </div>
-          <el-tag :type="aiCodingAccessEnabled ? 'success' : 'info'" effect="plain">
-            {{ aiCodingAccessEnabled ? '已启用' : '未启用' }}
-          </el-tag>
-        </div>
-        <div class="ai-coding-key-form">
-          <el-input
-            :model-value="aiCodingAccessDisplayKey"
-            disabled
-            show-password
-            placeholder="未启用或未生成；请前往项目详情启用"
-          />
-          <el-button link type="primary" @click="goProjectDetail">前往项目详情管理</el-button>
-        </div>
-      </section>
-      <el-tabs v-model="aiPromptTool" class="ai-tool-tabs">
-        <el-tab-pane label="Cursor" name="cursor" />
-        <el-tab-pane label="Claude Code" name="claude" />
-        <el-tab-pane label="Codex" name="codex" />
-      </el-tabs>
+      <AiCodingProviderSelector
+        v-model="aiPromptTool"
+        class="ai-onboarding-provider-selector"
+        aria-label="选择 AI 编程工具"
+        compact
+      />
+      <div
+        v-if="aiOnboardingPromptReady"
+        class="compact-handoff-meta"
+        aria-live="polite"
+      >
+        <span>紧凑交接包</span>
+        <strong>{{ aiOnboardingPromptCharacterSummary }}</strong>
+      </div>
       <el-input
         class="ai-prompt-input"
         :model-value="aiOnboardingPromptPreview"
@@ -444,32 +509,74 @@
           type="primary"
           :icon="DocumentCopy"
           :loading="aiOnboardingPromptLoading"
-          :disabled="!aiOnboardingPromptReady"
-          @click="copyAiOnboardingPrompt"
+          :disabled="Boolean(aiTaskLoadError)"
+          @click="
+            aiOnboardingPromptReady
+              ? copyAiOnboardingPrompt()
+              : prepareAiOnboardingTask()
+          "
         >
-          复制提示词
+          {{ aiOnboardingPromptReady ? '复制交接包' : '生成交接包' }}
         </el-button>
       </template>
     </AppDialog>
+
+    <AppDrawer
+      v-model="taskDrawerVisible"
+      title="AI Coding 任务详情"
+      size="720px"
+      class="ai-onboarding-task-drawer"
+    >
+      <template #header="{ titleId, titleClass }">
+        <div class="ai-task-drawer-header">
+          <h4 :id="titleId" :class="titleClass">AI Coding 任务详情</h4>
+          <el-button
+            :icon="Refresh"
+            :loading="taskActionBusy"
+            :disabled="!onboardingTaskDetail?.task?.taskId"
+            @click="handleOnboardingTaskRefresh"
+          >
+            刷新
+          </el-button>
+        </div>
+      </template>
+      <AiCodingTaskDetailPanel
+        :detail="onboardingTaskDetail"
+        :loading="taskActionBusy"
+        :busy="taskActionBusy"
+        @refresh="handleOnboardingTaskRefresh"
+        @answer="handleOnboardingTaskAnswer"
+        @reissue="handleOnboardingTaskReissue"
+        @verify="handleOnboardingTaskVerification"
+        @acceptance="handleOnboardingTaskAcceptance"
+        @cancel="handleOnboardingTaskCancel"
+      />
+    </AppDrawer>
   </div>
 </template>
 
 <script setup lang="ts">
 import AppDialog from '@/components/common/AppDialog.vue'
-import { computed, onMounted } from 'vue'
+import AppDrawer from '@/components/common/AppDrawer.vue'
+import AiCodingProviderSelector from '@/components/ai-coding/AiCodingProviderSelector.vue'
+import AiCodingTaskDetailPanel from '@/components/ai-coding/AiCodingTaskDetailPanel.vue'
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import {
   ArrowRight,
   Check,
   DocumentCopy,
   MagicStick,
   Pointer,
+  Refresh,
 } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import AppPageBackground from '@/components/common/AppPageBackground.vue'
 import CodeSnippetBlock from '@/components/common/CodeSnippetBlock.vue'
 import HeaderModeSwitch, { type HeaderModeOption } from '@/components/common/HeaderModeSwitch.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import { formatProjectKindLabel } from '@/utils/projectLabels'
+import ProjectRouteMissingState from '@/views/registry/components/ProjectRouteMissingState.vue'
+import ProjectWorkbenchLoadErrorState from '@/views/registry/components/ProjectWorkbenchLoadErrorState.vue'
 import { useSdkAccessWizardActions } from '@/views/registry/composables/useSdkAccessWizardActions'
 import { useSdkAccessWizardData } from '@/views/registry/composables/useSdkAccessWizardData'
 import { useSdkAccessWizardNavigation } from '@/views/registry/composables/useSdkAccessWizardNavigation'
@@ -477,11 +584,13 @@ import { useSdkAccessWizardProgress } from '@/views/registry/composables/useSdkA
 import { useSdkAccessWizardSnippets } from '@/views/registry/composables/useSdkAccessWizardSnippets'
 import { useSdkAccessWizardUiState } from '@/views/registry/composables/useSdkAccessWizardUiState'
 import {
-  AI_ACCESS_DISPLAY_STEP_TITLES,
   aiAccessStepStatusLabel,
-  projectApiToolLabel,
   sdkAccessCheckStatusLabel,
 } from '@/views/registry/sdkAccessWizardViewModel'
+import {
+  aiCodingConnectionStatusLabel,
+  aiCodingExecutionStatusLabel,
+} from '@/utils/aiCodingPresentation'
 
 const { theme } = useTheme()
 
@@ -494,8 +603,6 @@ const {
   aiPromptTool,
   accessMode,
   activeStep,
-  selectedScanToolId,
-  argsText,
   gatewayBaseUrl,
   embedTokenPath,
   manualChecks,
@@ -505,31 +612,55 @@ const {
   projectCode,
   project,
   instances,
-  projectApiTools,
   loading,
+  projectMissing,
+  loadError,
+  aiTaskLoadError,
   checking,
   aiPromptDialogVisible,
   aiOnboardingManifest,
-  accessSession,
-  aiCodingAccessEnabled,
-  aiCodingAccessKey,
-  aiCodingAccessDisplayKey,
+  onboardingTask,
+  onboardingTaskDetail,
+  handoffPackage,
+  selfCheckReadiness,
+  selfCheckSource,
+  selfCheckVerified,
+  aiDisplaySteps,
+  aiAccessCompletedSteps,
+  aiAccessTotalSteps,
+  aiOnboardingPrompt,
   aiOnboardingPromptLoading,
   aiOnboardingPromptReady,
   aiOnboardingPromptUnavailableReason,
   checkResult,
   isSdkBackedProject,
   onlineInstanceCount,
-  callableProjectApiTools,
   loadAll,
+  prepareAiOnboardingTask,
   runCheck,
+  refreshOnboardingTask,
+  retryOnboardingTaskLoad,
+  reissueOnboardingHandoff,
+  answerOnboardingQuestion,
+  verifyOnboardingAcceptanceReadiness,
+  finishOnboardingAcceptance,
+  cancelOnboardingTask,
 } = useSdkAccessWizardData({
-  selectedScanToolId,
-  argsText,
-  gatewayBaseUrl,
-  embedTokenPath,
   aiPromptTool,
 })
+
+const javaSdkInstallSnippet = computed(() =>
+  (aiOnboardingManifest.value?.sdkArtifacts || [])
+    .filter((artifact) => artifact.language === 'java')
+    .map((artifact) => artifact.installCommandTemplate || '')
+    .filter(Boolean)
+    .join('\n\n'),
+)
+
+const registrySecretSetupSnippet = computed(
+  () => aiOnboardingManifest.value?.security
+    ?.secretSetupCommandTemplate || '',
+)
 
 const {
   steps,
@@ -537,18 +668,15 @@ const {
   completedStepCount,
   completedPercent,
   accessSessionTagType,
-  overviewCards,
   backendChecks,
 } = useSdkAccessWizardProgress({
   activeStep,
   project,
   instances,
-  projectApiTools,
-  accessSession,
+  onboardingTask,
   checkResult,
   isSdkBackedProject,
   onlineInstanceCount,
-  callableProjectApiTools,
   gatewayBaseUrl,
   embedTokenPath,
   manualChecks,
@@ -563,21 +691,15 @@ const {
   highlightedGatewaySnippet,
   frontendSnippet,
   highlightedFrontendSnippet,
-  aiOnboardingPrompt,
 } = useSdkAccessWizardSnippets({
   projectCode,
   project,
   aiOnboardingManifest,
-  accessSession,
-  aiCodingAccessEnabled,
-  aiCodingAccessKey,
-  aiPromptTool,
   gatewayBaseUrl,
   embedTokenPath,
 })
 
 const {
-  goProjectDetail,
   goPrev,
   goNext,
 } = useSdkAccessWizardNavigation({
@@ -589,11 +711,114 @@ const {
 
 const { copyText } = useSdkAccessWizardActions()
 
+const taskDrawerVisible = ref(false)
+const taskActionBusy = ref(false)
+
+async function runTaskAction<T>(
+  action: () => Promise<T>,
+  errorMessage: string,
+): Promise<T | null> {
+  taskActionBusy.value = true
+  try {
+    return await action()
+  } catch (error) {
+    ElMessage.error((error as Error).message || errorMessage)
+    return null
+  } finally {
+    taskActionBusy.value = false
+  }
+}
+
+async function openOnboardingTaskDetail() {
+  taskDrawerVisible.value = true
+  await runTaskAction(
+    () => refreshOnboardingTask(),
+    '加载任务详情失败',
+  )
+}
+
+async function handleOnboardingTaskRefresh() {
+  await runTaskAction(
+    () => refreshOnboardingTask(),
+    '刷新任务详情失败',
+  )
+}
+
+async function handleOnboardingTaskReissue(taskId: string) {
+  const handoff = await runTaskAction(
+    () => reissueOnboardingHandoff(taskId),
+    '重新生成交接包失败',
+  )
+  if (handoff) {
+    taskDrawerVisible.value = false
+    aiPromptDialogVisible.value = true
+  }
+}
+
+async function handleOnboardingTaskAnswer(
+  taskId: string,
+  questionId: string,
+  answer: string,
+) {
+  const result = await runTaskAction(
+    () => answerOnboardingQuestion(taskId, questionId, answer),
+    '回答写回失败',
+  )
+  if (result) ElMessage.success('回答已写回当前任务')
+}
+
+async function handleOnboardingTaskAcceptance(
+  taskId: string,
+  passed: boolean,
+  message: string,
+) {
+  const result = await runTaskAction(
+    () => finishOnboardingAcceptance(taskId, passed, message),
+    '写入验收结果失败',
+  )
+  if (result) {
+    ElMessage[passed ? 'success' : 'warning'](
+      passed ? '任务验收已通过' : '任务已标记为验收不通过',
+    )
+  }
+}
+
+async function handleOnboardingTaskVerification(taskId: string) {
+  const result = await runTaskAction(
+    () => verifyOnboardingAcceptanceReadiness(taskId),
+    '平台验证失败',
+  )
+  if (result) {
+    ElMessage[result.acceptanceReady ? 'success' : 'warning'](
+      result.acceptanceReady
+        ? '平台验证已通过，现在可以验收'
+        : `仍有 ${result.blockers.length} 项未通过平台验证`,
+    )
+  }
+}
+
+async function handleOnboardingTaskCancel(taskId: string) {
+  const result = await runTaskAction(
+    () => cancelOnboardingTask(taskId),
+    '取消任务失败',
+  )
+  if (result) ElMessage.success('任务已取消')
+}
+
 const aiOnboardingPromptPreview = computed(() =>
   aiOnboardingPromptReady.value
     ? aiOnboardingPrompt.value
     : aiOnboardingPromptUnavailableReason.value,
 )
+
+const aiOnboardingPromptCharacterSummary = computed(() => {
+  const promptCharacters = handoffPackage.value?.promptCharacters
+    ?? aiOnboardingPrompt.value.length
+  const promptCharacterLimit = handoffPackage.value?.promptCharacterLimit
+  return promptCharacterLimit
+    ? `${promptCharacters} / ${promptCharacterLimit} 字符`
+    : `${promptCharacters} 字符`
+})
 
 async function copyAiOnboardingPrompt() {
   if (!aiOnboardingPromptReady.value) return
@@ -602,13 +827,6 @@ async function copyAiOnboardingPrompt() {
 
 const statusLabel = sdkAccessCheckStatusLabel
 const accessStatusLabel = aiAccessStepStatusLabel
-const projectApiLabel = projectApiToolLabel
-
-const aiAccessTotalSteps = computed(() =>
-  accessSession.value?.totalSteps || AI_ACCESS_DISPLAY_STEP_TITLES.length,
-)
-
-const aiAccessCompletedSteps = computed(() => accessSession.value?.completedSteps || 0)
 
 const aiAccessProgressPercent = computed(() =>
   aiAccessTotalSteps.value
@@ -616,15 +834,13 @@ const aiAccessProgressPercent = computed(() =>
     : 0,
 )
 
-const aiDisplaySteps = computed(() => {
-  if (accessSession.value?.steps?.length) {
-    return accessSession.value.steps
-  }
-  return AI_ACCESS_DISPLAY_STEP_TITLES.map((title, index) => ({
-    stepKey: `placeholder-${index}`,
-    title,
-    status: 'TODO' as const,
-  }))
+const aiTaskStateLabel = computed(() => {
+  if (aiTaskLoadError.value) return '状态不可用'
+  const task = onboardingTask.value
+  if (!task) return '待创建'
+  const connection = aiCodingConnectionStatusLabel(task.connection.status)
+  const execution = aiCodingExecutionStatusLabel(task.executionStatus)
+  return `${connection} · ${execution}`
 })
 
 onMounted(loadAll)

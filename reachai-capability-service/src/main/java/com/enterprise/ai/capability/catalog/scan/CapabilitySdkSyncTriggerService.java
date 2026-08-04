@@ -51,7 +51,7 @@ public class CapabilitySdkSyncTriggerService {
                         "No active SDK registry credential found for project: " + project.getProjectCode()));
         String targetUrl = sdkSyncUrl(project, instance);
         Map<String, Object> requestBody = new LinkedHashMap<>();
-        requestBody.put("source", "API_MANUAL_SCAN");
+        requestBody.put("schema", "reachai.registry-capability-scan-request.v1");
         requestBody.put("projectId", project.getId());
         requestBody.put("projectCode", project.getProjectCode());
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody,

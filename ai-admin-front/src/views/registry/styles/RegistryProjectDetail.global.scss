@@ -584,6 +584,92 @@
     var(--inner-highlight);
 }
 
+.ai-coding-load-alert {
+  margin: 12px 0;
+}
+
+.ai-coding-credential-policy {
+  padding: 20px;
+  border: 1px solid var(--border-readable);
+  border-radius: var(--radius-lg);
+  background: var(--surface-glass-control);
+  box-shadow:
+    0 16px 34px -24px rgb(var(--brand-primary-rgb) / 0.34),
+    var(--inner-highlight);
+  -webkit-backdrop-filter: blur(var(--glass-blur-panel)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur-panel)) saturate(var(--glass-saturation));
+}
+
+.ai-coding-credential-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.ai-coding-credential-grid > label {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-solid-control);
+}
+
+.ai-coding-credential-grid > label > span:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.ai-coding-credential-grid strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.ai-coding-credential-grid small,
+.ai-coding-credential-actions p {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.ai-coding-duration-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-coding-duration-control .el-input-number {
+  width: 150px;
+}
+
+.ai-coding-duration-control em {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.ai-coding-credential-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ai-coding-credential-actions p {
+  max-width: 580px;
+  margin: 0;
+}
+
+.ai-coding-credential-actions .el-button {
+  min-height: 40px;
+  border-radius: 10px;
+  font-weight: 680;
+}
+
 .ai-coding-key-head {
   display: flex;
   align-items: center;
@@ -688,14 +774,16 @@
 }
 
 [data-reduce-transparency="true"] .ai-coding-security-note,
-[data-reduce-transparency="true"] .ai-coding-access-card {
+[data-reduce-transparency="true"] .ai-coding-access-card,
+[data-reduce-transparency="true"] .ai-coding-credential-policy {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .ai-coding-security-note,
-  .ai-coding-access-card {
+  .ai-coding-access-card,
+  .ai-coding-credential-policy {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -712,6 +800,15 @@
   }
 
   .ai-coding-key-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ai-coding-credential-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-coding-credential-actions {
     align-items: stretch;
     flex-direction: column;
   }

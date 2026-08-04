@@ -25,7 +25,7 @@ public final class ReachGraph {
         private final String code;
         private String name;
         private String description;
-        private String runtimeType = "LANGGRAPH4J";
+        private String executionEngine = "GRAPH_SPEC";
         private String modelInstanceId;
         private String systemPrompt;
         private String visibility = "PROJECT";
@@ -49,8 +49,8 @@ public final class ReachGraph {
             return this;
         }
 
-        public Builder runtimeType(String runtimeType) {
-            this.runtimeType = textOr(runtimeType, this.runtimeType).toUpperCase(Locale.ROOT);
+        public Builder executionEngine(String executionEngine) {
+            this.executionEngine = textOr(executionEngine, this.executionEngine).toUpperCase(Locale.ROOT);
             return this;
         }
 
@@ -171,23 +171,15 @@ public final class ReachGraph {
         public ReachAgentGraph build() {
             validate();
             ReachGraphSpec spec = new ReachGraphSpec();
-            spec.setCode(code);
-            spec.setName(name);
-            spec.setMode("WORKFLOW");
-            spec.setRuntimeHint(runtimeType);
-            ReachGraphSpec.Layout layout = new ReachGraphSpec.Layout();
-            layout.setEngine("sdk");
-            layout.setDirection("LR");
-            spec.setLayout(layout);
             spec.setNodes(toNodes());
             spec.setEdges(toEdges(spec));
-            if (!hasText(spec.getEntry())) {
-                spec.setEntry(firstExecutableNodeId());
+            if (!hasText(spec.getEntryNodeId())) {
+                spec.setEntryNodeId(firstExecutableNodeId());
             }
-            if (spec.getFinish().isEmpty()) {
-                spec.getFinish().add(lastExecutableNodeId());
+            if (spec.getExitNodeIds().isEmpty()) {
+                spec.getExitNodeIds().add(lastExecutableNodeId());
             }
-            return new ReachAgentGraph(code, name, description, runtimeType, modelInstanceId, systemPrompt,
+            return new ReachAgentGraph(code, name, description, executionEngine, modelInstanceId, systemPrompt,
                     visibility, spec, metadata);
         }
 
@@ -221,11 +213,11 @@ public final class ReachGraph {
             List<ReachGraphSpec.Edge> result = new ArrayList<ReachGraphSpec.Edge>();
             for (EdgeDraft draft : edges) {
                 if (START.equals(draft.from)) {
-                    spec.setEntry(draft.to);
+                    spec.setEntryNodeId(draft.to);
                     continue;
                 }
                 if (END.equals(draft.to)) {
-                    spec.getFinish().add(draft.from);
+                    spec.getExitNodeIds().add(draft.from);
                     continue;
                 }
                 ReachGraphSpec.Edge edge = new ReachGraphSpec.Edge();

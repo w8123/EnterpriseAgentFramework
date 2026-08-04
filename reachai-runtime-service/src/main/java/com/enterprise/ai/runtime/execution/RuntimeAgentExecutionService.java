@@ -171,7 +171,8 @@ public class RuntimeAgentExecutionService {
             if (waiting) {
                 eventSink.emit("turn.waiting", Map.of(
                         "interactionId", result.get("interactionId"),
-                        "status", "WAITING_USER",
+                        "status", WorkflowExecutionStatus.SUSPENDED.name(),
+                        "suspensionReason", "USER_INPUT",
                         "uiRequest", result.get("uiRequest")));
             }
         }
@@ -217,7 +218,10 @@ public class RuntimeAgentExecutionService {
         metadata.put("runId", result.get("runId"));
         metadata.put("interactionId", result.get("interactionId"));
         metadata.put("interactionPending", waiting);
-        metadata.put("status", status);
+        metadata.put("status", waiting
+                ? WorkflowExecutionStatus.SUSPENDED.name()
+                : WorkflowExecutionStatus.fromInteractionStatus(status).name());
+        metadata.put("interactionStatus", status);
         if (result.get("metadata") instanceof Map<?, ?> rawMeta) {
             rawMeta.forEach((k, v) -> metadata.put(String.valueOf(k), v));
         }

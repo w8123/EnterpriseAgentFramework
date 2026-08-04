@@ -115,11 +115,22 @@ class RuntimeWorkflowVersionServiceTest {
         assertEquals("v1.0.0", published.getVersion());
         assertEquals("ACTIVE", published.getStatus());
         assertEquals(100, published.getRolloutPercent());
-        assertEquals("{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entry\":\"answer\"}",
+        assertEquals("{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entryNodeId\":\"answer\"}",
                 published.getGraphSpecSnapshotJson());
         assertNotNull(published.getSnapshotJson());
         verify(validationService).validate(any(RuntimeWorkflowDefinitionEntity.class));
         verify(workflowService).update(eq("wf-1"), any(RuntimeWorkflowDefinitionEntity.class));
+    }
+
+    @Test
+    void publishRejectsPercentageWithoutARealVersionRouter() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.publish("wf-1", "v1.0.0", 20, "partial", "alice"));
+
+        assertEquals(
+                "rolloutPercent must be 100 until deterministic workflow version routing is implemented",
+                error.getMessage());
+        verify(versionMapper, never()).insert(any(RuntimeWorkflowVersionEntity.class));
     }
 
     @Test
@@ -208,7 +219,7 @@ class RuntimeWorkflowVersionServiceTest {
     void rollbackRejectsHistoricalInteractionSnapshotBeforeAnyWrite() {
         RuntimeWorkflowVersionService actualService = realValidationService();
         RuntimeWorkflowVersionEntity historical = historicalVersion("""
-                {"nodes":[{"id":"ask","type":"INTERACTION"}],"entry":"ask","finish":["ask"]}
+                {"nodes":[{"id":"ask","type":"INTERACTION"}],"entryNodeId":"ask","exitNodeIds":["ask"]}
                 """);
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
@@ -224,7 +235,7 @@ class RuntimeWorkflowVersionServiceTest {
     void rollbackRejectsHistoricalCodeSnapshotBeforeAnyWrite() {
         RuntimeWorkflowVersionService actualService = realValidationService();
         RuntimeWorkflowVersionEntity historical = historicalVersion("""
-                {"nodes":[{"id":"code","type":"CODE"}],"entry":"code","finish":["code"]}
+                {"nodes":[{"id":"code","type":"CODE"}],"entryNodeId":"code","exitNodeIds":["code"]}
                 """);
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
@@ -246,7 +257,7 @@ class RuntimeWorkflowVersionServiceTest {
         RuntimeWorkflowDefinitionEntity workflow = workflowService.findById("wf-1").orElseThrow();
         workflow.setProjectCode("demo");
         RuntimeWorkflowVersionEntity historical = historicalVersion("""
-                {"nodes":[{"id":"open","type":"PAGE_ACTION","config":{"projectCode":"demo","pageKey":"orders","actionKey":"open"}}],"entry":"open","finish":["open"]}
+                {"nodes":[{"id":"open","type":"PAGE_ACTION","config":{"projectCode":"demo","pageKey":"orders","actionKey":"open"}}],"entryNodeId":"open","exitNodeIds":["open"]}
                 """);
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
@@ -261,11 +272,11 @@ class RuntimeWorkflowVersionServiceTest {
     void rollbackAllowsStableHistoricalSnapshot() {
         RuntimeWorkflowVersionService actualService = realValidationService();
         RuntimeWorkflowVersionEntity active = historicalVersion(
-                "{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entry\":\"answer\",\"finish\":[\"answer\"]}");
+                "{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entryNodeId\":\"answer\",\"exitNodeIds\":[\"answer\"]}");
         active.setStatus("ACTIVE");
         active.setVersion("v-active");
         RuntimeWorkflowVersionEntity historical = historicalVersion(
-                "{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entry\":\"answer\",\"finish\":[\"answer\"]}");
+                "{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entryNodeId\":\"answer\",\"exitNodeIds\":[\"answer\"]}");
         historical.setVersion("v-stable");
 
         RuntimeWorkflowVersionEntity rolled = actualService.rollback("wf-1", historical.getId(), "carol");
@@ -301,9 +312,12 @@ class RuntimeWorkflowVersionServiceTest {
         workflow.setId("wf-1");
         workflow.setKeySlug("page-search");
         workflow.setName("Page Search");
-        workflow.setGraphSpecJson("{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entry\":\"answer\"}");
+        workflow.setGraphSpecJson("{\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"entryNodeId\":\"answer\"}");
         workflow.setCanvasJson("{\"nodes\":[]}");
-        workflow.setRuntimeType("LANGGRAPH4J");
+        workflow.setWorkflowKind("GENERAL");
+        workflow.setExecutionEngine("GRAPH_SPEC");
+        workflow.setDefinitionAuthority("USER");
+        workflow.setCreationChannel("STUDIO");
         workflow.setStatus("DRAFT");
         return workflow;
     }

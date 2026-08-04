@@ -24,47 +24,49 @@ public class RuntimeWorkflowStudioService {
     private final RuntimeWorkflowVersionService workflowVersionService;
     private final ObjectMapper objectMapper;
 
-    public WorkflowStudioState getStudioState(String workflowId) {
+    public WorkflowWorkingCopyState getWorkingCopy(String workflowId) {
         RuntimeWorkflowDefinitionEntity workflow = requireWorkflow(workflowId);
-        return toStudioState(workflow);
+        return toWorkingCopyState(workflow);
     }
 
     @Transactional
-    public WorkflowStudioState saveStudioDraft(String workflowId, WorkflowStudioSaveRequest request) {
-        if (request == null) {
-            throw new IllegalArgumentException("studio draft is required");
+    public WorkflowWorkingCopyState saveWorkingCopy(String workflowId, SaveWorkingCopyCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("workflow working copy is required");
         }
-        String graphSpecJson = requireGraphSpec(request.graphSpecJson());
+        String graphSpecJson = requireGraphSpec(command.graphSpecJson());
         validateJson("graphSpecJson", graphSpecJson, GraphSpec.class);
-        validateOptionalJson("canvasJson", request.canvasJson());
-        validateOptionalJson("inputSchemaJson", request.inputSchemaJson());
-        validateOptionalJson("outputSchemaJson", request.outputSchemaJson());
-        validateOptionalJson("defaultResourceConfigJson", request.defaultResourceConfigJson());
-        validateOptionalJson("extraJson", request.extraJson());
+        validateOptionalJson("canvasJson", command.canvasJson());
+        validateOptionalJson("inputSchemaJson", command.inputSchemaJson());
+        validateOptionalJson("outputSchemaJson", command.outputSchemaJson());
+        validateOptionalJson("defaultResourceConfigJson", command.defaultResourceConfigJson());
+        validateOptionalJson("extraJson", command.extraJson());
 
         RuntimeWorkflowDefinitionEntity update = new RuntimeWorkflowDefinitionEntity();
-        update.setKeySlug(request.keySlug());
-        update.setName(request.name());
-        update.setDescription(request.description());
-        update.setWorkflowType(request.workflowType());
-        update.setRuntimeType(request.runtimeType());
+        update.setKeySlug(command.keySlug());
+        update.setName(command.name());
+        update.setDescription(command.description());
+        update.setWorkflowKind(command.workflowKind());
+        update.setExecutionEngine(command.executionEngine());
+        update.setDefinitionAuthority(command.definitionAuthority());
+        update.setCreationChannel(command.creationChannel());
         update.setGraphSpecJson(graphSpecJson);
-        update.setCanvasJson(request.canvasJson());
-        update.setInputSchemaJson(request.inputSchemaJson());
-        update.setOutputSchemaJson(request.outputSchemaJson());
-        update.setDefaultModelInstanceId(request.defaultModelInstanceId());
-        update.setDefaultResourceConfigJson(request.defaultResourceConfigJson());
-        update.setExtraJson(request.extraJson());
+        update.setCanvasJson(command.canvasJson());
+        update.setInputSchemaJson(command.inputSchemaJson());
+        update.setOutputSchemaJson(command.outputSchemaJson());
+        update.setDefaultModelInstanceId(command.defaultModelInstanceId());
+        update.setDefaultResourceConfigJson(command.defaultResourceConfigJson());
+        update.setExtraJson(command.extraJson());
         RuntimeWorkflowDefinitionEntity saved = workflowDefinitionService.update(
                 workflowId,
                 update,
-                request.baseRevision());
-        return toStudioState(saved);
+                command.baseRevision());
+        return toWorkingCopyState(saved);
     }
 
-    private WorkflowStudioState toStudioState(RuntimeWorkflowDefinitionEntity workflow) {
+    private WorkflowWorkingCopyState toWorkingCopyState(RuntimeWorkflowDefinitionEntity workflow) {
         RuntimeWorkflowVersionEntity activeVersion = workflowVersionService.resolveActive(workflow.getId());
-        return new WorkflowStudioState(
+        return new WorkflowWorkingCopyState(
                 workflow.getId(),
                 workflow.getProjectId(),
                 workflow.getProjectCode(),
@@ -73,12 +75,13 @@ public class RuntimeWorkflowStudioService {
                 workflow.getDescription(),
                 workflow.getGraphSpecJson(),
                 workflow.getCanvasJson(),
-                workflow.getWorkflowType(),
-                workflow.getRuntimeType(),
+                workflow.getWorkflowKind(),
+                workflow.getExecutionEngine(),
+                workflow.getDefinitionAuthority(),
+                workflow.getCreationChannel(),
                 workflow.getDefaultModelInstanceId(),
                 workflow.getDefaultResourceConfigJson(),
                 workflow.getStatus(),
-                workflow.getManagedBy(),
                 workflow.getExtraJson(),
                 workflow.getId(),
                 workflow.getInputSchemaJson(),
@@ -161,13 +164,14 @@ public class RuntimeWorkflowStudioService {
                 || differsWhenPresent(snapshot, "keySlug", workflow.getKeySlug())
                 || differsWhenPresent(snapshot, "name", workflow.getName())
                 || differsWhenPresent(snapshot, "description", workflow.getDescription())
-                || differsWhenPresent(snapshot, "workflowType", workflow.getWorkflowType())
-                || differsWhenPresent(snapshot, "runtimeType", workflow.getRuntimeType())
+                || differsWhenPresent(snapshot, "workflowKind", workflow.getWorkflowKind())
+                || differsWhenPresent(snapshot, "executionEngine", workflow.getExecutionEngine())
                 || differsJsonWhenPresent(snapshot, "inputSchemaJson", workflow.getInputSchemaJson())
                 || differsJsonWhenPresent(snapshot, "outputSchemaJson", workflow.getOutputSchemaJson())
                 || differsWhenPresent(snapshot, "defaultModelInstanceId", workflow.getDefaultModelInstanceId())
                 || differsJsonWhenPresent(snapshot, "defaultResourceConfigJson", workflow.getDefaultResourceConfigJson())
-                || differsWhenPresent(snapshot, "managedBy", workflow.getManagedBy())
+                || differsWhenPresent(snapshot, "definitionAuthority", workflow.getDefinitionAuthority())
+                || differsWhenPresent(snapshot, "creationChannel", workflow.getCreationChannel())
                 || differsJsonWhenPresent(snapshot, "extraJson", workflow.getExtraJson());
     }
 
@@ -216,71 +220,55 @@ public class RuntimeWorkflowStudioService {
         return !jsonEquals(snapshotValue == null ? null : snapshotValue.toString(), currentValue);
     }
 
-    public record WorkflowStudioState(String workflowId,
-                                      Long projectId,
-                                      String projectCode,
-                                      String keySlug,
-                                      String name,
-                                      String description,
-                                      String graphSpecJson,
-                                      String canvasJson,
-                                      String workflowType,
-                                      String runtimeType,
-                                      String defaultModelInstanceId,
-                                      String defaultResourceConfigJson,
-                                      String status,
-                                      String managedBy,
-                                      String extraJson,
-                                      String id,
-                                      String inputSchemaJson,
-                                      String outputSchemaJson,
-                                      LocalDateTime createdAt,
-                                      LocalDateTime updatedAt,
-                                      Boolean deletable,
-                                      String revision,
-                                      ActiveVersionSummary activeVersion,
-                                      boolean hasUnpublishedChanges) {
+    public record WorkflowWorkingCopyState(String workflowId,
+                                           Long projectId,
+                                           String projectCode,
+                                           String keySlug,
+                                           String name,
+                                           String description,
+                                           String graphSpecJson,
+                                           String canvasJson,
+                                           String workflowKind,
+                                           String executionEngine,
+                                           String definitionAuthority,
+                                           String creationChannel,
+                                           String defaultModelInstanceId,
+                                           String defaultResourceConfigJson,
+                                           String status,
+                                           String extraJson,
+                                           String id,
+                                           String inputSchemaJson,
+                                           String outputSchemaJson,
+                                           LocalDateTime createdAt,
+                                           LocalDateTime updatedAt,
+                                           Boolean deletable,
+                                           String revision,
+                                           ActiveVersionSummary activeVersion,
+                                           boolean hasUnpublishedChanges) {
 
-        public WorkflowStudioState(String workflowId,
-                                   Long projectId,
-                                   String projectCode,
-                                   String keySlug,
-                                   String name,
-                                   String description,
-                                   String graphSpecJson,
-                                   String canvasJson,
-                                   String workflowType,
-                                   String runtimeType,
-                                   String defaultModelInstanceId,
-                                   String defaultResourceConfigJson,
-                                   String status,
-                                   String managedBy,
-                                   String extraJson) {
-            this(workflowId, projectId, projectCode, keySlug, name, description, graphSpecJson, canvasJson,
-                    workflowType, runtimeType, defaultModelInstanceId, defaultResourceConfigJson, status, managedBy,
-                    extraJson, workflowId, null, null, null, null, null, null, null, true);
-        }
     }
 
-    public record WorkflowStudioSaveRequest(String graphSpecJson,
-                                            String canvasJson,
-                                            String extraJson,
-                                            String baseRevision,
-                                            String keySlug,
-                                            String name,
-                                            String description,
-                                            String workflowType,
-                                            String runtimeType,
-                                            String inputSchemaJson,
-                                            String outputSchemaJson,
-                                            String defaultModelInstanceId,
-                                            String defaultResourceConfigJson) {
-
-        public WorkflowStudioSaveRequest(String graphSpecJson,
+    public record SaveWorkingCopyCommand(String graphSpecJson,
                                          String canvasJson,
-                                         String extraJson) {
+                                         String extraJson,
+                                         String baseRevision,
+                                         String keySlug,
+                                         String name,
+                                         String description,
+                                         String inputSchemaJson,
+                                         String outputSchemaJson,
+                                         String defaultModelInstanceId,
+                                         String defaultResourceConfigJson,
+                                         String workflowKind,
+                                         String executionEngine,
+                                         String definitionAuthority,
+                                         String creationChannel) {
+
+        public SaveWorkingCopyCommand(String graphSpecJson,
+                                      String canvasJson,
+                                      String extraJson) {
             this(graphSpecJson, canvasJson, extraJson, null, null, null, null, null, null,
-                    null, null, null, null);
+                    null, null, null, null, null, null);
         }
     }
 

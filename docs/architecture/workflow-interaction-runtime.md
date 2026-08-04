@@ -121,7 +121,7 @@ Control 只做公开入口、鉴权与代理；不得读写 Runtime 表。
 
 - `source_type`、`workflow_id`、`workflow_version_id`
 - `graph_spec_snapshot_json`
-- `current_node_id`、`state_json`、`ui_request_json`
+- `current_node_id`、`resume_checkpoint_json`、`ui_request_json`
 - `run_id` / `trace_id`
 - 所有权：`app_id` / `tenant_id` / `session_id` / `user_id`
 - `status` / `revision` / `idempotency_key` / `expires_at`

@@ -45,7 +45,7 @@
             <el-input
               v-model="filters.keyword"
               clearable
-              placeholder="工具名或描述"
+              placeholder="工具名称、标识或描述"
               style="width: 200px"
               @keyup.enter="handleSearch"
             />
@@ -66,177 +66,182 @@
         </FilterBar>
       </template>
 
-      <el-table :data="tools" empty-text=" " stripe @expand-change="onToolExpandChange">
-        <el-table-column type="expand">
+      <el-table
+        class="tool-list-table"
+        :data="tools"
+        empty-text=" "
+        stripe
+        row-key="name"
+        table-layout="fixed"
+        @expand-change="onToolExpandChange"
+      >
+        <el-table-column type="expand" width="48">
           <template #default="{ row }">
             <div class="expand-content">
-              <h4>参数定义</h4>
-              <el-table
-                class="param-definition-table"
-                :data="parameterRows(row.parameters)"
-                size="small"
-                border
-                row-key="_key"
-                :tree-props="{ children: 'children' }"
-                default-expand-all
-                table-layout="fixed"
-              >
-                <el-table-column prop="name" label="参数名" min-width="120" show-overflow-tooltip />
-                <el-table-column prop="type" label="类型" width="100" show-overflow-tooltip />
-                <el-table-column prop="location" label="位置" width="88" show-overflow-tooltip>
-                  <template #default="{ row: param }">
-                    {{ param.location || '-' }}
-                  </template>
-                </el-table-column>
-                <el-table-column
-                  prop="description"
-                  label="描述"
-                  min-width="120"
-                  show-overflow-tooltip
-                />
-                <el-table-column prop="required" label="必填" width="72" align="center">
-                  <template #default="{ row: param }">
-                    <el-tag :type="param.required ? 'danger' : 'info'" size="small">
-                      {{ param.required ? '是' : '否' }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-              </el-table>
-              <div class="tool-meta">
-                <div><b>来源：</b>{{ row.source }}</div>
-                <div><b>来源项目：</b>{{ sourceProjectLabel(row) }}</div>
-                <div><b>HTTP：</b>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</div>
-                <div><b>Base URL：</b>{{ row.baseUrl || '-' }}</div>
-                <div><b>来源定位：</b>{{ row.sourceLocation || '-' }}</div>
-                <div><b>请求体类型：</b>{{ row.requestBodyType || '-' }}</div>
-                <div><b>响应类型：</b>{{ row.responseType || '-' }}</div>
+              <div class="tool-detail-header">
+                <div>
+                  <p>Tool 详情</p>
+                  <h3>{{ row.title || row.name }}</h3>
+                </div>
+                <div class="tool-detail-badges">
+                  <StatusTag :label="row.source" :tone="sourceTagType(row.source)" />
+                  <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
+                    {{ row.enabled ? '已启用' : '已停用' }}
+                  </el-tag>
+                </div>
               </div>
+
+              <div class="tool-detail-grid">
+                <div class="tool-detail-item tool-detail-item--wide">
+                  <span>工具标识</span>
+                  <code>{{ row.name }}</code>
+                </div>
+                <div class="tool-detail-item tool-detail-item--wide">
+                  <span>描述</span>
+                  <p>{{ row.description || '-' }}</p>
+                </div>
+                <div class="tool-detail-item tool-detail-item--wide">
+                  <span>AI 理解</span>
+                  <p>{{ row.aiDescription || '暂无 AI 语义摘要' }}</p>
+                </div>
+                <div class="tool-detail-item tool-detail-item--wide">
+                  <span>端点</span>
+                  <code>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</code>
+                </div>
+                <div class="tool-detail-item">
+                  <span>参数数量</span>
+                  <strong>{{ (row.parameters || []).length }}</strong>
+                </div>
+                <div class="tool-detail-item">
+                  <span>项目编码</span>
+                  <code>{{ row.projectCode || projectCodeById(row.projectId) || '-' }}</code>
+                </div>
+                <div class="tool-detail-item">
+                  <span>稳定标识</span>
+                  <code>{{ row.qualifiedName || '-' }}</code>
+                </div>
+                <div class="tool-detail-item">
+                  <span>Base URL</span>
+                  <code>{{ row.baseUrl || '-' }}</code>
+                </div>
+                <div class="tool-detail-item">
+                  <span>来源定位</span>
+                  <code>{{ row.sourceLocation || '-' }}</code>
+                </div>
+                <div class="tool-detail-item">
+                  <span>请求体类型</span>
+                  <code>{{ row.requestBodyType || '-' }}</code>
+                </div>
+                <div class="tool-detail-item">
+                  <span>响应类型</span>
+                  <code>{{ row.responseType || '-' }}</code>
+                </div>
+                <div class="tool-detail-item">
+                  <span>API 目录</span>
+                  <div v-if="row.catalogLinkStatus" class="tool-detail-inline">
+                    <StatusTag
+                      :label="catalogHealthLabel(row.catalogLinkStatus)"
+                      :tone="catalogHealthTagType(row.catalogLinkStatus)"
+                    />
+                    <el-button
+                      v-if="row.projectId != null && row.catalogScanToolId != null"
+                      link
+                      type="primary"
+                      size="small"
+                      @click.stop="goScanApiRow(row)"
+                    >
+                      打开目录
+                    </el-button>
+                  </div>
+                  <strong v-else>-</strong>
+                </div>
+              </div>
+
+              <section class="tool-detail-section">
+                <div class="tool-detail-section-heading">
+                  <h4>参数定义</h4>
+                  <span>
+                    {{ (row.parameters || []).length }} 个参数，{{ countRequiredParameters(row.parameters || []) }} 个必填
+                  </span>
+                </div>
+                <el-table
+                  class="param-definition-table"
+                  :data="parameterRows(row.parameters)"
+                  size="small"
+                  border
+                  row-key="_key"
+                  :tree-props="{ children: 'children' }"
+                  default-expand-all
+                  table-layout="fixed"
+                  empty-text="暂无参数"
+                >
+                  <el-table-column prop="name" label="参数名" min-width="120" show-overflow-tooltip />
+                  <el-table-column prop="type" label="类型" width="100" show-overflow-tooltip />
+                  <el-table-column prop="location" label="位置" width="88" show-overflow-tooltip>
+                    <template #default="{ row: param }">
+                      {{ param.location || '-' }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    prop="description"
+                    label="描述"
+                    min-width="160"
+                    show-overflow-tooltip
+                  />
+                  <el-table-column prop="required" label="必填" width="72" align="center">
+                    <template #default="{ row: param }">
+                      <el-tag :type="param.required ? 'danger' : 'info'" size="small">
+                        {{ param.required ? '是' : '否' }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </section>
+
               <div class="tool-ai-semantic-block">
                 <div v-if="semanticLoadState[row.name] === 'loading'" class="tool-meta-ai-loading">正在加载完整语义文档…</div>
                 <template v-else-if="fullSemanticMd[row.name]">
                   <h4 class="expand-ai-doc-title">完整 AI 语义文档</h4>
                   <div class="markdown-body tool-semantic-md" v-html="renderMd(fullSemanticMd[row.name])" />
                 </template>
-                <div v-else-if="row.aiDescription" class="tool-meta-ai">
-                  <b>AI 理解（摘要）：</b>
-                  <span class="ai-desc-text">{{ row.aiDescription }}</span>
-                  <p v-if="semanticLoadState[row.name] === 'none'" class="ai-doc-miss-hint">
-                    无独立语义文档记录；摘要来自生成结果中的「一句话语义」片段。
-                  </p>
-                </div>
+                <p v-else-if="semanticLoadState[row.name] === 'none'" class="ai-doc-miss-hint">
+                  暂无独立语义文档，上方已展示当前 AI 语义摘要。
+                </p>
               </div>
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="name" label="工具名" width="200">
+        <el-table-column prop="title" label="工具名称" min-width="260">
           <template #default="{ row }">
-            <el-text type="primary" tag="b">{{ row.name }}</el-text>
+            <div class="tool-name-cell">
+              <el-text type="primary" tag="b">{{ row.title || row.name }}</el-text>
+              <code>{{ row.name }}</code>
+              <StatusTag :label="row.source" :tone="sourceTagType(row.source)" />
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="来源" width="110" align="center">
+        <el-table-column label="项目" min-width="220">
           <template #default="{ row }">
-            <StatusTag :label="row.source" :tone="sourceTagType(row.source)" />
+            <div class="tool-project-cell">
+              <span>{{ sourceProjectLabel(row) }}</span>
+              <code v-if="row.projectCode || projectCodeById(row.projectId)">
+                {{ row.projectCode || projectCodeById(row.projectId) }}
+              </code>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="项目" min-width="140" show-overflow-tooltip>
-          <template #default="{ row }">
-            {{ sourceProjectLabel(row) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="项目编码" min-width="140" show-overflow-tooltip>
-          <template #default="{ row }">
-            {{ row.projectCode || projectCodeById(row.projectId) || '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column label="API 目录" min-width="140" align="center">
-          <template #default="{ row }">
-            <template v-if="row.catalogLinkStatus">
-              <StatusTag
-                :label="catalogHealthLabel(row.catalogLinkStatus)"
-                :tone="catalogHealthTagType(row.catalogLinkStatus)"
-              />
-              <el-button
-                v-if="row.projectId != null && row.catalogScanToolId != null"
-                link
-                type="primary"
-                size="small"
-                @click="goScanApiRow(row)"
-              >
-                打开目录
-              </el-button>
-            </template>
-            <span v-else class="text-muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="可见性" width="110">
-          <template #default="{ row }">
-            <el-tag size="small">{{ row.visibility || 'PRIVATE' }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="qualifiedName" label="全限定名" min-width="180" show-overflow-tooltip />
-        <el-table-column label="端点" min-width="220">
-          <template #default="{ row }">
-            <span>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="description" label="描述" min-width="240">
-          <template #default="{ row }">
-            <el-tooltip
-              placement="top-start"
-              :show-after="200"
-              :hide-after="0"
-              :teleported="true"
-              popper-class="tool-description-tooltip"
-            >
-              <template #content>
-                <div class="tool-description-tooltip-content">
-                  {{ row.description || '-' }}
-                </div>
-              </template>
-              <div class="tool-description-cell">
-                {{ row.description || '-' }}
-              </div>
-            </el-tooltip>
-          </template>
-        </el-table-column>
-        <el-table-column min-width="200" show-overflow-tooltip>
-          <template #header>
-            <span title="列表为摘要（一句话语义）；展开行可加载完整 Markdown 文档">AI 理解</span>
-          </template>
-          <template #default="{ row }">
-            <span class="ai-table-cell">{{ row.aiDescription || '-' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="参数数量" width="100" align="center">
-          <template #default="{ row }">
-            {{ (row.parameters || []).length }}
-          </template>
-        </el-table-column>
-        <el-table-column label="启用" width="90" align="center">
+        <el-table-column label="启用" width="110" align="center">
           <template #default="{ row }">
             <el-switch
               :model-value="row.enabled"
+              inline-prompt
+              active-text="开"
+              inactive-text="关"
               @change="handleEnabledChange(row, $event as boolean)"
             />
           </template>
         </el-table-column>
-        <el-table-column label="Agent 可见" width="110" align="center">
-          <template #default="{ row }">
-            <el-switch
-              :model-value="row.agentVisible"
-              @change="handleFlagChange(row, 'agentVisible', $event as boolean)"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column label="轻量调用" width="110" align="center">
-          <template #default="{ row }">
-            <el-switch
-              :model-value="row.lightweightEnabled"
-              @change="handleFlagChange(row, 'lightweightEnabled', $event as boolean)"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="180" align="center">
           <template #default="{ row }">
             <div class="operation-actions">
               <button type="button" class="table-action-link" @click.stop="openEditDialog(row)">编辑</button>
@@ -284,12 +289,11 @@
           <div class="tool-editor-summary">
             <div>
               <p class="summary-eyebrow">{{ form.source || 'manual' }} Tool</p>
-              <h3>{{ form.name || '未命名 Tool' }}</h3>
+              <h3>{{ form.title || form.name || '未命名 Tool' }}</h3>
               <p>{{ form.description || '描述这个 Tool 能做什么，方便 Agent 正确选择。' }}</p>
             </div>
             <div class="summary-tags">
               <el-tag size="small" :type="sourceTagType(form.source)" effect="plain">{{ form.source }}</el-tag>
-              <el-tag size="small" effect="plain">{{ form.visibility || 'PRIVATE' }}</el-tag>
               <el-tag size="small" effect="plain">{{ form.httpMethod || 'GET' }}</el-tag>
             </div>
           </div>
@@ -300,16 +304,19 @@
             type="info"
             :closable="false"
             show-icon
-            title="代码注册 Tool 不能改名或删除；描述、参数说明、可见性和运行开关可以在管理端维护。"
+            title="代码注册 Tool 不能修改工具标识或删除；工具名称、描述、参数说明和启用状态可以在管理端维护。"
           />
 
           <el-form label-width="108px" class="tool-editor-form">
             <div v-show="activeToolStep === 0" class="tool-editor-panel">
               <div class="panel-heading">
                 <h4>身份信息</h4>
-                <p>定义 Tool 的名称、描述、项目归属和命名空间。</p>
+                <p>定义面向用户的工具名称、稳定机器标识、描述和项目归属。</p>
               </div>
-              <el-form-item label="工具名">
+              <el-form-item label="工具名称">
+                <el-input v-model="form.title" placeholder="例如：停用班组" />
+              </el-form-item>
+              <el-form-item label="工具标识">
                 <el-input v-model="form.name" :disabled="isEditMode" placeholder="snake_case，如 query_user_profile" />
               </el-form-item>
               <el-form-item label="描述">
@@ -321,7 +328,7 @@
                 />
               </el-form-item>
               <el-row :gutter="16">
-                <el-col :span="12">
+                <el-col :span="24">
                   <el-form-item label="项目">
                     <el-select
                       v-model="form.projectId"
@@ -340,19 +347,9 @@
                     </el-select>
                   </el-form-item>
                 </el-col>
-                <el-col :span="12">
-                  <el-form-item label="可见性">
-                    <el-select v-model="form.visibility" style="width: 100%">
-                      <el-option label="PRIVATE" value="PRIVATE" />
-                      <el-option label="PROJECT" value="PROJECT" />
-                      <el-option label="SHARED" value="SHARED" />
-                      <el-option label="PUBLIC" value="PUBLIC" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
               </el-row>
               <div class="meta-readonly">
-                <span>全限定名</span>
+                <span>稳定标识</span>
                 <code>{{ resolvedFormQualifiedName || '保存后生成' }}</code>
               </div>
               <div class="meta-readonly">
@@ -434,25 +431,24 @@
             <div v-show="activeToolStep === 3" class="tool-editor-panel">
               <div class="panel-heading">
                 <h4>运行控制</h4>
-                <p>控制 Tool 是否启用、是否进入 Agent 工具集，以及是否允许轻量调用。</p>
+                <p>启用后，Tool 将进入 Agent 可用工具集；停用后不可被 Agent 发现或调用。</p>
               </div>
               <div class="control-grid">
                 <div class="control-card">
-                  <span>启用</span>
+                  <div>
+                    <span>启用 Tool</span>
+                    <small>启用即对 Agent 可见</small>
+                  </div>
                   <el-switch v-model="form.enabled" />
-                </div>
-                <div class="control-card">
-                  <span>Agent 可见</span>
-                  <el-switch v-model="form.agentVisible" />
-                </div>
-                <div class="control-card">
-                  <span>轻量调用可见</span>
-                  <el-switch v-model="form.lightweightEnabled" />
                 </div>
               </div>
               <div class="publish-checklist">
                 <div>
-                  <b>工具名</b>
+                  <b>工具名称</b>
+                  <span>{{ form.title || '未填写' }}</span>
+                </div>
+                <div>
+                  <b>工具标识</b>
                   <span>{{ form.name || '未填写' }}</span>
                 </div>
                 <div>
@@ -467,6 +463,10 @@
                   <b>参数</b>
                   <span>{{ form.parameters.length }} 个</span>
                 </div>
+                <div>
+                  <b>使用状态</b>
+                  <span>{{ form.enabled ? '启用（Agent 可见）' : '停用' }}</span>
+                </div>
               </div>
             </div>
           </el-form>
@@ -474,7 +474,7 @@
     </WizardDialog>
 
     <!-- 测试弹窗 -->
-    <AppDialog v-model="testDialogVisible" :title="`测试工具 — ${testingTool?.name}`" width="600px" append-to-body>
+    <AppDialog v-model="testDialogVisible" :title="`测试工具 — ${testingTool?.title || testingTool?.name}`" width="600px" append-to-body>
       <el-form v-if="testingTool" label-width="120px">
         <el-form-item
           v-for="param in testingTool.parameters"
@@ -536,6 +536,7 @@ import { useProjectStore } from '@/store/project'
 const route = useRoute()
 const router = useRouter()
 const projectStore = useProjectStore()
+const scopeProjectId = ref<number | null>(null)
 const tools = ref<ToolInfo[]>([])
 const scanProjects = ref<ScanProject[]>([])
 const total = ref(0)
@@ -555,12 +556,12 @@ const form = reactive<ToolUpsertRequest>(createEmptyForm())
 const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
 const isEditMode = computed(() => editingName.value !== null)
 const isCodeTool = computed(() => form.source === 'code')
-const formDialogTitle = computed(() => (isEditMode.value ? `编辑 Tool — ${form.name}` : '新建 Tool'))
+const formDialogTitle = computed(() => (isEditMode.value ? `编辑 Tool — ${form.title || form.name}` : '新建 Tool'))
 const toolEditorSteps = [
-  { key: 'identity', title: '身份信息', desc: '名称、描述与项目' },
+  { key: 'identity', title: '身份信息', desc: '名称、标识、描述与项目' },
   { key: 'endpoint', title: '调用配置', desc: 'HTTP 地址与类型' },
   { key: 'parameters', title: '参数定义', desc: 'Agent 入参 Schema' },
-  { key: 'release', title: '运行控制', desc: '启用与可见性' },
+  { key: 'release', title: '运行控制', desc: '启用状态' },
 ]
 const toolEditorStepsWithState = computed<WizardStep[]>(() =>
   toolEditorSteps.map((step, index) => ({
@@ -576,7 +577,7 @@ const toolEditorStepsWithState = computed<WizardStep[]>(() =>
   })),
 )
 const canAdvanceToolStep = computed(
-  () => activeToolStep.value !== 0 || Boolean(form.name.trim() && form.description.trim()),
+  () => activeToolStep.value !== 0 || Boolean(form.title.trim() && form.name.trim() && form.description.trim()),
 )
 const resolvedFormQualifiedName = computed(() => {
   if (form.qualifiedName) return form.qualifiedName
@@ -602,7 +603,7 @@ const semanticLoadState = reactive<Record<string, 'idle' | 'loading' | 'done' | 
 
 function advanceToolStep() {
   if (!canAdvanceToolStep.value) {
-    ElMessage.warning('请填写工具名和描述')
+    ElMessage.warning('请填写工具名称、工具标识和描述')
     return
   }
   activeToolStep.value = Math.min(activeToolStep.value + 1, toolEditorSteps.length - 1)
@@ -646,6 +647,7 @@ function clearSemanticExpandCache() {
 function createEmptyForm(): ToolUpsertRequest {
   return {
     name: '',
+    title: '',
     description: '',
     parameters: [],
     source: 'manual',
@@ -658,11 +660,8 @@ function createEmptyForm(): ToolUpsertRequest {
     responseType: '',
     projectId: null,
     projectCode: null,
-    visibility: 'PRIVATE',
     qualifiedName: null,
     enabled: true,
-    agentVisible: true,
-    lightweightEnabled: false,
   }
 }
 
@@ -728,12 +727,15 @@ function projectCodeById(projectId?: number | null) {
   return scanProjects.value.find((p) => p.id === projectId)?.projectCode || null
 }
 
-/** 深链 ?projectId= 与顶部项目选择器对齐；列表范围仅随顶栏 currentProjectId 变化 */
-function syncProjectFromRoute() {
-  const queryProjectId = Number(route.query.projectId)
-  if (Number.isFinite(queryProjectId) && queryProjectId > 0) {
-    projectStore.setCurrentProject(queryProjectId)
+function syncProjectScope(allowRouteFallback = false) {
+  if (projectStore.currentProjectId !== null) {
+    scopeProjectId.value = projectStore.currentProjectId
+    return
   }
+  const queryProjectId = Number(route.query.projectId)
+  scopeProjectId.value = allowRouteFallback && Number.isFinite(queryProjectId) && queryProjectId > 0
+    ? queryProjectId
+    : null
 }
 
 function handleFormProjectChange(projectId: number | null | undefined) {
@@ -775,6 +777,7 @@ function countRequiredParameters(parameters: ToolParameter[]): number {
 function toUpsertRequest(tool: ToolInfo): ToolUpsertRequest {
   return {
     name: tool.name,
+    title: tool.title || tool.name,
     description: tool.description,
     parameters: cloneParameters(tool.parameters),
     source: tool.source,
@@ -787,16 +790,14 @@ function toUpsertRequest(tool: ToolInfo): ToolUpsertRequest {
     responseType: tool.responseType || '',
     projectId: tool.projectId ?? null,
     projectCode: tool.projectCode ?? projectCodeById(tool.projectId) ?? null,
-    visibility: tool.visibility || 'PRIVATE',
     qualifiedName: tool.qualifiedName || null,
     enabled: tool.enabled,
-    agentVisible: tool.agentVisible,
-    lightweightEnabled: tool.lightweightEnabled,
   }
 }
 
 function applyForm(data: ToolUpsertRequest) {
   form.name = data.name
+  form.title = data.title
   form.description = data.description
   form.parameters = cloneParameters(data.parameters)
   form.source = data.source
@@ -809,15 +810,19 @@ function applyForm(data: ToolUpsertRequest) {
   form.responseType = data.responseType || ''
   form.projectId = data.projectId ?? null
   form.projectCode = data.projectCode ?? projectCodeById(data.projectId) ?? null
-  form.visibility = data.visibility || 'PRIVATE'
   form.qualifiedName = data.qualifiedName || null
   form.enabled = data.enabled
-  form.agentVisible = data.agentVisible
-  form.lightweightEnabled = data.lightweightEnabled
+}
+
+function buildFormPayload(): ToolUpsertRequest {
+  return {
+    ...form,
+    parameters: cloneParameters(form.parameters),
+  }
 }
 
 function buildListParams() {
-  const pid = projectStore.currentProjectId
+  const pid = scopeProjectId.value
   return {
     current: pagination.current,
     size: pagination.size,
@@ -900,17 +905,18 @@ function openEditDialog(tool: ToolInfo) {
 }
 
 async function handleSave() {
-  if (!form.name.trim() || !form.description.trim()) {
-    ElMessage.warning('请填写工具名和描述')
+  if (!form.title.trim() || !form.name.trim() || !form.description.trim()) {
+    ElMessage.warning('请填写工具名称、工具标识和描述')
     return
   }
   saving.value = true
   try {
+    const payload = buildFormPayload()
     if (isEditMode.value && editingName.value) {
-      await updateTool(editingName.value, { ...form, parameters: cloneParameters(form.parameters) })
+      await updateTool(editingName.value, payload)
       ElMessage.success('Tool 更新成功')
     } else {
-      await createTool({ ...form, parameters: cloneParameters(form.parameters) })
+      await createTool(payload)
       ElMessage.success('Tool 创建成功')
     }
     formDialogVisible.value = false
@@ -924,7 +930,7 @@ async function handleSave() {
 
 async function handleDelete(tool: ToolInfo) {
   try {
-    await ElMessageBox.confirm(`确认删除工具 ${tool.name} 吗？`, '删除确认', {
+    await ElMessageBox.confirm(`确认删除工具 ${tool.title || tool.name}（${tool.name}）吗？`, '删除确认', {
       type: 'warning',
     })
     await deleteTool(tool.name)
@@ -940,24 +946,10 @@ async function handleDelete(tool: ToolInfo) {
 async function handleEnabledChange(tool: ToolInfo, enabled: boolean) {
   try {
     await toggleTool(tool.name, enabled)
-    ElMessage.success(`已${enabled ? '启用' : '禁用'} ${tool.name}`)
+    ElMessage.success(`已${enabled ? '启用' : '禁用'} ${tool.title || tool.name}`)
     await fetchTools()
   } catch (error) {
     ElMessage.error((error as Error).message || '状态更新失败')
-  }
-}
-
-async function handleFlagChange(tool: ToolInfo, field: 'agentVisible' | 'lightweightEnabled', value: boolean) {
-  try {
-    const payload = toUpsertRequest({
-      ...tool,
-      [field]: value,
-    })
-    await updateTool(tool.name, payload)
-    ElMessage.success('配置已更新')
-    await fetchTools()
-  } catch (error) {
-    ElMessage.error((error as Error).message || '配置更新失败')
   }
 }
 
@@ -996,13 +988,14 @@ async function handleTest() {
 
 onMounted(async () => {
   await loadScanProjects()
-  syncProjectFromRoute()
+  syncProjectScope(true)
   fetchTools()
 })
 
 watch(
   () => projectStore.currentProjectId,
   () => {
+    syncProjectScope()
     pagination.current = 1
     fetchTools()
   },
@@ -1011,7 +1004,7 @@ watch(
 
 <style scoped lang="scss">
 .expand-content {
-  padding: 12px 20px;
+  padding: 18px 20px 20px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -1045,7 +1038,7 @@ watch(
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .tool-ai-semantic-block {
@@ -1056,34 +1049,6 @@ watch(
   margin-top: 16px;
   padding-top: 14px;
   border-top: 1px solid var(--border-divider);
-}
-
-.tool-meta {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 16px;
-  margin-top: 12px;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.tool-description-cell {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-  line-height: 20px;
-  max-height: 60px;
-  white-space: normal;
-  word-break: break-word;
-  color: var(--text-secondary);
-}
-
-.tool-description-tooltip-content {
-  max-width: 420px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 20px;
 }
 
 .param-hint {
@@ -1244,16 +1209,31 @@ watch(
 
 .control-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+  max-width: 560px;
 }
 
 .control-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 20px;
   padding: 16px;
   font-weight: 600;
+
+  > div {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  small {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 400;
+  }
 }
 
 .publish-checklist {
@@ -1272,6 +1252,135 @@ watch(
     color: var(--text-muted);
     text-align: right;
     word-break: break-word;
+  }
+}
+
+.tool-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-divider);
+
+  p {
+    margin: 0 0 4px;
+    color: var(--brand-primary);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  h3 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 17px;
+    line-height: 1.45;
+    word-break: break-word;
+  }
+}
+
+.tool-detail-badges,
+.tool-detail-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tool-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.tool-detail-item {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+
+  > span {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  p,
+  code,
+  strong {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+}
+
+.tool-detail-item--wide {
+  grid-column: 1 / -1;
+}
+
+.tool-detail-section {
+  margin-top: 18px;
+}
+
+.tool-detail-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+
+  h4 {
+    margin: 0;
+  }
+
+  span {
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+}
+
+.tool-name-cell,
+.tool-project-cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.tool-name-cell :deep(.el-text) {
+  max-width: 100%;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.tool-name-cell code {
+  color: var(--text-muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.tool-project-cell {
+  span {
+    max-width: 100%;
+    overflow: hidden;
+    color: var(--text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  code {
+    color: var(--text-muted);
+    font-size: 12px;
   }
 }
 
@@ -1332,25 +1441,6 @@ watch(
   margin-top: 8px;
 }
 
-:deep(.tool-description-tooltip) {
-  max-width: 460px;
-}
-
-.tool-meta-ai {
-  margin: 6px 0;
-  line-height: 1.5;
-}
-
-.ai-desc-text {
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.ai-table-cell {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
 .tool-meta-ai-loading {
   margin: 8px 0;
   font-size: 13px;
@@ -1406,8 +1496,19 @@ watch(
   }
 }
 
-.text-muted {
-  color: var(--text-muted);
-  font-size: 13px;
+@media (max-width: 900px) {
+  .tool-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tool-detail-item--wide {
+    grid-column: auto;
+  }
+
+  .tool-detail-header,
+  .tool-detail-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

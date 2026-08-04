@@ -2,9 +2,9 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { createAgentDebugTransport } from './createAgentDebugTransport'
 import { createEmbedTransport } from './createEmbedTransport'
 import {
-  createWorkflowDraftTransport,
+  createWorkflowWorkingCopyTransport,
   WORKFLOW_INITIAL_INPUT_ID,
-} from './createWorkflowDraftTransport'
+} from './createWorkflowWorkingCopyTransport'
 import { StreamFallbackForbiddenError } from '../core/streamFallbackPolicy'
 
 vi.mock('@/utils/platformAuth', () => ({
@@ -241,6 +241,40 @@ describe('createEmbedTransport', () => {
     transport.dispose()
   })
 
+  it('finishes JSON turns with non-blocking output cards', async () => {
+    ;(globalThis.fetch as any)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { sessionId: 'emb-output' } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          answer: 'done',
+          sessionId: 'emb-output',
+          uiRequest: {
+            interactionId: 'output-1',
+            component: 'list_card',
+            behavior: { blocking: false },
+            presentation: { mode: 'card_only' },
+          },
+        },
+      }), { status: 200 }))
+
+    let sessionId: string | undefined
+    const transport = createEmbedTransport({
+      apiBase: 'http://localhost/api/embed',
+      tokenProvider: () => 'tok',
+      getSessionId: () => sessionId,
+      setSessionId: (id) => { sessionId = id },
+      preferStream: false,
+      fetchImpl: globalThis.fetch,
+    })
+
+    const types: string[] = []
+    for await (const event of transport.startTurn({ message: 'show output' })) {
+      types.push(event.type)
+    }
+    expect(types).toEqual(['turn.started', 'ui.requested', 'turn.completed'])
+    transport.dispose()
+  })
+
   it('falls back to JSON only on 404 before consuming stream body', async () => {
     ;(globalThis.fetch as any)
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: { sessionId: 'emb-fb' } }), { status: 200 }))
@@ -324,7 +358,7 @@ describe('createEmbedTransport', () => {
   })
 })
 
-describe('createWorkflowDraftTransport', () => {
+describe('createWorkflowWorkingCopyTransport', () => {
   const originalFetch = globalThis.fetch
 
   beforeEach(() => {
@@ -345,13 +379,13 @@ describe('createWorkflowDraftTransport', () => {
       .mockResolvedValueOnce({ data: sessionView({ sessionId: 'wf-b', status: 'COMPLETED' }) })
 
     let hostSessionId: string | undefined
-    const transport = createWorkflowDraftTransport({
+    const transport = createWorkflowWorkingCopyTransport({
       tryStream: false,
       getSessionId: () => hostSessionId,
       setSessionId: (id) => { hostSessionId = id },
       getCreateRequest: () => ({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: { nodes: [], edges: [] },
+        targetType: 'WORKFLOW_WORKING_COPY',
+        workingCopyDefinition: { nodes: [], edges: [] },
       }),
     })
 
@@ -362,7 +396,7 @@ describe('createWorkflowDraftTransport', () => {
     expect(createWorkflowDebugSession).toHaveBeenCalledTimes(1)
     expect(submitWorkflowDebugSession).not.toHaveBeenCalled()
 
-    // Simulate beginDraftDebugTurn clearing host session then sending again
+    // Simulate beginWorkingCopyDebugTurn clearing host session then sending again
     hostSessionId = undefined
     await transport.clearSession?.()
 
@@ -384,13 +418,13 @@ describe('createWorkflowDraftTransport', () => {
     })
 
     let hostSessionId: string | undefined
-    const transport = createWorkflowDraftTransport({
+    const transport = createWorkflowWorkingCopyTransport({
       tryStream: false,
       getSessionId: () => hostSessionId,
       setSessionId: (id) => { hostSessionId = id },
       getCreateRequest: () => ({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: { nodes: [], edges: [] },
+        targetType: 'WORKFLOW_WORKING_COPY',
+        workingCopyDefinition: { nodes: [], edges: [] },
       }),
     })
 
@@ -416,13 +450,13 @@ describe('createWorkflowDraftTransport', () => {
   })
 
   it('rejects interaction resume without session and never creates', async () => {
-    const transport = createWorkflowDraftTransport({
+    const transport = createWorkflowWorkingCopyTransport({
       tryStream: false,
       getSessionId: () => undefined,
       setSessionId: () => {},
       getCreateRequest: () => ({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: { nodes: [], edges: [] },
+        targetType: 'WORKFLOW_WORKING_COPY',
+        workingCopyDefinition: { nodes: [], edges: [] },
       }),
     })
 
@@ -443,13 +477,13 @@ describe('createWorkflowDraftTransport', () => {
       data: sessionView({ sessionId: 'wf-clear', status: 'WAITING' }),
     })
     let hostSessionId: string | undefined
-    const transport = createWorkflowDraftTransport({
+    const transport = createWorkflowWorkingCopyTransport({
       tryStream: false,
       getSessionId: () => hostSessionId,
       setSessionId: (id) => { hostSessionId = id },
       getCreateRequest: () => ({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: { nodes: [], edges: [] },
+        targetType: 'WORKFLOW_WORKING_COPY',
+        workingCopyDefinition: { nodes: [], edges: [] },
       }),
     })
 
@@ -480,13 +514,13 @@ describe('createWorkflowDraftTransport', () => {
       data: sessionView({ sessionId: 'wf-cxl', status: 'CANCELLED', uiRequest: null, currentNodeId: null }),
     })
     let hostSessionId: string | undefined = 'wf-cxl'
-    const transport = createWorkflowDraftTransport({
+    const transport = createWorkflowWorkingCopyTransport({
       tryStream: false,
       getSessionId: () => hostSessionId,
       setSessionId: (id) => { hostSessionId = id },
       getCreateRequest: () => ({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: { nodes: [], edges: [] },
+        targetType: 'WORKFLOW_WORKING_COPY',
+        workingCopyDefinition: { nodes: [], edges: [] },
       }),
     })
 
@@ -508,13 +542,13 @@ describe('createWorkflowDraftTransport', () => {
       data: sessionView({ sessionId: 'wf-init', status: 'WAITING' }),
     })
     let hostSessionId: string | undefined
-    const transport = createWorkflowDraftTransport({
+    const transport = createWorkflowWorkingCopyTransport({
       tryStream: false,
       getSessionId: () => hostSessionId,
       setSessionId: (id) => { hostSessionId = id },
       getCreateRequest: () => ({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: { nodes: [], edges: [] },
+        targetType: 'WORKFLOW_WORKING_COPY',
+        workingCopyDefinition: { nodes: [], edges: [] },
       }),
     })
     for await (const _ of transport.startTurn({
@@ -535,13 +569,13 @@ describe('createWorkflowDraftTransport', () => {
     })
 
     let hostSessionId: string | undefined = 'wf-fail'
-    const transport = createWorkflowDraftTransport({
+    const transport = createWorkflowWorkingCopyTransport({
       tryStream: false,
       getSessionId: () => hostSessionId,
       setSessionId: (id) => { hostSessionId = id },
       getCreateRequest: () => ({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: { nodes: [], edges: [] },
+        targetType: 'WORKFLOW_WORKING_COPY',
+        workingCopyDefinition: { nodes: [], edges: [] },
       }),
     })
 
@@ -556,13 +590,13 @@ describe('createWorkflowDraftTransport', () => {
 
   it('honors setSessionId(undefined) via clearSession', async () => {
     let hostSessionId: string | undefined = 'stale'
-    const transport = createWorkflowDraftTransport({
+    const transport = createWorkflowWorkingCopyTransport({
       tryStream: false,
       getSessionId: () => hostSessionId,
       setSessionId: (id) => { hostSessionId = id },
       getCreateRequest: () => ({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: { nodes: [], edges: [] },
+        targetType: 'WORKFLOW_WORKING_COPY',
+        workingCopyDefinition: { nodes: [], edges: [] },
       }),
     })
     await transport.clearSession?.()
@@ -577,13 +611,13 @@ describe('createWorkflowDraftTransport', () => {
     })
 
     let hostSessionId: string | undefined
-    const transport = createWorkflowDraftTransport({
+    const transport = createWorkflowWorkingCopyTransport({
       tryStream: true,
       getSessionId: () => hostSessionId,
       setSessionId: (id) => { hostSessionId = id },
       getCreateRequest: () => ({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: { nodes: [], edges: [] },
+        targetType: 'WORKFLOW_WORKING_COPY',
+        workingCopyDefinition: { nodes: [], edges: [] },
       }),
       fetchImpl: globalThis.fetch,
     })
@@ -614,13 +648,13 @@ describe('createWorkflowDraftTransport', () => {
     }))
 
     let hostSessionId: string | undefined
-    const transport = createWorkflowDraftTransport({
+    const transport = createWorkflowWorkingCopyTransport({
       tryStream: true,
       getSessionId: () => hostSessionId,
       setSessionId: (id) => { hostSessionId = id },
       getCreateRequest: () => ({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: { nodes: [], edges: [] },
+        targetType: 'WORKFLOW_WORKING_COPY',
+        workingCopyDefinition: { nodes: [], edges: [] },
       }),
       fetchImpl: globalThis.fetch,
     })
@@ -658,13 +692,13 @@ describe('createWorkflowDraftTransport', () => {
     })
 
     let hostSessionId: string | undefined = 'wf-c'
-    const transport = createWorkflowDraftTransport({
+    const transport = createWorkflowWorkingCopyTransport({
       tryStream: true,
       getSessionId: () => hostSessionId,
       setSessionId: (id) => { hostSessionId = id },
       getCreateRequest: () => ({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: { nodes: [], edges: [] },
+        targetType: 'WORKFLOW_WORKING_COPY',
+        workingCopyDefinition: { nodes: [], edges: [] },
       }),
       fetchImpl: globalThis.fetch,
     })
@@ -681,13 +715,13 @@ describe('createWorkflowDraftTransport', () => {
     submitWorkflowDebugSession.mockResolvedValueOnce({
       data: sessionView({ sessionId: 'wf-c2', status: 'CANCELLED', uiRequest: null, currentNodeId: null }),
     })
-    const restTransport = createWorkflowDraftTransport({
+    const restTransport = createWorkflowWorkingCopyTransport({
       tryStream: false,
       getSessionId: () => 'wf-c2',
       setSessionId: () => {},
       getCreateRequest: () => ({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: { nodes: [], edges: [] },
+        targetType: 'WORKFLOW_WORKING_COPY',
+        workingCopyDefinition: { nodes: [], edges: [] },
       }),
     })
     const restTypes: string[] = []
@@ -724,13 +758,13 @@ describe('createWorkflowDraftTransport', () => {
     })
 
     let hostSessionId: string | undefined
-    const transport = createWorkflowDraftTransport({
+    const transport = createWorkflowWorkingCopyTransport({
       tryStream: true,
       getSessionId: () => hostSessionId,
       setSessionId: (id) => { hostSessionId = id },
       getCreateRequest: () => ({
-        targetType: 'WORKFLOW_DRAFT',
-        draftDefinition: { nodes: [], edges: [] },
+        targetType: 'WORKFLOW_WORKING_COPY',
+        workingCopyDefinition: { nodes: [], edges: [] },
       }),
       fetchImpl: globalThis.fetch,
     })

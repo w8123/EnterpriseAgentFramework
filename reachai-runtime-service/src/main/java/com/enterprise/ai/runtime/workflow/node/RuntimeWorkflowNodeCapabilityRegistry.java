@@ -53,11 +53,6 @@ public class RuntimeWorkflowNodeCapabilityRegistry {
         for (RuntimeWorkflowNodeCapabilityDescriptor descriptor : this.catalog) {
             putLookup(lookup, descriptor.type(), descriptor);
             putLookup(lookup, descriptor.canvasKind(), descriptor);
-            if (descriptor.aliases() != null) {
-                for (String alias : descriptor.aliases()) {
-                    putLookup(lookup, alias, descriptor);
-                }
-            }
         }
         this.byLookupKey = Map.copyOf(lookup);
     }
@@ -113,7 +108,6 @@ public class RuntimeWorkflowNodeCapabilityRegistry {
                 protocol.canvasCategory(),
                 protocol.family(),
                 protocol.retryable(),
-                protocol.aliases() == null ? List.of() : List.copyOf(protocol.aliases()),
                 policy.maturity(),
                 runtimeExecutable,
                 policy.publishable(),
@@ -231,4 +225,3 @@ public class RuntimeWorkflowNodeCapabilityRegistry {
         }
     }
 }
-

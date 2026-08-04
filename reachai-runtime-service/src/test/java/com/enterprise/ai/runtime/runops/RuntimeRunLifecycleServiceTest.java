@@ -78,7 +78,7 @@ class RuntimeRunLifecycleServiceTest {
                 startedAt);
 
         Map<String, Object> sets = capture.lastSetValues();
-        assertEquals("SUCCESS", sets.get("status"));
+        assertEquals("COMPLETED", sets.get("status"));
         assertEquals("[omitted]", sets.get("output_summary"));
         assertEquals(1500, ((Number) sets.get("latency_ms")).intValue());
         assertEquals(20, ((Number) sets.get("token_cost")).intValue());
@@ -120,7 +120,7 @@ class RuntimeRunLifecycleServiceTest {
 
         Map<String, Object> sets = capture.lastSetValues();
         assertEquals(0, ((Number) sets.get("token_cost")).intValue());
-        assertEquals("SUCCESS", sets.get("status"));
+        assertEquals("COMPLETED", sets.get("status"));
         assertNotNull(sets.get("ended_at"));
     }
 
@@ -153,7 +153,8 @@ class RuntimeRunLifecycleServiceTest {
                 startedAt.plusSeconds(2));
 
         Map<String, Object> sets = capture.lastSetValues();
-        assertEquals("WAITING_APPROVAL", sets.get("status"));
+        assertEquals("SUSPENDED", sets.get("status"));
+        assertEquals("APPROVAL", sets.get("suspension_reason"));
         assertNull(sets.get("ended_at"));
         assertNull(sets.get("latency_ms"));
         assertEquals(0, ((Number) sets.get("token_cost")).intValue());
@@ -240,8 +241,8 @@ class RuntimeRunLifecycleServiceTest {
                 "demo-flow",
                 "Demo Flow",
                 "demo",
-                "LANGGRAPH4J",
-                "{\"entry\":\"form\"}",
+                "GRAPH_SPEC",
+                "{\"entryNodeId\":\"form\"}",
                 Map.of("message", "start"));
         capture.service().finishWorkflow(
                 "trace-wfi",
@@ -252,7 +253,9 @@ class RuntimeRunLifecycleServiceTest {
                 Map.of("interactionId", "wfi_abc", "nodeCount", 1));
 
         RuntimeRunEntity saved = capture.inserted().get();
-        assertEquals("WAITING_USER", saved.getStatus());
+        assertEquals("SUSPENDED", saved.getStatus());
+        assertEquals("USER_INPUT", saved.getSuspensionReason());
+        assertEquals("GRAPH_SPEC", saved.getRuntimeType());
         assertNull(saved.getEndedAt());
         assertNull(saved.getErrorCode());
         assertEquals("[omitted]", saved.getOutputSummary());

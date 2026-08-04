@@ -24,6 +24,7 @@ public class RuntimeRunEntity {
     private String runType;
     private String entryType;
     private String status;
+    private String suspensionReason;
     private Long projectId;
     private String projectCode;
     private String tenantId;

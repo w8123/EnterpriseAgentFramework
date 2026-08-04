@@ -1,5 +1,6 @@
 package com.enterprise.ai.reach.spring;
 
+import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
 import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
 import com.enterprise.ai.reach.sdk.capability.ReachCapabilityDescriptor;
 import com.enterprise.ai.reach.sdk.capability.ReachCapabilityParameter;
@@ -35,6 +36,9 @@ final class ReachSpringMvcEndpointScanner {
         }
         List<String> classPaths = classPaths(type);
         for (Method method : type.getDeclaredMethods()) {
+            if (AnnotatedElementUtils.hasAnnotation(method, ReachCapability.class)) {
+                continue;
+            }
             Mapping mapping = methodMapping(method);
             if (mapping == null) {
                 continue;
@@ -96,7 +100,6 @@ final class ReachSpringMvcEndpointScanner {
         descriptor.setModule(type.getSimpleName());
         descriptor.setTags(Arrays.asList("Spring MVC", httpMethod));
         descriptor.setSideEffect("GET".equalsIgnoreCase(httpMethod) ? ReachSideEffectLevel.READ : ReachSideEffectLevel.WRITE);
-        descriptor.setAgentVisible(false);
         descriptor.setClassName(type.getName());
         descriptor.setMethodName(method.getName());
         descriptor.setHttpMethod(httpMethod);

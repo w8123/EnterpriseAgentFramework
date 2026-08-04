@@ -559,8 +559,8 @@ assertIncludes(
   'reachai-control-service/src/main/java/com/enterprise/ai/control/aiassist/ControlAiAssistSkillController.java',
   '@RequestMapping("/api/ai-assist")')
 assertIncludes(
-  'ai-admin-front/scripts/check-page-assistant-prompt.mjs',
-  '../reachai-control-service/src/main/resources/ai-assist/skills/reachai-page-assistant-onboarding/SKILL.md')
+  'ai-admin-front/scripts/check-page-workbench-ui.mjs',
+  'AiCodingHandoffPromptFactory.java')
 assertIncludes('reachai-model-service/pom.xml', '<name>ReachAI Model Gateway Service</name>')
 assertNotIncludes('reachai-model-service/pom.xml', '<name>AI Model Service</name>')
 assertIncludes('reachai-knowledge-service/pom.xml', '<name>ReachAI Knowledge Retrieval Service</name>')
@@ -640,7 +640,7 @@ assertNotMatches('.run/00-reachai-five-services.run.xml', /(^|[^a-z-])ai-agent-s
 assertNotMatches('.run/00-reachai-five-services.run.xml', /(^|[^a-z-])ai-skills-service([^a-z-]|$)/, 'standalone ai-skills-service')
 assertNotMatches('.run/00-reachai-five-services.run.xml', /(^|[^a-z-])ai-model-service([^a-z-]|$)/, 'standalone ai-model-service')
 assertMatches('ai-admin-front/vite.config.ts', /['"]\/ai['"]:\s*\{[\s\S]*?target:\s*['"]http:\/\/localhost:18602['"]/, '/ai proxy -> 18602')
-assertMatches('ai-admin-front/vite.config.ts', /['"]\/api['"]:\s*\{[\s\S]*?target:\s*['"]http:\/\/localhost:18603['"]/, '/api proxy -> 18603')
+assertMatches('ai-admin-front/vite.config.ts', /['"]\/api['"]:\s*\{[\s\S]*?target:\s*(?:process\.env\.VITE_CONTROL_API_TARGET\s*\|\|\s*)?['"]http:\/\/localhost:18603['"]/, '/api proxy -> 18603')
 assertMatches('ai-admin-front/vite.config.ts', /\^\/model\/\(templates\|instances\|chat\)[\s\S]*?target:\s*['"]http:\/\/localhost:18601['"]/, '/model proxy -> 18601')
 assertPackagePrefixUnder('reachai-control-service/src/main/java/com/enterprise/ai/control', 'com.enterprise.ai.control')
 assertPackagePrefixUnder('reachai-runtime-service/src/main/java/com/enterprise/ai/runtime', 'com.enterprise.ai.runtime')
@@ -666,8 +666,8 @@ const keyApiPaths = [
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/tool/CapabilityToolCatalogController.java', '@RequestMapping("/api/tools")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/retrieval/CapabilityToolRetrievalController.java', '@RequestMapping("/api/tool-retrieval")'],
   ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/api/RuntimePublicController.java', '@PostMapping("/api/runtime/agents/execute")'],
-  ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/compat/RuntimeWorkflowCompatibilityController.java', '@GetMapping("/api/workflows")'],
-  ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/compat/RuntimeWorkflowCredentialCompatibilityController.java', '@GetMapping({"/api/agent/workflow-credentials", "/api/workflows/credentials"})'],
+  ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/api/RuntimeWorkflowPublicController.java', '@GetMapping("/api/workflows")'],
+  ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/api/RuntimeWorkflowCredentialPublicController.java', '@GetMapping("/api/workflows/credentials")'],
   ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/internal/RuntimeToolCallLogInternalController.java', '@RequestMapping("/internal/runtime/tool-call-logs")'],
   ['reachai-control-service/src/main/java/com/enterprise/ai/control/platform/PlatformEmbedPublicController.java', '@RequestMapping("/api/embed")'],
   ['reachai-control-service/src/main/java/com/enterprise/ai/control/aiassist/ControlAiAssistSkillController.java', '@RequestMapping("/api/ai-assist")'],

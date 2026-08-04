@@ -1,23 +1,22 @@
 # PAGE_ASSISTANT Workflow Rules
 
-Use these endpoints only when `workflow.workflowType=PAGE_ASSISTANT`.
+Use these endpoints only when `workflow.workflowKind=PAGE_ASSISTANT`.
 
 ## Context Sources
 
 `GET /api/workflows/{workflowId}/ai-coding/context` exposes:
 
+- `pageAssistantContext.resourceBindings`
 - `pageAssistantContext.pageKey`
-- `pageAssistantContext.routePattern`
 - `pageAssistantContext.actionKeys`
-- lightweight page action catalog
 
-Prefer workflow `extraJson` as resolved by the platform; do not guess page keys.
+`pageKey` is the single `TARGET` `PAGE` binding. Other allowed pages use `RELATED` bindings. Treat these first-class bindings and the live page-action catalog as authoritative; do not derive page scope from `extraJson` or guess page keys.
 
 ## Graph Shape
 
-- Always connect `START -> USER_INPUT` and set `graphSpec.entry` to the `USER_INPUT` node id.
-- `START/END` are virtual endpoints, not `nodes`.
-- Every intent route and default route must finish by connecting its terminal node to `END`.
+- Set `graphSpec.entryNodeId` to the `USER_INPUT` node id.
+- `START/END` are Studio-only canvas nodes and never belong in GraphSpec nodes or edges.
+- List every terminal intent/default branch node in `graphSpec.exitNodeIds`.
 - When extracting query/filter parameters from natural language, use `PARAMETER_EXTRACT` with `config.extractMode=llm` unless the user explicitly asks for expression-only extraction.
 
 ## Catalog
@@ -27,7 +26,7 @@ Prefer workflow `extraJson` as resolved by the platform; do not guess page keys.
 Returns:
 
 - each `PAGE_ACTION` node in GraphSpec
-- full page action catalog for the workflow page
+- page action catalog for every bound `TARGET` or `RELATED` page
 - match status per node
 
 Match statuses include:
@@ -35,7 +34,7 @@ Match statuses include:
 - `MATCHED`
 - `PAGE_KEY_EMPTY`
 - `ACTION_KEY_EMPTY`
-- `PAGE_KEY_MISMATCH`
+- `UNBOUND_PAGE`
 - `MISSING`
 - `INACTIVE`
 
@@ -68,8 +67,9 @@ Default `dryRun=true`.
 Body fields:
 
 - `dryRun`
+- `message`
+- `input`
 - `runtimeContext`
-- `runtimeVerification`
 
 Bridge context keys accepted by platform:
 
@@ -78,30 +78,10 @@ Bridge context keys accepted by platform:
 - `pageContext`
 - `bridgeGlobal`
 
-Runtime verification evidence:
-
-```json
-{
-  "runtimeVerification": {
-    "browserRuntime": {
-      "status": "PASS"
-    }
-  }
-}
-```
-
-Node smoke statuses:
-
-- `DRY_RUN`
-- `SKIPPED`
-- `NEED_CONFIRM`
-- `READY_TO_QUEUE`
-- `RUNTIME_PASS`
-- `INVALID`
-
 Important:
 
-- AI Coding smoke-test does not prove real browser execution unless runtime verification evidence is supplied.
+- The smoke-test endpoint reuses the real generic Workflow debug runner. Its `RunView` contains status, node outputs, trace/run ids, errors, warnings, and metadata; it does not manufacture page-specific node statuses.
+- A successful debug run does not by itself prove real browser behavior. Run the actual page in a browser, verify the visible result and business request, then report acceptance through the current business-page workbench task.
 - Actions with `confirmRequired=true` cannot be treated as fully executed without explicit confirmation policy.
 - For query flows, real browser execution requires more than queued PAGE_ACTION success. Verify that extracted filter values appear in `PAGE_ACTION(setFilters).args`, are visible in current page filters/state after `setFilters`, are included in the real business query request triggered by `search`, and are reflected by the refreshed table read through `readTable`.
 - If Workflow extraction and `setFilters.args` are correct but the business query request is unfiltered, the defect is in the business page action handler/query-state binding, not in Workflow parameter extraction. Report it as runtime verification `FAIL`.
@@ -121,4 +101,4 @@ Typical config:
 }
 ```
 
-Keep node `pageKey` aligned with workflow page context.
+Keep node `pageKey` inside the Workflow's `TARGET` or `RELATED` page bindings.

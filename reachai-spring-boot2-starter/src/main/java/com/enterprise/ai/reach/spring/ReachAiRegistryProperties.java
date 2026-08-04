@@ -159,6 +159,7 @@ public class ReachAiRegistryProperties {
 
     public static class Capability {
         private boolean scanBeans = true;
+        private ScanMode scanMode = ScanMode.ALL_CONTROLLERS;
         private boolean requireInvocationToken = true;
         private List<String> scanPackages = new ArrayList<String>();
         private List<String> excludePackages = new ArrayList<String>();
@@ -169,6 +170,14 @@ public class ReachAiRegistryProperties {
 
         public void setScanBeans(boolean scanBeans) {
             this.scanBeans = scanBeans;
+        }
+
+        public ScanMode getScanMode() {
+            return scanMode;
+        }
+
+        public void setScanMode(ScanMode scanMode) {
+            this.scanMode = scanMode == null ? ScanMode.ALL_CONTROLLERS : scanMode;
         }
 
         public boolean isRequireInvocationToken() {
@@ -194,6 +203,13 @@ public class ReachAiRegistryProperties {
         public void setExcludePackages(List<String> excludePackages) {
             this.excludePackages = excludePackages == null ? new ArrayList<String>() : excludePackages;
         }
+    }
+
+    public enum ScanMode {
+        /** Explicit {@code @ReachCapability} declarations plus inferred Spring MVC controller endpoints. */
+        ALL_CONTROLLERS,
+        /** Only explicit {@code @ReachCapability} declarations. */
+        ANNOTATED_ONLY
     }
 
     public static class Embed {

@@ -1,6 +1,5 @@
 package com.enterprise.ai.runtime.workflow.mutation;
 
-import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityDescriptor;
 import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityRegistry;
@@ -76,8 +75,9 @@ public class RuntimeWorkflowGraphMutationService {
             case ADD_EDGE -> addEdge(graph, operation.edge(), accumulator);
             case UPDATE_EDGE -> updateEdge(graph, operation.edgeId(), operation.patch(), accumulator);
             case DELETE_EDGE -> deleteEdge(graph, operation.edgeId(), operation.edge(), accumulator);
-            case SET_ENTRY -> setEntry(graph, operation.entry(), accumulator);
-            case SET_FINISH -> setFinish(graph, operation.finish(), accumulator);
+            case SET_ENTRY_NODE -> setEntryNode(graph, operation.entryNodeId(), accumulator);
+            case SET_EXIT_NODES -> setExitNodes(graph, operation.exitNodeIds(), accumulator);
+            case SET_INPUT_SCHEMA -> setInputSchema(graph, operation.patch());
         }
     }
 
@@ -109,8 +109,8 @@ public class RuntimeWorkflowGraphMutationService {
         if (current == null) {
             throw new IllegalArgumentException("graph node not found: " + id);
         }
-        if (!nodeCapabilityRegistry.isAiAuthoringEnabled(current.getType())) {
-            throw notAuthorable(current.getType(), "UPDATE_NODE");
+        if (!isCanonicalAiAuthorableType(current.getType())) {
+            throw notAuthorable(current.getType(), "UPDATE_NODE", nodeCapabilityRegistry.find(current.getType()).orElse(null));
         }
         Map<String, Object> actualPatch = mutableMap(patch);
         String patchedId = text(actualPatch.get("id"));
@@ -137,18 +137,27 @@ public class RuntimeWorkflowGraphMutationService {
     }
 
     private void requireAiAuthorableType(String rawType, String operation) {
-        if (!nodeCapabilityRegistry.isAiAuthoringEnabled(rawType)) {
-            throw notAuthorable(rawType, operation);
+        RuntimeWorkflowNodeCapabilityDescriptor capability = nodeCapabilityRegistry.find(rawType).orElse(null);
+        if (!isCanonicalAiAuthorableType(rawType)) {
+            throw notAuthorable(rawType, operation, capability);
         }
     }
 
-    private IllegalArgumentException notAuthorable(String rawType, String operation) {
-        String normalized = AgentGraphNodeType.normalize(rawType);
-        RuntimeWorkflowNodeCapabilityDescriptor capability = nodeCapabilityRegistry.find(normalized).orElse(null);
+    private boolean isCanonicalAiAuthorableType(String rawType) {
+        RuntimeWorkflowNodeCapabilityDescriptor capability = nodeCapabilityRegistry.find(rawType).orElse(null);
+        return capability != null
+                && StringUtils.hasText(rawType)
+                && capability.type().equals(rawType.trim())
+                && capability.aiAuthoringEnabled();
+    }
+
+    private IllegalArgumentException notAuthorable(String rawType,
+                                                    String operation,
+                                                    RuntimeWorkflowNodeCapabilityDescriptor capability) {
         String reason = capability == null || !StringUtils.hasText(capability.unavailableReason())
-                ? "node type is not enabled for AI authoring"
+                ? "canonical node type is not enabled for AI authoring"
                 : capability.unavailableReason();
-        String typeLabel = StringUtils.hasText(normalized) ? normalized : String.valueOf(rawType);
+        String typeLabel = StringUtils.hasText(rawType) ? rawType.trim() : String.valueOf(rawType);
         return new IllegalArgumentException(
                 "WORKFLOW_NODE_NOT_AUTHORABLE: " + operation + " rejected for node type " + typeLabel
                         + " (" + reason + ")");
@@ -166,11 +175,11 @@ public class RuntimeWorkflowGraphMutationService {
         List<GraphSpec.Edge> edges = mutableEdges(graph);
         edges.removeIf(edge -> edge != null && (id.equals(edge.getFrom()) || id.equals(edge.getTo())));
         graph.setEdges(edges);
-        if (id.equals(graph.getEntry())) {
-            graph.setEntry(null);
+        if (id.equals(graph.getEntryNodeId())) {
+            graph.setEntryNodeId(null);
         }
-        if (graph.getFinish() != null) {
-            graph.setFinish(graph.getFinish().stream().filter(item -> !id.equals(item)).toList());
+        if (graph.getExitNodeIds() != null) {
+            graph.setExitNodeIds(graph.getExitNodeIds().stream().filter(item -> !id.equals(item)).toList());
         }
         accumulator.changedNode(id);
     }
@@ -210,8 +219,6 @@ public class RuntimeWorkflowGraphMutationService {
             throw new IllegalArgumentException("graph edge not found: " + id);
         }
         Map<String, Object> actualPatch = mutableMap(patch);
-        alias(actualPatch, "source", "from");
-        alias(actualPatch, "target", "to");
         String patchedId = text(actualPatch.get("id"));
         if (StringUtils.hasText(patchedId) && !id.equals(patchedId)) {
             throw new IllegalArgumentException("UPDATE_EDGE cannot change edge id from " + id + " to " + patchedId);
@@ -250,37 +257,46 @@ public class RuntimeWorkflowGraphMutationService {
         accumulator.changedEdge(id);
     }
 
-    private void setEntry(GraphSpec graph,
-                          String entry,
-                          MutationAccumulator accumulator) {
-        String nodeId = requireText(entry, "SET_ENTRY requires entry");
+    private void setEntryNode(GraphSpec graph,
+                              String entryNodeId,
+                              MutationAccumulator accumulator) {
+        String nodeId = requireText(entryNodeId, "SET_ENTRY_NODE requires entryNodeId");
         if (findNode(graph, nodeId) == null) {
-            throw new IllegalArgumentException("SET_ENTRY references missing node: " + nodeId);
+            throw new IllegalArgumentException("SET_ENTRY_NODE references missing node: " + nodeId);
         }
-        graph.setEntry(nodeId);
+        graph.setEntryNodeId(nodeId);
         accumulator.changedNode(nodeId);
     }
 
-    private void setFinish(GraphSpec graph,
-                           List<String> finish,
-                           MutationAccumulator accumulator) {
+    private void setExitNodes(GraphSpec graph,
+                              List<String> exitNodeIds,
+                              MutationAccumulator accumulator) {
+        if (exitNodeIds == null || exitNodeIds.isEmpty()) {
+            throw new IllegalArgumentException("SET_EXIT_NODES requires at least one node id");
+        }
         LinkedHashSet<String> normalized = new LinkedHashSet<>();
-        for (String item : finish == null ? List.<String>of() : finish) {
-            String nodeId = requireText(item, "SET_FINISH contains a blank node id");
+        for (String item : exitNodeIds) {
+            String nodeId = requireText(item, "SET_EXIT_NODES contains a blank node id");
             if (findNode(graph, nodeId) == null) {
-                throw new IllegalArgumentException("SET_FINISH references missing node: " + nodeId);
+                throw new IllegalArgumentException("SET_EXIT_NODES references missing node: " + nodeId);
             }
             normalized.add(nodeId);
             accumulator.changedNode(nodeId);
         }
-        graph.setFinish(List.copyOf(normalized));
+        graph.setExitNodeIds(List.copyOf(normalized));
+    }
+
+    private void setInputSchema(GraphSpec graph, Map<String, Object> schema) {
+        Map<String, Object> inputSchema = mutableMap(schema);
+        if (inputSchema.isEmpty()) {
+            throw new IllegalArgumentException("SET_INPUT_SCHEMA requires a non-empty JSON Schema object in patch");
+        }
+        graph.setInputSchema(inputSchema);
     }
 
     private void assertEndpoint(GraphSpec graph, String endpoint, String field) {
         String value = requireText(endpoint, field + " is required");
-        if (!"START".equalsIgnoreCase(value)
-                && !"END".equalsIgnoreCase(value)
-                && findNode(graph, value) == null) {
+        if (findNode(graph, value) == null) {
             throw new IllegalArgumentException(field + " references missing node: " + value);
         }
     }
@@ -320,16 +336,10 @@ public class RuntimeWorkflowGraphMutationService {
         return null;
     }
 
-    private void alias(Map<String, Object> map, String alias, String canonical) {
-        if (!map.containsKey(canonical) && map.containsKey(alias)) {
-            map.put(canonical, map.get(alias));
-        }
-        map.remove(alias);
-    }
-
     private void deepMerge(Map<String, Object> target, Map<String, Object> patch) {
         for (Map.Entry<String, Object> entry : patch.entrySet()) {
-            if (target.get(entry.getKey()) instanceof Map<?, ?> current
+            if (!"inputMapping".equals(entry.getKey())
+                    && target.get(entry.getKey()) instanceof Map<?, ?> current
                     && entry.getValue() instanceof Map<?, ?> update) {
                 Map<String, Object> merged = mutableMap(current);
                 deepMerge(merged, mutableMap(update));
@@ -372,8 +382,8 @@ public class RuntimeWorkflowGraphMutationService {
                                     Map<String, Object> patch,
                                     GraphSpec.Edge edge,
                                     String edgeId,
-                                    String entry,
-                                    List<String> finish) {
+                                    String entryNodeId,
+                                    List<String> exitNodeIds) {
         public enum Op {
             ADD_NODE,
             UPDATE_NODE,
@@ -381,8 +391,9 @@ public class RuntimeWorkflowGraphMutationService {
             ADD_EDGE,
             UPDATE_EDGE,
             DELETE_EDGE,
-            SET_ENTRY,
-            SET_FINISH
+            SET_ENTRY_NODE,
+            SET_EXIT_NODES,
+            SET_INPUT_SCHEMA
         }
     }
 

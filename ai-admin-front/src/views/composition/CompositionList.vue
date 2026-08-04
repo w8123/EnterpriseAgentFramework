@@ -135,12 +135,7 @@
             {{ row.projectCode || projectCodeById(row.projectId) || '-' }}
           </template>
         </el-table-column>
-        <el-table-column label="可见性" width="110">
-          <template #default="{ row }">
-            <el-tag size="small">{{ formatVisibilityLabel(row.visibility || 'PRIVATE') }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="qualifiedName" label="全限定名" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="qualifiedName" label="稳定标识" min-width="180" show-overflow-tooltip />
         <el-table-column prop="description" label="描述" min-width="280" show-overflow-tooltip />
         <el-table-column label="启用" width="90" align="center">
           <template #default="{ row }">
@@ -148,14 +143,6 @@
               :model-value="row.enabled"
               :disabled="Boolean(row.draft)"
               @change="handleEnabledChange(row, $event as boolean)"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column label="Agent 可见" width="110" align="center">
-          <template #default="{ row }">
-            <el-switch
-              :model-value="row.agentVisible"
-              @change="handleVisibleChange(row, $event as boolean)"
             />
           </template>
         </el-table-column>
@@ -226,7 +213,6 @@
               <p>{{ form.description || '填写一句能让 Agent 判断何时调用的描述。' }}</p>
             </div>
             <div class="summary-tags">
-              <el-tag size="small" effect="plain">{{ formatVisibilityLabel(form.visibility || 'PRIVATE') }}</el-tag>
               <el-tag size="small" :type="sideEffectTagType(form.sideEffect)" effect="plain">
                 {{ formatSideEffectLabel(form.sideEffect) }}
               </el-tag>
@@ -238,7 +224,7 @@
             <div v-show="activeCompositionStep === 0" class="editor-panel">
               <div class="panel-heading">
                 <h4>基本信息</h4>
-                <p>定义这个能力叫什么、归属哪里，以及 Agent 是否可以看见它。</p>
+                <p>定义这个能力叫什么、归属哪里，以及它的能力形态。</p>
               </div>
               <el-form-item label="能力名">
                 <el-input v-model="form.name" :disabled="isEditMode" placeholder="snake_case，如 risk_customer_triage" />
@@ -252,7 +238,7 @@
                 />
               </el-form-item>
               <el-row :gutter="16">
-                <el-col :span="12">
+                <el-col :span="24">
                   <el-form-item label="项目">
                     <el-select
                       v-model="form.projectId"
@@ -267,18 +253,6 @@
                         :key="project.id"
                         :label="projectOptionLabel(project)"
                         :value="project.id"
-                      />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="可见性">
-                    <el-select v-model="form.visibility" style="width: 100%">
-                      <el-option
-                        v-for="opt in VISIBILITY_SELECT_OPTIONS"
-                        :key="opt.value"
-                        :label="opt.label"
-                        :value="opt.value"
                       />
                     </el-select>
                   </el-form-item>
@@ -311,7 +285,7 @@
                 </el-col>
               </el-row>
               <div class="meta-readonly">
-                <span>全限定名</span>
+                <span>稳定标识</span>
                 <code>{{ resolvedFormQualifiedName || '保存后生成' }}</code>
               </div>
             </div>
@@ -387,7 +361,7 @@
             <div v-show="activeCompositionStep === 3" class="editor-panel">
               <div class="panel-heading">
                 <h4>运行控制</h4>
-                <p>控制能力是否启用、是否对 Agent 可见，并在发布前确认关键配置。</p>
+                <p>启用后能力即可被 Agent 发现与调用；停用后不可用。</p>
               </div>
               <div class="control-grid">
                 <div class="control-card">
@@ -399,10 +373,6 @@
                   >
                     <el-switch v-model="form.enabled" :disabled="editingIsDraft" />
                   </el-tooltip>
-                </div>
-                <div class="control-card">
-                  <span>Agent 可见</span>
-                  <el-switch v-model="form.agentVisible" />
                 </div>
               </div>
               <el-alert
@@ -672,7 +642,6 @@ import {
   normalizeInteractiveFormSpec,
   validateInteractiveFormSpec,
 } from '@/types/composition'
-import { VISIBILITY_SELECT_OPTIONS, formatVisibilityLabel } from '@/utils/projectLabels'
 import type { ToolInfo } from '@/types/tool'
 import type { ScanProject } from '@/types/scanProject'
 import type { ModelInstance } from '@/types/model'
@@ -709,14 +678,14 @@ const formDialogTitle = computed(() =>
   isEditMode.value ? `编辑能力 — ${form.name}` : '新建能力',
 )
 const capabilityEditorSteps = computed(() => [
-  { key: 'basic', title: '基本信息', desc: '命名、归属与可见性' },
+  { key: 'basic', title: '基本信息', desc: '命名、归属与状态' },
   {
     key: 'spec',
     title: form.skillKind === 'INTERACTIVE_FORM' ? '执行动作' : '执行策略',
     desc: form.skillKind === 'INTERACTIVE_FORM' ? '选择 Tool 并设计表单' : '提示词与工具白名单',
   },
   { key: 'schema', title: '调用入口', desc: 'Agent 参数 Schema' },
-  { key: 'release', title: '运行发布', desc: '启用、可见与校验' },
+  { key: 'release', title: '运行发布', desc: '启用状态与校验' },
 ])
 const resolvedFormQualifiedName = computed(() => {
   if (form.qualifiedName) return form.qualifiedName
@@ -764,10 +733,8 @@ function createEmptyForm(): CompositionUpsertRequest {
     sideEffect: 'WRITE',
     projectId: null,
     projectCode: null,
-    visibility: 'PRIVATE',
     qualifiedName: null,
     enabled: true,
-    agentVisible: true,
     spec: {
       systemPrompt: '',
       toolWhitelist: [],
@@ -899,19 +866,21 @@ function projectCodeById(projectId?: number | null) {
 
 function toolOptionLabel(tool: ToolInfo) {
   const project = tool.projectCode ? ` · ${tool.projectCode}` : ''
-  const visibility = tool.visibility ? ` · ${formatVisibilityLabel(tool.visibility)}` : ''
   const desc = tool.description ? ` — ${tool.description.slice(0, 40)}` : ''
-  return `${tool.name}${project}${visibility}${desc}`
+  return `${tool.name}${project}${desc}`
 }
 
-function syncFiltersWithProjectContext() {
-  const queryProjectId = Number(route.query.projectId)
-  if (Number.isFinite(queryProjectId) && queryProjectId > 0) {
-    filters.projectId = queryProjectId
-    projectStore.setCurrentProject(queryProjectId)
+function syncFiltersWithProjectContext(allowRouteFallback = false) {
+  if (projectStore.currentProjectId !== null) {
+    filters.projectId = projectStore.currentProjectId
     return
   }
-  filters.projectId = projectStore.currentProjectId ?? undefined
+  const queryProjectId = Number(route.query.projectId)
+  if (allowRouteFallback && Number.isFinite(queryProjectId) && queryProjectId > 0) {
+    filters.projectId = queryProjectId
+    return
+  }
+  filters.projectId = undefined
 }
 
 function handleFormProjectChange(projectId: number | null | undefined, clearSelection = true) {
@@ -943,10 +912,8 @@ function applyForm(data: CompositionUpsertRequest) {
   form.sideEffect = data.sideEffect ?? 'WRITE'
   form.projectId = data.projectId ?? null
   form.projectCode = data.projectCode ?? projectCodeById(data.projectId) ?? null
-  form.visibility = data.visibility || 'PRIVATE'
   form.qualifiedName = data.qualifiedName || null
   form.enabled = data.enabled
-  form.agentVisible = data.agentVisible
   if (data.skillKind === 'INTERACTIVE_FORM') {
     const s = data.spec as Record<string, unknown> | undefined
     interactiveSpec.value =
@@ -995,10 +962,8 @@ function openEditDialog(skill: CompositionInfo) {
     sideEffect: skill.sideEffect || 'WRITE',
     projectId: skill.projectId ?? null,
     projectCode: skill.projectCode ?? projectCodeById(skill.projectId) ?? null,
-    visibility: skill.visibility || 'PRIVATE',
     qualifiedName: skill.qualifiedName || null,
     enabled: skill.enabled,
-    agentVisible: skill.agentVisible,
     spec: skill.spec || {
       systemPrompt: '',
       toolWhitelist: [],
@@ -1118,36 +1083,6 @@ async function handleEnabledChange(skill: CompositionInfo, enabled: boolean) {
   } catch (err) {
     ElMessage.error(axiosMessage(err))
     await fetchCapabilities()
-  }
-}
-
-async function handleVisibleChange(skill: CompositionInfo, agentVisible: boolean) {
-  try {
-    const specBody: SubAgentSpec | Record<string, unknown> =
-      skill.skillKind === 'INTERACTIVE_FORM'
-        ? (normalizeInteractiveFormSpec(skill.spec ?? {}) as unknown as Record<string, unknown>)
-        : ((skill.spec as SubAgentSpec) || {
-            systemPrompt: '',
-            toolWhitelist: [],
-            modelInstanceId: '',
-            maxSteps: 8,
-            useMultiAgentModel: false,
-          })
-    await updateComposition(skill.name, {
-      name: skill.name,
-      description: skill.description,
-      parameters: skill.parameters || [],
-      skillKind: skill.skillKind || 'SUB_AGENT',
-      sideEffect: skill.sideEffect || 'WRITE',
-      enabled: skill.enabled,
-      agentVisible,
-      spec: specBody,
-      draft: Boolean(skill.draft),
-    })
-    ElMessage.success('配置已更新')
-    await fetchCapabilities()
-  } catch (err) {
-    ElMessage.error((err as Error).message || '更新失败')
   }
 }
 
@@ -1324,7 +1259,7 @@ async function openMetrics(skill: CompositionInfo) {
 
 onMounted(async () => {
   await loadScanProjects()
-  syncFiltersWithProjectContext()
+  syncFiltersWithProjectContext(true)
   await loadToolOptions(filters.projectId ?? null)
   await loadLlmInstances()
   fetchCapabilities()

@@ -1,0 +1,312 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:reachai:ai-coding:page-map-report:v1",
+  "title": "ReachAI Page Map Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scanMode",
+    "scannedAt",
+    "modules",
+    "pages"
+  ],
+  "properties": {
+    "scanMode": {
+      "type": "string",
+      "enum": [
+        "FULL",
+        "INCREMENTAL"
+      ]
+    },
+    "repositoryBranch": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "repositoryRevision": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "scannedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/module"
+      }
+    },
+    "pages": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": {
+        "$ref": "#/$defs/page"
+      }
+    }
+  },
+  "$defs": {
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleKey",
+        "name"
+      ],
+      "properties": {
+        "moduleKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pageKey",
+        "name",
+        "resources",
+        "actions"
+      ],
+      "properties": {
+        "pageKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "moduleKey": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "moduleName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 255
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "routePattern": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512
+        },
+        "componentPath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/resource"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action"
+          }
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "routePattern"
+          ]
+        },
+        {
+          "required": [
+            "componentPath"
+          ]
+        }
+      ]
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resourceType",
+        "resourceKey",
+        "displayName",
+        "accessMode"
+      ],
+      "properties": {
+        "resourceType": {
+          "type": "string",
+          "enum": [
+            "ROUTE",
+            "COMPONENT",
+            "API",
+            "PERMISSION",
+            "CONFIG"
+          ]
+        },
+        "resourceKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "location": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        },
+        "httpMethod": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 16
+        },
+        "accessMode": {
+          "type": "string",
+          "enum": [
+            "READ_ONLY",
+            "READ_WRITE"
+          ]
+        },
+        "metadata": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actionKey",
+        "title",
+        "actionType",
+        "riskLevel",
+        "confirmRequired"
+      ],
+      "properties": {
+        "actionKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "actionType": {
+          "type": "string",
+          "enum": [
+            "READ",
+            "WRITE",
+            "PAGE_ACTION"
+          ]
+        },
+        "riskLevel": {
+          "type": "string",
+          "enum": [
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "IRREVERSIBLE"
+          ]
+        },
+        "confirmRequired": {
+          "type": "boolean"
+        },
+        "permissionKey": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "inputSchema": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "outputSchema": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "sampleArgs": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "allowedAgentIds": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "implementationRef": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "metadata": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

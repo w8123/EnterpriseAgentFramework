@@ -163,9 +163,11 @@ public class CapabilityApiGraphRegenerateService {
         node.setKind(API);
         node.setRefId(tool.getId());
         node.setParentId(moduleNodeId);
-        node.setLabel(firstNonBlank(tool.getName(), "api-" + tool.getId()));
+        node.setLabel(firstNonBlank(tool.getTitle(), tool.getName(), "api-" + tool.getId()));
         Map<String, Object> props = new LinkedHashMap<>();
         props.put("scanToolId", tool.getId());
+        props.put("title", nullToEmpty(tool.getTitle()));
+        props.put("name", nullToEmpty(tool.getName()));
         props.put("httpMethod", nullToEmpty(tool.getHttpMethod()));
         props.put("endpointPath", nullToEmpty(tool.getEndpointPath()));
         props.put("contextPath", nullToEmpty(tool.getContextPath()));

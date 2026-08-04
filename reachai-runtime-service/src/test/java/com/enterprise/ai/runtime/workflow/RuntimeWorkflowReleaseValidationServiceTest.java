@@ -59,8 +59,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                 {
                   "nodes":[{"id":"answer","type":"LLM","config":{"prompt":"hello"}}],
                   "edges":[],
-                  "entry":"answer",
-                  "finish":["answer"]
+                  "entryNodeId":"answer",
+                  "exitNodeIds":["answer"]
                 }
                 """);
 
@@ -79,8 +79,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                 {
                   "nodes":[{"id":"answer","type":"LLM","config":{"prompt":"hello"}}],
                   "edges":[],
-                  "entry":"answer",
-                  "finish":["answer"]
+                  "entryNodeId":"answer",
+                  "exitNodeIds":["answer"]
                 }
                 """, GraphSpec.class);
 
@@ -108,8 +108,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                   "edges":[
                     {"from":"classifier","to":"search-answer","condition":"search"},
                     {"from":"classifier","to":"fallback-answer","condition":"else"}],
-                  "entry":"classifier",
-                  "finish":["search-answer","fallback-answer"]
+                  "entryNodeId":"classifier",
+                  "exitNodeIds":["search-answer","fallback-answer"]
                 }
                 """);
 
@@ -141,8 +141,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                 {
                   "nodes":[{"id":"code","type":"CODE","config":{"code":"return 1"}}],
                   "edges":[],
-                  "entry":"code",
-                  "finish":["code"]
+                  "entryNodeId":"code",
+                  "exitNodeIds":["code"]
                 }
                 """);
 
@@ -161,8 +161,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                 {
                   "nodes":[{"id":"ask","type":"INTERACTION","config":{"mode":"confirm_action"}}],
                   "edges":[],
-                  "entry":"ask",
-                  "finish":["ask"]
+                  "entryNodeId":"ask",
+                  "exitNodeIds":["ask"]
                 }
                 """);
 
@@ -180,9 +180,9 @@ class RuntimeWorkflowReleaseValidationServiceTest {
         RuntimeWorkflowDefinitionEntity missingFields = workflow("""
                 {
                   "nodes":[{"id":"ask","type":"INTERACTION","config":{"interactionType":"COLLECT_INPUT"}}],
-                  "edges":[{"from":"ask","to":"END","condition":"always"}],
-                  "entry":"ask",
-                  "finish":["ask"]
+                  "edges":[],
+                  "entryNodeId":"ask",
+                  "exitNodeIds":["ask"]
                 }
                 """);
         RuntimeWorkflowDefinitionEntity valid = workflow("""
@@ -191,9 +191,9 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     "interactionType":"COLLECT_INPUT",
                     "fields":[{"key":"q","type":"string","required":true}]
                   }}],
-                  "edges":[{"from":"ask","to":"END","condition":"always"}],
-                  "entry":"ask",
-                  "finish":["ask"]
+                  "edges":[],
+                  "entryNodeId":"ask",
+                  "exitNodeIds":["ask"]
                 }
                 """);
 
@@ -211,22 +211,23 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     {"id":"write","type":"ANSWER","config":{"template":"done"}}
                   ],
                   "edges":[{"from":"ask","to":"write","condition":"always"}],
-                  "entry":"ask",
-                  "finish":["write"]
+                  "entryNodeId":"ask",
+                  "exitNodeIds":["write"]
                 }
                 """);
         RuntimeWorkflowDefinitionEntity valid = workflow("""
                 {
                   "nodes":[
                     {"id":"ask","type":"INTERACTION","config":{"interactionType":"CONFIRM_ACTION"}},
-                    {"id":"write","type":"ANSWER","config":{"template":"done"}}
+                    {"id":"write","type":"ANSWER","config":{"template":"done"}},
+                    {"id":"reject","type":"ANSWER","config":{"template":"cancelled"}}
                   ],
                   "edges":[
                     {"from":"ask","to":"write","condition":"route:confirm"},
-                    {"from":"ask","to":"END","condition":"route:reject"}
+                    {"from":"ask","to":"reject","condition":"route:reject"}
                   ],
-                  "entry":"ask",
-                  "finish":["write"]
+                  "entryNodeId":"ask",
+                  "exitNodeIds":["write","reject"]
                 }
                 """);
 
@@ -245,8 +246,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     "interactionType":"CUSTOM","rendererKey":"evil_html"
                   }}],
                   "edges":[],
-                  "entry":"ask",
-                  "finish":["ask"]
+                  "entryNodeId":"ask",
+                  "exitNodeIds":["ask"]
                 }
                 """);
         RuntimeWorkflowDefinitionEntity reviewEdit = workflow("""
@@ -256,8 +257,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     "fields":[{"key":"text","type":"string"}]
                   }}],
                   "edges":[],
-                  "entry":"ask",
-                  "finish":["ask"]
+                  "entryNodeId":"ask",
+                  "exitNodeIds":["ask"]
                 }
                 """);
 
@@ -280,9 +281,9 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                       "fields":[{"key":"owner","label":"Owner"}]
                     }
                   }}],
-                  "edges":[{"from":"show","to":"END","condition":"always"}],
-                  "entry":"show",
-                  "finish":["show"]
+                  "edges":[],
+                  "entryNodeId":"show",
+                  "exitNodeIds":["show"]
                 }
                 """);
         RuntimeWorkflowDefinitionEntity invalid = workflow("""
@@ -290,11 +291,12 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                   "nodes":[{"id":"show","type":"INTERACTION","config":{
                     "interactionType":"PRESENT_OUTPUT",
                     "component":"list-card",
+                    "presentation":{"mode":"cards"},
                     "renderSchema":{"initialVisibleCount":0,"fields":{}}
                   }}],
-                  "edges":[{"from":"show","to":"END","condition":"always"}],
-                  "entry":"show",
-                  "finish":["show"]
+                  "edges":[],
+                  "entryNodeId":"show",
+                  "exitNodeIds":["show"]
                 }
                 """);
 
@@ -302,6 +304,28 @@ class RuntimeWorkflowReleaseValidationServiceTest {
         RuntimeWorkflowReleaseValidationResult invalidResult = service.validate(invalid);
         assertTrue(hasError(invalidResult, "GRAPH_INTERACTION_LIST_CARD_VISIBLE_COUNT_INVALID"));
         assertTrue(hasError(invalidResult, "GRAPH_INTERACTION_LIST_CARD_FIELDS_INVALID"));
+        assertTrue(hasError(invalidResult, "GRAPH_INTERACTION_PRESENTATION_MODE_UNSUPPORTED"));
+    }
+
+    @Test
+    void blockingInteractionCannotHideItsInteractiveCard() {
+        RuntimeWorkflowReleaseValidationService service = openInteractionService();
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {
+                  "nodes":[{"id":"ask","type":"INTERACTION","config":{
+                    "interactionType":"COLLECT_INPUT",
+                    "presentation":{"mode":"text_only"},
+                    "fields":[{"key":"q","type":"string","required":true}]
+                  }}],
+                  "edges":[],
+                  "entryNodeId":"ask",
+                  "exitNodeIds":["ask"]
+                }
+                """);
+
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+
+        assertTrue(hasError(result, "GRAPH_INTERACTION_PRESENTATION_TEXT_ONLY_UNSAFE"));
     }
 
     @Test
@@ -314,8 +338,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     {"id":"capability","type":"CAPABILITY","config":{}}
                   ],
                   "edges":[{"from":"tool","to":"capability"}],
-                  "entry":"tool",
-                  "finish":["capability"]
+                  "entryNodeId":"tool",
+                  "exitNodeIds":["capability"]
                 }
                 """);
 
@@ -341,8 +365,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     }}
                   ],
                   "edges":[{"from":"tool","to":"capability"}],
-                  "entry":"tool",
-                  "finish":["capability"]
+                  "entryNodeId":"tool",
+                  "exitNodeIds":["capability"]
                 }
                 """);
 
@@ -376,8 +400,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     {"from":"classifier","to":"reset-answer","condition":"route:reset"},
                     {"from":"classifier","to":"fallback-answer","condition":"else"}
                   ],
-                  "entry":"classifier",
-                  "finish":["search-answer","reset-answer","fallback-answer"]
+                  "entryNodeId":"classifier",
+                  "exitNodeIds":["search-answer","reset-answer","fallback-answer"]
                 }
                 """);
 
@@ -396,8 +420,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                 {
                   "nodes":[{"id":"classifier","type":"INTENT_CLASSIFIER","config":{"strategy":"KEYWORD"}}],
                   "edges":[],
-                  "entry":"classifier",
-                  "finish":["classifier"]
+                  "entryNodeId":"classifier",
+                  "exitNodeIds":["classifier"]
                 }
                 """);
         RuntimeWorkflowDefinitionEntity emptyClasses = workflow("""
@@ -407,8 +431,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     "classes":[]
                   }}],
                   "edges":[],
-                  "entry":"classifier",
-                  "finish":["classifier"]
+                  "entryNodeId":"classifier",
+                  "exitNodeIds":["classifier"]
                 }
                 """);
         RuntimeWorkflowDefinitionEntity invalidClassIds = workflow("""
@@ -418,8 +442,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     "classes":[{"id":""},{"id":"search"},{"id":"Search"}]
                   }}],
                   "edges":[],
-                  "entry":"classifier",
-                  "finish":["classifier"]
+                  "entryNodeId":"classifier",
+                  "exitNodeIds":["classifier"]
                 }
                 """);
 
@@ -450,8 +474,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     {"id":"answer","type":"ANSWER"}
                   ],
                   "edges":[{"from":"classifier","to":"answer","condition":"always"}],
-                  "entry":"classifier",
-                  "finish":["answer"]
+                  "entryNodeId":"classifier",
+                  "exitNodeIds":["answer"]
                 }
                 """);
 
@@ -478,8 +502,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     {"id":"paid-answer","type":"ANSWER"}
                   ],
                   "edges":[{"from":"judge","to":"paid-answer","condition":"route:paid"}],
-                  "entry":"judge",
-                  "finish":["paid-answer"]
+                  "entryNodeId":"judge",
+                  "exitNodeIds":["paid-answer"]
                 }
                 """);
 
@@ -492,22 +516,26 @@ class RuntimeWorkflowReleaseValidationServiceTest {
     }
 
     @Test
-    void nestedConditionConfigAcceptsDirectRouteAndDefaultAliasToEnd() {
+    void nestedConditionConfigAcceptsDirectRouteAndDefaultRouteToRealExitNodes() {
         RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
         RuntimeWorkflowDefinitionEntity workflow = workflow("""
                 {
-                  "nodes":[{"id":"judge","type":"IF_ELSE","config":{"conditionConfig":{
+                  "nodes":[
+                    {"id":"judge","type":"IF_ELSE","config":{"conditionConfig":{
                     "groups":[{"id":"paid","conditions":[
                       {"left":"status","operator":"equals","right":"PAID"}
                     ]}],
                     "defaultRoute":"else"
-                  }}}],
-                  "edges":[
-                    {"from":"judge","to":"END","condition":"paid"},
-                    {"from":"judge","to":"END","condition":"route:default"}
+                    }}},
+                    {"id":"paid-answer","type":"ANSWER"},
+                    {"id":"default-answer","type":"ANSWER"}
                   ],
-                  "entry":"judge",
-                  "finish":["judge"]
+                  "edges":[
+                    {"from":"judge","to":"paid-answer","condition":"paid"},
+                    {"from":"judge","to":"default-answer","condition":"route:default"}
+                  ],
+                  "entryNodeId":"judge",
+                  "exitNodeIds":["paid-answer","default-answer"]
                 }
                 """);
 
@@ -528,8 +556,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     "fields":[{"name":"owner","type":"string","source":"params.owner"}]
                   }}],
                   "edges":[],
-                  "entry":"extract",
-                  "finish":["extract"]
+                  "entryNodeId":"extract",
+                  "exitNodeIds":["extract"]
                 }
                 """);
         RuntimeWorkflowDefinitionEntity missingFields = workflow("""
@@ -539,8 +567,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     "fields":[]
                   }}],
                   "edges":[],
-                  "entry":"extract",
-                  "finish":["extract"]
+                  "entryNodeId":"extract",
+                  "exitNodeIds":["extract"]
                 }
                 """);
 
@@ -563,8 +591,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     "fields":[{"name":"owner","type":"string"}]
                   }}}],
                   "edges":[],
-                  "entry":"extract",
-                  "finish":["extract"]
+                  "entryNodeId":"extract",
+                  "exitNodeIds":["extract"]
                 }
                 """);
 
@@ -584,8 +612,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                 {
                   "nodes":[{"id":"open","type":"PAGE_ACTION","config":{"projectCode":"demo","pageKey":"orders","actionKey":"open"}}],
                   "edges":[],
-                  "entry":"open",
-                  "finish":["open"]
+                  "entryNodeId":"open",
+                  "exitNodeIds":["open"]
                 }
                 """);
 
@@ -606,8 +634,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                 {
                   "nodes":[{"id":"open","type":"PAGE_ACTION","config":{"projectCode":"demo","pageKey":"orders","actionKey":"open"}}],
                   "edges":[],
-                  "entry":"open",
-                  "finish":["open"]
+                  "entryNodeId":"open",
+                  "exitNodeIds":["open"]
                 }
                 """);
 
@@ -622,7 +650,7 @@ class RuntimeWorkflowReleaseValidationServiceTest {
         RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
         RuntimeWorkflowDefinitionEntity workflow = workflow("""
                 {
-                  "entry":"assign",
+                  "entryNodeId":"assign",
                   "nodes":[
                     {"id":"assign","type":"VARIABLE_ASSIGN","config":{"assignments":{"var.count":1,"var.flag":true}}},
                     {"id":"tpl","type":"TEMPLATE","config":{"template":"hi {{ var.count }}","outputAlias":"tpl_out"}},
@@ -637,7 +665,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     {"from":"agg","to":"kb","condition":"always"},
                     {"from":"kb","to":"http","condition":"always"},
                     {"from":"http","to":"answer","condition":"always"}
-                  ]
+                  ],
+                  "exitNodeIds":["answer"]
                 }
                 """);
         RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
@@ -648,7 +677,7 @@ class RuntimeWorkflowReleaseValidationServiceTest {
     void rejectsRetryOnNonRetryableNodeAndHttpNonIdempotentWithoutFlag() {
         RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
         RuntimeWorkflowDefinitionEntity assignRetry = workflow("""
-                {"entry":"assign","nodes":[
+                {"entryNodeId":"assign","exitNodeIds":["answer"],"nodes":[
                   {"id":"assign","type":"VARIABLE_ASSIGN","retry":{"enabled":true,"maxAttempts":2},
                    "config":{"assignments":{"var.x":"input"}}},
                   {"id":"answer","type":"ANSWER","config":{"template":"x"}}
@@ -657,7 +686,7 @@ class RuntimeWorkflowReleaseValidationServiceTest {
         assertTrue(hasError(service.validate(assignRetry), "GRAPH_RETRY_NOT_ALLOWED"));
 
         RuntimeWorkflowDefinitionEntity postRetry = workflow("""
-                {"entry":"http","nodes":[
+                {"entryNodeId":"http","exitNodeIds":["answer"],"nodes":[
                   {"id":"http","type":"HTTP_REQUEST","retry":{"enabled":true,"maxAttempts":2},
                    "config":{"method":"POST","url":"https://example.com","bodyType":"json","body":"{}"}},
                   {"id":"answer","type":"ANSWER","config":{"template":"x"}}
@@ -670,7 +699,7 @@ class RuntimeWorkflowReleaseValidationServiceTest {
     void rejectsAggregateDuplicateNameAndKnowledgeEmptyCodes() {
         RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
         RuntimeWorkflowDefinitionEntity dup = workflow("""
-                {"entry":"agg","nodes":[
+                {"entryNodeId":"agg","exitNodeIds":["answer"],"nodes":[
                   {"id":"agg","type":"VARIABLE_AGGREGATOR","config":{"mode":"object",
                     "items":[{"name":"a","source":"input"},{"name":"a","source":"input"}]}},
                   {"id":"answer","type":"ANSWER","config":{"template":"x"}}
@@ -679,7 +708,7 @@ class RuntimeWorkflowReleaseValidationServiceTest {
         assertTrue(hasError(service.validate(dup), "GRAPH_AGGREGATE_ITEM_NAME_DUPLICATE"));
 
         RuntimeWorkflowDefinitionEntity emptyKb = workflow("""
-                {"entry":"kb","nodes":[
+                {"entryNodeId":"kb","exitNodeIds":["answer"],"nodes":[
                   {"id":"kb","type":"KNOWLEDGE_RETRIEVAL","config":{"knowledgeBaseCodes":[],"query":"input"}},
                   {"id":"answer","type":"ANSWER","config":{"template":"x"}}
                 ],"edges":[{"from":"kb","to":"answer","condition":"always"}]}
@@ -691,7 +720,7 @@ class RuntimeWorkflowReleaseValidationServiceTest {
     void rejectsFallbackSelfLoop() {
         RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
         RuntimeWorkflowDefinitionEntity workflow = workflow("""
-                {"entry":"http","nodes":[
+                {"entryNodeId":"http","exitNodeIds":["answer"],"nodes":[
                   {"id":"http","type":"HTTP_REQUEST",
                    "errorPolicy":{"strategy":"FALLBACK","fallbackNodeId":"http"},
                    "config":{"method":"GET","url":"https://example.com"}},
@@ -715,7 +744,6 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                 "interaction",
                 "CONTROL",
                 false,
-                List.of(),
                 WorkflowNodeMaturity.BETA,
                 true,
                 true,
@@ -748,7 +776,7 @@ class RuntimeWorkflowReleaseValidationServiceTest {
         entity.setProjectCode("demo");
         entity.setKeySlug("orders");
         entity.setName("Orders");
-        entity.setRuntimeType("LANGGRAPH4J");
+        entity.setExecutionEngine("GRAPH_SPEC");
         entity.setGraphSpecJson(graphSpecJson);
         return entity;
     }
@@ -762,8 +790,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                     "defaultRoute":"else"
                   }}],
                   "edges":[],
-                  "entry":"classifier",
-                  "finish":["classifier"]
+                  "entryNodeId":"classifier",
+                  "exitNodeIds":["classifier"]
                 }
                 """.formatted(strategy));
     }

@@ -34,7 +34,7 @@ class RuntimeCompositionExecutionServiceTest {
                 "compositionCode", "queryOrderFlow",
                 "enabled", true,
                 "graphSpecJson", """
-                        {"entry":"answer","nodes":[{"id":"answer","type":"ANSWER","config":{"template":"订单：{{ orderNo }}"}}]}
+                        {"schemaVersion":2,"entryNodeId":"answer","exitNodeIds":["answer"],"nodes":[{"id":"answer","type":"ANSWER","config":{"template":"订单：{{ orderNo }}"}}]}
                         """);
 
         Map<String, Object> result = service.execute("orders.queryOrderFlow",
@@ -52,7 +52,7 @@ class RuntimeCompositionExecutionServiceTest {
                 "qualifiedName", "orders.disabled",
                 "enabled", false,
                 "graphSpecJson", """
-                        {"entry":"answer","nodes":[{"id":"answer","type":"ANSWER","config":{"template":"ok"}}]}
+                        {"schemaVersion":2,"entryNodeId":"answer","exitNodeIds":["answer"],"nodes":[{"id":"answer","type":"ANSWER","config":{"template":"ok"}}]}
                         """);
 
         Map<String, Object> result = service.execute("orders.disabled", Map.of("message", "hello"));

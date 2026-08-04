@@ -351,6 +351,11 @@ public class PlatformEmbedPublicController {
         putIfText(runtimeBody, "tenantId", firstText(session.getTenantId(), claims.getTenantId()));
         putIfText(runtimeBody, "externalUserId", firstText(session.getExternalUserId(), claims.getExternalUserId()));
         putIfText(runtimeBody, "globalUserId", session.getGlobalUserId());
+        putIfText(runtimeBody, "userName", claims.getUserName());
+        Map<String, Object> attributes = claims.getAttributes() == null ? Map.of() : claims.getAttributes();
+        runtimeBody.put("attributes", attributes);
+        putIfText(runtimeBody, "deptId", text(attributes.get("deptId")));
+        putIfText(runtimeBody, "deptName", text(attributes.get("deptName")));
         runtimeBody.put("pageKey", session.getPageKey());
         runtimeBody.put("route", session.getRoute());
         runtimeBody.put("roles", claims.getRoles() == null ? List.of() : claims.getRoles());
@@ -360,6 +365,9 @@ public class PlatformEmbedPublicController {
         putIfText(metadata, "projectCode", session.getProjectCode());
         putIfText(metadata, "externalUserId", firstText(session.getExternalUserId(), claims.getExternalUserId()));
         putIfText(metadata, "globalUserId", session.getGlobalUserId());
+        putIfText(metadata, "userName", claims.getUserName());
+        putIfText(metadata, "deptId", text(attributes.get("deptId")));
+        putIfText(metadata, "deptName", text(attributes.get("deptName")));
         putIfText(metadata, "pageInstanceId", session.getPageInstanceId());
         putIfText(metadata, "origin", session.getOrigin());
         metadata.put("entryType", "EMBED");

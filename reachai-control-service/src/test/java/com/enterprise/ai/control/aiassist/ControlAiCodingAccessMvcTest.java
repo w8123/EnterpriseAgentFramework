@@ -108,7 +108,7 @@ class ControlAiCodingAccessMvcTest {
                 .standaloneSetup(new ControlAiCodingProjectController(
                         capabilityClient,
                         runtimeClient,
-                        mock(com.enterprise.ai.control.client.model.ControlModelCatalogClient.class)))
+                        mock(ControlProjectAgentProvisioningService.class)))
                 .addInterceptors(new ControlAiCodingAccessInterceptor(guard))
                 .build();
     }

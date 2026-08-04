@@ -1,7 +1,6 @@
 /**
- * Embed SDK 外壳样式（Header / 定位 / 根容器）。
+ * Embed SDK 外壳样式（动态入口 / Header / 定位 / 缩放）。
  * 消息、Composer、氛围背景由共享 Conversation 组件 + conversation-tokens 提供。
- * 材质与调试台同属 ReachAI 玻璃对话系统；本文件只负责 Embed 壳层。
  */
 @import '../conversation/styles/conversation-tokens.css';
 
@@ -9,29 +8,24 @@
 .reachai-chat-root {
   --reachai-chat-primary: #6366f1;
   --reachai-chat-primary-rgb: 99 102 241;
-  /* 内嵌宿主：跟随 mount 容器宽度，便于 Conversation @container 头像响应 */
   box-sizing: border-box !important;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  height: 100%;
+  color: var(--reachai-chat-text, #1e293b);
+  font-family: var(--reachai-chat-font-family);
+}
+
+.eaf-chat {
+  position: relative;
+  width: var(--reachai-chat-user-width, 100%);
+  height: var(--reachai-chat-user-height, 100%);
   max-width: 100%;
   max-height: 100%;
-  overflow: hidden;
-  border: 1px solid var(--reachai-chat-glass-border-soft, rgb(115 133 172 / 0.18));
-  border-radius: 16px;
-  color: var(--reachai-chat-text, #1e293b);
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.42), rgb(248 250 255 / 0.28)),
-    var(--reachai-chat-glass-composer, rgb(255 255 255 / 0.72));
-  box-shadow:
-    var(--reachai-chat-glass-highlight, inset 0 1px 0 rgb(255 255 255 / 0.74)),
-    0 28px 64px rgb(15 23 42 / 0.14),
-    0 10px 28px rgb(15 23 42 / 0.08),
-    0 0 0 1px rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.06);
-  -webkit-backdrop-filter: var(--reachai-chat-glass-blur, blur(24px) saturate(0.78));
-  backdrop-filter: var(--reachai-chat-glass-blur, blur(24px) saturate(0.78));
-  font-family: var(--reachai-chat-font-family);
+  isolation: isolate;
+}
+
+.eaf-chat.eaf-chat {
+  /* 高于共享 token 的单类默认值，且仍允许业务方以内联变量覆盖。 */
+  --reachai-chat-atmosphere-image: url('./conversation-atmosphere.webp');
+  --reachai-chat-prism-avatar: url('./agent-prism.webp');
 }
 
 .eaf-chat *,
@@ -48,18 +42,87 @@
 .eaf-chat--bottom-left {
   position: fixed;
   z-index: 2147483000;
-  bottom: 16px;
-  width: min(var(--reachai-chat-width, 380px), calc(100vw - 24px));
+  inset: 0;
+  width: auto;
   height: auto;
-  max-height: min(var(--reachai-chat-height, 560px), calc(100vh - 24px));
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  pointer-events: none;
 }
 
-.eaf-chat--bottom-right {
+.eaf-chat__panel,
+.reachai-chat-root {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--reachai-chat-glass-border-soft, rgb(115 133 172 / 0.18));
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.42), rgb(248 250 255 / 0.28)),
+    var(--reachai-chat-glass-composer, rgb(255 255 255 / 0.72));
+  box-shadow:
+    var(--reachai-chat-glass-highlight, inset 0 1px 0 rgb(255 255 255 / 0.74)),
+    0 28px 64px rgb(15 23 42 / 0.14),
+    0 10px 28px rgb(15 23 42 / 0.08),
+    0 0 0 1px rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.06);
+  -webkit-backdrop-filter: var(--reachai-chat-glass-blur, blur(24px) saturate(0.78));
+  backdrop-filter: var(--reachai-chat-glass-blur, blur(24px) saturate(0.78));
+}
+
+.eaf-chat__panel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: auto;
+}
+
+.eaf-chat__panel[hidden],
+.eaf-chat__launcher-wrap[hidden] {
+  display: none !important;
+}
+
+.reachai-chat-root {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.eaf-chat--bottom-right .eaf-chat__panel,
+.eaf-chat--bottom-left .eaf-chat__panel {
+  position: absolute;
+  bottom: 16px;
+  width: min(
+    var(--reachai-chat-user-width, var(--reachai-chat-width, 380px)),
+    calc(100vw - 24px)
+  );
+  height: min(
+    var(--reachai-chat-user-height, var(--reachai-chat-height, 560px)),
+    calc(100vh - 24px)
+  );
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+}
+
+.eaf-chat--bottom-right .eaf-chat__panel {
   right: 16px;
 }
 
-.eaf-chat--bottom-left {
+.eaf-chat--bottom-left .eaf-chat__panel {
   left: 16px;
+}
+
+.eaf-chat--bottom-right[data-launcher-dock='left'] .eaf-chat__panel {
+  right: auto;
+  left: 16px;
+}
+
+.eaf-chat--bottom-left[data-launcher-dock='right'] .eaf-chat__panel {
+  right: 16px;
+  left: auto;
 }
 
 .eaf-chat__header {
@@ -68,6 +131,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex: 0 0 auto;
   gap: 8px;
   min-height: 48px;
   padding: 10px 12px;
@@ -84,6 +148,39 @@
     0 10px 24px rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.18);
   -webkit-backdrop-filter: blur(18px) saturate(0.88);
   backdrop-filter: blur(18px) saturate(0.88);
+}
+
+.eaf-chat--panel-draggable .eaf-chat__header {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.eaf-chat--panel-dragging .eaf-chat__header {
+  cursor: grabbing;
+}
+
+.eaf-chat--panel-dragging .eaf-chat__panel {
+  transition: none !important;
+  will-change: top, left;
+}
+
+.eaf-chat--bottom-right .eaf-chat__header {
+  padding-left: 28px;
+}
+
+.eaf-chat--bottom-left .eaf-chat__header {
+  padding-right: 44px;
+}
+
+.eaf-chat--bottom-right[data-launcher-dock='left'] .eaf-chat__header {
+  padding-right: 44px;
+  padding-left: 12px;
+}
+
+.eaf-chat--bottom-left[data-launcher-dock='right'] .eaf-chat__header {
+  padding-right: 12px;
+  padding-left: 28px;
 }
 
 .eaf-chat__brand {
@@ -122,27 +219,49 @@
 }
 
 .eaf-chat__toggle {
+  position: relative;
+  display: grid;
   width: 28px;
   height: 28px;
+  flex: 0 0 28px;
+  padding: 0;
+  place-items: center;
   border: 1px solid rgb(255 255 255 / 0.48);
   border-radius: 8px;
   background: rgb(255 255 255 / 0.18);
   color: #fff;
   cursor: pointer;
   font: inherit;
-  line-height: 1;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28);
-  transition: background 160ms ease, border-color 160ms ease;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.eaf-chat__toggle span,
+.eaf-chat__toggle span::before {
+  display: block;
+  width: 11px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: currentColor;
+  content: '';
+}
+
+.eaf-chat__toggle span::before {
+  transform: translateY(3px);
+  opacity: 0.58;
 }
 
 .eaf-chat__toggle:hover {
-  background: rgb(255 255 255 / 0.28);
-  border-color: rgb(255 255 255 / 0.62);
+  border-color: rgb(255 255 255 / 0.68);
+  background: rgb(255 255 255 / 0.3);
+  transform: translateY(-1px);
 }
 
-.eaf-chat__toggle:focus-visible {
+.eaf-chat__toggle:focus-visible,
+.eaf-chat__resize-handle:focus-visible,
+.eaf-chat__launcher:focus-visible {
   outline: none;
-  box-shadow: var(--reachai-chat-glass-focus-ring);
+  box-shadow: var(--reachai-chat-glass-focus-ring, 0 0 0 3px rgb(var(--reachai-chat-primary-rgb) / 0.35));
 }
 
 .eaf-chat__body {
@@ -151,14 +270,6 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-}
-
-.eaf-chat--closed .eaf-chat__body {
-  display: none;
-}
-
-.eaf-chat--closed {
-  max-height: 48px;
 }
 
 .eaf-chat .eaf-chat__conversation,
@@ -171,8 +282,363 @@
   background: transparent;
 }
 
+.eaf-chat .reachai-conversation {
+  /* SDK 资源由 CSS 自身相对路径解析，兼容 ESM/CJS/UMD 与业务构建器。 */
+  --reachai-chat-atmosphere-image: url('./conversation-atmosphere.webp');
+  --reachai-chat-prism-avatar: url('./agent-prism.webp');
+}
+
+/* 浮动面板从远离视口边缘的一角缩放，拖动方向与面板实际边界一致。 */
+.eaf-chat__resize-handle {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  color: rgb(255 255 255 / 0.88);
+  background: rgb(255 255 255 / 0.12);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.eaf-chat__resize-handle span {
+  width: 11px;
+  height: 11px;
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 2px,
+    currentColor 2px 3px,
+    transparent 3px 5px
+  );
+  opacity: 0.78;
+}
+
+.eaf-chat__resize-handle[data-resize-anchor='north-west'] {
+  top: 0;
+  left: 0;
+  border-bottom-right-radius: 10px;
+}
+
+.eaf-chat__resize-handle[data-resize-anchor='north-east'] {
+  top: 0;
+  right: 0;
+  border-bottom-left-radius: 10px;
+  cursor: nesw-resize;
+}
+
+.eaf-chat__resize-handle[data-resize-anchor='south-east'] {
+  right: 0;
+  bottom: 0;
+  border-top-left-radius: 10px;
+}
+
+.eaf-chat--resize-disabled .eaf-chat__resize-handle {
+  display: none;
+}
+
+.eaf-chat--resizing .eaf-chat__panel {
+  transition: none !important;
+}
+
+/* 动态悬浮入口：打开面板时隐藏，最小化时才显示。 */
+.eaf-chat__launcher-wrap {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: none;
+  width: 64px;
+  height: 64px;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+}
+
+.eaf-chat--bottom-right .eaf-chat__launcher-wrap {
+  right: 24px;
+  bottom: 24px;
+}
+
+.eaf-chat--bottom-left .eaf-chat__launcher-wrap {
+  right: auto;
+  bottom: 24px;
+  left: 24px;
+}
+
+.eaf-chat--closed .eaf-chat__launcher-wrap {
+  display: block;
+}
+
+.eaf-chat--closed:not(.eaf-chat--bottom-right):not(.eaf-chat--bottom-left) {
+  width: 72px;
+  height: 72px;
+  overflow: visible;
+}
+
+.eaf-chat__launcher {
+  position: relative;
+  display: grid;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 0.82);
+  border-radius: 50%;
+  outline: none;
+  background:
+    radial-gradient(circle at 34% 26%, rgb(255 255 255 / 0.98) 0 6%, transparent 22%),
+    radial-gradient(circle at 52% 58%, #effcff 0 24%, #c9d2ff 51%, #746ff0 78%, #4941c7 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.92),
+    inset -8px -10px 18px rgb(61 49 174 / 0.2),
+    0 10px 28px rgb(43 58 117 / 0.26),
+    0 0 0 5px rgb(255 255 255 / 0.54),
+    0 0 34px rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.32);
+  cursor: pointer;
+  isolation: isolate;
+  transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+
+.eaf-chat__launcher--draggable {
+  cursor: grab;
+}
+
+.eaf-chat--launcher-dragging .eaf-chat__launcher {
+  cursor: grabbing;
+  transform: scale(0.98);
+}
+
+.eaf-chat__launcher:hover {
+  transform: translateY(-2px) scale(1.045);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.96),
+    inset -8px -10px 18px rgb(61 49 174 / 0.18),
+    0 14px 34px rgb(43 58 117 / 0.3),
+    0 0 0 6px rgb(255 255 255 / 0.64),
+    0 0 44px rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.42);
+}
+
+.eaf-chat__launcher-prism {
+  position: relative;
+  z-index: 3;
+  width: 49px;
+  height: 49px;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.72);
+  border-radius: 50%;
+  background:
+    var(--reachai-chat-prism-avatar) center / 71px 71px no-repeat,
+    #f4f5ff;
+  box-shadow: inset 0 0 14px rgb(99 102 241 / 0.18), 0 3px 10px rgb(45 48 123 / 0.18);
+  filter: saturate(1.2) contrast(1.03);
+  pointer-events: none;
+  animation: reachai-prism-breathe 3.2s ease-in-out infinite;
+}
+
+.eaf-chat__launcher-glass {
+  position: absolute;
+  z-index: 4;
+  inset: 8px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.5), transparent 40% 72%, rgb(255 255 255 / 0.2));
+  pointer-events: none;
+}
+
+.eaf-chat__launcher-orbit {
+  position: absolute;
+  z-index: 5;
+  inset: 2px -5px;
+  border-radius: 50%;
+  pointer-events: none;
+  transform: rotate(-13deg) scaleY(0.43);
+}
+
+.eaf-chat__launcher-orbit::before {
+  position: absolute;
+  inset: 0;
+  border: 2px solid transparent;
+  border-top-color: #62e9ff;
+  border-right-color: rgb(151 117 255 / 0.76);
+  border-bottom-color: rgb(255 119 195 / 0.42);
+  border-radius: 50%;
+  content: '';
+  filter: drop-shadow(0 0 4px rgb(98 233 255 / 0.75));
+  animation: reachai-orbit-spin 3.8s linear infinite;
+}
+
+.eaf-chat__launcher-orbit--back {
+  z-index: 1;
+  transform: rotate(27deg) scaleY(0.5);
+  opacity: 0.5;
+}
+
+.eaf-chat__launcher-orbit--back::before {
+  animation-duration: 6.8s;
+  animation-direction: reverse;
+}
+
+.eaf-chat__launcher-particle {
+  position: absolute;
+  z-index: 6;
+  top: 4px;
+  left: 29px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 5px #fff, 0 0 10px #67e8f9;
+  transform-origin: 3px 28px;
+  animation: reachai-particle-orbit 2.9s linear infinite;
+  pointer-events: none;
+}
+
+.eaf-chat__launcher-badge,
+.eaf-chat__launcher-error {
+  position: absolute;
+  z-index: 9;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.eaf-chat__launcher-badge {
+  top: -2px;
+  right: -2px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  background: #f0446a;
+  box-shadow: 0 4px 10px rgb(240 68 106 / 0.34);
+}
+
+.eaf-chat__launcher-error {
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  background: #e5484d;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.eaf-chat[data-launcher-state='thinking'] .eaf-chat__launcher-prism {
+  animation: reachai-prism-thinking 1.25s ease-in-out infinite;
+}
+
+.eaf-chat[data-launcher-state='thinking'] .eaf-chat__launcher-orbit::before {
+  animation-duration: 1.45s;
+}
+
+.eaf-chat[data-launcher-state='thinking'] .eaf-chat__launcher-orbit--back::before {
+  animation-duration: 2.1s;
+}
+
+.eaf-chat[data-launcher-state='thinking'] .eaf-chat__launcher-particle {
+  animation-duration: 1.2s;
+}
+
+.eaf-chat[data-launcher-state='unread'] .eaf-chat__launcher-badge {
+  display: flex;
+  animation: reachai-badge-pop 420ms cubic-bezier(0.2, 0.9, 0.2, 1.3);
+}
+
+.eaf-chat[data-launcher-state='unread'] .eaf-chat__launcher-prism {
+  animation: reachai-prism-unread 2.2s ease-in-out infinite;
+}
+
+.eaf-chat[data-launcher-state='error'] .eaf-chat__launcher {
+  filter: hue-rotate(115deg) saturate(1.3);
+  animation: none;
+  box-shadow:
+    0 0 0 5px rgb(255 255 255 / 0.58),
+    0 10px 28px rgb(175 39 49 / 0.26),
+    0 0 34px rgb(229 72 77 / 0.3);
+}
+
+.eaf-chat[data-launcher-state='error'] .eaf-chat__launcher-error {
+  display: flex;
+}
+
+.eaf-chat[data-launcher-state='error'] .eaf-chat__launcher-orbit::before {
+  border-top-color: #ff8a8f;
+  border-right-color: #ffb2b5;
+  animation-duration: 8s;
+}
+
+.eaf-chat__launcher-label {
+  position: absolute;
+  top: 15px;
+  right: 76px;
+  width: max-content;
+  max-width: 220px;
+  overflow: hidden;
+  padding: 8px 11px;
+  border: 1px solid rgb(110 129 126 / 0.18);
+  border-radius: 9px;
+  color: #344b46;
+  background: rgb(255 255 255 / 0.94);
+  box-shadow: 0 9px 24px rgb(35 75 65 / 0.12);
+  font-size: 12px;
+  font-weight: 650;
+  opacity: 0;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  transform: translateX(5px);
+  transition: opacity 160ms ease, transform 160ms ease;
+  white-space: nowrap;
+}
+
+.eaf-chat[data-launcher-dock='left'] .eaf-chat__launcher-label,
+.eaf-chat--bottom-left:not([data-launcher-dock='right']) .eaf-chat__launcher-label {
+  right: auto;
+  left: 76px;
+  transform: translateX(-5px);
+}
+
+.eaf-chat__launcher-wrap:hover .eaf-chat__launcher-label,
+.eaf-chat__launcher-wrap:focus-within .eaf-chat__launcher-label {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+@keyframes reachai-orbit-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes reachai-particle-orbit {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes reachai-prism-breathe {
+  0%, 100% { transform: scale(0.98); filter: saturate(1.12) contrast(1.02); }
+  50% { transform: scale(1.035); filter: saturate(1.3) contrast(1.05); }
+}
+
+@keyframes reachai-prism-thinking {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.055); }
+}
+
+@keyframes reachai-prism-unread {
+  0%, 82%, 100% { transform: rotate(0); }
+  88% { transform: rotate(-4deg); }
+  94% { transform: rotate(4deg); }
+}
+
+@keyframes reachai-badge-pop {
+  from { opacity: 0; transform: scale(0.35); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .eaf-chat,
+  .eaf-chat__panel,
   .reachai-chat-root {
     background: var(--reachai-chat-glass-composer-fallback, rgb(255 255 255 / 0.94));
   }
@@ -187,19 +653,42 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .eaf-chat__toggle {
-    transition: none;
+  .eaf-chat__toggle,
+  .eaf-chat__launcher,
+  .eaf-chat__launcher-prism,
+  .eaf-chat__launcher-orbit::before,
+  .eaf-chat__launcher-particle,
+  .eaf-chat__launcher-badge,
+  .eaf-chat__launcher-label {
+    animation: none !important;
+    transition: none !important;
   }
 }
 
 @media (max-width: 520px) {
-  .eaf-chat,
-  .eaf-chat--bottom-right,
-  .eaf-chat--bottom-left {
+  .eaf-chat--bottom-right .eaf-chat__panel,
+  .eaf-chat--bottom-left .eaf-chat__panel {
     right: 8px;
-    left: 8px;
     bottom: 8px;
+    left: 8px;
     width: auto;
+    height: min(
+      var(--reachai-chat-user-height, var(--reachai-chat-height, 560px)),
+      calc(100vh - 16px)
+    );
+    max-width: none;
     max-height: calc(100vh - 16px);
+  }
+
+  .eaf-chat--user-positioned.eaf-chat--bottom-right .eaf-chat__panel,
+  .eaf-chat--user-positioned.eaf-chat--bottom-left .eaf-chat__panel {
+    width: min(
+      var(--reachai-chat-user-width, var(--reachai-chat-width, 380px)),
+      calc(100vw - 24px)
+    );
+  }
+
+  .eaf-chat__resize-handle {
+    display: none;
   }
 }

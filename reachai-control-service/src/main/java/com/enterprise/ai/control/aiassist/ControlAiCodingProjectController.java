@@ -1,13 +1,11 @@
 package com.enterprise.ai.control.aiassist;
 
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
-import com.enterprise.ai.control.client.model.ControlModelCatalogClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import feign.FeignException;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -22,11 +20,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 
 @RestController
@@ -38,34 +34,14 @@ public class ControlAiCodingProjectController {
 
     private final CapabilityProjectOnboardingClient capabilityClient;
     private final RuntimeProxyClient runtimeClient;
-    private final ControlModelCatalogClient modelCatalogClient;
-    private final ControlAiAccessSessionService aiAccessSessionService;
-    private final ControlPageAssistantCatalogService pageAssistantCatalogService;
+    private final ControlProjectAgentProvisioningService provisioningService;
 
-    ControlAiCodingProjectController(CapabilityProjectOnboardingClient capabilityClient,
-                                     RuntimeProxyClient runtimeClient,
-                                     ControlModelCatalogClient modelCatalogClient) {
-        this(capabilityClient, runtimeClient, modelCatalogClient, null, null);
-    }
-
-    ControlAiCodingProjectController(CapabilityProjectOnboardingClient capabilityClient,
-                                     RuntimeProxyClient runtimeClient,
-                                     ControlModelCatalogClient modelCatalogClient,
-                                     ControlAiAccessSessionService aiAccessSessionService) {
-        this(capabilityClient, runtimeClient, modelCatalogClient, aiAccessSessionService, null);
-    }
-
-    @Autowired
     public ControlAiCodingProjectController(CapabilityProjectOnboardingClient capabilityClient,
                                             RuntimeProxyClient runtimeClient,
-                                            ControlModelCatalogClient modelCatalogClient,
-                                            ControlAiAccessSessionService aiAccessSessionService,
-                                            ControlPageAssistantCatalogService pageAssistantCatalogService) {
+                                            ControlProjectAgentProvisioningService provisioningService) {
         this.capabilityClient = capabilityClient;
         this.runtimeClient = runtimeClient;
-        this.modelCatalogClient = modelCatalogClient;
-        this.aiAccessSessionService = aiAccessSessionService;
-        this.pageAssistantCatalogService = pageAssistantCatalogService;
+        this.provisioningService = provisioningService;
     }
 
     @GetMapping("/manifest")
@@ -76,7 +52,7 @@ public class ControlAiCodingProjectController {
             String baseUrl = ControlAiAssistSkillController.requestBaseUrl(request);
             String root = baseUrl + "/api/ai-coding/projects/" + projectId;
             return ResponseEntity.ok(new AiCodingGatewayManifest(
-                    "reachai.ai-coding.gateway.v1",
+                    "reachai.ai-coding.gateway.v3",
                     new AiCodingProject(
                             longValue(project.get("id")),
                             stringValue(project.get("projectCode")),
@@ -96,35 +72,6 @@ public class ControlAiCodingProjectController {
                     gatewayEndpoints(baseUrl, root, projectId),
                     contextCandidateSubmission(root),
                     capabilities(root, baseUrl, projectId)));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @GetMapping("/page-assistant/onboarding-manifest")
-    public ResponseEntity<Map<String, Object>> pageAssistantManifest(@PathVariable Long projectId,
-                                                                     @RequestParam(required = false) String pageKey,
-                                                                     @RequestParam(required = false) String routePattern,
-                                                                     @RequestParam(required = false) List<String> actionKeys,
-                                                                     @RequestParam(required = false) String toolName,
-                                                                     HttpServletRequest request) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            String baseUrl = ControlAiAssistSkillController.requestBaseUrl(request);
-            String root = baseUrl + "/api/ai-coding/projects/" + projectId + "/page-assistant";
-            String sessionId = "page-assistant-" + projectId
-                    + (StringUtils.hasText(pageKey) ? "-" + pageKey.trim() : "");
-            if (aiAccessSessionService != null) {
-                aiAccessSessionService.openPageAssistantSession(
-                        projectId,
-                        stringValue(project.get("projectCode")),
-                        toolName,
-                        sessionId,
-                        pageKey,
-                        routePattern,
-                        actionKeys);
-            }
-            return ResponseEntity.ok(pageAssistantManifestBody(project, root, sessionId, pageKey, routePattern));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }
@@ -174,6 +121,10 @@ public class ControlAiCodingProjectController {
                     agentSupervisorManifest(provisioning, baseUrl),
                     new ControlAiAssistProjectController.SecurityGuidance(
                             "REACHAI_REGISTRY_APP_SECRET",
+                            "scripts/set-reachai-registry-secret.ps1",
+                            "powershell -NoProfile -ExecutionPolicy Bypass -File "
+                                    + "\"{skillExtractDir}/reachai-onboarding/scripts/"
+                                    + "set-reachai-registry-secret.ps1\" -Target User",
                             "Do not paste or write the registry app secret into AI chat context.")));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
@@ -211,31 +162,8 @@ public class ControlAiCodingProjectController {
             @PathVariable Long projectId,
             @RequestBody(required = false) Map<String, ?> request) {
         try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            String projectCode = stringValue(project.get("projectCode"));
-            String keySlug = pageCopilotKeySlug(projectCode, projectId);
-            String modelInstanceId = resolveSupervisorModelInstanceId(
-                    stringValue(request == null ? null : request.get("modelInstanceId")));
-            String requestedBy = firstText(
-                    stringValue(request == null ? null : request.get("requestedBy")),
-                    "ai-coding-provisioning");
-
-            RuntimeObject agent = findOrCreateAgent(
-                    projectId, projectCode, keySlug, stringValue(project.get("name")));
-            RuntimeObject supervisorConfig = ensureActiveSupervisorConfig(
-                    agent.id(), modelInstanceId, requestedBy);
-
-            Map<String, Object> provisionedAgent = new LinkedHashMap<>(agent.body());
-            provisionedAgent.put("activeConfigVersionId", supervisorConfig.body().get("id"));
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("schema", "agent-provisioning.v2");
-            body.put("agent", provisionedAgent);
-            body.put("supervisorConfig", supervisorConfig.body());
-            body.put("workflowTools", listValue(supervisorConfig.body().get("tools")));
-            body.put("createdAgent", agent.created());
-            body.put("createdSupervisorConfig", supervisorConfig.created());
-            body.put("runtimeType", "AGENTSCOPE");
-            return ResponseEntity.ok(body);
+            return ResponseEntity.ok(
+                    provisioningService.provision(projectId, request));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         } catch (IllegalArgumentException ex) {
@@ -244,307 +172,6 @@ public class ControlAiCodingProjectController {
                     "message", ex.getMessage(),
                     "code", "SUPERVISOR_PROVISIONING_NOT_READY"));
         }
-    }
-
-    @PostMapping("/access-sessions")
-    public ResponseEntity<ControlAiAssistProjectController.AiAccessSessionView> startAccessSession(
-            @PathVariable Long projectId,
-            @RequestParam(required = false) String toolName) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            if (aiAccessSessionService != null) {
-                return ResponseEntity.ok(aiAccessSessionService.openSdkSession(
-                        projectId, stringValue(project.get("projectCode")), toolName, null));
-            }
-            return ResponseEntity.ok(sdkSession(project, toolName, "OPEN", null, null, null));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @GetMapping("/access-sessions/latest")
-    public ResponseEntity<ControlAiAssistProjectController.AiAccessSessionView> latestAccessSession(
-            @PathVariable Long projectId) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            if (aiAccessSessionService != null) {
-                return ResponseEntity.ok(aiAccessSessionService.openSdkSession(
-                        projectId, stringValue(project.get("projectCode")), null, "sdk-access-" + projectId));
-            }
-            return ResponseEntity.ok(sdkSession(project, null, "OPEN", "sdk-access-" + projectId, null, null));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @PostMapping("/access-sessions/{sessionId}/steps/{stepKey}/report")
-    public ResponseEntity<ControlAiAssistProjectController.AiAccessSessionView> reportAccessSessionStep(
-            @PathVariable Long projectId,
-            @PathVariable String sessionId,
-            @PathVariable String stepKey,
-            @RequestBody(required = false) Map<String, ?> request) {
-        if (aiAccessSessionService != null) {
-            try {
-                Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-                return ResponseEntity.ok(aiAccessSessionService.reportSdkStep(
-                        projectId, stringValue(project.get("projectCode")), sessionId, stepKey, request, "ai-coding"));
-            } catch (FeignException.NotFound ex) {
-                return ResponseEntity.notFound().build();
-            }
-        }
-        return accessSessionWithReportedStep(projectId, sessionId, stepKey, request, "SDK_ACCESS");
-    }
-
-    @PostMapping("/access-sessions/{sessionId}/checks/run")
-    public ResponseEntity<ControlAiAssistProjectController.AiAccessCheckRunResponse> runAccessSessionChecks(
-            @PathVariable Long projectId,
-            @PathVariable String sessionId,
-            @RequestBody(required = false) Map<String, ?> request) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            var check = sdkAccessCheck(project);
-            var session = aiAccessSessionService == null
-                    ? sdkSession(project, null, check.overallStatus(), sessionId, null, null)
-                    : aiAccessSessionService.applySdkCheckResult(
-                            projectId, stringValue(project.get("projectCode")), sessionId, check);
-            return ResponseEntity.ok(new ControlAiAssistProjectController.AiAccessCheckRunResponse(
-                    check,
-                    session));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @PostMapping("/page-assistant/sessions")
-    public ResponseEntity<ControlAiAssistProjectController.AiAccessSessionView> startPageAssistantSession(
-            @PathVariable Long projectId,
-            @RequestBody(required = false) ControlAiAssistProjectController.PageAssistantSessionRequest request) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            if (aiAccessSessionService != null) {
-                return ResponseEntity.ok(aiAccessSessionService.openPageAssistantSession(
-                        projectId,
-                        stringValue(project.get("projectCode")),
-                        request == null ? null : request.toolName(),
-                        null,
-                        request == null ? null : request.pageKey(),
-                        request == null ? null : request.routePattern(),
-                        request == null ? List.of() : request.actionKeys()));
-            }
-            return ResponseEntity.ok(pageAssistantSessionView(project,
-                    request == null ? null : request.toolName(),
-                    request == null ? null : request.pageKey(),
-                    request == null ? null : request.routePattern(), "OPEN", null, null, null));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @GetMapping("/page-assistant/sessions/latest")
-    public ResponseEntity<ControlAiAssistProjectController.AiAccessSessionView> latestPageAssistantSession(
-            @PathVariable Long projectId,
-            @RequestParam(required = false) String pageKey) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            if (aiAccessSessionService != null) {
-                return ResponseEntity.ok(aiAccessSessionService.latestPageAssistantSession(
-                        projectId, stringValue(project.get("projectCode")), pageKey));
-            }
-            return ResponseEntity.ok(pageAssistantSessionView(project, null, pageKey, null, "OPEN", null, null, null));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @GetMapping("/page-assistant/sessions")
-    public ResponseEntity<List<ControlAiAssistProjectController.PageAssistantSessionSummary>> pageAssistantSessions(
-            @PathVariable Long projectId,
-            @RequestParam(required = false) String pageKey) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            if (aiAccessSessionService != null) {
-                return ResponseEntity.ok(aiAccessSessionService.listPageAssistantSessions(
-                        projectId, stringValue(project.get("projectCode")), pageKey));
-            }
-            var session = pageAssistantSessionView(project, null, pageKey, null, "OPEN", null, null, null);
-            return ResponseEntity.ok(List.of(toPageAssistantSessionSummary(session, 0)));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @PostMapping("/page-assistant/sessions/{sessionId}/steps/{stepKey}/report")
-    public ResponseEntity<ControlAiAssistProjectController.AiAccessSessionView> reportPageAssistantSessionStep(
-            @PathVariable Long projectId,
-            @PathVariable String sessionId,
-            @PathVariable String stepKey,
-            @RequestBody(required = false) Map<String, ?> request) {
-        if (aiAccessSessionService != null) {
-            try {
-                Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-                return ResponseEntity.ok(aiAccessSessionService.reportPageAssistantStep(
-                        projectId,
-                        stringValue(project.get("projectCode")),
-                        sessionId,
-                        stepKey,
-                        request,
-                        "ai-coding"));
-            } catch (FeignException.NotFound ex) {
-                return ResponseEntity.notFound().build();
-            }
-        }
-        return accessSessionWithReportedStep(projectId, sessionId, stepKey, request, "PAGE_ASSISTANT");
-    }
-
-    @PutMapping("/page-assistant/sessions/{sessionId}/target")
-    public ResponseEntity<ControlAiAssistProjectController.AiAccessSessionView> bindPageAssistantTarget(
-            @PathVariable Long projectId,
-            @PathVariable String sessionId,
-            @RequestBody(required = false) ControlAiAssistProjectController.PageAssistantTargetRequest request) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            if (aiAccessSessionService != null) {
-                return ResponseEntity.ok(aiAccessSessionService.bindPageAssistantTarget(
-                        projectId,
-                        stringValue(project.get("projectCode")),
-                        sessionId,
-                        request == null ? null : request.pageKey(),
-                        request == null ? null : request.routePattern(),
-                        request == null ? List.of() : request.actionKeys()));
-            }
-            return ResponseEntity.ok(pageAssistantSessionView(project, null,
-                    request == null ? null : request.pageKey(),
-                    request == null ? null : request.routePattern(), "OPEN", sessionId, null, null));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @PostMapping("/page-assistant/sessions/{sessionId}/catalog/sync")
-    public ResponseEntity<ControlAiAssistProjectController.PageAssistantCatalogSyncResponse> syncPageAssistantCatalog(
-            @PathVariable Long projectId,
-            @PathVariable String sessionId,
-            @RequestBody(required = false) ControlAiAssistProjectController.PageAssistantCatalogSyncRequest request) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            String projectCode = stringValue(project.get("projectCode"));
-            ControlPageAssistantCatalogService.CatalogRegistration registration =
-                    pageAssistantCatalogService == null ? null : pageAssistantCatalogService.register(projectCode, request);
-            List<String> actionKeys = registration == null
-                    ? request == null || request.actions() == null
-                            ? List.of()
-                            : request.actions().stream()
-                                    .map(ControlAiAssistProjectController.PageAssistantCatalogActionRequest::actionKey)
-                                    .toList()
-                    : registration.actionKeys();
-            var session = aiAccessSessionService == null
-                    ? pageAssistantSessionView(project, null,
-                            request == null ? null : request.pageKey(),
-                            request == null ? null : request.routePattern(),
-                            "PASS", sessionId, null, null)
-                    : aiAccessSessionService.applyPageAssistantCatalogSync(
-                            projectId, projectCode, sessionId, request, actionKeys);
-            return ResponseEntity.ok(new ControlAiAssistProjectController.PageAssistantCatalogSyncResponse(
-                    projectCode,
-                    projectCode,
-                    request == null ? null : request.pageKey(),
-                    actionKeys.size(),
-                    session));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @PostMapping("/page-assistant/sessions/{sessionId}/checks/run")
-    public ResponseEntity<ControlAiAssistProjectController.PageAssistantCheckRunResponse> runPageAssistantChecks(
-            @PathVariable Long projectId,
-            @PathVariable String sessionId,
-            @RequestBody(required = false) Map<String, ?> request) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            String pageKey = stringValue(request == null ? null : request.get("pageKey"));
-            String routePattern = stringValue(request == null ? null : request.get("routePattern"));
-            var check = pageAssistantCheck(project, pageKey, routePattern);
-            var session = aiAccessSessionService == null
-                    ? pageAssistantSessionView(project, null, pageKey, routePattern,
-                            check.overallStatus(), sessionId, null, null)
-                    : aiAccessSessionService.bindPageAssistantTarget(
-                            projectId,
-                            stringValue(project.get("projectCode")),
-                            sessionId,
-                            pageKey,
-                            routePattern,
-                            List.of());
-            return ResponseEntity.ok(new ControlAiAssistProjectController.PageAssistantCheckRunResponse(
-                    check,
-                    session));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @PostMapping("/page-assistant/pages/register")
-    public ResponseEntity<ControlAiAssistProjectController.PageAssistantPageRegisterResponse> registerPageAssistantPage(
-            @PathVariable Long projectId,
-            @RequestBody(required = false) ControlAiAssistProjectController.PageAssistantPageRegisterRequest request) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            String projectCode = stringValue(project.get("projectCode"));
-            ControlPageAssistantCatalogService.CatalogRegistration registration =
-                    pageAssistantCatalogService == null ? null : pageAssistantCatalogService.register(projectCode, request);
-            List<String> registeredActions = registration == null
-                    ? request == null || request.actions() == null
-                            ? List.of()
-                            : request.actions().stream()
-                                    .map(ControlAiAssistProjectController.PageAssistantCatalogActionRequest::actionKey)
-                                    .toList()
-                    : registration.actionKeys();
-            String pageKey = registration == null ? request == null ? null : request.pageKey() : registration.pageKey();
-            String routePattern = registration == null
-                    ? request == null ? null : request.routePattern()
-                    : registration.routePattern();
-            var session = aiAccessSessionService == null
-                    ? pageAssistantSessionView(project,
-                            request == null ? null : request.toolName(),
-                            pageKey,
-                            routePattern,
-                            "PASS",
-                            request == null ? null : request.sessionId(),
-                            null,
-                            null)
-                    : aiAccessSessionService.applyPageAssistantRegistration(
-                            projectId, projectCode, request, registeredActions);
-            return ResponseEntity.ok(new ControlAiAssistProjectController.PageAssistantPageRegisterResponse(
-                    session,
-                    pageAssistantCheck(project, pageKey, routePattern),
-                    new ControlAiAssistProjectController.RegisteredPage(
-                            projectCode,
-                            registration == null ? projectCode : registration.appId(),
-                            pageKey,
-                            registration == null ? request == null ? null : request.pageName() : registration.pageName(),
-                            routePattern,
-                            request == null ? null : request.framework(),
-                            request == null ? null : request.bridgeGlobal()),
-                    registeredActions,
-                    request == null || request.files() == null ? List.of() : request.files()));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @PostMapping("/page-assistant/sessions/{sessionId}/workflow-ai-coding-result")
-    public ResponseEntity<ControlAiAssistProjectController.AiAccessSessionView> reportPageAssistantWorkflowAiCodingResult(
-            @PathVariable Long projectId,
-            @PathVariable String sessionId,
-            @RequestBody(required = false) Map<String, ?> request) {
-        return pageAssistantWorkflowAiCodingSession(projectId, sessionId, request, "PASS");
-    }
-
-    @DeleteMapping("/page-assistant/sessions/{sessionId}/workflow-ai-coding-result")
-    public ResponseEntity<ControlAiAssistProjectController.AiAccessSessionView> resetPageAssistantWorkflowAiCodingResult(
-            @PathVariable Long projectId,
-            @PathVariable String sessionId) {
-        return pageAssistantWorkflowAiCodingSession(projectId, sessionId, Map.of(), "OPEN");
     }
 
     @PostMapping("/context-candidates")
@@ -588,13 +215,6 @@ public class ControlAiCodingProjectController {
         }
     }
 
-    ResponseEntity<Map<String, Object>> pageAssistantManifest(Long projectId,
-                                                              String pageKey,
-                                                              String routePattern,
-                                                              HttpServletRequest request) {
-        return pageAssistantManifest(projectId, pageKey, routePattern, null, null, request);
-    }
-
     private ControlAiAssistProjectController.ProjectManifest projectManifest(Map<String, Object> project) {
         return new ControlAiAssistProjectController.ProjectManifest(
                 longValue(project.get("id")),
@@ -620,7 +240,9 @@ public class ControlAiCodingProjectController {
             String root) {
         return new ControlAiAssistProjectController.AgentProvisioningManifest(
                 "agent-provisioning.v2",
-                pageCopilotKeySlug(project.projectCode(), project.id()),
+                ControlProjectAgentProvisioningService.pageCopilotKeySlug(
+                        project.projectCode(),
+                        project.id()),
                 root + "/agents/provision",
                 true,
                 true,
@@ -652,6 +274,7 @@ public class ControlAiCodingProjectController {
                         baseUrl + "/api/ai-assist/skills/workflow-ai-coding/latest.zip",
                         baseUrl + "/api/workflows/ai-coding/workflows",
                         baseUrl + "/api/workflows/{workflowId}/ai-coding/context",
+                        baseUrl + "/api/workflows/{workflowId}/ai-coding/resource-bindings",
                         baseUrl + "/api/workflows/{workflowId}/ai-coding/patch",
                         baseUrl + "/api/workflows/{workflowId}/ai-coding/validate",
                         baseUrl + "/api/workflows/{workflowId}/ai-coding/run",
@@ -660,300 +283,18 @@ public class ControlAiCodingProjectController {
                         baseUrl + "/api/workflows/{workflowId}/ai-coding/runs",
                         List.of(
                                 "Download and install the workflow-ai-coding skill before editing graphs from AI tools.",
-                                "Generic Workflow create defaults to workflowType=CHAT; Page Assistant must send workflowType=PAGE_ASSISTANT explicitly.",
+                                "Generic Workflow create defaults to workflowKind=GENERAL; Page Assistant must send workflowKind=PAGE_ASSISTANT explicitly.",
+                                "Resource bindings may be replaced only while status=DRAFT; use the latest workflow.updatedAt as baseRevision.",
                                 "Use availableModels/availableTools from /context; never invent modelInstanceId or tool ids.",
-                                "Attach CHAT/PAGE_ASSISTANT via agent-supervisor/workflow-tools/attach; page-assistant/attach-tool rejects CHAT.",
+                                "Attach GENERAL/PAGE_ASSISTANT via agent-supervisor/workflow-tools/attach; page-assistant/attach-tool rejects GENERAL.",
                                 "Read /context before patch; use workflow.updatedAt as baseRevision when saving.")),
                 List.of(
                         "Provision or reuse one project-level page copilot Agent entry.",
                         "Store every executable graph as a runtime_workflow and publish an ACTIVE version before attachment.",
                         "Attach published Workflows via POST /api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach using agentKeySlug (not internal agentId by default).",
-                        "Page Assistant compatibility endpoint /api/workflows/{id}/page-assistant/attach-tool accepts PAGE_ASSISTANT only.",
+                        "The Page Assistant-specific endpoint /api/workflows/{id}/page-assistant/attach-tool accepts PAGE_ASSISTANT only.",
                         "Publish a new Agent config version after changing its tool catalog.",
                         "Use only the published Agent config Workflow-as-Tool catalog for runtime selection."));
-    }
-
-    private RuntimeObject findOrCreateAgent(Long projectId,
-                                            String projectCode,
-                                            String keySlug,
-                                            String projectName) {
-        List<Map<String, Object>> agents = responseList(runtimeClient.listAgents(projectId, projectCode));
-        Map<String, Object> existing = agents.stream()
-                .filter(item -> Objects.equals(keySlug, stringValue(item.get("keySlug"))))
-                .findFirst()
-                .orElse(null);
-        if (existing != null) {
-            return new RuntimeObject(false, existing);
-        }
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("projectId", projectId);
-        body.put("projectCode", projectCode);
-        body.put("keySlug", keySlug);
-        body.put("name", firstText(projectName, projectCode, "Project") + " Page Copilot");
-        body.put("description", "Project page copilot Agent for embedded chat and Workflow routing.");
-        body.put("visibility", "PROJECT");
-        body.put("enabled", true);
-        return new RuntimeObject(true, responseMap(runtimeClient.createAgent(body)));
-    }
-
-    private RuntimeObject ensureActiveSupervisorConfig(String agentId,
-                                                       String modelInstanceId,
-                                                       String publishedBy) {
-        if (!StringUtils.hasText(agentId)) {
-            throw new IllegalArgumentException("Runtime did not return an Agent id");
-        }
-        List<Map<String, Object>> versions = responseList(runtimeClient.listAgentConfigVersions(agentId));
-        Map<String, Object> active = versions.stream()
-                .filter(item -> "ACTIVE".equalsIgnoreCase(stringValue(item.get("status"))))
-                .findFirst()
-                .orElse(null);
-        if (active != null) {
-            return new RuntimeObject(false, active);
-        }
-        Map<String, Object> draftRequest = new LinkedHashMap<>();
-        draftRequest.put("runtimeType", "AGENTSCOPE");
-        draftRequest.put("systemPrompt", "You are the project's page copilot Supervisor. Understand the request, plan, and select one or more permitted Workflows as tools. Use page-action Workflows only when the user explicitly asks to open, navigate, query, or operate a page.");
-        draftRequest.put("modelInstanceId", modelInstanceId);
-        draftRequest.put("policyProfile", "DEV_ALLOW_ALL");
-        draftRequest.put("toolCatalogMode", "ALLOW_LIST");
-        draftRequest.put("configJson", "{\"source\":\"ai-coding-gateway\",\"purpose\":\"page-copilot\",\"routing\":\"supervisor-workflow-tools\"}");
-        Map<String, Object> draft = responseMap(runtimeClient.saveAgentConfigDraft(agentId, draftRequest));
-        Long configVersionId = nullableLongValue(draft.get("id"));
-        if (configVersionId == null) {
-            throw new IllegalArgumentException("Runtime did not return an Agent Supervisor config version id");
-        }
-        Map<String, Object> published = responseMap(runtimeClient.publishAgentConfigVersion(
-                agentId, configVersionId, Map.of("publishedBy", publishedBy)));
-        if (!"ACTIVE".equalsIgnoreCase(stringValue(published.get("status")))) {
-            throw new IllegalArgumentException("Agent Supervisor config was not activated");
-        }
-        return new RuntimeObject(true, published);
-    }
-
-    private String resolveSupervisorModelInstanceId(String requestedModelInstanceId) {
-        List<Map<String, Object>> activeModels = modelDataList(modelCatalogClient.list(null, "LLM", null)).stream()
-                .filter(item -> "ACTIVE".equalsIgnoreCase(stringValue(item.get("status"))))
-                .toList();
-        if (StringUtils.hasText(requestedModelInstanceId)) {
-            return activeModels.stream()
-                    .filter(item -> requestedModelInstanceId.trim().equals(stringValue(item.get("id"))))
-                    .map(item -> requestedModelInstanceId.trim())
-                    .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "Requested Agent Supervisor model is not an ACTIVE LLM instance: "
-                                    + requestedModelInstanceId.trim()));
-        }
-        return activeModels.stream()
-                .map(item -> stringValue(item.get("id")))
-                .filter(StringUtils::hasText)
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "No ACTIVE LLM model instance is available for the Agent Supervisor"));
-    }
-
-    private ResponseEntity<ControlAiAssistProjectController.AiAccessSessionView> accessSessionWithReportedStep(
-            Long projectId,
-            String sessionId,
-            String stepKey,
-            Map<String, ?> request,
-            String scenario) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            String status = firstText(stringValue(request == null ? null : request.get("status")), "PASS");
-            String message = stringValue(request == null ? null : request.get("message"));
-            return ResponseEntity.ok("PAGE_ASSISTANT".equals(scenario)
-                    ? pageAssistantSessionView(project, null, null, null, status, sessionId, stepKey, message)
-                    : sdkSession(project, null, status, sessionId, stepKey, message));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    private ControlAiAssistProjectController.AiAccessSessionView sdkSession(Map<String, Object> project,
-                                                                            String toolName,
-                                                                            String status,
-                                                                            String requestedSessionId,
-                                                                            String reportedStepKey,
-                                                                            String reportedMessage) {
-        Long projectId = longValue(project.get("id"));
-        String now = Instant.now().toString();
-        String sessionId = StringUtils.hasText(requestedSessionId) ? requestedSessionId : "sdk-access-" + projectId;
-        List<ControlAiAssistProjectController.AiAccessStepView> steps = reportedStep(reportedStepKey, status, reportedMessage);
-        return new ControlAiAssistProjectController.AiAccessSessionView(
-                sessionId,
-                projectId,
-                stringValue(project.get("projectCode")),
-                StringUtils.hasText(toolName) ? toolName : null,
-                "SDK_ACCESS",
-                null,
-                null,
-                status,
-                reportedStepKey == null ? 6 : steps.size(),
-                completedSteps(steps),
-                failedSteps(steps),
-                "PASS".equals(status) ? "SDK access check passed" : "SDK access session is ready",
-                now,
-                now,
-                steps);
-    }
-
-    private ControlAiAssistProjectController.AiAccessSessionView pageAssistantSessionView(Map<String, Object> project,
-                                                                                          String toolName,
-                                                                                          String pageKey,
-                                                                                          String routePattern,
-                                                                                          String status,
-                                                                                          String requestedSessionId,
-                                                                                          String reportedStepKey,
-                                                                                          String reportedMessage) {
-        Long projectId = longValue(project.get("id"));
-        String normalizedPageKey = StringUtils.hasText(pageKey) ? pageKey.trim() : null;
-        String sessionId = StringUtils.hasText(requestedSessionId)
-                ? requestedSessionId
-                : "page-assistant-" + projectId + (normalizedPageKey == null ? "" : "-" + normalizedPageKey);
-        String now = Instant.now().toString();
-        List<ControlAiAssistProjectController.AiAccessStepView> steps = reportedStep(reportedStepKey, status, reportedMessage);
-        return new ControlAiAssistProjectController.AiAccessSessionView(
-                sessionId,
-                projectId,
-                stringValue(project.get("projectCode")),
-                StringUtils.hasText(toolName) ? toolName : null,
-                "PAGE_ASSISTANT",
-                normalizedPageKey,
-                StringUtils.hasText(routePattern) ? routePattern.trim() : null,
-                status,
-                reportedStepKey == null ? 5 : steps.size(),
-                completedSteps(steps),
-                failedSteps(steps),
-                "PASS".equals(status) ? "Page Assistant checks passed" : "Page Assistant session is ready",
-                now,
-                now,
-                steps);
-    }
-
-    private List<ControlAiAssistProjectController.AiAccessStepView> reportedStep(String stepKey,
-                                                                                  String status,
-                                                                                  String message) {
-        if (!StringUtils.hasText(stepKey)) {
-            return List.of();
-        }
-        return List.of(new ControlAiAssistProjectController.AiAccessStepView(
-                stepKey.trim(),
-                stepKey.trim(),
-                StringUtils.hasText(status) ? status.trim() : "PASS",
-                message,
-                List.of(),
-                Map.of(),
-                "ai-coding",
-                null,
-                Instant.now().toString(),
-                Instant.now().toString()));
-    }
-
-    private int completedSteps(List<ControlAiAssistProjectController.AiAccessStepView> steps) {
-        return (int) steps.stream().filter(step -> "PASS".equals(step.status())).count();
-    }
-
-    private int failedSteps(List<ControlAiAssistProjectController.AiAccessStepView> steps) {
-        return (int) steps.stream().filter(step -> "FAIL".equals(step.status())).count();
-    }
-
-    private ControlAiAssistProjectController.SdkAccessCheckResponse sdkAccessCheck(Map<String, Object> project) {
-        Long projectId = longValue(project.get("id"));
-        Map<String, Object> readinessFacts = Map.of();
-        try {
-            if (projectId != null) {
-                readinessFacts = capabilityClient.getReadinessFacts(projectId);
-            }
-        } catch (Exception ignored) {
-            readinessFacts = Map.of("instanceExists", false, "online", false);
-        }
-        boolean artifactAvailable = ControlEmbedChatArtifactSupport.integritySha256() != null;
-        return ControlSdkAccessReadinessCalculator.calculate(
-                project,
-                readinessFacts == null ? Map.of() : readinessFacts,
-                artifactAvailable,
-                artifactAvailable ? ControlEmbedChatArtifactSupport.TARBALL_FILE_NAME : null);
-    }
-
-    private ControlAiAssistProjectController.PageAssistantCheckResponse pageAssistantCheck(Map<String, Object> project,
-                                                                                           String pageKey,
-                                                                                           String routePattern) {
-        boolean targetReady = StringUtils.hasText(pageKey) || StringUtils.hasText(routePattern);
-        boolean aiCodingEnabled = aiCodingAccess(project).enabled();
-        String overall = targetReady && aiCodingEnabled ? "PASS" : "WARN";
-        return new ControlAiAssistProjectController.PageAssistantCheckResponse(
-                longValue(project.get("id")),
-                stringValue(project.get("projectCode")),
-                StringUtils.hasText(pageKey) ? pageKey.trim() : null,
-                StringUtils.hasText(routePattern) ? routePattern.trim() : null,
-                overall,
-                List.of(
-                        new ControlAiAssistProjectController.PageAssistantCheckItem("PROJECT", "Project", "PASS", "Project loaded", null),
-                        new ControlAiAssistProjectController.PageAssistantCheckItem("TARGET_PAGE", "Target page",
-                                targetReady ? "PASS" : "WARN",
-                                targetReady ? "Target page configured" : "pageKey or routePattern is missing",
-                                null),
-                        new ControlAiAssistProjectController.PageAssistantCheckItem("AI_CODING_ACCESS", "AI Coding access",
-                                aiCodingEnabled ? "PASS" : "WARN",
-                                aiCodingEnabled ? "AI Coding access enabled" : "AI Coding access is disabled",
-                                null)));
-    }
-
-    private ControlAiAssistProjectController.PageAssistantSessionSummary toPageAssistantSessionSummary(
-            ControlAiAssistProjectController.AiAccessSessionView session,
-            int actionCount) {
-        return new ControlAiAssistProjectController.PageAssistantSessionSummary(
-                session.sessionId(),
-                session.projectId(),
-                session.projectCode(),
-                session.toolName(),
-                session.targetPageKey(),
-                session.targetRoute(),
-                session.status(),
-                "PASS".equals(session.status()) ? "COMPLETED" : "WAITING_TARGET",
-                session.totalSteps(),
-                session.completedSteps(),
-                session.failedSteps(),
-                actionCount,
-                session.lastMessage(),
-                session.updatedAt(),
-                session.steps());
-    }
-
-    private ResponseEntity<ControlAiAssistProjectController.AiAccessSessionView> pageAssistantWorkflowAiCodingSession(
-            Long projectId,
-            String sessionId,
-            Map<String, ?> request,
-            String status) {
-        try {
-            Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            if (aiAccessSessionService != null) {
-                Map<String, Object> report = new LinkedHashMap<>();
-                if (request != null) report.putAll(request);
-                report.put("status", "OPEN".equals(status) ? "TODO" : status);
-                report.putIfAbsent("message", "PASS".equals(status)
-                        ? "Workflow AI Coding draft reported."
-                        : "Workflow AI Coding draft reset.");
-                return ResponseEntity.ok(aiAccessSessionService.reportPageAssistantStep(
-                        projectId,
-                        stringValue(project.get("projectCode")),
-                        sessionId,
-                        "workflow-ai-coding-draft",
-                        report,
-                        "workflow-ai-coding"));
-            }
-            return ResponseEntity.ok(pageAssistantSessionView(
-                    project,
-                    null,
-                    stringValue(request == null ? null : request.get("pageKey")),
-                    stringValue(request == null ? null : request.get("routePattern")),
-                    status,
-                    sessionId,
-                    null,
-                    null));
-        } catch (FeignException.NotFound ex) {
-            return ResponseEntity.notFound().build();
-        }
     }
 
     private Map<String, Object> contextCandidate(Map<String, Object> project, Map<String, ?> request) {
@@ -977,51 +318,8 @@ public class ControlAiCodingProjectController {
     }
 
     @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> responseList(ResponseEntity<Object> response) {
-        Object body = response == null ? null : response.getBody();
-        if (body instanceof Collection<?> collection) {
-            return collection.stream()
-                    .filter(Map.class::isInstance)
-                    .map(item -> (Map<String, Object>) item)
-                    .toList();
-        }
-        return List.of();
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> modelDataList(ResponseEntity<Map<String, Object>> response) {
-        Object body = response == null ? null : response.getBody();
-        Object data = body instanceof Map<?, ?> map ? map.get("data") : null;
-        if (data instanceof Collection<?> collection) {
-            return collection.stream()
-                    .filter(Map.class::isInstance)
-                    .map(item -> (Map<String, Object>) item)
-                    .toList();
-        }
-        return List.of();
-    }
-
-    private List<?> listValue(Object value) {
-        return value instanceof List<?> list ? list : List.of();
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> responseMap(ResponseEntity<Object> response) {
-        Object body = response == null ? null : response.getBody();
-        return body instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
-    }
-
-    @SuppressWarnings("unchecked")
     private Map<String, Object> mapValue(Object value) {
         return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
-    }
-
-    private String pageCopilotKeySlug(String projectCode, Long projectId) {
-        String source = StringUtils.hasText(projectCode) ? projectCode.trim() : "project-" + projectId;
-        return source.toLowerCase()
-                .replaceAll("[^a-z0-9_-]+", "-")
-                .replaceAll("-+", "-")
-                .replaceAll("^-|-$", "") + "-page-copilot";
     }
 
     private String firstText(String... values) {
@@ -1042,18 +340,22 @@ public class ControlAiCodingProjectController {
 
     private AiCodingGatewayEndpoints gatewayEndpoints(String baseUrl, String root, Long projectId) {
         String contextCandidates = root + "/context-candidates";
+        String taskProtocol = baseUrl + "/api/ai-coding/tasks/{taskId}";
         return new AiCodingGatewayEndpoints(
                 root + "/manifest",
                 contextCandidates,
                 contextCandidates + "/batch",
                 contextCandidates + "?traceId={submissionId}&status=PENDING",
                 root + "/onboarding-manifest",
-                root + "/access-sessions",
-                root + "/access-sessions/latest",
-                root + "/page-assistant/onboarding-manifest",
-                root + "/page-assistant/sessions",
+                baseUrl + "/api/ai-coding/handoffs/{handoffId}/activate",
+                taskProtocol + "/context",
+                taskProtocol + "/heartbeat",
+                taskProtocol + "/events",
+                taskProtocol + "/questions",
+                taskProtocol + "/artifacts",
                 baseUrl + "/api/workflows/ai-coding/workflows",
                 baseUrl + "/api/workflows/{workflowId}/ai-coding/context",
+                baseUrl + "/api/workflows/{workflowId}/ai-coding/resource-bindings",
                 baseUrl + "/api/workflows/{workflowId}/ai-coding/patch",
                 baseUrl + "/api/workflows/{workflowId}/ai-coding/validate",
                 baseUrl + "/api/workflows/{workflowId}/ai-coding/run",
@@ -1114,89 +416,28 @@ public class ControlAiCodingProjectController {
                         root + "/onboarding-manifest",
                         List.of("Use for backend starter, registry credential, and SDK graph onboarding.")),
                 new AiCodingCapability(
-                        "PAGE_ASSISTANT",
-                        "页面助手接入",
-                        "PAGE",
-                        root + "/page-assistant/onboarding-manifest",
-                        List.of("Use for page bridge, page action catalog, and page assistant verification.")),
+                        "AI_CODING_TASK_PROTOCOL",
+                        "AI Coding 任务协议",
+                        "TASK",
+                        baseUrl + "/api/ai-coding/tasks/{taskId}/context",
+                        List.of(
+                                "Activate the one-time handoff code first and use the returned task-scoped Bearer token.",
+                                "Read scoped context first and write progress, questions, artifacts, and acceptance evidence back to the same task.",
+                                "The project AI Coding key is not valid for task protocol endpoints.")),
                 new AiCodingCapability(
                         "WORKFLOW_AI_CODING",
                         "Workflow AI Coding",
                         "WORKFLOW",
                         baseUrl + "/api/workflows/ai-coding/workflows",
-                        List.of("Use workflow scoped endpoints for GraphSpec draft edits and validation.")),
+                        List.of(
+                                "Use workflow scoped endpoints for GraphSpec draft edits and validation.",
+                                "Set first-class page resource bindings before the first publish; they are immutable afterward.")),
                 new AiCodingCapability(
                         "CONTEXT_CANDIDATES",
                         "上下文候选提交",
                         "PROJECT",
                         root + "/context-candidates",
                         List.of("Submit PROJECT_DEV candidates for review under project " + projectId + ".")));
-    }
-
-    private Map<String, Object> pageAssistantManifestBody(Map<String, Object> project,
-                                                          String root,
-                                                          String sessionId,
-                                                          String pageKey,
-                                                          String routePattern) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("schema", "reachai.page-assistant.onboarding.v1");
-        body.put("project", Map.of(
-                "id", longValue(project.get("id")),
-                "name", nullToEmpty(project.get("name")),
-                "projectCode", nullToEmpty(project.get("projectCode")),
-                "projectKind", nullToEmpty(project.get("projectKind")),
-                "environment", nullToEmpty(project.get("environment")),
-                "registryCredentialConfigured", booleanValue(project.get("registryCredentialConfigured"))));
-        body.put("aiCodingAccess", Map.of(
-                "enabled", aiCodingAccessEnabled(project),
-                "accessKey", ""));
-        body.put("auth", Map.of(
-                "mode", "ai-coding-key",
-                "headerName", AI_CODING_HEADER,
-                "keyEnv", "REACHAI_AI_CODING_KEY",
-                "externalToolPath", root + "/**",
-                "guidance", List.of("Send the key by header. Do not put it in URLs.")));
-        body.put("target", Map.of(
-                "pageKey", nullToEmpty(pageKey),
-                "routePattern", nullToEmpty(routePattern),
-                "actionKeys", List.of()));
-        body.put("session", pageAssistantSession(project, sessionId, pageKey, routePattern, "OPEN"));
-        body.put("endpoints", Map.of(
-                "manifestUrl", root + "/onboarding-manifest",
-                "latestSessionUrl", root + "/sessions/latest",
-                "stepReportUrl", root + "/sessions/" + sessionId + "/steps/{stepKey}/report",
-                "targetBindUrl", root + "/sessions/" + sessionId + "/target",
-                "catalogSyncUrl", root + "/sessions/" + sessionId + "/catalog/sync",
-                "checksRunUrl", root + "/sessions/" + sessionId + "/checks/run",
-                "registerPageUrl", root + "/pages/register"));
-        body.put("security", Map.of(
-                "appSecretEnv", "REACHAI_REGISTRY_APP_SECRET",
-                "message", "Do not store aiCodingKey or registry secrets in browser runtime code."));
-        return body;
-    }
-
-    private Map<String, Object> pageAssistantSession(Map<String, Object> project,
-                                                     String sessionId,
-                                                     String pageKey,
-                                                     String routePattern,
-                                                     String status) {
-        String now = Instant.now().toString();
-        Map<String, Object> session = new LinkedHashMap<>();
-        session.put("sessionId", sessionId);
-        session.put("projectId", longValue(project.get("id")));
-        session.put("projectCode", nullToEmpty(project.get("projectCode")));
-        session.put("scenario", "PAGE_ASSISTANT");
-        session.put("targetPageKey", nullToEmpty(pageKey));
-        session.put("targetRoute", nullToEmpty(routePattern));
-        session.put("status", status);
-        session.put("totalSteps", 5);
-        session.put("completedSteps", 0);
-        session.put("failedSteps", 0);
-        session.put("lastMessage", "Page Assistant session is ready");
-        session.put("createdAt", now);
-        session.put("updatedAt", now);
-        session.put("steps", List.of());
-        return session;
     }
 
     private boolean aiCodingAccessEnabled(Map<String, Object> project) {
@@ -1222,24 +463,8 @@ public class ControlAiCodingProjectController {
         return value instanceof Number number ? number.longValue() : Long.valueOf(String.valueOf(value));
     }
 
-    private Long nullableLongValue(Object value) {
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        if (value instanceof String text && StringUtils.hasText(text)) {
-            return Long.valueOf(text.trim());
-        }
-        return null;
-    }
-
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
-    }
-
-    private record RuntimeObject(boolean created, Map<String, Object> body) {
-        String id() {
-            return body == null ? null : String.valueOf(body.get("id"));
-        }
     }
 
     private ResponseEntity<Object> forwardRuntimeAiCodingError(FeignException ex) {
@@ -1309,12 +534,15 @@ public class ControlAiCodingProjectController {
                                            String contextCandidatesBatchUrl,
                                            String contextCandidateStatusUrlTemplate,
                                            String sdkAccessManifestUrl,
-                                           String sdkAccessSessionUrl,
-                                           String sdkAccessLatestSessionUrl,
-                                           String pageAssistantManifestUrl,
-                                           String pageAssistantSessionUrl,
+                                           String handoffActivationUrlTemplate,
+                                           String taskContextUrlTemplate,
+                                           String taskHeartbeatUrlTemplate,
+                                           String taskEventsUrlTemplate,
+                                           String taskQuestionsUrlTemplate,
+                                           String taskArtifactsUrlTemplate,
                                            String workflowCreateUrl,
                                            String workflowContextUrlTemplate,
+                                           String workflowResourceBindingsUrlTemplate,
                                            String workflowPatchUrlTemplate,
                                            String workflowValidateUrlTemplate,
                                            String workflowRunUrlTemplate,

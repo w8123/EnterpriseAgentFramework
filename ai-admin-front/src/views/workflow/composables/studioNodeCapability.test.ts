@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentGraphNodeTypeDescriptor } from '@/types/agent'
+import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
 import {
   STUDIO_NODE_REGISTRY,
   canCreateStudioNodeKind,
@@ -8,12 +8,11 @@ import {
   studioNodeCapabilityMap,
 } from '@/utils/studioNodeRegistry'
 
-function descriptor(partial: Partial<AgentGraphNodeTypeDescriptor> & Pick<AgentGraphNodeTypeDescriptor, 'type' | 'canvasKind'>): AgentGraphNodeTypeDescriptor {
+function descriptor(partial: Partial<WorkflowGraphNodeTypeDescriptor> & Pick<WorkflowGraphNodeTypeDescriptor, 'type' | 'canvasKind'>): WorkflowGraphNodeTypeDescriptor {
   return {
     canvasCategory: 'flow',
     family: 'FLOW',
     retryable: false,
-    aliases: [],
     maturity: 'STABLE',
     runtimeExecutable: true,
     publishable: true,

@@ -3,11 +3,11 @@ import { ref } from 'vue'
 import { useWorkflowStudioPanelValidation } from './useWorkflowStudioPanelValidation'
 import { useWorkflowStudioPersistence } from './useWorkflowStudioPersistence'
 
-const saveWorkflowStudio = vi.hoisted(() => vi.fn())
+const saveWorkflowWorkingCopy = vi.hoisted(() => vi.fn())
 
 vi.mock('@/api/workflow', () => ({
-  getWorkflowStudio: vi.fn(),
-  saveWorkflowStudio,
+  getWorkflowWorkingCopy: vi.fn(),
+  saveWorkflowWorkingCopy,
 }))
 
 vi.mock('element-plus', () => ({
@@ -37,7 +37,7 @@ describe('useWorkflowStudioPersistence', () => {
       workflowMeta: {
         name: 'Demo',
         keySlug: '',
-        workflowType: 'WORKFLOW',
+        workflowKind: 'GENERAL',
         description: '',
         defaultModelInstanceId: '',
       },
@@ -55,11 +55,11 @@ describe('useWorkflowStudioPersistence', () => {
     })
 
     expect(await actions.saveStudio()).toBeNull()
-    expect(saveWorkflowStudio).not.toHaveBeenCalled()
+    expect(saveWorkflowWorkingCopy).not.toHaveBeenCalled()
 
     validation.setPanelValidation('assign_1', { valid: true })
-    saveWorkflowStudio.mockResolvedValue({ data: { workflowId: 'wf-1' } })
+    saveWorkflowWorkingCopy.mockResolvedValue({ data: { workflowId: 'wf-1' } })
     expect(await actions.saveStudio()).not.toBeNull()
-    expect(saveWorkflowStudio).toHaveBeenCalledTimes(1)
+    expect(saveWorkflowWorkingCopy).toHaveBeenCalledTimes(1)
   })
 })

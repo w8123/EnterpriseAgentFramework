@@ -53,8 +53,16 @@ class ControlAiAssistProjectControllerTest {
         assertEquals("http://localhost:18603", response.getBody().sdk().config().registryUrl());
         assertEquals("com.enterprise.ai:reachai-capability-sdk:1.0.0-SNAPSHOT",
                 response.getBody().sdkArtifacts().get(0).coordinates());
-        assertEquals("corporate-maven-or-local-install",
+        assertEquals("platform-artifact-download",
                 response.getBody().sdkArtifacts().get(0).sourcePolicy());
+        assertTrue(response.getBody().sdkArtifacts().get(0).downloadUrl()
+                .endsWith("/api/ai-assist/artifacts/java-sdk/reachai-capability-sdk/1.0.0-SNAPSHOT.jar"));
+        assertTrue(response.getBody().sdkArtifacts().get(0).pomDownloadUrl()
+                .endsWith("/api/ai-assist/artifacts/java-sdk/reachai-capability-sdk/1.0.0-SNAPSHOT.pom"));
+        assertEquals(64, response.getBody().sdkArtifacts().get(0).integritySha256().length());
+        assertEquals(64, response.getBody().sdkArtifacts().get(0).pomIntegritySha256().length());
+        assertTrue(response.getBody().sdkArtifacts().get(0).installCommandTemplate()
+                .contains("scripts/install-java-sdk.ps1"));
         assertEquals("@reachai/embed-chat@1.0.0-SNAPSHOT",
                 response.getBody().sdkArtifacts().get(2).coordinates());
         assertEquals("platform-artifact-tarball",
@@ -65,7 +73,7 @@ class ControlAiAssistProjectControllerTest {
         assertNotNull(response.getBody().sdkArtifacts().get(2).integritySha256());
         assertEquals(64, response.getBody().sdkArtifacts().get(2).integritySha256().length());
         assertTrue(response.getBody().sdkArtifacts().get(2).installCommand()
-                .contains("reachai-embed-chat-1.0.0-SNAPSHOT.tgz"));
+                .contains("scripts/install-embed-chat.mjs"));
         assertEquals("@reachai/embed-chat", response.getBody().sdkArtifacts().get(2).packageName());
         assertEquals("reachai-onboarding/artifacts/reachai-embed-chat-1.0.0-SNAPSHOT.tgz",
                 response.getBody().sdkArtifacts().get(2).artifactPathWithinSkill());
@@ -73,6 +81,8 @@ class ControlAiAssistProjectControllerTest {
                 response.getBody().sdkArtifacts().get(2).installWorkingDirectory());
         assertTrue(response.getBody().sdkArtifacts().get(2).installCommandTemplate()
                 .contains("{skillExtractDir}"));
+        assertTrue(response.getBody().sdkArtifacts().get(2).notes()
+                .contains("vendor/reachai/reachai-embed-chat-1.0.0-SNAPSHOT.tgz"));
         assertEquals("skill-zip-tarball", response.getBody().sdkArtifacts().get(2).fallbackPolicy());
         assertEquals(6, response.getBody().gatewayChecklist().size());
         assertEquals("embed-route-forwarding", response.getBody().gatewayChecklist().get(0).id());
@@ -91,6 +101,10 @@ class ControlAiAssistProjectControllerTest {
         assertEquals("AGENTSCOPE", response.getBody().agentSupervisor().runtimeType());
         assertEquals("http://localhost:18603/api/ai-assist/projects/7/onboarding-manifest",
                 response.getBody().endpoints().manifestUrl());
+        assertEquals("scripts/set-reachai-registry-secret.ps1",
+                response.getBody().security().secretSetupScriptWithinSkill());
+        assertTrue(response.getBody().security().secretSetupCommandTemplate()
+                .contains("{skillExtractDir}"));
         verify(client).getOnboardingProjectById(7L);
     }
 
@@ -115,129 +129,4 @@ class ControlAiAssistProjectControllerTest {
         verify(client).updateAiCodingAccess(7L, request);
     }
 
-    @Test
-    void startsSdkAccessSessionWithoutFallingThroughToRetiredProxy() {
-        CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
-        ControlAiAssistProjectController controller = new ControlAiAssistProjectController(client);
-        when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
-                "id", 7L,
-                "name", "Orders",
-                "projectCode", "orders",
-                "aiCodingAccess", Map.of("enabled", true, "accessKey", "aic_test")
-        ));
-
-        ResponseEntity<ControlAiAssistProjectController.AiAccessSessionView> response =
-                controller.startAccessSession(7L, "Codex");
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals(7L, response.getBody().projectId());
-        assertEquals("orders", response.getBody().projectCode());
-        assertEquals("SDK_ACCESS", response.getBody().scenario());
-        assertEquals(6, response.getBody().totalSteps());
-    }
-
-    @Test
-    void runsSdkAccessChecksWithoutFallingThroughToRetiredProxy() {
-        CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
-        ControlAiAssistProjectController controller = new ControlAiAssistProjectController(client);
-        when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
-                "id", 7L,
-                "name", "Orders",
-                "projectCode", "orders",
-                "baseUrl", "https://orders.example.com",
-                "contextPath", "/orders-api",
-                "registryCredentialConfigured", true,
-                "aiCodingAccess", Map.of("enabled", true, "accessKey", "aic_test")
-        ));
-        when(client.getReadinessFacts(7L)).thenReturn(Map.of(
-                "instanceExists", false,
-                "online", false));
-
-        ResponseEntity<ControlAiAssistProjectController.AiAccessCheckRunResponse> response =
-                controller.runAccessSessionChecks(7L, "sdk-access-7", Map.of("args", Map.of()));
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals(7L, response.getBody().checkResult().projectId());
-        assertEquals("orders", response.getBody().checkResult().projectCode());
-        assertEquals("FAIL", response.getBody().checkResult().overallStatus());
-        assertEquals("PASS", response.getBody().checkResult().readiness().stream()
-                .filter(item -> "CODE_READY".equals(item.key())).findFirst().orElseThrow().status());
-        assertEquals("FAIL", response.getBody().checkResult().readiness().stream()
-                .filter(item -> "RUNTIME_READY".equals(item.key())).findFirst().orElseThrow().status());
-        assertEquals("PENDING", response.getBody().checkResult().readiness().stream()
-                .filter(item -> "E2E_READY".equals(item.key())).findFirst().orElseThrow().status());
-        assertEquals("WARN", response.getBody().checkResult().checks().stream()
-                .filter(check -> "SDK_SYNC_CALLBACK".equals(check.key()))
-                .findFirst()
-                .orElseThrow()
-                .status());
-        assertEquals(
-                "https://orders.example.com/orders-api/reachai/registry/capabilities/sync",
-                response.getBody().checkResult().checks().stream()
-                        .filter(check -> "SDK_SYNC_CALLBACK".equals(check.key()))
-                        .findFirst()
-                        .orElseThrow()
-                        .evidence());
-        assertEquals("FAIL", response.getBody().session().status());
-    }
-
-    @Test
-    void exposesPageAssistantOnboardingManifestFromControlService() {
-        CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
-        ControlAiAssistProjectController controller = new ControlAiAssistProjectController(client);
-        when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
-                "id", 7L,
-                "name", "Orders",
-                "projectCode", "orders",
-                "projectKind", "REGISTERED",
-                "environment", "dev",
-                "baseUrl", "http://localhost:18080",
-                "registryAppKey", "app-orders",
-                "registryCredentialConfigured", true,
-                "aiCodingAccess", Map.of("enabled", true, "accessKey", "aic_test")
-        ));
-        MockHttpServletRequest request = new MockHttpServletRequest(
-                "GET",
-                "/api/ai-assist/projects/7/page-assistant/onboarding-manifest");
-        request.setScheme("http");
-        request.setServerName("localhost");
-        request.setServerPort(18603);
-
-        ResponseEntity<ControlAiAssistProjectController.PageAssistantOnboardingManifestResponse> response =
-                controller.pageAssistantOnboardingManifest(7L, "Codex", "orders.list", "/orders", null, request);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals("reachai.page-assistant.onboarding.v1", response.getBody().schema());
-        assertEquals("orders.list", response.getBody().target().pageKey());
-        assertEquals("PAGE_ASSISTANT", response.getBody().session().scenario());
-        assertEquals("http://localhost:18603/api/ai-assist/projects/7/page-assistant/onboarding-manifest",
-                response.getBody().endpoints().manifestUrl());
-        assertEquals("X-ReachAI-AiCoding-Key", response.getBody().auth().headerName());
-    }
-
-    @Test
-    void runsPageAssistantChecksWithoutFallingThroughToRetiredProxy() {
-        CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
-        ControlAiAssistProjectController controller = new ControlAiAssistProjectController(client);
-        when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
-                "id", 7L,
-                "name", "Orders",
-                "projectCode", "orders",
-                "aiCodingAccess", Map.of("enabled", true, "accessKey", "aic_test")
-        ));
-
-        ResponseEntity<ControlAiAssistProjectController.PageAssistantCheckRunResponse> response =
-                controller.runPageAssistantChecks(7L, "page-assistant-7", Map.of(
-                        "pageKey", "orders.list",
-                        "routePattern", "/orders"
-                ));
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals("PASS", response.getBody().checkResult().overallStatus());
-        assertEquals("orders.list", response.getBody().session().targetPageKey());
-    }
 }

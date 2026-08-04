@@ -16,8 +16,8 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台。它不是单纯的 Work
 2. 业务方法或 Controller 使用 `@ReachCapability` 声明能力，参数或 DTO 字段使用 `@ReachParam` 补充语义，返回 DTO 字段可使用 `@ReachOutput` 声明可引用输出。
 3. Starter 在启动时同步项目、实例、能力快照和 SDK 图。
 4. 平台形成字段级 diff、评审 apply/ignore，并沉淀正式能力资产。
-5. Workflow Studio 基于能力资产编排 Workflow `GraphSpec`（V2 表：`runtime_workflow`）。
-6. Agent（V2 表：`runtime_agent`）发布版本化 Supervisor 配置和 Workflow-as-Tool 白名单；Runtime 通过 AgentScope 理解、规划和选择一个或多个已发布 Workflow，并对失败做有限重规划。
+5. Workflow Studio 基于能力资产编排 Workflow `GraphSpec`（表：`runtime_workflow`）。
+6. Agent（表：`runtime_agent`）发布版本化 Supervisor 配置和 Workflow-as-Tool 白名单；Runtime 通过 AgentScope 理解、规划和选择一个或多个已发布 Workflow，并对失败做有限重规划。
 7. RunOps、Trace、ACL、Guard、Gateway、MCP、A2A 和嵌入式对话负责生产治理与开放。
 
 ## 当前模块地图
@@ -51,13 +51,13 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台。它不是单纯的 Work
 
 第一阶段保持同一个 MySQL 库，不拆库。公开 `/api/**`、`/embed/**` 和 SDK 注册入口继续由 `reachai-control-service` 兼容收口，不要求前端直接调用 Runtime/Capability 内部服务。剩余兼容入口必须迁为 owning service 本地实现或正式删除，不能默认转发到旧 `ai-agent-service`。
 
-同库阶段仍按服务治理表所有权。`docs/architecture/service-table-ownership.md` 是当前 V2 表 ownership 矩阵；跨服务直接读写表默认违规，服务间协作应走 owning service 的 internal API、显式 client 或服务自有 read model。守护脚本 `scripts/check-service-table-ownership.mjs` 会检查 `@TableName`、MyBatis 注解 SQL、MyBatis XML SQL、JdbcTemplate SQL，以及 `sql/initV2.sql` 中的 `CREATE TABLE` 是否都登记 owner。
+同库阶段仍按服务治理表所有权。`docs/architecture/service-table-ownership.md` 是当前表 ownership 矩阵；跨服务直接读写表默认违规，服务间协作应走 owning service 的 internal API、显式 client 或服务自有 read model。守护脚本 `scripts/check-service-table-ownership.mjs` 会检查 `@TableName`、MyBatis 注解 SQL、MyBatis XML SQL、JdbcTemplate SQL，以及 `sql/initV2.sql` 中的 `CREATE TABLE` 是否都登记 owner。
 
 ## SQL 基线
 
 `sql/initV2.sql` 是当前新库 SQL 基线入口。它覆盖注册中心、能力资产、Agent、GraphSpec、Trace、RunOps、Tool ACL、Guard、模型、知识库、业务索引、MCP、A2A、Gateway、市场资产和嵌入式对话等表。旧 `sql/init.sql` 已退场，不再保留为活跃或历史基线。
 
-`sql/initV2.sql` 中每张 `CREATE TABLE` 表都必须在 service table ownership 矩阵中有唯一 owning service。代码访问是判断边界违规的事实源；V2 面向新库重建，不要求兼容旧表名或迁移旧数据。
+`sql/initV2.sql` 中每张 `CREATE TABLE` 表都必须在 service table ownership 矩阵中有唯一 owning service。代码访问是判断边界违规的事实源；当前基线面向新库重建，不要求兼容旧表名或迁移旧数据。
 
 未来 SQL 变化必须同时维护：
 
@@ -83,7 +83,9 @@ Agent 与 Workflow 已解耦：
 
 Supervisor 策略链已实现分级执行：READ 自动执行，PAGE_ACTION 校验原始用户问题的显式页面意图，WRITE 生成绑定 interaction/permissionKey/toolName/args 的一次性确认，不可逆操作默认拒绝；project、tenant、roles、permissionKey 与 ACTIVE allowlist 在同一 Guard/Trace 决策点校验。Agent Eval 直接执行已发布 Agent 配置并持久化真实结果，管理端路由为 `/agent/:id/evals`。
 
-当前接入入口已对齐该主线：“项目接入工作台” provisioning 只创建/复用项目页面副驾驶 Agent 并发布 ACTIVE Supervisor 配置，不创建占位 Workflow；“创建页面助手”创建并发布实际 PAGE_ASSISTANT Workflow，再通过 `attach-tool` 加入 Supervisor 工具目录并发布新版 Agent 配置。
+当前接入入口已对齐该主线：“项目接入工作台” provisioning 只创建/复用项目页面副驾驶 Agent 并发布 ACTIVE Supervisor 配置，不创建占位 Workflow；“业务页面工作台”管理页面地图与任务交付。只有真实发布、具有一等 TARGET PAGE 绑定并加入 ACTIVE Agent 配置版本的 PAGE_ASSISTANT Workflow 才进入“已发布”列表。
+
+项目接入与页面扫描共用 Control 的 AI Coding Task Kernel。正式客户端为 Codex、Cursor、Trae、Claude Code；Windows 交接通过当前用户 DPAPI 加密缓存跨 Shell 恢复，并由公共 helper 强制 UTF-8 JSON 回传。客户端事件和自然语言无权完成任务，只有 Artifact 校验、领域应用和显式平台门禁后的服务端 `task.executionStatus` 是完成事实源。项目接入在 `CODE_READY / RUNTIME_READY / E2E_READY` 未全部 `PASS` 时停留于 `RESULT_APPLIED`；真实 E2E 由任务启动后的 Embed Session、用户消息和助手回复证明。
 
 `GraphSpec` 是平台可执行语义的核心中间表示，归属 Workflow 而非 Agent。新增节点、边、变量映射、条件路由或 Runtime 行为时，优先维护 Workflow `GraphSpec` 语义，不能只扩展画布 JSON。
 
@@ -101,7 +103,7 @@ Supervisor 策略链已实现分级执行：READ 自动执行，PAGE_ACTION 校�
 当前前端大页已完成职责拆分：
 
 - `WorkflowStudio.vue` 保留主画布编排入口；持久化、发布、调试、AI draft、history、API query template 等逻辑已拆入 `views/workflow/composables/`，节点配置面板主路径为 `views/workflow/studio-panels/`。
-- `PageAssistantWizard.vue` 已收敛为步骤容器；步骤面板和 prompt 对话框拆入 `views/registry/components/page-assistant/`，wizard 状态、数据、步骤、draft 和 AI actions 拆入 registry composables。
+- `PageAssistantWizard.vue` 保留兼容路由名，但产品语义是“业务页面工作台”；四个自由 Tab 的面板位于 `views/registry/components/page-workbench/`，真实 API 数据与操作集中在 `useBusinessPageWorkbench.ts`。
 - `ScanProjectDetail.vue` 已收敛为组装层；header、overview、modules/tools、drawers/dialogs 拆入 `views/scan/components/scan-project/`。
 - `RegistryProjectDetail.vue`、`SdkAccessWizard.vue` 已收为 composable 组装层；继续改动前先复用 registry viewModel/composables。
 - `ApiGraphCanvas.vue` 已拆出 graph geometry/viewModel、data actions、drag、horizontal dock 和 styles。

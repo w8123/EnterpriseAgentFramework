@@ -328,7 +328,7 @@
               <div class="node-icon"><el-icon><Briefcase /></el-icon></div>
               <div class="node-head">
                 <span class="node-kind">能力</span>
-                <span class="node-state">{{ visibilityLabel(nodeProps.data.toolConfig?.visibility || 'DRAFT') }}</span>
+                <span class="node-state">{{ nodeProps.data.toolConfig?.ref ? '已配置' : '未配置' }}</span>
               </div>
               <div class="node-label">{{ nodeProps.data.toolConfig?.ref || '未选择能力' }}</div>
               <div class="node-desc">{{ nodeProps.data.description || '粗粒度业务能力' }}</div>
@@ -754,7 +754,7 @@
                       :disabled="aiEditLoading"
                     >
                       <el-option
-                        v-for="item in aiDraftModelOptions"
+                        v-for="item in authoringModelOptions"
                         :key="item.id"
                         :label="modelOptionLabel(item)"
                         :value="item.id"
@@ -798,7 +798,7 @@
               <span>{{ aiEditPreview.summary || 'AI 编排生成失败，Agent 已尝试自动修正，但仍未生成合法 Workflow。' }}</span>
               <span v-if="aiEditPreview.authoringId">错误编号：{{ aiEditPreview.authoringId }}</span>
               <span v-if="aiEditPreview.failureCode">失败码：{{ aiEditPreview.failureCode }}</span>
-              <span>当前方案未通过校验，不能应用到草稿。</span>
+              <span>当前 Proposal 未通过校验，不能应用到工作副本。</span>
               <span v-for="item in aiEditPreview.validationErrors || []" :key="item">{{ item }}</span>
             </div>
             <div v-else-if="aiEditPreview.validationErrors?.length" class="ai-edit-alert error">
@@ -836,7 +836,7 @@
                 :disabled="aiEditPreviewFailed || !!aiEditPreview.validationErrors?.length"
                 @click="applyAiEditPreview"
               >
-                应用到草稿
+                应用到工作副本
               </el-button>
             </div>
           </div>
@@ -928,7 +928,7 @@
               <div v-else-if="!graphLintItems.length && !runtimeValidationItems.length" class="inspector-empty-state">
                 <span class="inspector-empty-icon"><CircleCheck /></span>
                 <div>
-                  <strong>{{ validation?.valid ? '当前草稿检查通过' : '画布结构检查通过' }}</strong>
+                  <strong>{{ validation?.valid ? '当前工作副本检查通过' : '画布结构检查通过' }}</strong>
                   <span>{{ validation?.valid
                     ? '画布与运行时配置均已满足发布要求。'
                     : '运行“校验”可继续确认模型、资源与运行时配置。' }}</span>
@@ -1121,7 +1121,7 @@
                 <el-input v-model="workflowMeta.keySlug" placeholder="默认使用 workflowId" @change="markCanvasDirty" />
               </el-form-item>
               <el-form-item label="类型">
-                <el-input v-model="workflowMeta.workflowType" @change="markCanvasDirty" />
+                <el-input v-model="workflowMeta.workflowKind" @change="markCanvasDirty" />
               </el-form-item>
               <el-form-item label="说明">
                 <el-input v-model="workflowMeta.description" type="textarea" :rows="4" @change="markCanvasDirty" />
@@ -1129,7 +1129,7 @@
               <el-form-item label="默认模型">
                 <el-select v-model="workflowMeta.defaultModelInstanceId" filterable clearable placeholder="选择默认 LLM 模型" style="width: 100%">
                   <el-option
-                    v-for="item in aiDraftModelOptions"
+                    v-for="item in authoringModelOptions"
                     :key="item.id"
                     :label="modelOptionLabel(item)"
                     :value="item.id"
@@ -1151,12 +1151,8 @@
                 </div>
                 <span>{{ selectedNode!.data.description || '配置该节点的运行行为、变量、输出与测试。' }}</span>
               </div>
-            </div>
-
-            <div class="node-property-actions">
-              <el-button size="small" type="primary" plain :icon="Operation" @click="openPropertyDetail('base')">基础</el-button>
-              <el-button size="small" type="primary" plain :icon="SetUp" @click="openPropertyDetail('node')">配置</el-button>
               <el-button
+                class="node-property-delete"
                 size="small"
                 plain
                 :icon="Delete"
@@ -1424,7 +1420,7 @@
     >
       <template #header>
         <div class="debug-drawer-head">
-          <strong>工作流调试台（当前草稿）</strong>
+          <strong>工作流调试台（当前工作副本）</strong>
           <el-popover
             placement="bottom-end"
             trigger="click"
@@ -1447,7 +1443,7 @@
                 </div>
                 <div v-if="debugRunResult" class="result-section">
                   <strong>最终状态快照：</strong>
-                  <pre>{{ stringifyDebugPayload(debugRunResult.finalState) }}</pre>
+                  <pre>{{ stringifyDebugPayload(debugRunResult.stateSnapshot) }}</pre>
                 </div>
               </el-collapse-item>
 
@@ -1459,7 +1455,7 @@
                   <div class="trace-replay-row debug-production-row">
                     <div>
                       <strong>发布版本验证</strong>
-                      <span>使用已发布 ACTIVE 版本图规范运行，用于和当前草稿调试结果对照。</span>
+                      <span>使用已发布 ACTIVE 版本图规范运行，用于和当前工作副本调试结果对照。</span>
                     </div>
                     <el-button :loading="debugLoading" @click="handleRunPublishedDebug">
                       发布版本验证
@@ -1601,14 +1597,14 @@
                       :disabled="isDebugConversationBusy"
                     />
                     <div class="debug-actions">
-                      <el-tooltip content="运行当前草稿" placement="top">
+                      <el-tooltip content="运行当前工作副本" placement="top">
                         <el-button
                           type="primary"
                           circle
                           :icon="SendIcon"
                           :loading="isDebugConversationBusy"
-                          aria-label="运行当前草稿"
-                          @click="handleRunDraftDebug"
+                          aria-label="运行当前工作副本"
+                          @click="handleRunWorkingCopyDebug"
                         />
                       </el-tooltip>
                     </div>
@@ -1821,18 +1817,18 @@
       title="Workflow 源码"
       size="50%"
       destroy-on-close
-      @closed="resetJsonDraft"
+      @closed="resetSourceBuffer"
     >
       <el-alert
         type="info"
         :closable="false"
         class="json-source-alert"
-        title="GraphSpec 是运行语义；Canvas 只保存布局。修改不会立即影响画布，点击“校验并应用”后才会进入当前草稿。"
+        title="GraphSpec 是运行语义；Canvas 只保存布局。修改不会立即影响画布，点击“校验并应用”后才会进入当前工作副本。"
       />
       <el-tabs v-model="activeTab">
         <el-tab-pane label="GraphSpec" name="graph">
           <el-input
-            v-model="jsonDraftGraphSpec"
+            v-model="graphSpecSourceBuffer"
             type="textarea"
             :autosize="{ minRows: 24 }"
             :disabled="studioReadOnly || jsonApplying"
@@ -1842,7 +1838,7 @@
         </el-tab-pane>
         <el-tab-pane label="Canvas" name="canvas">
           <el-input
-            v-model="jsonDraftCanvas"
+            v-model="canvasSourceBuffer"
             type="textarea"
             :autosize="{ minRows: 24 }"
             :disabled="studioReadOnly || jsonApplying"
@@ -1853,14 +1849,14 @@
       </el-tabs>
       <template #footer>
         <div class="json-source-footer">
-          <span>{{ jsonDraftChanged ? '源码有尚未应用的修改' : '源码与当前画布一致' }}</span>
+          <span>{{ sourceBufferChanged ? '源码有尚未应用的修改' : '源码与当前画布一致' }}</span>
           <div>
-            <el-button @click="resetJsonDraft">重置</el-button>
+            <el-button @click="resetSourceBuffer">重置</el-button>
             <el-button
               type="primary"
               :loading="jsonApplying"
-              :disabled="studioReadOnly || !jsonDraftChanged"
-              @click="applyJsonDraft"
+              :disabled="studioReadOnly || !sourceBufferChanged"
+              @click="applySourceBuffer"
             >
               校验并应用
             </el-button>
@@ -2102,12 +2098,12 @@ import type { RunDetail, RunExecutionPathItem, RunSpan, RunSummary } from '@/typ
 import type { ChatResponse } from '@/types/chat'
 import type {
   WorkflowDebugRunResult,
-  WorkflowDraftEditResult,
+  WorkflowProposalEditResult,
   WorkflowNodeDebugResult,
   WorkflowPublishRequest,
   WorkflowReleaseValidationItem,
   WorkflowRuntimeValidationResult,
-  WorkflowStudioState,
+  WorkflowWorkingCopyState,
   WorkflowDebugMessage,
   WorkflowDebugSessionView,
   WorkflowDebugStepResult,
@@ -2161,8 +2157,8 @@ import {
   stringifyDebugPayload,
   formatElapsed,
 } from '@/views/workflow/composables/useWorkflowStudioDebugRun'
-import { useWorkflowStudioAiDraft } from '@/views/workflow/composables/useWorkflowStudioAiDraft'
-import { useWorkflowStudioAiDraftActions } from '@/views/workflow/composables/useWorkflowStudioAiDraftActions'
+import { useWorkflowStudioProposalContext } from '@/views/workflow/composables/useWorkflowStudioProposalContext'
+import { useWorkflowStudioProposalActions } from '@/views/workflow/composables/useWorkflowStudioProposalActions'
 import { useWorkflowStudioEval } from '@/views/workflow/composables/useWorkflowStudioEval'
 import { useWorkflowStudioHistory } from '@/views/workflow/composables/useWorkflowStudioHistory'
 import { useWorkflowStudioApiQueryTemplate } from '@/views/workflow/composables/useWorkflowStudioApiQueryTemplate'
@@ -2177,11 +2173,11 @@ const route = useRoute()
 const router = useRouter()
 const { fitView, screenToFlowCoordinate, setCenter, zoomIn, zoomOut, getViewport, findNode } = useVueFlow()
 const workflowId = computed(() => String(route.params.workflowId || route.params.id || ''))
-const studio = ref<WorkflowStudioState | null>(null)
+const studio = ref<WorkflowWorkingCopyState | null>(null)
 const graphSpecJson = ref('')
 const canvasJson = ref('')
-const emptyWorkspaceGraphSpec = formatJson('{"nodes":[],"edges":[]}')
-const emptyWorkspaceCanvas = formatJson('{"nodes":[],"edges":[]}')
+const emptyWorkspaceGraphSpec = formatJson('{"schemaVersion":2,"nodes":[],"edges":[],"entryNodeId":"","exitNodeIds":[]}')
+const emptyWorkspaceCanvas = formatJson('{"schemaVersion":1,"layoutVersion":1,"nodes":[],"edges":[]}')
 const activeTab = ref('visual')
 const loading = ref(false)
 const saving = ref(false)
@@ -2237,7 +2233,7 @@ const aiModelInstanceId = ref('')
 const aiEditInstruction = ref('')
 const aiEditLoading = ref(false)
 const aiEditMinimized = ref(false)
-const aiEditPreview = ref<WorkflowDraftEditResult | null>(null)
+const aiEditPreview = ref<WorkflowProposalEditResult | null>(null)
 const paletteExpanded = ref(false)
 const activePaletteGroup = ref('推理')
 const propertyPanelCollapsed = ref(true)
@@ -2278,8 +2274,8 @@ const propertyDetailOpen = ref(false)
 type PropertyDetailSection = 'base' | 'node' | 'debug' | 'trace'
 const propertyDetailSection = ref<PropertyDetailSection>('base')
 const jsonDrawerVisible = ref(false)
-const jsonDraftGraphSpec = ref('')
-const jsonDraftCanvas = ref('')
+const graphSpecSourceBuffer = ref('')
+const canvasSourceBuffer = ref('')
 const jsonApplying = ref(false)
 const debugOpen = ref(false)
 const publishDialogOpen = ref(false)
@@ -2296,7 +2292,7 @@ const publishForm = reactive<WorkflowPublishRequest>({
 const workflowMeta = reactive({
   name: '',
   keySlug: '',
-  workflowType: '',
+  workflowKind: '',
   description: '',
   defaultModelInstanceId: '',
 })
@@ -2314,7 +2310,7 @@ const {
   graphNodeTypeCapabilitiesLoaded,
   availableTools,
   availableCompositions,
-  aiDraftModelOptions,
+  authoringModelOptions,
   selectedAiEditModel,
   selectedToolInfo,
   loadNodeTypes,
@@ -2332,17 +2328,18 @@ const {
 })
 
 const studioReadOnly = computed(() => {
-  const managed = studio.value?.managedBy
-  return managed === 'SDK' || managed === 'AI_QUICK_ACCESS'
+  const authority = studio.value?.definitionAuthority
+  const creationChannel = studio.value?.creationChannel
+  return authority === 'SDK' || creationChannel === 'AI_QUICK_ACCESS'
 })
 
 const selectedAiEditModelLabel = computed(() =>
   selectedAiEditModel.value ? modelOptionLabel(selectedAiEditModel.value) : '',
 )
 
-const jsonDraftChanged = computed(() =>
-  jsonDraftGraphSpec.value !== graphSpecJson.value
-  || jsonDraftCanvas.value !== canvasJson.value,
+const sourceBufferChanged = computed(() =>
+  graphSpecSourceBuffer.value !== graphSpecJson.value
+  || canvasSourceBuffer.value !== canvasJson.value,
 )
 
 
@@ -2444,17 +2441,6 @@ async function waitForWorkflowNodeMeasurements() {
   await nextTick()
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   await nextTick()
-}
-
-function visibilityLabel(value?: string | null) {
-  const normalized = String(value || '').toUpperCase()
-  const labels: Record<string, string> = {
-    PRIVATE: '私有',
-    PUBLIC: '公开',
-    SHARED: '共享',
-    DRAFT: '草稿',
-  }
-  return labels[normalized] || value || '私有'
 }
 
 const workflowVisibilityLabel = computed(() => {
@@ -3013,7 +2999,7 @@ const {
   nextTick,
 })
 
-function applyCanvasFromStudio(state: WorkflowStudioState) {
+function applyCanvasFromStudio(state: WorkflowWorkingCopyState) {
   clearPanelValidation()
   const snapshot = workflowStudioToCanvas(state)
   nodes.value = (snapshot.nodes || []).map(decorateWorkflowNode)
@@ -3032,7 +3018,7 @@ function syncJsonFromCanvas() {
     canvasJson: canvasJson.value,
   }, canvasSnapshot())
   graphSpecJson.value = formatJson(saveRequest.graphSpecJson)
-  canvasJson.value = formatJson(saveRequest.canvasJson || '{"nodes":[],"edges":[]}')
+  canvasJson.value = formatJson(saveRequest.canvasJson || '{"schemaVersion":1,"layoutVersion":1,"nodes":[],"edges":[]}')
   validation.value = null
 }
 
@@ -3081,13 +3067,13 @@ async function handleSaveStudio() {
 
 const {
   resolveAiModelInstanceId,
-  toolToDraftResource,
-  compositionToDraftResource,
-  knowledgeToDraftResource,
-} = useWorkflowStudioAiDraft({
+  toolToProposalResource,
+  compositionToProposalResource,
+  knowledgeToProposalResource,
+} = useWorkflowStudioProposalContext({
   aiModelInstanceId,
   studio,
-  aiDraftModelOptions,
+  authoringModelOptions,
 })
 
 const {
@@ -3099,7 +3085,7 @@ const {
   selectDebugStep,
   openNodeTrace,
   handleDebug,
-  handleRunDraftDebug,
+  handleRunWorkingCopyDebug,
   handleDebugUiSubmit,
   handleDebugInteractionSubmit,
   handleDebugInteractionCancel,
@@ -3249,7 +3235,7 @@ const {
   applyAiEditPreview,
   operationKey,
   operationTarget,
-} = useWorkflowStudioAiDraftActions({
+} = useWorkflowStudioProposalActions({
   workflowId,
   studioReadOnly,
   studio,
@@ -3269,9 +3255,9 @@ const {
   availableCompositions,
   knowledgeOptions,
   resolveAiModelInstanceId,
-  toolToDraftResource,
-  compositionToDraftResource,
-  knowledgeToDraftResource,
+  toolToProposalResource,
+  compositionToProposalResource,
+  knowledgeToProposalResource,
   syncJsonFromCanvas,
   canvasSnapshot,
   applyCanvasFromStudio,
@@ -3332,7 +3318,7 @@ const {
   releaseErrors,
   releaseWarnings,
   publishForm,
-  validateCurrentDraft: () => validateRuntime({ silent: true }),
+  validateWorkingCopy: () => validateRuntime({ silent: true }),
   saveStudio,
   loadStudio,
   ensurePanelValidationClear,
@@ -3487,7 +3473,7 @@ watch(
   () => [
     workflowMeta.name,
     workflowMeta.keySlug,
-    workflowMeta.workflowType,
+    workflowMeta.workflowKind,
     workflowMeta.description,
     workflowMeta.defaultModelInstanceId,
   ].join('\u0000'),
@@ -3565,7 +3551,7 @@ async function validateRuntime(options: { silent?: boolean; syncCanvas?: boolean
     const { data } = await validateWorkflowRuntimeApi({
       workflowId: validatedWorkflowId,
       graphSpecJson: validatedGraphSpecJson,
-      runtimeType: studio.value?.runtimeType || 'LANGGRAPH4J',
+      executionEngine: studio.value?.executionEngine || 'GRAPH_SPEC',
       defaultModelInstanceId: validatedModelInstanceId,
     })
     if (!isCurrentValidation()) return null
@@ -3654,7 +3640,7 @@ function openPropertyDetail(section: PropertyDetailSection) {
 
 function refreshCanvasFromJson() {
   if (!studio.value) return
-  const state: WorkflowStudioState = {
+  const state: WorkflowWorkingCopyState = {
     ...studio.value,
     graphSpecJson: graphSpecJson.value,
     canvasJson: canvasJson.value,
@@ -3662,43 +3648,43 @@ function refreshCanvasFromJson() {
   applyCanvasFromStudio(state)
 }
 
-function resetJsonDraft() {
-  jsonDraftGraphSpec.value = graphSpecJson.value
-  jsonDraftCanvas.value = canvasJson.value
+function resetSourceBuffer() {
+  graphSpecSourceBuffer.value = graphSpecJson.value
+  canvasSourceBuffer.value = canvasJson.value
 }
 
 function openJsonDrawer() {
   if (nodes.value.length) {
     syncJsonFromCanvas()
   }
-  resetJsonDraft()
+  resetSourceBuffer()
   activeTab.value = 'graph'
   jsonDrawerVisible.value = true
 }
 
-async function applyJsonDraft() {
+async function applySourceBuffer() {
   if (studioReadOnly.value) {
     ElMessage.info('代码托管 Workflow 当前为只读草稿，请修改后重启同步。')
     return
   }
   jsonApplying.value = true
   try {
-    const graph = normalizeJson(jsonDraftGraphSpec.value, 'GraphSpec')
-    const canvas = normalizeJson(jsonDraftCanvas.value || '{}', 'Canvas')
+    const graph = normalizeJson(graphSpecSourceBuffer.value, 'GraphSpec')
+    const canvas = normalizeJson(canvasSourceBuffer.value || '{}', 'Canvas')
     graphSpecJson.value = formatJson(graph)
     canvasJson.value = formatJson(canvas)
     refreshCanvasFromJson()
     markCanvasDirty()
     resetHistorySnapshot()
     const data = await validateRuntime({ silent: true })
-    resetJsonDraft()
+    resetSourceBuffer()
     if (!data) {
-      ElMessage.warning('源码已应用到当前草稿，但运行时校验尚未完成')
+      ElMessage.warning('源码已应用到当前工作副本，但运行时校验尚未完成')
       return
     }
     jsonDrawerVisible.value = false
     if (data.valid) {
-      ElMessage.success('源码已校验并应用到当前草稿')
+      ElMessage.success('源码已校验并应用到当前工作副本')
     } else {
       ElMessage.warning(`源码已应用，仍有 ${data.errors.length} 个发布阻断项`)
     }
@@ -3734,7 +3720,6 @@ function handleCreateInteractionCallNode(request: InteractionCallNodeRequest) {
     ref: request.ref,
     qualifiedName: request.qualifiedName || null,
     projectCode: request.projectCode || null,
-    visibility: request.visibility || null,
     inputMapping: request.inputMapping,
     mappingNote: `由交互节点 ${selectedNode.value.id} 自动生成，可继续手动调整。`,
   }
@@ -4643,14 +4628,12 @@ function formatDebugResult(value: unknown) {
   line-height: 1.5;
 }
 
-.draft-preview,
 .debug-result {
   display: grid;
   gap: 6px;
   min-width: 0;
 }
 
-.draft-preview-head,
 .debug-result-head {
   display: flex;
   align-items: center;
@@ -4664,12 +4647,10 @@ function formatDebugResult(value: unknown) {
   gap: 4px;
 }
 
-.draft-preview-head strong,
 .debug-result strong {
   font-size: 12px;
 }
 
-.draft-preview pre,
 .debug-result pre {
   overflow: auto;
   max-height: 260px;
@@ -6166,10 +6147,10 @@ function formatDebugResult(value: unknown) {
 
 .node-property-head {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: 42px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  padding: 8px 2px 14px;
+  padding: 8px 48px 14px 2px;
   border-bottom: 1px solid #eef2f7;
 }
 
@@ -6217,10 +6198,9 @@ function formatDebugResult(value: unknown) {
   white-space: normal;
 }
 
-.node-property-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.node-property-delete {
+  align-self: start;
+  margin-top: 1px;
 }
 
 .property-section-card {
@@ -6554,7 +6534,6 @@ function formatDebugResult(value: unknown) {
   margin-top: 18px;
 }
 
-.studio-page .draft-preview pre,
 .studio-page .debug-result pre,
 .studio-page .debug-step-payloads pre {
   max-height: 180px;

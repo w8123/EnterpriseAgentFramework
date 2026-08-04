@@ -337,7 +337,8 @@ export function registerReachAiPageActions(
   bridge: ReachAiPageActionService,
   page: {
     getPageState: () => unknown;
-    setFilters: (filters: Record<string, unknown>) => void;
+    // Resolve only after the real visible form/query controls have settled.
+    setFilters: (filters: Record<string, unknown>) => Promise<unknown> | unknown;
     search: () => Promise<unknown> | unknown;
     reset: () => Promise<unknown> | unknown;
     readTable: () => unknown;
@@ -351,7 +352,7 @@ export function registerReachAiPageActions(
   }));
 
   bridge.register(reachAiPageKey, 'setFilters', async (args) => {
-    page.setFilters((args || {}) as Record<string, unknown>);
+    await page.setFilters((args || {}) as Record<string, unknown>);
     return { status: 'SUCCESS', data: page.getPageState(), metadata: { riskLevel: 'LOW' } };
   });
 

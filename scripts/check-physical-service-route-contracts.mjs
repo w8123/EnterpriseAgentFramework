@@ -443,7 +443,24 @@ function stringArguments(text) {
   return [...text.matchAll(/"([^"]*)"/g)].map((match) => match[1])
 }
 
-function pathArguments(text) {
+function pathConstants(text) {
+  return new Map([...text.matchAll(/\bString\s+([A-Za-z_$][\w$]*)\s*=\s*"([^"]*)"\s*;/g)]
+    .map((match) => [match[1], match[2]]))
+}
+
+function constantPathArgument(text, constants) {
+  const positional = text.match(/\(\s*([A-Za-z_$][\w$]*)\s*\)/)
+  if (positional && constants.has(positional[1])) {
+    return [constants.get(positional[1])]
+  }
+  const named = text.match(/(?:value|path)\s*=\s*([A-Za-z_$][\w$]*)/)
+  if (named && constants.has(named[1])) {
+    return [constants.get(named[1])]
+  }
+  return null
+}
+
+function pathArguments(text, constants = new Map()) {
   const positionalArray = text.match(/\(\s*\{\s*((?:"[^"]*"\s*,?\s*)+)\}/)
   if (positionalArray) {
     return stringArguments(positionalArray[1])
@@ -460,6 +477,10 @@ function pathArguments(text) {
   if (namedSingle) {
     return [namedSingle[1]]
   }
+  const constant = constantPathArgument(text, constants)
+  if (constant) {
+    return constant
+  }
   return ['']
 }
 
@@ -471,24 +492,24 @@ function requestMethods(text, defaultMethod) {
   return matches.length === 0 ? ['ANY'] : [...new Set(matches)]
 }
 
-function routeFromAnnotation(text) {
+function routeFromAnnotation(text, constants) {
   if (text.startsWith('@GetMapping')) {
-    return { methods: ['GET'], paths: pathArguments(text) }
+    return { methods: ['GET'], paths: pathArguments(text, constants) }
   }
   if (text.startsWith('@PostMapping')) {
-    return { methods: ['POST'], paths: pathArguments(text) }
+    return { methods: ['POST'], paths: pathArguments(text, constants) }
   }
   if (text.startsWith('@PutMapping')) {
-    return { methods: ['PUT'], paths: pathArguments(text) }
+    return { methods: ['PUT'], paths: pathArguments(text, constants) }
   }
   if (text.startsWith('@DeleteMapping')) {
-    return { methods: ['DELETE'], paths: pathArguments(text) }
+    return { methods: ['DELETE'], paths: pathArguments(text, constants) }
   }
   if (text.startsWith('@PatchMapping')) {
-    return { methods: ['PATCH'], paths: pathArguments(text) }
+    return { methods: ['PATCH'], paths: pathArguments(text, constants) }
   }
   if (text.startsWith('@RequestMapping')) {
-    return { methods: requestMethods(text), paths: pathArguments(text) }
+    return { methods: requestMethods(text), paths: pathArguments(text, constants) }
   }
   return null
 }
@@ -496,21 +517,23 @@ function routeFromAnnotation(text) {
 function collectRoutes(files) {
   const routes = []
   for (const file of files) {
-    const lines = read(file).split(/\r?\n/)
+    const source = read(file)
+    const constants = pathConstants(source)
+    const lines = source.split(/\r?\n/)
     let classPrefixes = ['']
     for (let i = 0; i < lines.length; i++) {
       const text = annotationText(lines, i)
       if (text.startsWith('@RequestMapping')) {
         const nextSignificant = lines.slice(i + 1).find((line) => line.trim() && !line.trim().startsWith('@'))
         if (nextSignificant && /\b(class|interface|record)\b/.test(nextSignificant)) {
-          classPrefixes = pathArguments(text)
+          classPrefixes = pathArguments(text, constants)
           continue
         }
       }
       if (!/^@(Get|Post|Put|Delete|Patch|Request)Mapping/.test(text)) {
         continue
       }
-      const route = routeFromAnnotation(text)
+      const route = routeFromAnnotation(text, constants)
       if (!route) {
         continue
       }

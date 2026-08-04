@@ -11,7 +11,6 @@ interface ParameterRow extends ToolParameter {
 }
 
 type ToolLinkTagType = 'success' | 'warning' | 'danger' | 'info'
-type ToolFlagField = 'agentVisible' | 'lightweightEnabled'
 
 defineProps<{
   loading: boolean
@@ -48,7 +47,6 @@ const emit = defineEmits<{
   promoteModuleToGlobal: [group: ToolModuleGroup]
   toolExpandChange: [row: ProjectToolInfo, expanded: boolean]
   enabledChange: [row: ProjectToolInfo, enabled: boolean]
-  flagChange: [row: ProjectToolInfo, field: ToolFlagField, value: boolean]
   openDiff: [row: ProjectToolInfo]
   openEdit: [row: ProjectToolInfo]
   rescanFromSource: [row: ProjectToolInfo]
@@ -175,6 +173,7 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                     </el-table-column>
                   </el-table>
                   <div class="tool-meta">
+                    <div><b>工具标识：</b><code>{{ row.name }}</code></div>
                     <div><b>HTTP：</b>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</div>
                     <div><b>Base URL：</b>{{ row.baseUrl || '-' }}</div>
                     <div><b>来源定位：</b>{{ row.sourceLocation || '-' }}</div>
@@ -207,7 +206,12 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="name" label="工具名" min-width="180" />
+            <el-table-column prop="title" label="工具名称" min-width="200">
+              <template #default="{ row }">
+                <div>{{ row.title || row.name }}</div>
+                <code>{{ row.name }}</code>
+              </template>
+            </el-table-column>
             <el-table-column label="端点" min-width="200">
               <template #default="{ row }">
                 <span>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '' }}</span>
@@ -268,24 +272,6 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                 />
               </template>
             </el-table-column>
-            <el-table-column label="Agent 可见" width="96" align="center">
-              <template #default="{ row }">
-                <el-switch
-                  :model-value="row.agentVisible"
-                  :disabled="row.removedFromSource"
-                  @change="emit('flagChange', row, 'agentVisible', $event as boolean)"
-                />
-              </template>
-            </el-table-column>
-            <el-table-column label="轻量调用" width="96" align="center">
-              <template #default="{ row }">
-                <el-switch
-                  :model-value="row.lightweightEnabled"
-                  :disabled="row.removedFromSource"
-                  @change="emit('flagChange', row, 'lightweightEnabled', $event as boolean)"
-                />
-              </template>
-            </el-table-column>
             <el-table-column label="Tool 关联" min-width="150">
               <template #default="{ row }">
                 <div class="tool-link-cell">
@@ -312,7 +298,7 @@ function onToolExpandChange(row: ProjectToolInfo, expandedRows: ProjectToolInfo[
                   <el-button link type="primary" size="small" :disabled="row.removedFromSource" @click="emit('openEdit', row)">编辑</el-button>
                   <el-tooltip
                     effect="dark"
-                    content="从源码或 OpenAPI 重新解析并更新本行（保留工具名与开关；已挂全局 Tool 时请再点「更新到Tool」同步）"
+                    content="从源码或 OpenAPI 重新解析并更新本行（保留工具标识与开关；已挂全局 Tool 时请再点「更新到Tool」同步）"
                     placement="top"
                   >
                     <el-button

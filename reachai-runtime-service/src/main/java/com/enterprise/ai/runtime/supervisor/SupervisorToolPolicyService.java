@@ -30,7 +30,9 @@ public class SupervisorToolPolicyService {
     };
     private static final Pattern EXPLICIT_PAGE_INTENT = Pattern.compile(
             "(?i)(打开|跳转|进入|切换到|导航到|在.{0,20}(页面|界面)|操作.{0,20}(页面|界面)|页面上|界面上|"
-                    + "open\\s+(the\\s+)?page|navigate\\s+to|go\\s+to|on\\s+the\\s+page)");
+                    + "(读取|查看|查询|获取).{0,20}(当前)?(页面|界面).{0,20}(状态|筛选|内容|数据|表格|行)|"
+                    + "open\\s+(the\\s+)?page|navigate\\s+to|go\\s+to|on\\s+the\\s+page|"
+                    + "(read|inspect|query|get).{0,30}(current\\s+)?(page|screen).{0,30}(state|filter|content|data|table|row))");
 
     private final SupervisorExecutionTraceService traceService;
     private final SupervisorApprovalInteractionService approvalService;

@@ -1,9 +1,9 @@
 <template>
-  <WorkbenchPage density="compact" full-height>
+  <WorkbenchPage class="agent-edit-page" density="compact" full-height>
     <PageHeader
       variant="standard"
       domain="agent"
-      :title="isNew ? '新建 Agent' : `Agent Supervisor 工作台 - ${form.name || agentId}`"
+      :title="isNew ? '新建 Agent' : (form.name || agentId || 'Agent Supervisor 工作台')"
       eyebrow="Agent / Supervisor"
       density="compact"
       compact
@@ -13,6 +13,11 @@
         <StatusTag
           :label="form.enabled !== false ? '启用' : '停用'"
           :tone="form.enabled !== false ? 'success' : 'info'"
+        />
+        <StatusTag
+          v-if="!isNew"
+          :label="configStatusLabel"
+          :tone="configStatusTone"
         />
       </template>
       <template #actions>
@@ -39,11 +44,16 @@
             <WorkbenchPanel
               class="agent-core-panel"
               title="Agent 身份与接入"
-              description="维护稳定身份、项目归属和业务访问范围。"
+              description="名称、项目归属与访问范围。"
               density="compact"
             >
               <template #actions>
-                <el-switch v-model="form.enabled" active-text="启用" inactive-text="停用" />
+                <el-switch
+                  v-model="form.enabled"
+                  inline-prompt
+                  active-text="启"
+                  inactive-text="停"
+                />
               </template>
 
               <div class="form-grid two agent-identity-grid">
@@ -78,34 +88,40 @@
                     default-first-option
                     collapse-tags
                     collapse-tags-tooltip
-                    placeholder="留空表示不限制业务角色"
+                    placeholder="留空不限制"
                   />
                 </el-form-item>
                 <el-form-item label="描述" class="wide">
-                  <el-input v-model="form.description" type="textarea" :rows="3" placeholder="一句话描述 Agent 的职责与适用场景" />
+                  <el-input
+                    v-model="form.description"
+                    type="textarea"
+                    :rows="2"
+                    resize="none"
+                    placeholder="一句话说明职责与适用场景"
+                  />
                 </el-form-item>
               </div>
             </WorkbenchPanel>
 
             <WorkbenchPanel
-              class="agent-core-panel"
+              class="agent-core-panel supervisor-panel"
               title="Supervisor 运行配置"
-              description="配置模型和行为边界；发布后的版本才会进入 Runtime。"
+              description="Agent Supervisor 工作台：默认模型与系统提示词。"
               density="compact"
             >
               <template #actions>
                 <el-button plain :icon="Setting" @click="advancedSettingsVisible = true">高级设置</el-button>
-                <StatusTag :label="configStatusLabel" :tone="configStatusTone" />
               </template>
 
               <div class="supervisor-config-stack">
-                <el-form-item label="默认模型">
+                <div class="supervisor-inline-row">
+                  <span class="supervisor-inline-label">默认模型</span>
                   <el-select
                     v-model="supervisor.modelInstanceId"
                     clearable
                     filterable
-                    class="workflow-tool-select"
-                    placeholder="发布前必须选择模型"
+                    class="supervisor-inline-control"
+                    placeholder="发布前必选"
                   >
                     <el-option
                       v-for="item in llmModelInstances"
@@ -114,30 +130,39 @@
                       :value="item.id"
                     />
                   </el-select>
-                </el-form-item>
+                </div>
 
-                <el-form-item label="System Prompt">
-                  <el-input
-                    v-model="supervisor.systemPrompt"
-                    type="textarea"
-                    :rows="5"
-                    placeholder="定义 Supervisor 的理解、规划、工具选择与回答边界"
-                  />
-                </el-form-item>
+                <div class="supervisor-inline-row">
+                  <span class="supervisor-inline-label">系统提示词</span>
+                  <button
+                    type="button"
+                    class="prompt-preview"
+                    :class="{ 'is-empty': !systemPromptPreviewHasContent }"
+                    @click="openSystemPromptEditor"
+                  >
+                    <span class="prompt-preview__text">{{ systemPromptPreview }}</span>
+                    <el-icon class="prompt-preview__icon"><EditPen /></el-icon>
+                  </button>
+                </div>
               </div>
+
+              <p class="supervisor-panel-note">
+                超时、重规划与权限策略在「高级设置」。
+              </p>
             </WorkbenchPanel>
           </div>
 
         <WorkbenchPanel
+          class="capabilities-panel"
           title="Agent 工具与能力"
-          description="统一配置 Supervisor 可调用的 Workflow、Tool、MCP、CLI 等能力；当前支持 Workflow-as-Tool。"
+          description="Workflow 白名单；PAGE_ACTION 仅在用户明确要求打开或操作页面时选用。"
           density="compact"
         >
           <template #actions>
-            <el-button v-if="workflowTools.length" type="primary" plain :icon="Plus" @click="openWorkflowPicker">
+            <StatusTag :label="`${workflowTools.length} 个 Workflow`" tone="neutral" />
+            <el-button type="primary" :icon="Plus" @click="openWorkflowPicker">
               选择 Workflow
             </el-button>
-            <StatusTag :label="`${workflowTools.length} 个 Workflow`" tone="neutral" />
           </template>
           <div v-if="!workflowTools.length" class="workflow-tool-zero-state">
             <span class="workflow-tool-zero-state__icon">
@@ -145,38 +170,48 @@
             </span>
             <div class="workflow-tool-zero-state__copy">
               <strong>还没有可调用的能力</strong>
-              <p>先添加已发布 Workflow；后续 Tool、MCP、CLI 也会在这里统一管理。</p>
+              <p>先添加已发布 Workflow。</p>
             </div>
-            <el-button type="primary" plain :icon="Plus" @click="openWorkflowPicker">添加第一个 Workflow</el-button>
+            <el-button type="primary" :icon="Plus" @click="openWorkflowPicker">添加 Workflow</el-button>
           </div>
-          <el-table v-if="workflowTools.length" :data="workflowTools" row-key="workflowId" class="workflow-tool-table">
+          <el-table
+            v-if="workflowTools.length"
+            :data="workflowTools"
+            row-key="workflowId"
+            class="workflow-tool-table"
+            size="small"
+          >
             <el-table-column type="expand">
               <template #default="{ row }">
                 <div class="tool-override-grid">
                   <el-form-item label="说明覆盖">
-                    <el-input v-model="row.descriptionOverride" type="textarea" :rows="2" placeholder="留空时沿用 Workflow 描述" />
+                    <el-input v-model="row.descriptionOverride" type="textarea" :rows="2" placeholder="留空沿用 Workflow 描述" />
                   </el-form-item>
                   <el-form-item label="输入 Schema">
-                    <el-input v-model="row.inputSchemaOverrideJson" type="textarea" :rows="3" placeholder="留空时沿用 Workflow 输入 Schema" />
+                    <el-input v-model="row.inputSchemaOverrideJson" type="textarea" :rows="3" placeholder="留空沿用输入 Schema" />
                   </el-form-item>
                   <el-form-item label="输出 Schema">
-                    <el-input v-model="row.outputSchemaOverrideJson" type="textarea" :rows="3" placeholder="留空时沿用 Workflow 输出 Schema" />
+                    <el-input v-model="row.outputSchemaOverrideJson" type="textarea" :rows="3" placeholder="留空沿用输出 Schema" />
                   </el-form-item>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="Workflow" min-width="180">
+            <el-table-column label="Workflow" min-width="168">
               <template #default="{ row }">
-                <strong>{{ row.workflowName || workflowById(row.workflowId)?.name || row.workflowId }}</strong>
-                <small class="tool-cell-hint">{{ row.workflowKeySlug || workflowById(row.workflowId)?.keySlug }}</small>
+                <div class="workflow-name-cell">
+                  <strong>{{ row.workflowName || workflowById(row.workflowId)?.name || row.workflowId }}</strong>
+                  <small>{{ row.workflowKeySlug || workflowById(row.workflowId)?.keySlug }}</small>
+                </div>
               </template>
             </el-table-column>
-            <el-table-column label="Tool Name" min-width="190">
-              <template #default="{ row }"><el-input v-model="row.toolName" /></template>
-            </el-table-column>
-            <el-table-column label="风险" width="116">
+            <el-table-column label="Tool Name" min-width="168">
               <template #default="{ row }">
-                <el-select v-model="row.riskLevel" @change="syncReadOnly(row)">
+                <el-input v-model="row.toolName" class="table-quiet-input" size="small" />
+              </template>
+            </el-table-column>
+            <el-table-column label="风险" width="118">
+              <template #default="{ row }">
+                <el-select v-model="row.riskLevel" class="table-quiet-select" size="small" @change="syncReadOnly(row)">
                   <el-option label="只读" value="READ" />
                   <el-option label="写入" value="WRITE" />
                   <el-option label="页面动作" value="PAGE_ACTION" />
@@ -184,29 +219,53 @@
                 </el-select>
               </template>
             </el-table-column>
-            <el-table-column label="权限键" min-width="190">
-              <template #default="{ row }"><el-input v-model="row.permissionKey" /></template>
+            <el-table-column label="权限键" min-width="168">
+              <template #default="{ row }">
+                <el-input v-model="row.permissionKey" class="table-quiet-input" size="small" />
+              </template>
             </el-table-column>
-            <el-table-column label="启用" width="72" align="center">
-              <template #default="{ row }"><el-switch v-model="row.enabled" /></template>
+            <el-table-column label="启用" width="64" align="center">
+              <template #default="{ row }"><el-switch v-model="row.enabled" size="small" /></template>
             </el-table-column>
-            <el-table-column label="顺序" width="132" align="center">
+            <el-table-column label="" width="108" align="right">
               <template #default="{ $index }">
-                <el-button link :icon="ArrowUp" :disabled="$index === 0" @click="moveWorkflowTool($index, -1)" />
-                <el-button link :icon="ArrowDown" :disabled="$index === workflowTools.length - 1" @click="moveWorkflowTool($index, 1)" />
-                <el-button link type="danger" :icon="Delete" @click="removeWorkflowTool($index)" />
+                <div class="table-row-actions">
+                  <el-button link :icon="ArrowUp" :disabled="$index === 0" @click="moveWorkflowTool($index, -1)" />
+                  <el-button
+                    link
+                    :icon="ArrowDown"
+                    :disabled="$index === workflowTools.length - 1"
+                    @click="moveWorkflowTool($index, 1)"
+                  />
+                  <el-button link type="danger" :icon="Delete" @click="removeWorkflowTool($index)" />
+                </div>
               </template>
             </el-table-column>
           </el-table>
-          <el-alert
-            type="info"
-            :closable="false"
-            title="用户明确要求打开或操作页面时，Supervisor 才会选择含 PAGE_ACTION 的 Workflow；普通事实查询优先 API Workflow。"
-          />
         </WorkbenchPanel>
         </section>
 
       </main>
+
+      <AppDialog
+        v-model="systemPromptDialogVisible"
+        title="编辑系统提示词"
+        description="定义 Supervisor 的理解、规划、工具选择与回答边界。"
+        width="760px"
+        destroy-on-close
+      >
+        <el-input
+          v-model="systemPromptDraft"
+          type="textarea"
+          :rows="18"
+          class="system-prompt-editor"
+          placeholder="例如：你是企业业务助手。先理解用户意图，再按白名单选择合适的 Workflow；没有合适工具时直接说明限制。"
+        />
+        <template #footer>
+          <el-button @click="systemPromptDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="applySystemPromptDraft">保存提示词</el-button>
+        </template>
+      </AppDialog>
 
       <AppDialog
         v-model="workflowPickerVisible"
@@ -255,14 +314,17 @@
                 @click.stop
                 @change="toggleWorkflowPickerRow(workflow.id, Boolean($event))"
               />
-              <div class="workflow-avatar" :class="workflowAvatarClass(workflow.workflowType)">
+              <div
+                class="workflow-avatar"
+                :class="workflowAvatarClass(workflow.workflowKind, workflow.definitionAuthority)"
+              >
                 {{ workflowInitial(workflow.name) }}
               </div>
               <div class="workflow-picker-copy">
                 <div class="workflow-picker-name-line">
                   <strong>{{ workflow.name }}</strong>
-                  <el-tag :type="workflowTypeTagType(workflow.workflowType)" effect="light" size="small">
-                    {{ formatWorkflowTypeLabel(workflow.workflowType) }}
+                  <el-tag :type="workflowKindTagType(workflow.workflowKind)" effect="light" size="small">
+                    {{ formatWorkflowKindLabel(workflow.workflowKind) }}
                   </el-tag>
                 </div>
                 <span>{{ workflow.keySlug }}</span>
@@ -375,7 +437,7 @@
     <AppDrawer
       v-model="versionDrawerVisible"
       title="Supervisor 配置版本"
-      description="ACTIVE / ARCHIVED 是不可变快照；需要修改时先复制为新的 DRAFT。"
+      description="“已激活”和“已归档”版本是不可变快照；需要修改时先复制为新的“草稿”版本。"
       size="680px"
     >
       <el-table :data="configVersions" class="config-version-table">
@@ -383,7 +445,7 @@
           <template #default="{ row }">v{{ row.versionNo }}</template>
         </el-table-column>
         <el-table-column label="状态" width="110">
-          <template #default="{ row }"><el-tag :type="versionStatusType(row.status)">{{ row.status }}</el-tag></template>
+          <template #default="{ row }"><el-tag :type="versionStatusType(row.status)">{{ configVersionStatusLabel(row.status) }}</el-tag></template>
         </el-table-column>
         <el-table-column label="运行时" prop="runtimeType" min-width="120" />
         <el-table-column label="工具" width="72">
@@ -408,7 +470,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { ArrowDown, ArrowUp, Check, Clock, Delete, Plus, Search, Setting, VideoPlay } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, Check, Clock, Delete, EditPen, Plus, Search, Setting, VideoPlay } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
@@ -422,7 +484,7 @@ import type {
   AgentIdentityForm,
   AgentWorkflowToolConfig,
 } from '@/types/agent'
-import type { WorkflowDefinition } from '@/types/workflow'
+import type { WorkflowWorkingCopy } from '@/types/workflow'
 import {
   createAgent,
   copyAgentConfigToDraft,
@@ -438,17 +500,19 @@ import { getModelInstances } from '@/api/model'
 import type { ScanProject } from '@/types/scanProject'
 import type { ModelInstance } from '@/types/model'
 import { useProjectStore } from '@/store/project'
-import { formatWorkflowTypeLabel } from '@/utils/workflowLabels'
+import { formatWorkflowKindLabel } from '@/utils/workflowLabels'
 
 const route = useRoute()
 const router = useRouter()
 const advancedSettingsVisible = ref(false)
+const systemPromptDialogVisible = ref(false)
+const systemPromptDraft = ref('')
 const workflowPickerVisible = ref(false)
 const workflowPickerKeyword = ref('')
 const workflowPickerSelection = ref<string[]>([])
 const workflowPickerPage = ref(1)
 const workflowPickerPageSize = ref(10)
-const workflowPickerRows = ref<WorkflowDefinition[]>([])
+const workflowPickerRows = ref<WorkflowWorkingCopy[]>([])
 const workflowPickerTotal = ref(0)
 const workflowPickerLoading = ref(false)
 const projectStore = useProjectStore()
@@ -461,7 +525,7 @@ const saving = ref(false)
 const publishing = ref(false)
 const scanProjects = ref<ScanProject[]>([])
 const llmModelInstances = ref<ModelInstance[]>([])
-const publishedWorkflows = ref<WorkflowDefinition[]>([])
+const publishedWorkflows = ref<WorkflowWorkingCopy[]>([])
 const workflowTools = ref<AgentWorkflowToolConfig[]>([])
 const configVersions = ref<AgentConfigVersion[]>([])
 const currentConfig = ref<AgentConfigVersion | null>(null)
@@ -497,9 +561,24 @@ const pageBridgeTimeoutSeconds = computed({
   set: (value: number) => { supervisor.pageBridgeTimeoutMs = value * 1000 },
 })
 const configStatusLabel = computed(() => currentConfig.value
-  ? `${currentConfig.value.status} · v${currentConfig.value.versionNo}`
+  ? `${configVersionStatusLabel(currentConfig.value.status)} · v${currentConfig.value.versionNo}`
   : '尚未保存草稿')
 const configStatusTone = computed(() => currentConfig.value?.status === 'ACTIVE' ? 'success' : 'warning')
+const systemPromptPreviewHasContent = computed(() => Boolean((supervisor.systemPrompt || '').trim()))
+const systemPromptPreview = computed(() => {
+  const text = (supervisor.systemPrompt || '').replace(/\s+/g, ' ').trim()
+  return text || '点击编辑系统提示词，定义理解、规划与回答边界'
+})
+
+function openSystemPromptEditor() {
+  systemPromptDraft.value = supervisor.systemPrompt || ''
+  systemPromptDialogVisible.value = true
+}
+
+function applySystemPromptDraft() {
+  supervisor.systemPrompt = systemPromptDraft.value
+  systemPromptDialogVisible.value = false
+}
 const policyProfileHint = computed(() => supervisor.policyProfile === 'DEV_ALLOW_ALL'
   ? '研发策略仅跳过 tenant allowlist 与 permission-role 映射；页面显式意图、WRITE 确认和不可逆默认拒绝仍然生效。'
   : '执行前校验 project、tenant、Agent roles、permissionKey 角色映射和风险等级，并写入 Guard / Trace。')
@@ -575,7 +654,7 @@ function buildPayload(): Partial<Agent> {
   }
 }
 
-function workflowToolName(workflow: WorkflowDefinition): string {
+function workflowToolName(workflow: WorkflowWorkingCopy): string {
   const raw = (workflow.keySlug || workflow.id || 'workflow').replace(/[^A-Za-z0-9_]/g, '_')
   const prefixed = /^[A-Za-z]/.test(raw) ? raw : `wf_${raw}`
   return prefixed.length >= 2 ? prefixed.slice(0, 128) : `wf_${prefixed}`
@@ -625,25 +704,22 @@ function workflowInitial(value?: string | null) {
   return (value || 'W').trim().slice(0, 1).toUpperCase()
 }
 
-function workflowTypeKey(value?: string | null) {
-  return String(value || 'CHAT').toUpperCase()
+function workflowKindKey(value?: string | null) {
+  return String(value || 'GENERAL').toUpperCase()
 }
 
-function workflowAvatarClass(type?: string | null) {
-  const key = workflowTypeKey(type)
-  if (key === 'PAGE_ACTION' || key === 'PAGE_ASSISTANT') return 'page-action'
-  if (key === 'SDK_GRAPH') return 'sdk-graph'
+function workflowAvatarClass(kind?: string | null, authority?: string | null) {
+  if (workflowKindKey(kind) === 'PAGE_ASSISTANT') return 'page-action'
+  if (String(authority || '').toUpperCase() === 'SDK') return 'sdk-graph'
   return 'chat'
 }
 
-function workflowTypeTagType(type?: string | null) {
-  const key = workflowTypeKey(type)
-  if (key === 'PAGE_ACTION' || key === 'PAGE_ASSISTANT') return 'success'
-  if (key === 'SDK_GRAPH') return 'warning'
+function workflowKindTagType(kind?: string | null) {
+  if (workflowKindKey(kind) === 'PAGE_ASSISTANT') return 'success'
   return 'info'
 }
 
-function cachePublishedWorkflows(workflows: WorkflowDefinition[]) {
+function cachePublishedWorkflows(workflows: WorkflowWorkingCopy[]) {
   const cached = new Map(publishedWorkflows.value.map((workflow) => [workflow.id, workflow]))
   for (const workflow of workflows) cached.set(workflow.id, workflow)
   publishedWorkflows.value = [...cached.values()]
@@ -682,8 +758,8 @@ async function loadWorkflowPickerPage() {
   }
 }
 
-function defaultWorkflowTool(workflow: WorkflowDefinition): AgentWorkflowToolConfig {
-  const pageAction = workflow.workflowType === 'PAGE_ACTION' || workflow.workflowType === 'PAGE_ASSISTANT'
+function defaultWorkflowTool(workflow: WorkflowWorkingCopy): AgentWorkflowToolConfig {
+  const pageAction = workflow.workflowKind === 'PAGE_ASSISTANT'
   return {
     workflowId: workflow.id,
     workflowKeySlug: workflow.keySlug,
@@ -801,7 +877,7 @@ async function handlePublish() {
   publishing.value = true
   try {
     await ElMessageBox.confirm(
-      '发布后，该版本将成为 Runtime 唯一生效的 Supervisor 配置，当前 ACTIVE 版本会归档。确认继续？',
+      '发布后，该版本将成为 Runtime 唯一生效的 Supervisor 配置，当前已激活版本会归档。确认继续？',
       '发布 Supervisor 配置',
       { type: 'warning', confirmButtonText: '确认发布' },
     )
@@ -876,6 +952,13 @@ function versionStatusType(status?: string) {
   return 'info'
 }
 
+function configVersionStatusLabel(status?: string) {
+  if (status === 'ACTIVE') return '已激活'
+  if (status === 'DRAFT') return '草稿'
+  if (status === 'ARCHIVED') return '已归档'
+  return status || '未配置'
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return '-'
   const parsed = Date.parse(value)
@@ -944,10 +1027,35 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
+.agent-edit-page {
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agent-edit-page :deep(.app-page-header) {
+  flex: 0 0 auto;
+}
+
+.agent-config-form {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .workbench-layout {
   display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--section-gap);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-gutter: stable;
 }
 
 .agent-workbench__main,
@@ -962,13 +1070,24 @@ onUnmounted(() => {
 
 .agent-foundation-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.03fr) minmax(0, 0.97fr);
-  gap: var(--section-gap);
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  gap: 12px;
+  align-items: start;
 }
 
-.agent-core-panel {
-  height: 100%;
+.agent-foundation-grid :deep(.agent-core-panel) {
+  min-height: 0;
+}
+
+.agent-workbench__main :deep(.workbench-panel__description) {
+  max-width: 52ch;
+}
+
+.supervisor-panel-note {
+  margin: 14px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .form-grid {
@@ -980,22 +1099,98 @@ onUnmounted(() => {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.agent-identity-grid,
-.supervisor-config-stack {
-  gap: 16px;
+.agent-identity-grid {
+  gap: 12px;
 }
 
 .supervisor-config-stack {
   display: grid;
+  gap: 14px;
+  padding-top: 2px;
 }
 
-.agent-identity-grid :deep(.el-form-item),
-.supervisor-config-stack :deep(.el-form-item) {
+.supervisor-inline-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.supervisor-inline-label {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.supervisor-inline-control {
+  width: 100%;
+  min-width: 0;
+}
+
+.prompt-preview {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--border-divider);
+  border-radius: 8px;
+  background: var(--surface-solid-control);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+
+.prompt-preview:hover {
+  border-color: rgb(var(--brand-primary-rgb) / 0.28);
+  background: color-mix(in srgb, var(--brand-selected-bg) 36%, var(--surface-solid-control));
+}
+
+.prompt-preview:focus-visible {
+  outline: 2px solid rgb(var(--brand-primary-rgb) / 0.32);
+  outline-offset: 2px;
+}
+
+.prompt-preview.is-empty {
+  color: var(--text-muted);
+}
+
+.prompt-preview__text {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-preview__icon {
+  color: var(--brand-active);
+  font-size: 15px;
+}
+
+.system-prompt-editor :deep(.el-textarea__inner) {
+  min-height: 360px;
+  line-height: 1.65;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+.agent-identity-grid :deep(.el-form-item) {
   margin-bottom: 0;
 }
 
 .agent-config-form :deep(.el-form-item__label) {
-  padding-bottom: 7px;
+  padding-bottom: 6px;
   color: var(--text-secondary);
   font-weight: 650;
   line-height: 20px;
@@ -1004,7 +1199,72 @@ onUnmounted(() => {
 .agent-config-form :deep(.el-input__wrapper),
 .agent-config-form :deep(.el-select__wrapper),
 .agent-config-form :deep(.el-textarea__inner) {
-  border-radius: 9px;
+  border-radius: 8px;
+}
+
+.workflow-name-cell {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workflow-name-cell strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-name-cell small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.table-quiet-input,
+.table-quiet-select {
+  width: 100%;
+}
+
+.workflow-tool-table :deep(.table-quiet-input .el-input__wrapper),
+.workflow-tool-table :deep(.table-quiet-select .el-select__wrapper) {
+  min-height: 28px;
+  padding-left: 8px;
+  padding-right: 8px;
+  background: transparent;
+}
+
+.workflow-tool-table :deep(.table-quiet-input .el-input__wrapper:hover),
+.workflow-tool-table :deep(.table-quiet-select .el-select__wrapper:hover),
+.workflow-tool-table :deep(.table-quiet-input .el-input__wrapper.is-focus),
+.workflow-tool-table :deep(.table-quiet-select .el-select__wrapper.is-focused) {
+  background: var(--surface-solid-control);
+}
+
+.workflow-tool-table :deep(.el-table__cell) {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.workflow-tool-table :deep(.el-table__header .el-table__cell) {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .wide {
@@ -1105,8 +1365,8 @@ onUnmounted(() => {
   padding: 10px;
   border: 1px solid var(--border-divider);
   border-radius: 12px;
-  background: var(--surface-raised, rgb(255 255 255 / 0.72));
-  box-shadow: 0 8px 24px rgb(15 23 42 / 0.035);
+  background: var(--surface-solid-control);
+  box-shadow: var(--inner-highlight);
 }
 
 .workflow-picker-searchbar .el-input {
@@ -1117,7 +1377,7 @@ onUnmounted(() => {
 .workflow-picker-searchbar :deep(.el-input__wrapper) {
   min-height: 40px;
   border-radius: 9px;
-  box-shadow: 0 0 0 1px rgb(var(--brand-primary-rgb) / 0.15) inset;
+  box-shadow: var(--inner-highlight);
 }
 
 .workflow-picker-search-summary {
@@ -1166,7 +1426,7 @@ onUnmounted(() => {
   padding: 12px 14px;
   border: 1px solid var(--border-divider);
   border-radius: 12px;
-  background: var(--surface-raised, rgb(255 255 255 / 0.72));
+  background: var(--surface-solid-control);
   cursor: pointer;
   transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
@@ -1174,7 +1434,7 @@ onUnmounted(() => {
 .workflow-picker-item:hover {
   border-color: rgb(var(--brand-primary-rgb) / 0.28);
   background: rgb(var(--brand-primary-rgb) / 0.025);
-  box-shadow: 0 10px 24px rgb(15 23 42 / 0.045);
+  box-shadow: var(--shadow-panel);
   transform: translateY(-1px);
 }
 
@@ -1186,7 +1446,7 @@ onUnmounted(() => {
 .workflow-picker-item.is-selected {
   border-color: rgb(var(--brand-primary-rgb) / 0.46);
   background: var(--brand-selected-bg);
-  box-shadow: 0 10px 26px rgb(var(--brand-primary-rgb) / 0.08);
+  box-shadow: var(--shadow-active);
 }
 
 .workflow-picker-checkbox {
@@ -1267,9 +1527,9 @@ onUnmounted(() => {
   width: 26px;
   height: 26px;
   border-radius: 999px;
-  color: #fff;
+  color: var(--text-inverse);
   background: var(--brand-primary);
-  box-shadow: 0 6px 14px rgb(var(--brand-primary-rgb) / 0.2);
+  box-shadow: var(--shadow-active);
 }
 
 .workflow-picker-no-results {
@@ -1290,7 +1550,7 @@ onUnmounted(() => {
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  color: #fff;
+  color: var(--text-inverse);
   font-weight: 800;
 }
 
@@ -1299,11 +1559,19 @@ onUnmounted(() => {
 }
 
 .workflow-avatar.sdk-graph {
-  background: linear-gradient(135deg, #22c55e, #14b8a6);
+  background: linear-gradient(
+    135deg,
+    var(--status-success),
+    color-mix(in srgb, var(--status-success) 72%, var(--status-info))
+  );
 }
 
 .workflow-avatar.page-action {
-  background: linear-gradient(135deg, #f97316, #f59e0b);
+  background: linear-gradient(
+    135deg,
+    var(--status-warning),
+    color-mix(in srgb, var(--status-warning) 76%, var(--status-danger))
+  );
 }
 
 .tool-cell-hint {

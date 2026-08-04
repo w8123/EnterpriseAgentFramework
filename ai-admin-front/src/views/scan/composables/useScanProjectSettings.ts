@@ -117,7 +117,9 @@ export function useScanProjectSettings(deps: UseScanProjectSettingsDeps) {
       classIncludeRegex: settings.classIncludeRegex ?? '',
       classExcludeRegex: settings.classExcludeRegex ?? '',
       skipDeprecated: settings.skipDeprecated ?? false,
-      defaultFlags: { ...defaults.defaultFlags, ...defaultFlags },
+      defaultFlags: {
+        enabled: defaultFlags.enabled ?? defaults.defaultFlags.enabled,
+      },
       incrementalMode: settings.incrementalMode ?? defaults.incrementalMode,
     } as ScanSettings)
   }
@@ -168,7 +170,7 @@ export function useScanProjectSettings(deps: UseScanProjectSettingsDeps) {
       classIncludeRegex: scanSettingsForm.classIncludeRegex?.trim() ?? '',
       classExcludeRegex: scanSettingsForm.classExcludeRegex?.trim() ?? '',
       skipDeprecated: scanSettingsForm.skipDeprecated,
-      defaultFlags: { ...scanSettingsForm.defaultFlags },
+      defaultFlags: { enabled: scanSettingsForm.defaultFlags.enabled },
       incrementalMode: scanSettingsForm.incrementalMode,
     }
     scanSettingsSaving.value = true

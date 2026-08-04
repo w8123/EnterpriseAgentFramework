@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
-import type { AgentGraphNodeTypeDescriptor } from '@/types/agent'
+import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
 import type { CanvasNode } from '@/types/studio'
 import { useWorkflowStudioCanvasActions } from './useWorkflowStudioCanvasActions'
 
@@ -16,13 +16,12 @@ vi.mock('element-plus', () => ({
 }))
 
 function descriptor(
-  partial: Partial<AgentGraphNodeTypeDescriptor> & Pick<AgentGraphNodeTypeDescriptor, 'type' | 'canvasKind'>,
-): AgentGraphNodeTypeDescriptor {
+  partial: Partial<WorkflowGraphNodeTypeDescriptor> & Pick<WorkflowGraphNodeTypeDescriptor, 'type' | 'canvasKind'>,
+): WorkflowGraphNodeTypeDescriptor {
   return {
     canvasCategory: 'flow',
     family: 'FLOW',
     retryable: false,
-    aliases: [],
     maturity: 'STABLE',
     runtimeExecutable: true,
     publishable: true,
@@ -62,7 +61,7 @@ function createActions(overrides: Record<string, unknown> = {}) {
   const nextTick = vi.fn(async (fn?: () => void) => {
     fn?.()
   })
-  const nodeTypes = ref<AgentGraphNodeTypeDescriptor[]>([
+  const nodeTypes = ref<WorkflowGraphNodeTypeDescriptor[]>([
     descriptor({ type: 'LLM', canvasKind: 'llm' }),
     descriptor({ type: 'TOOL', canvasKind: 'tool' }),
     descriptor({

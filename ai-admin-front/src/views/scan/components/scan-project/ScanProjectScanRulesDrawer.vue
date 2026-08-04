@@ -132,10 +132,6 @@ const emit = defineEmits<{
         <div class="switch-group">
           <el-switch v-model="scanSettingsForm.defaultFlags.enabled" />
           <span>启用</span>
-          <el-switch v-model="scanSettingsForm.defaultFlags.agentVisible" />
-          <span>Agent 可见</span>
-          <el-switch v-model="scanSettingsForm.defaultFlags.lightweightEnabled" />
-          <span>轻量调用</span>
         </div>
       </el-form-item>
       <el-form-item label="增量扫描">

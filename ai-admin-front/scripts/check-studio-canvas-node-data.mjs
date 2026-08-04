@@ -10,7 +10,7 @@ const studioSource = readFileSync(join(projectRoot, 'src/utils/studio.ts'), 'utf
 assert.doesNotMatch(
   studioSource,
   /configVersion === 2 \? node\.data : defaults/,
-  'ensureNodeV2 must not discard node.data when configVersion is missing',
+  'normalizeCanvasNodeData must not discard node.data when configVersion is missing',
 )
 assert.match(studioSource, /configVersion: 2 as const/)
 

@@ -25,9 +25,9 @@ public class RuntimeWorkflowDefinitionEntity {
 
     private String description;
 
-    private String workflowType;
+    private String workflowKind;
 
-    private String runtimeType;
+    private String executionEngine;
 
     private String graphSpecJson;
 
@@ -43,7 +43,9 @@ public class RuntimeWorkflowDefinitionEntity {
 
     private String status;
 
-    private String managedBy;
+    private String definitionAuthority;
+
+    private String creationChannel;
 
     private String extraJson;
 

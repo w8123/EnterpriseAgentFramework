@@ -35,12 +35,12 @@ AI Coding / CLI（X-ReachAI-AiCoding-Key） -> canvas projection
 - 不调用模型、不鉴权、不执行 Workflow、不直接持久化；
 - 在 GraphSpec 深拷贝上原子应用整批操作；
 - deep merge 嵌套 patch，禁止修改 node / edge id；
-- 检查 edge、entry、finish 引用；
-- 删除节点时同步清理关联边和 entry / finish；
+- 检查 edge、`entryNodeId`、`exitNodeIds` 引用；
+- 删除节点时同步清理关联边和 `entryNodeId / exitNodeIds`；
 - 输出候选 GraphSpec、changedNodes、changedEdges 和摘要。
 - `ADD_NODE` / 修改 type 的 `UPDATE_NODE` 必须命中统一节点能力目录中 `aiAuthoringEnabled=true` 的类型；已有不可编排节点禁止更新配置，但允许 `DELETE_NODE` 清理旧草稿。拒绝时映射为结构化错误码 `WORKFLOW_NODE_NOT_AUTHORABLE`。
 
-支持的操作为 `ADD_NODE`、`UPDATE_NODE`、`DELETE_NODE`、`ADD_EDGE`、`UPDATE_EDGE`、`DELETE_EDGE`、`SET_ENTRY`、`SET_FINISH`。
+支持的操作为 `ADD_NODE`、`UPDATE_NODE`、`DELETE_NODE`、`ADD_EDGE`、`UPDATE_EDGE`、`DELETE_EDGE`、`SET_ENTRY_NODE`、`SET_EXIT_NODES`。
 
 ### 节点能力目录与开放策略
 
@@ -50,7 +50,7 @@ Studio、发布校验和网页 AI 编排共同消费 `RuntimeWorkflowNodeCapabil
 - `runtimeExecutable` 来自 `RuntimeGraphSpecExecutor` 的真实 Handler 集合。
 - 网页 AI 编排的 prompt `nodeTypes` 只包含 `aiAuthoringEnabled=true` 的目录；发布校验区分 unknown、runtime unsupported、not publishable 与 BETA warning。
 - 第一阶段已开放 AI 编排的节点包括：既有 STABLE 核心节点，以及 `VARIABLE_ASSIGN` / `TEMPLATE` / `VARIABLE_AGGREGATOR`（STABLE）与 `KNOWLEDGE_RETRIEVAL` / `HTTP_REQUEST`（BETA）。`INTERACTION` 仍保持 `aiAuthoringEnabled=false`（E2E_PENDING）。
-- AI Draft `systemPrompt` 的 authorable/closed 列表必须来自 Registry，禁止硬编码 “Knowledge/HTTP forbidden”。HTTP draft 走独立 `normalizeHttpConfig`；Knowledge draft 过滤空 codes 且不暴露 Workflow `directReturn*`。状态：CODE_READY / E2E_PENDING / PRODUCTION_PENDING。
+- AI Proposal `systemPrompt` 的 authorable/closed 列表必须来自 Registry，禁止硬编码 “Knowledge/HTTP forbidden”。HTTP Proposal 走独立 `normalizeHttpConfig`；Knowledge Proposal 过滤空 codes 且不暴露 Workflow `directReturn*`。状态：CODE_READY / E2E_PENDING / PRODUCTION_PENDING。
 - 外部 AI Coding 暂未作为本阶段验收范围，但仍受共享 mutation 内核约束。
 
 ### AgentScope Authoring Tools
@@ -77,12 +77,12 @@ Studio、发布校验和网页 AI 编排共同消费 `RuntimeWorkflowNodeCapabil
 - `IF_ELSE`：仅用于可写成确定性 runtime expression / `conditionGroups` 的条件；出边使用 `route:<groupId>`，并提供 `route:else`；
 - `INTENT_CLASSIFIER`：用于自然语言语义、意图或主题分类；推荐 `strategy=LLM|HYBRID`、`inputExpression=input`、`defaultRoute=else`，类边使用 `route:<classId>`，拒绝/兜底边使用 `route:else`。
 
-### Proposal 校验与兼容修复
+### Proposal 校验与有界修复
 
 网页 AI 的候选必须通过发布链路同一套 `RuntimeWorkflowReleaseValidationService.validateProposed()`。
 
-- **Workflow Studio `/edit-draft`**：由 AgentScope 读取 mutation / validation 结构化错误后自主修正；确定性内核决定候选能否 finalize。
-- **兼容入口 `/generate-draft`**：仍可使用 `RuntimeWorkflowDraftRepairService` 对同一选定模型做最多两轮直接修复轮次。它不是独立“修复模型”，也不再作为 Studio 主链路控制器。
+- **Workflow Studio `/proposals/edit`**：请求必须显式携带当前 `currentGraphSpec`；由 AgentScope 读取 mutation / validation 结构化错误后自主修正，确定性内核决定 Proposal 能否 finalize。服务端不再从 `currentCanvas` 或其中的 `START / END` 投影反向恢复运行语义。
+- **Workflow Studio `/proposals/generate`**：可使用 `RuntimeWorkflowProposalRepairService` 对同一选定模型做最多两轮直接修复。它不是独立“修复模型”，也不作为 Studio 主链路控制器。
 
 循环只操作内存候选，不保存、不发布、不运行带副作用节点。达到上限仍失败时，返回 `status=FAILED` 和未解决错误，由用户继续修改、重新生成或放弃。
 
@@ -99,9 +99,9 @@ AgentScope 承载网页内的意图理解、工具选择和有限步骤编排，
 
 OpenCode、Codex、Cursor 等属于外部客户端或代码上下文提供者，不应成为 Runtime 的必选依赖。它们通过 Workflow AI Coding API / MCP 复用同一内核即可。
 
-## API 返回契约（edit-draft）
+## API 返回契约（proposals/edit）
 
-`POST /api/workflows/studio/edit-draft` 返回至少包含：
+`POST /api/workflows/studio/proposals/edit` 返回至少包含：
 
 - `status`: `SUCCEEDED` | `FAILED`
 - `provider`: `AGENTSCOPE_AUTHORING`
@@ -109,15 +109,15 @@ OpenCode、Codex、Cursor 等属于外部客户端或代码上下文提供者，
 - `warnings` / `validationErrors`
 - `attempts` / `failureCode`
 
-只有 `SUCCEEDED` 且 `validationErrors` 为空的结果可以应用到草稿。失败时不得表现为伪成功预览。
+只有 `SUCCEEDED` 且 `validationErrors` 为空的结果可以应用到 Working Copy。失败时不得表现为伪成功预览。
 
-## 兼容入口
+## 当前入口
 
-- `/api/workflows/studio/generate-draft`：保留给 Page Assistant 等既有调用方的创建兼容入口；GraphSpec-first，执行发布级候选校验和有界直接修复轮次。Workflow Studio 主界面不再单独暴露此入口。
-- `/api/workflows/studio/edit-draft`：网页编排主入口；自然语言经 AgentScope Authoring Adapter 与受约束工具进入统一修改内核。
+- `/api/workflows/studio/proposals/generate`：Proposal 创建主入口；GraphSpec-first，执行发布级候选校验和有界直接修复轮次。
+- `/api/workflows/studio/proposals/edit`：网页编排主入口；自然语言经 AgentScope Authoring Adapter 与受约束工具进入统一修改内核。
 - `/api/workflows/{workflowId}/ai-coding/patch`：外部结构化 patch 入口；直接调用统一修改内核。
 
-兼容路由可以保留，但不得再复制 canvas-first 修改规则。
+旧 `generate-draft`、`edit-draft` 路由已删除；新客户端必须使用 Proposal API。
 
 ## LOOP v1（FOREACH）表达
 

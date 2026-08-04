@@ -18,15 +18,57 @@ public interface RuntimeControlCatalogClient {
                                          @RequestParam("pageKey") String pageKey,
                                          @RequestParam("actionKey") String actionKey);
 
+    @GetMapping("/internal/control/page-actions")
+    List<PageActionCatalogEntry> listPageActions(
+            @RequestParam("projectCode") String projectCode,
+            @RequestParam("pageKey") String pageKey,
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam("limit") int limit);
+
     @PostMapping("/internal/control/page-bridge/execute")
     PageBridgeExecutionResponse executePageBridge(@RequestBody PageBridgeExecutionRequest request);
 
     record PageActionCatalogEntry(
+            Long id,
             String projectCode,
             String pageKey,
             String actionKey,
+            String title,
+            String description,
+            String riskLevel,
+            boolean confirmRequired,
+            String permissionKey,
+            Object inputSchema,
+            Object outputSchema,
+            Object sampleArgs,
+            List<String> allowedAgentIds,
+            String implementationRef,
+            Object metadata,
             String status
     ) {
+        public PageActionCatalogEntry(
+                String projectCode,
+                String pageKey,
+                String actionKey,
+                String status) {
+            this(
+                    null,
+                    projectCode,
+                    pageKey,
+                    actionKey,
+                    null,
+                    null,
+                    null,
+                    false,
+                    null,
+                    Map.of(),
+                    Map.of(),
+                    Map.of(),
+                    List.of(),
+                    null,
+                    Map.of(),
+                    status);
+        }
     }
 
     record PageBridgeExecutionRequest(String sessionId,

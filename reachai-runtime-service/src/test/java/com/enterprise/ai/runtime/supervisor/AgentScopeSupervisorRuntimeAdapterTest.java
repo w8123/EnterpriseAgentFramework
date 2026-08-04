@@ -117,6 +117,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 "schemaVersion", "1.0",
                 "type", "PRESENT_OUTPUT",
                 "component", "list_card",
+                "presentation", Map.of("mode", "card_only"),
                 "data", Map.of("records", List.of(Map.of("name", "一班"))));
         when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(
                 new RuntimeGraphSpecExecutionResult(
@@ -135,14 +136,19 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 text("已展示班组查询结果"),
                 text("已展示班组查询结果"))));
 
+        List<String> events = new ArrayList<>();
         SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(
                 new SupervisorRuntimeAdapter.SupervisorRequest(
                         agent(), config(false), List.of(tool), Map.of(
-                        "message", "查询一班", "sessionId", "s-list-card", "projectCode", "qmssmp")));
+                        "message", "查询一班", "sessionId", "s-list-card", "projectCode", "qmssmp"),
+                        null, (event, data) -> events.add(event)));
 
         assertTrue(result.success(), String.valueOf(result.metadata()));
         assertEquals(uiRequest, result.uiRequest());
         assertEquals("已展示班组查询结果", result.answer());
+        assertFalse(events.contains("message.delta"));
+        assertEquals("card_only", result.metadata().get("presentationMode"));
+        assertEquals(true, result.metadata().get("answerTextSuppressed"));
     }
 
     @Test
@@ -211,6 +217,40 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         assertEquals(1, result.metadata().get("replanCount"));
         assertEquals(2, result.metadata().get("workflowCallCount"));
         assertEquals(2, execution.get());
+    }
+
+    @Test
+    void replansToReadOnlyWorkflowAfterPageActionPolicyDenial() throws Exception {
+        RuntimeAgentWorkflowToolEntity pageTool = pageActionTool("wf-page-team", "query_team_on_page");
+        RuntimeAgentWorkflowToolEntity apiTool = tool("wf-api-team", "query_team_by_api");
+        stubWorkflow(pageTool);
+        stubWorkflow(apiTool);
+        when(graphExecutor.execute(any(), any(), any(), any(), any()))
+                .thenReturn(success("找到建设一工班"));
+        AgentScopeSupervisorRuntimeAdapter adapter = adapter(model(List.of(
+                calls(call("plan-page", "record_supervisor_plan", Map.of(
+                        "summary", "尝试在页面查询", "steps", List.of("在页面查询班组"),
+                        "workflowToolNames", List.of("query_team_on_page")))),
+                calls(call("page-denied", "query_team_on_page", Map.of("teamName", "建设一工班"))),
+                calls(call("replan-api", "record_supervisor_plan", Map.of(
+                        "summary", "改用只读接口查询", "steps", List.of("调用接口查询班组"),
+                        "workflowToolNames", List.of("query_team_by_api"), "reason", "页面操作未获授权"))),
+                calls(call("api-query", "query_team_by_api", Map.of("teamName", "建设一工班"))),
+                text("已通过接口找到建设一工班"),
+                text("已通过接口找到建设一工班"))));
+
+        SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(
+                new SupervisorRuntimeAdapter.SupervisorRequest(
+                        agent(), config(false), List.of(pageTool, apiTool), Map.of(
+                        "message", "再查询一下建设一工班", "sessionId", "s-policy-replan",
+                        "projectCode", "qmssmp")));
+
+        assertTrue(result.success(), String.valueOf(result.metadata()));
+        assertEquals("已通过接口找到建设一工班", result.answer());
+        assertEquals(2, result.metadata().get("planCount"));
+        assertEquals(1, result.metadata().get("replanCount"));
+        assertEquals(1, result.metadata().get("workflowCallCount"));
+        assertEquals(1, result.metadata().get("guardDenyCount"));
     }
 
     @Test

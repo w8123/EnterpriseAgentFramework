@@ -21,7 +21,10 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,7 +45,7 @@ class CapabilityScanProjectCatalogControllerTest {
         Method updateRegistryCredential = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
                 "updateRegistryCredential", Long.class, CapabilityScanProjectCatalogController.ScanProjectRegistryCredentialSaveRequest.class);
         Method sdkAccessCheck = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
-                "sdkAccessCheck", Long.class, CapabilityScanProjectCatalogController.SdkAccessCheckRequest.class);
+                "sdkAccessCheck", Long.class);
         Method updateScanSettings = CapabilityScanProjectCatalogController.class.getDeclaredMethod(
                 "updateScanSettings", Long.class, com.enterprise.ai.agent.capability.catalog.scan.ScanSettings.class);
         Method delete = CapabilityScanProjectCatalogController.class.getDeclaredMethod("delete", Long.class);
@@ -126,6 +129,8 @@ class CapabilityScanProjectCatalogControllerTest {
         assertEquals(4, dto.toolCount());
         assertEquals(4, dto.apiCount());
         assertEquals("none", dto.authType());
+        assertNull(dto.registryCredentialConfigured());
+        verify(service, never()).hasActiveRegistryCredential(anyString());
     }
 
     @Test
@@ -149,13 +154,18 @@ class CapabilityScanProjectCatalogControllerTest {
         CapabilityScanProjectCatalogController controller = new CapabilityScanProjectCatalogController(service);
         ScanProjectEntity project = project();
         when(service.get(7L)).thenReturn(project);
+        when(service.hasActiveRegistryCredential("orders")).thenReturn(true);
 
         ResponseEntity<CapabilityScanProjectCatalogController.ScanProjectDTO> response = controller.get(7L);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(7L, response.getBody().id());
         assertEquals("orders", response.getBody().projectCode());
+        assertEquals(Boolean.TRUE, response.getBody().registryCredentialConfigured());
+        assertNull(response.getBody().registryAppKey());
+        assertNull(response.getBody().registryAppSecret());
         verify(service).get(7L);
+        verify(service).hasActiveRegistryCredential("orders");
     }
 
     @Test
@@ -330,7 +340,7 @@ class CapabilityScanProjectCatalogControllerTest {
         when(service.sdkAccessCheck(7L)).thenReturn(check);
 
         ResponseEntity<CapabilityScanProjectCatalogService.SdkAccessCheckResponse> response =
-                controller.sdkAccessCheck(7L, new CapabilityScanProjectCatalogController.SdkAccessCheckRequest(null, null, null, null));
+                controller.sdkAccessCheck(7L);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("PASS", response.getBody().overallStatus());
@@ -573,6 +583,7 @@ class CapabilityScanProjectCatalogControllerTest {
         CapabilityScanProjectCatalogController.ScanProjectToolUpsertRequest request =
                 new CapabilityScanProjectCatalogController.ScanProjectToolUpsertRequest(
                         "orders_create",
+                        "创建订单",
                         "Create order",
                         List.of(new ToolDefinitionParameter("body", "object", "request", true, "body")),
                         "code",
@@ -583,8 +594,6 @@ class CapabilityScanProjectCatalogControllerTest {
                         "/orders",
                         "OrderCreateRequest",
                         "OrderDTO",
-                        true,
-                        false,
                         true
                 );
         when(service.updateTool(7L, 11L, request.toServiceRequest())).thenReturn(tool);
@@ -594,6 +603,7 @@ class CapabilityScanProjectCatalogControllerTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("orders_create", response.getBody().name());
+        assertEquals("创建订单", response.getBody().title());
         verify(service).updateTool(7L, 11L, request.toServiceRequest());
     }
 
@@ -604,6 +614,7 @@ class CapabilityScanProjectCatalogControllerTest {
         CapabilityScanProjectCatalogController.ScanProjectToolUpsertRequest request =
                 new CapabilityScanProjectCatalogController.ScanProjectToolUpsertRequest(
                         "",
+                        "创建订单",
                         "Create order",
                         List.of(),
                         "code",
@@ -614,8 +625,6 @@ class CapabilityScanProjectCatalogControllerTest {
                         "/orders",
                         null,
                         null,
-                        true,
-                        true,
                         false
                 );
         when(service.updateTool(7L, 11L, request.toServiceRequest())).thenThrow(new IllegalArgumentException("name required"));
@@ -834,6 +843,7 @@ class CapabilityScanProjectCatalogControllerTest {
         tool.setProjectId(7L);
         tool.setModuleId(3L);
         tool.setName("orders_create");
+        tool.setTitle("创建订单");
         tool.setDescription("Create order");
         tool.setParametersJson("[{\"name\":\"body\",\"type\":\"object\",\"description\":\"request\",\"required\":true,\"location\":\"body\"}]");
         tool.setSource("code");
@@ -847,8 +857,6 @@ class CapabilityScanProjectCatalogControllerTest {
         tool.setAiDescription("AI description");
         tool.setCapabilityMetadataJson("{\"group\":\"order\"}");
         tool.setEnabled(true);
-        tool.setAgentVisible(true);
-        tool.setLightweightEnabled(false);
         tool.setGlobalToolDefinitionId(99L);
         tool.setRemovedFromSource(false);
         return tool;

@@ -2,7 +2,7 @@ package com.enterprise.ai.runtime.workflow.authoring;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
-import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftEditOperationView;
+import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalEditOperationView;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService.MutationOperation;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService.MutationResult;
@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 final class WorkflowAuthoringSession {
 
-    static final int MAX_MUTATION_ROUNDS = 3;
+    static final int MAX_MUTATION_ROUNDS = 5;
 
     private final String sessionId = UUID.randomUUID().toString();
     private final WorkflowAuthoringRequest request;
@@ -46,7 +46,7 @@ final class WorkflowAuthoringSession {
         this.objectMapper = objectMapper;
         this.mutationService = mutationService;
         GraphSpec source = request.currentGraphSpec() == null
-                ? GraphSpec.builder().code("ai_authored_graph").name("AI authored workflow").mode("WORKFLOW").build()
+                ? GraphSpec.builder().build()
                 : request.currentGraphSpec();
         this.originalGraphSpec = deepCopy(source);
         this.originalFingerprint = fingerprint(this.originalGraphSpec);
@@ -93,7 +93,7 @@ final class WorkflowAuthoringSession {
      * Net operations from the immutable original GraphSpec to the current candidate.
      * Failed mutation rounds are excluded because they never change the candidate.
      */
-    List<RuntimeWorkflowDraftEditOperationView> acceptedOperations() {
+    List<RuntimeWorkflowProposalEditOperationView> acceptedOperations() {
         return WorkflowAuthoringNetOperations.diff(objectMapper, originalGraphSpec, candidateGraphSpec);
     }
 
@@ -131,7 +131,7 @@ final class WorkflowAuthoringSession {
         putIfHasText(context, "workflowId", request.workflowId());
         putIfHasText(context, "workflowName", request.workflowName());
         putIfHasText(context, "projectCode", request.projectCode());
-        context.put("workflowType", firstText(request.workflowType(), "WORKFLOW"));
+        context.put("workflowKind", firstText(request.workflowKind(), "GENERAL"));
         putIfHasText(context, "modelInstanceId", request.modelInstanceId());
         context.put("selectedNodeIds", request.selectedNodeIds());
         context.put("selectedEdgeIds", request.selectedEdgeIds());
@@ -146,7 +146,7 @@ final class WorkflowAuthoringSession {
     }
 
     Map<String, Object> applyOperations(List<MutationOperation> operations,
-                                        List<RuntimeWorkflowDraftEditOperationView> operationViews) {
+                                        List<RuntimeWorkflowProposalEditOperationView> operationViews) {
         ensureOpen();
         if (finalized) {
             return WorkflowAuthoringMutationErrors.failure(
@@ -181,9 +181,8 @@ final class WorkflowAuthoringSession {
                     ? 0 : candidateGraphSpec.getNodes().size());
             payload.put("candidateEdgeCount", candidateGraphSpec.getEdges() == null
                     ? 0 : candidateGraphSpec.getEdges().size());
-            payload.put("entry", candidateGraphSpec.getEntry());
-            payload.put("finish", candidateGraphSpec.getFinish() == null
-                    ? List.of() : candidateGraphSpec.getFinish());
+            payload.put("entryNodeId", candidateGraphSpec.getEntryNodeId());
+            payload.put("exitNodeIds", candidateGraphSpec.getExitNodeIds());
             recordTool("apply_candidate_operations", true, null);
             return payload;
         } catch (IllegalArgumentException ex) {

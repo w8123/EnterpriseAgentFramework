@@ -45,6 +45,8 @@ class ReachAiRegistryAutoConfigurationTest {
             assertEquals("http://localhost:9200", properties.getEmbed().getAllowedOrigins().get(0));
             assertEquals("team-archive-assistant", properties.getEmbed().getAllowedAgentIds().get(0));
             assertEquals(1800, properties.getEmbed().getTokenTtlSeconds());
+            assertEquals(ReachAiRegistryProperties.ScanMode.ALL_CONTROLLERS,
+                    properties.getCapability().getScanMode());
 
             ReachCapabilityBeanScanner scanner = context.getBean(ReachCapabilityBeanScanner.class);
             List<ReachCapabilityDescriptor> descriptors = scanner.scan();
@@ -55,6 +57,23 @@ class ReachAiRegistryAutoConfigurationTest {
             assertNotNull(context.getBean(TaskScheduler.class));
             assertNotNull(context.getBean(ReachAiRegistryHeartbeatScheduler.class));
         });
+    }
+
+    @Test
+    void annotatedOnlyModeSkipsUnannotatedSpringMvcEndpoints() {
+        contextRunner
+                .withBean(BusinessController.class)
+                .withPropertyValues("reachai.capability.scan-mode=ANNOTATED_ONLY")
+                .run(context -> {
+                    ReachAiRegistryProperties properties = context.getBean(ReachAiRegistryProperties.class);
+                    assertEquals(ReachAiRegistryProperties.ScanMode.ANNOTATED_ONLY,
+                            properties.getCapability().getScanMode());
+
+                    ReachCapabilityBeanScanner scanner = context.getBean(ReachCapabilityBeanScanner.class);
+                    List<ReachCapabilityDescriptor> descriptors = scanner.scan();
+                    assertEquals(1, descriptors.size());
+                    assertEquals("contract.query", descriptors.get(0).getName());
+                });
     }
 
     @Test

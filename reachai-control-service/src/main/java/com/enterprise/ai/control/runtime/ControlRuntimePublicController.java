@@ -206,9 +206,26 @@ public class ControlRuntimePublicController {
     public ResponseEntity<Object> listWorkflows(
             @RequestParam(required = false) Long projectId,
             @RequestParam(required = false) String projectCode,
-            @RequestParam(required = false) String workflowType,
+            @RequestParam(required = false) String workflowKind,
+            @RequestParam(required = false) String definitionAuthority,
             @RequestParam(required = false) String status) {
-        return runtimeProxyClient.listWorkflows(projectId, projectCode, workflowType, status);
+        return runtimeProxyClient.listWorkflows(
+                projectId, projectCode, workflowKind, definitionAuthority, status);
+    }
+
+    @GetMapping("/api/workflows/search")
+    public ResponseEntity<Object> searchWorkflows(
+            @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String projectCode,
+            @RequestParam(required = false) String workflowKind,
+            @RequestParam(required = false) String definitionAuthority,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Integer current,
+            @RequestParam(required = false) Integer size) {
+        return runtimeProxyClient.searchWorkflows(
+                projectId, projectCode, workflowKind, definitionAuthority,
+                status, keyword, current, size);
     }
 
     @PostMapping("/api/workflows")
@@ -242,15 +259,15 @@ public class ControlRuntimePublicController {
         return runtimeProxyClient.validateWorkflowRuntime(body);
     }
 
-    @GetMapping("/api/workflows/{id}/studio")
-    public ResponseEntity<Object> workflowStudio(@PathVariable String id) {
-        return runtimeProxyClient.workflowStudio(id);
+    @GetMapping("/api/workflows/{id}/working-copy")
+    public ResponseEntity<Object> workflowWorkingCopy(@PathVariable String id) {
+        return runtimeProxyClient.workflowWorkingCopy(id);
     }
 
-    @PutMapping("/api/workflows/{id}/studio")
-    public ResponseEntity<Object> saveWorkflowStudio(@PathVariable String id,
-                                                     @RequestBody Map<String, Object> body) {
-        return runtimeProxyClient.saveWorkflowStudio(id, body);
+    @PutMapping("/api/workflows/{id}/working-copy")
+    public ResponseEntity<Object> saveWorkflowWorkingCopy(@PathVariable String id,
+                                                          @RequestBody Map<String, Object> body) {
+        return runtimeProxyClient.saveWorkflowWorkingCopy(id, body);
     }
 
     @PostMapping("/api/workflows/studio/debug-node")
@@ -263,14 +280,14 @@ public class ControlRuntimePublicController {
         return runtimeProxyClient.debugWorkflowRun(body);
     }
 
-    @PostMapping("/api/workflows/studio/generate-draft")
-    public ResponseEntity<Object> generateWorkflowStudioDraft(@RequestBody Map<String, Object> body) {
-        return runtimeProxyClient.generateWorkflowStudioDraft(body);
+    @PostMapping("/api/workflows/studio/proposals/generate")
+    public ResponseEntity<Object> generateWorkflowProposal(@RequestBody Map<String, Object> body) {
+        return runtimeProxyClient.generateWorkflowProposal(body);
     }
 
-    @PostMapping("/api/workflows/studio/edit-draft")
-    public ResponseEntity<Object> editWorkflowStudioDraft(@RequestBody Map<String, Object> body) {
-        return runtimeProxyClient.editWorkflowStudioDraft(body);
+    @PostMapping("/api/workflows/studio/proposals/edit")
+    public ResponseEntity<Object> editWorkflowProposal(@RequestBody Map<String, Object> body) {
+        return runtimeProxyClient.editWorkflowProposal(body);
     }
 
     @PostMapping("/api/workflows/ai-coding/workflows")
@@ -286,6 +303,13 @@ public class ControlRuntimePublicController {
     @GetMapping("/api/workflows/{workflowId}/ai-coding/context")
     public ResponseEntity<Object> workflowAiCodingContext(@PathVariable String workflowId) {
         return runtimeProxyClient.workflowAiCodingContext(workflowId);
+    }
+
+    @PutMapping("/api/workflows/{workflowId}/ai-coding/resource-bindings")
+    public ResponseEntity<Object> replaceWorkflowAiCodingResourceBindings(
+            @PathVariable String workflowId,
+            @RequestBody Map<String, Object> body) {
+        return runtimeProxyClient.replaceWorkflowAiCodingResourceBindings(workflowId, body);
     }
 
     @PostMapping("/api/workflows/{workflowId}/ai-coding/validate")
@@ -352,16 +376,10 @@ public class ControlRuntimePublicController {
         return runtimeProxyClient.listWorkflowVersions(workflowId);
     }
 
-    @PostMapping("/api/workflows/{workflowId}/versions")
+    @PostMapping("/api/workflows/{workflowId}/versions/publish")
     public ResponseEntity<Object> publishWorkflowVersion(@PathVariable String workflowId,
                                                         @RequestBody Map<String, Object> body) {
         return runtimeProxyClient.publishWorkflowVersion(workflowId, body);
-    }
-
-    @PostMapping("/api/workflows/{workflowId}/versions/publish")
-    public ResponseEntity<Object> publishWorkflowVersionExplicit(@PathVariable String workflowId,
-                                                                @RequestBody Map<String, Object> body) {
-        return runtimeProxyClient.publishWorkflowVersionExplicit(workflowId, body);
     }
 
     @PostMapping("/api/workflows/{workflowId}/versions/validate")
@@ -382,25 +400,25 @@ public class ControlRuntimePublicController {
         return runtimeProxyClient.attachPageAssistantWorkflowTool(id, body);
     }
 
-    @GetMapping({"/api/agent/workflow-credentials", "/api/workflows/credentials"})
+    @GetMapping("/api/workflows/credentials")
     public ResponseEntity<Object> listWorkflowCredentials(
             @RequestParam(required = false) Long projectId,
             @RequestParam(required = false) String projectCode) {
         return runtimeProxyClient.listWorkflowCredentials(projectId, projectCode);
     }
 
-    @PostMapping({"/api/agent/workflow-credentials", "/api/workflows/credentials"})
+    @PostMapping("/api/workflows/credentials")
     public ResponseEntity<Object> createWorkflowCredential(@RequestBody Map<String, Object> body) {
         return runtimeProxyClient.createWorkflowCredential(body);
     }
 
-    @PutMapping({"/api/agent/workflow-credentials/{id}", "/api/workflows/credentials/{id}"})
+    @PutMapping("/api/workflows/credentials/{id}")
     public ResponseEntity<Object> updateWorkflowCredential(@PathVariable Long id,
                                                           @RequestBody Map<String, Object> body) {
         return runtimeProxyClient.updateWorkflowCredential(id, body);
     }
 
-    @DeleteMapping({"/api/agent/workflow-credentials/{id}", "/api/workflows/credentials/{id}"})
+    @DeleteMapping("/api/workflows/credentials/{id}")
     public ResponseEntity<Object> deleteWorkflowCredential(@PathVariable Long id) {
         return runtimeProxyClient.deleteWorkflowCredential(id);
     }

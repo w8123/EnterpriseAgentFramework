@@ -6,20 +6,16 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 public class ScanDefaultFlags {
 
     private boolean enabled;
-    private boolean agentVisible;
-    private boolean lightweightEnabled;
 
     public ScanDefaultFlags() {
     }
 
-    public ScanDefaultFlags(boolean enabled, boolean agentVisible, boolean lightweightEnabled) {
+    public ScanDefaultFlags(boolean enabled) {
         this.enabled = enabled;
-        this.agentVisible = agentVisible;
-        this.lightweightEnabled = lightweightEnabled;
     }
 
     public static ScanDefaultFlags defaults() {
-        return new ScanDefaultFlags(false, false, false);
+        return new ScanDefaultFlags(false);
     }
 
     public boolean isEnabled() {
@@ -30,19 +26,4 @@ public class ScanDefaultFlags {
         this.enabled = enabled;
     }
 
-    public boolean isAgentVisible() {
-        return agentVisible;
-    }
-
-    public void setAgentVisible(boolean agentVisible) {
-        this.agentVisible = agentVisible;
-    }
-
-    public boolean isLightweightEnabled() {
-        return lightweightEnabled;
-    }
-
-    public void setLightweightEnabled(boolean lightweightEnabled) {
-        this.lightweightEnabled = lightweightEnabled;
-    }
 }

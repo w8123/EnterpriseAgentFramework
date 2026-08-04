@@ -9,6 +9,7 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentMapper;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionMapper;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowSchemaResolver;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -452,9 +453,13 @@ public class RuntimeAgentConfigService {
                     row.getDescriptionOverride(),
                     firstText(row.getDescriptionOverride(), workflow == null ? null : workflow.getDescription()),
                     row.getInputSchemaOverrideJson(),
-                    firstText(row.getInputSchemaOverrideJson(), workflow == null ? null : workflow.getInputSchemaJson()),
+                    firstText(
+                            row.getInputSchemaOverrideJson(),
+                            RuntimeWorkflowSchemaResolver.inputSchemaJson(objectMapper, workflow, version)),
                     row.getOutputSchemaOverrideJson(),
-                    firstText(row.getOutputSchemaOverrideJson(), workflow == null ? null : workflow.getOutputSchemaJson()),
+                    firstText(
+                            row.getOutputSchemaOverrideJson(),
+                            RuntimeWorkflowSchemaResolver.outputSchemaJson(objectMapper, workflow, version)),
                     row.getRiskLevel(),
                     row.getPermissionKey(),
                     row.getReadOnly(),

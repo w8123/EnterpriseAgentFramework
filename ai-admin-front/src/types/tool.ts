@@ -14,6 +14,8 @@ export interface ToolParameter {
 /** 已注册 Tool 信息 */
 export interface ToolInfo {
   name: string
+  /** 面向用户展示的简短名称；name 仍是稳定机器标识 */
+  title: string
   description: string
   parameters: ToolParameter[]
   source: 'code' | 'scanner' | 'manual'
@@ -26,7 +28,6 @@ export interface ToolInfo {
   responseType?: string | null
   projectId?: number | null
   projectCode?: string | null
-  visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
   qualifiedName?: string | null
   /** 扫描项目显示名，由后端根据 `projectId` 解析；无项目时多为 null */
   sourceProjectName?: string | null
@@ -35,8 +36,6 @@ export interface ToolInfo {
   /** @ReachCapability 扫描得到的能力声明元数据 JSON */
   capabilityMetadataJson?: string | null
   enabled: boolean
-  agentVisible: boolean
-  lightweightEnabled: boolean
   /** 项目 API 目录镜像行 ID（若有） */
   catalogScanToolId?: number | null
   /** 与 scan_project_tool 解析的关联状态；无项目镜像时为 null */
@@ -46,6 +45,7 @@ export interface ToolInfo {
 
 export interface ToolUpsertRequest {
   name: string
+  title: string
   description: string
   parameters: ToolParameter[]
   source: 'code' | 'scanner' | 'manual'
@@ -58,11 +58,8 @@ export interface ToolUpsertRequest {
   responseType?: string | null
   projectId?: number | null
   projectCode?: string | null
-  visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
   qualifiedName?: string | null
   enabled: boolean
-  agentVisible: boolean
-  lightweightEnabled: boolean
 }
 
 /** Tool 测试请求 */
@@ -82,7 +79,7 @@ export interface ToolTestResult {
 export interface ToolListQuery {
   current?: number
   size?: number
-  /** 匹配工具名或描述（模糊） */
+  /** 匹配工具名称、机器标识或描述（模糊） */
   keyword?: string
   source?: 'code' | 'scanner' | 'manual' | string
   enabled?: boolean

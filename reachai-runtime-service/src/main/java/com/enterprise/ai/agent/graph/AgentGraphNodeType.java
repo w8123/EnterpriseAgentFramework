@@ -13,37 +13,27 @@ import java.util.stream.Collectors;
  */
 public enum AgentGraphNodeType {
 
-    LLM("LLM", "llm", "action", NodeFamily.LLM, true, "llm", "model"),
-    USER_INPUT("USER_INPUT", "userInput", "input", NodeFamily.FLOW, false,
-            "user_input", "input", "form_input"),
-    INTERACTION("INTERACTION", "interaction", "interaction", NodeFamily.FLOW, false,
-            "collect_input", "present_output", "user_choice", "confirm_action"),
-    TOOL("TOOL", "tool", "action", NodeFamily.TOOL, true, "tool"),
-    CAPABILITY("CAPABILITY", "skill", "action", NodeFamily.TOOL, true, "capability", "skill"),
-    IF_ELSE("IF_ELSE", "condition", "flow", NodeFamily.FLOW, false, "if_else", "condition"),
-    VARIABLE_ASSIGN("VARIABLE_ASSIGN", "variable", "flow", NodeFamily.FLOW, false, "variable_assign", "variable"),
-    TEMPLATE("TEMPLATE", "template", "flow", NodeFamily.FLOW, false, "template"),
-    ANSWER("ANSWER", "answer", "response", NodeFamily.FLOW, false, "answer", "reply"),
-    CODE("CODE", "code", "compute", NodeFamily.FLOW, false, "code"),
-    INTENT_CLASSIFIER("INTENT_CLASSIFIER", "classifier", "flow", NodeFamily.FLOW, false,
-            "intent_classifier", "classifier", "question_classifier"),
-    VARIABLE_AGGREGATOR("VARIABLE_AGGREGATOR", "aggregate", "compute", NodeFamily.FLOW, false,
-            "variable_aggregator", "aggregate"),
-    HUMAN_APPROVAL("HUMAN_APPROVAL", "approval", "governance", NodeFamily.FLOW, false,
-            "human_approval", "approval"),
-    LOOP("LOOP", "loop", "flow", NodeFamily.FLOW, false, "loop"),
-    KNOWLEDGE_WRITE("KNOWLEDGE_WRITE", "knowledgeWrite", "knowledge", NodeFamily.FLOW, false,
-            "knowledge_write", "knowledge_write"),
-    DOCUMENT_EXTRACT("DOCUMENT_EXTRACT", "documentExtract", "data", NodeFamily.FLOW, false,
-            "document_extract", "document"),
-    MCP_CALL("MCP_CALL", "mcp", "integration", NodeFamily.FLOW, true, "mcp_call", "mcp"),
-    PAGE_ACTION("PAGE_ACTION", "pageAction", "integration", NodeFamily.FLOW, false,
-            "page_action", "pageAction", "ui_action", "client_action"),
-    PARAMETER_EXTRACT("PARAMETER_EXTRACT", "parameter", "flow", NodeFamily.FLOW, false,
-            "parameter_extract", "parameter"),
-    HTTP_REQUEST("HTTP_REQUEST", "http", "integration", NodeFamily.FLOW, true, "http_request", "http"),
-    KNOWLEDGE_RETRIEVAL("KNOWLEDGE_RETRIEVAL", "knowledge", "knowledge", NodeFamily.FLOW, true,
-            "knowledge_retrieval", "knowledge");
+    LLM("LLM", "llm", "action", NodeFamily.LLM, true),
+    USER_INPUT("USER_INPUT", "userInput", "input", NodeFamily.FLOW, false),
+    INTERACTION("INTERACTION", "interaction", "interaction", NodeFamily.FLOW, false),
+    TOOL("TOOL", "tool", "action", NodeFamily.TOOL, true),
+    CAPABILITY("CAPABILITY", "skill", "action", NodeFamily.TOOL, true),
+    IF_ELSE("IF_ELSE", "condition", "flow", NodeFamily.FLOW, false),
+    VARIABLE_ASSIGN("VARIABLE_ASSIGN", "variable", "flow", NodeFamily.FLOW, false),
+    TEMPLATE("TEMPLATE", "template", "flow", NodeFamily.FLOW, false),
+    ANSWER("ANSWER", "answer", "response", NodeFamily.FLOW, false),
+    CODE("CODE", "code", "compute", NodeFamily.FLOW, false),
+    INTENT_CLASSIFIER("INTENT_CLASSIFIER", "classifier", "flow", NodeFamily.FLOW, false),
+    VARIABLE_AGGREGATOR("VARIABLE_AGGREGATOR", "aggregate", "compute", NodeFamily.FLOW, false),
+    HUMAN_APPROVAL("HUMAN_APPROVAL", "approval", "governance", NodeFamily.FLOW, false),
+    LOOP("LOOP", "loop", "flow", NodeFamily.FLOW, false),
+    KNOWLEDGE_WRITE("KNOWLEDGE_WRITE", "knowledgeWrite", "knowledge", NodeFamily.FLOW, false),
+    DOCUMENT_EXTRACT("DOCUMENT_EXTRACT", "documentExtract", "data", NodeFamily.FLOW, false),
+    MCP_CALL("MCP_CALL", "mcp", "integration", NodeFamily.FLOW, true),
+    PAGE_ACTION("PAGE_ACTION", "pageAction", "integration", NodeFamily.FLOW, false),
+    PARAMETER_EXTRACT("PARAMETER_EXTRACT", "parameter", "flow", NodeFamily.FLOW, false),
+    HTTP_REQUEST("HTTP_REQUEST", "http", "integration", NodeFamily.FLOW, true),
+    KNOWLEDGE_RETRIEVAL("KNOWLEDGE_RETRIEVAL", "knowledge", "knowledge", NodeFamily.FLOW, true);
 
     private static final Map<String, AgentGraphNodeType> LOOKUP = Arrays.stream(values())
             .flatMap(type -> type.lookupKeys().stream().map(key -> Map.entry(key, type)))
@@ -54,22 +44,16 @@ public enum AgentGraphNodeType {
     private final String canvasCategory;
     private final NodeFamily family;
     private final boolean retryable;
-    private final Set<String> aliases;
-
     AgentGraphNodeType(String type,
                        String canvasKind,
                        String canvasCategory,
                        NodeFamily family,
-                       boolean retryable,
-                       String... aliases) {
+                       boolean retryable) {
         this.type = type;
         this.canvasKind = canvasKind;
         this.canvasCategory = canvasCategory;
         this.family = family;
         this.retryable = retryable;
-        this.aliases = Arrays.stream(aliases)
-                .map(AgentGraphNodeType::key)
-                .collect(Collectors.toUnmodifiableSet());
     }
 
     public static Optional<AgentGraphNodeType> find(String rawType) {
@@ -82,10 +66,6 @@ public enum AgentGraphNodeType {
                 .orElseGet(() -> rawType == null ? "" : rawType.trim().toUpperCase(Locale.ROOT));
     }
 
-    public static boolean supports(String rawType) {
-        return find(rawType).isPresent();
-    }
-
     public static List<Descriptor> catalog() {
         return Arrays.stream(values())
                 .map(type -> new Descriptor(
@@ -93,8 +73,7 @@ public enum AgentGraphNodeType {
                         type.canvasKind,
                         type.canvasCategory,
                         type.family.name(),
-                        type.retryable,
-                        type.aliases.stream().sorted().toList()))
+                        type.retryable))
                 .toList();
     }
 
@@ -127,7 +106,7 @@ public enum AgentGraphNodeType {
     }
 
     private Set<String> lookupKeys() {
-        Set<String> keys = new java.util.LinkedHashSet<>(aliases);
+        Set<String> keys = new java.util.LinkedHashSet<>();
         keys.add(key(type));
         keys.add(key(canvasKind));
         return keys;
@@ -147,7 +126,6 @@ public enum AgentGraphNodeType {
                              String canvasKind,
                              String canvasCategory,
                              String family,
-                             boolean retryable,
-                             List<String> aliases) {
+                             boolean retryable) {
     }
 }

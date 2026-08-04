@@ -7,24 +7,10 @@ import type {
   ScanProject,
   ScanProjectAuthSaveRequest,
   AiOnboardingManifest,
-  AiAccessCheckRunResponse,
-  AiAccessSession,
   AiCodingAccessResponse,
   AiCodingAccessUpdateRequest,
-  PageAssistantCheckRequest,
-  PageAssistantCheckRunResponse,
-  PageAssistantCatalogSyncRequest,
-  PageAssistantCatalogSyncResponse,
-  PageAssistantOnboardingManifest,
-  PageAssistantPageRegisterRequest,
-  PageAssistantPageRegisterResponse,
-  PageAssistantSessionRequest,
-  PageAssistantSessionSummary,
-  PageAssistantTargetRequest,
-  PageAssistantWorkflowAiCodingResultRequest,
   ScanProjectBlockers,
   ScanProjectRegistryCredentialSaveRequest,
-  SdkAccessCheckRequest,
   SdkAccessCheckResponse,
   SdkCapabilityScanResult,
   ScanProjectScanResult,
@@ -91,139 +77,23 @@ export function updateScanProjectRegistryCredential(id: number, data: ScanProjec
   return controlRequest.patch<ScanProject>(`/api/scan-projects/${id}/registry-credential`, data)
 }
 
-export function runSdkAccessCheck(id: number, data: SdkAccessCheckRequest) {
-  return controlRequest.post<SdkAccessCheckResponse>(`/api/scan-projects/${id}/sdk-access-check`, data)
-}
-
-export function startAiAccessSession(id: number, toolName?: string) {
-  return controlRequest.post<AiAccessSession>(`/api/ai-assist/projects/${id}/access-sessions`, null, {
-    params: toolName ? { toolName } : {},
-  })
-}
-
-export function getLatestAiAccessSession(id: number) {
-  return controlRequest.get<AiAccessSession>(`/api/ai-assist/projects/${id}/access-sessions/latest`)
-}
-
-export function runAiAccessSessionChecks(id: number, sessionId: string, data: SdkAccessCheckRequest) {
-  return controlRequest.post<AiAccessCheckRunResponse>(
-    `/api/ai-assist/projects/${id}/access-sessions/${sessionId}/checks/run`,
-    data,
-  )
+export function runSdkAccessCheck(id: number) {
+  return controlRequest.post<SdkAccessCheckResponse>(`/api/scan-projects/${id}/sdk-access-check`, {})
 }
 
 export function getAiOnboardingManifest(id: number) {
   return controlRequest.get<AiOnboardingManifest>(`/api/ai-assist/projects/${id}/onboarding-manifest`)
 }
 
+export function provisionProjectAgent(id: number, requestedBy: string) {
+  return controlRequest.post<Record<string, unknown>>(
+    `/api/ai-assist/projects/${id}/agents/provision`,
+    { requestedBy },
+  )
+}
+
 export function getAiCodingGatewayManifest(id: number) {
   return controlRequest.get<AiCodingGatewayManifest>(`/api/ai-coding/projects/${id}/manifest`)
-}
-
-export function getPageAssistantOnboardingManifest(
-  id: number,
-  data?: PageAssistantSessionRequest,
-) {
-  return controlRequest.get<PageAssistantOnboardingManifest>(
-    `/api/ai-assist/projects/${id}/page-assistant/onboarding-manifest`,
-    {
-      params: {
-        toolName: data?.toolName,
-        pageKey: data?.pageKey,
-        routePattern: data?.routePattern,
-        actionKeys: data?.actionKeys,
-      },
-    },
-  )
-}
-
-export function startPageAssistantAccessSession(id: number, data: PageAssistantSessionRequest) {
-  return controlRequest.post<AiAccessSession>(`/api/ai-assist/projects/${id}/page-assistant/sessions`, data)
-}
-
-export function getLatestPageAssistantAccessSession(id: number, pageKey?: string | null) {
-  return controlRequest.get<AiAccessSession>(`/api/ai-assist/projects/${id}/page-assistant/sessions/latest`, {
-    params: {
-      pageKey: pageKey || undefined,
-    },
-  })
-}
-
-export function getPageAssistantAccessSessions(id: number, pageKey?: string | null) {
-  return controlRequest.get<PageAssistantSessionSummary[]>(`/api/ai-assist/projects/${id}/page-assistant/sessions`, {
-    params: {
-      pageKey: pageKey || undefined,
-    },
-  })
-}
-
-export function bindPageAssistantAccessSessionTarget(
-  id: number,
-  sessionId: string,
-  data: PageAssistantTargetRequest,
-) {
-  return controlRequest.put<AiAccessSession>(
-    `/api/ai-assist/projects/${id}/page-assistant/sessions/${sessionId}/target`,
-    data,
-  )
-}
-
-export function syncPageAssistantAccessCatalog(
-  id: number,
-  sessionId: string,
-  data: PageAssistantCatalogSyncRequest,
-) {
-  return controlRequest.post<PageAssistantCatalogSyncResponse>(
-    `/api/ai-assist/projects/${id}/page-assistant/sessions/${sessionId}/catalog/sync`,
-    data,
-  )
-}
-
-export function runPageAssistantAccessSessionChecks(
-  id: number,
-  sessionId: string,
-  data: PageAssistantCheckRequest,
-) {
-  return controlRequest.post<PageAssistantCheckRunResponse>(
-    `/api/ai-assist/projects/${id}/page-assistant/sessions/${sessionId}/checks/run`,
-    data,
-  )
-}
-
-export function registerPageAssistantPage(
-  id: number,
-  data: PageAssistantPageRegisterRequest,
-) {
-  return controlRequest.post<PageAssistantPageRegisterResponse>(
-    `/api/ai-assist/projects/${id}/page-assistant/pages/register`,
-    data,
-  )
-}
-
-export function reportPageAssistantWorkflowAiCodingResult(
-  id: number,
-  sessionId: string,
-  data: PageAssistantWorkflowAiCodingResultRequest,
-) {
-  return controlRequest.post<AiAccessSession>(
-    `/api/ai-assist/projects/${id}/page-assistant/sessions/${sessionId}/workflow-ai-coding-result`,
-    data,
-  )
-}
-
-export function resetPageAssistantWorkflowAiCodingResult(
-  id: number,
-  sessionId: string,
-  deleteWorkflow = true,
-) {
-  return controlRequest.delete<AiAccessSession>(
-    `/api/ai-assist/projects/${id}/page-assistant/sessions/${sessionId}/workflow-ai-coding-result`,
-    {
-      params: {
-        deleteWorkflow,
-      },
-    },
-  )
 }
 
 export function updateAiCodingAccess(id: number, data: AiCodingAccessUpdateRequest) {

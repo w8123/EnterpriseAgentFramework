@@ -4,7 +4,7 @@ import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelStreamHttpClient;
 import com.enterprise.ai.runtime.supervisor.ReachAiAgentScopeChatModel;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
-import com.enterprise.ai.runtime.workflow.draft.RuntimeWorkflowDraftCandidateValidationService;
+import com.enterprise.ai.runtime.workflow.proposal.RuntimeWorkflowProposalValidationService;
 import com.enterprise.ai.runtime.workflow.mutation.RuntimeWorkflowGraphMutationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.ReActAgent;
@@ -38,7 +38,7 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
     private static final Logger log = LoggerFactory.getLogger(AgentScopeWorkflowAuthoringAgentAdapter.class);
 
     public static final int DEFAULT_MAX_ITERS = 8;
-    public static final long DEFAULT_TIMEOUT_MS = 120_000L;
+    public static final long DEFAULT_TIMEOUT_MS = 240_000L;
     private static final String USER_EXECUTION_FAILED_SUMMARY =
             "AI 编排执行异常，请重新生成。如问题持续出现，请联系管理员并提供错误编号：%s。";
 
@@ -46,7 +46,7 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
     private final RuntimeModelServiceClient modelClient;
     private final RuntimeModelStreamHttpClient modelStreamClient;
     private final RuntimeWorkflowGraphMutationService mutationService;
-    private final RuntimeWorkflowDraftCandidateValidationService validationService;
+    private final RuntimeWorkflowProposalValidationService validationService;
 
     @Override
     public WorkflowAuthoringResult author(WorkflowAuthoringRequest request) {
@@ -272,13 +272,28 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
                 2. All GraphSpec changes MUST go through apply_candidate_operations.
                 3. Every ADD_NODE must include a stable unique node.id. Never omit node.id.
                 4. Every ADD_EDGE must include edge.from and edge.to. Prefer explicit edge.id.
-                5. START and END are virtual boundary endpoints, not editable nodes.
+                5. GraphSpec never contains START/END nodes or boundary edges. Use entryNodeId and exitNodeIds; every edge endpoint must reference a real node id.
                 6. After a successful mutation, call validate_candidate.
                 7. If mutation or validation returns structured errors, fix with the smallest change and retry.
                 8. Only call finalize_preview after validate_candidate returns valid=true.
                 9. Never claim success without finalize_preview.
                 10. Do not save, publish, or execute Workflows. Do not call external side-effect tools.
                 11. Keep node/edge ids stable and unique. Prefer concise Chinese summary in finalize_preview.
+                12. Set or replace the Workflow-level input contract with SET_INPUT_SCHEMA; put the complete
+                    JSON Schema object directly in operation.patch. Do not put the Workflow contract in a USER_INPUT config.
+
+                Canonical node contracts:
+                - USER_INPUT config mirrors the Workflow request contract for Studio editing: include outputAlias="params"
+                  and a fields array using name, type, required, description, defaultValue, and source="input.<name>".
+                  GraphSpec.inputSchema remains the authoritative external request contract.
+                - PARAMETER_EXTRACT config MUST use extractMode="llm" or "expression" and a non-empty fields array.
+                  Each field uses name, type, required, source when expression mode, and defaultValue for defaults.
+                  Never use config.parameters, config.targetFields, or a field key named default.
+                - TOOL and CAPABILITY put qualifiedName in the top-level node.ref object, for example
+                  ref={"qualifiedName":"project:capability"}. Never put ref inside node.config.
+                  TOOL config.inputMapping maps target argument names to runtime expressions such as
+                  "nodeOutput.extract_query.teamName". Keep errorPolicy at the top-level node field.
+                - ANSWER config uses template. Set the ANSWER node as an exit node after it has been added.
 
                 Branching conventions:
                 - IF_ELSE: use only when the condition can be expressed as deterministic runtime expressions /
@@ -291,7 +306,7 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
                   current request. Emit class edges as condition="route:<classId>" and the fallback edge as
                   condition="route:else".
                 - Do not use IF_ELSE with bare true/false edges for semantic classification.
-                - Related branch can enter LLM; refusal/fallback branch should enter ANSWER. Set entry and finish.
+                - Related branch can enter LLM; refusal/fallback branch should enter ANSWER. Set entryNodeId and exitNodeIds.
                 """;
     }
 
