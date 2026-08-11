@@ -6,10 +6,8 @@ import com.enterprise.ai.pipeline.PipelineStep;
 import com.enterprise.ai.vector.VectorService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.IntStream;
@@ -20,6 +18,9 @@ import java.util.stream.Collectors;
  *
  * <p>根据 knowledgeBaseCode 选择对应的 collection，
  * 自动创建（如不存在），并写入向量及元数据（file_id、content）。</p>
+ *
+ * <p>collection 维度取自 EMBEDDING 步骤产出的实际向量维度，
+ * 而非全局配置，避免与 embedding 模型真实输出解耦导致维度不匹配。</p>
  */
 @Slf4j
 @Component
@@ -27,9 +28,6 @@ import java.util.stream.Collectors;
 public class VectorStoreStep implements PipelineStep {
 
     private final VectorService vectorService;
-
-    @Value("${milvus.dimension:1536}")
-    private int defaultDimension;
 
     @Override
     public void process(PipelineContext context) {
@@ -43,8 +41,8 @@ public class VectorStoreStep implements PipelineStep {
         String collectionName = context.getKnowledgeBaseCode();
         String fileId = context.getFileId();
 
-        // 确保 collection 存在
-        vectorService.ensureCollection(collectionName, defaultDimension);
+        int dimension = vectors.get(0).size();
+        vectorService.ensureCollection(collectionName, dimension);
 
         // 生成向量 ID
         List<String> vectorIds = IntStream.range(0, vectors.size())
