@@ -56,7 +56,11 @@ public class RegistryContracts {}
   writeFile(root, 'reachai-knowledge-service/src/main/java/com/enterprise/ai/service/KnowledgeOk.java', `
 package com.enterprise.ai.service;
 
-class KnowledgeOk {}
+import com.enterprise.ai.runtime.contract.memory.BusinessMemoryReference;
+
+class KnowledgeOk {
+    private BusinessMemoryReference reference;
+}
 `)
   writeFile(root, 'reachai-model-service/src/main/java/com/enterprise/ai/model/ModelOk.java', `
 package com.enterprise.ai.model;

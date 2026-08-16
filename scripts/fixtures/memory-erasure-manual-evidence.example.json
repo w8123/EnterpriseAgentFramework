@@ -1,0 +1,25 @@
+{
+  "schema": "reachai-memory-erasure-manual-evidence-v1",
+  "domains": [
+    {
+      "domainCode": "RUNOPS_TRACE_INTERACTION",
+      "resultCode": "NOT_APPLICABLE",
+      "evidenceReference": "REPLACE_WITH_APPROVED_RUNOPS_EVIDENCE"
+    },
+    {
+      "domainCode": "BUSINESS_INDEX",
+      "resultCode": "NOT_APPLICABLE",
+      "evidenceReference": "REPLACE_WITH_APPROVED_BUSINESS_INDEX_EVIDENCE"
+    },
+    {
+      "domainCode": "BUSINESS_SOURCE_SYSTEM",
+      "resultCode": "NOT_APPLICABLE",
+      "evidenceReference": "REPLACE_WITH_APPROVED_SOURCE_SYSTEM_EVIDENCE"
+    },
+    {
+      "domainCode": "BACKUP_EXPIRY_AND_RESTORE",
+      "resultCode": "RETAINED_LEGAL",
+      "evidenceReference": "REPLACE_WITH_APPROVED_BACKUP_RETENTION_EVIDENCE"
+    }
+  ]
+}

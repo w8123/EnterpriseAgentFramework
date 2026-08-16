@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -99,6 +100,7 @@ public class PageCatalogApplicationService {
                 command.name(),
                 command.description(),
                 command.routePattern(),
+                command.businessPageUrl(),
                 command.componentPath(),
                 command.resources(),
                 command.actions());
@@ -290,6 +292,7 @@ public class PageCatalogApplicationService {
             page.setName(firstText(report.name(), pageKey));
             page.setDescription(textOrNull(report.description()));
             page.setRoutePattern(textOrNull(report.routePattern()));
+            page.setBusinessPageUrl(normalizeBusinessPageUrl(report.businessPageUrl()));
             page.setComponentPath(textOrNull(report.componentPath()));
             page.setSourceType(source.name());
         } else if (incomingPriority >= currentPriority) {
@@ -308,6 +311,9 @@ public class PageCatalogApplicationService {
             if (StringUtils.hasText(report.routePattern())) {
                 page.setRoutePattern(report.routePattern().trim());
             }
+            if (StringUtils.hasText(report.businessPageUrl())) {
+                page.setBusinessPageUrl(normalizeBusinessPageUrl(report.businessPageUrl()));
+            }
             if (StringUtils.hasText(report.componentPath())) {
                 page.setComponentPath(report.componentPath().trim());
             }
@@ -322,6 +328,9 @@ public class PageCatalogApplicationService {
             page.setRoutePattern(firstText(
                     page.getRoutePattern(),
                     textOrNull(report.routePattern())));
+            page.setBusinessPageUrl(firstText(
+                    page.getBusinessPageUrl(),
+                    normalizeBusinessPageUrl(report.businessPageUrl())));
             page.setComponentPath(firstText(
                     page.getComponentPath(),
                     textOrNull(report.componentPath())));
@@ -533,6 +542,7 @@ public class PageCatalogApplicationService {
                 page.getName(),
                 page.getDescription(),
                 page.getRoutePattern(),
+                page.getBusinessPageUrl(),
                 page.getComponentPath(),
                 page.getSourceType(),
                 page.getLifecycleStatus(),
@@ -540,6 +550,24 @@ public class PageCatalogApplicationService {
                 page.getLastVerifiedAt(),
                 resources.stream().map(this::toResourceView).toList(),
                 actions.stream().map(this::toActionView).toList());
+    }
+
+    private String normalizeBusinessPageUrl(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        try {
+            URI uri = URI.create(value.trim()).normalize();
+            String scheme = uri.getScheme();
+            if (!("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
+                    || !StringUtils.hasText(uri.getHost())) {
+                throw new IllegalArgumentException();
+            }
+            return uri.toString();
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException(
+                    "businessPageUrl must be an absolute HTTP(S) business page URL");
+        }
     }
 
     private ResourceView toResourceView(PageResourceEntity entity) {

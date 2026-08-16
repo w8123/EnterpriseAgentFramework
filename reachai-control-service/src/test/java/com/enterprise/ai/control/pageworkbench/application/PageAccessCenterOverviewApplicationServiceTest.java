@@ -5,6 +5,7 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ConnectionVi
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageAccessCenterOverviewView;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PublishedWorkflowView;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -143,6 +144,59 @@ class PageAccessCenterOverviewApplicationServiceTest {
     }
 
     @Test
+    void newerAcceptedCodeImplementationSupersedesAnOlderPublishedWorkflow() {
+        LocalDateTime publishedAt = LocalDateTime.of(2026, 8, 1, 12, 0);
+        when(publishedService.list(any(), isNull()))
+                .thenReturn(List.of(publishedAt(publishedAt)));
+        when(taskService.list(isNull(), any(), isNull(), isNull(), anyInt()))
+                .thenReturn(List.of(
+                        taskAt(
+                                "implementation-2",
+                                "CODE_IMPLEMENTATION",
+                                "COMPLETED",
+                                List.of(pageTarget()),
+                                publishedAt.plusHours(1)),
+                        taskAt(
+                                "workflow-1",
+                                "WORKFLOW_ENGINEERING",
+                                "COMPLETED",
+                                List.of(pageTarget()),
+                                publishedAt.minusHours(1))));
+
+        PageAccessCenterOverviewView result = service.overview("orders");
+
+        assertThat(result.pages()).singleElement().satisfies(journey -> {
+            assertThat(journey.stage()).isEqualTo("AI_IMPLEMENTATION");
+            assertThat(journey.status()).isEqualTo("ACTION_REQUIRED");
+            assertThat(journey.nextAction().code()).isEqualTo("START_WORKFLOW_ENGINEERING");
+            assertThat(journey.activeTaskId()).isEqualTo("implementation-2");
+            assertThat(journey.workflowId()).isNull();
+        });
+    }
+
+    @Test
+    void olderCodeImplementationDoesNotSupersedeANewerPublication() {
+        LocalDateTime publishedAt = LocalDateTime.of(2026, 8, 1, 12, 0);
+        when(publishedService.list(any(), isNull()))
+                .thenReturn(List.of(publishedAt(publishedAt)));
+        when(taskService.list(isNull(), any(), isNull(), isNull(), anyInt()))
+                .thenReturn(List.of(taskAt(
+                        "implementation-1",
+                        "CODE_IMPLEMENTATION",
+                        "COMPLETED",
+                        List.of(pageTarget()),
+                        publishedAt.minusMinutes(1))));
+
+        PageAccessCenterOverviewView result = service.overview("orders");
+
+        assertThat(result.pages()).singleElement().satisfies(journey -> {
+            assertThat(journey.stage()).isEqualTo("REAL_ACCEPTANCE");
+            assertThat(journey.nextAction().code()).isEqualTo("START_ACCEPTANCE");
+            assertThat(journey.workflowId()).isEqualTo("workflow-1");
+        });
+    }
+
+    @Test
     void doesNotTreatRuntimeFailureAsAnUnpublishedPage() {
         when(publishedService.list(any(), isNull()))
                 .thenThrow(new IllegalStateException("runtime down"));
@@ -197,13 +251,39 @@ class PageAccessCenterOverviewApplicationServiceTest {
                 "订单列表",
                 "查看并维护订单",
                 "/orders",
+                "http://localhost:5173/orders",
                 "src/pages/orders.vue",
                 "SDK",
                 "ACTIVE",
                 now,
                 now,
                 List.of(),
-                List.of());
+                List.of(action()));
+    }
+
+    private ActionView action() {
+        return new ActionView(
+                11L,
+                10L,
+                20L,
+                "orders",
+                "orders.list",
+                "getPageState",
+                "读取页面状态",
+                null,
+                "QUERY",
+                "LOW",
+                false,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                "src/pages/orders.vue",
+                "SDK",
+                "ACTIVE",
+                null,
+                null);
     }
 
     private TaskView task(
@@ -212,6 +292,15 @@ class PageAccessCenterOverviewApplicationServiceTest {
             String status,
             List<TaskTargetView> targets) {
         LocalDateTime now = LocalDateTime.of(2026, 8, 1, 11, 0);
+        return taskAt(taskId, taskKind, status, targets, now);
+    }
+
+    private TaskView taskAt(
+            String taskId,
+            String taskKind,
+            String status,
+            List<TaskTargetView> targets,
+            LocalDateTime now) {
         return new TaskView(
                 taskId,
                 20L,
@@ -262,7 +351,10 @@ class PageAccessCenterOverviewApplicationServiceTest {
     }
 
     private PublishedWorkflowView published() {
-        LocalDateTime now = LocalDateTime.of(2026, 8, 1, 12, 0);
+        return publishedAt(LocalDateTime.of(2026, 8, 1, 12, 0));
+    }
+
+    private PublishedWorkflowView publishedAt(LocalDateTime now) {
         return new PublishedWorkflowView(
                 "orders.list",
                 "workflow-1",
@@ -279,6 +371,7 @@ class PageAccessCenterOverviewApplicationServiceTest {
                 "订单智能体",
                 201L,
                 1,
+                "model-orders",
                 "orders_page_assistant",
                 "WRITE",
                 "orders:write",

@@ -67,7 +67,8 @@ class PageWorkbenchWorkflowDeliveryApplicationServiceTest {
                         null,
                         null,
                         null,
-                        "tester"));
+                        "tester",
+                        "wf-old"));
 
         ArgumentCaptor<Map<String, Object>> request =
                 ArgumentCaptor.forClass(Map.class);
@@ -76,6 +77,7 @@ class PageWorkbenchWorkflowDeliveryApplicationServiceTest {
                 org.mockito.ArgumentMatchers.eq("wf-new"),
                 request.capture());
         assertEquals("v1.0.0", request.getValue().get("version"));
+        assertEquals("wf-old", request.getValue().get("replaceWorkflowId"));
         assertEquals("orders.detail", result.pageKey());
     }
 

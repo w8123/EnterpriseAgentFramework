@@ -237,6 +237,12 @@ public class RuntimeWorkflowProposalGenerationService {
             }
 
             Map<String, Object> config = mutableMap(raw.config());
+            if (!nodeCapabilityRegistry.isAiAuthoringEnabled(type.type(), config)) {
+                validationErrors.add("WORKFLOW_NODE_VARIANT_NOT_AUTHORABLE: "
+                        + nodeCapabilityRegistry.variantUnavailableReason(type.type(), config)
+                        + " (" + id + ")");
+                continue;
+            }
             config.put("configVersion", 2);
             config.putIfAbsent("source", "AI_PROPOSAL");
             if (type == AgentGraphNodeType.LLM) {
@@ -256,6 +262,8 @@ public class RuntimeWorkflowProposalGenerationService {
             } else if (type == AgentGraphNodeType.PAGE_ACTION) {
                 normalizePageActionConfig(config, request, resources, warnings, placeholders, id, firstText(raw.label(), id),
                         usedPageActions, pageActionNodeIndex++, validationErrors);
+            } else if (type == AgentGraphNodeType.INTERACTION) {
+                normalizePresentOutputConfig(config, id);
             } else if (type.isToolLike() || type == AgentGraphNodeType.MCP_CALL) {
                 normalizeCapabilityConfig(config, type, request, resources, warnings, placeholders, id, firstText(raw.label(), id));
             }
@@ -616,6 +624,25 @@ public class RuntimeWorkflowProposalGenerationService {
         config.put("approvers", arrayValue(config.get("approvers")));
         config.put("timeoutSeconds", integer(config.get("timeoutSeconds"), 3600));
         config.put("defaultRoute", firstText(text(config.get("defaultRoute")), "approved"));
+    }
+
+    private void normalizePresentOutputConfig(Map<String, Object> config, String nodeId) {
+        config.put("interactionType", "PRESENT_OUTPUT");
+        config.remove("mode");
+        config.put("title", firstText(text(config.get("title")), "展示结构化结果"));
+        config.put("component", firstText(text(config.get("component")), "detail"));
+        config.put("dataExpression", firstText(text(config.get("dataExpression")), "lastOutput"));
+        config.put("outputAlias", firstText(text(config.get("outputAlias")), nodeId + "_display"));
+
+        Map<String, Object> behavior = mutableMap(config.get("behavior"));
+        behavior.put("blocking", false);
+        behavior.put("readonly", true);
+        config.put("behavior", behavior);
+
+        Map<String, Object> presentation = mutableMap(config.get("presentation"));
+        presentation.put("mode", firstText(text(presentation.get("mode")), "card_only"));
+        config.put("presentation", presentation);
+        config.put("renderSchema", mutableMap(config.get("renderSchema")));
     }
 
     private void normalizeKnowledgeConfig(Map<String, Object> config,
@@ -1686,6 +1713,7 @@ public class RuntimeWorkflowProposalGenerationService {
                 If a business step has no matching resource, still generate the node and mark it as a placeholder by setting config.needsConfiguration=true and config.placeholderReason.
                 Do not output START/END nodes or edges. Set entryNodeId and exitNodeIds explicitly; every edge.from and edge.to must reference a real node id.
                 Never invent node kinds outside nodeTypes. Closed / non-authorable types are forbidden: %s.
+                INTERACTION is variant-restricted: author it only with config.interactionType=PRESENT_OUTPUT. COLLECT_INPUT, USER_CHOICE, CONFIRM_ACTION, REVIEW_EDIT and other pause/resume variants are forbidden. PRESENT_OUTPUT must be display-only, must set dataExpression to an explicit producer output when possible, and should use presentation.mode=card_only for structured business results.
                 Required JSON shape:
                 {"summary":"short summary","entryNodeId":"real node id","exitNodeIds":["real node id"],"nodes":[{"id":"stable_snake_case","type":"canonical node type","label":"display name","description":"what it does","config":{},"inputs":[],"outputs":[]}],"edges":[{"id":"optional","from":"real node id","to":"real node id","condition":"always|approved|rejected|route:key|success|error","sourceHandle":"optional","targetHandle":"optional"}],"warnings":[]}
                 inputs and outputs must be arrays of port objects like {"id":"portId","name":"portName","type":"any"}, never bare strings.
@@ -1705,27 +1733,28 @@ public class RuntimeWorkflowProposalGenerationService {
                     - When setFilters is available in a query branch, add one LLM extract node before it with outputAlias=extracted_filters, outputFormat=json, structuredOutput=true.
                     - setFilters pageAction config.args must map each inputSchema field to extracted_filters.<fieldName>; never leave args empty when setFilters is selected.
                     - search/readTable/reset/getPageState pageAction nodes usually use empty args unless the action schema requires parameters.
-                    - Do not emit INTERACTION/HUMAN_APPROVAL nodes.
+                    - Do not emit blocking INTERACTION or HUMAN_APPROVAL nodes. INTERACTION is allowed only as display-only PRESENT_OUTPUT.
+                    - Every branch that returns structured read data must end with INTERACTION/PRESENT_OUTPUT. Use component=list_card for list/page results and component=output_card or detail for a single object. Set dataExpression to nodeOutput.<producerNodeId> (or a declared output alias), behavior.blocking=false and presentation.mode=card_only.
                     - For confirmRequired or operational actions, emit PAGE_ACTION with config.confirm=true. Page Bridge performs pre-execution confirmation before the action runs; if the user rejects, the action must not execute. ANSWER only reports success, rejection, cancellation or failure afterwards — never request confirmation after PAGE_ACTION has already run.
                     - answer node must use a fixed Chinese status sentence, not {{ lastOutput }}, when the flow ends after page actions.
                     - Bind each pageAction config.ref to the exact actionKey from pageActions.
 
                     Few-shot A (LINEAR_QUERY, no classifier):
                     selectedActionKeys: setFilters, search, readTable
-                    USER_INPUT -> LLM(extracted_filters) -> PAGE_ACTION(setFilters) -> PAGE_ACTION(search) -> PAGE_ACTION(readTable) -> ANSWER
+                    USER_INPUT -> LLM(extracted_filters) -> PAGE_ACTION(setFilters) -> PAGE_ACTION(search) -> PAGE_ACTION(readTable) -> INTERACTION(PRESENT_OUTPUT, list_card, dataExpression=nodeOutput.read_table, card_only)
 
                     Few-shot B (INTENT_ROUTER with HYBRID classifier):
                     selectedActionKeys: search, reset, getPageState
                     USER_INPUT -> INTENT_CLASSIFIER(strategy=HYBRID)
-                    route:search_intent -> PAGE_ACTION(search) -> ANSWER
+                    route:search_intent -> PAGE_ACTION(search) -> PAGE_ACTION(readTable) -> INTERACTION(PRESENT_OUTPUT, list_card, dataExpression=nodeOutput.read_table, card_only)
                     route:reset_intent -> PAGE_ACTION(reset) -> ANSWER
-                    route:page_state_intent -> PAGE_ACTION(getPageState) -> ANSWER
+                    route:page_state_intent -> PAGE_ACTION(getPageState) -> INTERACTION(PRESENT_OUTPUT, output_card, dataExpression=nodeOutput.get_page_state, card_only)
                     route:else -> ANSWER(请说明要查询、重置还是读取页面状态)
 
                     Few-shot C (INTENT_ROUTER with confirmRequired operational action):
                     selectedActionKeys: readTable, openRowAction(confirmRequired=true)
                     USER_INPUT -> INTENT_CLASSIFIER(strategy=HYBRID)
-                    route:read_table_intent -> PAGE_ACTION(readTable) -> ANSWER
+                    route:read_table_intent -> PAGE_ACTION(readTable) -> INTERACTION(PRESENT_OUTPUT, list_card, dataExpression=nodeOutput.read_table, card_only)
                     route:row_action_intent -> PAGE_ACTION(openRowAction, confirm=true; Page Bridge confirms before execution) -> ANSWER(status only)
                     route:else -> ANSWER
                     """);
@@ -1763,6 +1792,12 @@ public class RuntimeWorkflowProposalGenerationService {
                 template.put("setFiltersArgsPattern", "nodeOutput.extract_filters.<fieldName>");
             }
             template.put("answerTemplate", "正在按你的条件查询页面数据，请稍候…");
+            template.put("structuredPresentation", Map.of(
+                    "interactionType", "PRESENT_OUTPUT",
+                    "listComponent", "list_card",
+                    "detailComponent", "output_card",
+                    "presentationMode", "card_only",
+                    "dataExpressionPattern", "nodeOutput.<producerNodeId>"));
             payload.put("pageAssistantTemplate", template);
         }
         return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(payload);

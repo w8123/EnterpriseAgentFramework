@@ -20,6 +20,10 @@
             <groupId>com.enterprise.ai</groupId>
             <artifactId>ai-common</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.enterprise.ai</groupId>
+            <artifactId>ai-runtime-contract</artifactId>
+        </dependency>
 
         <!-- Spring Boot -->
         <dependency>

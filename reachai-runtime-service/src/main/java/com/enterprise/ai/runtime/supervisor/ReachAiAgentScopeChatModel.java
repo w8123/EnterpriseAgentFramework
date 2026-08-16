@@ -237,6 +237,14 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
                         sink.error(ex);
                         return;
                     }
+                    ModelStreamFailure structuredFailure = ModelStreamFailure.findIn(ex);
+                    if (structuredFailure != null && structuredFailure.isDefinitiveProviderFailure()) {
+                        log.warn("ReachAI model provider returned a definitive failure; sync fallback is disabled: "
+                                        + "modelInstanceId={}, code={}",
+                                modelInstanceId, structuredFailure.code());
+                        sink.error(structuredFailure);
+                        return;
+                    }
                     log.warn("ReachAI model stream failed before consumption; falling back to sync chat: modelInstanceId={}",
                             modelInstanceId, ex);
                     try {
@@ -302,7 +310,7 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
         String responseId = UUID.randomUUID().toString();
 
         streamClient.streamChatEvents(request, event -> {
-            if (subscription.isCancelled()) {
+            if (subscription.isCancelled() || subscription.isTransportClosed()) {
                 return;
             }
             if (event == null || event.type == null) {
@@ -377,6 +385,12 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
                 case "completed" -> {
                     completedReceived.set(true);
                     finishReason.set(event.finishReason);
+                    // The model gateway may keep an SSE connection alive after it has
+                    // emitted its terminal event. Close that transport immediately so a
+                    // completed round is not held hostage by connection reuse/idle time.
+                    // This is deliberately not a caller cancellation: the completed
+                    // result still needs to be delivered to AgentScope below.
+                    subscription.closeTransport();
                 }
                 case "error" -> {
                     ModelStreamDiagnostics diagnostics = buildDiagnostics(
@@ -405,8 +419,7 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
                                 completionTokens.get());
                         throw ModelStreamFailure.interrupted(diagnostics);
                     }
-                    throw new IllegalStateException(
-                            event.message == null ? "Model stream error" : event.message);
+                    throw ModelStreamFailure.providerError(event.code, event.message, diagnostics);
                 }
                 default -> {
                 }
@@ -585,6 +598,10 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
 
     private ChatResponse completeFromSync(ModelChatRequest request, boolean publicFinalRound) {
         ModelChatResult result = modelClient.chat(request);
+        if (result != null && result.getCode() >= 400) {
+            throw ModelStreamFailure.providerError(
+                    String.valueOf(result.getCode()), result.getMessage(), null);
+        }
         ModelChatData data = result == null ? null : result.getData();
         if (data == null) {
             throw new IllegalStateException("ReachAI model service returned no data");

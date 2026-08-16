@@ -162,7 +162,15 @@ function Get-TemplateContent([string] $name) {
   switch ($name) {
     "reachai-page-action.types.ts" {
 @'
-export type ReachAiPageActionStatus = 'SUCCESS' | 'WARN' | 'ERROR';
+export type ReachAiPageActionStatus =
+  | 'SUCCESS'
+  | 'NO_DATA'
+  | 'PRECONDITION_FAILED'
+  | 'USER_CANCELLED'
+  | 'FAILED'
+  | 'ACTION_NOT_FOUND'
+  | 'FORBIDDEN'
+  | 'TIMEOUT';
 
 export interface ReachAiPageActionResult<T = unknown> {
   status: ReachAiPageActionStatus;
@@ -263,7 +271,7 @@ export class ReachAiPageActionService implements ReachAiPageBridge, OnDestroy {
     const handler = this.handlers.get(this.keyOf(pageKey, actionKey));
     if (!handler) {
       return {
-        status: 'ERROR',
+        status: 'ACTION_NOT_FOUND',
         message: `Page action handler not found: ${pageKey}/${actionKey}`,
         error: { code: 'HANDLER_NOT_FOUND', message: 'Page action handler not found' },
       };
@@ -277,7 +285,7 @@ export class ReachAiPageActionService implements ReachAiPageBridge, OnDestroy {
       }) as ReachAiPageActionResult<TResult>;
     } catch (error) {
       return {
-        status: 'ERROR',
+        status: 'FAILED',
         message: error instanceof Error ? error.message : 'Page action failed',
         error: {
           code: 'HANDLER_ERROR',
@@ -376,7 +384,7 @@ export function registerReachAiPageActions(
     bridge.register(reachAiPageKey, 'openRowAction', async (args, context) => {
       if (!context.confirmed) {
         return {
-          status: 'WARN',
+          status: 'PRECONDITION_FAILED',
           message: 'openRowAction requires user confirmation',
           metadata: { riskLevel: 'HIGH', confirmRequired: true },
         };

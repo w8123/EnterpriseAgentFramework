@@ -23,6 +23,7 @@ const requiredFiles = [
   'index.d.ts',
   'reachai-chat-embed.umd.js',
   'style.css',
+  'README.md',
 ]
 
 async function ensureBuiltPackage() {
@@ -118,6 +119,24 @@ async function writeDeliverable(sourceTarball, integritySha256) {
     rebuiltBy: 'ai-admin-front/scripts/pack-embed-chat.mjs',
   }
   await writeFile(resolve(controlDir, 'manifest-artifact.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+  const skillArtifactsDir = resolve(
+    repoRoot,
+    'reachai-control-service',
+    'src',
+    'main',
+    'resources',
+    'ai-assist',
+    'skills',
+    'reachai-onboarding',
+    'artifacts',
+  )
+  await mkdir(skillArtifactsDir, { recursive: true })
+  await copyFile(distTarget, resolve(skillArtifactsDir, tarballFileName))
+  await writeFile(
+    resolve(skillArtifactsDir, 'manifest-artifact.json'),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+    'utf8',
+  )
   return { distTarget, controlTarball, manifest }
 }
 

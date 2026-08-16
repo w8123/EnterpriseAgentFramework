@@ -275,7 +275,9 @@ export interface WorkflowGraphNodeTypeDescriptor {
   studioEnabled?: boolean
   /** Whether web AI authoring / shared mutation may add or update the node. */
   aiAuthoringEnabled?: boolean
-  /** Explicit reason when the node is closed for product openness. */
+  /** Explicitly enabled variants when only part of a node type is open; empty means unrestricted. */
+  enabledVariants?: string[]
+  /** Explicit reason when the node is closed or variant-restricted for product openness. */
   unavailableReason?: string | null
 }
 

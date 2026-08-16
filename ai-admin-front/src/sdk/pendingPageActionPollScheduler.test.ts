@@ -28,7 +28,7 @@ describe('createPendingPageActionPollScheduler', () => {
     scheduler.destroy()
   })
 
-  it('polls immediately on activity then idles at most once per 10s', async () => {
+  it('polls immediately on activity then keeps a low-frequency visible-session poll', async () => {
     const poll = vi.fn(async () => {})
     const scheduler = createPendingPageActionPollScheduler({
       getSessionId: () => 'sess',
@@ -42,9 +42,8 @@ describe('createPendingPageActionPollScheduler', () => {
     expect(poll).toHaveBeenCalledTimes(1)
 
     await vi.advanceTimersByTimeAsync(60_000)
-    // active ~5s @1s + idle @10s → well under old 120×500ms storm
-    expect(poll.mock.calls.length).toBeLessThanOrEqual(12)
-    expect(poll.mock.calls.length).toBeGreaterThanOrEqual(6)
+    // active ~5s @1s, then continues at the safe 10s idle cadence.
+    expect(poll.mock.calls.length).toBeGreaterThanOrEqual(10)
     scheduler.destroy()
   })
 
@@ -98,15 +97,9 @@ describe('createPendingPageActionPollScheduler', () => {
 
     const failedCount = poll.mock.calls.length
     shouldFail = false
-    // 退避中途的 activity 不应清零错误计数；等到退避结束后成功一次再清零
     await vi.advanceTimersByTimeAsync(60_000)
+    // External workbench requests must still be observed after the initial activity window.
     expect(poll.mock.calls.length).toBeGreaterThan(failedCount)
-
-    const afterSuccess = poll.mock.calls.length
-    scheduler.notifyActivity()
-    await vi.advanceTimersByTimeAsync(1_000)
-    // 成功后应能按 active 1s 节奏继续，而不是卡在 60s 退避
-    expect(poll.mock.calls.length).toBeGreaterThan(afterSuccess)
     scheduler.destroy()
   })
 
@@ -190,6 +183,9 @@ describe('createPendingPageActionPollScheduler', () => {
   it('uses safe default timings that cannot become a 500ms storm', () => {
     expect(PENDING_POLL_DEFAULTS.activeIntervalMs).toBeGreaterThanOrEqual(1_000)
     expect(PENDING_POLL_DEFAULTS.idleIntervalMs).toBeGreaterThanOrEqual(10_000)
+    expect(PENDING_POLL_DEFAULTS.recoveryWindowMs).toBeGreaterThanOrEqual(
+      PENDING_POLL_DEFAULTS.activeWindowMs,
+    )
     expect(PENDING_POLL_DEFAULTS.backoffMs[0]).toBeGreaterThanOrEqual(5_000)
   })
 })

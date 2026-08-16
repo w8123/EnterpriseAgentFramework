@@ -1,6 +1,7 @@
 import { computed, createApp, defineComponent, ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  resolveWorkflowInitialChatField,
   useWorkflowStudioDebugRun,
   type UseWorkflowStudioDebugRunDeps,
 } from './useWorkflowStudioDebugRun'
@@ -119,6 +120,23 @@ function mountDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
   app.mount(document.createElement('div'))
   return { debugRun, unmount: () => app.unmount() }
 }
+
+describe('Workflow Studio initial input presentation', () => {
+  it('uses the chat composer for one conversational text field', () => {
+    const field = { name: 'message', type: 'string' as const, required: true }
+    expect(resolveWorkflowInitialChatField([field])).toBe(field)
+  })
+
+  it('keeps structured input fields in the form renderer', () => {
+    expect(resolveWorkflowInitialChatField([
+      { name: 'teamId', type: 'string', required: true },
+    ])).toBeNull()
+    expect(resolveWorkflowInitialChatField([
+      { name: 'message', type: 'string', required: true },
+      { name: 'page', type: 'integer' },
+    ])).toBeNull()
+  })
+})
 
 describe('useWorkflowStudioDebugRun trace replay', () => {
   beforeEach(() => {

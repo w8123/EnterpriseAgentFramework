@@ -1,6 +1,8 @@
 package com.enterprise.ai.control.platform;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -23,6 +25,7 @@ public class PlatformEmbedE2eEvidenceService {
 
     private final PlatformEmbedSessionMapper sessionMapper;
     private final PlatformEmbedChatEventMapper eventMapper;
+    private final ObjectMapper objectMapper;
 
     public EmbedConversationEvidence latestSuccessfulConversation(
             String projectCode,
@@ -86,7 +89,7 @@ public class PlatformEmbedE2eEvidenceService {
                     && counts.userMessages > 0
                     && counts.assistantMessages > 0) {
                 return EmbedConversationEvidence.passed(
-                        "ReachAI 已观察到任务启动后的真实 SDK 会话、用户消息和助手回复。",
+                        "ReachAI 已观察到任务启动后的授权 SDK/doctor 会话、用户消息和助手回复。",
                         safeEvidence(session, counts));
             }
         }
@@ -181,6 +184,8 @@ public class PlatformEmbedE2eEvidenceService {
                 .map(event -> {
                     PlatformEmbedSessionEntity session =
                             sessionsById.get(event.getSessionId());
+                    UiRequestEvidence uiRequest = uiRequestEvidence(
+                            event.getPayloadJson());
                     return session == null
                             ? null
                             : new EmbedTraceCandidate(
@@ -189,7 +194,9 @@ public class PlatformEmbedE2eEvidenceService {
                                     session.getSessionId(),
                                     session.getPageInstanceId(),
                                     event.getTraceId().trim(),
-                                    event.getCreatedAt());
+                                    event.getCreatedAt(),
+                                    uiRequest.observed(),
+                                    uiRequest.component());
                 })
                 .filter(candidate -> candidate != null
                         && expectedPageKey.equals(candidate.pageKey()))
@@ -226,6 +233,25 @@ public class PlatformEmbedE2eEvidenceService {
 
     private static String normalizeOptional(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private UiRequestEvidence uiRequestEvidence(String payloadJson) {
+        if (!StringUtils.hasText(payloadJson)) {
+            return UiRequestEvidence.none();
+        }
+        try {
+            JsonNode uiRequest = objectMapper.readTree(payloadJson)
+                    .path("uiRequest");
+            if (!uiRequest.isObject() || uiRequest.isEmpty()) {
+                return UiRequestEvidence.none();
+            }
+            return new UiRequestEvidence(
+                    true,
+                    normalizeOptional(
+                            uiRequest.path("component").asText(null)));
+        } catch (Exception ignored) {
+            return UiRequestEvidence.none();
+        }
     }
 
     private static String safeEvidence(
@@ -276,7 +302,36 @@ public class PlatformEmbedE2eEvidenceService {
             String sessionId,
             String pageInstanceId,
             String traceId,
-            LocalDateTime observedAt) {
+            LocalDateTime observedAt,
+            boolean uiRequestObserved,
+            String uiRequestComponent) {
+
+        public EmbedTraceCandidate(
+                String projectCode,
+                String pageKey,
+                String sessionId,
+                String pageInstanceId,
+                String traceId,
+                LocalDateTime observedAt) {
+            this(
+                    projectCode,
+                    pageKey,
+                    sessionId,
+                    pageInstanceId,
+                    traceId,
+                    observedAt,
+                    false,
+                    null);
+        }
+    }
+
+    private record UiRequestEvidence(
+            boolean observed,
+            String component) {
+
+        private static UiRequestEvidence none() {
+            return new UiRequestEvidence(false, null);
+        }
     }
 
     private static final class MessageCounts {

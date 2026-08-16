@@ -1,5 +1,5 @@
 <template>
-  <WorkbenchPage class="embed-ops-page" layout="list">
+  <WorkbenchPage class="embed-ops-page project-workbench-page" layout="list">
     <PageHeader
       variant="overview"
       domain="project"

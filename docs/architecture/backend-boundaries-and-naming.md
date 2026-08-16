@@ -107,5 +107,7 @@ git diff --check
 服务启动后的 live smoke：
 
 ```powershell
+$env:REACHAI_PLATFORM_SESSION_TOKEN = '<登录 ReachAI 管理端后取得的平台会话令牌>'
 node scripts/check-physical-service-smoke.mjs
+Remove-Item Env:REACHAI_PLATFORM_SESSION_TOKEN
 ```

@@ -2,6 +2,7 @@ package com.enterprise.ai.control.context;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -43,15 +45,25 @@ public class ContextItemController {
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "50") Integer limit,
             @RequestParam(defaultValue = "0") Integer offset) {
+        PersonalMemoryRouteBoundary.rejectRuntimeUserLane(memoryLane);
         Long effectiveNamespaceId = namespaceId;
         List<Long> namespaceIds = null;
-        if (effectiveNamespaceId == null) {
+        if (effectiveNamespaceId != null) {
+            ContextNamespaceEntity namespace = namespaceMapper.selectById(effectiveNamespaceId);
+            if (PersonalMemoryRouteBoundary.isPersonalNamespace(namespace)) {
+                return ResponseEntity.ok(List.of());
+            }
+        } else {
             namespaceIds = namespaceMapper.selectList(Wrappers.<ContextNamespaceEntity>lambdaQuery()
                             .eq(ContextNamespaceEntity::getTenantId, tenantId)
                             .eq(StringUtils.hasText(projectCode), ContextNamespaceEntity::getProjectCode, trim(projectCode))
                             .eq(projectId != null, ContextNamespaceEntity::getProjectId, projectId)
+                            .and(q -> q.ne(ContextNamespaceEntity::getOwnerType, PersonalMemoryRouteBoundary.RUNTIME_USER)
+                                    .or()
+                                    .isNull(ContextNamespaceEntity::getOwnerType))
                             .ne(ContextNamespaceEntity::getStatus, "DELETED"))
                     .stream()
+                    .filter(namespace -> !PersonalMemoryRouteBoundary.isPersonalNamespace(namespace))
                     .map(ContextNamespaceEntity::getId)
                     .toList();
             if (namespaceIds.isEmpty()) {
@@ -75,6 +87,7 @@ public class ContextItemController {
                         .orderByDesc(ContextItemEntity::getId)
                         .last("LIMIT " + boundedOffset + ", " + boundedLimit))
                 .stream()
+                .filter(item -> !PersonalMemoryRouteBoundary.isPersonalItem(item))
                 .map(this::itemView)
                 .toList());
     }
@@ -82,12 +95,18 @@ public class ContextItemController {
     @GetMapping("/api/context/items/{id}")
     public ResponseEntity<ItemView> get(@PathVariable Long id) {
         ContextItemEntity entity = itemMapper.selectById(id);
-        return entity == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(itemView(entity));
+        return entity == null || isPersonalItem(entity)
+                ? ResponseEntity.notFound().build()
+                : ResponseEntity.ok(itemView(entity));
     }
 
     @PostMapping("/api/context/items")
     @Transactional
     public ResponseEntity<ItemView> create(@RequestBody ItemCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("Context item command is required");
+        }
+        PersonalMemoryRouteBoundary.rejectRuntimeUserLane(command.memoryLane());
         ContextNamespaceEntity namespace = resolveNamespace(command.namespaceId(), command.namespaceKey());
         ContextItemEntity entity = new ContextItemEntity();
         entity.setItemKey("ctx-item-" + UUID.randomUUID().toString().replace("-", ""));
@@ -193,6 +212,7 @@ public class ContextItemController {
 
     @GetMapping("/api/context/items/{itemId}/evidence")
     public ResponseEntity<List<EvidenceView>> listEvidence(@PathVariable Long itemId) {
+        requiredItem(itemId);
         return ResponseEntity.ok(evidenceMapper.selectList(Wrappers.<ContextEvidenceEntity>lambdaQuery()
                         .eq(ContextEvidenceEntity::getItemId, itemId)
                         .orderByDesc(ContextEvidenceEntity::getCreatedAt)
@@ -213,6 +233,7 @@ public class ContextItemController {
 
     @GetMapping("/api/context/items/{itemId}/bindings")
     public ResponseEntity<List<BindingView>> listBindings(@PathVariable Long itemId) {
+        requiredItem(itemId);
         return ResponseEntity.ok(bindingMapper.selectList(Wrappers.<ContextBindingEntity>lambdaQuery()
                         .eq(ContextBindingEntity::getItemId, itemId)
                         .eq(ContextBindingEntity::getStatus, "ACTIVE")
@@ -268,15 +289,23 @@ public class ContextItemController {
         if (namespace == null) {
             throw new IllegalArgumentException("Context namespace not found");
         }
+        PersonalMemoryRouteBoundary.rejectPersonalNamespace(namespace);
         return namespace;
     }
 
     private ContextItemEntity requiredItem(Long id) {
         ContextItemEntity entity = itemMapper.selectById(id);
-        if (entity == null) {
-            throw new IllegalArgumentException("Context item not found: " + id);
+        if (entity == null || isPersonalItem(entity)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Context item not found");
         }
         return entity;
+    }
+
+    private boolean isPersonalItem(ContextItemEntity entity) {
+        if (PersonalMemoryRouteBoundary.isPersonalItem(entity)) {
+            return true;
+        }
+        return PersonalMemoryRouteBoundary.isPersonalNamespace(namespaceMapper.selectById(entity.getNamespaceId()));
     }
 
     private ContextEvidenceEntity evidenceEntity(Long itemId, EvidenceCommand command) {

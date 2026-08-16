@@ -1,0 +1,36 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: reachai-embed
+    url: https://reachai.example.com/api/embed
+    routes:
+      - name: reachai-embed-route
+        paths:
+          - /api/reachai/embed
+        strip_path: true
+    plugins:
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - X-Forwarded-Proto:https
+    # Do not attach the business jwt/oidc plugin to this service or route.
+
+  - name: business-reachai-broker
+    url: http://business-bff/api/reachai/embed-token
+    routes:
+      - name: business-reachai-broker-route
+        paths:
+          - /api/reachai/embed-token
+        strip_path: true
+    # Attach the business system's normal authentication plugins here.
+
+  - name: business-reachai-registry
+    url: http://business-service/reachai/registry
+    routes:
+      - name: business-reachai-registry-route
+        paths:
+          - /reachai/registry
+        strip_path: true
+    # Preserve X-ReachAI-* headers and restrict source networks when possible.

@@ -22,6 +22,7 @@ public final class WorkflowExecutionIdentity {
     }
 
     private final Source source;
+    private final String tenantId;
     private final Long projectId;
     private final String projectCode;
     private final String userId;
@@ -30,12 +31,14 @@ public final class WorkflowExecutionIdentity {
 
     private WorkflowExecutionIdentity(
             Source source,
+            String tenantId,
             Long projectId,
             String projectCode,
             String userId,
             boolean projectTrusted,
             boolean userTrusted) {
         this.source = source == null ? Source.DEBUG_UNTRUSTED : source;
+        this.tenantId = StringUtils.hasText(tenantId) ? tenantId.trim() : null;
         this.projectId = projectId;
         this.projectCode = StringUtils.hasText(projectCode) ? projectCode.trim() : null;
         this.userId = StringUtils.hasText(userId) ? userId.trim() : null;
@@ -44,28 +47,43 @@ public final class WorkflowExecutionIdentity {
     }
 
     public static WorkflowExecutionIdentity fromAgent(Long projectId, String projectCode) {
-        return new WorkflowExecutionIdentity(Source.AGENT, projectId, projectCode, null, true, false);
+        return fromAgent(null, projectId, projectCode, null);
     }
 
     public static WorkflowExecutionIdentity fromAgent(Long projectId, String projectCode, String trustedUserId) {
+        return fromAgent(null, projectId, projectCode, trustedUserId);
+    }
+
+    public static WorkflowExecutionIdentity fromAgent(String tenantId,
+                                                      Long projectId,
+                                                      String projectCode,
+                                                      String trustedUserId) {
         boolean userTrusted = StringUtils.hasText(trustedUserId);
         return new WorkflowExecutionIdentity(
-                Source.AGENT, projectId, projectCode, trustedUserId, true, userTrusted);
+                Source.AGENT, tenantId, projectId, projectCode, trustedUserId, true, userTrusted);
     }
 
     public static WorkflowExecutionIdentity fromEmbedSession(Long projectId, String projectCode, String userId) {
+        return fromEmbedSession(null, projectId, projectCode, userId);
+    }
+
+    public static WorkflowExecutionIdentity fromEmbedSession(String tenantId,
+                                                             Long projectId,
+                                                             String projectCode,
+                                                             String userId) {
         if (!StringUtils.hasText(userId)) {
             throw new IllegalArgumentException("Embed session identity requires userId");
         }
-        return new WorkflowExecutionIdentity(Source.EMBED_SESSION, projectId, projectCode, userId, true, true);
+        return new WorkflowExecutionIdentity(
+                Source.EMBED_SESSION, tenantId, projectId, projectCode, userId, true, true);
     }
 
     public static WorkflowExecutionIdentity untrustedDebug() {
-        return new WorkflowExecutionIdentity(Source.DEBUG_UNTRUSTED, null, null, null, false, false);
+        return new WorkflowExecutionIdentity(Source.DEBUG_UNTRUSTED, null, null, null, null, false, false);
     }
 
     public static WorkflowExecutionIdentity untrustedComposition() {
-        return new WorkflowExecutionIdentity(Source.COMPOSITION_UNTRUSTED, null, null, null, false, false);
+        return new WorkflowExecutionIdentity(Source.COMPOSITION_UNTRUSTED, null, null, null, null, false, false);
     }
 
     /**
@@ -77,14 +95,23 @@ public final class WorkflowExecutionIdentity {
             Long projectId,
             String projectCode,
             String userId) {
+        return restoreFromTrustedSnapshot(source, null, projectId, projectCode, userId);
+    }
+
+    public static WorkflowExecutionIdentity restoreFromTrustedSnapshot(
+            Source source,
+            String tenantId,
+            Long projectId,
+            String projectCode,
+            String userId) {
         Source resolved = source == null ? Source.DEBUG_UNTRUSTED : source;
         return switch (resolved) {
             case EMBED_SESSION -> StringUtils.hasText(userId)
-                    ? fromEmbedSession(projectId, projectCode, userId)
+                    ? fromEmbedSession(tenantId, projectId, projectCode, userId)
                     : untrustedDebug();
             case AGENT -> StringUtils.hasText(userId)
-                    ? fromAgent(projectId, projectCode, userId)
-                    : fromAgent(projectId, projectCode);
+                    ? fromAgent(tenantId, projectId, projectCode, userId)
+                    : fromAgent(tenantId, projectId, projectCode, null);
             case COMPOSITION_UNTRUSTED -> untrustedComposition();
             case DEBUG_UNTRUSTED -> untrustedDebug();
         };
@@ -99,14 +126,19 @@ public final class WorkflowExecutionIdentity {
             return untrustedDebug();
         }
         Source source = parseSource(raw.get("source"));
+        String tenantId = text(raw.get("tenantId"));
         Long projectId = asLong(raw.get("projectId"));
         String projectCode = text(raw.get("projectCode"));
         String userId = text(raw.get("userId"));
-        return restoreFromTrustedSnapshot(source, projectId, projectCode, userId);
+        return restoreFromTrustedSnapshot(source, tenantId, projectId, projectCode, userId);
     }
 
     public Source getSource() {
         return source;
+    }
+
+    public String getTenantId() {
+        return tenantId;
     }
 
     public Long getProjectId() {
@@ -131,6 +163,10 @@ public final class WorkflowExecutionIdentity {
 
     public Source source() {
         return source;
+    }
+
+    public String tenantId() {
+        return tenantId;
     }
 
     public Long projectId() {

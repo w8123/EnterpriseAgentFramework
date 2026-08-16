@@ -1,5 +1,6 @@
 package com.enterprise.ai.bizindex.domain.dto;
 
+import com.enterprise.ai.runtime.contract.memory.BusinessMemoryReference;
 import lombok.Builder;
 import lombok.Data;
 
@@ -49,5 +50,16 @@ public class BizSearchResponse {
 
         /** 元数据（注册时 metadata 字段，原样返回给业务系统） */
         private Map<String, Object> metadata;
+
+        /** Present only for indexes that satisfy the fail-closed Agent memory contract. */
+        private BusinessMemoryReference businessMemoryReference;
+
+        /** Search projections are never authoritative business facts. */
+        private boolean authoritative;
+
+        /** True only when a valid resolver reference is available. */
+        private boolean hydrationRequired;
+
+        private boolean agentMemoryEligible;
     }
 }

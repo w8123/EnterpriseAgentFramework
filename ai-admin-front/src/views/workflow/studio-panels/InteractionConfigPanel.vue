@@ -169,12 +169,19 @@
               type="button"
               class="interaction-segmented-item"
               :class="{ active: config.interactionType === option.value }"
+              :disabled="!isInteractionTypeEnabled(option.value)"
               @click="selectInteractionType(option.value)"
             >
-              {{ option.label }}
+              {{ option.label }}{{ isInteractionTypeEnabled(option.value) ? '' : '（未开放）' }}
             </button>
           </div>
         </el-form-item>
+        <el-alert
+          v-if="!isInteractionTypeEnabled(config.interactionType)"
+          title="当前草稿使用了尚未开放的暂停/恢复交互类型；可以查看，但必须改为“展示输出”后才能发布。"
+          type="warning"
+          :closable="false"
+        />
         <el-form-item label="渲染组件">
           <el-select v-model="config.component" :teleported="false">
             <el-option label="表单" value="FORM" />
@@ -397,6 +404,7 @@ import { isToolInputParameter } from '@/types/composition'
 import { interactionOutputPorts } from '@/utils/studio'
 import { getScanProjectTools } from '@/api/scanProject'
 import type { ProjectToolInfo } from '@/types/scanProject'
+import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
 import {
   filterProjectApiTools,
   isProjectApiToolSelectable,
@@ -414,6 +422,7 @@ const props = defineProps<{
   compositionOptions?: CompositionInfo[]
   projectId?: number | null
   projectCode?: string | null
+  nodeTypeOptions?: WorkflowGraphNodeTypeDescriptor[]
 }>()
 
 const emit = defineEmits<{
@@ -435,6 +444,13 @@ const interactionTypeOptions: Array<{ label: string; value: InteractionNodeType 
   { label: '审阅编辑', value: 'REVIEW_EDIT' },
 ]
 
+const enabledInteractionTypes = computed(() => {
+  const descriptor = (props.nodeTypeOptions || []).find(item => item.type === 'INTERACTION')
+  const variants = (descriptor?.enabledVariants || ['PRESENT_OUTPUT'])
+    .map(item => String(item || '').trim().replace(/[-\s]+/g, '_').toUpperCase())
+  return new Set<InteractionNodeType>(variants as InteractionNodeType[])
+})
+
 const toolOptions = computed(() => props.toolOptions || [])
 const compositionOptions = computed(() => props.compositionOptions || [])
 const apiToolOptions = computed(() => toolOptions.value.filter((item) => !!item.httpMethod || !!item.endpointPath || !!item.catalogScanToolId))
@@ -452,15 +468,16 @@ const projectApiFilters = reactive({
 
 const config = computed<InteractionNodeConfig>(() => {
   props.data.interactionConfig ||= {
-    interactionType: 'COLLECT_INPUT',
+    interactionType: 'PRESENT_OUTPUT',
     binding: { sourceKind: 'NONE' },
-    title: props.data.label || '智能交互',
-    component: 'FORM',
+    title: props.data.label || '展示结构化结果',
+    component: 'DETAIL',
     outputAlias: props.data.outputAlias || 'interaction_output',
-    fields: [{ name: 'query', key: 'query', type: 'string', required: true, description: '查询条件', source: 'input.message', targetPath: 'query', component: 'input', slotFilling: defaultSlotFilling() }],
+    fields: [],
     dataExpression: 'lastOutput',
     dataSources: {},
-    behavior: { askMissing: true, maxTurns: 6 },
+    behavior: { blocking: false, readonly: true },
+    presentation: { mode: 'card_only' },
     renderSchema: {},
   }
   props.data.interactionConfig.binding ||= { sourceKind: 'NONE' }
@@ -548,6 +565,10 @@ function selectBindingKind(value: InteractionBindingSourceKind) {
 }
 
 function selectInteractionType(value: InteractionNodeType) {
+  if (!isInteractionTypeEnabled(value)) {
+    ElMessage.warning('当前仅开放无需暂停流程的 PRESENT_OUTPUT 展示输出类型')
+    return
+  }
   config.value.interactionType = value
   if (value === 'PRESENT_OUTPUT' && !config.value.component) {
     config.value.component = 'DETAIL'
@@ -604,6 +625,10 @@ function openProjectApiPicker() {
   projectApiDialogOpen.value = true
   projectApiFilters.page = 1
   loadProjectApis()
+}
+
+function isInteractionTypeEnabled(value: InteractionNodeType) {
+  return enabledInteractionTypes.value.has(value)
 }
 
 function reloadProjectApis() {

@@ -41,7 +41,7 @@ async function withServers(definitions, run) {
   }
 }
 
-function runSmoke(servers, extraArgs = []) {
+function runSmoke(servers, extraArgs = [], extraEnv = {}) {
   const env = {
     ...process.env,
     REACHAI_CONTROL_SERVICE_URL: servers.control.url,
@@ -49,7 +49,8 @@ function runSmoke(servers, extraArgs = []) {
     CAPABILITY_SERVICE_URL: servers.capability.url,
     KNOWLEDGE_SERVICE_URL: servers.knowledge.url,
     MODEL_SERVICE_URL: servers.model.url,
-    REACHAI_SMOKE_TIMEOUT_MS: '3000'
+    REACHAI_SMOKE_TIMEOUT_MS: '3000',
+    ...extraEnv
   }
   return runSmokeWithEnv(env, extraArgs)
 }
@@ -109,6 +110,50 @@ await withServers({
   assert.match(result.stdout, /reachai-capability-service/)
   assert.match(result.stdout, /reachai-knowledge-service/)
   assert.match(result.stdout, /reachai-model-service/)
+})
+
+await withServers({
+  control: {
+    '/actuator/health': [200, { status: 'UP' }],
+    '/api/internal-services/health': req => req.headers.authorization === 'Bearer platform-session-for-test'
+      ? [200, {
+          status: 'UP',
+          services: {
+            runtime: { status: 'UP' },
+            capability: { status: 'UP' },
+            model: { status: 'UP' },
+            knowledge: { status: 'UP' }
+          }
+        }]
+      : [401, { code: 'PLATFORM_SESSION_INVALID' }]
+  },
+  runtime: {
+    '/internal/runtime/health': [200, { status: 'UP', service: 'reachai-runtime-service' }]
+  },
+  capability: {
+    '/internal/capability/health': [200, { status: 'UP', service: 'reachai-capability-service' }]
+  },
+  knowledge: {
+    '/ai/actuator/health': [200, { status: 'UP' }]
+  },
+  model: {
+    '/actuator/health': [200, { status: 'UP' }]
+  }
+}, async servers => {
+  const token = 'platform-session-for-test'
+  const authenticated = await runSmoke(servers, [], {
+    REACHAI_PLATFORM_SESSION_TOKEN: token
+  })
+
+  assert.strictEqual(authenticated.status, 0, authenticated.stderr || authenticated.stdout)
+  assert.doesNotMatch(`${authenticated.stdout}\n${authenticated.stderr}`, new RegExp(token))
+
+  const unauthenticated = await runSmoke(servers, [], {
+    REACHAI_PLATFORM_SESSION_TOKEN: ''
+  })
+
+  assert.notStrictEqual(unauthenticated.status, 0, unauthenticated.stderr || unauthenticated.stdout)
+  assert.match(unauthenticated.stderr, /set REACHAI_PLATFORM_SESSION_TOKEN/)
 })
 
 await withServers({

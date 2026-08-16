@@ -107,7 +107,10 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
     deps.editForm.scanPath = p.scanPath || ''
     deps.editForm.scanType = projectKind === 'REGISTERED' ? 'auto' : p.scanType || 'openapi'
     deps.editForm.specFile = p.specFile ?? ''
-    deps.editCredentialForm.appKey = p.registryAppKey || ''
+    // The credential is deliberately write-only: project detail returns only the
+    // configured flag, never the stored key/secret. Keep both inputs empty so a
+    // plain project edit cannot accidentally replace the credential.
+    deps.editCredentialForm.appKey = ''
     deps.editCredentialForm.appSecret = ''
     deps.editDialogVisible.value = true
   }
@@ -129,9 +132,17 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
     }
     const credentialAppKey = deps.editCredentialForm.appKey.trim()
     const credentialAppSecret = deps.editCredentialForm.appSecret.trim()
-    if (deps.isEditingSdkProject.value && (!credentialAppKey || !credentialAppSecret)) {
-      ElMessage.warning('请填写 App Key 和 App Secret')
-      return
+    const hasStoredRegistryCredential = Boolean(p.registryCredentialConfigured)
+    const hasCredentialInput = Boolean(credentialAppKey || credentialAppSecret)
+    if (deps.isEditingSdkProject.value) {
+      if (!hasStoredRegistryCredential && (!credentialAppKey || !credentialAppSecret)) {
+        ElMessage.warning('请填写 App Key 和 App Secret')
+        return
+      }
+      if (hasCredentialInput && (!credentialAppKey || !credentialAppSecret)) {
+        ElMessage.warning('更新对接凭据时请同时填写 App Key 和 App Secret')
+        return
+      }
     }
     deps.editSaving.value = true
     try {

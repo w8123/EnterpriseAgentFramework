@@ -1,4 +1,12 @@
-export type ReachAiPageActionStatus = 'SUCCESS' | 'WARN' | 'ERROR';
+export type ReachAiPageActionStatus =
+  | 'SUCCESS'
+  | 'NO_DATA'
+  | 'PRECONDITION_FAILED'
+  | 'USER_CANCELLED'
+  | 'FAILED'
+  | 'ACTION_NOT_FOUND'
+  | 'FORBIDDEN'
+  | 'TIMEOUT';
 
 export interface ReachAiPageActionResult<T = unknown> {
   status: ReachAiPageActionStatus;
@@ -48,4 +56,3 @@ declare global {
     __REACHAI_PAGE_BRIDGE__?: ReachAiPageBridge;
   }
 }
-

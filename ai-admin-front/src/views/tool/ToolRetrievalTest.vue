@@ -5,7 +5,7 @@
       domain="tool"
       eyebrow="Retrieval Lab"
       title="Tool 检索测试"
-      description="验证 Tool 语义召回与向量索引状态。"
+      description="验证 Tool 语义召回、相似度阈值与向量索引状态，辅助定位能力检索质量。"
       density="comfortable"
     >
       <template #actions>
@@ -101,11 +101,16 @@
       </DataTableShell>
     </WorkbenchPanel>
 
-    <WorkbenchPanel v-if="task" title="重建任务" density="comfortable">
+    <WorkbenchPanel title="重建任务" density="comfortable">
       <template #actions>
-        <StatusTag :label="task.stage" :tone="stageTag(task.stage) || 'neutral'" />
+        <StatusTag
+          v-if="task"
+          :label="task.stage"
+          :tone="stageTag(task.stage) || 'neutral'"
+        />
+        <StatusTag v-else label="暂无任务" tone="neutral" />
       </template>
-      <div class="task-state">
+      <div v-if="task" class="task-state">
         <el-descriptions :column="4" border size="small">
           <el-descriptions-item label="总数">{{ task.totalSteps }}</el-descriptions-item>
           <el-descriptions-item label="已完成">{{ task.completedSteps }}</el-descriptions-item>
@@ -133,11 +138,12 @@
           show-icon
         />
       </div>
+      <p v-else class="task-empty">尚无重建任务</p>
     </WorkbenchPanel>
 
     <AppDialog
       v-model="rebuildDialogVisible"
-      title="重建向量索引"
+      title="选择向量索引模型"
       width="480px"
       destroy-on-close
       @open="loadEmbeddingInstances"
@@ -427,6 +433,12 @@ onUnmounted(stopPolling)
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
+}
+
+.task-empty {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.6;
 }
 
 .rebuild-dialog__control {

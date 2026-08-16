@@ -159,6 +159,15 @@ public class RuntimeWorkflowDefinitionService {
         return update(id, update, null);
     }
 
+    /**
+     * Exposes the Workflow-owned resource scope to Runtime collaborators
+     * without bypassing the binding service or its ACTIVE-row semantics.
+     */
+    public List<RuntimeWorkflowResourceBindingService.BindingView> listResourceBindings(
+            String workflowId) {
+        return resourceBindingService.list(workflowId);
+    }
+
     @Transactional
     public RuntimeWorkflowDefinitionEntity update(String id,
                                                   RuntimeWorkflowDefinitionEntity update,

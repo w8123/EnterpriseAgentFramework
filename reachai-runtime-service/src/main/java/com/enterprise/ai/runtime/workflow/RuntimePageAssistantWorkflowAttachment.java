@@ -9,6 +9,20 @@ public record RuntimePageAssistantWorkflowAttachment(
         Long configVersionId,
         Integer configVersionNo,
         String configStatus,
-        boolean published
+        boolean published,
+        String replacedWorkflowId
 ) {
+    public RuntimePageAssistantWorkflowAttachment(
+            String agentId,
+            String agentKeySlug,
+            String workflowId,
+            String workflowKeySlug,
+            String toolName,
+            Long configVersionId,
+            Integer configVersionNo,
+            String configStatus,
+            boolean published) {
+        this(agentId, agentKeySlug, workflowId, workflowKeySlug, toolName,
+                configVersionId, configVersionNo, configStatus, published, null);
+    }
 }

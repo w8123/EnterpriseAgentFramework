@@ -9,12 +9,31 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RuntimeWorkflowCredentialServiceTest {
+
+    @Test
+    void rejectsTheDevelopmentCredentialSecretWhenProductionGuardIsEnabled() {
+        assertThrows(IllegalStateException.class, () -> new RuntimeWorkflowCredentialCipher(
+                RuntimeWorkflowCredentialCipher.DEVELOPMENT_DEFAULT_SECRET,
+                true,
+                "staging"));
+        assertThrows(IllegalStateException.class, () -> new RuntimeWorkflowCredentialCipher(
+                RuntimeWorkflowCredentialCipher.DEVELOPMENT_DEFAULT_SECRET,
+                false,
+                "prod"));
+        assertThrows(IllegalStateException.class, () -> new RuntimeWorkflowCredentialCipher(
+                "  " + RuntimeWorkflowCredentialCipher.DEVELOPMENT_DEFAULT_SECRET,
+                true,
+                "staging"));
+        assertTrue(new RuntimeWorkflowCredentialCipher("unit-test-secret", true, "prod")
+                .encrypt("safe").startsWith("aesgcm:"));
+    }
 
     @Test
     void createEncryptsSecretAndMasksResponse() {

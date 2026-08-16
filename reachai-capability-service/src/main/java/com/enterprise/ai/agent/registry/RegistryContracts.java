@@ -73,7 +73,9 @@ public final class RegistryContracts {
             String projectCode,
             String name,
             String environment,
-            String visibility
+            String visibility,
+            String appKey,
+            String appSecret
     ) {
     }
 
@@ -138,7 +140,8 @@ public final class RegistryContracts {
             String fieldDiffJson,
             String impactJson,
             String reviewStatus,
-            String reviewNote
+            String reviewNote,
+            Boolean rollbackAvailable
     ) {
     }
 

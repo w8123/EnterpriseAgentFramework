@@ -52,6 +52,8 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
                 .getDeclaredMethod("listCapabilityDiffItems", Long.class);
         Method reviewDiffItem = CapabilityRegistryOperationsCompatibilityController.class
                 .getDeclaredMethod("reviewCapabilityDiffItem", Long.class, CapabilityReviewRequest.class);
+        Method rollbackDiffItem = CapabilityRegistryOperationsCompatibilityController.class
+                .getDeclaredMethod("rollbackCapabilityDiffItem", Long.class, CapabilityReviewRequest.class);
         Method purgeOfflineInstances = CapabilityRegistryOperationsCompatibilityController.class
                 .getDeclaredMethod("purgeOfflineInstances", String.class,
                         CapabilityRegistryOperationsCompatibilityController.PurgeOfflineRequest.class);
@@ -78,6 +80,8 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
                 listDiffItems.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/capability-diff-items/{diffItemId}/review"},
                 reviewDiffItem.getAnnotation(PostMapping.class).value());
+        assertArrayEquals(new String[] {"/capability-diff-items/{diffItemId}/rollback"},
+                rollbackDiffItem.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/projects/{projectCode}/instances/purge-offline"},
                 purgeOfflineInstances.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/projects/{projectCode}/instances/status"},
@@ -275,7 +279,8 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
                 "[]",
                 "{}",
                 "PENDING",
-                null
+                null,
+                true
         );
         when(registryService.listDiffItems(21L)).thenReturn(List.of(item));
 
@@ -305,7 +310,8 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
                 "[]",
                 "{}",
                 "IGNORED",
-                "not ready"
+                "not ready",
+                true
         );
         when(registryService.reviewDiffItem(31L, request)).thenReturn(reviewed);
 
@@ -331,6 +337,24 @@ class CapabilityRegistryOperationsCompatibilityControllerTest {
         assertEquals(new CapabilityRegistryOperationsCompatibilityController.ApiErrorResponse(
                 "Capability diff APPLY has not moved into reachai-capability-service yet"
         ), response.getBody());
+    }
+
+    @Test
+    void rollbackRouteDelegatesToCapabilityRegistryService() {
+        CapabilityRegistryService registryService = mock(CapabilityRegistryService.class);
+        CapabilityRegistryOperationsCompatibilityController controller =
+                new CapabilityRegistryOperationsCompatibilityController(registryService);
+        CapabilityReviewRequest request = new CapabilityReviewRequest("ROLLBACK", "alice", "restore stable version");
+        CapabilityDiffItemDTO rolledBack = new CapabilityDiffItemDTO(
+                31L, 21L, "sync-1", "orders", "orders:createOrder", "createOrder",
+                "orders_create_order", "CHANGED", 12L, "[]", "{}", "ROLLED_BACK", "restore stable version", true);
+        when(registryService.rollbackDiffItem(31L, request)).thenReturn(rolledBack);
+
+        ResponseEntity<?> response = controller.rollbackCapabilityDiffItem(31L, request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(rolledBack, response.getBody());
+        verify(registryService).rollbackDiffItem(31L, request);
     }
 
     @Test

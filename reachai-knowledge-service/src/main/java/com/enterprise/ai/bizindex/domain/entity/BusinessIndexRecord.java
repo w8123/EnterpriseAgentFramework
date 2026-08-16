@@ -34,6 +34,12 @@ public class BusinessIndexRecord {
     /** 元数据 JSON（搜索结果回显，不参与语义检索） */
     private String metadataJson;
 
+    /** Source-owned optimistic version used by the resolver Capability. */
+    private String sourceVersion;
+
+    /** Optional source-system update time; projection time is not a substitute. */
+    private LocalDateTime sourceUpdatedAt;
+
     /** 数据所有者用户 ID */
     private String ownerUserId;
 

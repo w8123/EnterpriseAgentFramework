@@ -36,6 +36,14 @@ import {
 
 const DEBUG_DRAWER_WIDTH_RATIO = 0.58
 const DEBUG_DRAWER_MAX_WIDTH = 960
+const WORKFLOW_CONVERSATION_FIELD_NAMES = new Set(['message', 'input', 'question', 'query', 'prompt'])
+
+export function resolveWorkflowInitialChatField(fields: StudioFieldSchema[]): StudioFieldSchema | null {
+  if (fields.length !== 1) return null
+  const field = fields[0]
+  if (!field || field.type !== 'string') return null
+  return WORKFLOW_CONVERSATION_FIELD_NAMES.has(field.name.trim().toLowerCase()) ? field : null
+}
 
 export interface WorkflowStudioMetaForm {
   name: string
@@ -266,6 +274,11 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
       })),
       deps.debugInputParams,
     )
+  })
+
+  const workflowInitialChatField = computed(() => {
+    if (!workflowInitialUiRequest.value) return null
+    return resolveWorkflowInitialChatField(deps.debugInputFields.value)
   })
 
   onUnmounted(() => {
@@ -848,6 +861,7 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     isDebugStepRunning,
     debugConversationSnapshot,
     workflowInitialUiRequest,
+    workflowInitialChatField,
     isDebugConversationBusy,
     restoreDebugConversation,
     disposeDebugConversation,

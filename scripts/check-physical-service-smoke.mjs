@@ -22,6 +22,7 @@ for (let i = 2; i < process.argv.length; i += 1) {
 const timeoutMs = Number(args.get('timeout-ms') || process.env.REACHAI_SMOKE_TIMEOUT_MS || DEFAULT_TIMEOUT_MS)
 const waitMs = Number(args.get('wait-ms') || process.env.REACHAI_SMOKE_WAIT_MS || 0)
 const intervalMs = Number(args.get('interval-ms') || process.env.REACHAI_SMOKE_INTERVAL_MS || DEFAULT_INTERVAL_MS)
+const platformSessionToken = (process.env.REACHAI_PLATFORM_SESSION_TOKEN || '').trim()
 
 const services = {
   control: {
@@ -92,7 +93,9 @@ Environment overrides:
   MODEL_SERVICE_URL
   REACHAI_SMOKE_TIMEOUT_MS
   REACHAI_SMOKE_WAIT_MS
-  REACHAI_SMOKE_INTERVAL_MS`)
+  REACHAI_SMOKE_INTERVAL_MS
+  REACHAI_PLATFORM_SESSION_TOKEN  Bearer token used only for Control's protected
+                                  /api/internal-services/health aggregation check`)
 }
 
 async function runChecksUntilReady() {
@@ -181,13 +184,19 @@ function endpointCheck(service, healthPath) {
 
 async function controlInternalServiceChecks() {
   const response = await requestJson(services.control.baseUrl, '/api/internal-services/health', {
-    acceptedStatuses: new Set([200])
+    acceptedStatuses: new Set([200]),
+    headers: platformSessionToken
+      ? { Authorization: `Bearer ${platformSessionToken}` }
+      : undefined
   })
   if (!response.ok) {
+    const detail = response.status === 401 && !platformSessionToken
+      ? `${response.detail}; set REACHAI_PLATFORM_SESSION_TOKEN to a valid platform session token`
+      : response.detail
     return internalServiceKeys.map(serviceKey => ({
       ok: false,
       label: `control internal service ${serviceKey}`,
-      detail: response.detail
+      detail
     }))
   }
   return internalServiceKeys.map(serviceKey => {
@@ -213,12 +222,16 @@ async function requestJson(baseUrl, path, options = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const response = await fetch(url, { signal: controller.signal })
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: options.headers
+    })
     const text = await response.text()
     const body = parseJson(text)
     if (!acceptedStatuses.has(response.status)) {
       return {
         ok: false,
+        status: response.status,
         detail: `${url.pathname} returned HTTP ${response.status}${text ? ` body=${text.slice(0, 200)}` : ''}`
       }
     }

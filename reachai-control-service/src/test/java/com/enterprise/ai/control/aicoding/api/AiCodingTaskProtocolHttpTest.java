@@ -5,6 +5,7 @@ import com.enterprise.ai.control.aicoding.application.AiCodingPowerShellBootstra
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
 import com.enterprise.ai.control.aicoding.persistence.AiCodingProjectCredentialPolicyMapper;
 import com.enterprise.ai.control.identity.PlatformBearerAuthService;
+import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformUserEntity;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchReleaseReadinessApplicationService;
 import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService;
@@ -66,7 +67,9 @@ import static org.mockito.ArgumentMatchers.anyString;
                 "spring.sql.init.mode=always",
                 "spring.sql.init.schema-locations=classpath:ai-coding-task-test-schema.sql",
                 "spring.data.redis.repositories.enabled=false",
-                "reachai.ai-coding-task.secret-pepper=test-only-ai-coding-http-secret-pepper"
+                "reachai.ai-coding-task.secret-pepper=test-only-ai-coding-http-secret-pepper",
+                "reachai.context.personal-memory.outbox-enabled=false",
+                "reachai.context.personal-memory.lifecycle-enabled=false"
         })
 class AiCodingTaskProtocolHttpTest {
 
@@ -148,6 +151,15 @@ class AiCodingTaskProtocolHttpTest {
         when(platformAuth.resolveBearerUser(
                 "Bearer " + PLATFORM_TOKEN))
                 .thenReturn(Optional.of(user));
+        when(platformAuth.resolveBearerSession(
+                "Bearer " + PLATFORM_TOKEN))
+                .thenReturn(Optional.of(new PlatformAuthenticatedSession(
+                        user,
+                        "test-platform-session",
+                        LocalDateTime.now().plusHours(1),
+                        List.of("ADMIN"),
+                        List.of(),
+                        List.of())));
     }
 
     @Test
@@ -210,6 +222,21 @@ class AiCodingTaskProtocolHttpTest {
                 context.path("endpoints")
                         .path("verificationsUrlTemplate")
                         .asText());
+        assertEquals("reachai-onboarding-skill",
+                context.path("requiredResources").path(0).path("id").asText());
+        assertEquals(true,
+                context.path("requiredResources").path(0)
+                        .path("requiredBeforeEditing").asBoolean());
+        assertEquals("SDK_SYNC",
+                context.path("verificationGuide").path(0).path("key").asText());
+        assertEquals("ACTION",
+                context.path("verificationGuide").path(0).path("type").asText());
+        assertEquals("EMBED_CONVERSATION_E2E",
+                context.path("verificationGuide").path(2).path("key").asText());
+        assertEquals("OBSERVATION",
+                context.path("verificationGuide").path(2).path("type").asText());
+        assertTrue(context.path("artifactContract").path("referencedSchemas")
+                .has("delivery-evidence-v1.schema.json"));
         assertEquals(
                 "http://localhost:" + port
                         + "/api/ai-assist/artifacts/java-sdk/"
@@ -1206,6 +1233,19 @@ class AiCodingTaskProtocolHttpTest {
                 context.path("protocolGuide")
                         .path("inputLimits")
                         .path("questionOptionMaxCount").asInt());
+        assertEquals(
+                "PRESERVE_CURRENT_STATUS",
+                context.path("protocolGuide")
+                        .path("eventStateRules")
+                        .path(1)
+                        .path("statusEffect").asText());
+        assertEquals(
+                "WAITING_USER",
+                context.path("protocolGuide")
+                        .path("eventStateRules")
+                        .path(1)
+                        .path("acceptedExecutionStatuses")
+                        .path(1).asText());
 
         ObjectNode forgedProviderEvent = event(
                 "evt-forged-provider",
@@ -1333,6 +1373,32 @@ class AiCodingTaskProtocolHttpTest {
                                 "STARTED",
                                 "不能用 STARTED 绕过问题"),
                         taskToken).getStatusCode());
+
+        JsonNode waitingProgress = requireBody(exchangeAbsolute(
+                HttpMethod.POST,
+                taskRoot + "/events",
+                event(
+                        "evt-progress-while-waiting",
+                        "PROGRESS",
+                        "等待回答期间完成了独立诊断"),
+                taskToken));
+        assertEquals(
+                "WAITING_USER",
+                waitingProgress.path("executionStatus").asText());
+        JsonNode afterWaitingProgress = consoleDetail(taskId);
+        assertEquals(
+                "WAITING_USER",
+                afterWaitingProgress.path("task")
+                        .path("executionStatus").asText());
+        assertEquals(
+                1,
+                afterWaitingProgress.path("task").path("openQuestions").size());
+        assertEquals(
+                "OPEN",
+                afterWaitingProgress.path("task").path("openQuestions")
+                        .path(0).path("status").asText());
+        assertTrue(afterWaitingProgress.path("events").toString()
+                .contains("等待回答期间完成了独立诊断"));
 
         ObjectNode answer = objectMapper.createObjectNode()
                 .put("answer", "不包含")

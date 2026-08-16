@@ -39,6 +39,14 @@ export interface ProjectInstance {
   lastHeartbeatAt?: string
 }
 
+/** Returned once after a platform administrator starts zero-touch SDK enrollment. */
+export interface RegistryEnrollmentToken {
+  enrollmentToken: string
+  projectCode: string
+  expiresAt: string
+  ttlHours: number
+}
+
 export interface InstanceHeartbeatResponse {
   instance: ProjectInstance
 }
@@ -116,6 +124,7 @@ export interface CapabilityDiffReviewItem {
   existingToolId?: number | null
   fieldDiffJson?: string
   impactJson?: string
-  reviewStatus: 'PENDING' | 'APPLIED' | 'IGNORED'
+  reviewStatus: 'PENDING' | 'APPLIED' | 'IGNORED' | 'ROLLED_BACK'
   reviewNote?: string
+  rollbackAvailable?: boolean
 }

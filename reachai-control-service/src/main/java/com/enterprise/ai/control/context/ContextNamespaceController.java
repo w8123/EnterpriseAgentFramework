@@ -38,10 +38,14 @@ public class ContextNamespaceController {
                         .eq(projectId != null, ContextNamespaceEntity::getProjectId, projectId)
                         .eq(StringUtils.hasText(namespaceType),
                                 ContextNamespaceEntity::getNamespaceType, upper(namespaceType))
+                        .and(q -> q.ne(ContextNamespaceEntity::getOwnerType, PersonalMemoryRouteBoundary.RUNTIME_USER)
+                                .or()
+                                .isNull(ContextNamespaceEntity::getOwnerType))
                         .eq(StringUtils.hasText(status), ContextNamespaceEntity::getStatus, upper(status))
                         .orderByDesc(ContextNamespaceEntity::getUpdatedAt)
                         .orderByDesc(ContextNamespaceEntity::getId))
                 .stream()
+                .filter(namespace -> !PersonalMemoryRouteBoundary.isPersonalNamespace(namespace))
                 .map(this::view)
                 .toList();
         return ResponseEntity.ok(views);
@@ -50,6 +54,12 @@ public class ContextNamespaceController {
     @PostMapping("/api/context/namespaces")
     @Transactional
     public ResponseEntity<NamespaceView> create(@RequestBody NamespaceCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("Context namespace command is required");
+        }
+        if (PersonalMemoryRouteBoundary.RUNTIME_USER.equals(upper(command.ownerType()))) {
+            throw PersonalMemoryRouteBoundary.forbidden();
+        }
         ContextNamespaceEntity entity = new ContextNamespaceEntity();
         entity.setTenantId(required(command.tenantId(), "tenantId"));
         entity.setNamespaceType(required(command.namespaceType(), "namespaceType").toUpperCase(Locale.ROOT));
@@ -74,7 +84,7 @@ public class ContextNamespaceController {
     @GetMapping("/api/context/namespaces/{id}")
     public ResponseEntity<NamespaceView> get(@PathVariable Long id) {
         ContextNamespaceEntity entity = mapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || PersonalMemoryRouteBoundary.isPersonalNamespace(entity)) {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(view(entity));
@@ -84,7 +94,7 @@ public class ContextNamespaceController {
     @Transactional
     public ResponseEntity<NamespaceView> delete(@PathVariable Long id) {
         ContextNamespaceEntity entity = mapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || PersonalMemoryRouteBoundary.isPersonalNamespace(entity)) {
             return ResponseEntity.notFound().build();
         }
         LocalDateTime now = LocalDateTime.now();

@@ -5,7 +5,9 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -65,6 +67,33 @@ class PlatformEmbedSessionServiceTest {
                 PlatformEmbedTokenException.class,
                 () -> service.requireActiveSession("embed-1", claims));
         verify(mapper, never()).updateById(any());
+    }
+
+    @Test
+    void allowsTheSamePrincipalToRebindAnActiveSessionToTheTargetPage() {
+        PlatformEmbedSessionMapper mapper = mock(PlatformEmbedSessionMapper.class);
+        PlatformEmbedSessionService service = new PlatformEmbedSessionService(mapper, new ObjectMapper());
+        PlatformEmbedSessionEntity session = session();
+        when(mapper.selectOne(any())).thenReturn(session);
+        PlatformEmbedTokenClaims targetClaims = claims("agent-1", "project-1", "user-1");
+        targetClaims.setPageKey("orders.audit");
+        targetClaims.setPageInstanceId("page-2");
+        targetClaims.setRoute("/orders/audit");
+
+        PlatformEmbedSessionEntity active = service.requireActiveSessionForNavigationRebind("embed-1", targetClaims);
+        service.rebindBridgeAfterNavigation(
+                active,
+                targetClaims,
+                "orders.audit",
+                "page-2",
+                "/orders/audit",
+                List.of("orders.audit.search"),
+                "1.0.0-SNAPSHOT");
+
+        assertEquals("orders.audit", session.getPageKey());
+        assertEquals("page-2", session.getPageInstanceId());
+        assertEquals("/orders/audit", session.getRoute());
+        verify(mapper).updateById(session);
     }
 
     private PlatformEmbedSessionEntity session() {

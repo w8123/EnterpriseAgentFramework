@@ -164,6 +164,37 @@ class PlatformEmbedStreamRelayTest {
     }
 
     @Test
+    void exposesOnlySafeLifecycleProgressForRecognizedSupervisorPhases() throws Exception {
+        RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
+        PlatformEmbedStreamRelay relay = new PlatformEmbedStreamRelay(
+                streamProxy,
+                mock(RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedChatEventService.class),
+                new ObjectMapper());
+        PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-progress");
+        Map<String, Object> runtimeBody = Map.of("agentId", "orders-bot");
+        doAnswer(invocation -> {
+            SseStreamRelay.FrameHandler handler = invocation.getArgument(2);
+            ByteArrayOutputStream downstream = invocation.getArgument(1);
+            handler.handle("supervisor.step", "{\"stepId\":\"workflow-1\",\"name\":\"workflow\","
+                    + "\"state\":\"started\",\"title\":\"internal workflow name\","
+                    + "\"detail\":\"secret tool arguments\"}", downstream);
+            return null;
+        }).when(streamProxy).streamAgentExecute(eq(runtimeBody), any(), any());
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        relay.streamMessage(session, runtimeBody, output);
+        String streamed = output.toString(StandardCharsets.UTF_8);
+
+        assertTrue(streamed.contains("event: turn.progress"));
+        assertTrue(streamed.contains("正在调用业务能力"));
+        assertFalse(streamed.contains("internal workflow name"));
+        assertFalse(streamed.contains("secret tool arguments"));
+        assertFalse(streamed.contains("event: supervisor.step"));
+    }
+
+    @Test
     void usesSignedInternalStreamWhenEmbedClaimsUserIdPresent() throws Exception {
         RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
         RuntimeTrustedAgentExecutionGateway gateway = mock(RuntimeTrustedAgentExecutionGateway.class);

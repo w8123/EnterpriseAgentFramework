@@ -5,6 +5,7 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
 import com.enterprise.ai.runtime.agent.RuntimeResolvedWorkflowTarget;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
+import com.enterprise.ai.runtime.execution.TrustedPersonalMemoryContext;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 
 import java.util.List;
@@ -32,12 +33,27 @@ public interface SupervisorRuntimeAdapter {
                              SupervisorEventSink eventSink,
                              RuntimeAgentExecutionCancellation cancellation,
                              WorkflowExecutionIdentity identity,
-                             List<RuntimeResolvedWorkflowTarget> resolvedTargets) {
+                             List<RuntimeResolvedWorkflowTarget> resolvedTargets,
+                             TrustedPersonalMemoryContext personalMemory) {
 
         public SupervisorRequest {
             eventSink = eventSink == null ? SupervisorEventSink.NOOP : eventSink;
             cancellation = cancellation == null ? RuntimeAgentExecutionCancellation.NOOP : cancellation;
             resolvedTargets = resolvedTargets == null ? List.of() : List.copyOf(resolvedTargets);
+            personalMemory = personalMemory == null ? TrustedPersonalMemoryContext.empty() : personalMemory;
+        }
+
+        public SupervisorRequest(RuntimeAgentView agent,
+                                 RuntimeAgentConfigVersionEntity config,
+                                 List<RuntimeAgentWorkflowToolEntity> workflowTools,
+                                 Map<String, Object> input,
+                                 PolicyApprovalGrant approvalGrant,
+                                 SupervisorEventSink eventSink,
+                                 RuntimeAgentExecutionCancellation cancellation,
+                                 WorkflowExecutionIdentity identity,
+                                 List<RuntimeResolvedWorkflowTarget> resolvedTargets) {
+            this(agent, config, workflowTools, input, approvalGrant, eventSink, cancellation, identity,
+                    resolvedTargets, TrustedPersonalMemoryContext.empty());
         }
 
         public SupervisorRequest(RuntimeAgentView agent,
@@ -48,7 +64,8 @@ public interface SupervisorRuntimeAdapter {
                                  SupervisorEventSink eventSink,
                                  RuntimeAgentExecutionCancellation cancellation,
                                  WorkflowExecutionIdentity identity) {
-            this(agent, config, workflowTools, input, approvalGrant, eventSink, cancellation, identity, List.of());
+            this(agent, config, workflowTools, input, approvalGrant, eventSink, cancellation, identity, List.of(),
+                    TrustedPersonalMemoryContext.empty());
         }
 
         public SupervisorRequest(RuntimeAgentView agent,
@@ -58,7 +75,8 @@ public interface SupervisorRuntimeAdapter {
                                  PolicyApprovalGrant approvalGrant,
                                  SupervisorEventSink eventSink,
                                  RuntimeAgentExecutionCancellation cancellation) {
-            this(agent, config, workflowTools, input, approvalGrant, eventSink, cancellation, null, List.of());
+            this(agent, config, workflowTools, input, approvalGrant, eventSink, cancellation, null, List.of(),
+                    TrustedPersonalMemoryContext.empty());
         }
 
         public SupervisorRequest(RuntimeAgentView agent,
@@ -68,7 +86,7 @@ public interface SupervisorRuntimeAdapter {
                                  PolicyApprovalGrant approvalGrant,
                                  SupervisorEventSink eventSink) {
             this(agent, config, workflowTools, input, approvalGrant, eventSink,
-                    RuntimeAgentExecutionCancellation.NOOP, null, List.of());
+                    RuntimeAgentExecutionCancellation.NOOP, null, List.of(), TrustedPersonalMemoryContext.empty());
         }
 
         public SupervisorRequest(RuntimeAgentView agent,
@@ -77,7 +95,7 @@ public interface SupervisorRuntimeAdapter {
                                  Map<String, Object> input,
                                  PolicyApprovalGrant approvalGrant) {
             this(agent, config, workflowTools, input, approvalGrant, SupervisorEventSink.NOOP,
-                    RuntimeAgentExecutionCancellation.NOOP, null, List.of());
+                    RuntimeAgentExecutionCancellation.NOOP, null, List.of(), TrustedPersonalMemoryContext.empty());
         }
 
         public SupervisorRequest(RuntimeAgentView agent,
@@ -85,7 +103,7 @@ public interface SupervisorRuntimeAdapter {
                                  List<RuntimeAgentWorkflowToolEntity> workflowTools,
                                  Map<String, Object> input) {
             this(agent, config, workflowTools, input, null, SupervisorEventSink.NOOP,
-                    RuntimeAgentExecutionCancellation.NOOP, null, List.of());
+                    RuntimeAgentExecutionCancellation.NOOP, null, List.of(), TrustedPersonalMemoryContext.empty());
         }
     }
 

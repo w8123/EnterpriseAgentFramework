@@ -3,6 +3,9 @@ package com.enterprise.ai.control.pageworkbench.application;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PublishedWorkflowView;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
+import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService;
 import com.enterprise.ai.control.platform.PlatformEmbedSessionEntity;
 import com.enterprise.ai.control.platform.PlatformEmbedSessionMapper;
 import com.enterprise.ai.control.platform.PlatformPageActionEventEntity;
@@ -16,6 +19,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -29,28 +33,92 @@ class PageWorkbenchPageReadinessApplicationServiceTest {
                 mock(PlatformEmbedSessionMapper.class);
         PlatformPageActionEventMapper eventMapper =
                 mock(PlatformPageActionEventMapper.class);
+        PlatformEmbedE2eEvidenceService embedEvidence =
+                mock(PlatformEmbedE2eEvidenceService.class);
+        PageWorkbenchPublishedApplicationService publishedService =
+                mock(PageWorkbenchPublishedApplicationService.class);
+        PageWorkbenchAgentModelReadinessApplicationService modelReadiness =
+                mock(PageWorkbenchAgentModelReadinessApplicationService.class);
+        PageWorkbenchWorkflowTraceReadinessApplicationService workflowTraceReadiness =
+                mock(PageWorkbenchWorkflowTraceReadinessApplicationService.class);
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         when(pageCatalog.findPage("orders", 1L))
                 .thenReturn(Optional.of(page()));
         when(sessionMapper.selectOne(any(Wrapper.class)))
                 .thenReturn(session());
         when(eventMapper.selectOne(any(Wrapper.class)))
                 .thenReturn(successfulEvent());
+        when(embedEvidence.latestSuccessfulConversation(any(), any(), any()))
+                .thenReturn(PlatformEmbedE2eEvidenceService.EmbedConversationEvidence.passed(
+                        "observed browser conversation",
+                        "session=es-orders"));
+        when(publishedService.list("orders", "orders.detail"))
+                .thenReturn(List.of(published()));
+        when(modelReadiness.evaluate("model-orders"))
+                .thenReturn(new ReadinessItem(
+                        PageWorkbenchAgentModelReadinessApplicationService.KEY,
+                        "Agent 模型可用性",
+                        "PASS",
+                        "model ready",
+                        objectMapper.createObjectNode()));
+        when(workflowTraceReadiness.evaluate(any(), any(), any(), any(), isNull()))
+                .thenReturn(new ReadinessItem(
+                        "PAGE_WORKFLOW_TRACE_READY",
+                        "workflow trace",
+                        "PASS",
+                        "observed workflow trace",
+                        objectMapper.createObjectNode()
+                                .put("capabilityRequired", false)
+                                .put("capabilityObserved", false)
+                                .put("pageActionRequired", false)
+                                .put("pageActionObserved", false)));
         PageWorkbenchPageReadinessApplicationService service =
                 new PageWorkbenchPageReadinessApplicationService(
                         pageCatalog,
                         sessionMapper,
                         eventMapper,
-                        new ObjectMapper());
+                        embedEvidence,
+                        publishedService,
+                        modelReadiness,
+                        workflowTraceReadiness,
+                        objectMapper);
 
         var result = service.evaluate("orders", 1L);
 
-        assertEquals("PASS", result.status());
-        assertEquals(5, result.items().size());
+        assertEquals(
+                "PASS",
+                result.status(),
+                () -> result.items().stream()
+                        .map(item -> item.key() + "=" + item.status())
+                        .toList()
+                        .toString());
+        assertEquals(13, result.items().size());
+        assertEquals(
+                "PASS",
+                result.items().stream()
+                        .filter(item -> "BUSINESS_PAGE_URL_READY".equals(item.key()))
+                        .findFirst()
+                        .orElseThrow()
+                        .status());
         assertEquals(
                 "PASS",
                 result.items().stream()
                         .filter(item -> "PAGE_ACTION_BINDING_READY"
                                 .equals(item.key()))
+                        .findFirst()
+                        .orElseThrow()
+                        .status());
+        assertEquals(
+                "PASS",
+                result.items().stream()
+                        .filter(item -> "PAGE_BROWSER_E2E_READY".equals(item.key()))
+                        .findFirst()
+                        .orElseThrow()
+                        .status());
+        assertEquals(
+                "NOT_REQUIRED",
+                result.items().stream()
+                        .filter(item -> "CAPABILITY_TOOL_E2E_READY".equals(item.key()))
                         .findFirst()
                         .orElseThrow()
                         .status());
@@ -67,6 +135,7 @@ class PageWorkbenchPageReadinessApplicationServiceTest {
                 "订单详情",
                 null,
                 "/orders/:id",
+                "http://localhost:5173/orders/1",
                 "src/views/orders/Detail.vue",
                 "AI_CODING",
                 "ACTIVE",
@@ -112,8 +181,37 @@ class PageWorkbenchPageReadinessApplicationServiceTest {
         session.setBridgeActionsJson("[\"getPageState\"]");
         session.setStatus("ACTIVE");
         session.setExpiresAt(LocalDateTime.now().plusHours(1));
+        session.setCreatedAt(LocalDateTime.now().minusMinutes(2));
         session.setUpdatedAt(LocalDateTime.now());
         return session;
+    }
+
+    private PublishedWorkflowView published() {
+        return new PublishedWorkflowView(
+                "orders.detail",
+                "workflow-orders",
+                "orders-page-assistant",
+                "订单页面助手",
+                null,
+                "ACTIVE",
+                101L,
+                "v1.0.0",
+                "tester",
+                LocalDateTime.now().minusMinutes(1),
+                "agent-orders",
+                "orders-copilot",
+                "订单助手",
+                201L,
+                1,
+                "model-orders",
+                "orders_page_assistant",
+                "READ",
+                null,
+                1,
+                1.0,
+                LocalDateTime.now(),
+                "SUCCESS",
+                "trace-orders");
     }
 
     private PlatformPageActionEventEntity successfulEvent() {

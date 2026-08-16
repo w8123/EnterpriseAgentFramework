@@ -1,5 +1,6 @@
 package com.enterprise.ai.control.aiassist;
 
+import com.enterprise.ai.control.identity.PlatformConsoleRoutePolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -14,8 +15,6 @@ public class ControlAiCodingAccessWebConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(aiCodingAccessInterceptor)
-                .addPathPatterns(
-                        "/api/ai-coding/projects/**",
-                        "/api/workflows/*/ai-coding/**");
+                .addPathPatterns(PlatformConsoleRoutePolicy.AI_CODING_KEY_PATH_PATTERNS.toArray(new String[0]));
     }
 }

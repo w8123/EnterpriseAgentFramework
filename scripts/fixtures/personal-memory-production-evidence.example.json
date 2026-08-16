@@ -1,0 +1,130 @@
+{
+  "schema": "reachai-personal-memory-production-evidence-v1",
+  "environment": {
+    "name": "replace-with-target-environment",
+    "classification": "development",
+    "changeId": "replace-with-approved-change-id"
+  },
+  "migrations": [],
+  "gates": {
+    "sessionRetention": { "status": "NOT_RUN", "observedAt": null, "evidenceRef": null },
+    "businessIngress": { "status": "NOT_RUN", "observedAt": null, "evidenceRef": null },
+    "legalHold": { "status": "NOT_RUN", "observedAt": null, "evidenceRef": null },
+    "concurrentErase": { "status": "NOT_RUN", "observedAt": null, "evidenceRef": null },
+    "auditRedaction": { "status": "NOT_RUN", "observedAt": null, "evidenceRef": null },
+    "alerting": { "status": "NOT_RUN", "observedAt": null, "evidenceRef": null },
+    "sseRegression": { "status": "NOT_RUN", "observedAt": null, "evidenceRef": null },
+    "dependencyFailureDrill": { "status": "NOT_RUN", "observedAt": null, "evidenceRef": null },
+    "semanticProjection": {
+      "status": "NOT_RUN",
+      "observedAt": null,
+      "evidenceRef": null,
+      "mode": "LEXICAL",
+      "modelInstanceEvidenceRef": null,
+      "snapshotFresh": false,
+      "activeCount": null,
+      "readyCount": null,
+      "readyRatio": null,
+      "deadCount": null,
+      "oldestPendingSeconds": null,
+      "unsafeDeletedVectorCount": null,
+      "modelSwitchDrillStatus": "NOT_RUN",
+      "providerFailureFallbackStatus": "NOT_RUN",
+      "deletionVectorScrubStatus": "NOT_RUN"
+    },
+    "outboxProjection": {
+      "status": "NOT_RUN",
+      "observedAt": null,
+      "evidenceRef": null,
+      "snapshotFresh": false,
+      "backlogCount": null,
+      "deadCount": null,
+      "oldestUnpublishedSeconds": null
+    },
+    "shadow": {
+      "status": "NOT_RUN",
+      "observedAt": null,
+      "evidenceRef": null,
+      "sampleCount": 0,
+      "canonicalCoverage": null,
+      "projectedPrecision": null,
+      "invalidIdRatio": null,
+      "errorRatio": null
+    },
+    "load": {
+      "status": "NOT_RUN",
+      "observedAt": null,
+      "evidenceRef": null,
+      "actorCount": 0,
+      "requestCount": 0,
+      "errorRatio": null,
+      "queryP95Ms": null,
+      "crossOwnerLeaks": null,
+      "deletedItemLeaks": null,
+      "cleanupFailures": null
+    },
+    "transport": {
+      "status": "NOT_RUN",
+      "observedAt": null,
+      "evidenceRef": null,
+      "mode": "DEVELOPMENT_PLAINTEXT",
+      "plaintextProbePassed": false
+    },
+    "databaseTransport": {
+      "status": "NOT_RUN",
+      "observedAt": null,
+      "evidenceRef": null,
+      "mode": "UNSPECIFIED",
+      "preAuthenticationProbePassed": false,
+      "credentialsUsed": false
+    },
+    "encryption": {
+      "status": "NOT_RUN",
+      "observedAt": null,
+      "evidenceRef": null,
+      "mysqlAtRest": false,
+      "redisAtRest": false,
+      "backupAtRest": false,
+      "keyRotationStatus": "NOT_RUN"
+    },
+    "backupRestore": {
+      "status": "NOT_RUN",
+      "observedAt": null,
+      "evidenceRef": null,
+      "policyApproved": false,
+      "maxRetentionDays": null,
+      "restoreDrillStatus": "NOT_RUN",
+      "deletionReconciliationStatus": "NOT_RUN",
+      "rpoMinutes": null,
+      "rtoMinutes": null,
+      "expiryEvidenceRef": null
+    },
+    "erasureOrchestration": {
+      "status": "NOT_RUN",
+      "observedAt": null,
+      "evidenceRef": null,
+      "result": {
+        "schema": "reachai-memory-erasure-e2e-result-v1",
+        "runId": null,
+        "targetClass": "REMOTE",
+        "executed": false,
+        "passed": false,
+        "expectedStatus": "COMPLETED",
+        "finalStatus": null,
+        "requestId": null,
+        "runtimeUserHash": null,
+        "requestCount": 0,
+        "dataPlaneAffectedCount": 0,
+        "dataPlaneExercised": false,
+        "domainInventoryVerified": false,
+        "identityLeakCheckPassed": false,
+        "createReplayVerified": false,
+        "evidenceReplayVerified": false,
+        "completedAt": null,
+        "issues": ["NOT_RUN"],
+        "domains": []
+      }
+    },
+    "erasureDomains": []
+  }
+}

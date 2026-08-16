@@ -3,6 +3,7 @@ package com.enterprise.ai.control.pageworkbench.application;
 import com.enterprise.ai.control.aicoding.provider.AiCodingContractResourceLoader;
 import com.enterprise.ai.control.aicoding.provider.AiCodingTaskKindProvider;
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
+import com.enterprise.ai.control.client.model.ControlModelCatalogClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
@@ -16,8 +17,10 @@ public class PageWorkbenchTaskProviderConfiguration {
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
             CapabilityProjectOnboardingClient capabilityClient,
+            ControlModelCatalogClient modelCatalogClient,
             RuntimeProxyClient runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
+            PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService
                     workflowTraceReadiness,
             PageWorkbenchReleaseReadinessApplicationService releaseReadiness,
@@ -31,8 +34,10 @@ public class PageWorkbenchTaskProviderConfiguration {
                 pageCatalog,
                 pageAnalysis,
                 capabilityClient,
+                modelCatalogClient,
                 runtimeClient,
                 browserReadiness,
+                modelReadiness,
                 workflowTraceReadiness,
                 releaseReadiness,
                 objectMapper,
@@ -44,8 +49,10 @@ public class PageWorkbenchTaskProviderConfiguration {
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
             CapabilityProjectOnboardingClient capabilityClient,
+            ControlModelCatalogClient modelCatalogClient,
             RuntimeProxyClient runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
+            PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService
                     workflowTraceReadiness,
             PageWorkbenchReleaseReadinessApplicationService releaseReadiness,
@@ -59,8 +66,10 @@ public class PageWorkbenchTaskProviderConfiguration {
                 pageCatalog,
                 pageAnalysis,
                 capabilityClient,
+                modelCatalogClient,
                 runtimeClient,
                 browserReadiness,
+                modelReadiness,
                 workflowTraceReadiness,
                 releaseReadiness,
                 objectMapper,
@@ -72,8 +81,10 @@ public class PageWorkbenchTaskProviderConfiguration {
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
             CapabilityProjectOnboardingClient capabilityClient,
+            ControlModelCatalogClient modelCatalogClient,
             RuntimeProxyClient runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
+            PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService
                     workflowTraceReadiness,
             PageWorkbenchReleaseReadinessApplicationService releaseReadiness,
@@ -87,8 +98,10 @@ public class PageWorkbenchTaskProviderConfiguration {
                 pageCatalog,
                 pageAnalysis,
                 capabilityClient,
+                modelCatalogClient,
                 runtimeClient,
                 browserReadiness,
+                modelReadiness,
                 workflowTraceReadiness,
                 releaseReadiness,
                 objectMapper,
@@ -100,8 +113,10 @@ public class PageWorkbenchTaskProviderConfiguration {
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
             CapabilityProjectOnboardingClient capabilityClient,
+            ControlModelCatalogClient modelCatalogClient,
             RuntimeProxyClient runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
+            PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService
                     workflowTraceReadiness,
             PageWorkbenchReleaseReadinessApplicationService releaseReadiness,
@@ -109,14 +124,16 @@ public class PageWorkbenchTaskProviderConfiguration {
             AiCodingContractResourceLoader resources) {
         return provider(
                 PageWorkbenchTaskProvider.BROWSER_ACCEPTANCE,
-                "READ_ONLY",
+                "READ_WRITE",
                 "reachai.browser-acceptance-report",
                 "browser-acceptance-report-v1",
                 pageCatalog,
                 pageAnalysis,
                 capabilityClient,
+                modelCatalogClient,
                 runtimeClient,
                 browserReadiness,
+                modelReadiness,
                 workflowTraceReadiness,
                 releaseReadiness,
                 objectMapper,
@@ -128,8 +145,10 @@ public class PageWorkbenchTaskProviderConfiguration {
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
             CapabilityProjectOnboardingClient capabilityClient,
+            ControlModelCatalogClient modelCatalogClient,
             RuntimeProxyClient runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
+            PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService
                     workflowTraceReadiness,
             PageWorkbenchReleaseReadinessApplicationService releaseReadiness,
@@ -143,8 +162,10 @@ public class PageWorkbenchTaskProviderConfiguration {
                 pageCatalog,
                 pageAnalysis,
                 capabilityClient,
+                modelCatalogClient,
                 runtimeClient,
                 browserReadiness,
+                modelReadiness,
                 workflowTraceReadiness,
                 releaseReadiness,
                 objectMapper,
@@ -159,8 +180,10 @@ public class PageWorkbenchTaskProviderConfiguration {
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
             CapabilityProjectOnboardingClient capabilityClient,
+            ControlModelCatalogClient modelCatalogClient,
             RuntimeProxyClient runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
+            PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService
                     workflowTraceReadiness,
             PageWorkbenchReleaseReadinessApplicationService releaseReadiness,
@@ -175,8 +198,10 @@ public class PageWorkbenchTaskProviderConfiguration {
                 pageCatalog,
                 pageAnalysis,
                 capabilityClient,
+                modelCatalogClient,
                 runtimeClient,
                 browserReadiness,
+                modelReadiness,
                 workflowTraceReadiness,
                 releaseReadiness,
                 objectMapper);

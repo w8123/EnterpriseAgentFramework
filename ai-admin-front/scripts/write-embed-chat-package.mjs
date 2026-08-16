@@ -1,11 +1,24 @@
-import { copyFile, mkdir, readdir, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { basename, dirname, resolve } from 'node:path'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const repoRoot = resolve(root, '..')
 const outDir = resolve(root, 'dist-sdk', 'embed-chat')
 const sharedAssetsDir = resolve(root, 'src', 'conversation', 'assets')
+const quickReferenceSource = resolve(
+  repoRoot,
+  'reachai-control-service',
+  'src',
+  'main',
+  'resources',
+  'ai-assist',
+  'skills',
+  'reachai-onboarding',
+  'references',
+  'embed-chat-quick-reference.md',
+)
 
 await mkdir(outDir, { recursive: true })
 
@@ -24,6 +37,12 @@ for (const name of await readdir(sharedAssetsDir)) {
   if (!/\.webp$/i.test(name)) continue
   await copyFile(resolve(sharedAssetsDir, name), resolve(outDir, name))
 }
+
+await writeFile(
+  resolve(outDir, 'README.md'),
+  await readFile(quickReferenceSource, 'utf8'),
+  'utf8',
+)
 
 const assetFiles = (await readdir(outDir))
   .filter((name) => /\.(webp|png|jpe?g|gif|svg)$/i.test(name))
@@ -51,6 +70,7 @@ const manifest = {
     'index.d.ts',
     'reachai-chat-embed.umd.js',
     'style.css',
+    'README.md',
     ...assetFiles,
   ],
 }

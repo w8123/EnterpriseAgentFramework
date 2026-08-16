@@ -99,6 +99,11 @@ class ControlAiAssistProjectControllerTest {
         assertEquals("agent-provisioning.v2", response.getBody().agentProvisioning().model());
         assertEquals(true, response.getBody().agentProvisioning().activatesSupervisorConfig());
         assertEquals("AGENTSCOPE", response.getBody().agentSupervisor().runtimeType());
+        assertEquals("optional exact currently attached Workflow id to replace; omit for additive attachment",
+                response.getBody().responseShapes().get("workflowToolAttach")
+                        .fields().get("request.replaceWorkflowId"));
+        assertTrue(response.getBody().responseShapes().get("workflowToolAttach")
+                .notes().contains("WORKFLOW_REPLACEMENT_INVALID"));
         assertEquals("http://localhost:18603/api/ai-assist/projects/7/onboarding-manifest",
                 response.getBody().endpoints().manifestUrl());
         assertEquals("scripts/set-reachai-registry-secret.ps1",

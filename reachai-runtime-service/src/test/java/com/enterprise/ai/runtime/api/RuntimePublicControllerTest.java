@@ -39,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -290,14 +291,31 @@ class RuntimePublicControllerTest {
     }
 
     @Test
-    void clearAgentSessionDelegatesToExecutionService() {
+    void sessionOwnershipConflictReturnsConflictStatus() {
+        RuntimeAgentExecutionService executionService = mock(RuntimeAgentExecutionService.class);
+        RuntimePublicController controller = controller(mock(RuntimeTraceQueryService.class), executionService);
+        Map<String, Object> request = Map.of("agentId", "orders-bot", "sessionId", "owned-session");
+        Map<String, Object> expected = Map.of(
+                "success", false,
+                "answer", "sessionId already belongs to another identity",
+                "metadata", Map.of("code", "RUNTIME_SESSION_OWNERSHIP_CONFLICT"));
+        when(executionService.execute(request, false)).thenReturn(expected);
+
+        ResponseEntity<Map<String, Object>> response = controller.executeAgent(request);
+
+        assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
+        assertEquals(expected, response.getBody());
+    }
+
+    @Test
+    void publicSessionClearFailsClosedWithoutTrustedIdentity() {
         RuntimeAgentExecutionService executionService = mock(RuntimeAgentExecutionService.class);
         RuntimePublicController controller = controller(mock(RuntimeTraceQueryService.class), executionService);
 
         ResponseEntity<Void> response = controller.clearAgentSession("session-1");
 
-        assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
-        verify(executionService).clearSession("session-1");
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
+        verify(executionService, never()).clearSession("session-1");
     }
 
     @Test

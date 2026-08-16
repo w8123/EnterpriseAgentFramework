@@ -46,7 +46,7 @@ export function registerReachAiPageActions(
     bridge.register(reachAiPageKey, 'openRowAction', async (args, context) => {
       if (!context.confirmed) {
         return {
-          status: 'WARN',
+          status: 'PRECONDITION_FAILED',
           message: 'openRowAction requires user confirmation',
           metadata: { riskLevel: 'HIGH', confirmRequired: true },
         };
@@ -59,4 +59,3 @@ export function registerReachAiPageActions(
     }, { riskLevel: 'HIGH', confirmRequired: true });
   }
 }
-

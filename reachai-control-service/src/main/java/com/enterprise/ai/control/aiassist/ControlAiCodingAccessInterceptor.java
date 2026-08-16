@@ -2,6 +2,7 @@ package com.enterprise.ai.control.aiassist;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import com.enterprise.ai.control.identity.PlatformConsoleRoutePolicy;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -93,7 +94,29 @@ public class ControlAiCodingAccessInterceptor implements HandlerInterceptor {
         response.setStatus(ex.getStatusCode().value());
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        String reason = ex.getReason() == null ? "" : ex.getReason().replace("\"", "'");
-        response.getWriter().write("{\"message\":\"" + reason + "\"}");
+        response.setHeader("Cache-Control", "no-store");
+        int status = ex.getStatusCode().value();
+        String code = status == 401
+                ? "AI_CODING_KEY_REQUIRED"
+                : (status == 403 ? "AI_CODING_ACCESS_DENIED" : "AI_CODING_REQUEST_INVALID");
+        String nextAction = status == 401
+                ? "SET_AI_CODING_KEY"
+                : (status == 403 ? "CHECK_PROJECT_AI_CODING_ACCESS" : "CHECK_REQUEST");
+        String reason = json(ex.getReason());
+        response.getWriter().write("{\"code\":\"" + code
+                + "\",\"credentialDomain\":\""
+                + PlatformConsoleRoutePolicy.CredentialDomain.INDEPENDENT_PROTOCOL.name()
+                + "\",\"nextAction\":\"" + nextAction
+                + "\",\"message\":\"" + reason + "\"}");
+    }
+
+    private static String json(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        return raw.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", " ")
+                .replace("\n", " ");
     }
 }

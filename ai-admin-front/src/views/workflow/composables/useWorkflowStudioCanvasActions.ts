@@ -85,17 +85,39 @@ export function isRouteCondition(condition?: string) {
   return normalized === 'else' || normalized === 'default' || normalized.startsWith('route:')
 }
 
-export function isSupportedCanvasCondition(condition?: string) {
+function isKnownBareBranchRoute(source: CanvasNode | null | undefined, route: string) {
+  if (!source || !route) return false
+  if (source.data.kind === 'condition') {
+    const groups = source.data.conditionConfig?.groups || []
+    const defaultRoute = (source.data.conditionConfig?.defaultRoute || 'else').trim()
+    return groups.some((group) => group.id?.trim() === route) || defaultRoute === route
+  }
+  if (source.data.kind === 'classifier') {
+    const classes = source.data.classifierConfig?.classes || []
+    const defaultRoute = (source.data.classifierConfig?.defaultRoute || 'else').trim()
+    return classes.some((item) => item.id?.trim() === route) || defaultRoute === route
+  }
+  return source.data.kind === 'approval' && ['approved', 'rejected', 'timeout'].includes(route)
+}
+
+export function isSupportedCanvasCondition(condition?: string, source?: CanvasNode | null) {
   const normalized = (condition || '').trim().toLowerCase()
   if (!normalized) return true
   if (['always', 'default', 'else', 'success', 'error', 'failure', 'empty', 'not_empty'].includes(normalized)) {
     return true
   }
-  return normalized.startsWith('contains:')
+  if (normalized.startsWith('contains:')
     || normalized.startsWith('not_contains:')
     || normalized.startsWith('equals:')
     || normalized.startsWith('not_equals:')
-    || normalized.startsWith('route:')
+    || normalized.startsWith('route:')) {
+    return true
+  }
+  // Older workflows and some AI-generated proposals store a branch route as
+  // its bare group id (for example `approved`) while the canvas-created form
+  // is `route:approved`. Both forms are accepted by the runtime; recognise a
+  // valid source handle here so the Studio does not report a false warning.
+  return isKnownBareBranchRoute(source, (condition || '').trim())
 }
 
 export function previewEdgeLabel(edge: CanvasEdge) {
@@ -311,6 +333,9 @@ export function useWorkflowStudioCanvasActions({
       copiedNode.value.data.kind,
       nodeTypes.value,
       graphNodeTypeCapabilitiesLoaded.value,
+      copiedNode.value.data.kind === 'interaction'
+        ? copiedNode.value.data.interactionConfig?.interactionType
+        : undefined,
     )
     if (!decision.allowed) {
       ElMessage.warning(decision.reason || '当前节点类型不可新增')

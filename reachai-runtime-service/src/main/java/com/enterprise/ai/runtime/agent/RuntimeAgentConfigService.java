@@ -319,6 +319,82 @@ public class RuntimeAgentConfigService {
                 null, null, null, null, List.copyOf(tools)));
     }
 
+    /**
+     * Replaces one explicitly identified Workflow tool while preserving every
+     * other entry in the current catalog. The caller must name the old
+     * Workflow; this method never infers replacement from page bindings or
+     * display names because one page may legitimately expose several
+     * Workflows.
+     */
+    @Transactional
+    public AgentConfigVersionView replaceWorkflowToolInDraft(
+            String agentId,
+            String replacedWorkflowId,
+            WorkflowToolRequest requestedTool) {
+        requireAgent(agentId);
+        if (!StringUtils.hasText(replacedWorkflowId)) {
+            throw new IllegalArgumentException(
+                    "replaceWorkflowId is required for Workflow Tool replacement");
+        }
+        if (requestedTool == null || !StringUtils.hasText(requestedTool.workflowId())) {
+            throw new IllegalArgumentException(
+                    "workflowId is required for Agent Workflow Tool");
+        }
+        String oldWorkflowId = replacedWorkflowId.trim();
+        String newWorkflowId = requestedTool.workflowId().trim();
+        if (oldWorkflowId.equals(newWorkflowId)) {
+            throw new IllegalArgumentException(
+                    "replaceWorkflowId must identify a different Workflow");
+        }
+
+        RuntimeWorkflowDefinitionEntity workflow = workflowMapper.selectById(newWorkflowId);
+        if (workflow == null || !"ACTIVE".equalsIgnoreCase(workflow.getStatus())
+                || workflowVersionMapper.listActive(newWorkflowId).isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Agent Workflow Tool requires an ACTIVE published workflow: " + newWorkflowId);
+        }
+
+        Optional<RuntimeAgentConfigVersionEntity> displayConfig = resolveDisplayConfig(agentId);
+        if (displayConfig.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "replaceWorkflowId is not attached to the Agent tool catalog: " + oldWorkflowId);
+        }
+        List<WorkflowToolRequest> tools = new ArrayList<>();
+        boolean replaced = false;
+        for (WorkflowToolView current : listTools(agentId, displayConfig.get().getId())) {
+            if (oldWorkflowId.equals(current.workflowId())) {
+                WorkflowToolRequest replacement = requestedTool.priority() == null
+                        ? new WorkflowToolRequest(
+                                newWorkflowId,
+                                requestedTool.toolName(),
+                                requestedTool.descriptionOverride(),
+                                requestedTool.inputSchemaOverrideJson(),
+                                requestedTool.outputSchemaOverrideJson(),
+                                requestedTool.riskLevel(),
+                                requestedTool.permissionKey(),
+                                requestedTool.readOnly(),
+                                requestedTool.enabled(),
+                                current.priority())
+                        : requestedTool;
+                tools.add(replacement);
+                replaced = true;
+            } else {
+                tools.add(toRequest(current));
+            }
+        }
+        if (!replaced) {
+            throw new IllegalArgumentException(
+                    "replaceWorkflowId is not attached to the Agent tool catalog: " + oldWorkflowId);
+        }
+        if (tools.stream().filter(tool -> newWorkflowId.equals(tool.workflowId())).count() > 1) {
+            throw new IllegalArgumentException(
+                    "replacement Workflow is already attached to the Agent tool catalog: " + newWorkflowId);
+        }
+        return saveDraft(agentId, new AgentConfigDraftRequest(
+                null, null, null, null, null, null, null, null, null,
+                null, null, null, null, List.copyOf(tools)));
+    }
+
     @Transactional
     public void deleteAllForAgent(String agentId) {
         if (!StringUtils.hasText(agentId)) {

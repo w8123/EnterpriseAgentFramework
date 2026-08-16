@@ -83,8 +83,14 @@ class ControlAiCodingProjectControllerTest {
         assertEquals("data.answer", response.getBody().responseShapes().get("embed").fields().get("answer"));
         assertFalse(response.getBody().responseShapes().containsKey("aiAccessSessions"));
         assertFalse(response.getBody().responseShapes().containsKey("gatewayChecklist"));
+        ResponseEntity<ControlAiAssistProjectController.OnboardingManifestResponse>
+                onboarding = controller.onboardingManifest(7L, request);
+        assertNotNull(onboarding.getBody());
+        assertTrue(onboarding.getBody().agentSupervisor()
+                .requiredSteps().stream()
+                .anyMatch(step -> step.contains("replaceWorkflowId")));
         assertFalse(response.toString().contains("aic_secret"));
-        verify(client).getOnboardingProjectById(7L);
+        verify(client, org.mockito.Mockito.times(2)).getOnboardingProjectById(7L);
     }
 
     @Test

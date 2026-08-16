@@ -3,6 +3,7 @@ package com.enterprise.ai.control.runtime;
 import com.enterprise.ai.control.aiassist.ControlAiCodingAccessGuard;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway;
+import com.enterprise.ai.control.context.PersonalMemoryIdentityResolver;
 import com.enterprise.ai.control.identity.PlatformBearerAuthService;
 import com.enterprise.ai.control.identity.PlatformUserEntity;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,20 +38,30 @@ public class ControlRuntimePublicController {
     private final RuntimeAgentStreamProxy runtimeAgentStreamProxy;
     private final RuntimeTrustedAgentExecutionGateway trustedExecutionGateway;
     private final PlatformBearerAuthService bearerAuthService;
+    private final PersonalMemoryIdentityResolver personalMemoryIdentityResolver;
 
     ControlRuntimePublicController(RuntimeProxyClient runtimeProxyClient) {
-        this(runtimeProxyClient, null, null, null, null);
+        this(runtimeProxyClient, null, null, null, null, null);
     }
 
     public ControlRuntimePublicController(RuntimeProxyClient runtimeProxyClient,
                                           ControlAiCodingAccessGuard aiCodingAccessGuard) {
-        this(runtimeProxyClient, aiCodingAccessGuard, null, null, null);
+        this(runtimeProxyClient, aiCodingAccessGuard, null, null, null, null);
     }
 
     public ControlRuntimePublicController(RuntimeProxyClient runtimeProxyClient,
                                           ControlAiCodingAccessGuard aiCodingAccessGuard,
                                           RuntimeAgentStreamProxy runtimeAgentStreamProxy) {
-        this(runtimeProxyClient, aiCodingAccessGuard, runtimeAgentStreamProxy, null, null);
+        this(runtimeProxyClient, aiCodingAccessGuard, runtimeAgentStreamProxy, null, null, null);
+    }
+
+    public ControlRuntimePublicController(RuntimeProxyClient runtimeProxyClient,
+                                          ControlAiCodingAccessGuard aiCodingAccessGuard,
+                                          RuntimeAgentStreamProxy runtimeAgentStreamProxy,
+                                          RuntimeTrustedAgentExecutionGateway trustedExecutionGateway,
+                                          PlatformBearerAuthService bearerAuthService) {
+        this(runtimeProxyClient, aiCodingAccessGuard, runtimeAgentStreamProxy,
+                trustedExecutionGateway, bearerAuthService, null);
     }
 
     @Autowired
@@ -58,12 +69,14 @@ public class ControlRuntimePublicController {
                                           ControlAiCodingAccessGuard aiCodingAccessGuard,
                                           RuntimeAgentStreamProxy runtimeAgentStreamProxy,
                                           RuntimeTrustedAgentExecutionGateway trustedExecutionGateway,
-                                          PlatformBearerAuthService bearerAuthService) {
+                                          PlatformBearerAuthService bearerAuthService,
+                                          PersonalMemoryIdentityResolver personalMemoryIdentityResolver) {
         this.runtimeProxyClient = runtimeProxyClient;
         this.aiCodingAccessGuard = aiCodingAccessGuard;
         this.runtimeAgentStreamProxy = runtimeAgentStreamProxy;
         this.trustedExecutionGateway = trustedExecutionGateway;
         this.bearerAuthService = bearerAuthService;
+        this.personalMemoryIdentityResolver = personalMemoryIdentityResolver;
     }
 
     @PostMapping("/api/runtime/agents/execute")
@@ -88,8 +101,20 @@ public class ControlRuntimePublicController {
     }
 
     @DeleteMapping("/api/runtime/agents/sessions/{sessionId}")
-    public ResponseEntity<Void> clearAgentSession(@PathVariable String sessionId) {
-        return runtimeProxyClient.clearAgentSession(sessionId);
+    public ResponseEntity<Void> clearAgentSession(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable String sessionId) {
+        Optional<PlatformUserEntity> user = bearerAuthService == null
+                ? Optional.empty()
+                : bearerAuthService.resolveBearerUser(authorization);
+        if (user.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (trustedExecutionGateway == null) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+        return trustedExecutionGateway.clearTrusted(
+                sessionId, "AGENT", "default", trustedAgentUserId(user.get()));
     }
 
     @GetMapping("/api/runtime/agents/route-evaluation")
@@ -673,7 +698,7 @@ public class ControlRuntimePublicController {
                 ? Optional.empty()
                 : bearerAuthService.resolveBearerUser(authorization);
         if (user.isPresent() && trustedExecutionGateway != null) {
-            String trustedUserId = String.valueOf(user.get().getId());
+            String trustedUserId = trustedAgentUserId(user.get());
             ResponseEntity<Map<String, Object>> trusted =
                     trustedExecutionGateway.executeTrusted(safeBody, "AGENT", trustedUserId);
             if (!detailed) {
@@ -704,13 +729,23 @@ public class ControlRuntimePublicController {
                 : bearerAuthService.resolveBearerUser(authorization);
         StreamingResponseBody stream;
         if (user.isPresent() && trustedExecutionGateway != null) {
-            String trustedUserId = String.valueOf(user.get().getId());
+            String trustedUserId = trustedAgentUserId(user.get());
             stream = outputStream -> trustedExecutionGateway.streamTrusted(
                     safeBody, "AGENT", trustedUserId, outputStream, SseStreamRelay.passthrough());
         } else {
             stream = outputStream -> runtimeAgentStreamProxy.stream(safeBody, outputStream);
         }
         return streamResponse(stream);
+    }
+
+    private String trustedAgentUserId(PlatformUserEntity user) {
+        if (personalMemoryIdentityResolver == null) {
+            // Compatibility path for narrow unit tests and legacy direct construction only.
+            return String.valueOf(user.getId());
+        }
+        return personalMemoryIdentityResolver
+                .resolveAttestedPlatformUser(user, null, "default")
+                .runtimeUserId();
     }
 
     private ResponseEntity<StreamingResponseBody> streamDebugProxy(String path, Map<String, Object> body) {

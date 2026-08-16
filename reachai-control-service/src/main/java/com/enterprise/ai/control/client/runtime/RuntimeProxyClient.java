@@ -25,9 +25,6 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/agents/execute/detailed")
     ResponseEntity<Map<String, Object>> executeAgentDetailed(@RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.DELETE, path = "/api/runtime/agents/sessions/{sessionId}")
-    ResponseEntity<Void> clearAgentSession(@PathVariable("sessionId") String sessionId);
-
     @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/agents/route-evaluation")
     ResponseEntity<Map<String, Object>> routeEvaluation(@RequestParam("days") int days);
 
@@ -117,6 +114,10 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/graph-node-types")
     ResponseEntity<Object> graphNodeTypes();
 
+    @RequestMapping(method = RequestMethod.GET,
+            path = "/internal/runtime/page-workbench/workflow-node-types")
+    ResponseEntity<Object> pageWorkbenchWorkflowNodeTypes();
+
     @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/runtime-validation")
     ResponseEntity<Object> validateWorkflowRuntime(@RequestBody Map<String, Object> body);
 
@@ -141,6 +142,11 @@ public interface RuntimeProxyClient {
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/ai-coding/workflows")
     ResponseEntity<Object> createWorkflowAiCodingWorkflow(@RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.POST,
+            path = "/internal/runtime/runops/workflow-candidates/drafts")
+    ResponseEntity<Object> createTraceWorkflowCandidateDraft(
+            @RequestBody Map<String, Object> body);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/{workflowId}/ai-coding/context")
     ResponseEntity<Object> workflowAiCodingContext(@PathVariable("workflowId") String workflowId);

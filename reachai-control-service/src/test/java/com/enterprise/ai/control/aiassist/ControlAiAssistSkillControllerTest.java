@@ -45,11 +45,29 @@ class ControlAiAssistSkillControllerTest {
         assertZipContains(response.getBody(),
                 "reachai-onboarding/references/angular-page-action.md");
         assertZipContains(response.getBody(),
+                "reachai-onboarding/references/embed-chat-quick-reference.md");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/references/java-sdk-api-reference.md");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/references/gateway-examples.md");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/examples/gateway/README.md");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/examples/gateway/spring-cloud-gateway/ReachAiEmbedProxySecurity.java");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/examples/gateway/spring-cloud-gateway/application-reachai-gateway.yml");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/examples/gateway/nginx/reachai.conf");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/examples/gateway/kong/kong.yml");
+        assertZipContains(response.getBody(),
                 "reachai-onboarding/templates/angular/reachai-page-action.service.ts");
         assertZipContains(response.getBody(),
                 "reachai-onboarding/templates/angular/page-registry.example.ts");
         assertZipContains(response.getBody(),
                 "reachai-onboarding/scripts/reachai-page-actions.ps1");
+        assertZipContains(response.getBody(),
+                "reachai-onboarding/scripts/reachai-doctor.mjs");
     }
 
     @Test

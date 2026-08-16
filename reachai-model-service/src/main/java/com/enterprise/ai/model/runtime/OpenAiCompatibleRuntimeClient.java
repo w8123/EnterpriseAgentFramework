@@ -125,6 +125,13 @@ public class OpenAiCompatibleRuntimeClient {
             }
             JsonNode root = objectMapper.readTree(data);
             parser.acceptChunk(root, onEvent);
+            // Some OpenAI-compatible providers send a non-empty finish_reason
+            // but keep the SSE connection open or delay [DONE]. A valid finish
+            // reason is already a terminal protocol signal; do not make callers
+            // wait for the transport to become idle before emitting completed.
+            if (parser.finishReason() != null && !parser.finishReason().isBlank()) {
+                break;
+            }
         }
         return SseTerminal.of(receivedDone, parser.finishReason());
     }

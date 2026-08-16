@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.platform;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -22,11 +23,53 @@ import java.util.UUID;
 public class PlatformPageBridgeCommandService {
 
     public static final String NAVIGATE_ACTION = "__reachai.navigate";
+    private static final String PAGE_BRIDGE_BUSINESS_TERMINAL =
+            "PAGE_BRIDGE_BUSINESS_TERMINAL";
 
     private final PlatformEmbedSessionMapper sessionMapper;
     private final PlatformEmbedSessionService sessionService;
     private final PlatformPageActionEventMapper eventMapper;
     private final ObjectMapper objectMapper;
+
+    /**
+     * Resolves the trusted Page Bridge identity for an AI Coding smoke test.
+     * Callers may name a session id, but project/agent/page identity is always
+     * returned from the active Control-owned Embed session rather than accepted
+     * from a request body.
+     */
+    public PageBridgeContextResolution resolveContext(PageBridgeContextResolutionRequest request) {
+        if (request == null || !StringUtils.hasText(request.sessionId())
+                || !StringUtils.hasText(request.projectCode())) {
+            return PageBridgeContextResolution.unresolved(
+                    "PAGE_BRIDGE_CONTEXT_REQUIRED",
+                    "embedSessionId and projectCode are required");
+        }
+        PlatformEmbedSessionEntity session = sessionMapper.selectOne(
+                Wrappers.<PlatformEmbedSessionEntity>lambdaQuery()
+                        .eq(PlatformEmbedSessionEntity::getSessionId, request.sessionId().trim())
+                        .eq(PlatformEmbedSessionEntity::getStatus, "ACTIVE")
+                        .last("LIMIT 1"));
+        if (session == null) {
+            return PageBridgeContextResolution.unresolved(
+                    "PAGE_BRIDGE_SESSION_NOT_FOUND",
+                    "Active embed session not found; open the target business page and retry");
+        }
+        if (!request.projectCode().trim().equals(session.getProjectCode())) {
+            return PageBridgeContextResolution.unresolved(
+                    "PAGE_BRIDGE_SESSION_MISMATCH",
+                    "Embed session does not belong to this Workflow project");
+        }
+        return new PageBridgeContextResolution(
+                true,
+                "PAGE_BRIDGE_CONTEXT_RESOLVED",
+                "Active Embed session resolved",
+                session.getSessionId(),
+                session.getProjectCode(),
+                session.getAgentId(),
+                session.getPageKey(),
+                session.getPageInstanceId(),
+                session.getRoute());
+    }
 
     public PageBridgeExecutionResponse execute(PageBridgeExecutionRequest request) {
         validate(request);
@@ -40,32 +83,37 @@ public class PlatformPageBridgeCommandService {
                 || !Objects.equals(session.getAgentId(), request.agentId())) {
             return failure("PAGE_BRIDGE_SESSION_MISMATCH", "Embed session project or Agent mismatch", List.of());
         }
-        long deadline = System.currentTimeMillis() + Math.max(1000, request.timeoutMs());
         List<PageBridgePhase> phases = new ArrayList<>();
         String parentRequestId = "bridge-" + UUID.randomUUID();
         boolean crossRoute = !Objects.equals(normalize(session.getPageKey()), normalize(request.targetPageKey()));
         if (crossRoute) {
+            long navigationDeadline = System.currentTimeMillis()
+                    + normalizedTimeout(request.executionTimeoutMs());
             LocalDateTime navigationStarted = LocalDateTime.now();
             PlatformPageActionEventEntity navigation = enqueue(session, parentRequestId, "NAVIGATE", NAVIGATE_ACTION,
                     request.targetPageKey(), request.targetRoute(), session.getPageInstanceId(),
                     Map.of("pageKey", request.targetPageKey(), "route", nullToEmpty(request.targetRoute())), false);
-            PlatformPageActionEventEntity completedNavigation = await(navigation, deadline);
+            PlatformPageActionEventEntity completedNavigation = await(
+                    navigation, navigationDeadline, request.executionTimeoutMs());
             phases.add(phase("NAVIGATE", completedNavigation));
             if (!"SUCCESS".equals(completedNavigation.getStatus())) {
                 return failure("PAGE_BRIDGE_NAVIGATION_FAILED", resultMessage(completedNavigation), phases);
             }
             Map<String, Object> navigationData = resultData(completedNavigation);
-            String targetInstance = text(navigationData.get("pageInstanceId"));
-            if (!StringUtils.hasText(targetInstance)) {
-                targetInstance = awaitRegisteredPageInstance(
-                        session.getSessionId(), request.targetPageKey(), navigationStarted, deadline);
-            }
+            // The public SDK completes a cross-route navigation by rebinding the
+            // session from the target page. Read the persisted session instead
+            // of trusting the navigation acknowledgement payload.
+            String targetInstance = awaitRegisteredPageInstance(
+                    session.getSessionId(), request.targetPageKey(), navigationStarted, navigationDeadline);
             if (!StringUtils.hasText(targetInstance)) {
                 return failure("PAGE_BRIDGE_TARGET_NOT_READY",
                         "Target Page Bridge did not become ready: " + request.targetPageKey(), phases);
             }
-            sessionService.updateBridge(session, request.targetPageKey(), targetInstance,
-                    firstText(text(navigationData.get("route")), request.targetRoute()));
+            // The target-page rebind already persisted the page identity and
+            // action catalog. Keep this in-memory entity aligned for the
+            // following PAGE_ACTION enqueue without overwriting its route.
+            session.setPageKey(request.targetPageKey());
+            session.setPageInstanceId(targetInstance);
             phases.add(new PageBridgePhase("TARGET_READY", null, "SUCCESS", request.targetPageKey(),
                     request.targetRoute(), targetInstance, null, navigationData));
         }
@@ -73,9 +121,23 @@ public class PlatformPageBridgeCommandService {
         PlatformPageActionEventEntity action = enqueue(session, parentRequestId, "PAGE_ACTION", request.actionKey(),
                 request.targetPageKey(), request.targetRoute(), session.getPageInstanceId(),
                 request.args() == null ? Map.of() : request.args(), request.confirmRequired());
-        PlatformPageActionEventEntity completedAction = await(action, deadline);
+        long requestedActionTimeout = request.confirmRequired()
+                ? normalizedTimeout(request.confirmationTimeoutMs())
+                : normalizedTimeout(request.executionTimeoutMs());
+        PlatformPageActionEventEntity completedAction = await(
+                action,
+                System.currentTimeMillis() + requestedActionTimeout,
+                request.executionTimeoutMs());
         phases.add(phase("PAGE_ACTION", completedAction));
         if (!"SUCCESS".equals(completedAction.getStatus())) {
+            if (isBusinessTerminalActionStatus(completedAction.getStatus())) {
+                return new PageBridgeExecutionResponse(
+                        true,
+                        PAGE_BRIDGE_BUSINESS_TERMINAL,
+                        completedAction.getStatus(),
+                        resultData(completedAction),
+                        List.copyOf(phases));
+            }
             return failure("PAGE_BRIDGE_ACTION_FAILED", resultMessage(completedAction), phases);
         }
         return new PageBridgeExecutionResponse(true, "PAGE_BRIDGE_COMPLETED", "SUCCESS",
@@ -113,10 +175,37 @@ public class PlatformPageBridgeCommandService {
         return event;
     }
 
-    private PlatformPageActionEventEntity await(PlatformPageActionEventEntity event, long deadline) {
-        while (System.currentTimeMillis() < deadline) {
+    private PlatformPageActionEventEntity await(PlatformPageActionEventEntity event,
+                                                long requestedDeadline,
+                                                int executionTimeoutMs) {
+        Long executionDeadline = null;
+        while (true) {
             PlatformPageActionEventEntity current = eventMapper.selectById(event.getId());
-            if (current != null && !"REQUESTED".equals(current.getStatus())) return current;
+            if (current == null) {
+                return event;
+            }
+            String status = current.getStatus();
+            long now = System.currentTimeMillis();
+            if (!"REQUESTED".equals(status) && !"EXECUTING".equals(status)) {
+                return current;
+            }
+            if ("REQUESTED".equals(status) && now >= requestedDeadline) {
+                if (markTimedOut(current, "REQUESTED")) {
+                    return eventMapper.selectById(current.getId());
+                }
+                continue;
+            }
+            if ("EXECUTING".equals(status)) {
+                if (executionDeadline == null) {
+                    executionDeadline = now + normalizedTimeout(executionTimeoutMs);
+                }
+                if (now >= executionDeadline) {
+                    if (markTimedOut(current, "EXECUTING")) {
+                        return eventMapper.selectById(current.getId());
+                    }
+                    continue;
+                }
+            }
             try {
                 Thread.sleep(100);
             } catch (InterruptedException ex) {
@@ -124,11 +213,41 @@ public class PlatformPageBridgeCommandService {
                 break;
             }
         }
-        event.setStatus("TIMEOUT");
-        event.setErrorMessage("Page Bridge command timed out");
-        event.setCompletedAt(LocalDateTime.now());
-        eventMapper.updateById(event);
-        return event;
+        PlatformPageActionEventEntity current = eventMapper.selectById(event.getId());
+        if (current == null) {
+            return event;
+        }
+        if ("REQUESTED".equals(current.getStatus()) || "EXECUTING".equals(current.getStatus())) {
+            markTimedOut(current, current.getStatus());
+            PlatformPageActionEventEntity refreshed = eventMapper.selectById(current.getId());
+            return refreshed == null ? current : refreshed;
+        }
+        return current;
+    }
+
+    private boolean markTimedOut(PlatformPageActionEventEntity event, String expectedStatus) {
+        return eventMapper.update(
+                null,
+                new UpdateWrapper<PlatformPageActionEventEntity>()
+                        .eq("id", event.getId())
+                        .eq("status", expectedStatus)
+                        .set("status", "TIMEOUT")
+                        .set("error_message", timeoutMessage(event, expectedStatus))
+                        .set("completed_at", LocalDateTime.now())) == 1;
+    }
+
+    private String timeoutMessage(PlatformPageActionEventEntity event, String expectedStatus) {
+        if ("REQUESTED".equals(expectedStatus) && Boolean.TRUE.equals(event.getConfirmRequired())) {
+            return "Page action confirmation timed out before execution; no business action was started";
+        }
+        if ("REQUESTED".equals(expectedStatus)) {
+            return "Page Bridge command was not claimed before its wait timeout";
+        }
+        return "Page Bridge action execution timed out after it was claimed";
+    }
+
+    private long normalizedTimeout(int timeoutMs) {
+        return Math.max(1_000L, timeoutMs);
     }
 
     private String awaitRegisteredPageInstance(String sessionId,
@@ -166,7 +285,11 @@ public class PlatformPageBridgeCommandService {
     }
 
     private String resultMessage(PlatformPageActionEventEntity event) {
-        return firstText(event.getErrorMessage(), text(resultData(event).get("error")), event.getStatus());
+        return firstText(
+                event.getErrorMessage(),
+                text(resultData(event).get("error")),
+                text(resultData(event).get("message")),
+                event.getStatus());
     }
 
     @SuppressWarnings("unchecked")
@@ -175,10 +298,31 @@ public class PlatformPageBridgeCommandService {
         try {
             Map<String, Object> root = objectMapper.readValue(event.getResultJson(), new TypeReference<>() {});
             Object data = root.get("data");
-            return data instanceof Map<?, ?> map ? (Map<String, Object>) map : root;
+            if (!(data instanceof Map<?, ?> map)) {
+                return root;
+            }
+            Map<String, Object> result = new LinkedHashMap<>((Map<String, Object>) map);
+            String message = text(root.get("message"));
+            if (StringUtils.hasText(message) && !result.containsKey("message")) {
+                result.put("message", message);
+            }
+            if (Boolean.TRUE.equals(root.get("userConfirmed"))) {
+                result.put("userConfirmed", true);
+            }
+            return result;
         } catch (Exception ex) {
             return Map.of("raw", event.getResultJson());
         }
+    }
+
+    private boolean isBusinessTerminalActionStatus(String status) {
+        if (!StringUtils.hasText(status)) {
+            return false;
+        }
+        return switch (status.trim().toUpperCase()) {
+            case "NO_DATA", "PRECONDITION_FAILED", "USER_CANCELLED", "CANCELLED" -> true;
+            default -> false;
+        };
     }
 
     private void validate(PageBridgeExecutionRequest request) {
@@ -209,9 +353,28 @@ public class PlatformPageBridgeCommandService {
                                              String targetPageKey,
                                              String targetRoute,
                                              String actionKey,
-                                             Map<String, Object> args,
-                                             boolean confirmRequired,
-                                             int timeoutMs) {
+                                              Map<String, Object> args,
+                                              boolean confirmRequired,
+                                              int confirmationTimeoutMs,
+                                              int executionTimeoutMs) {
+    }
+
+    public record PageBridgeContextResolutionRequest(String sessionId, String projectCode) {
+    }
+
+    public record PageBridgeContextResolution(boolean resolved,
+                                              String code,
+                                              String message,
+                                              String sessionId,
+                                              String projectCode,
+                                              String agentId,
+                                              String currentPageKey,
+                                              String pageInstanceId,
+                                              String route) {
+        static PageBridgeContextResolution unresolved(String code, String message) {
+            return new PageBridgeContextResolution(false, code, message,
+                    null, null, null, null, null, null);
+        }
     }
 
     public record PageBridgeExecutionResponse(boolean success,

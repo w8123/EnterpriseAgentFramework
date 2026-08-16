@@ -10,6 +10,7 @@ import java.io.BufferedReader;
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -91,6 +92,31 @@ class OpenAiCompatibleRuntimeClientTest {
     }
 
     @Test
+    void finishReasonStopsReadLoopWithoutWaitingForDoneOrConnectionClose() throws Exception {
+        AtomicInteger readCount = new AtomicInteger();
+        BufferedReader reader = new BufferedReader(new StringReader("")) {
+            @Override
+            public String readLine() {
+                if (readCount.getAndIncrement() == 0) {
+                    return "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}";
+                }
+                throw new AssertionError("finish_reason must terminate the SSE read loop");
+            }
+        };
+        List<ModelStreamEvent> events = new ArrayList<>();
+
+        OpenAiCompatibleRuntimeClient.SseTerminal terminal = OpenAiCompatibleRuntimeClient.drainOpenAiSse(
+                reader,
+                objectMapper,
+                events::add);
+
+        assertEquals(1, readCount.get());
+        assertTrue(terminal.hasFinishReason());
+        assertEquals("stop", terminal.finishReason());
+        assertEquals(List.of(ModelStreamEvent.CONTENT_DELTA), events.stream().map(ModelStreamEvent::getType).toList());
+    }
+
+    @Test
     void normalDone_emitsCompletedOnce() throws Exception {
         String sse = ""
                 + "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n"
@@ -104,7 +130,10 @@ class OpenAiCompatibleRuntimeClientTest {
                 ModelStreamEvent.COMPLETED), capture.types);
         assertEquals(1, capture.types.stream().filter(ModelStreamEvent.COMPLETED::equals).count());
         assertFalse(capture.types.contains(ModelStreamEvent.ERROR));
-        assertTrue(capture.terminal.receivedDone());
+        // A non-empty finish_reason is terminal on its own. The reader must not
+        // wait for a following [DONE], because some compatible providers keep
+        // that connection open after the terminal chunk.
+        assertFalse(capture.terminal.receivedDone());
         assertTrue(capture.terminal.hasFinishReason());
     }
 

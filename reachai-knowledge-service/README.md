@@ -54,7 +54,14 @@ Paths below are relative to the `/ai` context path:
 | `POST /embedding/vectorize` | Generate embedding vectors. |
 | `POST /scanner/openapi` | Scan an OpenAPI document into tool manifests. |
 | `POST /scanner/controller` | Scan Spring MVC Controller source into tool manifests. |
-| `/biz-index/**` | Manage and search business indexes. |
+| `/internal/knowledge/console/biz-index/**` | Control-signed console management/search target; never browser-callable. |
+| `/internal/knowledge/project-ingress/projects/{projectCode}/biz-index/**` | Capability-verified project sync target; enforces index `projectCode` ownership. |
+
+业务索引的浏览器主入口是 Control 的 `/api/knowledge/biz-index/**`，要求平台
+session，并按读写操作分别要求 `platform:read` / `platform:write`。业务系统自动
+同步使用 `/api/knowledge-ingress/projects/{projectCode}/biz-index/**` 和
+`REACHAI_PROJECT_REQUEST_V1` body-bound 项目签名。历史匿名
+`/ai/biz-index/**` 已退役；Bearer Token 直接发给 Knowledge 不构成授权。
 
 Specific request and response contracts should follow the current controller DTOs and frontend API usage.
 

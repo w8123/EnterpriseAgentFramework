@@ -6,6 +6,7 @@ import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService.EmbedC
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -25,11 +26,6 @@ public class PageWorkbenchBrowserReadinessApplicationService {
             String projectCode,
             String pageKey,
             LocalDateTime observedAfter) {
-        EmbedConversationEvidence observed =
-                embedEvidence.latestSuccessfulConversation(
-                        projectCode,
-                        pageKey,
-                        observedAfter);
         ObjectNode evidence = objectMapper.createObjectNode();
         evidence.put("source", "reachai-control-service");
         evidence.put("observationType", "EMBED_PAGE_CONVERSATION");
@@ -37,6 +33,22 @@ public class PageWorkbenchBrowserReadinessApplicationService {
         evidence.put("pageKey", pageKey);
         if (observedAfter != null) {
             evidence.put("observedAfter", observedAfter.toString());
+        }
+        EmbedConversationEvidence observed;
+        try {
+            observed = embedEvidence.latestSuccessfulConversation(
+                    projectCode,
+                    pageKey,
+                    observedAfter);
+        } catch (DataAccessException ex) {
+            evidence.put("dependency", "reachai-control-database");
+            evidence.put("reason", "DATA_ACCESS_UNAVAILABLE");
+            return new ReadinessItem(
+                    KEY,
+                    LABEL,
+                    "PENDING",
+                    "ReachAI 会话证据暂时不可用，尚未完成业务页面浏览器链路校验。请恢复平台数据库连接后重新验证。",
+                    evidence);
         }
         if (StringUtils.hasText(observed.evidence())) {
             evidence.put("summary", observed.evidence());

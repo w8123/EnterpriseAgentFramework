@@ -56,9 +56,12 @@ class AiCodingHandoffPromptFactoryTest {
         assertTrue(prompt.contains(
                 "必要时使用“中文名称（英文术语）”"));
         assertTrue(prompt.contains("`READY` / `RUNNING`：写回 `STARTED`"));
-        assertTrue(prompt.contains("全部回答后才写回 `RESUMED`"));
+        assertTrue(prompt.contains("状态仍保持 `WAITING_USER`"));
+        assertTrue(prompt.contains("全部问题已回答且客户端确实读取后才写回 `RESUMED`"));
         assertTrue(prompt.contains("`RESULT_APPLIED`：不要写 `STARTED`"));
         assertTrue(prompt.contains("artifactIdempotencyPolicy"));
+        assertTrue(prompt.contains("requiredResources"));
+        assertTrue(prompt.contains("requiredBeforeEditing=true"));
         assertTrue(prompt.contains("至少每 2 分钟调用 `Send-ReachAiHeartbeat`"));
         assertTrue(prompt.contains("Send-ReachAiArtifact"));
         assertTrue(prompt.contains("ait_orders.restore.ps1"));
@@ -108,6 +111,23 @@ class AiCodingHandoffPromptFactoryTest {
         assertTrue(restoreScript.contains("Send-ReachAiQuestion"));
         assertTrue(restoreScript.contains("Get-ReachAiQuestions"));
         assertTrue(restoreScript.contains("Send-ReachAiArtifact"));
+        assertTrue(restoreScript.contains("Test-ReachAiArtifact"));
+        assertTrue(restoreScript.contains("referencedSchemas"));
+        assertTrue(restoreScript.contains(
+                "$schema = $reachAiContext.artifactContract.jsonSchema"));
+        assertTrue(restoreScript.contains(
+                "Assert-ReachAiArtifactSchema -Value $Content"));
+        assertTrue(restoreScript.contains(
+                "$types = [System.Collections.Generic.List[string]]::new()"));
+        assertTrue(restoreScript.contains(
+                "$items = [System.Collections.Generic.List[object]]::new()"));
+        assertFalse(restoreScript.contains("foreach ($option in @($anyOf))"));
+        assertFalse(restoreScript.contains("foreach ($name in @($required))"));
+        assertFalse(restoreScript.contains("$items = @($Value)"));
+        assertFalse(restoreScript.contains("System.Web.Extensions"));
+        assertFalse(restoreScript.contains("JavaScriptSerializer"));
+        assertTrue(restoreScript.contains("uniqueItems"));
+        assertTrue(restoreScript.contains("System.Text.RegularExpressions.Regex"));
         assertTrue(restoreScript.contains("reachai.ai-coding.event.v1"));
         assertTrue(restoreScript.contains("application/json; charset=utf-8"));
         assertEquals(1, count(restoreScript, "$reachAiSession = Import-ReachAiTaskSession"));

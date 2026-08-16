@@ -113,6 +113,7 @@ class SupervisorCancellationTest {
         return new AgentScopeSupervisorRuntimeAdapter(
                 modelClient,
                 null,
+                null,
                 mock(RuntimeWorkflowDefinitionMapper.class),
                 mock(RuntimeWorkflowVersionMapper.class),
                 mock(RuntimeGraphSpecExecutor.class),

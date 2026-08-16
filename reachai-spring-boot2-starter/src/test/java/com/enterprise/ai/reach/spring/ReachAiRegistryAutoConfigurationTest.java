@@ -5,6 +5,7 @@ import com.enterprise.ai.reach.sdk.annotation.ReachParam;
 import com.enterprise.ai.reach.sdk.capability.ReachCapabilityDescriptor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,11 +15,14 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReachAiRegistryAutoConfigurationTest {
 
@@ -57,6 +61,38 @@ class ReachAiRegistryAutoConfigurationTest {
             assertNotNull(context.getBean(TaskScheduler.class));
             assertNotNull(context.getBean(ReachAiRegistryHeartbeatScheduler.class));
         });
+    }
+
+    @Test
+    void publishesSpringBoot3AutoConfigurationImports() {
+        String resource = "META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports";
+        try (InputStream input = getClass().getClassLoader().getResourceAsStream(resource)) {
+            assertNotNull(input, "Spring Boot 3 auto-configuration imports must be packaged");
+            try (Scanner scanner = new Scanner(input, "UTF-8").useDelimiter("\\A")) {
+                String imports = scanner.hasNext() ? scanner.next() : "";
+                assertTrue(imports.contains(ReachAiRegistryAutoConfiguration.class.getName()));
+            }
+        } catch (Exception ex) {
+            throw new AssertionError("Unable to read Spring Boot 3 auto-configuration imports", ex);
+        }
+    }
+
+    @Test
+    void discoversAutoConfigurationThroughBootMetadata() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(AutoConfigurationProbe.class)
+                .withBean(ReachAiRegistryTransport.class, NoopTransport::new)
+                .withBean(ContractCapability.class)
+                .withPropertyValues(
+                        "reachai.registry.url=https://reachai.example.com",
+                        "reachai.registry.app-key=demo-key",
+                        "reachai.registry.app-secret=demo-secret",
+                        "reachai.project.code=demo")
+                .run(context -> {
+                    assertNotNull(context.getBean(ReachAiRegistryProperties.class));
+                    assertNotNull(context.getBean(ReachAiRegistryClient.class));
+                    assertNotNull(context.getBean(ReachCapabilityBeanScanner.class));
+                });
     }
 
     @Test
@@ -148,6 +184,11 @@ class ReachAiRegistryAutoConfigurationTest {
         public String exchange(String method, String url, Map<String, String> headers, Object body) {
             return "{}";
         }
+    }
+
+    @Configuration
+    @EnableAutoConfiguration
+    static class AutoConfigurationProbe {
     }
 
     @Configuration

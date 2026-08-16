@@ -68,6 +68,7 @@ class InternalAgentStreamAuthMockMvcTest {
                 .andExpect(status().isUnauthorized());
         verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any());
         verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -93,12 +94,13 @@ class InternalAgentStreamAuthMockMvcTest {
                 .andExpect(status().isUnauthorized());
         verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any());
         verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any());
     }
 
     @Test
     void signedInternalStreamDeliversTrustedIdentityToExecute() throws Exception {
         AtomicReference<WorkflowExecutionIdentity> captured = new AtomicReference<>();
-        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any())).thenAnswer(inv -> {
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
             captured.set(inv.getArgument(4));
             return Map.of("success", true, "answer", "stream-ok", "sessionId", "s1");
         });
@@ -133,7 +135,7 @@ class InternalAgentStreamAuthMockMvcTest {
     void signedInternalStreamPassesControlTimingAfterAuth() throws Exception {
         AtomicReference<TrustedControlTiming> capturedTiming = new AtomicReference<>();
         AtomicReference<Map<String, Object>> capturedBody = new AtomicReference<>();
-        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any())).thenAnswer(inv -> {
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
             capturedBody.set(inv.getArgument(0));
             capturedTiming.set(inv.getArgument(5));
             return Map.of("success", true, "answer", "stream-ok", "sessionId", "s1",
@@ -178,7 +180,7 @@ class InternalAgentStreamAuthMockMvcTest {
                 "interactionId", "approval-1",
                 "component", "confirm",
                 "message", "请确认停用班组3");
-        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any())).thenReturn(Map.of(
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any())).thenReturn(Map.of(
                 "success", false,
                 "answer", "请确认是否停用班组3",
                 "sessionId", "s-approval",
@@ -229,6 +231,7 @@ class InternalAgentStreamAuthMockMvcTest {
                 .andExpect(status().isUnauthorized());
         verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
         verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any());
     }
 
     private Map<String, String> sign(String source, String userId, long timestamp, String nonce, byte[] body) {

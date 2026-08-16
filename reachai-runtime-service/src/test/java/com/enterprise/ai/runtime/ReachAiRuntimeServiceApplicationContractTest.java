@@ -28,6 +28,7 @@ class ReachAiRuntimeServiceApplicationContractTest {
                 "com.enterprise.ai.runtime.debug",
                 "com.enterprise.ai.runtime.execution",
                 "com.enterprise.ai.runtime.interaction",
+                "com.enterprise.ai.runtime.memory",
                 "com.enterprise.ai.runtime.eval",
                 "com.enterprise.ai.runtime.runops",
                 "com.enterprise.ai.runtime.trace",

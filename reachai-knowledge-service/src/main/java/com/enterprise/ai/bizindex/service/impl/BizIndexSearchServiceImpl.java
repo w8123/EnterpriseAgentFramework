@@ -9,6 +9,7 @@ import com.enterprise.ai.bizindex.domain.entity.BusinessIndexRecord;
 import com.enterprise.ai.bizindex.repository.BusinessIndexRecordRepository;
 import com.enterprise.ai.bizindex.repository.BusinessIndexRepository;
 import com.enterprise.ai.bizindex.service.BizIndexSearchService;
+import com.enterprise.ai.bizindex.service.BusinessMemoryIndexPolicy;
 import com.enterprise.ai.bizindex.vector.BizVectorService;
 import com.enterprise.ai.embedding.EmbeddingService;
 import com.enterprise.ai.vector.VectorSearchRequest;
@@ -97,7 +98,7 @@ public class BizIndexSearchServiceImpl implements BizIndexSearchService {
         if (items.size() > topK) {
             items = items.subList(0, topK);
         }
-        enrichMetadata(indexCode, items);
+        enrichMetadata(index, items);
 
         long costMs = System.currentTimeMillis() - startTime;
 
@@ -150,13 +151,13 @@ public class BizIndexSearchServiceImpl implements BizIndexSearchService {
     }
 
     /** 从 MySQL 补充 metadata 到搜索结果 */
-    private void enrichMetadata(String indexCode, List<BizSearchItem> items) {
+    private void enrichMetadata(BusinessIndex index, List<BizSearchItem> items) {
         if (items.isEmpty()) return;
 
         List<String> bizIds = items.stream().map(BizSearchItem::getBizId).toList();
         List<BusinessIndexRecord> records = recordRepository.selectList(
                 new LambdaQueryWrapper<BusinessIndexRecord>()
-                        .eq(BusinessIndexRecord::getIndexCode, indexCode)
+                        .eq(BusinessIndexRecord::getIndexCode, index.getIndexCode())
                         .in(BusinessIndexRecord::getBizId, bizIds)
                         .eq(BusinessIndexRecord::getStatus, "ACTIVE"));
 
@@ -166,12 +167,20 @@ public class BizIndexSearchServiceImpl implements BizIndexSearchService {
         }
 
         for (BizSearchItem item : items) {
+            item.setAuthoritative(false);
             BusinessIndexRecord record = recordMap.get(item.getBizId());
-            if (record != null && record.getMetadataJson() != null) {
-                item.setMetadata(parseMetadata(record.getMetadataJson()));
+            if (record != null) {
+                if (record.getMetadataJson() != null) {
+                    item.setMetadata(parseMetadata(record.getMetadataJson()));
+                }
                 if (item.getBizType() == null || item.getBizType().isBlank()) {
                     item.setBizType(record.getBizType());
                 }
+                BusinessMemoryIndexPolicy.reference(index, record).ifPresent(reference -> {
+                    item.setBusinessMemoryReference(reference);
+                    item.setAgentMemoryEligible(true);
+                    item.setHydrationRequired(true);
+                });
             }
         }
     }

@@ -109,6 +109,7 @@ export function pageWorkbenchReadinessStatusLabel(status?: string) {
       PENDING: '待确认',
       FAIL: '未通过',
       WARN: '需注意',
+      NOT_REQUIRED: '无需验收',
     }[status || ''] || '待确认'
   )
 }

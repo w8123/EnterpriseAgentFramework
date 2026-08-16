@@ -54,35 +54,30 @@ class ControlAiAssistArtifactControllerTest {
 
     @Test
     void servesJavaSdkJarPomAndMatchingHashes() throws Exception {
-        String artifactId = ControlJavaSdkArtifactSupport.CAPABILITY_SDK;
-        String version = ControlJavaSdkArtifactSupport.VERSION;
+        for (String artifactId : java.util.List.of(
+                ControlJavaSdkArtifactSupport.CAPABILITY_SDK,
+                ControlJavaSdkArtifactSupport.SPRING_BOOT2_STARTER)) {
+            String version = ControlJavaSdkArtifactSupport.VERSION;
 
-        ResponseEntity<byte[]> jar = controller.downloadJavaSdkJar(
-                artifactId,
-                version);
-        ResponseEntity<byte[]> pom = controller.downloadJavaSdkPom(
-                artifactId,
-                version);
-        ResponseEntity<byte[]> jarHash = controller.downloadJavaSdkJarSha256(
-                artifactId,
-                version);
-        ResponseEntity<byte[]> pomHash = controller.downloadJavaSdkPomSha256(
-                artifactId,
-                version);
+            ResponseEntity<byte[]> jar = controller.downloadJavaSdkJar(artifactId, version);
+            ResponseEntity<byte[]> pom = controller.downloadJavaSdkPom(artifactId, version);
+            ResponseEntity<byte[]> jarHash = controller.downloadJavaSdkJarSha256(artifactId, version);
+            ResponseEntity<byte[]> pomHash = controller.downloadJavaSdkPomSha256(artifactId, version);
 
-        assertEquals(200, jar.getStatusCode().value());
-        assertEquals(200, pom.getStatusCode().value());
-        assertTrue(jar.getBody().length > 100);
-        assertTrue(new String(pom.getBody()).contains("<artifactId>" + artifactId));
-        assertEquals(
-                new String(jarHash.getBody()).trim(),
-                HexFormat.of().formatHex(
-                        MessageDigest.getInstance("SHA-256")
-                                .digest(jar.getBody())));
-        assertEquals(
-                new String(pomHash.getBody()).trim(),
-                HexFormat.of().formatHex(
-                        MessageDigest.getInstance("SHA-256")
-                                .digest(pom.getBody())));
+            assertEquals(200, jar.getStatusCode().value());
+            assertEquals(200, pom.getStatusCode().value());
+            assertTrue(jar.getBody().length > 100);
+            assertTrue(new String(pom.getBody()).contains("<artifactId>" + artifactId));
+            assertEquals(
+                    new String(jarHash.getBody()).trim(),
+                    HexFormat.of().formatHex(
+                            MessageDigest.getInstance("SHA-256")
+                                    .digest(jar.getBody())));
+            assertEquals(
+                    new String(pomHash.getBody()).trim(),
+                    HexFormat.of().formatHex(
+                            MessageDigest.getInstance("SHA-256")
+                                    .digest(pom.getBody())));
+        }
     }
 }

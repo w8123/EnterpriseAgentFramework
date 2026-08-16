@@ -53,6 +53,10 @@ const forbiddenMainlineText = [
   'migrate it into reachai-'
 ]
 
+const sharedContractPrefixes = [
+  'com.enterprise.ai.runtime.contract'
+]
+
 function relPath(abs) {
   return path.relative(root, abs).replace(/\\/g, '/')
 }
@@ -110,6 +114,9 @@ for (const rel of retiredSourceRoots) {
 const serviceByName = new Map(services.map((service) => [service.name, service]))
 
 function owningServiceOfImport(importName) {
+  if (startsWithAny(importName, sharedContractPrefixes)) {
+    return null
+  }
   for (const service of services) {
     if (service.name === 'knowledge') {
       continue

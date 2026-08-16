@@ -156,6 +156,36 @@ class ReachAiRegistryHeartbeatSchedulerTest {
             this.fixedDelay = delay;
             return new DoneScheduledFuture();
         }
+
+        // Spring Framework 6 / Spring Boot 3 TaskScheduler overloads. Keep these
+        // without @Override so the same Java 8 test source also compiles on Spring 5.3.
+        public ScheduledFuture<?> schedule(Runnable task, java.time.Instant startTime) {
+            throw new UnsupportedOperationException();
+        }
+
+        public ScheduledFuture<?> scheduleAtFixedRate(
+                Runnable task,
+                java.time.Instant startTime,
+                java.time.Duration period) {
+            throw new UnsupportedOperationException();
+        }
+
+        public ScheduledFuture<?> scheduleAtFixedRate(Runnable task, java.time.Duration period) {
+            throw new UnsupportedOperationException();
+        }
+
+        public ScheduledFuture<?> scheduleWithFixedDelay(
+                Runnable task,
+                java.time.Instant startTime,
+                java.time.Duration delay) {
+            throw new UnsupportedOperationException();
+        }
+
+        public ScheduledFuture<?> scheduleWithFixedDelay(Runnable task, java.time.Duration delay) {
+            this.lastTask = task;
+            this.fixedDelay = delay.toMillis();
+            return new DoneScheduledFuture();
+        }
     }
 
     private static class DoneScheduledFuture implements ScheduledFuture<Object> {

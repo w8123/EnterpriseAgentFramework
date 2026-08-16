@@ -20,6 +20,24 @@
 mysql -uroot -p < sql/initV2.sql
 ```
 
+全新本地库直接执行 `initV2.sql`。已有开发库需要补 Agent Memory 增量结构时，可以使用仓库 runner；它读取各服务已经使用的 `AI_MYSQL_URL`、`AI_MYSQL_USER` 和 `AI_MYSQL_PASSWORD`，不会改写 JDBC 的 SSL 配置：
+
+```powershell
+# 查看顺序和 checksum，不连接数据库
+node scripts/apply-memory-migrations.mjs
+
+# 连接并只读检查目标库、版本、字符集和基础表
+node scripts/apply-memory-migrations.mjs --preflight
+
+# 本机开发库
+node scripts/apply-memory-migrations.mjs --execute --confirm=reach_ai
+
+# 已明确授权的远程开发库
+node scripts/apply-memory-migrations.mjs --execute --confirm=reach_ai --allow-remote
+```
+
+执行器只允许目标库名为 `reach_ai`，不会输出连接地址和凭据；每份脚本执行后会做结构回查，并立即执行第二遍验证幂等性。需要留存 JSON 结果时，可额外传入 `--evidence=<absolute-new-file>`。证书链、CA 和 `VERIFY_IDENTITY` 不是本地运行或开发库迁移的前置条件，由部署者按自己的网络环境选择。
+
 脚本按 `reach_ai` 数据库执行，并保持幂等：
 
 1. 建库：`CREATE DATABASE IF NOT EXISTS reach_ai`。
@@ -42,6 +60,10 @@ mysql -uroot -p < sql/initV2.sql
 - 知识库、文件、chunk、权限、知识标签、问题、命中日志。
 - 业务语义索引及附件。
 - Context Governance 相关表。
+- Runtime 企业会话状态目录、完整会话事件账本、租户保留策略和无正文生命周期审计：`runtime_conversation_session`、`runtime_conversation_event`、`runtime_session_retention_policy`、`runtime_session_retention_audit`；AgentScope 状态正文仍由 JSON（开发）或 Redis（生产）保存。
+- Runtime 上下文工程短期工件：`runtime_tool_result_artifact` 只保存作用域摘要与 AES-GCM 密文，过期或清空会话后擦除，不作为个人长期记忆。
+- 个人长期记忆使用 Control canonical context 表；`control_context_memory_outbox` 将变更可靠投影到 Knowledge-owned `knowledge_personal_memory_index` 和幂等事件账本。Knowledge 可异步生成版本化 float32 embedding，并在 owner 配额边界内执行精确向量/混合排序；该投影仍不是事实源。
+- 企业擦除使用 Control-owned `control_memory_erasure_request` / `control_memory_erasure_domain` 持久协调九个责任域。五个自动域完成后擦除 raw Runtime user，四个人工域必须提交外部证据；Legal Hold 和 `RETAINED_LEGAL` 保持显式，不能把部分成功报告为全部删除。
 
 ## 升级规则
 
@@ -54,6 +76,141 @@ mysql -uroot -p < sql/initV2.sql
 根目录 `sql/` 保留 `initV2.sql`、本说明和当前仍需应用的 `upgrade-*.sql`。后续真实数据库变更仍需新增当次 upgrade 脚本；该脚本在确认已合入基线且开发/测试库不再需要单独执行后，可以按同样规则清理。
 
 不再执行或新增任何历史 service-level SQL 目录。不要在各服务目录下恢复独立迁移入口；当前唯一入口仍是根目录 `sql/`。
+
+## Upgrade: 20260815 跨域 Agent 记忆擦除编排
+
+已有开发、测试或生产库在启用跨域擦除 worker 前执行：
+
+```bash
+mysql --defaults-extra-file="$MYSQL_CLIENT_CONFIG" < sql/upgrade-20260815-cross-domain-memory-erasure.sql
+```
+
+该命令只表示使用受控 client 配置执行，实际必须由目标环境批准的远程迁移 runner 和密钥注入机制提供 `MYSQL_CLIENT_CONFIG`，不得回退到本机数据库。此前须依次完成个人记忆候选/outbox、outbox 脱敏、语义投影、Runtime session retention 与 Knowledge enterprise ingress 升级；跨域脚本最后执行。脚本为 `control_context_memory_outbox` 增加可空 `correlation_id` 及索引，创建 Control-owned 请求/逐域证据表，并给 `PLATFORM_ADMIN` 补充独立 `context:memory:erasure:manage` 权限。脚本不会删除用户数据、发起擦除、释放 Legal Hold、调用服务或启用 worker；大 outbox 表在 MySQL 5.7 增列/建索引时仍需按实际表量安排 DDL 窗口。部署和内部链路验收前保持 `REACHAI_MEMORY_ERASURE_WORKER_ENABLED=false`。当前远程开发库未执行该脚本。
+
+## Upgrade: 20260813 Runtime 企业会话记忆
+
+已有开发、测试或生产库在部署新版 Runtime 服务前执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260813-runtime-session-memory.sql
+```
+
+影响：新增 Runtime-owned 的会话所有权/策略目录和完整消息事件账本，不修改既有对话或 RunOps 数据。生产 profile 启动时要求 `RUNTIME_SESSION_MEMORY_STATE_STORE=redis`，并配置 `RUNTIME_SESSION_MEMORY_REDIS_URI`；开发默认使用 JSON 文件。只有 Control HMAC 认证过的用户身份可写持久会话，直连 Runtime、匿名和 Debug 调用保持 turn-local。脚本不自动执行。
+
+## Upgrade: 20260813 Runtime 上下文工程
+
+已有开发、测试或生产库仅在准备启用大 Tool 结果卸载时执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260813-runtime-context-engineering.sql
+```
+
+该脚本只新增 Runtime-owned 的 `runtime_tool_result_artifact`，不修改或回填会话、Workflow、Trace 与个人长期记忆数据，也不会自动打开功能。部署后先配置至少 32 字符的 `REACHAI_RUNTIME_CONTEXT_ARTIFACT_SECRET`，再按 canary 顺序启用 `RUNTIME_CONTEXT_ENGINEERING_ENABLED=true` 与 `RUNTIME_TOOL_RESULT_OFFLOAD_ENABLED=true`。表内不保存原始用户 ID 或明文 Tool 结果；读取同时校验当前 AgentScope 用户/会话状态槽，默认 24 小时后擦除密文。上下文压缩与一次性溢出恢复不依赖该表，可先单独灰度。
+
+## Upgrade: 20260814 Runtime 会话事件 turn 幂等修复
+
+如果 `runtime_conversation_event` 已由更早的开发脚本创建、但缺少 `turn_id`，请在 20260813 Runtime 会话记忆升级之后执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260814-runtime-conversation-turn-id.sql
+```
+
+该脚本保留全部既有事件，为缺失值回填不可冲突的 `legacy-<event-id>`，再把 `turn_id` 收紧为非空并补齐 `(conversation_session_id, turn_id, role)` 唯一索引。脚本可重复执行，不删除或重写消息正文；如果目标表尚不存在或同名索引结构不兼容，会明确失败而不是猜测修复。
+
+## Upgrade: 20260815 Runtime 会话保留、Legal Hold 与擦除
+
+已有环境在部署包含会话保留代码的新版 Runtime / Control 服务前，通过目标环境既有的远程 MySQL 连接和凭据流程执行：
+
+```bash
+mysql --defaults-extra-file="$MYSQL_CLIENT_CONFIG" < sql/upgrade-20260815-runtime-session-retention.sql
+```
+
+前置顺序是 `upgrade-20260813-runtime-session-memory.sql`、`upgrade-20260814-runtime-conversation-turn-id.sql`，最后才是本脚本。本脚本幂等增加 Legal Hold、生命周期租约和保留查询索引，创建 Runtime-owned 的租户策略/无正文审计表，并补齐 `runtime:session:retention:manage` 权限；脚本自身不扫描、清除或删除任何会话内容，也不会自动执行。
+
+自动保留任务默认关闭。上线顺序必须是：备份及恢复流程确认、执行并回读迁移、部署 Runtime/Control、配置每个目标租户策略和既有 Legal Hold、以只读查询核对预计命中范围，最后才在 canary Runtime 设置 `RUNTIME_SESSION_RETENTION_ENABLED=true`。启用后，任务会按有界批次物理删除到期的会话事件、AgentState 和 Tool artifact，并删除会话目录行；这一步不可通过关闭开关恢复。`runtime_session_retention_audit` 只保留哈希标识和机器元数据，不保存会话正文。
+
+该能力只治理 Runtime 会话域。它不会删除 Control 个人长期记忆、候选/outbox，Knowledge 投影或业务索引，RunOps/Trace/Interaction 账本、业务系统主数据以及数据库/Redis/磁盘备份；这些数据域必须分别制定保留、Legal Hold、擦除和备份到期策略。
+
+## Upgrade: 20260813 个人长期记忆候选与搜索投影
+
+已有开发、测试或生产库在部署新版 Control / Knowledge 服务前执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260813-personal-memory-candidates.sql
+```
+
+该升级会为 runtime-user mapping 增加“每个 tenant/platform user 仅一个 ACTIVE owner”的唯一槽位。如果已有重复 ACTIVE 映射，先保留正确的一条、将其余记录置为 `DELETED`，再执行或重试升级；脚本不会替你猜测哪个 owner 正确。
+
+影响：为私有 RUNTIME_USER candidate 增加去重、语义冲突、观察次数和提取版本字段；新增 Control transactional outbox、Knowledge-owned 可重建搜索投影和消费幂等账本，并幂等补齐 runtime-user mapping 变更所需的非秘密平台审计表。变更是 additive，不自动执行，不回填历史 candidate，也不自动重建已有个人记忆投影。启用 `REACHAI_PERSONAL_MEMORY_KNOWLEDGE_QUERY_ENABLED=true` 前，必须配置稳定的 `REACHAI_PERSONAL_MEMORY_INDEX_IDENTITY_SECRET`、确认 outbox 无 backlog，并完成所需的全量投影重建；否则保持默认 false，Control 使用 canonical bounded retrieval。
+
+## Upgrade: 20260815 个人长期记忆语义投影
+
+已有环境在部署支持在线语义召回的 Knowledge 服务前，先执行 `upgrade-20260813-personal-memory-candidates.sql`，再执行：
+
+```bash
+mysql --defaults-extra-file="$MYSQL_CLIENT_CONFIG" < sql/upgrade-20260815-personal-memory-semantic-projection.sql
+```
+
+该脚本为 Knowledge-owned `knowledge_personal_memory_index` 幂等增加可重建 float32 embedding、模型/源版本、异步状态、重试和 CAS 租约字段及调度索引。首次补列时既有 ACTIVE 行使用 `DISABLED` 默认值；切换到语义模式后 worker 会把这些行纳入有界重建。非 ACTIVE tombstone 会清空全部向量与任务字段并标记 `DELETED`。重复执行不会把已经 `READY` 的向量重置，也不会调用模型、启动重建或修改 Control canonical 记忆。
+
+## Upgrade: 20260815 个人记忆 outbox 错误脱敏
+
+已有环境部署新版 Control 前，在 `upgrade-20260813-personal-memory-candidates.sql` 之后执行：
+
+```bash
+mysql --defaults-extra-file="$MYSQL_CLIENT_CONFIG" < sql/upgrade-20260815-personal-memory-outbox-redaction.sql
+```
+
+脚本将历史 personal-memory outbox 的异常文本擦除：DEAD 行仅保留 `PUBLISH_LEGACY_REDACTED`，其他状态清空旧错误；已 PUBLISHED 的正文 payload 替换为只含 sourceVersion/eventType 的投递 receipt。新版 Control 在成功投递的同一次条件更新中执行相同 payload 擦除，并且只写最长 64 字符机器码；canonical 删除/到期时，历史 payload 会被原子替换为无身份擦除收据，旧 PENDING/PUBLISHING/DEAD 转成不可重试的 `SUPERSEDED`，再写入更高版本 DELETE tombstone。数据库保留兼容列宽，避免 MySQL 5.7 缩列导致表重建、长锁和滚动发布竞态。脚本不修改 schema、投递状态、重试次数、canonical 记忆或 Knowledge 投影，可重复执行。
+
+部署后默认仍为 `LEXICAL`。只有确认 Model Center embedding 实例、Model Gateway 连通性、静态加密和告警后，才在 Knowledge canary 配置 `REACHAI_PERSONAL_MEMORY_KNOWLEDGE_SEARCH_MODE=HYBRID` 与 `REACHAI_PERSONAL_MEMORY_EMBEDDING_MODEL_INSTANCE_ID`；Control 继续保持 `REACHAI_PERSONAL_MEMORY_KNOWLEDGE_QUERY_MODE=SHADOW`，直到真实脱敏样本准入通过。脚本不会自动执行，当前也未在远程开发库执行。
+
+## Upgrade: 20260814 业务记忆引用契约
+
+已有开发、测试或生产库在允许业务索引参与 Agent 记忆召回前执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260814-business-memory-reference.sql
+```
+
+该升级为 `knowledge_business_index` 增加默认关闭的 `agent_memory_enabled` 和回源 `resolver_capability_key`，并为业务索引记录增加 `source_version` / `source_updated_at`。现有索引不会自动获得 Agent 记忆资格，也不会被当成权威业务事实。只有配置 tenant/project、注册 resolver Capability，并在每次 upsert 提供 source version 后，搜索结果才会生成 `reachai-business-memory-reference-v1`；Runtime 仍须在当前可信业务身份下调用 resolver 重新鉴权和回读。脚本 additive、幂等且不会自动执行。
+
+## Upgrade: 20260813 Capability 评审真实回滚
+
+已有开发、测试或生产库在部署新版 Capability 服务前执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260813-capability-review-rollback.sql
+```
+
+影响：为 `capability_diff_item` 新增 `before_state_json`，此后评审 APPLY 会保存 SDK 扫描目录和全局可执行 Tool 的应用前状态；DELETED 应用会同步停用两类资产，回滚会恢复真实目录/执行状态。旧评审项没有应用前状态，不能直接回滚，需重新生成差异并应用。脚本不删除数据；本次代码改造不自动执行该脚本。
+
+## Upgrade: 20260811 平台管理端会话 Token 加固
+
+已有开发、测试或生产库在部署新 Control 服务前执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260811-platform-session-token-hardening.sql
+```
+
+影响：旧实现曾把原始平台 access token 写入会话表；新实现只保存 SHA-256 摘要。升级脚本会撤销全部平台登录会话、将 `access_token_id` 用含随机 `session_id` 的 SHA-256 值不可逆覆盖，并清空 `refresh_token_id`，所有管理端用户需重新登录。该脚本不修改用户、角色或权限数据。升级后不得为了恢复旧会话而回写或恢复原始 Token。
+
+## Upgrade: 20260811 平台管理端认证治理
+
+在完成 Token 加固后，对已有开发、测试或生产库执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260811-platform-auth-governance.sql
+```
+
+影响：
+
+1. 新建 `control_platform_auth_audit_event`，记录认证提供方与用户角色等高危管理操作的非敏感审计元数据。
+2. 补齐 `platform:admin` 及 `PLATFORM_ADMIN` 的权限绑定。
+3. 强制把 HEADER、OIDC、SAML 置为 `INACTIVE`，并清空所有旧 `config_json`；当前版本没有 Provider 密文存储或这些 Provider 的登录适配器。
+4. LOCAL 是否真正可登录仍由 `REACHAI_AUTH_PROVIDER=LOCAL`、`REACHAI_LOCAL_AUTH_ENABLED=true` 和数据库 LOCAL provider 的 `ACTIVE` 状态共同决定。升级不会创建、覆盖或重置管理员。
+
+这两份 20260811 脚本必须在维护窗口、数据库备份完成且得到单独执行授权后运行；本次代码改造不自动执行它们。
 
 ## 破坏性变更
 
@@ -349,3 +506,47 @@ SHOW FULL COLUMNS FROM runtime_run LIKE 'status';
 ## Upgrade: 20260709 AI Coding access default
 
 Run `sql/upgrade-20260709-ai-coding-access-default.sql` on existing development or test databases that already have `capability_scan_project` rows. It adds missing AI Coding access columns and backfills generated `aic_...` keys with `ai_coding_access_enabled = 1` only for rows that previously had no key.
+
+## Upgrade: 20260811 SDK zero-touch Enrollment
+
+Apply this after the 20260811 platform session and auth-governance upgrades:
+
+```bash
+mysql -uroot -p < sql/upgrade-20260811-registry-enrollment-token.sql
+```
+
+It creates the Capability-owned 72-hour one-time Enrollment Token digest table
+and Control-to-Capability HMAC replay store. Existing SDK credentials are not
+rotated; a new Starter receives its generated credential only in the first
+successful Enrollment response and persists it outside application YAML.
+
+## Upgrade: 20260812 业务页面绝对地址
+
+已有开发或测试库在部署新版 Control 服务前执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260812-business-page-url.sql
+```
+
+该脚本给 `control_project_page` 增加可空的 `business_page_url`。它表示浏览器可直接打开的绝对 HTTP(S) 页面地址；项目 `base_url` 继续表示业务后端或网关 API 地址，两者不得互相兜底。已有页面不会自动猜测或回填，后续 SDK 页面登记会从真实 `origin + route` 同步，也可在页面工作台中手工维护。
+
+## Upgrade: 20260815 Knowledge 企业入口鉴权
+
+已有开发或测试库在启用业务索引项目凭证同步入口前执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260815-knowledge-enterprise-ingress.sql
+```
+
+该脚本新增 Capability-owned `capability_registry_request_nonce`，用于
+`REACHAI_PROJECT_REQUEST_V1` 的跨实例防重放；同时幂等补齐此前
+Enrollment / Control-to-Capability HMAC 所需的两张 nonce/token 表。它不改
+业务索引数据、不轮换项目凭证，也不执行远程数据库写入。
+
+验证：
+
+```sql
+SHOW CREATE TABLE capability_registry_enrollment_token;
+SHOW CREATE TABLE capability_internal_auth_nonce;
+SHOW CREATE TABLE capability_registry_request_nonce;
+```

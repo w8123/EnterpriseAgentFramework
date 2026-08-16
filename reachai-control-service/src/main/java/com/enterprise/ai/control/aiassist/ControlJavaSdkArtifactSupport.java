@@ -31,7 +31,7 @@ public final class ControlJavaSdkArtifactSupport {
             CAPABILITY_SDK,
             "Download the JAR and standalone consumer POM from ReachAI, verify both SHA-256 values, then install them into the business system's Maven local repository.",
             SPRING_BOOT2_STARTER,
-            "Install after reachai-capability-sdk. No ReachAI source checkout or shared repository is required.");
+            "Install after reachai-capability-sdk. The Starter keeps Java 8-compatible bytecode and supports Spring Boot 2.7+ and Spring Boot 3 auto-configuration; a Spring Boot 3 application must still use the Java version required by its Boot release. No ReachAI source checkout or shared repository is required.");
 
     private ControlJavaSdkArtifactSupport() {
     }

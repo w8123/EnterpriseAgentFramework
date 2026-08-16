@@ -35,6 +35,13 @@ public class ContextMemoryCandidateEntity {
 
     private String content;
 
+    private String contentSha256;
+
+    /** Nullable while not pending; unique only for the active de-duplication window. */
+    private String dedupeKey;
+
+    private String semanticKey;
+
     private String summary;
 
     private String reason;
@@ -82,6 +89,16 @@ public class ContextMemoryCandidateEntity {
     private String reviewReason;
 
     private Long approvedItemId;
+
+    private Long conflictItemId;
+
+    private String conflictType;
+
+    private Integer occurrenceCount;
+
+    private LocalDateTime lastSeenAt;
+
+    private String extractionVersion;
 
     private String metadataJson;
 

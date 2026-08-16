@@ -5,10 +5,12 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ArtifactEnve
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskContract;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDescriptor;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskRequiredResource;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingDeliveryEvidence.ReportedCheck;
 import com.enterprise.ai.control.aicoding.provider.AiCodingTaskKindProvider;
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
+import com.enterprise.ai.control.client.model.ControlModelCatalogClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.AcceptancePayload;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ImplementationPayload;
@@ -23,12 +25,19 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
 
@@ -43,8 +52,10 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
     private final PageCatalogApplicationService pageCatalog;
     private final PageAnalysisApplicationService pageAnalysis;
     private final CapabilityProjectOnboardingClient capabilityClient;
+    private final ControlModelCatalogClient modelCatalogClient;
     private final RuntimeProxyClient runtimeClient;
     private final PageWorkbenchBrowserReadinessApplicationService browserReadiness;
+    private final PageWorkbenchAgentModelReadinessApplicationService modelReadiness;
     private final PageWorkbenchWorkflowTraceReadinessApplicationService
             workflowTraceReadiness;
     private final PageWorkbenchReleaseReadinessApplicationService releaseReadiness;
@@ -59,8 +70,10 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
             PageCatalogApplicationService pageCatalog,
             PageAnalysisApplicationService pageAnalysis,
             CapabilityProjectOnboardingClient capabilityClient,
+            ControlModelCatalogClient modelCatalogClient,
             RuntimeProxyClient runtimeClient,
             PageWorkbenchBrowserReadinessApplicationService browserReadiness,
+            PageWorkbenchAgentModelReadinessApplicationService modelReadiness,
             PageWorkbenchWorkflowTraceReadinessApplicationService
                     workflowTraceReadiness,
             PageWorkbenchReleaseReadinessApplicationService releaseReadiness,
@@ -78,8 +91,10 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
         this.pageCatalog = pageCatalog;
         this.pageAnalysis = pageAnalysis;
         this.capabilityClient = capabilityClient;
+        this.modelCatalogClient = modelCatalogClient;
         this.runtimeClient = runtimeClient;
         this.browserReadiness = browserReadiness;
+        this.modelReadiness = modelReadiness;
         this.workflowTraceReadiness = workflowTraceReadiness;
         this.releaseReadiness = releaseReadiness;
         this.objectMapper = objectMapper;
@@ -111,6 +126,21 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
                 "registeredCapabilities",
                 objectMapper.valueToTree(defaultList(
                         capabilityClient.listProjectTools(task.projectId()))));
+        if (WORKFLOW_ENGINEERING.equals(taskKind)) {
+            try {
+                root.set(
+                        "existingPageWorkflows",
+                        objectMapper.valueToTree(defaultList(
+                                runtimeClient.pageWorkbenchPublished(
+                                        task.projectCode(),
+                                        pageKey).getBody())));
+            } catch (RuntimeException ex) {
+                root.putArray("existingPageWorkflows");
+                root.putObject("existingPageWorkflowsWarning")
+                        .put("code", "PUBLISHED_WORKFLOW_CATALOG_UNAVAILABLE")
+                        .put("message", "当前页面在线 Workflow 目录暂时不可用；不要猜测 replaceWorkflowId。");
+            }
+        }
         WorkflowAcceptanceTarget workflowTarget = null;
         if (BROWSER_ACCEPTANCE.equals(taskKind)) {
             workflowTarget = workflowTraceReadiness.requirePublishedTarget(
@@ -121,6 +151,15 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
                 root.set(
                         "workflowAcceptanceTarget",
                         objectMapper.valueToTree(workflowTarget));
+                ReadinessItem modelPreflight = modelReadiness.evaluate(
+                        workflowTarget.modelInstanceId());
+                root.set(
+                        "modelPreflight",
+                        objectMapper.valueToTree(modelPreflight));
+                if (!"PASS".equalsIgnoreCase(modelPreflight.status())) {
+                    throw new IllegalArgumentException(
+                            "无法开始真实验收：" + modelPreflight.message());
+                }
             }
         }
 
@@ -144,6 +183,9 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
                     .add("Do not modify the business repository for this task.")
                     .add("Use only action keys and capabilities present in this context; do not invent contracts.")
                     .add("Return an executable PAGE_ASSISTANT GraphSpec proposal and the exact referenced files.")
+                    .add("For every structured read branch, add a downstream INTERACTION node with interactionType=PRESENT_OUTPUT. Use list_card for list/page results and output_card/card/detail for one object; set an explicit nodeOutput.<producerNodeId> dataExpression and presentation.mode=card_only or text_and_card.")
+                    .add("INTERACTION authoring is restricted to workflowAuthoring.nodeTypes[].enabledVariants. Do not create COLLECT_INPUT, USER_CHOICE, CONFIRM_ACTION, REVIEW_EDIT or any other pause/resume interaction variant while it is absent from enabledVariants.")
+                    .add("Read existingPageWorkflows before deciding replacement. Set replaceWorkflowId only when this draft intentionally supersedes that exact Workflow; otherwise omit it so multiple legitimate Workflows can coexist on the same page.")
                     .add("Submitting the artifact may create a DRAFT only; publishing and Agent attachment require explicit ReachAI approval.")
                     .add("Read the workflow-ai-coding Skill from /api/ai-assist/skills/workflow-ai-coding/latest.zip before authoring GraphSpec.")
                     .add("Submit the result through the current task artifact endpoint.");
@@ -153,8 +195,11 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
                     .add("Submit the result through the current task artifact endpoint.");
             if (BROWSER_ACCEPTANCE.equals(taskKind)
                     && workflowTarget != null) {
-                requiredChecks.add(
-                        "Return the exact Runtime traceId produced by the accepted browser scenario when available.");
+                requiredChecks
+                        .add("Return the exact Runtime traceId produced by the accepted browser scenario when available.")
+                        .add("When the target Workflow contains INTERACTION/PRESENT_OUTPUT, verify the real SSE contains ui.requested and verify an actual list_card/output_card/card/detail DOM is visible with the business result; report both facts in structuredPresentation.")
+                        .add("If the current page exposes an ACTIVE write action, exercise at least one confirmation-gated write through the real assistant, verify the persisted result, and restore the original business state before submitting the artifact.")
+                        .add("Record whether state restoration was required, whether it passed, and concrete evidence in stateRestoration. A report with an un-restored mutation cannot pass.");
             }
         }
         root.putObject("instructions")
@@ -165,6 +210,87 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
                 .put("completionBoundary",
                         "Submitting an artifact records AI Coding completion; ReachAI applies and accepts it separately.");
         return root;
+    }
+
+    @Override
+    public JsonNode materializeContext(
+            TaskDescriptor task,
+            JsonNode contextSnapshot,
+            String publicBaseUrl) {
+        if (!WORKFLOW_ENGINEERING.equals(taskKind)) {
+            return contextSnapshot;
+        }
+        ObjectNode root = contextSnapshot != null && contextSnapshot.isObject()
+                ? ((ObjectNode) contextSnapshot).deepCopy()
+                : objectMapper.createObjectNode();
+        ObjectNode authoring = root.putObject("workflowAuthoring");
+        String platformRoot = publicBaseUrl == null
+                ? ""
+                : publicBaseUrl.replaceAll("/+$", "");
+        authoring.put(
+                "skillPackageUrl",
+                platformRoot
+                        + "/api/ai-assist/skills/workflow-ai-coding/latest.zip");
+        var warnings = authoring.putArray("warnings");
+        try {
+            List<Map<String, Object>> models = activeLlmModels(
+                    modelCatalogClient.list(null, "LLM", null));
+            authoring.set("availableModels", objectMapper.valueToTree(models));
+            if (models.isEmpty()) {
+                warnings.addObject()
+                        .put("code", "NO_ACTIVE_LLM")
+                        .put("message", "当前没有可用于 Workflow 自然语言分类或参数提取的 ACTIVE LLM 模型实例。");
+            }
+        } catch (RuntimeException ex) {
+            authoring.putArray("availableModels");
+            warnings.addObject()
+                    .put("code", "MODEL_CATALOG_UNAVAILABLE")
+                    .put("message", "模型目录暂时不可用；不要猜测 modelInstanceId。");
+        }
+        try {
+            List<Map<String, Object>> nodeTypes = mapList(
+                    runtimeClient.pageWorkbenchWorkflowNodeTypes());
+            authoring.set("nodeTypes", objectMapper.valueToTree(nodeTypes));
+            if (nodeTypes.isEmpty()) {
+                warnings.addObject()
+                        .put("code", "NODE_CATALOG_UNAVAILABLE")
+                        .put("message", "Workflow 节点目录为空；不要猜测节点类型或可发布状态。");
+            }
+        } catch (RuntimeException ex) {
+            authoring.putArray("nodeTypes");
+            warnings.addObject()
+                    .put("code", "NODE_CATALOG_UNAVAILABLE")
+                    .put("message", "Workflow 节点目录暂时不可用；不要猜测节点类型或可发布状态。");
+        }
+        authoring.putObject("structuredPresentationContract")
+                .put("interactionType", "PRESENT_OUTPUT")
+                .put("listComponent", "list_card")
+                .put("detailComponent", "output_card")
+                .put("dataExpression", "nodeOutput.<producerNodeId>")
+                .put("presentationMode", "card_only")
+                .put("browserEvidence", "ui.requested + rendered card DOM");
+        return root;
+    }
+
+    @Override
+    public List<TaskRequiredResource> requiredResources(
+            TaskDescriptor task,
+            String publicBaseUrl) {
+        if (!WORKFLOW_ENGINEERING.equals(taskKind)) {
+            return List.of();
+        }
+        String platformRoot = publicBaseUrl == null
+                ? ""
+                : publicBaseUrl.replaceAll("/+$", "");
+        return List.of(new TaskRequiredResource(
+                "workflow-ai-coding-skill",
+                "ReachAI Workflow AI Coding Skill",
+                "SKILL_ZIP",
+                platformRoot
+                        + "/api/ai-assist/skills/workflow-ai-coding/latest.zip",
+                "workflow-ai-coding/SKILL.md",
+                "包含 GraphSpec、PAGE_ASSISTANT、Workflow AI Coding API、验证和安全边界。",
+                true));
     }
 
     @Override
@@ -217,6 +343,7 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
     public List<String> acceptanceReadinessKeys() {
         return switch (taskKind) {
             case BROWSER_ACCEPTANCE -> List.of(
+                    PageWorkbenchAgentModelReadinessApplicationService.KEY,
                     PageWorkbenchBrowserReadinessApplicationService.KEY,
                     PageWorkbenchWorkflowTraceReadinessApplicationService.KEY);
             case PRE_RELEASE_CHECK -> List.of(
@@ -273,6 +400,19 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
                 "selectedActionKeys");
         requiredTextList(report.referencedFiles(), "referencedFiles");
         requiredTextList(report.acceptanceCriteria(), "acceptanceCriteria");
+        String replaceWorkflowId = textOrNull(report.replaceWorkflowId());
+        if (replaceWorkflowId != null) {
+            List<PageWorkbenchContract.PublishedWorkflowView> existing =
+                    defaultList(runtimeClient.pageWorkbenchPublished(
+                            task.projectCode(), targetPageKey).getBody());
+            boolean known = existing.stream().anyMatch(workflowView ->
+                    replaceWorkflowId.equals(workflowView.workflowId()));
+            if (!known) {
+                throw new IllegalArgumentException(
+                        "replaceWorkflowId must reference a currently attached Workflow for the target page");
+            }
+        }
+        List<PageWorkbenchContract.ActionView> selectedActions = new ArrayList<>();
         for (String actionKey : actionKeys) {
             PageWorkbenchContract.ActionView action = pageCatalog
                     .findAction(
@@ -286,7 +426,9 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
                 throw new IllegalArgumentException(
                         "selected page action is not active: " + actionKey);
             }
+            selectedActions.add(action);
         }
+        validateStructuredPresentation(workflow.graphSpec(), selectedActions);
 
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("projectId", task.projectId());
@@ -298,6 +440,7 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
         request.put("selectedActionKeys", actionKeys);
         request.put("referencedFiles", report.referencedFiles());
         request.put("acceptanceCriteria", report.acceptanceCriteria());
+        request.put("replaceWorkflowId", replaceWorkflowId);
         request.put(
                 "remainingQuestions",
                 defaultList(report.remainingQuestions()));
@@ -320,6 +463,296 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
                 ? "Workflow 草稿已创建并通过当前发布校验，等待 ReachAI 审阅"
                 : "Workflow 草稿已创建；当前校验问题已保留，请在 Studio 修正后再发布";
         return ArtifactApplyResult.acceptanceRequired(message, result);
+    }
+
+    /**
+     * A read-capable page Workflow is not complete when it only leaves structured data in Runtime
+     * state and relies on Supervisor Markdown. Every read producer must have a downstream,
+     * display-only PRESENT_OUTPUT card whose data source is explicit and graph-verifiable.
+     */
+    private void validateStructuredPresentation(
+            JsonNode graphSpec,
+            List<PageWorkbenchContract.ActionView> selectedActions) {
+        if (graphSpec == null || !graphSpec.isObject()) {
+            return;
+        }
+        JsonNode rawNodes = graphSpec.path("nodes");
+        if (!rawNodes.isArray()) {
+            throw new IllegalArgumentException(
+                    "workflow graphSpec.nodes must be an array");
+        }
+
+        Map<String, JsonNode> nodesById = new LinkedHashMap<>();
+        Map<String, String> outputAliasOwner = new LinkedHashMap<>();
+        Set<String> duplicateAliases = new HashSet<>();
+        for (JsonNode node : rawNodes) {
+            String nodeId = jsonText(node, "id");
+            if (!StringUtils.hasText(nodeId)) {
+                continue;
+            }
+            nodesById.put(nodeId, node);
+            String outputAlias = configText(node, "outputAlias");
+            if (StringUtils.hasText(outputAlias)) {
+                String existing = outputAliasOwner.putIfAbsent(
+                        outputAlias, nodeId);
+                if (existing != null && !existing.equals(nodeId)) {
+                    duplicateAliases.add(outputAlias);
+                }
+            }
+        }
+
+        Map<String, List<String>> outgoing = graphOutgoing(graphSpec.path("edges"));
+        Set<String> validPresentations = new LinkedHashSet<>();
+        List<String> issues = new ArrayList<>();
+        for (Map.Entry<String, JsonNode> entry : nodesById.entrySet()) {
+            JsonNode node = entry.getValue();
+            if (!"INTERACTION".equalsIgnoreCase(jsonText(node, "type"))
+                    || !"PRESENT_OUTPUT".equalsIgnoreCase(configText(
+                    node, "interactionType"))) {
+                continue;
+            }
+            String nodeId = entry.getKey();
+            String component = normalizeToken(configText(node, "component"));
+            if (!Set.of("list_card", "output_card", "card", "detail")
+                    .contains(component)) {
+                issues.add(nodeId + " 必须使用 list_card/output_card/card/detail 卡片组件");
+                continue;
+            }
+            if (configBoolean(node, "behavior", "blocking")) {
+                issues.add(nodeId + " 的 behavior.blocking 必须为 false");
+                continue;
+            }
+            String mode = normalizeToken(configNestedText(
+                    node, "presentation", "mode"));
+            if (!Set.of("card_only", "text_and_card").contains(mode)) {
+                issues.add(nodeId + " 必须声明 presentation.mode=card_only 或 text_and_card");
+                continue;
+            }
+            String expression = configText(node, "dataExpression");
+            String producerId = presentationProducer(
+                    expression,
+                    nodesById,
+                    outputAliasOwner,
+                    duplicateAliases);
+            if (!StringUtils.hasText(producerId)) {
+                issues.add(nodeId + " 必须通过 nodeOutput.<producerNodeId> 或唯一输出别名声明 dataExpression");
+                continue;
+            }
+            if (!isReachable(producerId, nodeId, outgoing)) {
+                issues.add(nodeId + " 的 dataExpression 来源节点 " + producerId
+                        + " 不在该展示节点的上游路径中");
+                continue;
+            }
+            validPresentations.add(nodeId);
+        }
+
+        Map<String, PageWorkbenchContract.ActionView> selectedByKey =
+                new LinkedHashMap<>();
+        for (PageWorkbenchContract.ActionView action : defaultList(
+                selectedActions)) {
+            if (action != null && StringUtils.hasText(action.actionKey())) {
+                selectedByKey.put(action.actionKey(), action);
+            }
+        }
+        List<String> uncoveredReadNodes = new ArrayList<>();
+        for (Map.Entry<String, JsonNode> entry : nodesById.entrySet()) {
+            JsonNode node = entry.getValue();
+            String type = jsonText(node, "type");
+            boolean structuredRead = "TOOL".equalsIgnoreCase(type)
+                    || "CAPABILITY".equalsIgnoreCase(type);
+            if ("PAGE_ACTION".equalsIgnoreCase(type)) {
+                String actionKey = configText(node, "actionKey");
+                PageWorkbenchContract.ActionView action = selectedByKey.get(
+                        actionKey);
+                structuredRead = action != null
+                        && "READ".equalsIgnoreCase(action.riskLevel())
+                        && !action.confirmRequired();
+            }
+            if (structuredRead && validPresentations.stream().noneMatch(
+                    presentationId -> isReachable(
+                            entry.getKey(), presentationId, outgoing))) {
+                uncoveredReadNodes.add(entry.getKey());
+            }
+        }
+        if (!uncoveredReadNodes.isEmpty()) {
+            issues.add("以下结构化读取节点缺少下游 PRESENT_OUTPUT 卡片："
+                    + String.join(", ", uncoveredReadNodes));
+        }
+        if (!issues.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "workflow structured presentation contract failed: "
+                            + String.join("; ", issues));
+        }
+    }
+
+    private Map<String, List<String>> graphOutgoing(JsonNode rawEdges) {
+        Map<String, List<String>> outgoing = new LinkedHashMap<>();
+        if (!rawEdges.isArray()) {
+            return outgoing;
+        }
+        for (JsonNode edge : rawEdges) {
+            String from = jsonText(edge, "from");
+            String to = jsonText(edge, "to");
+            if (StringUtils.hasText(from) && StringUtils.hasText(to)) {
+                outgoing.computeIfAbsent(from, ignored -> new ArrayList<>())
+                        .add(to);
+            }
+        }
+        return outgoing;
+    }
+
+    private boolean isReachable(
+            String from,
+            String target,
+            Map<String, List<String>> outgoing) {
+        if (!StringUtils.hasText(from) || !StringUtils.hasText(target)
+                || from.equals(target)) {
+            return false;
+        }
+        ArrayDeque<String> queue = new ArrayDeque<>();
+        Set<String> visited = new HashSet<>();
+        queue.add(from);
+        visited.add(from);
+        while (!queue.isEmpty()) {
+            String current = queue.removeFirst();
+            for (String next : outgoing.getOrDefault(current, List.of())) {
+                if (target.equals(next)) {
+                    return true;
+                }
+                if (visited.add(next)) {
+                    queue.addLast(next);
+                }
+            }
+        }
+        return false;
+    }
+
+    private String presentationProducer(
+            String expression,
+            Map<String, JsonNode> nodesById,
+            Map<String, String> outputAliasOwner,
+            Set<String> duplicateAliases) {
+        if (!StringUtils.hasText(expression)) {
+            return null;
+        }
+        String normalized = expression.trim();
+        if (normalized.startsWith("nodeOutput.")) {
+            String remainder = normalized.substring("nodeOutput.".length());
+            String nodeId = remainder.contains(".")
+                    ? remainder.substring(0, remainder.indexOf('.'))
+                    : remainder;
+            return nodesById.containsKey(nodeId) ? nodeId : null;
+        }
+        if (duplicateAliases.contains(normalized)) {
+            return null;
+        }
+        return outputAliasOwner.get(normalized);
+    }
+
+    private String configText(JsonNode node, String field) {
+        JsonNode config = node.path("config");
+        JsonNode value = config.path(field);
+        if ((!value.isValueNode() || value.isNull())
+                && config.path("interactionConfig").isObject()) {
+            value = config.path("interactionConfig").path(field);
+        }
+        return value.isValueNode() && !value.isNull()
+                ? value.asText(null)
+                : null;
+    }
+
+    private String configNestedText(
+            JsonNode node,
+            String objectField,
+            String field) {
+        JsonNode config = node.path("config");
+        JsonNode nested = config.path(objectField);
+        if (!nested.isObject() && config.path("interactionConfig").isObject()) {
+            nested = config.path("interactionConfig").path(objectField);
+        }
+        JsonNode value = nested.path(field);
+        return value.isValueNode() && !value.isNull()
+                ? value.asText(null)
+                : null;
+    }
+
+    private boolean configBoolean(
+            JsonNode node,
+            String objectField,
+            String field) {
+        JsonNode config = node.path("config");
+        JsonNode nested = config.path(objectField);
+        if (!nested.isObject() && config.path("interactionConfig").isObject()) {
+            nested = config.path("interactionConfig").path(objectField);
+        }
+        return nested.path(field).asBoolean(false);
+    }
+
+    private static String jsonText(JsonNode node, String field) {
+        JsonNode value = node == null ? null : node.get(field);
+        return value != null && value.isValueNode() && !value.isNull()
+                ? value.asText(null)
+                : null;
+    }
+
+    private static String normalizeToken(String value) {
+        return value == null
+                ? ""
+                : value.trim().toLowerCase().replace('-', '_').replace(' ', '_');
+    }
+
+    private List<Map<String, Object>> activeLlmModels(
+            ResponseEntity<Map<String, Object>> response) {
+        Map<String, Object> body = response == null ? null : response.getBody();
+        Object data = body == null ? null : body.get("data");
+        if (!(data instanceof Collection<?> collection)) {
+            return List.of();
+        }
+        List<Map<String, Object>> models = new ArrayList<>();
+        for (Object raw : collection) {
+            if (!(raw instanceof Map<?, ?> source)
+                    || !"ACTIVE".equalsIgnoreCase(text(source.get("status")))) {
+                continue;
+            }
+            Map<String, Object> model = new LinkedHashMap<>();
+            copyText(source, model, "id");
+            copyText(source, model, "name");
+            copyText(source, model, "provider");
+            copyText(source, model, "modelName");
+            copyText(source, model, "modelType");
+            copyText(source, model, "status");
+            if (StringUtils.hasText(text(model.get("id")))) {
+                models.add(Map.copyOf(model));
+            }
+        }
+        return List.copyOf(models);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> mapList(ResponseEntity<Object> response) {
+        Object body = response == null ? null : response.getBody();
+        if (!(body instanceof Collection<?> collection)) {
+            return List.of();
+        }
+        return collection.stream()
+                .filter(Map.class::isInstance)
+                .map(item -> (Map<String, Object>) new LinkedHashMap<>(
+                        (Map<String, Object>) item))
+                .toList();
+    }
+
+    private void copyText(
+            Map<?, ?> source,
+            Map<String, Object> target,
+            String key) {
+        String value = text(source.get(key));
+        if (StringUtils.hasText(value)) {
+            target.put(key, value.trim());
+        }
+    }
+
+    private String text(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     private ArtifactApplyResult applyAnalysis(
@@ -389,6 +822,10 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
         boolean passed = report.passed()
                 && report.browserVerification() != null
                 && report.browserVerification().passed()
+                && structuredPresentationPassed(
+                report.structuredPresentation())
+                && report.stateRestoration() != null
+                && report.stateRestoration().passed()
                 && allChecksPass(report.checks());
         result.put("reportedPassed", passed);
         if (!passed) {
@@ -399,6 +836,18 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
         return ArtifactApplyResult.acceptanceRequired(
                 "浏览器验收材料已回传且报告通过，等待用户在 ReachAI 确认",
                 result);
+    }
+
+    private static boolean structuredPresentationPassed(
+            PageWorkbenchContract.StructuredPresentationVerification report) {
+        if (report == null || !report.passed()
+                || !StringUtils.hasText(report.evidence())) {
+            return false;
+        }
+        return !report.required()
+                || (report.uiRequestedObserved()
+                && report.cardDomObserved()
+                && StringUtils.hasText(report.component()));
     }
 
     private ArtifactApplyResult applyPreRelease(JsonNode content) {
@@ -460,7 +909,24 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
             String reportedTraceId) {
         String pageKey = primaryPageKey(task);
         LocalDateTime observedAfter = observedAfter(task);
+        WorkflowAcceptanceTarget target = workflowAcceptanceTarget(task);
+        if (target != null && !StringUtils.hasText(target.modelInstanceId())) {
+            try {
+                target = workflowTraceReadiness.requirePublishedTarget(
+                        task.projectCode(),
+                        pageKey,
+                        target);
+            } catch (RuntimeException ignored) {
+                // The existing browser/trace readiness items retain the
+                // runtime outage or version-mismatch evidence. Model
+                // readiness remains non-PASS until the exact target can be
+                // resolved again.
+            }
+        }
         return List.of(
+                target == null
+                        ? modelReadiness.pageOnly()
+                        : modelReadiness.evaluate(target.modelInstanceId()),
                 browserReadiness.evaluate(
                         task.projectCode(),
                         pageKey,
@@ -469,7 +935,7 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
                         task.projectCode(),
                         pageKey,
                         observedAfter,
-                        workflowAcceptanceTarget(task),
+                        target,
                         reportedTraceId));
     }
 
@@ -500,7 +966,10 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
                         : snapshot.path("workflowVersion").asText(null),
                 snapshot == null
                         ? null
-                        : snapshot.path("workflowName").asText(null));
+                        : snapshot.path("workflowName").asText(null),
+                snapshot == null
+                        ? null
+                        : snapshot.path("modelInstanceId").asText(null));
     }
 
     private static LocalDateTime observedAfter(TaskDescriptor task) {
@@ -541,6 +1010,10 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
             throw new IllegalArgumentException(field + " is required");
         }
         return value.trim();
+    }
+
+    private static String textOrNull(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
 
     private static <T> List<T> defaultList(List<T> value) {

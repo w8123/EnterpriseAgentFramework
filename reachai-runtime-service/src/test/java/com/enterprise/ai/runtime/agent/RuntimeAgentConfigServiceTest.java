@@ -216,4 +216,159 @@ class RuntimeAgentConfigServiceTest {
 
         assertEquals("Agent configJson must be valid JSON", error.getMessage());
     }
+
+    @Test
+    void explicitlyReplacesOneWorkflowAndPreservesTheOtherCatalogEntries() {
+        RuntimeAgentConfigVersionMapper configMapper = mock(RuntimeAgentConfigVersionMapper.class);
+        RuntimeAgentWorkflowToolMapper toolMapper = mock(RuntimeAgentWorkflowToolMapper.class);
+        RuntimeAgentMapper agentMapper = mock(RuntimeAgentMapper.class);
+        RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
+        RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
+        RuntimeAgentConfigService service = new RuntimeAgentConfigService(
+                configMapper, toolMapper, agentMapper, workflowMapper, versionMapper, new ObjectMapper());
+
+        RuntimeAgentEntity agent = new RuntimeAgentEntity();
+        agent.setId("agent-1");
+        when(agentMapper.selectById("agent-1")).thenReturn(agent);
+        RuntimeAgentConfigVersionEntity draft = new RuntimeAgentConfigVersionEntity();
+        draft.setId(12L);
+        draft.setAgentId("agent-1");
+        draft.setVersionNo(2);
+        draft.setStatus("DRAFT");
+        when(configMapper.selectOne(any())).thenReturn(draft);
+        when(configMapper.selectById(12L)).thenReturn(draft);
+
+        RuntimeAgentWorkflowToolEntity oldTool = workflowTool(
+                31L, "wf-old", 21L, "old_page_assistant", 0);
+        RuntimeAgentWorkflowToolEntity retainedTool = workflowTool(
+                32L, "wf-retained", 22L, "cycle_audit", 1);
+        when(toolMapper.selectList(any())).thenReturn(List.of(oldTool, retainedTool));
+
+        RuntimeWorkflowDefinitionEntity oldWorkflow = workflow(
+                "wf-old", "old-page-assistant", "Old page assistant");
+        RuntimeWorkflowDefinitionEntity retainedWorkflow = workflow(
+                "wf-retained", "cycle-audit", "Cycle audit");
+        RuntimeWorkflowDefinitionEntity replacementWorkflow = workflow(
+                "wf-new", "new-page-assistant", "New page assistant");
+        when(workflowMapper.selectById("wf-old")).thenReturn(oldWorkflow);
+        when(workflowMapper.selectById("wf-retained")).thenReturn(retainedWorkflow);
+        when(workflowMapper.selectById("wf-new")).thenReturn(replacementWorkflow);
+        when(workflowMapper.selectBatchIds(any())).thenReturn(
+                List.of(oldWorkflow, retainedWorkflow));
+
+        RuntimeWorkflowVersionEntity oldVersion = workflowVersion(21L, "wf-old");
+        RuntimeWorkflowVersionEntity retainedVersion = workflowVersion(22L, "wf-retained");
+        RuntimeWorkflowVersionEntity replacementVersion = workflowVersion(23L, "wf-new");
+        when(versionMapper.listActive("wf-old")).thenReturn(List.of(oldVersion));
+        when(versionMapper.listActive("wf-retained")).thenReturn(List.of(retainedVersion));
+        when(versionMapper.listActive("wf-new")).thenReturn(List.of(replacementVersion));
+        when(versionMapper.selectBatchIds(any())).thenReturn(
+                List.of(oldVersion, retainedVersion));
+
+        service.replaceWorkflowToolInDraft(
+                "agent-1",
+                "wf-old",
+                new RuntimeAgentConfigViews.WorkflowToolRequest(
+                        "wf-new",
+                        "new_page_assistant",
+                        "New page assistant",
+                        null,
+                        null,
+                        "PAGE_ACTION",
+                        "workflow:new-page-assistant",
+                        false,
+                        true,
+                        null));
+
+        ArgumentCaptor<RuntimeAgentWorkflowToolEntity> inserted =
+                ArgumentCaptor.forClass(RuntimeAgentWorkflowToolEntity.class);
+        verify(toolMapper, org.mockito.Mockito.times(2)).insert(inserted.capture());
+        List<RuntimeAgentWorkflowToolEntity> saved = inserted.getAllValues();
+        assertEquals(List.of("wf-new", "wf-retained"),
+                saved.stream().map(RuntimeAgentWorkflowToolEntity::getWorkflowId).toList());
+        assertEquals(0, saved.get(0).getPriority());
+        assertEquals(1, saved.get(1).getPriority());
+    }
+
+    @Test
+    void rejectsReplacementWhenTheNamedOldWorkflowIsNotAttached() {
+        RuntimeAgentConfigVersionMapper configMapper = mock(RuntimeAgentConfigVersionMapper.class);
+        RuntimeAgentWorkflowToolMapper toolMapper = mock(RuntimeAgentWorkflowToolMapper.class);
+        RuntimeAgentMapper agentMapper = mock(RuntimeAgentMapper.class);
+        RuntimeWorkflowDefinitionMapper workflowMapper = mock(RuntimeWorkflowDefinitionMapper.class);
+        RuntimeWorkflowVersionMapper versionMapper = mock(RuntimeWorkflowVersionMapper.class);
+        RuntimeAgentConfigService service = new RuntimeAgentConfigService(
+                configMapper, toolMapper, agentMapper, workflowMapper, versionMapper, new ObjectMapper());
+
+        RuntimeAgentEntity agent = new RuntimeAgentEntity();
+        agent.setId("agent-1");
+        when(agentMapper.selectById("agent-1")).thenReturn(agent);
+        RuntimeAgentConfigVersionEntity draft = new RuntimeAgentConfigVersionEntity();
+        draft.setId(12L);
+        draft.setAgentId("agent-1");
+        draft.setStatus("DRAFT");
+        when(configMapper.selectOne(any())).thenReturn(draft);
+        when(configMapper.selectById(12L)).thenReturn(draft);
+        when(toolMapper.selectList(any())).thenReturn(List.of());
+
+        RuntimeWorkflowDefinitionEntity replacementWorkflow = workflow(
+                "wf-new", "new-page-assistant", "New page assistant");
+        when(workflowMapper.selectById("wf-new")).thenReturn(replacementWorkflow);
+        when(versionMapper.listActive("wf-new")).thenReturn(
+                List.of(workflowVersion(23L, "wf-new")));
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.replaceWorkflowToolInDraft(
+                        "agent-1",
+                        "wf-missing",
+                        new RuntimeAgentConfigViews.WorkflowToolRequest(
+                                "wf-new", "new_page_assistant", null, null,
+                                null, "PAGE_ACTION", null, false, true, null)));
+
+        assertEquals(
+                "replaceWorkflowId is not attached to the Agent tool catalog: wf-missing",
+                error.getMessage());
+    }
+
+    private RuntimeAgentWorkflowToolEntity workflowTool(
+            Long id,
+            String workflowId,
+            Long workflowVersionId,
+            String toolName,
+            int priority) {
+        RuntimeAgentWorkflowToolEntity tool = new RuntimeAgentWorkflowToolEntity();
+        tool.setId(id);
+        tool.setAgentId("agent-1");
+        tool.setAgentConfigVersionId(12L);
+        tool.setWorkflowId(workflowId);
+        tool.setWorkflowVersionId(workflowVersionId);
+        tool.setToolName(toolName);
+        tool.setRiskLevel("PAGE_ACTION");
+        tool.setReadOnly(false);
+        tool.setEnabled(true);
+        tool.setPriority(priority);
+        return tool;
+    }
+
+    private RuntimeWorkflowDefinitionEntity workflow(
+            String id,
+            String keySlug,
+            String description) {
+        RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
+        workflow.setId(id);
+        workflow.setKeySlug(keySlug);
+        workflow.setName(description);
+        workflow.setDescription(description);
+        workflow.setStatus("ACTIVE");
+        return workflow;
+    }
+
+    private RuntimeWorkflowVersionEntity workflowVersion(Long id, String workflowId) {
+        RuntimeWorkflowVersionEntity version = new RuntimeWorkflowVersionEntity();
+        version.setId(id);
+        version.setWorkflowId(workflowId);
+        version.setVersion("v1.0.0");
+        return version;
+    }
 }

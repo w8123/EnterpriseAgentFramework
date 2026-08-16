@@ -462,6 +462,25 @@ function applyEvent(state: ConversationSnapshot, event: ConversationEventEnvelop
     }
     case 'turn.started':
       return conversationReducer(withTurn, { type: 'set_turn_status', status: 'sending' })
+    case 'turn.progress': {
+      const next = cloneSnapshot(withTurn)
+      const message = ensureAssistantMessage(next, asString(data.messageId))
+      const progressMessage = typeof data.message === 'string' ? data.message.trim() : ''
+      message.metadata = {
+        ...(message.metadata || {}),
+        publicProgress: {
+          phase: asString(data.phase),
+          state: asString(data.state),
+          ...(progressMessage ? { message: progressMessage } : {}),
+        },
+      }
+      if (message.status === 'pending') message.status = 'streaming'
+      message.updatedAt = nowIso()
+      if (next.turnStatus === 'idle' || next.turnStatus === 'sending') {
+        next.turnStatus = 'streaming'
+      }
+      return next
+    }
     case 'message.started':
       return conversationReducer(withTurn, {
         type: 'start_assistant_message',

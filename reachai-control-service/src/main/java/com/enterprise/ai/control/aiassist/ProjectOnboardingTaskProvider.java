@@ -5,6 +5,8 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ArtifactEnve
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskContract;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDescriptor;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskRequiredResource;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.VerificationGuideItem;
 import com.enterprise.ai.control.aicoding.domain.AiCodingDeliveryEvidence.BrowserVerification;
 import com.enterprise.ai.control.aicoding.domain.AiCodingDeliveryEvidence.ReportedCheck;
 import com.enterprise.ai.control.aicoding.provider.AiCodingContractResourceLoader;
@@ -104,7 +106,8 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
         scope.putArray("requiredChecks")
                 .add("Run focused backend/frontend tests for every changed module.")
                 .add("Start or restart the business service and verify ReachAI instance heartbeat.")
-                .add("Open a real business page, verify the ReachAI entry is visible, and exercise the embed token, session and message path.")
+                .add("Exercise the authorized Token Broker, Embed proxy, session and message path through a real business page or reachai-doctor with business-supplied test authorization.")
+                .add("Before final user acceptance, open a real business page and verify the ReachAI entry is visible and usable.")
                 .add("If browser verification is performed, report its exact URL, scenarios, screenshot path and observed result.")
                 .add("Submit exactly one final project-onboarding artifact through this task.");
 
@@ -120,7 +123,7 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
         addStep(steps, "EMBED_TOKEN", "前端 Embed Token",
                 "Broker short-lived embed tokens behind business login and integrate the browser package.");
         addStep(steps, "FINAL_CHECK", "测试与浏览器验收",
-                "Run tests, service heartbeat checks and real browser E2E verification.");
+                "Run tests, service heartbeat checks, authorized conversation E2E and final visible browser acceptance.");
 
         root.set(
                 "sdkArtifacts",
@@ -242,6 +245,74 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
                 "RUNTIME_READY",
                 "SDK_CALLBACK_READY",
                 "E2E_READY");
+    }
+
+    @Override
+    public List<TaskRequiredResource> requiredResources(
+            TaskDescriptor task,
+            String publicBaseUrl) {
+        String platformRoot = publicBaseUrl == null
+                ? ""
+                : publicBaseUrl.replaceAll("/+$", "");
+        return List.of(new TaskRequiredResource(
+                "reachai-onboarding-skill",
+                "ReachAI SDK 接入 Skill",
+                "SKILL_ZIP",
+                platformRoot + "/api/ai-assist/skills/reachai-onboarding/latest.zip",
+                "reachai-onboarding/SKILL.md",
+                "包含 SDK 安装、网关认证边界、Embed Token Broker、浏览器验收和 doctor 用法。",
+                true));
+    }
+
+    @Override
+    public List<VerificationGuideItem> verificationGuide(
+            TaskDescriptor task,
+            String taskRoot) {
+        return List.of(
+                new VerificationGuideItem(
+                        "SDK_SYNC",
+                        "ACTION",
+                        "触发签名 SDK 同步",
+                        "请求 ReachAI 对当前项目执行一次审计过的 SDK 回调；它不是启动时自动扫描。",
+                        "POST",
+                        taskRoot + "/verifications/SDK_SYNC",
+                        List.of("任务状态为 RUNNING", "CODE_READY 已满足", "RUNTIME_READY 为 PASS"),
+                        List.of("SDK_CALLBACK_READY"),
+                        "返回 SDK callback 的能力快照或稳定错误原因。",
+                        "Capability owning service 记录的签名回调与 capability snapshot"),
+                new VerificationGuideItem(
+                        "SDK_CALLBACK_READY",
+                        "READINESS_GATE",
+                        "SDK 回调闭环",
+                        "只有签名回调成功且平台收到本次 capability snapshot 才会通过；推导出的 URL 不构成通过。",
+                        null,
+                        null,
+                        List.of("已执行 SDK_SYNC 或 API 管理手动同步"),
+                        List.of("SDK_CALLBACK_READY"),
+                        "readiness.status=PASS。",
+                        "Capability owning service 的 callback 状态与快照事实"),
+                new VerificationGuideItem(
+                        "EMBED_CONVERSATION_E2E",
+                        "OBSERVATION",
+                        "授权 Embed 会话观察",
+                        "使用已有授权的业务测试会话打开真实业务页，或让 reachai-doctor 使用业务方提供的测试 Authorization/Cookie，确认 Token Broker、代理、会话、用户消息和助手回复；ReachAI 不签发或伪造业务登录态。",
+                        null,
+                        null,
+                        List.of("业务系统提供授权浏览器会话或最小权限测试 Authorization/Cookie", "SDK 与网关已部署到目标环境"),
+                        List.of("E2E_READY"),
+                        "平台在当前任务启动后观察到授权 Session、用户消息和助手回复；doctor PASS 不替代最终页面可见性验收。",
+                        "Control 服务端 Embed session/message/reply 记录；不采信客户端自报布尔值或 Mock 登录"),
+                new VerificationGuideItem(
+                        "E2E_READY",
+                        "READINESS_GATE",
+                        "授权 Embed 协议闭环",
+                        "这是由真实业务授权支撑的平台观察门禁，不是可直接 POST 的 verification key；最终页面体验仍由用户验收。",
+                        null,
+                        null,
+                        List.of("EMBED_CONVERSATION_E2E 已被平台观察到"),
+                        List.of("E2E_READY"),
+                        "readiness.status=PASS；否则保留 RESULT_APPLIED 并等待重新验证。",
+                        "当前任务启动后的平台观察事实"));
     }
 
     @Override

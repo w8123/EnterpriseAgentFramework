@@ -4462,7 +4462,23 @@ function headToolListSource(localFailures, label) {
 function validateToolListHeadPreservation(sourceFile, ast, label, localFailures) {
   const headSource = headToolListSource(localFailures, label)
   if (!headSource) return
-  const headParsed = parse(headSource, { filename: 'HEAD:ToolList.vue' })
+  const legacyToolTestArgumentLoop = [
+    '    for (const [k, v] of Object.entries(testArgs)) {',
+    "      if (v !== '') args[k] = v",
+    '    }',
+  ].join('\n')
+  const typedToolTestArgumentLoop = [
+    '    const parametersByName = new Map((testingTool.value.parameters || []).map((parameter) => [parameter.name, parameter]))',
+    '    for (const [k, v] of Object.entries(testArgs)) {',
+    "      if (v === '') continue",
+    "      const parameterType = String(parametersByName.get(k)?.type || '').toLowerCase()",
+    '      args[k] = parseToolTestArgument(v, parameterType, k)',
+    '    }',
+  ].join('\n')
+  const approvedHeadSource = headSource.includes(legacyToolTestArgumentLoop)
+    ? headSource.replace(legacyToolTestArgumentLoop, typedToolTestArgumentLoop)
+    : headSource
+  const headParsed = parse(approvedHeadSource, { filename: 'HEAD:ToolList.vue' })
   if (headParsed.errors.length > 0) {
     localFailures.push(`${label} HEAD ToolList baseline must remain parseable`)
     return
@@ -9522,17 +9538,16 @@ function toolRetrievalExactStyleOracle(styles) {
   parseLevel(styles[0], 'root')
   if (!valid) return false
   const expected = [
-    'root|.search-form[scope]|display:flex;flex-wrap:wrap;gap:calc(var(--section-gap) / 2) var(--section-gap)',
+    'root|.search-form[scope]|align-items:center;display:flex;flex-wrap:wrap;gap:calc(var(--section-gap) / 2) var(--section-gap)',
     'root|.search-form__query[scope]|width:min(420px, 100%)',
     'root|.search-form__score[scope]|width:160px',
-    'root|.form-hint[scope]|color:var(--text-secondary);font-size:0.75rem;margin-inline-start:calc(var(--section-gap) / 2)',
+    'root|.form-label[scope]|align-items:center;display:inline-flex;gap:4px',
+    'root|.form-label__tip[scope]|color:var(--text-muted);cursor:help;font-size:0.875rem;outline:none',
     'root|.text-ellipsis[scope]|display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
     'root|.task-state[scope]|display:flex;flex-direction:column;gap:var(--section-gap)',
     'root|.task-empty[scope]|color:var(--text-muted);line-height:1.6;margin:0',
-    'root|.rebuild-dialog-hint[scope]|color:var(--text-secondary);font-size:0.8125rem;line-height:1.6;margin:0 0 var(--section-gap)',
     'root|.rebuild-dialog__control[scope]|width:100%',
     'media:(max-width: 720px)|.search-form__query[scope], .search-form__score[scope]|width:100%',
-    'media:(max-width: 720px)|.form-hint[scope]|flex-basis:100%;margin-inline-start:0',
   ].sort()
   return arraysEqual(records.sort(), expected)
 }
@@ -9902,18 +9917,30 @@ const syntheticToolRetrievalTestConsumer = `<template>
         <el-form-item label="仅启用">
           <el-switch v-model="form.enabledOnly" />
         </el-form-item>
-        <el-form-item label="相似度下限">
+        <el-form-item>
+          <template #label>
+            <span class="form-label">
+              相似度下限
+              <el-tooltip
+                content="0=不过滤；清空后使用服务端 min-score"
+                placement="top"
+              >
+                <el-icon class="form-label__tip" tabindex="0" aria-label="相似度下限说明">
+                  <QuestionFilled />
+                </el-icon>
+              </el-tooltip>
+            </span>
+          </template>
           <el-input-number
             v-model="form.minScore"
             :min="0"
             :max="1"
             :step="0.05"
             :precision="2"
-            placeholder="默认用服务端配置"
+            :value-on-clear="undefined"
             controls-position="right"
             class="search-form__score"
           />
-          <span class="form-hint">0=不过滤；留空用服务端 min-score</span>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="searching" @click="handleSearch">检索</el-button>
@@ -9930,10 +9957,10 @@ const syntheticToolRetrievalTestConsumer = `<template>
       >
         <el-table :data="candidates" stripe empty-text=" ">
           <el-table-column label="#" type="index" width="60" />
-          <el-table-column prop="toolTitle" label="工具名称" min-width="180">
+          <el-table-column prop="toolTitle" label="工具名称" min-width="180" show-overflow-tooltip>
             <template #default="{ row }">{{ row.toolTitle || row.toolName }}</template>
           </el-table-column>
-          <el-table-column prop="toolName" label="工具标识" min-width="220" />
+          <el-table-column prop="toolName" label="工具标识" min-width="220" show-overflow-tooltip />
           <el-table-column label="分数" width="100">
             <template #default="{ row }">
               <StatusTag
@@ -9944,9 +9971,9 @@ const syntheticToolRetrievalTestConsumer = `<template>
           </el-table-column>
           <el-table-column prop="projectId" label="项目 ID" width="100" />
           <el-table-column prop="moduleId" label="模块 ID" width="100" />
-          <el-table-column label="入库文本" min-width="320">
+          <el-table-column label="入库文本" min-width="320" show-overflow-tooltip>
             <template #default="{ row }">
-              <span class="text-ellipsis" :title="row.text">{{ row.text }}</span>
+              <span class="text-ellipsis">{{ row.text }}</span>
             </template>
           </el-table-column>
         </el-table>
@@ -10000,12 +10027,18 @@ const syntheticToolRetrievalTestConsumer = `<template>
       destroy-on-close
       @open="loadEmbeddingInstances"
     >
-      <p class="rebuild-dialog-hint">
-        重建会为每条 Tool 定义调用 Embedding 服务写入 Milvus，请选择与集合维度一致且状态为可用的向量模型实例。
-        所选模型实例 ID 会写入库表 tool_retrieval_setting，供智能体对话时的 Tool 语义召回与用户问题向量化共用；未设置环境变量时不再使用占位默认值。
-      </p>
       <el-form label-width="120px">
-        <el-form-item label="模型厂商" required>
+        <el-form-item required>
+          <template #label>
+            <span class="form-label">
+              模型厂商
+              <el-tooltip content="请选择与 Milvus 集合维度一致、状态可用的 Embedding 实例所属厂商" placement="top">
+                <el-icon class="form-label__tip" tabindex="0" aria-label="模型厂商说明">
+                  <QuestionFilled />
+                </el-icon>
+              </el-tooltip>
+            </span>
+          </template>
           <el-select
             v-model="rebuildModelProvider"
             class="rebuild-dialog__control"
@@ -10021,7 +10054,20 @@ const syntheticToolRetrievalTestConsumer = `<template>
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="Embedding 实例" required>
+        <el-form-item required>
+          <template #label>
+            <span class="form-label">
+              Embedding 实例
+              <el-tooltip
+                content="所选实例会写入 tool_retrieval_setting，供对话时的 Tool 语义召回共用"
+                placement="top"
+              >
+                <el-icon class="form-label__tip" tabindex="0" aria-label="Embedding 实例说明">
+                  <QuestionFilled />
+                </el-icon>
+              </el-tooltip>
+            </span>
+          </template>
           <el-select
             v-model="rebuildModelInstanceId"
             class="rebuild-dialog__control"
@@ -10077,6 +10123,7 @@ function stageTag(_stage: string) { return 'success' }
 .search-form {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: calc(var(--section-gap) / 2) var(--section-gap);
 }
 
@@ -10088,10 +10135,17 @@ function stageTag(_stage: string) { return 'success' }
   width: 160px;
 }
 
-.form-hint {
-  margin-inline-start: calc(var(--section-gap) / 2);
-  color: var(--text-secondary);
-  font-size: 0.75rem;
+.form-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.form-label__tip {
+  color: var(--text-muted);
+  cursor: help;
+  font-size: 0.875rem;
+  outline: none;
 }
 
 .text-ellipsis {
@@ -10114,13 +10168,6 @@ function stageTag(_stage: string) { return 'success' }
   line-height: 1.6;
 }
 
-.rebuild-dialog-hint {
-  margin: 0 0 var(--section-gap);
-  color: var(--text-secondary);
-  font-size: 0.8125rem;
-  line-height: 1.6;
-}
-
 .rebuild-dialog__control {
   width: 100%;
 }
@@ -10129,11 +10176,6 @@ function stageTag(_stage: string) { return 'success' }
   .search-form__query,
   .search-form__score {
     width: 100%;
-  }
-
-  .form-hint {
-    flex-basis: 100%;
-    margin-inline-start: 0;
   }
 }
 </style>
@@ -10363,15 +10405,16 @@ async function runToolHeadMutationProof(name, mutate, expectedFailure) {
     label,
     { compareHead: true },
   )
-  const expected = `${label} ${expectedFailure}`
-  if (mutationFailures.length !== 1 || mutationFailures[0] !== expected) {
+  const expectedMessages = Array.isArray(expectedFailure) ? expectedFailure : [expectedFailure]
+  const expectedFailures = expectedMessages.map((message) => `${label} ${message}`)
+  if (!arraysEqual(mutationFailures, expectedFailures)) {
     failures.push(
-      `mutation proof ${name} expected exactly "${expectedFailure}"; got ${mutationFailures.join(' | ') || '(none)'}`,
+      `mutation proof ${name} expected exactly "${expectedMessages.join(' | ')}"; got ${mutationFailures.join(' | ') || '(none)'}`,
     )
     return
   }
   mutationProofCount += 1
-  console.log(`Mutation proof ${name}: ${expectedFailure}`)
+  console.log(`Mutation proof ${name}: ${expectedMessages.join(',')}`)
 }
 
 async function runToolHeadSafeVariantProof(name, mutate) {
@@ -13961,7 +14004,10 @@ async function runMutationProofs() {
       '@change="handleEnabledChange(row, $event as boolean)"',
       '@change="handleEnabledChange(row, !$event as boolean)"',
     ),
-    'must preserve the current Tool title, scope, operations, and runtime-control contract',
+    [
+      'must preserve the current Tool title, scope, operations, and runtime-control contract',
+      'must preserve HEAD main Tool table subtree semantics',
+    ],
   )
   await runToolHeadMutationProof(
     'tool-head-table-action-handler',
@@ -13969,7 +14015,10 @@ async function runMutationProofs() {
       '@click.stop="openEditDialog(row)"',
       '@click.stop="openTest(row)"',
     ),
-    'must preserve the current Tool title, scope, operations, and runtime-control contract',
+    [
+      'must preserve the current Tool title, scope, operations, and runtime-control contract',
+      'must preserve HEAD main Tool table subtree semantics',
+    ],
   )
   await runToolHeadMutationProof(
     'tool-head-test-footer-handler',

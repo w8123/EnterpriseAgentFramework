@@ -42,10 +42,12 @@ public class AiCodingHandoffPromptFactory {
 
                 连接成功后会从激活响应加载经 SHA-256 校验的 `clientSetup`，并取得 context、UTF-8 写回函数和当前 Windows 用户的 DPAPI 加密恢复能力。任务目标、范围和 Artifact 契约均以 context 为准。凡是写入 ReachAI 或展示给用户的名称、标题、描述、说明、System Prompt、进度、问题、结果和验收材料，默认使用清晰的简体中文；不要仅因 API、Schema 或字段名为英文就生成英文内容。Token、MCP、AI、Agent、Supervisor、Workflow、Tool、API、SDK 等熟知专业术语，以及 keySlug、toolName、代码、路径、协议字段和技术标识可保留英文，必要时使用“中文名称（英文术语）”。不要输出 `$reachAiSession`、`$reachAiHeaders` 或 `taskToken`。
 
+                在读取或修改仓库前，先读取 context 的 `requiredResources`。其中 `requiredBeforeEditing=true` 的资源必须下载并打开其 `entrypoint`；不要因为本地尚未安装 Skill 而跳过网关、SDK 或验证契约。
+
                 获取 context 后按服务端任务状态恢复，不能自行推进状态：
 
                 - `READY` / `RUNNING`：写回 `STARTED`。
-                - `WAITING_USER`：用 `Get-ReachAiQuestions` 获取问题；仍有 `OPEN` 问题时等待用户，全部回答后才写回 `RESUMED`。
+                - `WAITING_USER`：用 `Get-ReachAiQuestions` 获取问题；仍有 `OPEN` 问题时不要写 `STARTED` 或 `RESUMED`。可以继续不依赖回答的诊断并写回真实 `PROGRESS`，但这不会回答问题、不会恢复任务，状态仍保持 `WAITING_USER`；全部问题已回答且客户端确实读取后才写回 `RESUMED`。
                 - `RESULT_APPLIED`：不要写 `STARTED`；结果已应用但仍待平台 Runtime/E2E 事实，完成缺失的真实链路后请用户在 ReachAI 重新验证。
 
                 执行中用 `Send-ReachAiEvent` 写回真实进度；有业务歧义用 `Send-ReachAiQuestion`。持续执行超过 2 分钟时，在长时间构建/测试前后并至少每 2 分钟调用 `Send-ReachAiHeartbeat`，让 ReachAI 如实显示连接状态。严格遵守 context 的 scope、`protocolGuide` 和 Artifact Schema，完成后调用 `Send-ReachAiArtifact`。同一内容的网络重试必须保持 artifactKey 不变；校验拒绝后修正内容时按 `artifactIdempotencyPolicy` 使用新的 revision key。只有 Artifact 被成功校验并应用，任务才可能完成。

@@ -34,6 +34,7 @@ const PUBLIC_EVENT_TYPES = new Set([
   'ui.requested',
   'page.action.requested',
   'turn.started',
+  'turn.progress',
   'turn.waiting',
   'turn.completed',
   'turn.failed',

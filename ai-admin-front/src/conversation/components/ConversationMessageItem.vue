@@ -638,26 +638,26 @@ const statusCapsule = computed(() => {
  * Angular 12/Critters-compatible layout contract. Do not replace these
  * selectors with @container: older enterprise CSS optimizers cannot parse it.
  */
-:global(.reachai-conversation--compact) .reachai-message__user-avatar,
-:global(.reachai-conversation--compact) .reachai-message__prism-avatar,
-:global(.reachai-conversation--narrow) .reachai-message__user-avatar,
-:global(.reachai-conversation--narrow) .reachai-message__prism-avatar {
+:global(.reachai-conversation--compact .reachai-message__user-avatar),
+:global(.reachai-conversation--compact .reachai-message__prism-avatar),
+:global(.reachai-conversation--narrow .reachai-message__user-avatar),
+:global(.reachai-conversation--narrow .reachai-message__prism-avatar) {
   display: none;
 }
 
-:global(.reachai-conversation--compact) .reachai-message__assistant-row,
-:global(.reachai-conversation--narrow) .reachai-message__assistant-row {
+:global(.reachai-conversation--compact .reachai-message__assistant-row),
+:global(.reachai-conversation--narrow .reachai-message__assistant-row) {
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
 }
 
-:global(.reachai-conversation--compact) .reachai-message__user-row,
-:global(.reachai-conversation--narrow) .reachai-message__user-row {
+:global(.reachai-conversation--compact .reachai-message__user-row),
+:global(.reachai-conversation--narrow .reachai-message__user-row) {
   gap: 0;
 }
 
-:global(.reachai-conversation--compact) .reachai-message__user-bubble,
-:global(.reachai-conversation--narrow) .reachai-message__user-bubble {
+:global(.reachai-conversation--compact .reachai-message__user-bubble),
+:global(.reachai-conversation--narrow .reachai-message__user-bubble) {
   max-width: min(var(--reachai-chat-card-max-width, 820px), 92%);
 }
 

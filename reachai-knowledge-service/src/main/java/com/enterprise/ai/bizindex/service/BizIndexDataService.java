@@ -19,15 +19,24 @@ public interface BizIndexDataService {
      */
     void upsert(String indexCode, BizUpsertRequest request, List<MultipartFile> attachments);
 
+    /** Project-credential variant; the target index must belong to the verified project. */
+    void upsertForProject(String projectCode, String indexCode, BizUpsertRequest request);
+
     /**
      * 批量推送业务数据（仅结构化字段，不含附件）
      */
     void batchUpsert(String indexCode, List<BizUpsertRequest> items);
 
+    /** Project-credential batch variant with mandatory index ownership enforcement. */
+    void batchUpsertForProject(String projectCode, String indexCode, List<BizUpsertRequest> items);
+
     /**
      * 删除单条业务记录（含向量和附件）
      */
     void deleteRecord(String indexCode, String bizId);
+
+    /** Project-credential delete variant with mandatory index ownership enforcement. */
+    void deleteRecordForProject(String projectCode, String indexCode, String bizId);
 
     /**
      * 重建索引 —— 使用最新模板重新渲染所有记录的 searchText 并刷新向量

@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class ControlAiAssistSkillController {
 
     private static final String SKILL_NAME = "reachai-onboarding";
-    private static final String SKILL_VERSION = "0.3.0";
+    private static final String SKILL_VERSION = "0.6.0";
     private static final String SKILL_ROOT = "ai-assist/skills/" + SKILL_NAME + "/";
     private static final String WORKFLOW_AI_CODING_SKILL_NAME = "workflow-ai-coding";
     private static final String WORKFLOW_AI_CODING_SKILL_VERSION = "0.1.0";
@@ -31,8 +31,11 @@ public class ControlAiAssistSkillController {
     private static final List<String> SKILL_FILES = List.of(
             "SKILL.md",
             "agents/openai.yaml",
+            "references/java-sdk-api-reference.md",
             "references/java-sdk-access.md",
             "references/platform-apis.md",
+            "references/embed-chat-quick-reference.md",
+            "references/gateway-examples.md",
             "references/page-action-result.schema.json",
             "references/page-action-mock.html",
             "references/page-action-contract.md",
@@ -44,9 +47,15 @@ public class ControlAiAssistSkillController {
             "templates/angular/reachai-page-action.types.ts",
             "templates/angular/reachai-page-action.service.ts",
             "templates/angular/page-registry.example.ts",
+            "examples/gateway/README.md",
+            "examples/gateway/spring-cloud-gateway/ReachAiEmbedProxySecurity.java",
+            "examples/gateway/spring-cloud-gateway/application-reachai-gateway.yml",
+            "examples/gateway/nginx/reachai.conf",
+            "examples/gateway/kong/kong.yml",
             "scripts/install-java-sdk.ps1",
             "scripts/install-embed-chat.mjs",
             "scripts/reachai-page-actions.ps1",
+            "scripts/reachai-doctor.mjs",
             "scripts/set-reachai-registry-secret.ps1",
             "scripts/verify-reachai-access.py"
     );

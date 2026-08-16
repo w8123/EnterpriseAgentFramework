@@ -127,6 +127,7 @@ public class ControlAiAssistProjectController {
                         "request.workflowId", "workflowId",
                         "request.agentKeySlug", "agentKeySlug",
                         "request.agentId", "agentId (internal id only; mutually exclusive with agentKeySlug)",
+                        "request.replaceWorkflowId", "optional exact currently attached Workflow id to replace; omit for additive attachment",
                         "request.modelInstanceId", "modelInstanceId",
                         "request.inputSchema", "Workflow tool JSON Schema override",
                         "request.riskLevel", "READ / WRITE / PAGE_ACTION / IRREVERSIBLE",
@@ -136,9 +137,11 @@ public class ControlAiAssistProjectController {
                 "Generic attach: POST /api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach. "
                         + "Default workflowKind on create is GENERAL; Page Assistant must send PAGE_ASSISTANT. "
                         + "The Page Assistant-specific endpoint /api/workflows/{id}/page-assistant/attach-tool rejects GENERAL with WORKFLOW_KIND_NOT_SUPPORTED. "
+                        + "Replacement is explicit and exact: replaceWorkflowId must match project and workflowKind, PAGE_ASSISTANT must also match TARGET PAGE; only that attached predecessor is removed and all other tools are preserved. "
                         + "Stable error codes: WORKFLOW_NOT_FOUND, WORKFLOW_PROJECT_MISSING, WORKFLOW_PROJECT_MISMATCH, "
                         + "WORKFLOW_NOT_ACTIVE, WORKFLOW_KIND_NOT_SUPPORTED, AGENT_NOT_FOUND, AGENT_PROJECT_MISMATCH, "
-                        + "MODEL_INSTANCE_NOT_ACTIVE, NO_ACTIVE_LLM, RUNTIME_DEPENDENCY_UNAVAILABLE, ATTACHMENT_PUBLISH_FAILED."));
+                        + "MODEL_INSTANCE_NOT_ACTIVE, NO_ACTIVE_LLM, WORKFLOW_REPLACEMENT_INVALID, "
+                        + "RUNTIME_DEPENDENCY_UNAVAILABLE, ATTACHMENT_PUBLISH_FAILED."));
         return shapes;
     }
 

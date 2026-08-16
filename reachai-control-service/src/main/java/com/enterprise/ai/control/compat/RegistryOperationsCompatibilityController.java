@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -23,20 +24,32 @@ public class RegistryOperationsCompatibilityController {
 
     @PostMapping("/projects/{projectCode}/instances/heartbeat")
     public ResponseEntity<Object> heartbeat(@PathVariable String projectCode,
+                                            @RequestHeader(value = "X-ReachAI-App-Key", required = false) String appKey,
+                                            @RequestHeader(value = "X-ReachAI-Timestamp", required = false) String timestamp,
+                                            @RequestHeader(value = "X-ReachAI-Nonce", required = false) String nonce,
+                                            @RequestHeader(value = "X-ReachAI-Signature", required = false) String signature,
                                             @RequestBody Map<String, Object> body) {
-        return capabilityProxyClient.heartbeat(projectCode, body);
+        return capabilityProxyClient.heartbeat(projectCode, appKey, timestamp, nonce, signature, body);
     }
 
     @PostMapping("/projects/{projectCode}/capabilities/sync")
     public ResponseEntity<Object> syncCapabilities(@PathVariable String projectCode,
+                                                   @RequestHeader(value = "X-ReachAI-App-Key", required = false) String appKey,
+                                                   @RequestHeader(value = "X-ReachAI-Timestamp", required = false) String timestamp,
+                                                   @RequestHeader(value = "X-ReachAI-Nonce", required = false) String nonce,
+                                                   @RequestHeader(value = "X-ReachAI-Signature", required = false) String signature,
                                                    @RequestBody Map<String, Object> body) {
-        return capabilityProxyClient.syncCapabilities(projectCode, body);
+        return capabilityProxyClient.syncCapabilities(projectCode, appKey, timestamp, nonce, signature, body);
     }
 
     @PostMapping("/projects/{projectCode}/capabilities/diff")
     public ResponseEntity<Object> diffCapabilities(@PathVariable String projectCode,
+                                                   @RequestHeader(value = "X-ReachAI-App-Key", required = false) String appKey,
+                                                   @RequestHeader(value = "X-ReachAI-Timestamp", required = false) String timestamp,
+                                                   @RequestHeader(value = "X-ReachAI-Nonce", required = false) String nonce,
+                                                   @RequestHeader(value = "X-ReachAI-Signature", required = false) String signature,
                                                    @RequestBody Map<String, Object> body) {
-        return capabilityProxyClient.diffCapabilities(projectCode, body);
+        return capabilityProxyClient.diffCapabilities(projectCode, appKey, timestamp, nonce, signature, body);
     }
 
     @PostMapping("/projects/{projectCode}/capabilities/apply")
@@ -65,5 +78,11 @@ public class RegistryOperationsCompatibilityController {
     public ResponseEntity<Object> reviewCapabilityDiffItem(@PathVariable Long diffItemId,
                                                            @RequestBody Map<String, Object> body) {
         return capabilityProxyClient.reviewCapabilityDiffItem(diffItemId, body);
+    }
+
+    @PostMapping("/capability-diff-items/{diffItemId}/rollback")
+    public ResponseEntity<Object> rollbackCapabilityDiffItem(@PathVariable Long diffItemId,
+                                                             @RequestBody Map<String, Object> body) {
+        return capabilityProxyClient.rollbackCapabilityDiffItem(diffItemId, body);
     }
 }

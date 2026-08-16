@@ -23,6 +23,8 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -307,6 +309,69 @@ class RuntimePageWorkbenchWorkflowDeliveryServiceTest {
         assertTrue(result.published());
         assertEquals(31L, result.workflowVersionId());
         assertEquals("agent-orders", result.agentId());
+    }
+
+    @Test
+    void acceptedDeliveryCanExplicitlyReplaceAWorkflowBoundToTheSamePage() {
+        RuntimeWorkflowDefinitionEntity workflow = workflow();
+        RuntimeWorkflowDefinitionEntity replaced = new RuntimeWorkflowDefinitionEntity();
+        replaced.setId("wf-orders-old");
+        replaced.setProjectId(7L);
+        replaced.setProjectCode("orders");
+        replaced.setWorkflowKind(WorkflowSemanticValues.KIND_PAGE_ASSISTANT);
+        replaced.setStatus("ACTIVE");
+        when(workflowDefinitionService.findById("wf-orders-detail"))
+                .thenReturn(Optional.of(workflow));
+        when(workflowDefinitionService.findById("wf-orders-old"))
+                .thenReturn(Optional.of(replaced));
+        BindingView pageBinding = new BindingView(
+                1L, "wf-orders-detail", 7L, "orders",
+                RuntimeWorkflowResourceBindingService.RESOURCE_PAGE,
+                "orders.detail",
+                RuntimeWorkflowResourceBindingService.ROLE_TARGET,
+                "ACTIVE",
+                LocalDateTime.of(2026, 7, 26, 10, 0));
+        when(resourceBindingService.list("wf-orders-detail"))
+                .thenReturn(List.of(pageBinding));
+        when(resourceBindingService.list("wf-orders-old"))
+                .thenReturn(List.of(new BindingView(
+                        2L, "wf-orders-old", 7L, "orders",
+                        RuntimeWorkflowResourceBindingService.RESOURCE_PAGE,
+                        "orders.detail",
+                        RuntimeWorkflowResourceBindingService.ROLE_TARGET,
+                        "ACTIVE",
+                        LocalDateTime.of(2026, 7, 26, 9, 0))));
+        when(workflowVersionService.validateRelease("wf-orders-detail"))
+                .thenReturn(RuntimeWorkflowReleaseValidationResult.builder().build());
+        RuntimeWorkflowVersionEntity version = new RuntimeWorkflowVersionEntity();
+        version.setId(31L);
+        version.setWorkflowId("wf-orders-detail");
+        version.setVersion("v1.0.0");
+        version.setStatus("ACTIVE");
+        when(workflowVersionService.listVersions("wf-orders-detail"))
+                .thenReturn(List.of(version));
+        when(attachmentService.attachPublishedPageWorkflow(
+                eq("wf-orders-detail"),
+                any(RuntimePageAssistantWorkflowAttachRequest.class)))
+                .thenReturn(new RuntimePageAssistantWorkflowAttachment(
+                        "agent-orders", "orders-page-copilot",
+                        "wf-orders-detail", "orders-detail-page-assistant",
+                        "orders_detail_page_assistant", 41L, 2, "ACTIVE",
+                        true, "wf-orders-old"));
+
+        var result = service.deliver(
+                "orders",
+                "wf-orders-detail",
+                new DeliveryRequest(
+                        7L, "orders", "ait-orders-1", "orders.detail",
+                        "v1.0.0", null, null, "tester", "wf-orders-old"));
+
+        ArgumentCaptor<RuntimePageAssistantWorkflowAttachRequest> request =
+                ArgumentCaptor.forClass(RuntimePageAssistantWorkflowAttachRequest.class);
+        verify(attachmentService).attachPublishedPageWorkflow(
+                eq("wf-orders-detail"), request.capture());
+        assertEquals("wf-orders-old", request.getValue().replaceWorkflowId());
+        assertEquals("wf-orders-old", result.replacedWorkflowId());
     }
 
     private ContextView context() {

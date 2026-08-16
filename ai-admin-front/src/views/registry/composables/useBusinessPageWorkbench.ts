@@ -357,7 +357,9 @@ export function useBusinessPageWorkbench() {
       throw new Error('当前任务必须关联页面')
     }
     const accessMode: AiCodingAccessMode =
-      data.taskKind === 'CODE_IMPLEMENTATION' ? 'READ_WRITE' : 'READ_ONLY'
+      data.taskKind === 'CODE_IMPLEMENTATION' || data.taskKind === 'BROWSER_ACCEPTANCE'
+        ? 'READ_WRITE'
+        : 'READ_ONLY'
     const primaryTarget = pageTask
       ? {
           targetType: 'PAGE',
@@ -403,6 +405,7 @@ export function useBusinessPageWorkbench() {
           pageKey: data.workflow.pageKey,
           agentId: data.workflow.agentId,
           agentName: data.workflow.agentName,
+          modelInstanceId: data.workflow.modelInstanceId,
         },
       })
     }
@@ -438,7 +441,9 @@ export function useBusinessPageWorkbench() {
 
   async function answerQuestion(taskId: string, questionId: string, answer: string) {
     await taskKernel.answerQuestion(taskId, questionId, answer)
-    await Promise.all([refreshTasks(), refreshAccessCenter()])
+    // Task detail and page journey are separate read models. Refresh both so the card does not
+    // briefly show a stale acceptance state after an AI Coding mutation.
+    await Promise.all([refreshTasks(), refreshPages()])
     ElMessage.success('回答已写回当前任务')
   }
 
@@ -452,7 +457,7 @@ export function useBusinessPageWorkbench() {
       passed,
       message,
     )
-    await Promise.all([refreshTasks(), refreshAccessCenter()])
+    await Promise.all([refreshTasks(), refreshPages()])
     ElMessage[passed ? 'success' : 'warning'](
       passed ? '任务验收已通过' : '任务已标记为验收不通过',
     )
@@ -461,13 +466,13 @@ export function useBusinessPageWorkbench() {
 
   async function verifyTaskAcceptanceReadiness(taskId: string) {
     const verification = await taskKernel.verifyAcceptanceReadiness(taskId)
-    await Promise.all([refreshTasks(), refreshAccessCenter()])
+    await Promise.all([refreshTasks(), refreshPages()])
     return verification
   }
 
   async function cancelTask(taskId: string) {
     const detail = await taskKernel.cancelTask(taskId)
-    await Promise.all([refreshTasks(), refreshAccessCenter()])
+    await Promise.all([refreshTasks(), refreshPages()])
     ElMessage.success('任务已取消')
     return detail
   }

@@ -1,5 +1,6 @@
 import { createApp, type App, type ComponentPublicInstance } from 'vue'
 import {
+  EAF_PAGE_NAVIGATE_ACTION,
   createEafPageBridge,
   type EafPageActionDefinition,
   type EafPageBridge,
@@ -42,7 +43,7 @@ export {
   resolveEafChatThemePrimary,
 }
 
-export type EafChatTokenReason = 'initial' | 'send' | 'expiring' | 'unauthorized' | 'retry' | 'page-action'
+export type EafChatTokenReason = 'initial' | 'send' | 'expiring' | 'unauthorized' | 'retry' | 'page-action' | 'page-navigation'
 
 export interface EafChatTokenProviderContext {
   reason: EafChatTokenReason
@@ -120,9 +121,22 @@ export interface EafChatClient {
   send(message: string): Promise<EafChatMessageResponse>
   /** 重新获取 Embed Token；不会自动重发上一条用户消息。 */
   retry(): Promise<void>
+  /**
+   * Complete a platform-requested SPA navigation with the newly mounted target
+   * Page Bridge. Call this from the target page after all of its actions have
+   * been registered. The SDK reuses the active Embed session and exchanges a
+   * fresh token for the target page; callers do not pass session ids or any
+   * internal navigation request id.
+   */
+  rebindPage(binding: EafChatPageBinding): Promise<void>
   registerPageCatalog(): Promise<void>
   setContext(context: Record<string, unknown>): void
   destroy(): void
+}
+
+export interface EafChatPageBinding {
+  bridge: EafPageBridge
+  page: EafPageDescriptor
 }
 
 export interface EafPageRegistryOptions {
@@ -148,6 +162,7 @@ export interface EafChatEvent {
     | 'message.delta'
     | 'ui.requested'
     | 'page.action.requested'
+    | 'turn.progress'
     | 'message.completed'
     | 'interaction.submitted'
     | 'interaction.cancelled'
@@ -186,6 +201,7 @@ type EmbedChatHostInstance = ComponentPublicInstance & {
   setContext: (context: Record<string, unknown>) => void
   getSessionId: () => string | null
   getExistingSessionId: () => string | null
+  rebindPage: (bridge: EafPageBridge, page: EafPageDescriptor, navigationRequestId: string) => Promise<void>
   disposeHost: () => void
 }
 
@@ -217,7 +233,8 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     : options.mount
   if (!mount) throw new Error('mount element not found')
 
-  const bridge = options.bridge || createEafPageBridge({ route: location.pathname })
+  let activeBridge = options.bridge || createEafPageBridge({ route: location.pathname })
+  let activePage = options.page
   const apiBase = resolveEafChatEmbedApiRoot(options.apiBase, options.embedPathPrefix)
   const platformBase = resolveEafChatPlatformBase(options.apiBase)
   const locale = options.locale || 'zh-CN'
@@ -233,7 +250,13 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   let chatApp: App | null = null
   let hostInstance: EmbedChatHostInstance | null = null
   let sendInFlight = false
-  let registeredActionCount = bridge.registeredActions.length
+  let registeredActionCount = activeBridge.registeredActions.length
+  let pendingNavigation: {
+    requestId: string
+    targetPageKey?: string
+    route?: string
+  } | null = null
+  let unregisterPageCatalogChange: () => void = () => undefined
 
   /**
    * 公开事件发布幂等（按 requestId）：只调用 onEvent，不执行 Bridge。
@@ -250,6 +273,16 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     if (requestId) {
       if (emittedPageActionEventIds.has(requestId)) return false
       emittedPageActionEventIds.add(requestId)
+    }
+    if (String(data.actionKey || '') === EAF_PAGE_NAVIGATE_ACTION && requestId) {
+      const metadata = data.metadata && typeof data.metadata === 'object'
+        ? data.metadata as Record<string, unknown>
+        : {}
+      pendingNavigation = {
+        requestId,
+        targetPageKey: typeof metadata.pageKey === 'string' ? metadata.pageKey : undefined,
+        route: typeof metadata.route === 'string' ? metadata.route : undefined,
+      }
     }
     options.onEvent?.({
       type: 'page.action.requested',
@@ -276,7 +309,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     }
     void dispatchPageActionExactlyOnce({
       request,
-      bridge,
+      bridge: activeBridge,
       sessionId,
       apiBase,
       token,
@@ -359,7 +392,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     }
     await processMessagePageActionQueue({
       response,
-      bridge,
+      bridge: activeBridge,
       sessionId,
       apiBase,
       token,
@@ -388,7 +421,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       apiBase,
       token,
       sessionId: existingSessionId,
-      bridge,
+      bridge: activeBridge,
       handledPageActions,
       pendingPageActions,
       inFlightPageActions,
@@ -410,7 +443,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
 
   const pendingPollScheduler = createPendingPageActionPollScheduler({
     getSessionId: () => hostInstance?.getExistingSessionId() || null,
-    hasRegisteredActions: () => bridge.registeredActions.length > 0,
+    hasRegisteredActions: () => activeBridge.registeredActions.length > 0,
     isDestroyed: () => destroyed,
     poll: pollPendingPageActionsOnce,
     onError: reportError,
@@ -483,8 +516,8 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     apiBase,
     tokenProvider: options.tokenProvider,
     tokenTimeoutMs: options.tokenTimeoutMs,
-    bridge,
-    page: options.page,
+    bridge: activeBridge,
+    page: activePage,
     context,
     locale,
     placeholder: locale === 'zh-CN' ? '输入消息' : 'Type a message',
@@ -501,12 +534,17 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   })
   hostInstance = chatApp.mount(bodyEl) as EmbedChatHostInstance
 
-  const unregisterPageCatalogChange = bridge.onActionDefinitionsChange(() => {
+  function subscribeToActiveBridge() {
+    unregisterPageCatalogChange()
+    unregisterPageCatalogChange = activeBridge.onActionDefinitionsChange(() => {
     schedulePageCatalogRegistration()
-    const nextCount = bridge.registeredActions.length
+    const nextCount = activeBridge.registeredActions.length
     pendingPollScheduler.notifyActionsChanged(registeredActionCount, nextCount)
     registeredActionCount = nextCount
-  })
+    })
+  }
+
+  subscribeToActiveBridge()
 
   schedulePageCatalogRegistration(0)
 
@@ -516,7 +554,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   }
 
   function schedulePageCatalogRegistration(delay = 250) {
-    if (!options.pageRegistry || options.pageRegistry.registerOnStart === false || !options.page) return
+    if (!options.pageRegistry || options.pageRegistry.registerOnStart === false || !activePage) return
     if (pageCatalogTimer) window.clearTimeout(pageCatalogTimer)
     pageCatalogTimer = window.setTimeout(() => {
       pageCatalogTimer = undefined
@@ -526,7 +564,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
 
   async function registerPageCatalog() {
     if (destroyed) return
-    await registerPageCatalogIfConfigured(platformBase, options, bridge)
+    await registerPageCatalogIfConfigured(platformBase, options, activeBridge, activePage)
   }
 
   async function refreshTokenForCurrentSession() {
@@ -560,7 +598,9 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   }
 
   const client = {
-    bridge,
+    get bridge() {
+      return activeBridge
+    },
     get sessionId() {
       return hostInstance?.getSessionId() || null
     },
@@ -577,6 +617,30 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     async retry() {
       if (!hostInstance || destroyed) return
       token = await hostInstance.retryAuthentication()
+    },
+    async rebindPage(binding: EafChatPageBinding) {
+      if (destroyed) throw new Error('Embed chat client has been destroyed')
+      if (!binding?.bridge || !binding.page?.pageKey) {
+        throw new Error('rebindPage requires the target bridge and page.pageKey')
+      }
+      if (!hostInstance) throw new Error('Embed chat host is not ready')
+      const navigation = pendingNavigation
+      if (!navigation) {
+        throw new Error('No platform navigation is pending; rebindPage is only valid after onNavigate')
+      }
+      if (navigation.targetPageKey && navigation.targetPageKey !== binding.page.pageKey) {
+        throw new Error(`Target page does not match pending navigation: ${navigation.targetPageKey}`)
+      }
+      const previousActionCount = registeredActionCount
+      await hostInstance.rebindPage(binding.bridge, binding.page, navigation.requestId)
+      activeBridge = binding.bridge
+      activePage = binding.page
+      registeredActionCount = activeBridge.registeredActions.length
+      subscribeToActiveBridge()
+      pendingNavigation = null
+      pendingPollScheduler.notifyActionsChanged(previousActionCount, registeredActionCount)
+      schedulePageCatalogRegistration(0)
+      pendingPollScheduler.notifyActivity()
     },
     registerPageCatalog,
     setContext(nextContext: Record<string, unknown>) {
@@ -606,9 +670,13 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   return client
 }
 
-async function registerPageCatalogIfConfigured(apiBase: string, options: EafChatOptions, bridge: EafPageBridge) {
+async function registerPageCatalogIfConfigured(
+  apiBase: string,
+  options: EafChatOptions,
+  bridge: EafPageBridge,
+  page: EafPageDescriptor | undefined,
+) {
   const registry = options.pageRegistry
-  const page = options.page
   if (!registry || registry.registerOnStart === false || !page) return
   if (!registry.projectCode || !registry.appKey || !registry.appSecret) return
   await postJsonWithSignature(

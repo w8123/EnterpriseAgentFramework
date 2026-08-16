@@ -25,6 +25,9 @@ import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient.HttpExecution
 import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient.HttpExecutionResult;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionNodeHandler;
+import com.enterprise.ai.runtime.memory.RuntimeBusinessMemoryHydrationService;
+import com.enterprise.ai.runtime.memory.RuntimeBusinessMemoryHydrationService.HydrationBatch;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowInputContract;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -62,7 +65,9 @@ public class RuntimeGraphSpecExecutor {
 
     private static final Pattern TEMPLATE_TOKEN = Pattern.compile("\\{\\{\\s*([A-Za-z0-9_.-]+)\\s*}}");
     private static final int MAX_LINEAR_STEPS = 64;
-    private static final int DEFAULT_PAGE_BRIDGE_TIMEOUT_MS = 30_000;
+    /** Human confirmation is intentionally independent from the host action execution budget. */
+    private static final int DEFAULT_PAGE_BRIDGE_CONFIRMATION_TIMEOUT_MS = 90_000;
+    private static final int DEFAULT_PAGE_BRIDGE_EXECUTION_TIMEOUT_MS = 30_000;
     private static final int MAX_RETRY_ATTEMPTS = 5;
     private static final long MAX_RETRY_BACKOFF_MS = 10_000L;
     private static final Set<String> EXECUTABLE_NODE_TYPES = Set.of(
@@ -89,12 +94,23 @@ public class RuntimeGraphSpecExecutor {
     private final RuntimeControlCatalogClient controlClient;
     private final RuntimeKnowledgeRetrievalClient knowledgeClient;
     private final WorkflowHttpClient httpClient;
+    private final RuntimeBusinessMemoryHydrationService businessMemoryHydrationService;
 
     public RuntimeGraphSpecExecutor(ObjectMapper objectMapper,
                                     RuntimeModelServiceClient modelServiceClient,
                                     RuntimeCapabilityCatalogClient capabilityClient,
                                     RuntimeControlCatalogClient controlClient) {
-        this(objectMapper, modelServiceClient, capabilityClient, controlClient, null, null);
+        this(objectMapper, modelServiceClient, capabilityClient, controlClient, null, null, null);
+    }
+
+    public RuntimeGraphSpecExecutor(ObjectMapper objectMapper,
+                                    RuntimeModelServiceClient modelServiceClient,
+                                    RuntimeCapabilityCatalogClient capabilityClient,
+                                    RuntimeControlCatalogClient controlClient,
+                                    @Autowired(required = false) RuntimeKnowledgeRetrievalClient knowledgeClient,
+                                    @Autowired(required = false) WorkflowHttpClient httpClient) {
+        this(objectMapper, modelServiceClient, capabilityClient, controlClient,
+                knowledgeClient, httpClient, null);
     }
 
     @Autowired
@@ -103,13 +119,16 @@ public class RuntimeGraphSpecExecutor {
                                     RuntimeCapabilityCatalogClient capabilityClient,
                                     RuntimeControlCatalogClient controlClient,
                                     @Autowired(required = false) RuntimeKnowledgeRetrievalClient knowledgeClient,
-                                    @Autowired(required = false) WorkflowHttpClient httpClient) {
+                                    @Autowired(required = false) WorkflowHttpClient httpClient,
+                                    @Autowired(required = false)
+                                    RuntimeBusinessMemoryHydrationService businessMemoryHydrationService) {
         this.objectMapper = objectMapper;
         this.modelServiceClient = modelServiceClient;
         this.capabilityClient = capabilityClient;
         this.controlClient = controlClient;
         this.knowledgeClient = knowledgeClient;
         this.httpClient = httpClient;
+        this.businessMemoryHydrationService = businessMemoryHydrationService;
     }
 
     /**
@@ -324,7 +343,9 @@ public class RuntimeGraphSpecExecutor {
                 return withLiveContext(withSteps(nodeResult, steps, nodeTraces), context);
             }
             Map<String, Object> completedPayload = safeNodePayload(node, nodeType, elapsedMs);
-            completedPayload.put("status", "SUCCESS");
+            completedPayload.put("status", isBusinessTerminalResult(nodeResult)
+                    ? "BUSINESS_TERMINAL"
+                    : "SUCCESS");
             completedPayload.put("summary", safeSummary(nodeResult.answer()));
             putAttemptObservability(completedPayload, nodeResult);
             if (nodeResult.uiRequest() != null) {
@@ -484,6 +505,9 @@ public class RuntimeGraphSpecExecutor {
             }
             last = executeNode(node, context, graph, eventSink, cancel);
             last = withAttemptMetadata(last, attempt, maxAttempts, attempt > 1 ? "retry" : "initial");
+            if (last.success()) {
+                last = hydrateBusinessMemory(last, context);
+            }
             if (last.success()
                     || last.isWaitingUser()
                     || WorkflowInteractionCodes.WAITING.equals(last.code())
@@ -495,6 +519,58 @@ public class RuntimeGraphSpecExecutor {
             }
         }
         return applyErrorPolicy(node, nodeType, last, nodesById, context);
+    }
+
+    private RuntimeGraphSpecExecutionResult hydrateBusinessMemory(
+            RuntimeGraphSpecExecutionResult result,
+            Map<String, Object> context) {
+        if (businessMemoryHydrationService == null || result == null || !result.success()) {
+            return result;
+        }
+        Object structured = result.metadata() == null
+                ? null : result.metadata().get("structuredOutput");
+        if (structured == null && StringUtils.hasText(result.answer())) {
+            String answer = result.answer().trim();
+            if (answer.startsWith("{") || answer.startsWith("[")) {
+                try {
+                    structured = objectMapper.readValue(answer, Object.class);
+                } catch (Exception ignored) {
+                    return result;
+                }
+            }
+        }
+        if (structured == null) return result;
+        HydrationBatch batch = businessMemoryHydrationService.hydrate(
+                structured, resolveTrustedIdentity(context), context);
+        if (!batch.detected()) return result;
+
+        Map<String, Object> metadata = result.metadata() == null
+                ? new LinkedHashMap<>() : new LinkedHashMap<>(result.metadata());
+        Object safeOutput = batch.output();
+        String safeAnswer;
+        try {
+            safeAnswer = objectMapper.writeValueAsString(safeOutput);
+        } catch (Exception serializationFailure) {
+            safeOutput = Map.of(
+                    "authoritative", false,
+                    "hydrationRequired", true,
+                    "hydrationStatus", "SAFE_SERIALIZATION_FAILED");
+            try {
+                safeAnswer = objectMapper.writeValueAsString(safeOutput);
+            } catch (Exception impossible) {
+                safeAnswer = "{\"authoritative\":false,\"hydrationRequired\":true,"
+                        + "\"hydrationStatus\":\"SAFE_SERIALIZATION_FAILED\"}";
+            }
+        }
+        metadata.put("structuredOutput", safeOutput);
+        metadata.put("businessMemoryHydration", Map.of(
+                "referenceCount", batch.referenceCount(),
+                "resolvedCount", batch.resolvedCount(),
+                "blockedCount", batch.blockedCount(),
+                "versionChangedCount", batch.versionChangedCount()));
+        return new RuntimeGraphSpecExecutionResult(
+                result.success(), result.code(), safeAnswer, result.nodeId(), result.nodeType(),
+                result.steps(), metadata, result.resumeCheckpoint());
     }
 
     private boolean allowsRetry(GraphSpec.Node node, String nodeType) {
@@ -701,6 +777,8 @@ public class RuntimeGraphSpecExecutor {
         putIfPresent(payload, "maxAttempts", result.metadata().get("maxAttempts"));
         putIfPresent(payload, "errorPolicyDecision", result.metadata().get("errorPolicyDecision"));
         putIfPresent(payload, "traceSummary", result.metadata().get("traceSummary"));
+        putIfPresent(payload, "outcomeClass", result.metadata().get("outcomeClass"));
+        putIfPresent(payload, "businessOutcome", result.metadata().get("businessOutcome"));
     }
 
     private String forcedNextNodeId(RuntimeGraphSpecExecutionResult result) {
@@ -1507,7 +1585,8 @@ public class RuntimeGraphSpecExecutor {
     }
 
     private RuntimeGraphSpecExecutionResult executeUserInput(GraphSpec.Node node, Map<String, Object> context) {
-        String input = firstText(text(context.get("input")), text(context.get("message")), "");
+        String input = userInputText(context);
+        writeUserInputParams(node, context, input);
         Map<String, Object> metadata = nodeMetadata(node, "USER_INPUT");
         return new RuntimeGraphSpecExecutionResult(
                 true,
@@ -1517,6 +1596,63 @@ public class RuntimeGraphSpecExecutor {
                 "USER_INPUT",
                 List.of(step("execute-node", node.getId())),
                 metadata);
+    }
+
+    /**
+     * {@code params} is a reserved Runtime namespace. USER_INPUT is the single
+     * designated writer, so this deliberately bypasses the normal business
+     * outputAlias writer while keeping the same flattened lookup behaviour.
+     */
+    private void writeUserInputParams(GraphSpec.Node node,
+                                      Map<String, Object> context,
+                                      String rawInput) {
+        List<RuntimeWorkflowInputContract.InputField> fields = RuntimeWorkflowInputContract.inputFields(node);
+        if (fields.isEmpty()) {
+            return;
+        }
+        Map<String, Object> params = new LinkedHashMap<>();
+        Map<String, Object> existing = mapValue(context.get(WorkflowVariableNamespaces.PARAMS_ROOT));
+        if (existing != null) {
+            params.putAll(existing);
+        }
+        for (RuntimeWorkflowInputContract.InputField field : fields) {
+            if (!StringUtils.hasText(field.name())) {
+                continue;
+            }
+            Object value = resolveUserInputFieldValue(field, context, rawInput);
+            if (value == null && field.defaultValue() != null) {
+                value = field.defaultValue();
+            }
+            params.put(field.name(), value == null ? "" : value);
+        }
+        context.put(WorkflowVariableNamespaces.PARAMS_ROOT, params);
+        for (Map.Entry<String, Object> entry : params.entrySet()) {
+            context.put(WorkflowVariableNamespaces.PARAMS_ROOT + "." + entry.getKey(), entry.getValue());
+        }
+    }
+
+    private Object resolveUserInputFieldValue(RuntimeWorkflowInputContract.InputField field,
+                                              Map<String, Object> context,
+                                              String rawInput) {
+        String source = field.source() == null ? "" : field.source().trim();
+        if (!StringUtils.hasText(source)
+                || "input".equals(source)
+                || "input.message".equals(source)
+                || "message".equals(source)
+                || "userInput".equals(source)
+                || "query".equals(source)) {
+            return rawInput;
+        }
+        Object value = resolveContextValue(source, context);
+        if (value != null) {
+            return value;
+        }
+        // A scalar input cannot expose named fields. For the canonical entry
+        // field, treat input.question as the natural-language message.
+        if (("input." + field.name()).equals(source)) {
+            return rawInput;
+        }
+        return null;
     }
 
     private RuntimeGraphSpecExecutionResult executeIntentClassifier(GraphSpec.Node node,
@@ -1976,13 +2112,54 @@ public class RuntimeGraphSpecExecutor {
 
     private String classifierInput(String expression, Map<String, Object> context) {
         if (!StringUtils.hasText(expression)) {
-            return firstText(text(context.get("input")), text(context.get("message")), "");
+            return userInputText(context);
         }
         if (expression.contains("{{")) {
             return firstText(renderTemplate(expression, context), "");
         }
+        if ("input".equals(expression.trim()) || "userInput".equals(expression.trim())
+                || "query".equals(expression.trim())) {
+            return userInputText(context);
+        }
         Object value = resolveContextValue(expression, context);
         return value == null ? "" : String.valueOf(value);
+    }
+
+    /**
+     * The page-embed transport may attach an empty structured {@code input} object while
+     * carrying the actual natural-language request in {@code message}.  Preserve structured
+     * input for explicit paths such as {@code input.orderNo}, but do not feed the placeholder
+     * object ({@code {}}) to USER_INPUT, classifiers, or parameter extractors that ask for the
+     * generic {@code input} text.
+     */
+    private String userInputText(Map<String, Object> context) {
+        String userInput = context == null ? null : text(context.get("userInput"));
+        if (StringUtils.hasText(userInput)) {
+            return userInput;
+        }
+        Object rawInput = context == null ? null : context.get("input");
+        // A scalar input is an explicit Workflow value and must win over the
+        // transport message. Structured input remains addressable through
+        // input.<field>; its generic text falls back to the user message.
+        if (!(rawInput instanceof Map<?, ?>) && !(rawInput instanceof Collection<?>)) {
+            String input = text(rawInput);
+            if (StringUtils.hasText(input)) {
+                return input;
+            }
+        }
+        String message = context == null ? null : text(context.get("message"));
+        if (StringUtils.hasText(message)) {
+            return message;
+        }
+        if (isEmptyStructuredInput(rawInput)) {
+            return "";
+        }
+        return firstText(text(rawInput), "");
+    }
+
+    private boolean isEmptyStructuredInput(Object value) {
+        return (value instanceof Map<?, ?> map && map.isEmpty())
+                || (value instanceof Collection<?> collection && collection.isEmpty());
     }
 
     private Object resolveContextValue(String expression, Map<String, Object> context) {
@@ -1992,7 +2169,7 @@ public class RuntimeGraphSpecExecutor {
         }
         Object value = context.get(path);
         if (value == null && ("query".equals(path) || "userInput".equals(path))) {
-            value = firstPresent(context.get("input"), context.get("message"));
+            value = userInputText(context);
         }
         // Compatibility: bare business alias may resolve through var.<alias> without dual-write.
         if (value == null && StringUtils.hasText(path) && !path.contains(".")
@@ -2198,8 +2375,10 @@ public class RuntimeGraphSpecExecutor {
 
     private String resolveToken(String token, Map<String, Object> request) {
         String resolved = switch (token) {
-            case "input", "message", "userInput", "query", "lastOutput", "previousOutput" ->
-                    firstText(text(request.get(token)), text(request.get("message")), text(request.get("input")));
+            case "input", "userInput", "query" -> userInputText(request);
+            case "message" -> firstText(text(request.get("message")), userInputText(request));
+            case "lastOutput", "previousOutput" ->
+                    firstText(text(request.get(token)), userInputText(request));
             default -> text(resolveContextValue(token, request));
         };
         return resolved == null ? "" : resolved;
@@ -2341,6 +2520,8 @@ public class RuntimeGraphSpecExecutor {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("input", buildToolInput(node, context));
         request.put("context", toolExecutionContext(node, nodeType, context));
+        request.put(RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE,
+                resolveTrustedIdentity(context));
         try {
             // Feign sync executeTool：节点边界协作式取消，无法硬中断进行中的 HTTP
             Map<String, Object> result = capabilityClient.executeTool(qualifiedName, request);
@@ -2469,7 +2650,8 @@ public class RuntimeGraphSpecExecutor {
             return cancelled(node.getId(), "PAGE_ACTION");
         }
         Map<String, Object> args = buildToolInput(node, context);
-        int timeoutMs = intValue(context.get("pageBridgeTimeoutMs"), DEFAULT_PAGE_BRIDGE_TIMEOUT_MS);
+        int executionTimeoutMs = intValue(
+                context.get("pageBridgeTimeoutMs"), DEFAULT_PAGE_BRIDGE_EXECUTION_TIMEOUT_MS);
         try {
             // Feign sync Page Bridge：节点边界协作式取消，无法硬中断进行中的 HTTP
             PageBridgeExecutionResponse response = controlClient.executePageBridge(new PageBridgeExecutionRequest(
@@ -2482,7 +2664,8 @@ public class RuntimeGraphSpecExecutor {
                     actionKey,
                     args,
                     Boolean.TRUE.equals(config.get("confirm")) || Boolean.TRUE.equals(config.get("confirmRequired")),
-                    timeoutMs));
+                    DEFAULT_PAGE_BRIDGE_CONFIRMATION_TIMEOUT_MS,
+                    executionTimeoutMs));
             if (cancel.isCancelled()) {
                 return cancelled(node.getId(), "PAGE_ACTION");
             }
@@ -2490,11 +2673,28 @@ public class RuntimeGraphSpecExecutor {
             metadata.put("pageKey", targetPageKey);
             metadata.put("actionKey", actionKey);
             if (response != null) {
-                metadata.put("pageBridgeCode", response.code());
-                metadata.put("pageBridgePhases", response.phases());
-                metadata.put("pageBridgeData", response.data());
+                if (response.code() != null) {
+                    metadata.put("pageBridgeCode", response.code());
+                }
+                if (response.status() != null) {
+                    metadata.put("pageBridgeStatus", response.status());
+                }
+                if (response.phases() != null) {
+                    metadata.put("pageBridgePhases", response.phases());
+                }
+                if (response.data() != null) {
+                    metadata.put("pageBridgeData", response.data());
+                }
+                Map<String, Object> pageActionSummary = pageActionResultSummary(actionKey, response);
+                metadata.put("pageActionResultSummary", pageActionSummary);
+                // Node trace output must stay useful without replaying business rows or raw bridge data.
+                metadata.put("traceSummary", pageActionSummary);
                 if (response.data() != null) {
                     metadata.put("structuredOutput", response.data());
+                }
+                if (isBusinessTerminalPageAction(response)) {
+                    metadata.put("outcomeClass", "BUSINESS_TERMINAL");
+                    metadata.put("businessOutcome", response.status());
                 }
             }
             if (response == null || !response.success()) {
@@ -2502,6 +2702,16 @@ public class RuntimeGraphSpecExecutor {
                         response == null ? "RUNTIME_PAGE_ACTION_EMPTY" : response.code(),
                         response == null ? "Page Bridge returned no response" : response.status(),
                         node.getId(), "PAGE_ACTION", List.of(step("execute-page-action", node.getId())), metadata);
+            }
+            if (isBusinessTerminalPageAction(response)) {
+                return new RuntimeGraphSpecExecutionResult(
+                        true,
+                        "RUNTIME_PAGE_ACTION_BUSINESS_TERMINAL",
+                        pageActionBusinessMessage(response),
+                        node.getId(),
+                        "PAGE_ACTION",
+                        List.of(step("execute-page-action", node.getId())),
+                        metadata);
             }
             return new RuntimeGraphSpecExecutionResult(true, "RUNTIME_PAGE_ACTION_EXECUTED",
                     response.data() == null ? response.status() : String.valueOf(response.data()),
@@ -2513,6 +2723,154 @@ public class RuntimeGraphSpecExecutor {
             return failure("RUNTIME_PAGE_ACTION_FAILED", "PAGE_ACTION failed: " + ex.getMessage(),
                     node.getId(), "PAGE_ACTION");
         }
+    }
+
+    /**
+     * Normalize page-action outcomes for supervisor final-answer grounding and trace display.
+     * This deliberately keeps only action state, a declared aggregate count and an optional short
+     * business message. Raw rows remain in the normal Workflow context for downstream nodes, but
+     * are never copied into the cross-layer result summary.
+     */
+    private Map<String, Object> pageActionResultSummary(String actionKey,
+                                                        PageBridgeExecutionResponse response) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("actionKey", actionKey);
+        summary.put("success", response.success());
+        String status = firstText(response.status(), response.success() ? "SUCCESS" : "FAILED");
+        summary.put("status", status);
+        if (isBusinessTerminalPageAction(response)) {
+            summary.put("outcomeClass", "BUSINESS_TERMINAL");
+            summary.put("businessOutcome", status);
+        }
+
+        Long total = null;
+        String message = null;
+        for (Map<String, Object> payload : pageActionPayloadCandidates(mapValue(response.data()))) {
+            if (!StringUtils.hasText(message)) {
+                message = safePageActionMessage(payload.get("message"));
+            }
+            if (total == null) {
+                total = pageActionCount(payload);
+            }
+        }
+        if (StringUtils.hasText(message)) {
+            summary.put("message", message);
+        } else if (isBusinessTerminalPageAction(response)) {
+            summary.put("message", pageActionBusinessMessage(response));
+        }
+        if (total != null) {
+            summary.put("total", total);
+            summary.put("empty", total == 0L);
+        }
+        if (pageActionPayloadCandidates(mapValue(response.data())).stream()
+                .anyMatch(payload -> Boolean.TRUE.equals(payload.get("userConfirmed")))) {
+            summary.put("userConfirmed", true);
+        }
+        return Map.copyOf(summary);
+    }
+
+    private boolean isBusinessTerminalPageAction(
+            PageBridgeExecutionResponse response) {
+        if (response == null || !response.success()) {
+            return false;
+        }
+        if ("PAGE_BRIDGE_BUSINESS_TERMINAL".equalsIgnoreCase(response.code())) {
+            return true;
+        }
+        String status = text(response.status());
+        return "NO_DATA".equalsIgnoreCase(status)
+                || "PRECONDITION_FAILED".equalsIgnoreCase(status)
+                || "USER_CANCELLED".equalsIgnoreCase(status)
+                || "CANCELLED".equalsIgnoreCase(status);
+    }
+
+    private String pageActionBusinessMessage(
+            PageBridgeExecutionResponse response) {
+        for (Map<String, Object> payload : pageActionPayloadCandidates(
+                mapValue(response == null ? null : response.data()))) {
+            String message = safePageActionMessage(payload.get("message"));
+            if (StringUtils.hasText(message)) {
+                return message;
+            }
+        }
+        String status = response == null ? null : text(response.status());
+        if ("NO_DATA".equalsIgnoreCase(status)) {
+            return "未查询到符合条件的数据。";
+        }
+        if ("PRECONDITION_FAILED".equalsIgnoreCase(status)) {
+            return "当前业务状态不满足执行该页面操作的条件。";
+        }
+        if ("USER_CANCELLED".equalsIgnoreCase(status)
+                || "CANCELLED".equalsIgnoreCase(status)) {
+            return "已取消本次页面操作。";
+        }
+        return "页面操作已结束，未产生可继续执行的业务结果。";
+    }
+
+    private List<Map<String, Object>> pageActionPayloadCandidates(Map<String, Object> root) {
+        if (root == null || root.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> candidates = new ArrayList<>();
+        candidates.add(root);
+        // Page Bridge returns handler data directly, while common SDK handlers return
+        // {status, message, data}. Support both without an unbounded recursive walk.
+        for (int index = 0; index < candidates.size() && index < 4; index++) {
+            Map<String, Object> candidate = candidates.get(index);
+            for (String nestedKey : List.of("data", "result", "payload")) {
+                Map<String, Object> nested = mapValue(candidate.get(nestedKey));
+                if (nested != null && !candidates.contains(nested)) {
+                    candidates.add(nested);
+                }
+            }
+        }
+        return candidates;
+    }
+
+    private Long pageActionCount(Map<String, Object> payload) {
+        for (String countKey : List.of("total", "totalCount", "rowCount", "count")) {
+            Long count = nonNegativeIntegralCount(payload.get(countKey));
+            if (count != null) {
+                return count;
+            }
+        }
+        for (String collectionKey : List.of("records", "rows", "items", "list", "courses")) {
+            Object value = payload.get(collectionKey);
+            if (value instanceof Collection<?> collection) {
+                return (long) collection.size();
+            }
+        }
+        return null;
+    }
+
+    private Long nonNegativeIntegralCount(Object value) {
+        if (value instanceof Number number) {
+            double decimal = number.doubleValue();
+            long integral = number.longValue();
+            return Double.isFinite(decimal) && decimal == integral && integral >= 0 ? integral : null;
+        }
+        if (value instanceof CharSequence sequence) {
+            String text = sequence.toString().trim();
+            if (text.matches("\\d+")) {
+                try {
+                    return Long.parseLong(text);
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
+    private String safePageActionMessage(Object value) {
+        if (!(value instanceof CharSequence sequence)) {
+            return null;
+        }
+        String message = sequence.toString().trim();
+        if (!StringUtils.hasText(message)) {
+            return null;
+        }
+        return message.length() <= 240 ? message : message.substring(0, 240);
     }
 
     private Map<String, Object> buildToolInput(GraphSpec.Node node, Map<String, Object> context) {
@@ -2563,6 +2921,9 @@ public class RuntimeGraphSpecExecutor {
         if (candidate.startsWith("$.")) candidate = candidate.substring(2);
         int separator = candidate.indexOf('.');
         String root = separator < 0 ? candidate : candidate.substring(0, separator);
+        boolean bareBusinessVariable = separator < 0
+                && context.get(WorkflowVariableNamespaces.VAR_ROOT) instanceof Map<?, ?> variables
+                && variables.containsKey(candidate);
         return context.get(root) instanceof Map<?, ?>
                 || candidate.startsWith("params.")
                 || candidate.startsWith("nodeOutput.")
@@ -2575,7 +2936,7 @@ public class RuntimeGraphSpecExecutor {
                 || (StringUtils.hasText(root)
                 && !WorkflowVariableNamespaces.isReservedRoot(root)
                 && (context.containsKey(WorkflowVariableNamespaces.VAR_ROOT + "." + candidate)
-                || context.get(WorkflowVariableNamespaces.VAR_ROOT) instanceof Map<?, ?>));
+                || bareBusinessVariable));
     }
 
     private String resolveQualifiedName(GraphSpec.Node node) {
@@ -2641,8 +3002,7 @@ public class RuntimeGraphSpecExecutor {
             String userPrompt = firstText(
                     renderTemplate(text(config.get("userPrompt")), request),
                     renderTemplate(text(config.get("prompt")), request),
-                    text(request.get("message")),
-                    text(request.get("input")));
+                    userInputText(request));
             if (StringUtils.hasText(userPrompt)) {
                 messages.add(ChatMessage.builder().role("user").content(userPrompt).build());
             }
@@ -2686,8 +3046,9 @@ public class RuntimeGraphSpecExecutor {
 
     private Map<String, Object> initialContext(Map<String, Object> request) {
         Map<String, Object> context = new LinkedHashMap<>(request);
-        String input = firstText(text(request.get("input")), text(request.get("message")), "");
+        String input = userInputText(request);
         context.putIfAbsent("input", input);
+        context.putIfAbsent("userInput", input);
         context.putIfAbsent("message", input);
         context.putIfAbsent("lastOutput", input);
         context.putIfAbsent("previousOutput", input);
@@ -2718,6 +3079,9 @@ public class RuntimeGraphSpecExecutor {
                 : new LinkedHashMap<>(existingNodeOutputs);
         nodeOutputs.put(node.getId(), output);
         context.put("nodeOutput", nodeOutputs);
+        if ("PAGE_ACTION".equals(nodeType)) {
+            rememberPageActionResult(context, result);
+        }
         String outputAlias = nodeOutputAlias(node);
         if (StringUtils.hasText(outputAlias)
                 && WorkflowVariableNamespaces.isValidAlias(outputAlias)
@@ -2730,6 +3094,29 @@ public class RuntimeGraphSpecExecutor {
         Object previousOutput = context.get("lastOutput");
         rememberOutputPath(context, "previousOutput", previousOutput);
         rememberOutputPath(context, "lastOutput", output);
+    }
+
+    private void rememberPageActionResult(Map<String, Object> context,
+                                          RuntimeGraphSpecExecutionResult result) {
+        if (result.metadata() == null) {
+            return;
+        }
+        Map<String, Object> summary = mapValue(result.metadata().get("pageActionResultSummary"));
+        if (summary == null || summary.isEmpty()) {
+            return;
+        }
+        List<Map<String, Object>> history = new ArrayList<>();
+        Object existing = context.get("pageActionResults");
+        if (existing instanceof List<?> items) {
+            for (Object item : items) {
+                Map<String, Object> previous = mapValue(item);
+                if (previous != null && !previous.isEmpty()) {
+                    history.add(Map.copyOf(previous));
+                }
+            }
+        }
+        history.add(Map.copyOf(summary));
+        context.put("pageActionResults", List.copyOf(history));
     }
 
     private String nodeOutputAlias(GraphSpec.Node node) {
@@ -2904,6 +3291,8 @@ public class RuntimeGraphSpecExecutor {
             status = "WAITING_USER";
         } else if ("RUNTIME_GRAPH_CANCELLED".equals(nodeResult.code())) {
             status = "CANCELLED";
+        } else if (isBusinessTerminalResult(nodeResult)) {
+            status = "BUSINESS_TERMINAL";
         } else if (nodeResult.success()) {
             status = "SUCCESS";
         } else {
@@ -2920,6 +3309,9 @@ public class RuntimeGraphSpecExecutor {
             putIfPresent(trace, "maxAttempts", nodeResult.metadata().get("maxAttempts"));
             putIfPresent(trace, "errorPolicy", nodeResult.metadata().get("errorPolicyDecision"));
             putIfPresent(trace, "fallbackNodeId", nodeResult.metadata().get("fallbackNodeId"));
+            putIfPresent(trace, "outcomeClass", nodeResult.metadata().get("outcomeClass"));
+            putIfPresent(trace, "businessOutcome", nodeResult.metadata().get("businessOutcome"));
+            putIfPresent(trace, "interactionType", nodeResult.metadata().get("interactionType"));
             Object summary = nodeResult.metadata().get("traceSummary");
             if (summary instanceof Map<?, ?> map) {
                 trace.put("traceSummary", new LinkedHashMap<>((Map<String, Object>) map));
@@ -2937,6 +3329,15 @@ public class RuntimeGraphSpecExecutor {
             trace.put("uiRequest", nodeResult.uiRequest());
         }
         return trace;
+    }
+
+    private boolean isBusinessTerminalResult(
+            RuntimeGraphSpecExecutionResult result) {
+        return result != null
+                && result.success()
+                && result.metadata() != null
+                && "BUSINESS_TERMINAL".equalsIgnoreCase(
+                text(result.metadata().get("outcomeClass")));
     }
 
     private void putIfPresent(Map<String, Object> metadata, String key, Object value) {

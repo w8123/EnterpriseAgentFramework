@@ -11,6 +11,10 @@ import java.time.LocalDateTime;
 public class BizIndexVO {
 
     private Long id;
+    private Long projectId;
+    private String projectCode;
+    private String environment;
+    private String tenantId;
     private String indexCode;
     private String indexName;
     private String sourceSystem;
@@ -23,6 +27,8 @@ public class BizIndexVO {
     private String splitType;
     private String status;
     private String remark;
+    private Boolean agentMemoryEnabled;
+    private String resolverCapabilityKey;
 
     /** 已索引的记录数（由查询动态填充） */
     private Long recordCount;

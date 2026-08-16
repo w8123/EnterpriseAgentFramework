@@ -99,6 +99,8 @@ export function adaptEmbedEvent(
     }
     case 'execution.started':
       return createEvent('turn.started', record || {}, { sessionId })
+    case 'turn.progress':
+      return createEvent('turn.progress', record || {}, { sessionId })
     case 'execution.completed': {
       return adaptEmbedEvent('message.completed', data, extras)
     }

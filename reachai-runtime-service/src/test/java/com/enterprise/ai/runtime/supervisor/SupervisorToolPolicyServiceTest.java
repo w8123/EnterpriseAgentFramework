@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -75,6 +76,31 @@ class SupervisorToolPolicyServiceTest {
                 input("请读取并告诉我当前页面状态，包括页面标识、筛选值和当前可见行数"), Map.of(), null);
         SupervisorToolPolicyService.PolicyDecision readCurrentPageStateInEnglish = service.evaluate(
                 trace, agent, config, tool, input("Read the current page state and visible rows"), Map.of(), null);
+        Map<String, Object> naturalPageQueryInput = new LinkedHashMap<>(input("请帮我查一下已关闭订单有多少条，只读查询，不要修改数据"));
+        naturalPageQueryInput.put("pageKey", "mall.oms.order");
+        SupervisorToolPolicyService.PolicyDecision naturalPageQuery = service.evaluate(
+                trace, agent, config, tool, naturalPageQueryInput, Map.of(), null);
+        Map<String, Object> mixedReadWriteInput = new LinkedHashMap<>(input("查询后删除订单"));
+        mixedReadWriteInput.put("pageKey", "mall.oms.order");
+        SupervisorToolPolicyService.PolicyDecision mixedReadWrite = service.evaluate(
+                trace, agent, config, tool, mixedReadWriteInput, Map.of(), null);
+        Map<String, Object> embeddedDisableInput = new LinkedHashMap<>(
+                input("请停用班组 test，但在真正执行前必须先让我确认；现在不要直接修改数据"));
+        embeddedDisableInput.put("pageKey", "qmssmp.team.archive");
+        SupervisorToolPolicyService.PolicyDecision embeddedDisable = service.evaluate(
+                trace, agent, config, tool, embeddedDisableInput, Map.of(), null);
+        Map<String, Object> negatedThenWriteInput = new LinkedHashMap<>(input("查询订单，不要删除 A，但删除 B"));
+        negatedThenWriteInput.put("pageKey", "mall.oms.order");
+        SupervisorToolPolicyService.PolicyDecision negatedThenWrite = service.evaluate(
+                trace, agent, config, tool, negatedThenWriteInput, Map.of(), null);
+        Map<String, Object> englishWriteInput = new LinkedHashMap<>(input("查询 orders and then delete one"));
+        englishWriteInput.put("pageKey", "mall.oms.order");
+        SupervisorToolPolicyService.PolicyDecision englishWrite = service.evaluate(
+                trace, agent, config, tool, englishWriteInput, Map.of(), null);
+        Map<String, Object> negatedOnlyInput = new LinkedHashMap<>(input("不要停用班组 test"));
+        negatedOnlyInput.put("pageKey", "qmssmp.team.archive");
+        SupervisorToolPolicyService.PolicyDecision negatedOnly = service.evaluate(
+                trace, agent, config, tool, negatedOnlyInput, Map.of(), null);
 
         assertFalse(denied.allowed());
         assertEquals("DENY", denied.decision());
@@ -82,6 +108,12 @@ class SupervisorToolPolicyServiceTest {
         assertTrue(operateCurrentPage.allowed());
         assertTrue(readCurrentPageState.allowed());
         assertTrue(readCurrentPageStateInEnglish.allowed());
+        assertTrue(naturalPageQuery.allowed());
+        assertTrue(mixedReadWrite.allowed());
+        assertTrue(embeddedDisable.allowed());
+        assertTrue(negatedThenWrite.allowed());
+        assertTrue(englishWrite.allowed());
+        assertFalse(negatedOnly.allowed());
     }
 
     @Test

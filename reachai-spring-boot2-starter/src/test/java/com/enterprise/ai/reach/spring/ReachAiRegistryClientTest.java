@@ -15,6 +15,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -86,6 +88,48 @@ class ReachAiRegistryClientTest {
         client.registerAndSync();
 
         assertEquals(0, transport.requests.size());
+    }
+
+    @Test
+    void enrollmentTokenRegistersOnceThenPersistsAndReusesGeneratedCredential() throws Exception {
+        Path store = Files.createTempDirectory("reachai-registry-test").resolve("credential.properties");
+        ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
+        properties.getRegistry().setUrl("https://reachai.example.com");
+        properties.getRegistry().setEnrollmentToken("ren_once");
+        properties.getRegistry().setCredentialStorePath(store.toString());
+        properties.getProject().setCode("orders");
+        properties.getProject().setName("Orders");
+        properties.getProject().setBaseUrl("https://orders.example.com");
+        EnrollmentTransport transport = new EnrollmentTransport();
+
+        ReachAiRegistryClient client = new ReachAiRegistryClient(
+                properties, new ReachCapabilityBeanScanner(new Object[0]), transport);
+        client.registerAndSync();
+
+        assertEquals(2, transport.requests.size());
+        RecordingTransport.Request registration = transport.requests.get(0);
+        assertEquals("ren_once", registration.headers.get(ReachAiRegistryClient.ENROLLMENT_TOKEN_HEADER));
+        assertEquals(1, registration.headers.size());
+        assertFalse(registration.body.containsKey("appSecret"));
+        RecordingTransport.Request heartbeat = transport.requests.get(1);
+        assertEquals("rak_generated", heartbeat.headers.get("X-ReachAI-App-Key"));
+        assertNotNull(heartbeat.headers.get("X-ReachAI-Signature"));
+        assertEquals("rak_generated", properties.getRegistry().getAppKey());
+        assertEquals("ras_generated", properties.getRegistry().getAppSecret());
+
+        ReachAiRegistryProperties restartProperties = new ReachAiRegistryProperties();
+        restartProperties.getRegistry().setUrl("https://reachai.example.com");
+        restartProperties.getRegistry().setCredentialStorePath(store.toString());
+        restartProperties.getProject().setCode("orders");
+        restartProperties.getProject().setBaseUrl("https://orders.example.com");
+        RecordingTransport restartTransport = new RecordingTransport();
+        ReachAiRegistryClient restarted = new ReachAiRegistryClient(
+                restartProperties, new ReachCapabilityBeanScanner(new Object[0]), restartTransport);
+
+        assertEquals("rak_generated", restartProperties.getRegistry().getAppKey());
+        assertEquals("ras_generated", restartProperties.getRegistry().getAppSecret());
+        restarted.registerAndSync();
+        assertEquals("rak_generated", restartTransport.requests.get(0).headers.get("X-ReachAI-App-Key"));
     }
 
     @Test
@@ -300,7 +344,7 @@ class ReachAiRegistryClientTest {
     }
 
     static class RecordingTransport implements ReachAiRegistryTransport {
-        private final List<Request> requests = new ArrayList<Request>();
+        protected final List<Request> requests = new ArrayList<Request>();
 
         @Override
         public String exchange(String method, String url, Map<String, String> headers, Object body) {
@@ -327,6 +371,16 @@ class ReachAiRegistryClientTest {
         @Override
         public String exchange(String method, String url, Map<String, String> headers, Object body) {
             throw new IllegalStateException("registry unavailable");
+        }
+    }
+
+    static class EnrollmentTransport extends RecordingTransport {
+        @Override
+        public String exchange(String method, String url, Map<String, String> headers, Object body) {
+            super.exchange(method, url, headers, body);
+            return url.endsWith("/api/registry/projects/register")
+                    ? "{\"projectCode\":\"orders\",\"appKey\":\"rak_generated\",\"appSecret\":\"ras_generated\"}"
+                    : "{}";
         }
     }
 }

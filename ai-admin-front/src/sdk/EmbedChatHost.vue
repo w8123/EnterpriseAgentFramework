@@ -109,6 +109,10 @@ const authState = ref<EafChatAuthState>({
 })
 let sessionId = ''
 let context: Record<string, unknown> = { ...props.context }
+// Props describe the initial page only. During an SPA navigation the facade
+// swaps these bindings after the target page has registered its actions.
+let activeBridge = props.bridge
+let activePage = props.page
 let cachedToken = ''
 let cachedTokenExpiresAt = 0
 let disposed = false
@@ -248,7 +252,7 @@ async function resolveToken(reason: EafChatTokenReason, force = false): Promise<
   const timeoutMs = Number.isFinite(props.tokenTimeoutMs) && props.tokenTimeoutMs > 0
     ? props.tokenTimeoutMs
     : 10_000
-  const pageContext = buildEafChatSessionPayload(props.bridge, props.page)
+  const pageContext = buildEafChatSessionPayload(activeBridge, activePage)
   const providerContext = {
     reason: requestReason,
     signal: controller.signal,
@@ -257,7 +261,7 @@ async function resolveToken(reason: EafChatTokenReason, force = false): Promise<
     pageKey: pageContext.pageKey,
     pageInstanceId: pageContext.pageInstanceId,
     route: pageContext.route,
-    origin: props.page?.origin || (typeof location !== 'undefined' ? location.origin : ''),
+    origin: activePage?.origin || (typeof location !== 'undefined' ? location.origin : ''),
   }
   const providerPromise = Promise.resolve().then(async () => {
     if (reason === 'unauthorized' && props.onUnauthorized) {
@@ -351,7 +355,7 @@ const transport = createEmbedTransport({
   setSessionId: updateSessionId,
   getContext: () => context,
   createSessionPayload: () => ({
-    ...buildEafChatSessionPayload(props.bridge, props.page),
+    ...buildEafChatSessionPayload(activeBridge, activePage),
   } as Record<string, unknown>),
   preferStream: props.preferStream,
   onUnauthorized: () => refreshToken('unauthorized'),
@@ -395,6 +399,9 @@ function forwardPublicEvent(event: ConversationEventEnvelope) {
       return
     case 'page.action.requested':
       props.onEvent?.({ type: 'page.action.requested', data, ...extras })
+      return
+    case 'turn.progress':
+      props.onEvent?.({ type: 'turn.progress', data, ...extras })
       return
     case 'turn.completed':
     case 'turn.waiting':
@@ -554,10 +561,64 @@ async function ensureHostSession(): Promise<string> {
   throw new Error('Embed transport cannot ensure session')
 }
 
+async function rebindPage(
+  bridge: EafPageBridge,
+  page: EafPageDescriptor,
+  navigationRequestId: string,
+) {
+  if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
+  if (!sessionId) throw new Error('An active Embed chat session is required before page rebinding')
+  if (!navigationRequestId) throw new Error('A platform navigation request id is required before page rebinding')
+
+  const previousBridge = activeBridge
+  const previousPage = activePage
+  activeBridge = bridge
+  activePage = page
+  try {
+    const token = await refreshToken('page-navigation')
+    const response = await fetch(
+      `${props.apiBase}/chat/sessions/${encodeURIComponent(sessionId)}/page-bridge/rebind`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          ...buildEafChatSessionPayload(activeBridge, activePage),
+          navigationRequestId,
+        }),
+      },
+    )
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || (payload.code && payload.code !== 200 && payload.code !== 0)) {
+      const error = tokenError(
+        'PAGE_NAVIGATION_REBIND_FAILED',
+        payload.message || `Page navigation rebind failed: ${response.status}`,
+        undefined,
+        response.status,
+      )
+      error.phase = 'page-action'
+      throw error
+    }
+  } catch (error) {
+    activeBridge = previousBridge
+    activePage = previousPage
+    throw error
+  }
+}
+
 /** Embed 仅展示通用思考文案，绝不注入 Supervisor / reasoning */
 function resolveEmbedStatusHint(message: ConversationMessage) {
   if (message.role !== 'assistant') return undefined
   if (message.status !== 'pending' && message.status !== 'streaming') return undefined
+  const publicProgress = message.metadata?.publicProgress
+  if (publicProgress && typeof publicProgress === 'object' && !Array.isArray(publicProgress)) {
+    const progressMessage = (publicProgress as Record<string, unknown>).message
+    if (typeof progressMessage === 'string' && progressMessage.trim()) {
+      return progressMessage.trim().slice(0, 120)
+    }
+  }
   const hasText = message.blocks.some((b) => b.type === 'text' && b.text)
   return hasText ? '正在生成回答' : '正在处理'
 }
@@ -639,6 +700,7 @@ defineExpose({
   getSessionId,
   getExistingSessionId,
   ensureHostSession,
+  rebindPage,
   disposeHost,
 })
 </script>
@@ -648,6 +710,9 @@ defineExpose({
   display: flex;
   flex: 1;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 0;
   height: 100%;
 }
@@ -685,6 +750,10 @@ defineExpose({
 
 .eaf-chat__conversation {
   flex: 1;
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 0;
   height: 100%;
   border: none;

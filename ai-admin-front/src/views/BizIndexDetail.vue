@@ -91,10 +91,10 @@
       </template>
 
       <el-tabs>
-        <el-tab-pane label="cURL">
+        <el-tab-pane label="签名 HTTP">
           <div class="code-block">
             <div class="code-header">
-              <span>推送数据示例（cURL）</span>
+              <span>项目凭证签名请求形态</span>
               <el-button size="small" link @click="copyText(curlExample)">复制</el-button>
             </div>
             <pre><code>{{ curlExample }}</code></pre>
@@ -103,16 +103,16 @@
         <el-tab-pane label="Java">
           <div class="code-block">
             <div class="code-header">
-              <span>推送数据示例（Java / RestTemplate）</span>
+              <span>推送数据示例（Java / ReachAI Starter）</span>
               <el-button size="small" link @click="copyText(javaExample)">复制</el-button>
             </div>
             <pre><code>{{ javaExample }}</code></pre>
           </div>
         </el-tab-pane>
-        <el-tab-pane label="搜索">
+        <el-tab-pane label="控制台搜索">
           <div class="code-block">
             <div class="code-header">
-              <span>语义搜索示例（cURL）</span>
+              <span>平台会话搜索示例（cURL）</span>
               <el-button size="small" link @click="copyText(searchExample)">复制</el-button>
             </div>
             <pre><code>{{ searchExample }}</code></pre>
@@ -277,23 +277,31 @@ const curlExample = computed(() => {
     ownerOrgId: 'org_001',
   }
 
-  return `# 推送业务数据（带附件）
-curl -X POST "http://your-host/ai/biz-index/${indexCode}/upsert" \\
-  -F 'data=${JSON.stringify(data, null, 2)};type=application/json' \\
-  -F 'attachments=@/path/to/attachment.pdf'
+  return `# 业务系统入口只接受结构化 JSON，并要求 REACHAI_PROJECT_REQUEST_V1。
+# body SHA-256 和签名必须基于发送的精确字节；请优先使用 Java Starter 生成下列值。
+# 项目凭证入口暂不支持附件，附件由已登录平台操作员在本页面上传。
 
-# 推送业务数据（不带附件）
-curl -X POST "http://your-host/ai/biz-index/${indexCode}/upsert" \\
-  -F 'data=${JSON.stringify(data, null, 2)};type=application/json'`
+curl -X POST "https://your-reachai-host/api/knowledge-ingress/projects/your-project-code/biz-index/${indexCode}/upsert" \\
+  -H "Content-Type: application/json" \\
+  -H "X-ReachAI-App-Key: <app-key>" \\
+  -H "X-ReachAI-Timestamp: <epoch-millis>" \\
+  -H "X-ReachAI-Nonce: <single-use-nonce>" \\
+  -H "X-ReachAI-Body-SHA256: <sha256-of-exact-body>" \\
+  -H "X-ReachAI-Signature: <hmac-signature>" \\
+  --data-binary '${JSON.stringify(data)}'`
 })
 
 const javaExample = computed(() => {
   const fields = buildExampleFields()
   const fieldEntries = Object.entries(fields)
-    .map(([k, v]) => `        fields.put("${k}", "${v}");`)
+    .map(([k, v]) => `fields.put("${k}", "${v}");`)
     .join('\n')
 
-  return `// 1. 构建请求数据
+  return `// ReachAiBusinessIndexClient 由 reachai-spring-boot2-starter 自动配置，兼容 JDK 8。
+// registry.url、project.code、app-key 和 app-secret 复用项目注册配置。
+@Autowired
+private ReachAiBusinessIndexClient businessIndexClient;
+
 Map<String, String> fields = new HashMap<>();
 ${fieldEntries}
 
@@ -301,32 +309,24 @@ Map<String, Object> data = new HashMap<>();
 data.put("bizId", "YOUR_BIZ_ID");
 data.put("bizType", "YOUR_TYPE");
 data.put("fields", fields);
-data.put("metadata", Map.of("key", "value"));
+Map<String, Object> metadata = new HashMap<>();
+metadata.put("key", "value");
+data.put("metadata", metadata);
 data.put("ownerUserId", "user_001");
 data.put("ownerOrgId", "org_001");
 
-// 2. 构建 Multipart 请求
-MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-body.add("data", new HttpEntity<>(
-    objectMapper.writeValueAsString(data),
-    new HttpHeaders() {{ setContentType(MediaType.APPLICATION_JSON); }}
-));
-// 可选：添加附件
-// body.add("attachments", new FileSystemResource(new File("/path/to/file.pdf")));
+// Starter 会对方法、公共路径、项目、时间、nonce 和精确 JSON body 统一入签。
+businessIndexClient.upsert("${indexCode}", data);
 
-HttpHeaders headers = new HttpHeaders();
-headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-
-restTemplate.postForObject(
-    "http://your-host/ai/biz-index/${indexCode}/upsert",
-    new HttpEntity<>(body, headers),
-    ApiResult.class
-);`
+// 删除同样使用 body-bound POST，避免 bizId 路径编码歧义。
+// businessIndexClient.deleteRecord("${indexCode}", "YOUR_BIZ_ID");`
 })
 
 const searchExample = computed(() => {
-  return `# 语义搜索
-curl -X POST "http://your-host/ai/biz-index/${indexCode}/search" \\
+  return `# 搜索是平台控制台能力，需要实时平台 session 和 platform:read 权限。
+# 业务 Agent 不应调用该接口读取索引正文，而应走 Runtime 的权威回源链路。
+curl -X POST "https://your-reachai-host/api/knowledge/biz-index/${indexCode}/search" \\
+  -H "Authorization: Bearer <short-lived-platform-session>" \\
   -H "Content-Type: application/json" \\
   -d '{
     "query": "你的搜索内容",

@@ -160,6 +160,37 @@ class RuntimeWorkflowAiCodingServiceTest {
     }
 
     @Test
+    void createUsesCanonicalPageAssistantStarterWhenGraphIsOmitted() {
+        when(workflowService.create(any(RuntimeWorkflowDefinitionEntity.class))).thenAnswer(inv -> {
+            RuntimeWorkflowDefinitionEntity entity = inv.getArgument(0);
+            entity.setId("wf-starter");
+            entity.setUpdatedAt(LocalDateTime.of(2026, 7, 1, 9, 0));
+            return entity;
+        });
+
+        RuntimeWorkflowAiCodingService.ContextView context = service.createWorkflow(
+                new RuntimeWorkflowAiCodingService.CreateRequest(
+                        "Page Starter",
+                        "page-starter",
+                        12L,
+                        "orders",
+                        null,
+                        "PAGE_ASSISTANT",
+                        "GRAPH_SPEC",
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(new BindingInput(12L, "orders", "PAGE", "orders.detail", "TARGET")),
+                        "create starter"));
+
+        assertEquals("user_input", context.graphSpec().getEntryNodeId());
+        assertEquals(List.of("user_input"), context.graphSpec().getExitNodeIds());
+        assertEquals("object", context.graphSpec().getInputSchema().get("type"));
+        assertEquals("params", context.graphSpec().getNodes().get(0).getConfig().get("outputAlias"));
+    }
+
+    @Test
     void createDefaultsWorkflowKindToGeneral() {
         when(workflowService.create(any(RuntimeWorkflowDefinitionEntity.class))).thenAnswer(inv -> {
             RuntimeWorkflowDefinitionEntity entity = inv.getArgument(0);
@@ -493,6 +524,70 @@ class RuntimeWorkflowAiCodingServiceTest {
 
         assertEquals("FAILED", view.status());
         assertEquals(List.of(), view.errors());
+    }
+
+    @Test
+    void pageAssistantSmokeResolvesTrustedEmbedContextAndFlattensItForRuntime() {
+        RuntimeWorkflowDefinitionEntity workflow = workflow("wf-ai-1");
+        workflow.setGraphSpecJson("""
+                {"schemaVersion":2,"entryNodeId":"page","exitNodeIds":["page"],
+                 "nodes":[{"id":"page","type":"PAGE_ACTION","config":{
+                   "pageKey":"orders.detail","actionKey":"search"}}],"edges":[]}
+                """);
+        when(workflowService.findById("wf-ai-1")).thenReturn(Optional.of(workflow));
+        when(controlCatalogClient.resolvePageBridgeContext(any())).thenReturn(
+                new RuntimeControlCatalogClient.PageBridgeContextResolution(
+                        true,
+                        "PAGE_BRIDGE_CONTEXT_RESOLVED",
+                        "resolved",
+                        "embed-1234567890abcdef",
+                        "orders",
+                        "orders-agent",
+                        "orders.list",
+                        "orders-page-1",
+                        "/orders"));
+        AtomicReference<RuntimeWorkflowDebugService.DebugRunRequest> captured = new AtomicReference<>();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            captured.set(invocation.getArgument(0));
+            return new RuntimeWorkflowDebugService.DebugRunResult(
+                    "run-1", "trace-1", null, "WORKFLOW", true, "COMPLETED", "ok", "page",
+                    List.of(), null, List.of(), Map.of(), null, null);
+        }).when(debugService).debugRun(any(RuntimeWorkflowDebugService.DebugRunRequest.class));
+
+        RuntimeWorkflowAiCodingService.RunView view = service.smokeTestPageAssistant(
+                "wf-ai-1",
+                new RuntimeWorkflowAiCodingService.RunRequest(
+                        Map.of("input", "search"),
+                        "search",
+                        Map.of("embedSessionId", "embed-1234567890abcdef", "pageBridge", Map.of("ignored", true)),
+                        true));
+
+        assertEquals("COMPLETED", view.status());
+        assertEquals("embed-1234567890abcdef", captured.get().inputParams().get("sessionId"));
+        assertEquals("orders-agent", captured.get().inputParams().get("agentId"));
+        assertEquals("orders", captured.get().inputParams().get("projectCode"));
+        assertEquals("RESOLVED", ((Map<?, ?>) view.metadata().get("contextResolution")).get("status"));
+        verify(controlCatalogClient).resolvePageBridgeContext(any());
+    }
+
+    @Test
+    void pageAssistantSmokeReportsActionableMissingEmbedSessionBeforeDebugRun() {
+        RuntimeWorkflowDefinitionEntity workflow = workflow("wf-ai-1");
+        workflow.setGraphSpecJson("""
+                {"schemaVersion":2,"entryNodeId":"page","exitNodeIds":["page"],
+                 "nodes":[{"id":"page","type":"PAGE_ACTION","config":{
+                   "pageKey":"orders.detail","actionKey":"search"}}],"edges":[]}
+                """);
+        when(workflowService.findById("wf-ai-1")).thenReturn(Optional.of(workflow));
+
+        RuntimeWorkflowAiCodingService.RunView view = service.smokeTestPageAssistant(
+                "wf-ai-1", new RuntimeWorkflowAiCodingService.RunRequest(Map.of(), "search", Map.of(), true));
+
+        assertEquals("CONTEXT_REQUIRED", view.status());
+        assertTrue(view.errors().get(0).contains("embedSessionId"));
+        assertEquals("PAGE_BRIDGE_CONTEXT_REQUIRED",
+                ((Map<?, ?>) view.metadata().get("contextResolution")).get("code"));
+        verify(debugService, never()).debugRun(any(RuntimeWorkflowDebugService.DebugRunRequest.class));
     }
 
     @Test

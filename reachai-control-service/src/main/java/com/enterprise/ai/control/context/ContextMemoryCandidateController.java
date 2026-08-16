@@ -46,11 +46,15 @@ public class ContextMemoryCandidateController {
             @RequestParam(defaultValue = "false") Boolean includeExpired,
             @RequestParam(defaultValue = "100") Integer limit) {
         int boundedLimit = Math.max(1, Math.min(limit == null ? 100 : limit, 500));
+        String lane = defaultUpper(memoryLane, "PROJECT_DEV");
         return ResponseEntity.ok(candidateMapper.selectList(Wrappers.<ContextMemoryCandidateEntity>lambdaQuery()
                         .eq(ContextMemoryCandidateEntity::getTenantId, trim(tenantId))
                         .eq(StringUtils.hasText(projectCode), ContextMemoryCandidateEntity::getProjectCode, trim(projectCode))
                         .eq(projectId != null, ContextMemoryCandidateEntity::getProjectId, projectId)
-                        .eq(ContextMemoryCandidateEntity::getMemoryLane, defaultUpper(memoryLane, "PROJECT_DEV"))
+                        .eq(ContextMemoryCandidateEntity::getMemoryLane, lane)
+                        // Private Runtime User candidates are self-service only and must never
+                        // leak through this generic project/administrator workbench route.
+                        .ne("RUNTIME_USER".equals(lane), ContextMemoryCandidateEntity::getVisibility, "PRIVATE")
                         .eq(StringUtils.hasText(userId), ContextMemoryCandidateEntity::getUserId, trim(userId))
                         .eq(StringUtils.hasText(status), ContextMemoryCandidateEntity::getStatus, upper(status))
                         .eq(namespaceId != null, ContextMemoryCandidateEntity::getNamespaceId, namespaceId)
@@ -104,10 +108,13 @@ public class ContextMemoryCandidateController {
         entity.setConfidence(command.confidence() == null ? BigDecimal.valueOf(0.7) : command.confidence());
         entity.setTrustLevel(defaultUpper(command.trustLevel(), "LOW"));
         entity.setVisibility(defaultUpper(command.visibility(), "PRIVATE"));
+        rejectPrivateRuntimeUserCandidate(entity.getMemoryLane(), entity.getVisibility());
         entity.setStatus("PENDING");
         entity.setProposedBy(trim(command.proposedBy()));
         entity.setExpiresAt(parseDate(command.expiresAt()));
         entity.setMetadataJson(trim(command.metadataJson()));
+        entity.setOccurrenceCount(1);
+        entity.setLastSeenAt(LocalDateTime.now());
         entity.setCreatedAt(LocalDateTime.now());
         entity.setUpdatedAt(entity.getCreatedAt());
         candidateMapper.insert(entity);
@@ -237,6 +244,7 @@ public class ContextMemoryCandidateController {
         candidate.setReviewedAt(LocalDateTime.now());
         candidate.setReviewReason(trim(command.reviewReason()));
         candidate.setApprovedItemId(item.getId());
+        candidate.setDedupeKey(null);
         candidate.setUpdatedAt(candidate.getReviewedAt());
         candidateMapper.updateById(candidate);
         audit("CANDIDATE_APPROVE", candidate, command.reviewReason(), command.reviewedBy());
@@ -249,6 +257,7 @@ public class ContextMemoryCandidateController {
         candidate.setReviewedBy(trim(command.reviewedBy()));
         candidate.setReviewedAt(LocalDateTime.now());
         candidate.setReviewReason(trim(command.reviewReason()));
+        candidate.setDedupeKey(null);
         candidate.setUpdatedAt(candidate.getReviewedAt());
         candidateMapper.updateById(candidate);
         audit("CANDIDATE_REJECT", candidate, command.reviewReason(), command.reviewedBy());
@@ -257,7 +266,8 @@ public class ContextMemoryCandidateController {
 
     private ContextMemoryCandidateEntity pendingCandidate(Long id) {
         ContextMemoryCandidateEntity entity = candidateMapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || ("RUNTIME_USER".equals(entity.getMemoryLane())
+                && "PRIVATE".equals(entity.getVisibility()))) {
             throw new IllegalArgumentException("Context memory candidate not found: " + id);
         }
         if (!"PENDING".equals(entity.getStatus())) {
@@ -349,6 +359,13 @@ public class ContextMemoryCandidateController {
     private String upper(String value) {
         String text = trim(value);
         return StringUtils.hasText(text) ? text.toUpperCase(Locale.ROOT) : null;
+    }
+
+    private void rejectPrivateRuntimeUserCandidate(String memoryLane, String visibility) {
+        if ("RUNTIME_USER".equals(memoryLane) && "PRIVATE".equals(visibility)) {
+            throw new IllegalArgumentException(
+                    "Private RUNTIME_USER candidates must use the personal-memory self-service API");
+        }
     }
 
     private String trim(String value) {

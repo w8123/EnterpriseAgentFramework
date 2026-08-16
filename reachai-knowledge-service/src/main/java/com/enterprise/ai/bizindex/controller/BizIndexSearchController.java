@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
  * 业务索引语义搜索
  */
 @RestController
-@RequestMapping("/biz-index")
+@RequestMapping("/internal/knowledge/console/biz-index")
 @RequiredArgsConstructor
 public class BizIndexSearchController {
 

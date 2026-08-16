@@ -221,6 +221,33 @@ describe('useSdkAccessWizardData', () => {
     expect(data.selfCheckVerified.value).toBe(true)
   })
 
+  it('keeps all six reported steps complete after the task is accepted', async () => {
+    const task = {
+      taskId: 'completed-project-task',
+      executionStatus: 'COMPLETED',
+      executorProvider: 'CODEX',
+      connection: { status: 'CLOSED' },
+    }
+    mocks.listAiCodingTasks.mockResolvedValueOnce({ data: [task] })
+    mocks.getAiCodingTask.mockResolvedValueOnce({
+      data: {
+        task,
+        readiness: [],
+        events: [],
+        questions: [],
+        artifacts: [],
+      },
+    })
+    const data = createData()
+
+    await data.loadAll()
+
+    expect(data.aiAccessCompletedSteps.value).toBe(6)
+    expect(data.aiAccessTotalSteps.value).toBe(6)
+    expect(data.aiDisplaySteps.value).toHaveLength(6)
+    expect(data.aiDisplaySteps.value.every((step) => step.status === 'PASS')).toBe(true)
+  })
+
   it('does not publish a self-check result after the workbench changed projects', async () => {
     let resolvePending:
       | ((value: {

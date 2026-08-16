@@ -532,6 +532,7 @@ import { getScanProjects } from '@/api/scanProject'
 import { findSemanticDoc } from '@/api/semanticDoc'
 import { createTool, deleteTool, getTools, testTool, toggleTool, updateTool } from '@/api/tool'
 import { useProjectStore } from '@/store/project'
+import { parseToolTestArgument } from '@/utils/toolTestArgument'
 
 const route = useRoute()
 const router = useRouter()
@@ -969,8 +970,11 @@ async function handleTest() {
   testResult.value = null
   try {
     const args: Record<string, unknown> = {}
+    const parametersByName = new Map((testingTool.value.parameters || []).map((parameter) => [parameter.name, parameter]))
     for (const [k, v] of Object.entries(testArgs)) {
-      if (v !== '') args[k] = v
+      if (v === '') continue
+      const parameterType = String(parametersByName.get(k)?.type || '').toLowerCase()
+      args[k] = parseToolTestArgument(v, parameterType, k)
     }
     const { data } = await testTool(testingTool.value.name, args)
     testResult.value = data as unknown as ToolTestResult

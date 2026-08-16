@@ -9,7 +9,7 @@ This document is the short source of truth for public route lifecycle decisions.
 
 - `reachai-control-service` is the public `/api/**`, `/embed/**`, `/gateway/**`, `/mcp/**`, and `/a2a/**` entry for the management UI, browser embeds, SDK registry clients, and external protocol clients.
 - The management UI must not call `reachai-runtime-service` or `reachai-capability-service` internal ports directly.
-- `reachai-knowledge-service` keeps `/ai/**` and `reachai-model-service` keeps `/model/**` in this phase; these are service public APIs, not Runtime or Capability internal APIs.
+- `reachai-knowledge-service` keeps the remaining `/ai/**` Knowledge APIs and `reachai-model-service` keeps `/model/**` in this phase. Business Index is the explicit exception: anonymous `/ai/biz-index/**` is retired and its console/project ingress terminates at Control.
 - Public request methods and request/response JSON shapes are not changed during this route-contract cleanup.
 - A compatibility route can stay only when it delegates to the owning service implementation. A compatibility route must not proxy to the retired `ai-agent-service`, return a legacy disabled response, or become the frontend main path.
 
@@ -42,7 +42,9 @@ This document is the short source of truth for public route lifecycle decisions.
 | Scan projects and semantic documents | `/api/scan-projects/**`, `/api/scan-modules/**`, `/api/semantic-docs/**` | Control | Capability |
 | Embed and page actions | `/api/embed/**` and `/embed/**` | Control | Control with Runtime/Capability checks when needed |
 | Gateway, MCP, A2A, market, context governance | `/gateway/**`, `/api/v1/agents/**`, `/mcp/**`, `/a2a/**`, `/api/market/**`, `/api/context/**` | Control | Control, with Runtime/Capability calls by subdomain |
-| Knowledge and retrieval | `/ai/**` | Knowledge | Knowledge |
+| Business Index console | `/api/knowledge/biz-index/**` | Control | Control session/RBAC, then exact-byte HMAC to Knowledge |
+| Business Index project sync | `/api/knowledge-ingress/projects/{projectCode}/biz-index/**` | Control | Capability verifies body-bound project credential; Control forwards the verified project to Knowledge |
+| Other Knowledge and retrieval | `/ai/**` except retired `/ai/biz-index/**` | Knowledge | Knowledge |
 | Model gateway | `/model/**` | Model | Model |
 
 ## Frozen Compatibility Aliases
@@ -67,5 +69,6 @@ These routes must not appear in frontend source or product-facing guidance:
 - `/internal/runtime/**`
 - `/internal/capability/**`
 - `/internal/control/**`
+- `/ai/biz-index/**`
 
 `scripts/check-frontend-public-api-routes.mjs`, `scripts/check-internal-api-contracts.mjs`, and `scripts/check-physical-service-route-contracts.mjs` guard these boundaries. When adding a new route, update this document only if the route changes the lifecycle contract, then update the detailed owner map or internal API contract as appropriate.

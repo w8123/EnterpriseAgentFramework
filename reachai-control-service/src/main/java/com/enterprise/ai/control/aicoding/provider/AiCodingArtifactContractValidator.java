@@ -6,10 +6,14 @@ import org.springframework.stereotype.Component;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * Deterministic validator for the JSON Schema subset used by AI Coding
@@ -198,6 +202,19 @@ public class AiCodingArtifactContractValidator {
             int depth) {
         requireMinimum(instance.size(), schema.get("minItems"), "items", path);
         requireMaximum(instance.size(), schema.get("maxItems"), "items", path);
+        JsonNode uniqueItems = schema.get("uniqueItems");
+        if (uniqueItems != null && !uniqueItems.isBoolean()) {
+            throw new IllegalStateException(
+                    "AI Coding artifact contract contains invalid uniqueItems at " + path);
+        }
+        if (uniqueItems != null && uniqueItems.booleanValue()) {
+            Set<JsonNode> seen = new HashSet<>();
+            for (int index = 0; index < instance.size(); index++) {
+                if (!seen.add(instance.get(index))) {
+                    throw invalid(path + "[" + index + "]", "must be unique within the array");
+                }
+            }
+        }
         JsonNode items = schema.get("items");
         if (items != null) {
             for (int index = 0; index < instance.size(); index++) {
@@ -225,6 +242,21 @@ public class AiCodingArtifactContractValidator {
                 schema.get("maxLength"),
                 "characters",
                 path);
+        JsonNode pattern = schema.get("pattern");
+        if (pattern != null) {
+            if (!pattern.isTextual()) {
+                throw new IllegalStateException(
+                        "AI Coding artifact contract contains invalid pattern at " + path);
+            }
+            try {
+                if (!Pattern.compile(pattern.asText()).matcher(value).find()) {
+                    throw invalid(path, "must match pattern " + pattern.asText());
+                }
+            } catch (PatternSyntaxException ex) {
+                throw new IllegalStateException(
+                        "AI Coding artifact contract contains invalid pattern at " + path, ex);
+            }
+        }
         JsonNode format = schema.get("format");
         if (format != null
                 && format.isTextual()

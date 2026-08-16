@@ -122,6 +122,7 @@ stateDiagram-v2
     READY --> RUNNING: 客户端报告 STARTED
     READY --> FAILED: 客户端报告无法开始
     RUNNING --> WAITING_USER: 客户端提出问题
+    WAITING_USER --> WAITING_USER: 客户端追加 PROGRESS
     WAITING_USER --> RUNNING: 客户端读取回答并报告 RESUMED
     RUNNING --> RESULT_SUBMITTED: 客户端提交结果
     RESULT_SUBMITTED --> RUNNING: 结果校验未通过，可修正
@@ -152,6 +153,7 @@ stateDiagram-v2
 
 - 创建任务后是 `READY`，签发交接包或激活连接不改变任务执行状态。
 - 用户回答问题后，问题变成 `ANSWERED`，任务仍保持 `WAITING_USER`；只有客户端真正读取回答并报告 `RESUMED` 后才回到 `RUNNING`。
+- `WAITING_USER` 不会冻结与问题无关的诊断：客户端可继续追加真实 `PROGRESS`，但该事件只更新进度和审计记录，不回答问题、不关闭开放问题，也不改变 `WAITING_USER` 状态。`GET /context` 的 `protocolGuide.eventStateRules` 提供机器可读的事件/状态约束，客户端不需要从源码猜测。
 - `STARTED` 只接受 `READY` 或已经为 `RUNNING` 的任务。重新交接 `WAITING_USER` 任务时必须先读取问题，全部回答后报告 `RESUMED`；不能用 `STARTED` 绕过开放问题。任务进入任一终态时，剩余开放问题统一关闭。
 - 客户端提交 Artifact 后是 `RESULT_SUBMITTED`，前端统一显示“结果已提交”，不能直接显示“任务已完成”。
 - `STARTED`、`PROGRESS` 和客户端自然语言“已完成”都无权进入 `COMPLETED`；只有 Task Kernel 在 Artifact 校验和领域应用成功后才能继续推进。
@@ -175,9 +177,9 @@ stateDiagram-v2
 - `CODE_READY` 只有在接入制品存在、项目已启用并配置 Registry 凭据，且 Capability owning service 已观测到至少一个业务实例完成注册时才是 `PASS`。仅有客户端报告、代码文件或本地配置但尚未观测到实例注册时保持 `PENDING`。
 - `RUNTIME_READY` 以已注册实例的真实在线心跳为准；实例存在但离线时是 `WARN`，不是代码接入失败。
 - `SDK_CALLBACK_READY` 以 Capability owning service 记录的当前项目配置之后的 `SDK_CALLBACK` 能力快照为准；仅推导出回调 URL 时保持 `PENDING`。
-- `E2E_READY` 以当前任务启动后 Control 记录的 Embed SDK Session、用户消息和助手回复为准，不采用客户端自报的测试布尔值。
+- `E2E_READY` 以当前任务启动后 Control 记录的授权 Embed SDK/doctor Session、用户消息和助手回复为准，不采用客户端自报的测试布尔值。它只证明授权对话协议，不证明 Workflow 能力节点或页面动作已执行；后两者由 Page Workbench 的精确 Trace readiness 分别验证。doctor 只使用业务方通过环境变量提供的真实测试 Authorization/Cookie，不能签发或伪造业务身份；页面入口可见性仍由最终人工验收确认。
 
-`POST /api/scan-projects/{projectId}/sdk-access-check` 是 Capability owning service 的平台 SDK 自检，不是任务验收接口。它返回 `CODE_READY / RUNTIME_READY / SDK_CALLBACK_READY`；Control 通过 internal API 复用其中真实的回调快照事实，而不重新猜测或主动探测 URL。`SDK_CALLBACK_READY` 和 `E2E_READY` 是两个独立门禁：前者只证明签名回调与能力快照，后者只证明当前任务之后的真实浏览器会话，两者不能相互替代。
+`POST /api/scan-projects/{projectId}/sdk-access-check` 是 Capability owning service 的平台 SDK 自检，不是任务验收接口。它返回 `CODE_READY / RUNTIME_READY / SDK_CALLBACK_READY`；Control 通过 internal API 复用其中真实的回调快照事实，而不重新猜测或主动探测 URL。`SDK_CALLBACK_READY` 和 `E2E_READY` 是两个独立门禁：前者只证明签名回调与能力快照，后者只证明当前任务之后使用真实业务授权完成的 Embed 会话与消息链路，两者不能相互替代。
 
 活动中的 `PROJECT_ONBOARDING` 任务可由持有该任务 Bearer Token 的 AI Coding 客户端显式调用：
 
@@ -187,6 +189,23 @@ Authorization: Bearer <taskToken>
 ```
 
 该操作不接收业务 `projectId`、不允许跨项目，也不在应用启动时自动执行。Kernel 从任务快照解析项目，由 Project Onboarding Provider 通过 Capability owning service internal API 发起签名同步；成功后追加 `VERIFICATION_COMPLETED` 审计事件。Tool reconcile、评审和发布仍是后续独立动作。
+
+### 5.4 必读资源与验证指南
+
+`GET /context` 除保留兼容的 `endpoints.verificationsUrlTemplate` 外，还返回：
+
+- `requiredResources`：客户端在编辑前必须下载并打开的资源。项目接入会声明
+  `reachai-onboarding` Skill 与 `reachai-onboarding/SKILL.md` 入口，解决客户端
+  尚未安装 Skill 时无法发现网关、SDK 与验收契约的问题。
+- `verificationGuide`：每一项明确区分 `ACTION`、`OBSERVATION` 与
+  `READINESS_GATE`，包括前置条件、可调用 URL、影响的 readiness、预期结果与
+  证据来源。
+
+项目接入中只有 `SDK_SYNC` 是 task Token 可调用的 `ACTION`。`EMBED_CONVERSATION_E2E`
+是平台观察项，不可伪造为 POST verification；`E2E_READY` 是对应的验收门禁。
+它要求业务系统提供已有授权浏览器会话，或提供仅通过环境变量交给 doctor 的最小权限
+测试 Authorization/Cookie。ReachAI 不提供跨业务系统通用 Mock OAuth2 Token；doctor
+必须走真实业务 Token Broker 和 Embed 代理，且不得把授权值写入命令行、事件或 Artifact。
 
 统一只约束返回形状：
 
@@ -456,7 +475,9 @@ AI Coding API 使用真实 HTTP 语义和统一安全错误 envelope：
 }
 ```
 
-`artifactContract` 必须提供完整 JSON Schema 和至少一个可提交示例，不能只返回 required section 名称。
+`artifactContract` 必须提供完整 JSON Schema 和至少一个可提交示例，不能只返回 required section 名称。若根 Schema 使用外部相对 `$ref`，必须同时在 `artifactContract.referencedSchemas` 返回以文件名为 key 的完整引用资源；客户端不得猜测服务端 classpath 路径。
+
+Windows Bootstrap 提供 `Test-ReachAiArtifact -Content <object>`，使用 context 的根 Schema 和引用资源做本地预校验；`Send-ReachAiArtifact` 会先执行该校验。它减少字段/类型错误往返，但领域 Provider 的业务校验与平台验收仍以服务端结果为准。
 
 `domainContext` 由 Provider 构建，并且必须经过脱敏。公共内核只负责协议 envelope，不解释领域内容。
 
@@ -488,6 +509,8 @@ AI Coding API 使用真实 HTTP 语义和统一安全错误 envelope：
 - `PROGRESS`
 - `RESUMED`
 - `FAILED`
+
+`PROGRESS` 接受 `RUNNING` 和 `WAITING_USER`。在 `WAITING_USER` 下它必须保持当前状态与开放问题；只有所有问题已回答、且客户端读取回答后发送的 `RESUMED` 才恢复为 `RUNNING`。事件与状态的机器可读规则由 `GET <taskRoot>/context` 的 `protocolGuide.eventStateRules` 返回。
 
 领域步骤通过 `payload.stepKey` 表达。Protocol v1 不新增通用步骤表，不把项目接入的固定六步写进公共内核。
 
@@ -619,7 +642,7 @@ artifactContract: reachai.project-onboarding-report.v1
   - `FINAL_CHECK`
 - 复用并收口 `CODE_READY / RUNTIME_READY / E2E_READY` 计算。
 - 将三层 readiness 全部声明为验收前置门禁；Artifact 回传不能绕过 Runtime 与 E2E。
-- `RUNTIME_READY` 使用 Capability owning service 返回的真实实例心跳；`E2E_READY` 使用 Control 自己记录、且发生在当前任务启动后的 Embed SDK Session、用户消息和助手回复，不采用客户端报告中的布尔值。
+- `RUNTIME_READY` 使用 Capability owning service 返回的真实实例心跳；`E2E_READY` 使用 Control 自己记录、且发生在当前任务启动后的授权 Embed SDK/doctor Session、用户消息和助手回复，不采用客户端报告中的布尔值。它不代替 Page Workbench 的 `CAPABILITY_TOOL_E2E_READY`、`PAGE_ACTION_E2E_READY` 或 `WRITE_ACTION_E2E_READY`。doctor 授权必须来自业务方环境变量，不能由 ReachAI 伪造。
 - 校验项目接入报告、文件、命令、证据和剩余问题；如果报告执行了浏览器验证，还必须给出真实业务 URL、入口可见场景、截图路径和页面观察结果。
 - 平台自检只追加到 Artifact 的 `applicationResult.platformCheck`，不覆盖 `applicationResult.codingReport` 中 AI Coding 客户端已报告的证据和状态。
 - 明确区分“配置已生成”“运行时已在线”“真实调用已通过”。
@@ -670,7 +693,7 @@ artifactContract: reachai.page-map-report.v1
 - 浏览器报告通过后仍先停留在 `RESULT_APPLIED`。`PAGE_BROWSER_E2E_READY` 只接受当前任务启动后、当前 `projectCode + pageKey` 的 Control 服务端观测事实：真实 Embed Session 必须上报 SDK 版本，并至少记录一条用户消息和一条助手回复。其他页面、任务开始前的会话或客户端自报截图不能替代该事实；缺失时保持 `PENDING`，用户可完成真实业务页面链路后请求重新验证。
 - 从“已发布”列表发起浏览器验收时，任务额外保存一个 `RELATED WORKFLOW` 目标，快照包含精确 `workflowVersionId + workflowVersion`。Page Workbench Provider 在创建任务、持久化快照前，必须通过 Runtime 的已发布查询重新确认该 Workflow、页面和版本仍为精确的 `ACTIVE` 对象，不能信任前端快照。
 - 绑定 Workflow 的浏览器验收还要求 `PAGE_WORKFLOW_TRACE_READY`。Control 先从当前任务启动后、当前页面的真实 Embed 会话中选择助手回复关联的 Trace；Runtime 再核对该 Trace 的 Embed Run 已完成，并且 `WORKFLOW_TOOL` 成功 Span 精确匹配任务绑定的 Workflow 和版本。Artifact 回传 `traceId` 时只核对该 Trace；未回传时只有唯一一条符合条件的 Trace 才可自动关联，多条候选保持 `PENDING` 并要求 AI Coding 使用新的 `artifactKey` 明确回传。
-- `PAGE_WORKFLOW_TRACE_READY` 只证明“当前页面 Trace 成功执行了指定 Workflow 版本”，不从 GraphSpec 自动推断必须执行哪些 `PAGE_ACTION`，也不替代业务结果、页面入口可见性、截图和人工体验验收。
+- `PAGE_WORKFLOW_TRACE_READY` 只证明“当前页面 Trace 成功执行了指定 Workflow 版本”。随后 Runtime 才以该精确已发布 GraphSpec 判断是否声明 `CAPABILITY` / `TOOL`、`PAGE_ACTION` 及写动作：对应 `CAPABILITY_TOOL_E2E_READY` 和 `PAGE_ACTION_E2E_READY` 必须在同一 Trace 观察到真实节点结果后才通过，未声明者为 `NOT_REQUIRED`；写动作只有真实 `SUCCESS` 才能使 `WRITE_ACTION_E2E_READY` 通过。`NO_DATA`、`PRECONDITION_FAILED`、`USER_CANCELLED` 是可解释业务终态，不伪装成桥接失败，也不伪装成写成功。上述状态均不替代业务结果、页面入口可见性、截图和人工体验验收。
 - `PRE_RELEASE_CHECK` 必须同时满足顶层 `passed=true`、全部检查为 `PASS`，并提供非空 `workflowId` 和 `workflowVersion`。报告失败或缺少明确版本时保留材料并进入 `FAILED`。
 - 报告通过后仍先停留在 `RESULT_APPLIED`。Page Workbench Provider 将最新 `APPLIED` Artifact 的 `applicationResult.preRelease` 交给 Runtime owning service，精确核对该 Workflow 属于当前项目、类型为 `PAGE_ASSISTANT`、唯一 `TARGET PAGE` 等于当前主页面、当前发布校验通过，并确认目标版本是尚未占用的合法待发布版本或精确的 `ACTIVE` 已发布版本。
 - Runtime 不可用、响应缺失或返回非确定状态时，`PRE_RELEASE_READY` 保持 `PENDING`；对象不匹配或校验失败时为 `FAIL`。只有服务端返回 `PASS`，Task Kernel 才能进入 `ACCEPTANCE_READY`。该门禁验证发布就绪性，不自动发布 Workflow。

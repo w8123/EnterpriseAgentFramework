@@ -31,6 +31,8 @@ class ControlAiCodingAccessInterceptorTest {
 
         assertFalse(allowed);
         assertEquals(HttpServletResponse.SC_UNAUTHORIZED, response.getStatus());
+        assertTrue(response.getContentAsString().contains("AI_CODING_KEY_REQUIRED"));
+        assertTrue(response.getContentAsString().contains("INDEPENDENT_PROTOCOL"));
         verify(guard).requireProjectAccess(7L, null);
     }
 

@@ -6,8 +6,8 @@
     <groupId>com.enterprise.ai</groupId>
     <artifactId>reachai-spring-boot2-starter</artifactId>
     <version>1.0.0-SNAPSHOT</version>
-    <name>ReachAI Spring Boot 2 Starter</name>
-    <description>Standalone consumer POM for the JDK8 and Spring Boot 2 compatible ReachAI starter.</description>
+    <name>ReachAI Spring Boot Starter</name>
+    <description>Standalone consumer POM for the Java 8-bytecode-compatible ReachAI starter. Supports Spring Boot 2.7+ and Spring Boot 3; Boot 3 consumers must satisfy their Boot release's Java requirement.</description>
     <dependencies>
         <dependency>
             <groupId>com.enterprise.ai</groupId>

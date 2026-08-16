@@ -19,6 +19,7 @@ export default defineConfig({
       'src/composables/useAiCodingTask.test.ts',
       'src/utils/aiCoding*.test.ts',
       'src/utils/pageWorkbenchPresentation.test.ts',
+      'src/utils/toolTestArgument.test.ts',
       'src/views/registry/composables/useBusinessPageWorkbench.test.ts',
       'src/views/registry/composables/useRegistryProjectAiCodingAccess.test.ts',
       'src/views/registry/composables/useRegistryProjectDetailData.test.ts',

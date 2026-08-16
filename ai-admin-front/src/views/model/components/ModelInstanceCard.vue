@@ -6,6 +6,7 @@ import {
   extractBaseUrlAuthority,
   formatDateTime,
   formatLatency,
+  modelTestFailureHint,
   modelTypeLabel,
   providerDisplayName,
   runtimeStatusLabel,
@@ -71,6 +72,16 @@ const authority = computed(() => extractBaseUrlAuthority(props.instance.connecti
         <dd>{{ formatDateTime(instance.updatedAt) }}</dd>
       </div>
     </dl>
+
+    <div
+      v-if="instance.lastTestStatus === 'FAILED'"
+      class="model-instance-card__test-failure"
+      role="status"
+      aria-live="polite"
+    >
+      <strong>最近失败原因</strong>
+      <span>{{ modelTestFailureHint(instance.lastTestError) }}</span>
+    </div>
 
     <p v-if="instance.remark" class="model-instance-card__remark">{{ instance.remark }}</p>
 
@@ -177,6 +188,23 @@ const authority = computed(() => extractBaseUrlAuthority(props.instance.connecti
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.model-instance-card__test-failure {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--el-color-danger) 28%, var(--border-glass));
+  border-radius: var(--radius-sm, 10px);
+  background: color-mix(in srgb, var(--el-color-danger) 7%, var(--bg-card));
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.model-instance-card__test-failure strong {
+  color: var(--el-color-danger);
+  font-size: 12px;
 }
 
 .model-instance-card__actions {

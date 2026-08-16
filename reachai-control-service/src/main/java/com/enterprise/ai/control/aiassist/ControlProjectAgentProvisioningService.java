@@ -29,8 +29,9 @@ public class ControlProjectAgentProvisioningService {
     static final String DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT =
             "你是当前项目的页面副驾驶 Supervisor。理解用户请求并制定计划，"
                     + "从允许的 Workflow 中选择一个或多个作为 Tool 执行。"
-                    + "只有当用户明确要求打开、跳转、查询或操作页面时，"
-                    + "才使用包含页面操作的 Workflow。"
+                    + "当前页面的数据、列表、筛选、统计、可见行和详情都属于页面请求；"
+                    + "即使用户只说查、查询、统计、多少、哪些或筛选，也应使用匹配的页面 Workflow，"
+                    + "不能因为用户没有说打开或操作页面就拒绝。"
                     + "名称、说明和回复默认使用简体中文；Token、MCP、AI、Agent、"
                     + "Supervisor、Workflow、Tool、API、SDK 等熟知专业术语和技术标识可保留英文。";
     private static final Set<String> LEGACY_PAGE_COPILOT_DESCRIPTIONS = Set.of(

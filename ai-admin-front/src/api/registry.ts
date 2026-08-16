@@ -7,7 +7,12 @@ import type {
   ProjectInstance,
   RegistryProjectRegisterRequest,
   RegistryProjectResponse,
+  RegistryEnrollmentToken,
 } from '@/types/registry'
+
+export function issueRegistryEnrollment(projectCode: string) {
+  return controlRequest.post<RegistryEnrollmentToken>('/api/platform/registry-enrollments', { projectCode })
+}
 
 export function registerRegistryProject(data: RegistryProjectRegisterRequest) {
   return controlRequest.post<RegistryProjectResponse>('/api/registry/projects/register', data)
@@ -59,4 +64,11 @@ export function listCapabilityDiffItems(snapshotId: number) {
 
 export function reviewCapabilityDiffItem(diffItemId: number, data: { action: 'APPLY' | 'IGNORE'; operator?: string; note?: string }) {
   return controlRequest.post<CapabilityDiffReviewItem>(`/api/registry/capability-diff-items/${diffItemId}/review`, data)
+}
+
+export function rollbackCapabilityDiffItem(diffItemId: number, data: { operator?: string; note?: string } = {}) {
+  return controlRequest.post<CapabilityDiffReviewItem>(
+    `/api/registry/capability-diff-items/${diffItemId}/rollback`,
+    { action: 'ROLLBACK', ...data },
+  )
 }

@@ -23,7 +23,8 @@ class RegistryCompatibilityControllerTest {
     @Test
     void keepsPublicRegistryRouteShapeOnControlService() throws Exception {
         RequestMapping controllerMapping = RegistryCompatibilityController.class.getAnnotation(RequestMapping.class);
-        Method registerProject = RegistryCompatibilityController.class.getDeclaredMethod("registerProject", Map.class);
+        Method registerProject = RegistryCompatibilityController.class.getDeclaredMethod(
+                "registerProject", Map.class, String.class, String.class, String.class, String.class, String.class);
         Method listInstances = RegistryCompatibilityController.class.getDeclaredMethod("listInstances", String.class);
 
         assertArrayEquals(new String[] {"/api/registry/projects"}, controllerMapping.value());
@@ -38,12 +39,15 @@ class RegistryCompatibilityControllerTest {
         Map<String, Object> request = Map.of("projectCode", "demo");
         ResponseEntity<Map<String, Object>> delegated = ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(Map.of("projectCode", "demo", "status", "QUEUED"));
-        when(capabilityProxyClient.registerProject(request)).thenReturn(delegated);
+        when(capabilityProxyClient.registerProject(
+                request, null, "demo-key", "123", "nonce", "signature")).thenReturn(delegated);
 
-        ResponseEntity<Map<String, Object>> response = controller.registerProject(request);
+        ResponseEntity<Map<String, Object>> response = controller.registerProject(
+                request, null, "demo-key", "123", "nonce", "signature");
 
         assertEquals(delegated, response);
-        verify(capabilityProxyClient).registerProject(request);
+        verify(capabilityProxyClient).registerProject(
+                request, null, "demo-key", "123", "nonce", "signature");
     }
 
     @Test

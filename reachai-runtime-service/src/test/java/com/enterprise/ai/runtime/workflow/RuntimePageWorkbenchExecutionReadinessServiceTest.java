@@ -83,6 +83,96 @@ class RuntimePageWorkbenchExecutionReadinessServiceTest {
 
         assertEquals("PASS", result.status());
         assertEquals("PAGE_WORKFLOW_TRACE_READY", result.code());
+        assertTrue(result.pageActionRequired());
+        assertTrue(!result.pageActionObserved());
+    }
+
+    @Test
+    void exposesOnlyNodeTypesActuallyObservedInTheExactWorkflowTrace()
+            throws Exception {
+        RuntimeWorkflowVersionEntity version = version();
+        version.setGraphSpecSnapshotJson(
+                "{\"schemaVersion\":2,\"nodes\":["
+                        + "{\"id\":\"query-api\",\"type\":\"CAPABILITY\"},"
+                        + "{\"id\":\"refresh-page\",\"type\":\"PAGE_ACTION\"}],"
+                        + "\"edges\":[]}");
+        when(versionMapper.selectById(21L)).thenReturn(version);
+        when(spanMapper.selectList(any())).thenReturn(List.of(
+                workflowSpan("SUCCESS", 21L),
+                nodeSpan("CAPABILITY", "SUCCESS"),
+                nodeSpan("PAGE_ACTION", "SUCCESS")));
+
+        ExecutionReadinessView result = evaluate();
+
+        assertEquals("PASS", result.status());
+        assertTrue(result.capabilityRequired());
+        assertTrue(result.capabilityObserved());
+        assertTrue(result.pageActionRequired());
+        assertTrue(result.pageActionObserved());
+    }
+
+    @Test
+    void recognizesBusinessTerminalPageActionAsObservedBridgeExecution()
+            throws Exception {
+        RuntimeWorkflowVersionEntity version = version();
+        version.setGraphSpecSnapshotJson(
+                "{\"schemaVersion\":2,\"nodes\":["
+                        + "{\"id\":\"open\",\"type\":\"PAGE_ACTION\"}],\"edges\":[]}");
+        when(versionMapper.selectById(21L)).thenReturn(version);
+        when(spanMapper.selectList(any())).thenReturn(List.of(
+                workflowSpan("BUSINESS_TERMINAL", 21L),
+                nodeSpan("PAGE_ACTION", "BUSINESS_TERMINAL")));
+
+        ExecutionReadinessView result = evaluate();
+
+        assertEquals("PASS", result.status());
+        assertTrue(result.workflowObserved());
+        assertTrue(result.pageActionObserved());
+        assertTrue(result.pageActionBusinessTerminalObserved());
+    }
+
+    @Test
+    void rejectsStructuredPresentationDeclaredButNotExecuted()
+            throws Exception {
+        RuntimeWorkflowVersionEntity version = version();
+        version.setGraphSpecSnapshotJson(
+                "{\"schemaVersion\":2,\"nodes\":["
+                        + "{\"id\":\"query\",\"type\":\"PAGE_ACTION\"},"
+                        + "{\"id\":\"present\",\"type\":\"INTERACTION\","
+                        + "\"config\":{\"interactionType\":\"PRESENT_OUTPUT\","
+                        + "\"component\":\"list_card\"}}],\"edges\":[]}");
+        when(versionMapper.selectById(21L)).thenReturn(version);
+        when(spanMapper.selectList(any())).thenReturn(List.of(
+                workflowSpan("SUCCESS", 21L),
+                nodeSpan("PAGE_ACTION", "SUCCESS")));
+
+        ExecutionReadinessView result = evaluate();
+
+        assertEquals("FAIL", result.status());
+        assertEquals("STRUCTURED_PRESENTATION_NOT_OBSERVED", result.code());
+        assertTrue(result.structuredPresentationRequired());
+        assertTrue(!result.structuredPresentationObserved());
+    }
+
+    @Test
+    void acceptsExecutedPresentOutputNode()
+            throws Exception {
+        RuntimeWorkflowVersionEntity version = version();
+        version.setGraphSpecSnapshotJson(
+                "{\"schemaVersion\":2,\"nodes\":["
+                        + "{\"id\":\"present\",\"type\":\"INTERACTION\","
+                        + "\"config\":{\"interactionType\":\"PRESENT_OUTPUT\","
+                        + "\"component\":\"list_card\"}}],\"edges\":[]}");
+        when(versionMapper.selectById(21L)).thenReturn(version);
+        when(spanMapper.selectList(any())).thenReturn(List.of(
+                workflowSpan("SUCCESS", 21L),
+                interactionNodeSpan("PRESENT_OUTPUT", "SUCCESS")));
+
+        ExecutionReadinessView result = evaluate();
+
+        assertEquals("PASS", result.status());
+        assertTrue(result.structuredPresentationRequired());
+        assertTrue(result.structuredPresentationObserved());
     }
 
     @Test
@@ -163,6 +253,29 @@ class RuntimePageWorkbenchExecutionReadinessServiceTest {
                 "workflowId", "wf-orders",
                 "workflowVersionId", versionId,
                 "workflowVersion", "v1.0.0")));
+        return span;
+    }
+
+    private RuntimeTraceSpanEntity nodeSpan(
+            String nodeType,
+            String status) throws Exception {
+        RuntimeTraceSpanEntity span = new RuntimeTraceSpanEntity();
+        span.setSpanType("WORKFLOW_NODE");
+        span.setStatus(status);
+        span.setMetadataJson(objectMapper.writeValueAsString(Map.of(
+                "nodeType", nodeType)));
+        return span;
+    }
+
+    private RuntimeTraceSpanEntity interactionNodeSpan(
+            String interactionType,
+            String status) throws Exception {
+        RuntimeTraceSpanEntity span = new RuntimeTraceSpanEntity();
+        span.setSpanType("WORKFLOW_NODE");
+        span.setStatus(status);
+        span.setMetadataJson(objectMapper.writeValueAsString(Map.of(
+                "nodeType", "INTERACTION",
+                "interactionType", interactionType)));
         return span;
     }
 

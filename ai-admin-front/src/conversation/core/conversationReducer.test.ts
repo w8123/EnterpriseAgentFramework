@@ -13,6 +13,27 @@ describe('conversationReducer', () => {
     expect(textBlocks[0].type === 'text' && textBlocks[0].text).toBe('Hello')
   })
 
+  it('keeps sanitized Embed lifecycle progress on the current assistant placeholder', () => {
+    let state = initialConversationState('s1')
+    state = conversationReducer(state, { type: 'begin_assistant_placeholder', turnId: 't1' })
+    state = conversationReducer(state, {
+      type: 'apply_event',
+      event: createEvent('turn.progress', {
+        phase: 'workflow',
+        state: 'started',
+        message: '正在调用业务能力',
+      }, { sessionId: 's1', turnId: 't1' }),
+    })
+
+    expect(state.turnStatus).toBe('streaming')
+    expect(state.messages).toHaveLength(1)
+    expect(state.messages[0].metadata?.publicProgress).toEqual({
+      phase: 'workflow',
+      state: 'started',
+      message: '正在调用业务能力',
+    })
+  })
+
   it('does not duplicate messages on repeated completion', () => {
     let state = initialConversationState('s1')
     state = conversationReducer(state, {

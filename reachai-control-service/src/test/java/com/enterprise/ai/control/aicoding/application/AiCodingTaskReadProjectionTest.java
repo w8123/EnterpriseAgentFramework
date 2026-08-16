@@ -9,6 +9,7 @@ import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskMapper;
 import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskQuestionMapper;
 import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskTargetMapper;
 import com.enterprise.ai.control.aicoding.provider.AiCodingTaskProviderRegistry;
+import com.enterprise.ai.control.aicoding.provider.AiCodingContractResourceLoader;
 import com.enterprise.ai.control.aicoding.security.AiCodingSensitiveJsonSanitizer;
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -47,7 +48,8 @@ class AiCodingTaskReadProjectionTest {
                     handoffService,
                     mock(CapabilityProjectOnboardingClient.class),
                     mock(AiCodingSensitiveJsonSanitizer.class),
-                    new ObjectMapper());
+                    new ObjectMapper(),
+                    new AiCodingContractResourceLoader(new ObjectMapper()));
 
     @Test
     void batchesAppliedArtifactsWithoutHydratingTaskRelations() {

@@ -3,6 +3,7 @@ package com.enterprise.ai.control.runtime;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import feign.FeignException;
 import feign.Request;
+import feign.RetryableException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -58,6 +59,35 @@ class RuntimeProxyExceptionHandlerTest {
                 .andExpect(header().string(HttpHeaders.ETAG, "\"revision-2\""))
                 .andExpect(jsonPath("$.code").value("WORKFLOW_WORKING_COPY_CONFLICT"))
                 .andExpect(jsonPath("$.currentRevision").value("revision-2"));
+    }
+
+    @Test
+    void reportsWorkflowAuthoringTimeoutAsActionableGatewayTimeout() throws Exception {
+        RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
+        Map<String, Object> request = Map.of("instruction", "narrow edit");
+        when(runtimeClient.editWorkflowProposal(request))
+                .thenThrow(new RetryableException(
+                        500,
+                        "Read timed out executing POST http://runtime/api/workflows/studio/proposals/edit",
+                        Request.HttpMethod.POST,
+                        (Long) null,
+                        Request.create(
+                                Request.HttpMethod.POST,
+                                "/api/workflows/studio/proposals/edit",
+                                Map.of(),
+                                null,
+                                StandardCharsets.UTF_8,
+                                null)));
+
+        mockMvc(runtimeClient)
+                .perform(post("/api/workflows/studio/proposals/edit")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"instruction\":\"narrow edit\"}"))
+                .andExpect(status().isGatewayTimeout())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value(504))
+                .andExpect(jsonPath("$.message").value(
+                        "Workflow AI 编排超时，当前工作副本未变更。请缩小修改范围后重新生成；如持续失败，请检查 Runtime 与模型服务。"));
     }
 
     private static MockMvc mockMvc(RuntimeProxyClient runtimeClient) {

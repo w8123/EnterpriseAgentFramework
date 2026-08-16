@@ -81,6 +81,7 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
         List<String> acceptanceCriteria = requireTextList(
                 request.acceptanceCriteria(),
                 "acceptanceCriteria");
+        String replaceWorkflowId = textOrNull(request.replaceWorkflowId());
         List<String> remainingQuestions = normalizedTextList(
                 request.remainingQuestions());
         String keySlug = taskScopedKeySlug(input.keySlug(), taskId);
@@ -127,6 +128,7 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
                 actionKeys,
                 referencedFiles,
                 acceptanceCriteria,
+                replaceWorkflowId,
                 remainingQuestions);
     }
 
@@ -159,6 +161,15 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
                 taskId,
                 pageKey);
         requireExactPageBinding(workflow, pageKey);
+        String replaceWorkflowId = textOrNull(request.replaceWorkflowId());
+        if (replaceWorkflowId != null) {
+            requireValidReplacementTarget(
+                    replaceWorkflowId,
+                    targetWorkflowId,
+                    projectId,
+                    projectCode,
+                    pageKey);
+        }
 
         RuntimeWorkflowReleaseValidationResult validation =
                 workflowVersionService.validateRelease(targetWorkflowId);
@@ -196,7 +207,8 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
                                 request.modelInstanceId(),
                                 defaultText(
                                         request.publishedBy(),
-                                        "ReachAI Page Workbench")));
+                                        "ReachAI Page Workbench"),
+                                replaceWorkflowId));
         return new DeliveryView(
                 DELIVERY_SCHEMA,
                 taskId,
@@ -213,7 +225,36 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
                 attachment.configVersionNo(),
                 attachment.toolName(),
                 attachment.configStatus(),
-                attachment.published());
+                attachment.published(),
+                attachment.replacedWorkflowId());
+    }
+
+    private void requireValidReplacementTarget(
+            String replaceWorkflowId,
+            String targetWorkflowId,
+            Long projectId,
+            String projectCode,
+            String pageKey) {
+        if (replaceWorkflowId.equals(targetWorkflowId)) {
+            throw new IllegalArgumentException(
+                    "replaceWorkflowId must identify a different Workflow");
+        }
+        RuntimeWorkflowDefinitionEntity replaced = workflowDefinitionService
+                .findById(replaceWorkflowId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "replacement Workflow not found: " + replaceWorkflowId));
+        if (!Objects.equals(projectId, replaced.getProjectId())
+                || !projectCode.equalsIgnoreCase(
+                defaultText(replaced.getProjectCode(), ""))) {
+            throw new IllegalArgumentException(
+                    "replacement Workflow does not belong to the requested project");
+        }
+        if (!WorkflowSemanticValues.KIND_PAGE_ASSISTANT.equalsIgnoreCase(
+                defaultText(replaced.getWorkflowKind(), ""))) {
+            throw new IllegalArgumentException(
+                    "replacement Workflow is not PAGE_ASSISTANT");
+        }
+        requireExactPageBinding(replaced, pageKey);
     }
 
     private ContextView replaceExistingDraft(
@@ -301,6 +342,7 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
             List<String> actionKeys,
             List<String> referencedFiles,
             List<String> acceptanceCriteria,
+            String replaceWorkflowId,
             List<String> remainingQuestions) {
         RuntimeWorkflowAiCodingService.WorkflowSnapshot workflow =
                 context.workflow();
@@ -314,6 +356,7 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
                 actionKeys,
                 referencedFiles,
                 acceptanceCriteria,
+                replaceWorkflowId,
                 remainingQuestions,
                 new WorkflowView(
                         workflow.id(),
@@ -433,6 +476,10 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
         return StringUtils.hasText(value) ? value.trim() : fallback;
     }
 
+    private static String textOrNull(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
     public record EngineeringDraftRequest(
             Long projectId,
             String projectCode,
@@ -443,7 +490,23 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
             List<String> selectedActionKeys,
             List<String> referencedFiles,
             List<String> acceptanceCriteria,
+            String replaceWorkflowId,
             List<String> remainingQuestions) {
+        public EngineeringDraftRequest(
+                Long projectId,
+                String projectCode,
+                String taskId,
+                String pageKey,
+                String summary,
+                WorkflowInput workflow,
+                List<String> selectedActionKeys,
+                List<String> referencedFiles,
+                List<String> acceptanceCriteria,
+                List<String> remainingQuestions) {
+            this(projectId, projectCode, taskId, pageKey, summary, workflow,
+                    selectedActionKeys, referencedFiles, acceptanceCriteria,
+                    null, remainingQuestions);
+        }
     }
 
     public record WorkflowInput(
@@ -463,9 +526,25 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
             List<String> selectedActionKeys,
             List<String> referencedFiles,
             List<String> acceptanceCriteria,
+            String replaceWorkflowId,
             List<String> remainingQuestions,
             WorkflowView workflow,
             ValidationView validation) {
+        public EngineeringDraftView(
+                String schema,
+                String taskId,
+                String pageKey,
+                String summary,
+                List<String> selectedActionKeys,
+                List<String> referencedFiles,
+                List<String> acceptanceCriteria,
+                List<String> remainingQuestions,
+                WorkflowView workflow,
+                ValidationView validation) {
+            this(schema, taskId, pageKey, summary, selectedActionKeys,
+                    referencedFiles, acceptanceCriteria, null,
+                    remainingQuestions, workflow, validation);
+        }
     }
 
     public record WorkflowView(
@@ -490,7 +569,20 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
             String version,
             String agentId,
             String modelInstanceId,
-            String publishedBy) {
+            String publishedBy,
+            String replaceWorkflowId) {
+        public DeliveryRequest(
+                Long projectId,
+                String projectCode,
+                String taskId,
+                String pageKey,
+                String version,
+                String agentId,
+                String modelInstanceId,
+                String publishedBy) {
+            this(projectId, projectCode, taskId, pageKey, version, agentId,
+                    modelInstanceId, publishedBy, null);
+        }
     }
 
     public record DeliveryView(
@@ -509,6 +601,29 @@ public class RuntimePageWorkbenchWorkflowDeliveryService {
             Integer agentConfigVersion,
             String toolName,
             String configStatus,
-            boolean published) {
+            boolean published,
+            String replacedWorkflowId) {
+        public DeliveryView(
+                String schema,
+                String taskId,
+                String pageKey,
+                String workflowId,
+                String workflowKeySlug,
+                String workflowName,
+                Long workflowVersionId,
+                String workflowVersion,
+                LocalDateTime publishedAt,
+                String agentId,
+                String agentKeySlug,
+                Long agentConfigVersionId,
+                Integer agentConfigVersion,
+                String toolName,
+                String configStatus,
+                boolean published) {
+            this(schema, taskId, pageKey, workflowId, workflowKeySlug,
+                    workflowName, workflowVersionId, workflowVersion,
+                    publishedAt, agentId, agentKeySlug, agentConfigVersionId,
+                    agentConfigVersion, toolName, configStatus, published, null);
+        }
     }
 }

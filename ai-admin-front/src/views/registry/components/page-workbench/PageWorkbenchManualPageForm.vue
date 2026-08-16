@@ -2,6 +2,7 @@
 import { reactive, watch } from 'vue'
 import { Delete, Plus } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { isBusinessPageUrl } from '@/utils/businessPageUrl'
 import type {
   ManualProjectPageRequest,
   PageActionInput,
@@ -41,6 +42,7 @@ const form = reactive({
   name: '',
   description: '',
   routePattern: '',
+  businessPageUrl: '',
   componentPath: '',
   actions: [] as ManualActionForm[],
 })
@@ -60,6 +62,7 @@ function reset(page: ProjectPage | null) {
     name: page?.name || '',
     description: page?.description || '',
     routePattern: page?.routePattern || '',
+    businessPageUrl: page?.businessPageUrl || '',
     componentPath: page?.componentPath || '',
     actions: (page?.actions || [])
       .filter((action) => action.sourceType === 'MANUAL')
@@ -113,6 +116,10 @@ function submit() {
     ElMessage.warning('请填写页面键和页面名称')
     return
   }
+  if (form.businessPageUrl.trim() && !isBusinessPageUrl(form.businessPageUrl)) {
+    ElMessage.warning('业务页面地址必须是可直接打开的 http:// 或 https:// 绝对地址')
+    return
+  }
   const actionKeys = new Set<string>()
   let actions: PageActionInput[]
   try {
@@ -153,6 +160,7 @@ function submit() {
     name: form.name.trim(),
     description: textOrUndefined(form.description),
     routePattern: textOrUndefined(form.routePattern),
+    businessPageUrl: textOrUndefined(form.businessPageUrl),
     componentPath: textOrUndefined(form.componentPath),
     actions,
   })
@@ -178,6 +186,7 @@ function prettyJson(value: unknown) {
 function textOrUndefined(value: string) {
   return value.trim() || undefined
 }
+
 </script>
 
 <template>
@@ -202,6 +211,13 @@ function textOrUndefined(value: string) {
         </el-form-item>
         <el-form-item label="路由">
           <el-input v-model="form.routePattern" placeholder="/orders/:id" />
+        </el-form-item>
+        <el-form-item label="业务页面地址">
+          <el-input
+            v-model="form.businessPageUrl"
+            placeholder="http://localhost:9200/orders/123"
+          />
+          <small>浏览器可直接打开的完整地址；不要填写后端 API / 网关 Base URL。</small>
         </el-form-item>
         <el-form-item label="入口组件">
           <el-input v-model="form.componentPath" placeholder="src/views/order/Detail.vue" />

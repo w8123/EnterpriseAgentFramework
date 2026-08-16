@@ -45,7 +45,7 @@ export class ReachAiPageActionService implements ReachAiPageBridge, OnDestroy {
     const handler = this.handlers.get(this.keyOf(pageKey, actionKey));
     if (!handler) {
       return {
-        status: 'ERROR',
+        status: 'ACTION_NOT_FOUND',
         error: { code: 'HANDLER_NOT_FOUND', message: 'Page action handler not found' },
       };
     }
@@ -59,7 +59,7 @@ export class ReachAiPageActionService implements ReachAiPageBridge, OnDestroy {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
-        status: 'ERROR',
+        status: 'FAILED',
         message,
         error: { code: 'HANDLER_ERROR', message },
       };

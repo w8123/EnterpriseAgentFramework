@@ -242,6 +242,11 @@
           />
         </div>
       </el-card>
+
+      <CapabilityReviewPanel
+        v-if="isSdkBackedProject"
+        :project-code="projectCode"
+      />
     </template>
 
     <GlassDialog
@@ -622,13 +627,20 @@
           <template v-if="isEditingSdkProject">
             <el-row class="edit-project-row" :gutter="14">
               <el-col :span="12">
-                <el-form-item label="App Key" required>
-                  <el-input v-model="editCredentialForm.appKey" placeholder="请输入 App Key" />
+                <el-form-item label="App Key" :required="!project?.registryCredentialConfigured">
+                  <el-input
+                    v-model="editCredentialForm.appKey"
+                    :placeholder="project?.registryCredentialConfigured ? '留空保持当前凭据；更换时须同时填写 Secret' : '请输入 App Key'"
+                  />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="App Secret" required>
-                  <el-input v-model="editCredentialForm.appSecret" show-password placeholder="请输入 App Secret" />
+                <el-form-item label="App Secret" :required="!project?.registryCredentialConfigured">
+                  <el-input
+                    v-model="editCredentialForm.appSecret"
+                    show-password
+                    :placeholder="project?.registryCredentialConfigured ? '留空保持当前凭据；填写后更新凭据' : '请输入 App Secret'"
+                  />
                 </el-form-item>
               </el-col>
             </el-row>
@@ -712,6 +724,7 @@ import { useRegistryProjectDetailUiState } from '@/views/registry/composables/us
 import { useRegistryProjectWorkbench } from '@/views/registry/composables/useRegistryProjectWorkbench'
 import ProjectRouteMissingState from '@/views/registry/components/ProjectRouteMissingState.vue'
 import ProjectWorkbenchLoadErrorState from '@/views/registry/components/ProjectWorkbenchLoadErrorState.vue'
+import CapabilityReviewPanel from '@/views/registry/components/CapabilityReviewPanel.vue'
 
 const { theme } = useTheme()
 
@@ -878,7 +891,14 @@ const headerMetaItems = computed<HeaderMetaItem[]>(() => {
         : '未标注',
       tone: project.value.projectKind ? 'success' : 'info',
     },
-    { key: 'sdk', label: 'SDK', value: project.value.sdkVersion || '-' },
+    {
+      key: 'sdk',
+      label: 'SDK',
+      value: project.value.sdkVersion
+        || (['REGISTERED', 'HYBRID'].includes(project.value.projectKind || '')
+          ? 'Starter'
+          : '-'),
+    },
     {
       key: 'visibility',
       label: '可见性',

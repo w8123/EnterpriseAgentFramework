@@ -33,6 +33,9 @@ public class SupervisorToolPolicyService {
                     + "(读取|查看|查询|获取).{0,20}(当前)?(页面|界面).{0,20}(状态|筛选|内容|数据|表格|行)|"
                     + "open\\s+(the\\s+)?page|navigate\\s+to|go\\s+to|on\\s+the\\s+page|"
                     + "(read|inspect|query|get).{0,30}(current\\s+)?(page|screen).{0,30}(state|filter|content|data|table|row))");
+    private static final Pattern WRITE_INTENT = Pattern.compile(
+            "(?i)\\b(?:create|add|modify|update|edit|delete|remove|cancel|submit|save|pay|ship|"
+                    + "enable|disable|activate|deactivate|archive|unarchive|restore)\\b");
 
     private final SupervisorExecutionTraceService traceService;
     private final SupervisorApprovalInteractionService approvalService;
@@ -221,7 +224,45 @@ public class SupervisorToolPolicyService {
         String message = firstText(
                 text(input == null ? null : input.get("message")),
                 text(input == null ? null : input.get("input")), "");
-        return EXPLICIT_PAGE_INTENT.matcher(message).find();
+        if (EXPLICIT_PAGE_INTENT.matcher(message).find()) {
+            return true;
+        }
+        // An embedded page already supplies the page identity. In that context a natural-language
+        // business request against the current page is explicit page intent even when the user
+        // does not know the internal action name or repeat words such as "operate this page".
+        // Write safety remains enforced by the published PAGE_ACTION confirmation contract.
+        if (!StringUtils.hasText(contextText(input, "pageKey"))) {
+            return false;
+        }
+        return containsAny(message, "查", "查询", "统计", "多少", "哪些", "列表", "筛选", "读取", "总数", "查看", "获取")
+                || hasUnnegatedWriteIntent(message);
+    }
+
+    private boolean hasUnnegatedWriteIntent(String message) {
+        String remaining = firstText(message, "");
+        for (String negated : List.of(
+                "不要修改", "不修改", "不要更新", "不更新", "不要删除", "不删除",
+                "不要新增", "不新增", "不要创建", "不创建", "不要提交", "不提交",
+                "不要保存", "不保存", "不要付款", "不付款", "不要发货", "不发货",
+                "不要启用", "不启用", "不要停用", "不停用", "不要禁用", "不禁用",
+                "不要恢复", "不恢复", "不要归档", "不归档")) {
+            remaining = remaining.replace(negated, "");
+        }
+        return containsAny(remaining, "新增", "创建", "修改", "更新", "删除", "取消", "提交", "保存", "付款", "发货",
+                "启用", "停用", "禁用", "恢复", "归档")
+                || WRITE_INTENT.matcher(remaining).find();
+    }
+
+    private boolean containsAny(String value, String... candidates) {
+        if (value == null || candidates == null) {
+            return false;
+        }
+        for (String candidate : candidates) {
+            if (candidate != null && value.contains(candidate)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean approved(String permissionKey,

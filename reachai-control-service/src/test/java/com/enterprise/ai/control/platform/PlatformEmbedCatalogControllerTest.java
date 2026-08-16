@@ -178,6 +178,29 @@ class PlatformEmbedCatalogControllerTest {
     }
 
     @Test
+    void sdkRegistrationAcceptsCanonicalCapabilityProjectIdField() {
+        Fixture fixture = fixture();
+        when(fixture.capabilityClient.getProjectByCode("mall")).thenReturn(Map.of("projectId", 33L));
+        when(fixture.pageCatalog.upsertPageCatalog(
+                eq(33L), eq("mall"), any(PageReport.class), any(), eq(true)))
+                .thenReturn(page());
+        when(fixture.sessionMapper.selectOne(any())).thenReturn(null);
+
+        fixture.controller.registerPageCatalog(
+                "mall",
+                new PlatformEmbedCatalogController.PageCatalogRegisterPayload(
+                        "mall.oms.order", "订单列表", "/oms/order", "http://localhost:5174",
+                        "page-1", true, List.of(), Map.of()));
+
+        ArgumentCaptor<PageReport> reportCaptor = ArgumentCaptor.forClass(PageReport.class);
+        verify(fixture.pageCatalog).upsertPageCatalog(
+                eq(33L), eq("mall"), reportCaptor.capture(), any(), eq(true));
+        assertEquals(
+                "http://localhost:5174/oms/order",
+                reportCaptor.getValue().businessPageUrl());
+    }
+
+    @Test
     void debugPageActionPersistsReadinessRoutingMetadata() {
         Fixture fixture = fixture();
         PageView page = page();
@@ -270,6 +293,7 @@ class PlatformEmbedCatalogControllerTest {
                 "Contract List",
                 null,
                 "/contracts",
+                "http://localhost:5173/contracts",
                 "src/views/ContractList.vue",
                 "SDK",
                 "ACTIVE",

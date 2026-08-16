@@ -28,6 +28,11 @@ spring:
           default:
             connectTimeout: 5000
             readTimeout: 135000
+          # Workflow authoring can require several constrained model/tool rounds.
+          # Keep Control's runtime proxy lease longer than the browser's 5 minute authoring timeout.
+          reachai-runtime-proxy:
+            connectTimeout: 5000
+            readTimeout: 270000
           # Health probes use InternalHealthFeignConfig (1.5s connect / 2s read).
           # Named entries document intent; Feign configuration class is authoritative.
           reachai-runtime-health:
@@ -54,9 +59,64 @@ services:
     url: ${KNOWLEDGE_SERVICE_URL:http://localhost:18602}
 
 reachai:
+  auth:
+    # Production must opt into an enterprise provider. LOCAL is available only
+    # when its flag is explicitly enabled; bootstrap credentials have no defaults.
+    provider: ${REACHAI_AUTH_PROVIDER:LOCAL}
+    session-ttl: ${REACHAI_PLATFORM_SESSION_TTL:24h}
+    local:
+      enabled: ${REACHAI_LOCAL_AUTH_ENABLED:false}
+      bootstrap-admin:
+        enabled: ${REACHAI_BOOTSTRAP_ADMIN_ENABLED:false}
+        username: ${REACHAI_BOOTSTRAP_ADMIN_USERNAME:}
+        password: ${REACHAI_BOOTSTRAP_ADMIN_PASSWORD:}
   internal:
     # Shared with Runtime. Required for trusted Agent/Embed execute (sync + SSE). Fail-closed when blank.
     service-secret: ${REACHAI_INTERNAL_SERVICE_SECRET:}
+    # Production: DIRECT_TLS requires https URLs; MTLS_MESH explicitly attests sidecar/mesh protection.
+    transport-mode: ${REACHAI_INTERNAL_TRANSPORT_MODE:DEVELOPMENT_PLAINTEXT}
+  knowledge:
+    console-ingress:
+      # Browser traffic terminates at Control. Control signs the exact body sent
+      # to Knowledge; direct anonymous /ai/biz-index access is not supported.
+      tenant-id: ${REACHAI_KNOWLEDGE_CONSOLE_TENANT_ID:default}
+      max-body-bytes: ${REACHAI_KNOWLEDGE_CONSOLE_MAX_BODY_BYTES:104857600}
+      max-response-bytes: ${REACHAI_KNOWLEDGE_CONSOLE_MAX_RESPONSE_BYTES:16777216}
+    project-ingress:
+      # Structured JSON only. Attachments remain a console operation until a
+      # streaming detached-signature contract is introduced.
+      max-body-bytes: ${REACHAI_KNOWLEDGE_PROJECT_MAX_BODY_BYTES:10485760}
+  context:
+    personal-memory:
+      outbox-enabled: ${REACHAI_PERSONAL_MEMORY_OUTBOX_ENABLED:true}
+      # Shared only with Knowledge for deterministic owner pseudonyms. It must differ
+      # from REACHAI_INTERNAL_SERVICE_SECRET and be rotated with projection rebuild evidence.
+      index-identity-secret: ${REACHAI_PERSONAL_MEMORY_INDEX_IDENTITY_SECRET:}
+      default-tenant: ${REACHAI_PERSONAL_MEMORY_DEFAULT_TENANT:default}
+      recall-top-k: ${REACHAI_PERSONAL_MEMORY_RECALL_TOP_K:8}
+      recall-max-chars: ${REACHAI_PERSONAL_MEMORY_RECALL_MAX_CHARS:6000}
+      max-active-items-per-owner: ${REACHAI_PERSONAL_MEMORY_MAX_ACTIVE_ITEMS_PER_OWNER:1000}
+      max-pending-candidates-per-owner: ${REACHAI_PERSONAL_MEMORY_MAX_PENDING_CANDIDATES_PER_OWNER:500}
+      # OFF -> no projection query; SHADOW -> compare without affecting answers;
+      # ACTIVE -> projection ids may influence canonical ranking. The legacy boolean
+      # remains a compatibility fallback: true=ACTIVE, false=OFF.
+      knowledge-query-mode: ${REACHAI_PERSONAL_MEMORY_KNOWLEDGE_QUERY_MODE:${REACHAI_PERSONAL_MEMORY_KNOWLEDGE_QUERY_ENABLED:false}}
+      outbox-delay-ms: ${REACHAI_PERSONAL_MEMORY_OUTBOX_DELAY_MS:2000}
+      outbox-observability-delay-ms: ${REACHAI_PERSONAL_MEMORY_OUTBOX_OBSERVABILITY_DELAY_MS:30000}
+      outbox-observability-initial-delay-ms: ${REACHAI_PERSONAL_MEMORY_OUTBOX_OBSERVABILITY_INITIAL_DELAY_MS:10000}
+      lifecycle-enabled: ${REACHAI_PERSONAL_MEMORY_LIFECYCLE_ENABLED:true}
+      lifecycle-batch-size: ${REACHAI_PERSONAL_MEMORY_LIFECYCLE_BATCH_SIZE:100}
+      lifecycle-delay-ms: ${REACHAI_PERSONAL_MEMORY_LIFECYCLE_DELAY_MS:60000}
+      lifecycle-initial-delay-ms: ${REACHAI_PERSONAL_MEMORY_LIFECYCLE_INITIAL_DELAY_MS:60000}
+      # Fail closed until upgrade-20260815-cross-domain-memory-erasure.sql is installed.
+      erasure-worker-enabled: ${REACHAI_MEMORY_ERASURE_WORKER_ENABLED:false}
+      erasure-worker-batch-size: ${REACHAI_MEMORY_ERASURE_WORKER_BATCH_SIZE:10}
+      erasure-worker-delay-ms: ${REACHAI_MEMORY_ERASURE_WORKER_DELAY_MS:5000}
+      erasure-worker-initial-delay-ms: ${REACHAI_MEMORY_ERASURE_WORKER_INITIAL_DELAY_MS:15000}
+      candidate-executor:
+        core-size: ${REACHAI_PERSONAL_MEMORY_CANDIDATE_CORE_THREADS:2}
+        max-size: ${REACHAI_PERSONAL_MEMORY_CANDIDATE_MAX_THREADS:4}
+        queue-capacity: ${REACHAI_PERSONAL_MEMORY_CANDIDATE_QUEUE_CAPACITY:500}
   embed:
     cors:
       enabled: ${REACHAI_EMBED_CORS_ENABLED:false}

@@ -78,7 +78,9 @@ public class PageMapScanTaskProvider implements AiCodingTaskKindProvider {
         scope.putArray("includedRules")
                 .add("Inspect routes, page components, directly associated APIs and permission declarations.")
                 .add("Limit discovery to this project's business-page source tree.")
-                .add("Use concise Simplified Chinese for human-readable module names, page names, descriptions, resource display names and action titles/descriptions. Keep technical identifiers, routes, component paths, API methods and enum values unchanged.");
+                .add("Use concise Simplified Chinese for human-readable module names, page names, descriptions, resource display names and action titles/descriptions. Keep technical identifiers, routes, component paths, API methods and enum values unchanged.")
+                .add("project.baseUrl is the business backend or gateway API address. Never use it as a browser page origin.")
+                .add("Set pages[].businessPageUrl only when the repository exposes an actual absolute HTTP(S) frontend URL or development-server origin. Otherwise return null; never guess it from project.baseUrl.");
         scope.putArray("excludedRules")
                 .add("Do not modify business repository files.")
                 .add("Do not inspect unrelated modules, dependencies, caches or generated output.")

@@ -197,9 +197,27 @@ function resolveStatusSchema(schema: Record<string, unknown>): ListCardStatusSch
   }
 }
 
-function mapValue(value: unknown, mapping: Record<string, string>): string | undefined {
+function mappingKeys(value: unknown): string[] {
   const key = String(value)
-  return mapping[key] ?? mapping[key.toLowerCase()]
+  const normalized = key.trim().toLowerCase()
+  const aliases = normalized === '1'
+    ? ['true']
+    : normalized === '0'
+      ? ['false']
+      : normalized === 'true'
+        ? ['1']
+        : normalized === 'false'
+          ? ['0']
+          : []
+  return [...new Set([key, normalized, ...aliases])]
+}
+
+function mapValue(value: unknown, mapping: Record<string, string>): string | undefined {
+  for (const key of mappingKeys(value)) {
+    const mapped = mapping[key]
+    if (mapped != null) return mapped
+  }
+  return undefined
 }
 
 function displayValue(value: unknown, field?: ListCardFieldSchema): string {
@@ -261,8 +279,7 @@ function statusView(
   if (value == null || value === '') return undefined
   return {
     label: mapValue(value, status.valueMap) || displayValue(value),
-    tone: status.toneMap[String(value)]
-      ?? status.toneMap[String(value).toLowerCase()]
+    tone: mapValue(value, status.toneMap) as ListCardTone | undefined
       ?? 'neutral',
   }
 }

@@ -20,6 +20,7 @@ CREATE TABLE control_project_page (
     name VARCHAR(160) NOT NULL,
     description VARCHAR(1000),
     route_pattern VARCHAR(512),
+    business_page_url VARCHAR(1024),
     component_path VARCHAR(768),
     source_type VARCHAR(32) NOT NULL,
     lifecycle_status VARCHAR(24) NOT NULL,

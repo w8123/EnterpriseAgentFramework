@@ -287,11 +287,13 @@ public class ControlAiCodingProjectController {
                                 "Resource bindings may be replaced only while status=DRAFT; use the latest workflow.updatedAt as baseRevision.",
                                 "Use availableModels/availableTools from /context; never invent modelInstanceId or tool ids.",
                                 "Attach GENERAL/PAGE_ASSISTANT via agent-supervisor/workflow-tools/attach; page-assistant/attach-tool rejects GENERAL.",
+                                "Attachment is additive by default. Set replaceWorkflowId only to replace one exact currently attached predecessor; all other Workflow tools are preserved.",
                                 "Read /context before patch; use workflow.updatedAt as baseRevision when saving.")),
                 List.of(
                         "Provision or reuse one project-level page copilot Agent entry.",
                         "Store every executable graph as a runtime_workflow and publish an ACTIVE version before attachment.",
                         "Attach published Workflows via POST /api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach using agentKeySlug (not internal agentId by default).",
+                        "Use replaceWorkflowId only after reading the currently attached catalog and selecting the exact predecessor; omit it when another Workflow should remain available on the same page.",
                         "The Page Assistant-specific endpoint /api/workflows/{id}/page-assistant/attach-tool accepts PAGE_ASSISTANT only.",
                         "Publish a new Agent config version after changing its tool catalog.",
                         "Use only the published Agent config Workflow-as-Tool catalog for runtime selection."));

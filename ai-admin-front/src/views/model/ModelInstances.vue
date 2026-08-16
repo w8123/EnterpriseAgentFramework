@@ -30,6 +30,7 @@ import {
   buildStatusUpdateRequest,
   computeModelCenterMetrics,
   filterModelInstances,
+  modelTestFailureHint,
   normalizeListPayload,
   providerDisplayName,
   type RuntimeStatusFilter,
@@ -164,7 +165,7 @@ async function handleTest(instance: ModelInstance) {
     if (result.success) {
       ElMessage.success('测试通过')
     } else {
-      ElMessage.warning(result.message || '测试失败')
+      ElMessage.warning(modelTestFailureHint(result.message))
     }
     await loadInstances()
   } catch (err) {

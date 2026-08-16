@@ -40,6 +40,10 @@ const forbiddenRoutes = [
   {
     pattern: /(?<!@)\/api\/platform\/embed\/pages\/catalog(?:\/|$|\?|#|['"`])/,
     target: '/api/platform/embed/pages'
+  },
+  {
+    pattern: /(?<![A-Za-z0-9_-])\/ai\/biz-index(?:\/|$|\?|#|['"`])/,
+    target: '/api/knowledge/biz-index/** for the platform console or signed /api/knowledge-ingress/** for business systems'
   }
 ]
 

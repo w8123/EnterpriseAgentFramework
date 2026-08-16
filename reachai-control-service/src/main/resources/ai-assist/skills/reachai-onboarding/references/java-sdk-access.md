@@ -1,6 +1,8 @@
 # Java SDK Access
 
-Use this reference after reading the onboarding manifest.
+Use this reference after reading the onboarding manifest. For exact public
+annotation members and Embed Token client constructors, first read
+`references/java-sdk-api-reference.md`.
 
 ## Platform Response Shapes
 
@@ -18,6 +20,7 @@ Do not default every platform API to `data.` or to top-level fields. See `refere
 - Add `reachai-capability-sdk` to every module that declares `@ReachCapability`, `@ReachParam`, or response DTO fields annotated with `@ReachOutput`.
 - In a single-module service, both dependencies usually go into the root `pom.xml`.
 - In a multi-module service, do not add the starter to pure API, DTO, or library modules.
+- The legacy artifact name remains `reachai-spring-boot2-starter`, but the published Starter includes both legacy `spring.factories` metadata and Spring Boot 3 `AutoConfiguration.imports` metadata. Its bytecode remains Java 8-compatible and it supports Spring Boot 2.7+ and Spring Boot 3 when the business application manages its own Spring dependency versions. This does not lower Spring Boot 3's Java requirement: a Boot 3 application must still run on the Java version required by that Boot release.
 
 ## Maven Dependencies
 
@@ -141,7 +144,7 @@ The SDK access check may return both detailed `checks` and summarized `readiness
 - `RUNTIME_READY`: the business service has started with `REACHAI_REGISTRY_APP_SECRET` and SDK heartbeat is online.
 - `SDK_CALLBACK_READY`: ReachAI has completed a signed SDK callback and received the resulting capability snapshot.
 
-These platform SDK checks do not replace browser acceptance. The current AI Coding task exposes a separate `E2E_READY` gate, which passes only after ReachAI observes a real Embed session, user message and assistant reply created after that task started. Client-reported booleans, screenshots and a successful SDK callback cannot replace that server-side evidence.
+These platform SDK checks do not replace conversation or browser acceptance. The current AI Coding task exposes a separate `E2E_READY` gate, which passes only after ReachAI observes an authorized Embed SDK/doctor session, user message and assistant reply created after that task started. Doctor automation must use business-supplied test Authorization/Cookie from environment variables; it never mints a mock business identity. Client-reported booleans, screenshots and a successful SDK callback cannot replace server-side evidence, and protocol PASS does not prove launcher visibility.
 
 ## Gateway Route And Token Broker
 
@@ -297,7 +300,14 @@ Do not send ReachAI chat requests as { "content": "..." }, { "text": "..." }, or
 Chat responses are wrapped ApiResult objects. Top-level `code`/`message` describe transport status only; never render top-level `message: "success"` as the assistant reply. Render `data.answer` first, with old-shape fallback only under `data.reply`, `data.message`, or `data.content`.
 Treat `data.metadata.pageActionQueue` as the preferred UI/Page Action queue. Treat `data.uiRequest` and `data.uiRequest.extension.pageActionRequest` as compatible single-action instructions. Execute them through the current page bridge and report each request id back to `/api/embed/chat/sessions/{sessionId}/page-actions/{requestId}/result`; do not only render `data.answer`.
 
-Page Action result posted to Embed API: platform DTO accepts `status` string and `error` string. Bridge handlers may use richer internal statuses (`FAILED`, `CANCELLED`, ...); map to `SUCCESS` or an appropriate string `status`/`error` at the API boundary. See `references/platform-apis.md` for Embed vs bare JSON response shapes.
+Page Action result posted to Embed API: use the public `status`, optional short
+`message`, `data`, and string `error` boundary. `NO_DATA`,
+`PRECONDITION_FAILED`, and `USER_CANCELLED` are completed business-terminal
+outcomes, not bridge failures; return a short user-facing `message` with them.
+Only `FAILED`, `ACTION_NOT_FOUND`, `FORBIDDEN`, and `TIMEOUT` represent a
+technical failure. Legacy `WARN`, `ERROR`, and `CANCELLED` are accepted but
+normalized by ReachAI; new integrations must use the public values in
+`references/page-action-result.schema.json`.
 
 ## Front-End Embed Integration
 
@@ -387,7 +397,7 @@ When caching embed tokens in the front end:
 
 ## Task Progress and Final Report
 
-For a ReachAI task handoff, use the task Bearer token and task root returned by one-time activation. Read task context before editing, then report `STARTED` and truthful `PROGRESS` events. Submit blocking ambiguity through the task question endpoint and write `RESUMED` only after reading the user's answer.
+For a ReachAI task handoff, use the task Bearer token and task root returned by one-time activation. Read task context and its `protocolGuide.eventStateRules` before editing, then report `STARTED` and truthful `PROGRESS` events. A `PROGRESS` event sent while `WAITING_USER` records independent work but preserves that status and every open question. Submit blocking ambiguity through the task question endpoint and write `RESUMED` only after all answers have been read.
 
 The final onboarding artifact must contain the six canonical step keys `PROJECT`, `STARTER`, `GATEWAY`, `BUSINESS_API`, `EMBED_TOKEN`, and `FINAL_CHECK`. Each step records a final `PASS`, `WARN`, `FAIL`, or `SKIPPED` status, changed files, and observed evidence. Use `WARN` or `NOT_RUN` rather than inferring runtime, platform, or browser success.
 

@@ -47,6 +47,14 @@ public class ReachAiRegistryAutoConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean
+    public ReachAiBusinessIndexClient reachAiBusinessIndexClient(
+            ReachAiRegistryProperties properties,
+            ReachAiRegistryTransport transport) {
+        return new ReachAiBusinessIndexClient(properties, transport);
+    }
+
+    @Bean
     @ConditionalOnMissingBean(name = "reachAiRegistryTaskScheduler")
     public TaskScheduler reachAiRegistryTaskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();

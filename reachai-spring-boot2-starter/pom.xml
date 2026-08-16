@@ -11,8 +11,8 @@
     </parent>
 
     <artifactId>reachai-spring-boot2-starter</artifactId>
-    <name>ReachAI Spring Boot 2 Starter</name>
-    <description>JDK8 and Spring Boot 2 compatible ReachAI business capability starter</description>
+    <name>ReachAI Spring Boot Starter</name>
+    <description>Java 8-bytecode-compatible ReachAI starter for Spring Boot 2.7+ and Spring Boot 3; Boot 3 consumers retain their framework Java requirement</description>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>

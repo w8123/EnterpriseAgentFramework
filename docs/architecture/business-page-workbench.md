@@ -28,6 +28,7 @@ AI Coding 任务、交接、连接状态、任务状态和任务级鉴权统一�
 9. Workflow 与页面的关系使用 `runtime_workflow_resource_binding`，不从 `extra_json` 解析关键业务语义；PAGE_ASSISTANT 必须恰好有一个 `TARGET PAGE`，可另有 `RELATED PAGE`。资源绑定只允许在首次发布前的 `DRAFT` 状态修改，并使用 Workflow `updated_at` 做乐观并发控制；首次发布后绑定冻结，避免版本、权限范围和验收对象漂移。
 10. “已发布”是 Runtime 真实数据的查询模型，不创建 Control 侧发布副本。
 11. 任务快照与外部 context 只读取 Capability 的无敏感项目摘要；页面任务使用任务级 Token，项目级 `aiCodingKey` 只保留给 Gateway discovery 和 Workflow AI Coding 等项目级工程 API。
+12. 同一页面允许挂载多个职责不同的 Workflow。接入默认只新增；替换必须显式携带当前已挂载前序 Workflow 的精确 `replaceWorkflowId`，并同时校验项目、页面绑定和 Agent 当前目录。替换只移除该目标，保留全部其他工具；不得根据页面、名称或顺序猜测替换关系。
 
 ## 3. 领域模型
 
@@ -57,17 +58,21 @@ JSON 只用于结构化 schema、快照、证据列表和可扩展元数据。�
 
 连接状态、任务执行状态和环境就绪状态统一遵循 [AI Coding Task Protocol v1](./ai-coding-task-protocol-v1.md)，本文不再复制状态机。AI Coding 客户端提交页面报告后首先进入 `RESULT_SUBMITTED`，页面显示“AI Coding 已提交”；只有页面领域 Provider 校验并应用成功后才能进入 `RESULT_APPLIED`，页面显示“AI Coding 已反馈，待平台验证”。全部服务端门禁通过后才显示“待人工验收”。普通事件或客户端自然语言不能把平台任务推进为完成。
 
-`WORKFLOW_ENGINEERING` 只允许选择当前主页面已登记且有效的 Page Action。版本化 Artifact 经 Control 校验后，由 Runtime 创建带唯一 `TARGET PAGE` 绑定的 `PAGE_ASSISTANT` 草稿；该动作不会发布 Workflow，也不会修改 Agent 配置。只有任务完成人工验收后，用户才能显式执行“发布并接入页面副驾驶”。Runtime 在同一事务中完成发布与 Workflow-as-Tool 接入，失败时不得留下半接入状态。
+`WORKFLOW_ENGINEERING` 只允许选择当前主页面已登记且有效的 Page Action。任务 context 同时提供该页面当前已挂载的 `existingPageWorkflows`；版本化 Artifact 可选声明 `replaceWorkflowId`，但平台只把它当作建议。Artifact 经 Control 校验后，由 Runtime 创建带唯一 `TARGET PAGE` 绑定的 `PAGE_ASSISTANT` 草稿；该动作不会发布 Workflow，也不会修改 Agent 配置。只有任务完成人工验收后，用户才能在发布确认框明确选择“新增并保留全部”或“替换指定旧 Workflow”。Runtime 再次验证精确目标，并在同一事务中完成发布与 Workflow-as-Tool 目录变更，失败时不得留下半发布或半接入状态。
 
 页面地图中的“接入检查”是只读诊断，不是当前首轮接入的强制发布门禁。它只使用服务端已经观察到的页面信息、有效操作目录、带 `pageInstanceId`/SDK 版本的 Embed Session、Bridge 操作快照和真实 Page Action 终态结果；客户端自报或 HTTP 200 不能生成 PASS。
 
 发布前检查的客户端报告只负责声明精确 `workflowId`、`workflowVersion` 和交付材料。ReachAI Runtime 必须独立验证该 Workflow 的项目、`PAGE_ASSISTANT` 类型、唯一 `TARGET PAGE`、当前发布校验和目标版本状态；验证结果以 `PRE_RELEASE_READY` readiness 返回。Runtime 暂不可用时保持 `PENDING`，不得把客户端自报通过展示为平台已验证。
 
-浏览器验收的截图、场景和观察结论仍作为交付材料保存，但不能单独放行。`PAGE_BROWSER_E2E_READY` 只根据当前任务启动后、当前稳定 `pageKey` 的 Control 观测事实计算：业务页面必须真实创建带 SDK 版本的 Embed Session，并产生用户消息和助手回复。其他页面的会话不能代替当前页面；未观测到时保持 `RESULT_APPLIED`，允许用户完成真实链路后重新验证。
+页面目录中的 `businessPageUrl` 是浏览器可直接打开的绝对 HTTP(S) 页面地址。SDK 页面登记优先从真实 `origin + route` 同步，也可由 AI Coding 页面地图报告或页面编辑表单维护。项目 `baseUrl` 只表示业务后端/网关 API 地址，工作台不得用它拼接页面路由；缺少 `businessPageUrl` 时隐藏“查看业务页面”入口并引导补充，不能生成看似可用但实际错误的链接。
+
+浏览器验收的截图、场景和观察结论仍作为交付材料保存，但不能单独放行。`PAGE_BROWSER_E2E_READY` 只根据当前任务启动后、当前稳定 `pageKey` 的 Control 观测事实计算：业务页面必须真实创建带 SDK 版本的 Embed Session，并产生用户消息和助手回复。其他页面的会话不能代替当前页面；未观测到时保持 `RESULT_APPLIED`，允许用户完成真实链路后重新验证。Control 自身的会话或 Trace 证据查询暂时不可用时，相关 readiness 必须降级为带安全依赖证据的 `PENDING`，不得让任务详情返回 500，也不得因观测失败误判为通过。
 
 从“已发布”列表发起验收时，页面同时提交精确的 Workflow 与版本快照。Control 在创建任务时通过 Runtime 已发布查询复核目标，拒绝已下线、页面不匹配或版本漂移的对象。运行后，`PAGE_WORKFLOW_TRACE_READY` 只接受当前任务启动后的当前页面 Trace，并要求 Runtime Run 已完成且成功 `WORKFLOW_TOOL` Span 精确匹配该 Workflow 版本。AI Coding 回传的 `traceId` 必须精确命中；没有回传时仅允许唯一符合条件的 Trace 自动关联，多条候选继续等待明确选择。
 
-该门禁不根据 Workflow 图自动增加 `PAGE_ACTION` 要求。入口是否可见、页面操作结果、业务正确性和视觉体验继续由结构化浏览器材料与人工验收负责，不能被“Workflow 执行过”替代。
+`PAGE_WORKFLOW_TRACE_READY` 通过后，Control 再按该精确已发布版本的 GraphSpec 判断是否声明了 `CAPABILITY` / `TOOL` 与 `PAGE_ACTION` 节点。声明的能力节点只有在同一精确 Trace 中观察到相应成功 `WORKFLOW_NODE` 后，`CAPABILITY_TOOL_E2E_READY` 才能通过；声明的页面动作只有在观察到相应节点的 `SUCCESS` 或可解释的 `BUSINESS_TERMINAL` 后，`PAGE_ACTION_E2E_READY` 才能通过。未声明的类别明确显示为 `NOT_REQUIRED`，图中存在节点本身绝不等于已执行。
+
+如果页面动作会写入业务数据，`WRITE_ACTION_E2E_READY` 仍只接受真实 `SUCCESS`；`NO_DATA`、`PRECONDITION_FAILED` 与 `USER_CANCELLED` 证明桥接和业务终态已被正确传回，但不会被误标为“写操作成功”。入口可见性、业务正确性和视觉体验继续由结构化浏览器材料与人工验收负责，不能被“Workflow 执行过”替代。
 
 ## 5. API 边界
 

@@ -19,6 +19,15 @@ services:
   knowledge-service:
     url: ${KNOWLEDGE_SERVICE_URL:http://localhost:18602}
 
+reachai:
+  internal:
+    # Shared with Control. Required for trusted Enrollment Token issuance.
+    service-secret: ${REACHAI_INTERNAL_SERVICE_SECRET:}
+    # Also gates dynamic business Capability endpoints before outbound network I/O.
+    transport-mode: ${REACHAI_INTERNAL_TRANSPORT_MODE:DEVELOPMENT_PLAINTEXT}
+    # Verification-only overlap keys for rolling rotation. Never used to sign new requests.
+    accepted-service-secrets: ${REACHAI_INTERNAL_SERVICE_ACCEPTED_SECRETS:}
+
 management:
   endpoints:
     web:

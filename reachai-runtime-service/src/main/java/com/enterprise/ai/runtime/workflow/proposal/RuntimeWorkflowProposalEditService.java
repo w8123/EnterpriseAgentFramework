@@ -227,8 +227,14 @@ public class RuntimeWorkflowProposalEditService {
             }
         }
         for (Map<String, Object> edge : edges(canvas)) {
-            if (findNode(canvas, text(edge.get("source"))) == null
-                    || findNode(canvas, text(edge.get("target"))) == null) {
+            String source = text(edge.get("source"));
+            String target = text(edge.get("target"));
+            // canvas_json is a layout-only document. Its edge records intentionally keep
+            // visual metadata by id and omit GraphSpec-owned source/target semantics.
+            if (!StringUtils.hasText(source) && !StringUtils.hasText(target)) {
+                continue;
+            }
+            if (findNode(canvas, source) == null || findNode(canvas, target) == null) {
                 warnings.add("Canvas contains edge with missing source/target: " + text(edge.get("id")));
             }
         }

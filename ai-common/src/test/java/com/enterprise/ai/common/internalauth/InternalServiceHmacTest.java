@@ -3,6 +3,7 @@ package com.enterprise.ai.common.internalauth;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -65,5 +66,56 @@ class InternalServiceHmacTest {
         String signature = InternalServiceHmac.sign("secret", base);
         assertFalse(InternalServiceHmac.verifyConstantTime("secret", tamperedUser, signature));
         assertFalse(InternalServiceHmac.verifyConstantTime("secret", tamperedBody, signature));
+    }
+
+    @Test
+    void v2TenantChangeInvalidatesSignature() {
+        String digest = InternalServiceHmac.bodySha256Hex("body".getBytes(StandardCharsets.UTF_8));
+        String tenantA = InternalServiceHmac.canonical(
+                "POST", "/internal/runtime/agents/execute",
+                InternalServiceAuthHeaders.CALLER_CONTROL, "AGENT", "tenant-a", "user-a",
+                "1700000000000", "n1", digest);
+        String tenantB = InternalServiceHmac.canonical(
+                "POST", "/internal/runtime/agents/execute",
+                InternalServiceAuthHeaders.CALLER_CONTROL, "AGENT", "tenant-b", "user-a",
+                "1700000000000", "n1", digest);
+        String signature = InternalServiceHmac.sign("secret", tenantA);
+
+        assertTrue(InternalServiceHmac.verifyConstantTime("secret", tenantA, signature));
+        assertFalse(InternalServiceHmac.verifyConstantTime("secret", tenantB, signature));
+    }
+
+    @Test
+    void boundedSecretRingAcceptsActiveOrPreviousButNotUnknownSecret() {
+        List<String> accepted = InternalServiceSecretRing.accepted(
+                "new-signing-secret", "old-verification-secret,new-signing-secret");
+        String canonical = "canonical-message";
+
+        assertEquals(List.of("new-signing-secret", "old-verification-secret"), accepted);
+        assertTrue(InternalServiceHmac.verifyAnyConstantTime(
+                accepted, canonical, InternalServiceHmac.sign("new-signing-secret", canonical)));
+        assertTrue(InternalServiceHmac.verifyAnyConstantTime(
+                accepted, canonical, InternalServiceHmac.sign("old-verification-secret", canonical)));
+        assertFalse(InternalServiceHmac.verifyAnyConstantTime(
+                accepted, canonical, InternalServiceHmac.sign("unknown-secret", canonical)));
+    }
+
+    @Test
+    void secretRingRejectsUnboundedVerificationSet() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> InternalServiceSecretRing.accepted("a", "b,c,d,e"));
+    }
+
+    @Test
+    void productionSecretPolicyRequiresStrongActiveAndOverlapKeys() {
+        List<String> strong = InternalServiceSecretRing.accepted(
+                "active-internal-service-secret-32bytes",
+                "previous-internal-service-secret-32bytes");
+        InternalServiceSecretRing.requireStrong(strong.get(0), strong);
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> InternalServiceSecretRing.requireStrong("short", strong));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> InternalServiceSecretRing.requireStrong(strong.get(0), List.of("short")));
     }
 }

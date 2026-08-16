@@ -62,6 +62,7 @@ function formatDateTime(value?: string) {
           <div><dt>页面键</dt><dd>{{ page.pageKey }}</dd></div>
           <div><dt>业务模块</dt><dd>{{ pageWorkbenchModuleName(page.moduleName, page.moduleKey) }}</dd></div>
           <div><dt>页面路由</dt><dd>{{ page.routePattern || '尚未发现' }}</dd></div>
+          <div class="is-wide"><dt>业务页面地址</dt><dd>{{ page.businessPageUrl || '尚未配置' }}</dd></div>
           <div><dt>最近发现</dt><dd>{{ formatDateTime(page.lastDiscoveredAt) }}</dd></div>
           <div class="is-wide"><dt>入口组件</dt><dd>{{ page.componentPath || '尚未发现' }}</dd></div>
         </dl>

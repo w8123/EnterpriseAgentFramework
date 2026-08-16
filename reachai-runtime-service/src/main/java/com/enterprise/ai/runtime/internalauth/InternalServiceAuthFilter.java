@@ -40,7 +40,10 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = normalizePath(request);
-        return !PROTECTED_PATHS.contains(path);
+        return !PROTECTED_PATHS.contains(path)
+                && !path.startsWith("/internal/runtime/session-retention/")
+                && !("DELETE".equalsIgnoreCase(request.getMethod())
+                && path.startsWith("/internal/runtime/agents/sessions/"));
     }
 
     @Override
@@ -61,6 +64,7 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
                 path,
                 cached.getHeader(InternalServiceAuthHeaders.CALLER),
                 cached.getHeader(InternalServiceAuthHeaders.IDENTITY_SOURCE),
+                cached.getHeader(InternalServiceAuthHeaders.IDENTITY_TENANT_ID),
                 cached.getHeader(InternalServiceAuthHeaders.IDENTITY_USER_ID),
                 cached.getHeader(InternalServiceAuthHeaders.TIMESTAMP),
                 cached.getHeader(InternalServiceAuthHeaders.NONCE),

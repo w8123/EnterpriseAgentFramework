@@ -1,0 +1,245 @@
+{
+  "schema": "reachai-personal-memory-shadow-benchmark-fixture-v1",
+  "benchmarkId": "zh-enterprise-personal-memory-v1",
+  "description": "Synthetic and de-identified personal-memory retrieval corpus. No production or developer-database data is included.",
+  "topK": 3,
+  "memories": [
+    {
+      "canonicalId": "pm-a-001",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "status": "ACTIVE",
+      "type": "PREFERENCE",
+      "title": "回复语言",
+      "summary": "默认使用简体中文",
+      "content": "与我沟通时默认使用简体中文，除非我明确要求英文。"
+    },
+    {
+      "canonicalId": "pm-a-002",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "status": "ACTIVE",
+      "type": "RULE",
+      "title": "远程开发库变更规则",
+      "summary": "先核对配置，写库必须得到明确授权",
+      "content": "涉及远程开发数据库时，先读取配置确认连接目标；没有我的明确授权，不得执行迁移、SQL 写入或清理。"
+    },
+    {
+      "canonicalId": "pm-a-003",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "status": "ACTIVE",
+      "type": "FACT",
+      "title": "主要终端环境",
+      "summary": "Windows PowerShell",
+      "content": "我的主要开发环境是 Windows 11 和 PowerShell。"
+    },
+    {
+      "canonicalId": "pm-a-004",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "status": "ACTIVE",
+      "type": "PREFERENCE",
+      "title": "验收证据",
+      "summary": "需要真实差异和测试证据",
+      "content": "代码工作完成后，请给出实际 diff、测试、构建以及必要的运行态证据，不接受只有完成声明。"
+    },
+    {
+      "canonicalId": "pm-a-005",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "status": "ACTIVE",
+      "type": "PREFERENCE",
+      "title": "过程更新",
+      "summary": "状态更新要简短且可核验",
+      "content": "执行较长任务时，阶段更新保持简短，清楚区分已完成、未运行和仍待授权。"
+    },
+    {
+      "canonicalId": "pm-a-006",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "status": "ACTIVE",
+      "type": "FACT",
+      "title": "时区",
+      "summary": "Asia/Shanghai",
+      "content": "我的工作时区是中国标准时间，IANA 标识为 Asia/Shanghai。"
+    },
+    {
+      "canonicalId": "pm-a-007",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "status": "ACTIVE",
+      "type": "RULE",
+      "title": "版本库操作",
+      "summary": "未经要求不提交或推送",
+      "content": "除非我明确要求，否则不要 stage、commit、push，也不要回滚我已有的未提交改动。"
+    },
+    {
+      "canonicalId": "pm-a-008",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "status": "ACTIVE",
+      "type": "PREFERENCE",
+      "title": "代码搜索工具",
+      "summary": "优先使用 rg",
+      "content": "查找文件和代码文本时优先使用 ripgrep，也就是 rg。"
+    },
+    {
+      "canonicalId": "pm-a-009",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "status": "DELETED",
+      "lifecycle": "ADD_THEN_DELETE",
+      "type": "NOTE",
+      "title": "已遗忘的饮食记录",
+      "summary": "删除一致性 canary",
+      "content": "午餐不要包含花生。"
+    },
+    {
+      "canonicalId": "pm-b-001",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-beta",
+      "status": "ACTIVE",
+      "type": "PREFERENCE",
+      "title": "回复语言",
+      "summary": "默认使用英文",
+      "content": "Please answer me in English by default."
+    },
+    {
+      "canonicalId": "pm-b-002",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-beta",
+      "status": "ACTIVE",
+      "type": "FACT",
+      "title": "主要终端环境",
+      "summary": "Ubuntu Bash",
+      "content": "My primary development environment is Ubuntu Linux with Bash."
+    },
+    {
+      "canonicalId": "pm-b-003",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-beta",
+      "status": "ACTIVE",
+      "type": "RULE",
+      "title": "数据库变更流程",
+      "summary": "审批并备份后执行",
+      "content": "Database migrations require an approved change ticket and a verified backup."
+    },
+    {
+      "canonicalId": "pm-c-001",
+      "tenantId": "tenant-b",
+      "runtimeUserId": "user-alpha",
+      "status": "ACTIVE",
+      "type": "PREFERENCE",
+      "title": "回复语言",
+      "summary": "默认使用日语",
+      "content": "このテナントでは、既定で日本語を使って回答してください。"
+    },
+    {
+      "canonicalId": "pm-c-002",
+      "tenantId": "tenant-b",
+      "runtimeUserId": "user-alpha",
+      "status": "ACTIVE",
+      "type": "FACT",
+      "title": "主要终端环境",
+      "summary": "macOS zsh",
+      "content": "このテナントでの主な開発環境は macOS と zsh です。"
+    }
+  ],
+  "queries": [
+    {
+      "queryId": "q-a-language-semantic",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "text": "回答我的问题时应该选择哪种语言？",
+      "expectedIds": ["pm-a-001"]
+    },
+    {
+      "queryId": "q-a-language-exact",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "text": "默认使用简体中文",
+      "expectedIds": ["pm-a-001"]
+    },
+    {
+      "queryId": "q-a-db-semantic",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "text": "我没有确认时，可以直接给开发环境的数据库跑升级脚本吗？",
+      "expectedIds": ["pm-a-002"]
+    },
+    {
+      "queryId": "q-a-db-exact",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "text": "远程开发库 SQL 写入授权",
+      "expectedIds": ["pm-a-002"]
+    },
+    {
+      "queryId": "q-a-terminal",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "text": "我通常在哪种命令行环境里开发？",
+      "expectedIds": ["pm-a-003"]
+    },
+    {
+      "queryId": "q-a-evidence",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "text": "交付代码时要拿什么来证明真的完成了？",
+      "expectedIds": ["pm-a-004"]
+    },
+    {
+      "queryId": "q-a-updates",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "text": "长任务的进度应该怎样同步给我？",
+      "expectedIds": ["pm-a-005"]
+    },
+    {
+      "queryId": "q-a-timezone",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "text": "安排时间时应该按我的哪个时区？",
+      "expectedIds": ["pm-a-006"]
+    },
+    {
+      "queryId": "q-a-git",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "text": "没有特别说明时能替我提交并推送代码吗？",
+      "expectedIds": ["pm-a-007"]
+    },
+    {
+      "queryId": "q-a-search-tool",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "text": "在仓库里搜文件内容优先用什么工具？",
+      "expectedIds": ["pm-a-008"]
+    },
+    {
+      "queryId": "q-a-deleted",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-alpha",
+      "text": "午餐有什么关于花生的要求？",
+      "expectedIds": [],
+      "forbiddenIds": ["pm-a-009"]
+    },
+    {
+      "queryId": "q-b-language-isolation",
+      "tenantId": "tenant-a",
+      "runtimeUserId": "user-beta",
+      "text": "What language should you use when answering me?",
+      "expectedIds": ["pm-b-001"],
+      "forbiddenIds": ["pm-a-001", "pm-c-001"]
+    },
+    {
+      "queryId": "q-c-language-tenant-isolation",
+      "tenantId": "tenant-b",
+      "runtimeUserId": "user-alpha",
+      "text": "どの言語で回答するべきですか？",
+      "expectedIds": ["pm-c-001"],
+      "forbiddenIds": ["pm-a-001", "pm-b-001"]
+    }
+  ]
+}

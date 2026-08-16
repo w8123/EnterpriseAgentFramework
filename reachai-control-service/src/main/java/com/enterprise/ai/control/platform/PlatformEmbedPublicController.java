@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.platform;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.enterprise.ai.common.dto.ApiResult;
 import com.enterprise.ai.control.client.capability.CapabilityProxyClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
@@ -290,11 +291,7 @@ public class PlatformEmbedPublicController {
                     && !normalizedRequestId.equals(request.requestId().trim())) {
                 throw new IllegalArgumentException("page action result requestId does not match path");
             }
-            PlatformPageActionEventEntity event = pageActionEventMapper.selectOne(
-                    new LambdaQueryWrapper<PlatformPageActionEventEntity>()
-                            .eq(PlatformPageActionEventEntity::getSessionId, sessionId)
-                            .eq(PlatformPageActionEventEntity::getRequestId, normalizedRequestId)
-                            .last("limit 1"));
+            PlatformPageActionEventEntity event = findPageActionEvent(sessionId, normalizedRequestId);
             if (event == null) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(ApiResult.fail(404, "page action request not found: " + normalizedRequestId));
@@ -306,16 +303,168 @@ public class PlatformEmbedPublicController {
                 throw new IllegalArgumentException("page action result actionKey does not match request");
             }
             String status = normalizePageActionStatus(request == null ? null : request.status());
-            event.setStatus(status);
-            event.setResultJson(toJson(request == null ? Map.of("requestId", normalizedRequestId, "status", status) : request));
-            event.setErrorMessage(text(request == null ? null : request.error()));
-            event.setCompletedAt(LocalDateTime.now());
-            pageActionEventMapper.updateById(event);
+            String currentStatus = normalizeEventStatus(event.getStatus());
+            if (status.equals(currentStatus) && isTerminalPageActionStatus(currentStatus)) {
+                return ResponseEntity.ok(ApiResult.ok(new PageActionResultResponse(
+                        event.getRequestId(), event.getActionKey(), currentStatus, event.getErrorMessage())));
+            }
+            boolean canComplete = "EXECUTING".equals(currentStatus)
+                    || ("REQUESTED".equals(currentStatus) && canCompleteWithoutExecution(status));
+            if (!canComplete) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(ApiResult.fail(409,
+                                "page action request is no longer active: " + normalizedRequestId
+                                        + " (status=" + currentStatus + ")"));
+            }
+            String resultJson = toJson(request == null
+                    ? Map.of("requestId", normalizedRequestId, "status", status)
+                    : request);
+            String errorMessage = text(request == null ? null : request.error());
+            int updated = pageActionEventMapper.update(
+                    null,
+                    new UpdateWrapper<PlatformPageActionEventEntity>()
+                            .eq("id", event.getId())
+                            .eq("status", currentStatus)
+                            .set("status", status)
+                            .set("result_json", resultJson)
+                            .set("error_message", errorMessage)
+                            .set("completed_at", LocalDateTime.now()));
+            if (updated != 1) {
+                PlatformPageActionEventEntity latest = findPageActionEvent(sessionId, normalizedRequestId);
+                if (latest != null && status.equals(normalizeEventStatus(latest.getStatus()))) {
+                    return ResponseEntity.ok(ApiResult.ok(new PageActionResultResponse(
+                            latest.getRequestId(), latest.getActionKey(), latest.getStatus(), latest.getErrorMessage())));
+                }
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(ApiResult.fail(409,
+                                "page action request changed before result submission: " + normalizedRequestId));
+            }
             return ResponseEntity.ok(ApiResult.ok(new PageActionResultResponse(
                     event.getRequestId(),
                     event.getActionKey(),
-                    event.getStatus(),
-                    event.getErrorMessage())));
+                    status,
+                    errorMessage)));
+        } catch (PlatformEmbedTokenException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResult.fail(401, ex.getMessage()));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ApiResult.fail(400, ex.getMessage()));
+        }
+    }
+
+    @PostMapping("/chat/sessions/{sessionId}/page-actions/{requestId}/claim")
+    public ResponseEntity<ApiResult<PageActionClaimResponse>> claimPageAction(
+            @PathVariable String sessionId,
+            @PathVariable String requestId,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody(required = false) PageActionClaimRequest request) {
+        try {
+            PlatformEmbedTokenClaims claims = verifyBearer(authorization);
+            sessionService.requireActiveSession(sessionId, claims);
+            String normalizedRequestId = requiredRequestText(requestId, "requestId");
+            if (request != null && StringUtils.hasText(request.requestId())
+                    && !normalizedRequestId.equals(request.requestId().trim())) {
+                throw new IllegalArgumentException("page action claim requestId does not match path");
+            }
+            PlatformPageActionEventEntity event = findPageActionEvent(sessionId, normalizedRequestId);
+            if (event == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResult.fail(404, "page action request not found: " + normalizedRequestId));
+            }
+            if (request != null && StringUtils.hasText(request.actionKey())
+                    && StringUtils.hasText(event.getActionKey())
+                    && !event.getActionKey().equals(request.actionKey().trim())) {
+                throw new IllegalArgumentException("page action claim actionKey does not match request");
+            }
+            int updated = pageActionEventMapper.update(
+                    null,
+                    new UpdateWrapper<PlatformPageActionEventEntity>()
+                            .eq("id", event.getId())
+                            .eq("status", "REQUESTED")
+                            .set("status", "EXECUTING"));
+            if (updated != 1) {
+                PlatformPageActionEventEntity latest = findPageActionEvent(sessionId, normalizedRequestId);
+                String status = latest == null ? "UNKNOWN" : normalizeEventStatus(latest.getStatus());
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(ApiResult.fail(409,
+                                "page action request cannot be claimed: " + normalizedRequestId
+                                        + " (status=" + status + ")"));
+            }
+            return ResponseEntity.ok(ApiResult.ok(new PageActionClaimResponse(
+                    event.getRequestId(), event.getActionKey(), "EXECUTING", true)));
+        } catch (PlatformEmbedTokenException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResult.fail(401, ex.getMessage()));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ApiResult.fail(400, ex.getMessage()));
+        }
+    }
+
+    /**
+     * The target SPA page calls this after a platform-issued NAVIGATE action
+     * completed locally and its new Page Bridge is ready. This is the only
+     * public path allowed to move an existing Embed session to a different
+     * page instance; ordinary session calls remain strictly page-bound.
+     */
+    @PostMapping("/chat/sessions/{sessionId}/page-bridge/rebind")
+    public ResponseEntity<ApiResult<PageBridgeRebindResponse>> rebindPageBridge(
+            @PathVariable String sessionId,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody PageBridgeRebindRequest request) {
+        try {
+            PlatformEmbedTokenClaims claims = verifyBearer(authorization);
+            String normalizedSessionId = requiredRequestText(sessionId, "sessionId");
+            String navigationRequestId = requiredRequestText(
+                    request == null ? null : request.navigationRequestId(), "navigationRequestId");
+            PlatformEmbedSessionEntity session = sessionService.requireActiveSessionForNavigationRebind(
+                    normalizedSessionId, claims);
+            requireTargetBindingMatchesToken(request, claims);
+            PlatformPageActionEventEntity navigation = pageActionEventMapper.selectOne(
+                    new LambdaQueryWrapper<PlatformPageActionEventEntity>()
+                            .eq(PlatformPageActionEventEntity::getSessionId, normalizedSessionId)
+                            .eq(PlatformPageActionEventEntity::getRequestId, navigationRequestId)
+                            .eq(PlatformPageActionEventEntity::getCommandType, "NAVIGATE")
+                            .eq(PlatformPageActionEventEntity::getActionKey,
+                                    PlatformPageBridgeCommandService.NAVIGATE_ACTION)
+                            .last("limit 1"));
+            if (navigation == null) {
+                throw new IllegalArgumentException("platform navigation was not found: " + navigationRequestId);
+            }
+            if (!"REQUESTED".equals(navigation.getStatus()) && !"SUCCESS".equals(navigation.getStatus())) {
+                throw new IllegalArgumentException("platform navigation is no longer active: " + navigationRequestId);
+            }
+            if (!sameText(navigation.getTargetPageKey(), request.pageKey())
+                    || !routeMatches(navigation.getTargetRoute(), request.route())) {
+                throw new IllegalArgumentException("target page does not match pending platform navigation");
+            }
+            sessionService.rebindBridgeAfterNavigation(
+                    session,
+                    claims,
+                    request.pageKey(),
+                    request.pageInstanceId(),
+                    request.route(),
+                    request.bridgeActions(),
+                    request.sdkVersion());
+            navigation.setStatus("SUCCESS");
+            navigation.setResultJson(toJson(Map.of(
+                    "protocolVersion", "1.0",
+                    "type", "page.action.result",
+                    "requestId", navigation.getRequestId(),
+                    "actionKey", navigation.getActionKey(),
+                    "status", "SUCCESS",
+                    "data", Map.of(
+                            "pageKey", session.getPageKey(),
+                            "pageInstanceId", session.getPageInstanceId(),
+                            "route", session.getRoute(),
+                            "ready", true))));
+            navigation.setErrorMessage(null);
+            navigation.setCompletedAt(LocalDateTime.now());
+            pageActionEventMapper.updateById(navigation);
+            return ResponseEntity.ok(ApiResult.ok(new PageBridgeRebindResponse(
+                    session.getSessionId(),
+                    session.getPageKey(),
+                    session.getPageInstanceId(),
+                    session.getRoute())));
         } catch (PlatformEmbedTokenException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResult.fail(401, ex.getMessage()));
@@ -603,9 +752,73 @@ public class PlatformEmbedPublicController {
     private String normalizePageActionStatus(String status) {
         String normalized = StringUtils.hasText(status) ? status.trim().toUpperCase(Locale.ROOT) : "SUCCESS";
         return switch (normalized) {
-            case "SUCCESS", "FAILED", "CANCELLED", "ACTION_NOT_FOUND", "FORBIDDEN", "TIMEOUT" -> normalized;
+            case "SUCCESS", "NO_DATA", "PRECONDITION_FAILED", "USER_CANCELLED",
+                    "FAILED", "ACTION_NOT_FOUND", "FORBIDDEN", "TIMEOUT" -> normalized;
+            // `CANCELLED` was the initial public bridge spelling. Persist the
+            // canonical v2 status so new consumers do not need a legacy branch.
+            case "CANCELLED" -> "USER_CANCELLED";
+            // The first public Angular Page Bridge template used WARN / ERROR.
+            // Persist their normalized v2 meaning so Runtime can distinguish a
+            // normal business stop from an unavailable bridge.
+            case "WARN" -> "PRECONDITION_FAILED";
+            case "ERROR" -> "FAILED";
             default -> throw new IllegalArgumentException("unsupported page action status: " + status);
         };
+    }
+
+    private PlatformPageActionEventEntity findPageActionEvent(String sessionId, String requestId) {
+        return pageActionEventMapper.selectOne(
+                new LambdaQueryWrapper<PlatformPageActionEventEntity>()
+                        .eq(PlatformPageActionEventEntity::getSessionId, sessionId)
+                        .eq(PlatformPageActionEventEntity::getRequestId, requestId)
+                        .last("limit 1"));
+    }
+
+    private String normalizeEventStatus(String status) {
+        return StringUtils.hasText(status) ? status.trim().toUpperCase(Locale.ROOT) : "UNKNOWN";
+    }
+
+    private boolean canCompleteWithoutExecution(String status) {
+        return "USER_CANCELLED".equals(status) || "ACTION_NOT_FOUND".equals(status);
+    }
+
+    private boolean isTerminalPageActionStatus(String status) {
+        return switch (status) {
+            case "SUCCESS", "NO_DATA", "PRECONDITION_FAILED", "USER_CANCELLED",
+                    "FAILED", "ACTION_NOT_FOUND", "FORBIDDEN", "TIMEOUT" -> true;
+            default -> false;
+        };
+    }
+
+    private void requireTargetBindingMatchesToken(PageBridgeRebindRequest request,
+                                                  PlatformEmbedTokenClaims claims) {
+        if (request == null) {
+            throw new IllegalArgumentException("page bridge rebind request is required");
+        }
+        String pageKey = requiredRequestText(request.pageKey(), "pageKey");
+        String pageInstanceId = requiredRequestText(request.pageInstanceId(), "pageInstanceId");
+        String route = requiredRequestText(request.route(), "route");
+        if (!sameText(pageKey, claims.getPageKey())
+                || !sameText(pageInstanceId, claims.getPageInstanceId())
+                || !sameText(route, claims.getRoute())) {
+            throw new PlatformEmbedTokenException("target Page Bridge does not match embed token");
+        }
+    }
+
+    private boolean sameText(String left, String right) {
+        return StringUtils.hasText(left)
+                && StringUtils.hasText(right)
+                && left.trim().equals(right.trim());
+    }
+
+    private boolean routeMatches(String routePattern, String actualRoute) {
+        if (!StringUtils.hasText(routePattern) || !StringUtils.hasText(actualRoute)) {
+            return false;
+        }
+        String normalizedPattern = routePattern.trim()
+                .replaceAll("([\\\\.\\[\\]{}()+*?^$|])", "\\\\\\\\$1")
+                .replaceAll(":([A-Za-z0-9_-]+)", "[^/]+");
+        return actualRoute.trim().matches("^" + normalizedPattern + "(?:/)?$");
     }
 
     private void putIfText(Map<String, Object> map, String key, String value) {
@@ -697,6 +910,22 @@ public class PlatformEmbedPublicController {
             Map<String, Object> principal) {
     }
 
+    public record PageBridgeRebindRequest(
+            String navigationRequestId,
+            String pageKey,
+            String pageInstanceId,
+            String route,
+            List<String> bridgeActions,
+            String sdkVersion) {
+    }
+
+    public record PageBridgeRebindResponse(
+            String sessionId,
+            String pageKey,
+            String pageInstanceId,
+            String route) {
+    }
+
     public record PageActionDispatchRequest(
             String type,
             String protocolVersion,
@@ -717,7 +946,19 @@ public class PlatformEmbedPublicController {
             String actionKey,
             String status,
             Object data,
-            String error) {
+            String message,
+            String error,
+            Boolean userConfirmed) {
+    }
+
+    public record PageActionClaimRequest(String requestId,
+                                         String actionKey) {
+    }
+
+    public record PageActionClaimResponse(String requestId,
+                                          String actionKey,
+                                          String status,
+                                          boolean claimed) {
     }
 
     public record PageActionResultResponse(

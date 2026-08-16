@@ -3,11 +3,13 @@ package com.enterprise.ai.common.exception;
 import com.enterprise.ai.common.dto.ApiResult;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.connector.ClientAbortException;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.io.IOException;
@@ -43,6 +45,22 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ApiResult<Void> handleIllegalArgument(IllegalArgumentException e) {
         return ApiResult.fail(400, e.getMessage());
+    }
+
+    /**
+     * Preserve explicit HTTP failure semantics from guards and controllers.
+     * Without this handler, the broad Exception mapping below turns a 401/403
+     * ResponseStatusException into an HTTP 200 response with an internal-error
+     * body, which prevents clients from handling authentication failures safely.
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiResult<Void>> handleResponseStatus(ResponseStatusException e) {
+        String message = e.getReason();
+        if (message == null || message.isBlank()) {
+            message = e.getStatusCode().toString();
+        }
+        return ResponseEntity.status(e.getStatusCode())
+                .body(ApiResult.fail(e.getStatusCode().value(), message));
     }
 
     /**

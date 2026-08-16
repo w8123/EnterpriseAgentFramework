@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { compileStyle, parse } from '@vue/compiler-sfc'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -80,6 +81,36 @@ describe('Conversation avatar narrow-container contract', () => {
     )
     expect(itemCss).toMatch(
       /\.reachai-message__assistant-row\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    )
+  })
+
+  it('keeps ancestor selectors intact after Vue scoped CSS compilation', () => {
+    const filename = resolve(__dirname, './ConversationMessageItem.vue')
+    const source = readFileSync(filename, 'utf8')
+    const parsed = parse(source, { filename })
+    expect(parsed.errors).toEqual([])
+
+    const scopedStyle = parsed.descriptor.styles.find((style) => style.scoped)
+    expect(scopedStyle).toBeTruthy()
+    const compiled = compileStyle({
+      filename,
+      id: 'data-v-reachai-contract',
+      source: scopedStyle!.content,
+      scoped: true,
+    })
+    expect(compiled.errors).toEqual([])
+
+    for (const selector of [
+      '.reachai-conversation--compact .reachai-message__user-avatar',
+      '.reachai-conversation--narrow .reachai-message__prism-avatar',
+      '.reachai-conversation--compact .reachai-message__assistant-row',
+      '.reachai-conversation--narrow .reachai-message__user-row',
+      '.reachai-conversation--compact .reachai-message__user-bubble',
+    ]) {
+      expect(compiled.code).toContain(selector)
+    }
+    expect(compiled.code).not.toMatch(
+      /\.reachai-conversation--compact\s*,\s*\.reachai-conversation--narrow\s*\{[^}]*\b(?:display|grid-template-columns|gap|max-width)\s*:/,
     )
   })
 })

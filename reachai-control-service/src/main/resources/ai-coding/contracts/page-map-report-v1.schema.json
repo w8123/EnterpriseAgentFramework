@@ -122,6 +122,14 @@
           ],
           "maxLength": 512
         },
+        "businessPageUrl": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^https?://",
+          "maxLength": 1024
+        },
         "componentPath": {
           "type": [
             "string",

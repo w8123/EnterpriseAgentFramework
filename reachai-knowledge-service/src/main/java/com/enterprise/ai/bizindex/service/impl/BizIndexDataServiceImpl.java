@@ -9,6 +9,7 @@ import com.enterprise.ai.bizindex.repository.BusinessIndexAttachmentRepository;
 import com.enterprise.ai.bizindex.repository.BusinessIndexRecordRepository;
 import com.enterprise.ai.bizindex.repository.BusinessIndexRepository;
 import com.enterprise.ai.bizindex.service.BizIndexDataService;
+import com.enterprise.ai.bizindex.service.BusinessMemoryIndexPolicy;
 import com.enterprise.ai.bizindex.template.TemplateEngine;
 import com.enterprise.ai.bizindex.vector.BizVectorService;
 import com.enterprise.ai.embedding.EmbeddingService;
@@ -45,6 +46,20 @@ public class BizIndexDataServiceImpl implements BizIndexDataService {
     @Transactional
     public void upsert(String indexCode, BizUpsertRequest request, List<MultipartFile> attachments) {
         BusinessIndex index = getIndexOrThrow(indexCode);
+        upsert(index, request, attachments);
+    }
+
+    @Override
+    @Transactional
+    public void upsertForProject(String projectCode, String indexCode, BizUpsertRequest request) {
+        upsert(getProjectIndexOrThrow(projectCode, indexCode), request, null);
+    }
+
+    private void upsert(BusinessIndex index,
+                        BizUpsertRequest request,
+                        List<MultipartFile> attachments) {
+        String indexCode = index.getIndexCode();
+        BusinessMemoryIndexPolicy.validateUpsert(index, request);
 
         // 1. 使用模板渲染 searchText
         String searchText = templateEngine.render(index.getTextTemplate(), request.getFields());
@@ -100,7 +115,7 @@ public class BizIndexDataServiceImpl implements BizIndexDataService {
     @Override
     @Transactional
     public void batchUpsert(String indexCode, List<BizUpsertRequest> items) {
-        BusinessIndex index = getIndexOrThrow(indexCode);
+        getIndexOrThrow(indexCode);
 
         for (BizUpsertRequest item : items) {
             // 批量场景不含附件，复用 upsert 逻辑
@@ -112,8 +127,28 @@ public class BizIndexDataServiceImpl implements BizIndexDataService {
 
     @Override
     @Transactional
+    public void batchUpsertForProject(String projectCode, String indexCode, List<BizUpsertRequest> items) {
+        BusinessIndex index = getProjectIndexOrThrow(projectCode, indexCode);
+        for (BizUpsertRequest item : items) {
+            upsert(index, item, null);
+        }
+        log.info("项目业务数据批量推送完成 [{}/{}], 共 {} 条", projectCode, indexCode, items.size());
+    }
+
+    @Override
+    @Transactional
     public void deleteRecord(String indexCode, String bizId) {
-        getIndexOrThrow(indexCode);
+        deleteRecord(getIndexOrThrow(indexCode), bizId);
+    }
+
+    @Override
+    @Transactional
+    public void deleteRecordForProject(String projectCode, String indexCode, String bizId) {
+        deleteRecord(getProjectIndexOrThrow(projectCode, indexCode), bizId);
+    }
+
+    private void deleteRecord(BusinessIndex index, String bizId) {
+        String indexCode = index.getIndexCode();
 
         BusinessIndexRecord record = recordRepository.selectOne(
                 new LambdaQueryWrapper<BusinessIndexRecord>()
@@ -340,6 +375,8 @@ public class BizIndexDataServiceImpl implements BizIndexDataService {
         record.setSearchText(searchText);
         record.setFieldsJson(toJson(request.getFields()));
         record.setMetadataJson(toJson(request.getMetadata()));
+        record.setSourceVersion(request.getSourceVersion());
+        record.setSourceUpdatedAt(request.getSourceUpdatedAt());
         record.setOwnerUserId(request.getOwnerUserId());
         record.setOwnerOrgId(request.getOwnerOrgId());
         record.setHasAttachment(hasAttachment);
@@ -355,6 +392,22 @@ public class BizIndexDataServiceImpl implements BizIndexDataService {
         }
         if (!"ACTIVE".equals(index.getStatus())) {
             throw new IllegalArgumentException("索引已停用: " + indexCode);
+        }
+        return index;
+    }
+
+    private BusinessIndex getProjectIndexOrThrow(String projectCode, String indexCode) {
+        if (projectCode == null || projectCode.isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN,
+                    "verified project identity is required");
+        }
+        BusinessIndex index = getIndexOrThrow(indexCode);
+        if (index.getProjectCode() == null
+                || !projectCode.trim().equals(index.getProjectCode().trim())) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN,
+                    "business index does not belong to the verified project");
         }
         return index;
     }

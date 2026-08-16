@@ -7,7 +7,9 @@ import type {
   RunDiagnostics,
   RunOpsQueryParams,
   RunSummary,
+  TraceWorkflowCandidateEligibility,
 } from '@/types/runops'
+import type { AiCodingExecutorProvider, AiCodingTask } from '@/types/aiCodingTask'
 
 export function getRunOpsDetail(traceId: string) {
   return controlRequest.get<RunDetail>(`/api/runops/traces/${traceId}`)
@@ -27,4 +29,30 @@ export function replayRunOpsTrace(traceId: string, data?: ReplayRequest) {
 
 export function compareRunOpsTrace(traceId: string, candidateTraceId: string) {
   return controlRequest.get<RunComparison>(`/api/runops/traces/${traceId}/compare/${candidateTraceId}`)
+}
+
+export function getTraceWorkflowCandidateEligibility(traceId: string) {
+  return controlRequest.get<TraceWorkflowCandidateEligibility>(
+    `/api/runops/traces/${encodeURIComponent(traceId)}/workflow-candidate/eligibility`,
+  )
+}
+
+export interface TraceWorkflowCandidateTaskResult {
+  schema: string
+  created: boolean
+  eligibility: TraceWorkflowCandidateEligibility
+  task: AiCodingTask
+}
+
+export function createTraceWorkflowCandidateTask(
+  traceId: string,
+  data: {
+    executorProvider: AiCodingExecutorProvider
+    createdBy?: string
+  },
+) {
+  return controlRequest.post<TraceWorkflowCandidateTaskResult>(
+    `/api/runops/traces/${encodeURIComponent(traceId)}/workflow-candidate/tasks`,
+    data,
+  )
 }

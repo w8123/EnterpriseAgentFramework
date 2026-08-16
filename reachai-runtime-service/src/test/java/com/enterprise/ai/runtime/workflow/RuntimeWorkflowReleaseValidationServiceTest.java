@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.workflow;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowResourceBindingService.BindingView;
 import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityDescriptor;
 import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityRegistry;
 import com.enterprise.ai.runtime.workflow.node.WorkflowNodeMaturity;
@@ -9,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -50,6 +52,50 @@ class RuntimeWorkflowReleaseValidationServiceTest {
 
         assertFalse(result.valid());
         assertTrue(hasError(result, "GRAPH_ENTRY_MISSING"));
+    }
+
+    @Test
+    void pageAssistantRequiresCanonicalUserInputContract() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {
+                  "schemaVersion":2,
+                  "nodes":[{"id":"answer","type":"ANSWER"}],
+                  "edges":[],
+                  "entryNodeId":"answer",
+                  "exitNodeIds":["answer"]
+                }
+                """);
+        workflow.setWorkflowKind(WorkflowSemanticValues.KIND_PAGE_ASSISTANT);
+
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+
+        assertFalse(result.valid());
+        assertTrue(hasError(result, "PAGE_ASSISTANT_USER_INPUT_REQUIRED"));
+    }
+
+    @Test
+    void pageAssistantStarterGraphUsesTheSamePublishContract() {
+        RuntimeWorkflowResourceBindingService bindings = mock(RuntimeWorkflowResourceBindingService.class);
+        when(bindings.list("wf-1")).thenReturn(List.of(new BindingView(
+                1L, "wf-1", 1L, "demo", "PAGE", "orders.detail", "TARGET", "ACTIVE", null)));
+        RuntimeWorkflowReleaseValidationService service = new RuntimeWorkflowReleaseValidationService(
+                mock(RuntimeControlCatalogClient.class),
+                new ObjectMapper(),
+                new RuntimeWorkflowNodeCapabilityRegistry(),
+                bindings);
+        RuntimeWorkflowDefinitionEntity workflow = workflow(null);
+        workflow.setWorkflowKind(WorkflowSemanticValues.KIND_PAGE_ASSISTANT);
+        try {
+            workflow.setGraphSpecJson(new ObjectMapper().writeValueAsString(
+                    RuntimeWorkflowInputContract.pageAssistantStarterGraph()));
+        } catch (Exception ex) {
+            throw new AssertionError(ex);
+        }
+
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+
+        assertTrue(result.valid());
     }
 
     @Test
@@ -603,6 +649,45 @@ class RuntimeWorkflowReleaseValidationServiceTest {
     }
 
     @Test
+    void llmParameterExtractCannotHideNodeOutputBehindCustomUserPrompt() {
+        RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
+        RuntimeWorkflowDefinitionEntity invalid = workflow("""
+                {
+                  "nodes":[{"id":"extract","type":"PARAMETER_EXTRACT","config":{
+                    "extractMode":"llm",
+                    "modelInstanceId":"model-1",
+                    "inputExpression":"nodeOutput.lookup",
+                    "userPrompt":"目标名称：{{ params.name }}",
+                    "fields":[{"name":"id","type":"string","required":true}]
+                  }}],
+                  "edges":[],
+                  "entryNodeId":"extract",
+                  "exitNodeIds":["extract"]
+                }
+                """);
+        RuntimeWorkflowDefinitionEntity valid = workflow("""
+                {
+                  "nodes":[{"id":"extract","type":"PARAMETER_EXTRACT","config":{
+                    "extractMode":"llm",
+                    "modelInstanceId":"model-1",
+                    "inputExpression":"nodeOutput.lookup",
+                    "userPrompt":"目标名称：{{ params.name }}；列表：{{ nodeOutput.lookup }}",
+                    "fields":[{"name":"id","type":"string","required":true}]
+                  }}],
+                  "edges":[],
+                  "entryNodeId":"extract",
+                  "exitNodeIds":["extract"]
+                }
+                """);
+
+        RuntimeWorkflowReleaseValidationResult invalidResult = service.validate(invalid);
+        RuntimeWorkflowReleaseValidationResult validResult = service.validate(valid);
+
+        assertTrue(hasError(invalidResult, "GRAPH_PARAMETER_USER_PROMPT_INPUT_MISSING"));
+        assertFalse(hasError(validResult, "GRAPH_PARAMETER_USER_PROMPT_INPUT_MISSING"));
+    }
+
+    @Test
     void pageActionValidatesAgainstControlInternalCatalogApi() {
         RuntimeControlCatalogClient client = mock(RuntimeControlCatalogClient.class);
         RuntimeWorkflowReleaseValidationService service = service(client);
@@ -622,6 +707,76 @@ class RuntimeWorkflowReleaseValidationServiceTest {
         assertTrue(result.valid());
         assertTrue(hasWarning(result, "GRAPH_NODE_BETA"));
         assertFalse(hasError(result, "GRAPH_NODE_NOT_PUBLISHABLE"));
+    }
+
+    @Test
+    void pageActionNodeOutputRejectsASecondUndeclaredDataWrapper() {
+        RuntimeControlCatalogClient client = mock(RuntimeControlCatalogClient.class);
+        RuntimeWorkflowReleaseValidationService service = service(client);
+        when(client.getPageAction("demo", "orders", "readDetail"))
+                .thenReturn(pageAction(
+                        "readDetail",
+                        Map.of(),
+                        Map.of(
+                                "type", "object",
+                                "properties", Map.of("id", Map.of("type", "string")))));
+        when(client.getPageAction("demo", "orders", "close"))
+                .thenReturn(pageAction(
+                        "close",
+                        Map.of("type", "object", "required", List.of("id")),
+                        Map.of("type", "object")));
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {
+                  "nodes":[
+                    {"id":"read","type":"PAGE_ACTION","config":{"projectCode":"demo","pageKey":"orders","actionKey":"readDetail"}},
+                    {"id":"close","type":"PAGE_ACTION","config":{"projectCode":"demo","pageKey":"orders","actionKey":"close","args":{"id":"nodeOutput.read.data.id"}}}
+                  ],
+                  "edges":[{"from":"read","to":"close","condition":"always"}],
+                  "entryNodeId":"read",
+                  "exitNodeIds":["close"]
+                }
+                """);
+
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+
+        assertFalse(result.valid());
+        assertTrue(hasError(result, "GRAPH_PAGE_ACTION_OUTPUT_DATA_REDUNDANT"));
+    }
+
+    @Test
+    void pageActionNodeOutputAllowsDataWhenBusinessSchemaDeclaresThatProperty() {
+        RuntimeControlCatalogClient client = mock(RuntimeControlCatalogClient.class);
+        RuntimeWorkflowReleaseValidationService service = service(client);
+        when(client.getPageAction("demo", "orders", "readEnvelope"))
+                .thenReturn(pageAction(
+                        "readEnvelope",
+                        Map.of(),
+                        Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                        "data", Map.of(
+                                                "type", "object",
+                                                "properties", Map.of("id", Map.of("type", "string")))))));
+        when(client.getPageAction("demo", "orders", "close"))
+                .thenReturn(pageAction(
+                        "close",
+                        Map.of("type", "object", "required", List.of("id")),
+                        Map.of("type", "object")));
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {
+                  "nodes":[
+                    {"id":"read","type":"PAGE_ACTION","config":{"projectCode":"demo","pageKey":"orders","actionKey":"readEnvelope"}},
+                    {"id":"close","type":"PAGE_ACTION","config":{"projectCode":"demo","pageKey":"orders","actionKey":"close","args":{"id":"nodeOutput.read.data.id"}}}
+                  ],
+                  "edges":[{"from":"read","to":"close","condition":"always"}],
+                  "entryNodeId":"read",
+                  "exitNodeIds":["close"]
+                }
+                """);
+
+        RuntimeWorkflowReleaseValidationResult result = service.validate(workflow);
+
+        assertFalse(hasError(result, "GRAPH_PAGE_ACTION_OUTPUT_DATA_REDUNDANT"));
     }
 
     @Test
@@ -749,7 +904,17 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                 true,
                 true,
                 true,
+                List.of(
+                        "COLLECT_INPUT",
+                        "PRESENT_OUTPUT",
+                        "USER_CHOICE",
+                        "CONFIRM_ACTION",
+                        "REVIEW_EDIT",
+                        "CUSTOM"),
                 null);
+        when(registry.isPublishable(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyMap())).thenReturn(true);
         when(registry.find(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
             Object arg = invocation.getArgument(0);
             String type = arg == null ? "" : String.valueOf(arg);
@@ -798,5 +963,28 @@ class RuntimeWorkflowReleaseValidationServiceTest {
 
     private RuntimeControlCatalogClient.PageActionCatalogEntry activePageAction() {
         return new RuntimeControlCatalogClient.PageActionCatalogEntry("demo", "orders", "open", "ACTIVE");
+    }
+
+    private RuntimeControlCatalogClient.PageActionCatalogEntry pageAction(
+            String actionKey,
+            Map<String, Object> inputSchema,
+            Map<String, Object> outputSchema) {
+        return new RuntimeControlCatalogClient.PageActionCatalogEntry(
+                null,
+                "demo",
+                "orders",
+                actionKey,
+                actionKey,
+                null,
+                "READ",
+                false,
+                null,
+                inputSchema,
+                outputSchema,
+                Map.of(),
+                List.of(),
+                null,
+                Map.of(),
+                "ACTIVE");
     }
 }

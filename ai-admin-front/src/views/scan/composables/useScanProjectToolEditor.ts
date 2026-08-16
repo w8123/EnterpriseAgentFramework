@@ -11,6 +11,7 @@ import type {
   ToolTestResult,
   ToolUpsertRequest,
 } from '@/types/tool'
+import { parseToolTestArgument } from '@/utils/toolTestArgument'
 
 export interface UseScanProjectToolEditorDeps {
   projectId: Readonly<Ref<number>>
@@ -191,10 +192,11 @@ export function useScanProjectToolEditor(deps: UseScanProjectToolEditorDeps) {
     testResult.value = null
     try {
       const args: Record<string, unknown> = {}
+      const parametersByName = new Map((testingTool.value.parameters || []).map((parameter) => [parameter.name, parameter]))
       for (const [key, value] of Object.entries(testArgs)) {
-        if (value !== '') {
-          args[key] = value
-        }
+        if (value === '') continue
+        const parameterType = String(parametersByName.get(key)?.type || '').toLowerCase()
+        args[key] = parseToolTestArgument(value, parameterType, key)
       }
       const { data } = await testScanProjectTool(deps.projectId.value, testingTool.value.scanToolId, args)
       testResult.value = data as unknown as ToolTestResult

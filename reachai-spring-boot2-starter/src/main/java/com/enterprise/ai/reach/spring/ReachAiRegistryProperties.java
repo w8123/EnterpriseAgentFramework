@@ -39,6 +39,8 @@ public class ReachAiRegistryProperties {
         private String url;
         private String appKey;
         private String appSecret;
+        private String enrollmentToken;
+        private String credentialStorePath;
         private long heartbeatIntervalMs = 180000L;
 
         public boolean isEnabled() {
@@ -71,6 +73,22 @@ public class ReachAiRegistryProperties {
 
         public void setAppSecret(String appSecret) {
             this.appSecret = appSecret;
+        }
+
+        public String getEnrollmentToken() {
+            return enrollmentToken;
+        }
+
+        public void setEnrollmentToken(String enrollmentToken) {
+            this.enrollmentToken = enrollmentToken;
+        }
+
+        public String getCredentialStorePath() {
+            return credentialStorePath;
+        }
+
+        public void setCredentialStorePath(String credentialStorePath) {
+            this.credentialStorePath = credentialStorePath;
         }
 
         public long getHeartbeatIntervalMs() {

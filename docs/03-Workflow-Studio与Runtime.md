@@ -34,7 +34,8 @@ Supervisor 的职责边界：
 | 最大重规划次数 | 2 |
 | 总执行超时 | 300 秒 |
 | 单 Workflow 超时 | 180 秒 |
-| Page Bridge 超时 | 30 秒 |
+| Page Bridge 动作执行超时 | 30 秒 |
+| 页面动作用户确认窗口 | 90 秒（平台独立控制） |
 
 只读 Workflow 可按 `parallel_read_only` 允许并行工具调用；写操作使用串行锁执行。每次调用都经过 `SupervisorToolPolicyService` 并写 Guard/Trace：READ 自动执行，PAGE_ACTION 要求用户原始问题中存在明确页面意图，WRITE 进入一次性确认，不可逆操作默认拒绝。`DEV_ALLOW_ALL` 仅跳过研发期 tenant allowlist 与 permission-role 映射，不绕过风险边界。
 
@@ -104,6 +105,7 @@ AI Draft 的 `nodeTypes` 与 system prompt 均以 `RuntimeWorkflowNodeCapability
 可信身份与内部调用：
 
 - Control→Runtime 可信执行必须使用 HMAC-SHA256 + `BODY_SHA256`（`REACHAI_INTERNAL_SERVICE_SECRET`，K8s `reachai-internal-service-secret`）保护 sync/SSE；nonce 仅清理过期，满容 fail-closed。
+- Workflow 凭据使用 AES-GCM；`agent.workflow-credential-secret` 在 `prod` / `production` profile 下不得使用开发默认值。部署时必须设置 `WORKFLOW_CREDENTIAL_SECRET`，预发可通过 `REACHAI_REQUIRE_WORKFLOW_CREDENTIAL_SECRET=true` 提前强制校验。
 - Agent：Bearer 合法 → `AGENT` + 平台 userId；无/无效 Bearer → `userTrusted=false`；RunOps 审计 userId 同理。
 - Embed：仅已验签 claims userId → `EMBED_SESSION`；body attacker userId 永远无效。
 - 公开 Runtime stream / body 中的 `source`/`userId`/`trustedIdentity` 全部不可信。
@@ -158,7 +160,7 @@ Trace 边界：
 5. 再向目标页面实例投递真实 Page Action，并等待成功、失败或超时。
 6. `NAVIGATE`、`TARGET_READY`、`PAGE_ACTION` 分阶段进入 Page Action Event 与 Trace。
 
-导航和动作共享一个截止时间，不会在目标页面未就绪时提前执行。业务页面必须在路由切换后重新注册 Page Bridge；导航结果若已明确提供新实例，Control 不会再无条件等待注册表查询。
+导航就绪、用户确认、动作执行使用分阶段预算：导航和目标实例就绪共享动作执行预算；需要确认的 Page Action 独立等待用户最多 90 秒；用户确认后重新开始计算动作执行超时。业务页面必须在路由切换后重新注册 Page Bridge；导航结果若已明确提供新实例，Control 不会再无条件等待注册表查询。非只读 Workflow 一旦失败不会由 Supervisor 自动重复调用，避免超时结果不明确时产生重复写入。
 
 ## Trace 与会话
 

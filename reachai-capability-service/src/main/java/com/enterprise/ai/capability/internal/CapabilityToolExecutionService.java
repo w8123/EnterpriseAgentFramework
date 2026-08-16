@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -46,6 +47,7 @@ public class CapabilityToolExecutionService {
         if (!Boolean.TRUE.equals(tool.getEnabled())) {
             throw new IllegalStateException("Tool definition is disabled: " + qualifiedName);
         }
+        validateExecutionConstraints(tool, request);
         Map<String, Object> input = mapValue(request == null ? null : request.get("input"));
         input = input == null ? Map.of() : input;
         String method = StringUtils.hasText(tool.getHttpMethod()) ? tool.getHttpMethod().trim().toUpperCase() : "POST";
@@ -56,11 +58,13 @@ public class CapabilityToolExecutionService {
         if ("GET".equals(method) && !input.isEmpty()) {
             url = appendQuery(url, input);
         }
+        Map<String, Object> invocationMetadata = invocationMetadata(tool, request);
+        validateInvocationConstraints(request, invocationMetadata);
         CapabilityHttpToolInvocation invocation = new CapabilityHttpToolInvocation(
                 method,
                 url,
                 "GET".equals(method) ? Map.of() : input,
-                invocationMetadata(tool, request));
+                invocationMetadata);
         Map<String, Object> invoked = invoker.invoke(invocation);
 
         Map<String, Object> response = new LinkedHashMap<>();
@@ -88,16 +92,20 @@ public class CapabilityToolExecutionService {
         if ("GET".equals(method) && !input.isEmpty()) {
             url = appendQuery(url, input);
         }
+        ToolDefinitionEntity linkedTool = linkedToolForInvocation(tool, method, buildUrl(tool));
+        Map<String, Object> metadata = linkedTool == null
+                ? new LinkedHashMap<>()
+                : invocationMetadata(linkedTool, request);
+        metadata.put("scanToolId", tool.getId());
+        metadata.put("toolName", tool.getName());
+        metadata.put("toolTitle", titleOrName(tool.getTitle(), tool.getName()));
+        metadata.put("requestBodyType", nullToEmpty(tool.getRequestBodyType()));
+        metadata.put("responseType", nullToEmpty(tool.getResponseType()));
         CapabilityHttpToolInvocation invocation = new CapabilityHttpToolInvocation(
                 method,
                 url,
                 "GET".equals(method) ? Map.of() : input,
-                Map.of(
-                        "scanToolId", tool.getId(),
-                        "toolName", tool.getName(),
-                        "toolTitle", titleOrName(tool.getTitle(), tool.getName()),
-                        "requestBodyType", nullToEmpty(tool.getRequestBodyType()),
-                        "responseType", nullToEmpty(tool.getResponseType())));
+                metadata);
         Map<String, Object> invoked = invoker.invoke(invocation);
 
         Map<String, Object> response = new LinkedHashMap<>();
@@ -106,6 +114,104 @@ public class CapabilityToolExecutionService {
         response.put("toolTitle", titleOrName(tool.getTitle(), tool.getName()));
         applyInvocationResult(response, invoked);
         return response;
+    }
+
+    /**
+     * Runtime business-memory hydration uses these constraints to turn a mutable
+     * catalog lookup into a fail-closed project/exact-tool boundary. Constraints
+     * can only reduce what an invocation may do; they never grant access.
+     */
+    private void validateExecutionConstraints(ToolDefinitionEntity tool,
+                                              Map<String, Object> request) {
+        Map<String, Object> constraints = mapValue(request == null ? null : request.get("constraints"));
+        if (constraints == null || constraints.isEmpty()) return;
+        String expectedQualifiedName = text(constraints.get("expectedQualifiedName"));
+        if (StringUtils.hasText(expectedQualifiedName)
+                && !expectedQualifiedName.equals(tool.getQualifiedName())) {
+            throw new IllegalStateException("Tool does not match the required qualified name");
+        }
+        String expectedProjectCode = text(constraints.get("expectedProjectCode"));
+        if (StringUtils.hasText(expectedProjectCode)
+                && (!StringUtils.hasText(tool.getProjectCode())
+                || !expectedProjectCode.equalsIgnoreCase(tool.getProjectCode().trim()))) {
+            throw new IllegalStateException("Tool does not belong to the required project");
+        }
+        if (Boolean.TRUE.equals(booleanValue(constraints.get("requireUserIdentity")))) {
+            Map<String, Object> context = mapValue(request == null ? null : request.get("context"));
+            String externalUserId = text(context == null ? null : context.get("externalUserId"));
+            String globalUserId = text(context == null ? null : context.get("globalUserId"));
+            if (!StringUtils.hasText(externalUserId) && !StringUtils.hasText(globalUserId)) {
+                throw new IllegalStateException("Tool invocation requires a current user identity");
+            }
+        }
+    }
+
+    private void validateInvocationConstraints(Map<String, Object> request,
+                                               Map<String, Object> invocationMetadata) {
+        Map<String, Object> constraints = mapValue(request == null ? null : request.get("constraints"));
+        if (constraints == null
+                || !Boolean.TRUE.equals(booleanValue(constraints.get("requireSignedInvocation")))) {
+            return;
+        }
+        Object rawHeaders = invocationMetadata == null ? null : invocationMetadata.get("headers");
+        if (!(rawHeaders instanceof Map<?, ?> headers)
+                || !headers.containsKey(ReachAiInvocationToken.HEADER_NAME)) {
+            throw new IllegalStateException("Tool invocation requires a signed business identity");
+        }
+    }
+
+    private ToolDefinitionEntity linkedToolForInvocation(ScanProjectToolEntity scanTool,
+                                                          String scanMethod,
+                                                          String scanUrl) {
+        if (scanTool.getGlobalToolDefinitionId() == null) {
+            if (normalizedText(scanTool.getSourceLocation()).startsWith("sdk:")) {
+                throw new IllegalStateException(
+                        "SDK Tool is not linked to the signed Tool catalog; synchronize it before testing: "
+                                + scanTool.getId());
+            }
+            return null;
+        }
+        ToolDefinitionEntity linkedTool = toolDefinitionMapper.selectById(scanTool.getGlobalToolDefinitionId());
+        if (linkedTool == null) {
+            throw new IllegalStateException("Linked Tool definition is missing; synchronize the scan Tool before testing: "
+                    + scanTool.getId());
+        }
+
+        List<String> mismatches = new java.util.ArrayList<>();
+        if (!Boolean.TRUE.equals(linkedTool.getEnabled())) {
+            mismatches.add("enabled");
+        }
+        if (scanTool.getProjectId() == null || linkedTool.getProjectId() == null
+                || !Objects.equals(scanTool.getProjectId(), linkedTool.getProjectId())) {
+            mismatches.add("projectId");
+        }
+        if (!Objects.equals(normalizedText(scanTool.getName()), normalizedText(linkedTool.getName()))) {
+            mismatches.add("name");
+        }
+        if (!Objects.equals(normalizedText(scanTool.getSourceLocation()), normalizedText(linkedTool.getSourceLocation()))) {
+            mismatches.add("sourceLocation");
+        }
+        String sourceLocation = normalizedText(scanTool.getSourceLocation());
+        if (sourceLocation.startsWith("sdk:")
+                && (!StringUtils.hasText(linkedTool.getProjectCode())
+                || !sourceLocation.startsWith("sdk:" + linkedTool.getProjectCode().trim() + ":"))) {
+            mismatches.add("projectCode");
+        }
+        String linkedMethod = StringUtils.hasText(linkedTool.getHttpMethod())
+                ? linkedTool.getHttpMethod().trim().toUpperCase()
+                : "POST";
+        if (!Objects.equals(scanMethod, linkedMethod)) {
+            mismatches.add("httpMethod");
+        }
+        if (!Objects.equals(scanUrl, buildUrl(linkedTool))) {
+            mismatches.add("endpoint");
+        }
+        if (!mismatches.isEmpty()) {
+            throw new IllegalStateException("Linked Tool definition is out of sync ("
+                    + String.join(", ", mismatches)
+                    + "); synchronize it before signed testing: " + scanTool.getId());
+        }
+        return linkedTool;
     }
 
     private void applyInvocationResult(Map<String, Object> response, Map<String, Object> invoked) {
@@ -277,8 +383,22 @@ public class CapabilityToolExecutionService {
         return value == null ? "" : value;
     }
 
+    private String normalizedText(String value) {
+        return StringUtils.hasText(value) ? value.trim() : "";
+    }
+
     private String text(Object value) {
-        return value == null ? null : String.valueOf(value);
+        if (value == null) return null;
+        String normalized = String.valueOf(value).trim();
+        return StringUtils.hasText(normalized) ? normalized : null;
+    }
+
+    private Boolean booleanValue(Object value) {
+        if (value instanceof Boolean bool) return bool;
+        if (value == null) return null;
+        if ("true".equalsIgnoreCase(String.valueOf(value))) return true;
+        if ("false".equalsIgnoreCase(String.valueOf(value))) return false;
+        return null;
     }
 
     private List<String> stringList(Object value) {

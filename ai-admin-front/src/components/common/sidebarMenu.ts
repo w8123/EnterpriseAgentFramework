@@ -101,6 +101,8 @@ export const sidebarMenu: SidebarEntry[] = [
     label: '用户管理',
     icon: User,
     children: [
+      { index: '/settings/personal-memory', label: '我的记忆' },
+      { index: '/settings/memory-erasure', label: '跨域记忆擦除' },
       { index: '/settings/platform-users', label: '平台用户' },
       { index: '/settings/business-users', label: '业务用户' },
       { index: '/settings/auth-providers', label: '认证源' },
@@ -161,6 +163,8 @@ export function resolveActiveMenu(path: string, metaActiveMenu?: unknown): strin
   if (path.startsWith('/model')) return '/model'
   if (path.startsWith('/tool/retrieval')) return '/tool/retrieval'
   if (path.startsWith('/settings/platform-users')) return '/settings/platform-users'
+  if (path.startsWith('/settings/personal-memory')) return '/settings/personal-memory'
+  if (path.startsWith('/settings/memory-erasure')) return '/settings/memory-erasure'
   if (path.startsWith('/settings/business-users')) return '/settings/business-users'
   if (path.startsWith('/settings/auth-providers')) return '/settings/auth-providers'
   if (path.startsWith('/settings/tool-acl')) return '/settings/tool-acl'
@@ -207,7 +211,9 @@ export function resolveOpenGroups(path: string): string[] {
     open.push('/agent-workflow-group')
   }
   if (
-    path.startsWith('/settings/platform-users')
+    path.startsWith('/settings/personal-memory')
+    || path.startsWith('/settings/memory-erasure')
+    || path.startsWith('/settings/platform-users')
     || path.startsWith('/settings/business-users')
     || path.startsWith('/settings/auth-providers')
   ) {

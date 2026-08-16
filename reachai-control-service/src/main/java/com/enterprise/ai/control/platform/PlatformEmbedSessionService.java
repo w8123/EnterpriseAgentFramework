@@ -80,14 +80,84 @@ public class PlatformEmbedSessionService {
         if (entity == null || !"ACTIVE".equals(entity.getStatus())) {
             throw new PlatformEmbedTokenException("embed chat session not found: " + sessionId);
         }
-        if (!Objects.equals(entity.getAgentId(), claims.getAgentId())
-                || !Objects.equals(entity.getProjectCode(), claims.getProjectCode())
-                || !Objects.equals(entity.getExternalUserId(), claims.getExternalUserId())
-                || !Objects.equals(
-                        entity.getPageInstanceId(),
-                        claims.getPageInstanceId())) {
+        requireSamePrincipal(entity, claims);
+        if (!Objects.equals(entity.getPageInstanceId(), claims.getPageInstanceId())) {
             throw new PlatformEmbedTokenException("embed chat session does not match embed token");
         }
+        refreshExpiry(entity, claims);
+        return entity;
+    }
+
+    /**
+     * A cross-route Page Bridge rebinding deliberately uses a token bound to a
+     * new page instance. It still requires the same immutable project, Agent
+     * and business user, then a controller verifies the pending NAVIGATE event
+     * before changing page identity.
+     */
+    public PlatformEmbedSessionEntity requireActiveSessionForNavigationRebind(
+            String sessionId,
+            PlatformEmbedTokenClaims claims) {
+        if (!StringUtils.hasText(sessionId)) {
+            throw new PlatformEmbedTokenException("embed chat session id is required");
+        }
+        if (claims == null) {
+            throw new PlatformEmbedTokenException("embed token claims are required");
+        }
+        PlatformEmbedSessionEntity entity = mapper.selectOne(Wrappers.<PlatformEmbedSessionEntity>lambdaQuery()
+                .eq(PlatformEmbedSessionEntity::getSessionId, sessionId)
+                .last("limit 1"));
+        if (entity == null || !"ACTIVE".equals(entity.getStatus())) {
+            throw new PlatformEmbedTokenException("embed chat session not found: " + sessionId);
+        }
+        requireSamePrincipal(entity, claims);
+        refreshExpiry(entity, claims);
+        return entity;
+    }
+
+    public void rebindBridgeAfterNavigation(PlatformEmbedSessionEntity session,
+                                            PlatformEmbedTokenClaims claims,
+                                            String pageKey,
+                                            String pageInstanceId,
+                                            String route,
+                                            List<String> bridgeActions,
+                                            String sdkVersion) {
+        if (session == null) {
+            throw new PlatformEmbedTokenException("embed chat session is required");
+        }
+        if (claims == null || !StringUtils.hasText(claims.getPageInstanceId())) {
+            throw new PlatformEmbedTokenException("target embed token pageInstanceId is required");
+        }
+        if (!StringUtils.hasText(pageInstanceId) || !pageInstanceId.trim().equals(claims.getPageInstanceId())) {
+            throw new PlatformEmbedTokenException("pageInstanceId does not match target embed token");
+        }
+        if (StringUtils.hasText(pageKey) && StringUtils.hasText(claims.getPageKey())
+                && !pageKey.trim().equals(claims.getPageKey())) {
+            throw new PlatformEmbedTokenException("pageKey does not match target embed token");
+        }
+        if (StringUtils.hasText(route) && StringUtils.hasText(claims.getRoute())
+                && !route.trim().equals(claims.getRoute())) {
+            throw new PlatformEmbedTokenException("route does not match target embed token");
+        }
+        session.setPageKey(StringUtils.hasText(pageKey) ? pageKey.trim() : claims.getPageKey());
+        session.setPageInstanceId(pageInstanceId.trim());
+        session.setRoute(StringUtils.hasText(route) ? route.trim() : claims.getRoute());
+        session.setBridgeActionsJson(writeJson(bridgeActions == null ? List.of() : bridgeActions));
+        if (StringUtils.hasText(sdkVersion)) {
+            session.setSdkVersion(sdkVersion.trim());
+        }
+        session.setUpdatedAt(LocalDateTime.now());
+        mapper.updateById(session);
+    }
+
+    private void requireSamePrincipal(PlatformEmbedSessionEntity entity, PlatformEmbedTokenClaims claims) {
+        if (!Objects.equals(entity.getAgentId(), claims.getAgentId())
+                || !Objects.equals(entity.getProjectCode(), claims.getProjectCode())
+                || !Objects.equals(entity.getExternalUserId(), claims.getExternalUserId())) {
+            throw new PlatformEmbedTokenException("embed chat session does not match embed token");
+        }
+    }
+
+    private void refreshExpiry(PlatformEmbedSessionEntity entity, PlatformEmbedTokenClaims claims) {
         LocalDateTime now = LocalDateTime.now();
         if (entity.getExpiresAt() != null && entity.getExpiresAt().isBefore(now)) {
             // A chat session may outlive one short-lived Embed token (for example while the
@@ -102,7 +172,6 @@ public class PlatformEmbedSessionService {
             entity.setUpdatedAt(now);
             mapper.updateById(entity);
         }
-        return entity;
     }
 
     public void updateBridge(PlatformEmbedSessionEntity session,

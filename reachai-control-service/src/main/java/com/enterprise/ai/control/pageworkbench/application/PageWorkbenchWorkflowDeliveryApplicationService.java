@@ -87,6 +87,9 @@ public class PageWorkbenchWorkflowDeliveryApplicationService {
         request.put(
                 "publishedBy",
                 defaultText(command.publishedBy(), "ReachAI Page Workbench"));
+        request.put(
+                "replaceWorkflowId",
+                textOrNull(command.replaceWorkflowId()));
         WorkflowDeliveryView delivered = runtimeClient
                 .deliverPageWorkbenchWorkflow(
                         targetProjectCode,
@@ -146,6 +149,15 @@ public class PageWorkbenchWorkflowDeliveryApplicationService {
             String version,
             String agentId,
             String modelInstanceId,
-            String publishedBy) {
+            String publishedBy,
+            String replaceWorkflowId) {
+        public DeliveryCommand(
+                String pageKey,
+                String version,
+                String agentId,
+                String modelInstanceId,
+                String publishedBy) {
+            this(pageKey, version, agentId, modelInstanceId, publishedBy, null);
+        }
     }
 }

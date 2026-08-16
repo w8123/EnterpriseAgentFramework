@@ -19,6 +19,10 @@ function sessionResponse(sessionId = 'sess-1') {
   return new Response(JSON.stringify({ data: { sessionId } }), { status: 200 })
 }
 
+function pageActionClaimResponse() {
+  return new Response(JSON.stringify({ data: { claimed: true } }), { status: 200 })
+}
+
 async function flushMicrotasks(count = 20) {
   for (let index = 0; index < count; index += 1) await Promise.resolve()
 }
@@ -29,6 +33,10 @@ describe('createEafChat facade', () => {
 
   beforeEach(() => {
     vi.useFakeTimers()
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible',
+    })
     mountEl = document.createElement('div')
     document.body.appendChild(mountEl)
     globalThis.fetch = vi.fn()
@@ -409,13 +417,28 @@ describe('createEafChat facade', () => {
   it('chat.send executes metadata.pageActionQueue exactly once', async () => {
     const events: Array<{ type: string; data?: unknown }> = []
     let bridgeCalls = 0
-    ;(globalThis.fetch as any)
-      .mockResolvedValueOnce(sessionResponse('sess-1'))
-      .mockResolvedValueOnce(sse([
-        'event: message.delta\ndata: {"text":"Hi"}\n\n',
-        'event: message.completed\ndata: {"sessionId":"sess-1","answer":"Hi","intentType":"CHAT","metadata":{"pageActionQueue":[{"type":"page.action.requested","requestId":"pa-1","actionKey":"refresh"}]},"uiRequest":null}\n\n',
-      ]))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { ok: true } }), { status: 200 }))
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      const path = String(url)
+      if (path.includes('/chat/sessions') && !path.includes('/messages') && !path.includes('/page-actions')) {
+        return sessionResponse('sess-1')
+      }
+      if (path.includes('/messages/stream')) {
+        return sse([
+          'event: message.delta\ndata: {"text":"Hi"}\n\n',
+          'event: message.completed\ndata: {"sessionId":"sess-1","answer":"Hi","intentType":"CHAT","metadata":{"pageActionQueue":[{"type":"page.action.requested","requestId":"pa-1","actionKey":"refresh"}]},"uiRequest":null}\n\n',
+        ])
+      }
+      if (path.includes('/page-actions/pending')) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200 })
+      }
+      if (path.includes('/page-actions/pa-1/claim')) {
+        return pageActionClaimResponse()
+      }
+      if (path.includes('/page-actions/pa-1/result')) {
+        return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 })
+    })
 
     const bridge = createEafPageBridge({ route: '/' })
     bridge.registerAction('refresh', async () => {
@@ -434,6 +457,7 @@ describe('createEafChat facade', () => {
     })
 
     const response = await chat.send('hello')
+    await flushMicrotasks()
     expect(response.sessionId).toBe('sess-1')
     expect(response.answer).toBe('Hi')
     expect(response.metadata).toEqual({
@@ -460,6 +484,7 @@ describe('createEafChat facade', () => {
         'event: message.delta\ndata: {"text":"UI"}\n\n',
         'event: message.completed\ndata: {"sessionId":"sess-ui-pa","answer":"UI","metadata":{"pageActionQueue":[{"type":"page.action.requested","requestId":"pa-ui","actionKey":"refresh"}]}}\n\n',
       ]))
+      .mockResolvedValueOnce(pageActionClaimResponse())
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: { ok: true } }), { status: 200 }))
 
     const bridge = createEafPageBridge({ route: '/' })
@@ -562,6 +587,9 @@ describe('createEafChat facade', () => {
       if (path.includes('/page-actions/pending')) {
         return new Response(JSON.stringify({ data: [pageAction] }), { status: 200 })
       }
+      if (path.includes('/page-actions/pa-race/claim')) {
+        return pageActionClaimResponse()
+      }
       if (path.includes('/page-actions/pa-race/result')) {
         return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 })
       }
@@ -614,6 +642,7 @@ describe('createEafChat facade', () => {
       .mockResolvedValueOnce(sse([
         'event: message.completed\ndata: {"sessionId":"sess-err","answer":"x","metadata":{"pageActionQueue":[{"type":"page.action.requested","requestId":"pa-err","actionKey":"boom"}]}}\n\n',
       ]))
+      .mockResolvedValueOnce(pageActionClaimResponse())
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: { ok: true } }), { status: 200 }))
 
     const bridge = createEafPageBridge({ route: '/' })
@@ -698,6 +727,9 @@ describe('createEafChat facade', () => {
         }
         if (path.includes('/page-actions/pending')) {
           return new Response(JSON.stringify({ data: [] }), { status: 200 })
+        }
+        if (path.includes('/page-actions/pa-full/claim')) {
+          return pageActionClaimResponse()
         }
         if (path.includes('/page-actions/pa-full/result')) {
           return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 })
@@ -837,6 +869,9 @@ describe('createEafChat facade', () => {
       if (path.includes('/page-actions/pending')) {
         return new Response(JSON.stringify({ data: [pageAction] }), { status: 200 })
       }
+      if (path.includes('/page-actions/pa-triple/claim')) {
+        return pageActionClaimResponse()
+      }
       if (path.includes('/page-actions/pa-triple/result')) {
         return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 })
       }
@@ -900,6 +935,9 @@ describe('createEafChat facade', () => {
       if (path.includes('/page-actions/pending')) {
         return new Response(JSON.stringify({ data: [] }), { status: 200 })
       }
+      if (path.includes('/page-actions/pa-sse-only/claim')) {
+        return pageActionClaimResponse()
+      }
       if (path.includes('/page-actions/pa-sse-only/result')) {
         return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 })
       }
@@ -960,6 +998,9 @@ describe('createEafChat facade', () => {
       if (path.includes('/page-actions/pending')) {
         return new Response(JSON.stringify({ data: [] }), { status: 200 })
       }
+      if (path.includes('/page-actions/pa-completion-only/claim')) {
+        return pageActionClaimResponse()
+      }
       if (path.includes('/page-actions/pa-completion-only/result')) {
         return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 })
       }
@@ -1015,6 +1056,9 @@ describe('createEafChat facade', () => {
       }
       if (path.includes('/page-actions/pending')) {
         return new Response(JSON.stringify({ data: [pageAction] }), { status: 200 })
+      }
+      if (path.includes('/page-actions/pa-pending-only/claim')) {
+        return pageActionClaimResponse()
       }
       if (path.includes('/page-actions/pa-pending-only/result')) {
         return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 })

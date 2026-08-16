@@ -133,6 +133,8 @@ const STANDARD_PAGE_FILES = new Set([
   'src/views/settings/BusinessUserDirectory.vue',
   'src/views/settings/AuthProviderSettings.vue',
   'src/views/settings/ToolAclList.vue',
+  'src/views/settings/PersonalMemory.vue',
+  'src/views/settings/MemoryErasure.vue',
   'src/views/domain/DomainList.vue',
   'src/views/domain/DomainAssignmentBoard.vue',
   'src/views/domain/DomainClassifierTest.vue',
@@ -2047,7 +2049,7 @@ function createRepositoryFixture() {
     projectWorkbenchDirectComponentFiles: PROJECT_WORKBENCH_DIRECT_COMPONENT_FILES,
     exemptPageFiles: EXEMPT_PAGE_FILES,
     listFillPageFiles: LIST_FILL_PAGE_FILES,
-    expectedSetSizes: { standard: 39, projectWorkbench: 8, exempt: 3 },
+    expectedSetSizes: { standard: 41, projectWorkbench: 8, exempt: 3 },
     expectedListFillSize: 23,
   }
 }

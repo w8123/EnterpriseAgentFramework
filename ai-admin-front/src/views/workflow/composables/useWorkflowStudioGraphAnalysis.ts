@@ -156,7 +156,8 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
       }
       outgoing.set(edge.source, (outgoing.get(edge.source) || 0) + 1)
       incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1)
-      if (!isSupportedCanvasCondition(edge.condition || edge.label)) {
+      const sourceNode = deps.nodes.value.find((node) => node.id === edge.source)
+      if (!isSupportedCanvasCondition(edge.condition || edge.label, sourceNode)) {
         items.push({ level: 'warning', edgeId: edge.id, message: `连线条件可能无法命中：${edge.condition || edge.label}` })
       }
     }

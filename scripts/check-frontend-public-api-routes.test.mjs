@@ -23,6 +23,9 @@ export function listDatasets() {
 export function listPages() {
   return controlRequest.get('/api/platform/embed/pages/catalog')
 }
+export function legacyBusinessIndex() {
+  return request.post('/ai/biz-index/team/upsert')
+}
 `)
 writeFile(forbiddenRoot, 'ai-admin-front/src/views/registry/LegacyRuntimeView.vue', `
 <script setup lang="ts">
@@ -42,6 +45,7 @@ assert.match(forbiddenResult.stderr, /\/api\/runtime\/agents\/execute/)
 assert.match(forbiddenResult.stderr, /\/api\/runtime\/evals/)
 assert.match(forbiddenResult.stderr, /\/api\/runtime\/interactions/)
 assert.match(forbiddenResult.stderr, /\/api\/platform\/embed\/pages/)
+assert.match(forbiddenResult.stderr, /\/ai\/biz-index/)
 
 const allowedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-frontend-routes-allowed-'))
 writeFile(allowedRoot, 'ai-admin-front/src/api/workflow.ts', `
@@ -56,6 +60,12 @@ export function executeAgent(request) {
 }
 export function listCredentials() {
   return controlRequest.get('/api/workflows/credentials')
+}
+export function listBusinessIndexes() {
+  return controlRequest.get('/api/knowledge/biz-index/list')
+}
+export function syncBusinessIndex() {
+  return signedRequest.post('/api/knowledge-ingress/projects/demo/biz-index/team/upsert')
 }
 `)
 

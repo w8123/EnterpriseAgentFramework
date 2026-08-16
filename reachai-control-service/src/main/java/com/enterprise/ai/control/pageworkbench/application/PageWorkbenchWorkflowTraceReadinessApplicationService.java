@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.server.ResponseStatusException;
@@ -18,7 +19,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import static org.springframework.http.HttpStatus.BAD_GATEWAY;
 
@@ -33,6 +36,11 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
 
     public static final String KEY = "PAGE_WORKFLOW_TRACE_READY";
     private static final String LABEL = "页面 Workflow 执行链路";
+    private static final Set<String> STRUCTURED_CARD_COMPONENTS = Set.of(
+            "list_card",
+            "output_card",
+            "card",
+            "detail");
 
     private final PlatformEmbedE2eEvidenceService embedEvidence;
     private final RuntimeProxyClient runtimeClient;
@@ -76,7 +84,8 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
                     exact.workflowId(),
                     exact.workflowVersionId(),
                     exact.workflowVersion(),
-                    exact.workflowName());
+                    exact.workflowName(),
+                    exact.modelInstanceId());
         } catch (FeignException ex) {
             throw new ResponseStatusException(
                     BAD_GATEWAY,
@@ -116,11 +125,25 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
                             reportedTraceId));
         }
 
-        List<EmbedTraceCandidate> candidates =
-                distinctCandidates(embedEvidence.successfulTraceCandidates(
-                        projectCode,
-                        pageKey,
-                        observedAfter));
+        List<EmbedTraceCandidate> candidates;
+        try {
+            candidates = distinctCandidates(
+                    embedEvidence.successfulTraceCandidates(
+                            projectCode,
+                            pageKey,
+                            observedAfter));
+        } catch (DataAccessException ex) {
+            ObjectNode evidence = baseEvidence(
+                    projectCode,
+                    pageKey,
+                    target,
+                    reportedTraceId);
+            evidence.put("dependency", "reachai-control-database");
+            evidence.put("reason", "DATA_ACCESS_UNAVAILABLE");
+            return pending(
+                    "ReachAI 会话与 Trace 证据暂时不可用，尚未完成页面 Workflow 执行链路校验。请恢复平台数据库连接后重新验证。",
+                    evidence);
+        }
         String expectedTraceId = normalizeOptional(reportedTraceId);
         if (expectedTraceId != null) {
             candidates = candidates.stream()
@@ -147,8 +170,8 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
                             expectedTraceId));
         }
 
-        WorkflowExecutionReadinessView latestObserved = null;
-        List<WorkflowExecutionReadinessView> eligible = new ArrayList<>();
+        ObservedTrace latestObserved = null;
+        List<ObservedTrace> eligible = new ArrayList<>();
         for (EmbedTraceCandidate candidate : candidates) {
             if (!StringUtils.hasText(candidate.pageInstanceId())) {
                 continue;
@@ -168,9 +191,15 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
                 if (observed == null) {
                     continue;
                 }
-                latestObserved = observed;
-                if ("PASS".equalsIgnoreCase(observed.status())) {
-                    eligible.add(observed);
+                ObservedTrace joined = new ObservedTrace(
+                        candidate,
+                        observed);
+                latestObserved = joined;
+                if ("PASS".equalsIgnoreCase(observed.status())
+                        && structuredPresentationDelivered(
+                        observed,
+                        candidate)) {
+                    eligible.add(joined);
                 }
             } catch (FeignException ex) {
                 ObjectNode evidence = baseEvidence(
@@ -187,7 +216,8 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
         }
 
         if (eligible.size() == 1) {
-            WorkflowExecutionReadinessView observed = eligible.get(0);
+            ObservedTrace joined = eligible.get(0);
+            WorkflowExecutionReadinessView observed = joined.observed();
             return new ReadinessItem(
                     KEY,
                     LABEL,
@@ -195,7 +225,7 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
                     firstText(
                             observed.message(),
                             "ReachAI 已确认页面 Workflow 执行链路"),
-                    runtimeEvidence(observed));
+                    runtimeEvidence(observed, joined.candidate()));
         }
         if (eligible.size() > 1) {
             ObjectNode evidence = baseEvidence(
@@ -206,6 +236,7 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
             evidence.put("eligibleTraceCount", eligible.size());
             var traceIds = evidence.putArray("eligibleTraceIds");
             eligible.stream()
+                    .map(ObservedTrace::observed)
                     .map(WorkflowExecutionReadinessView::traceId)
                     .filter(StringUtils::hasText)
                     .distinct()
@@ -216,11 +247,26 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
         }
 
         if (latestObserved != null) {
+            WorkflowExecutionReadinessView observed =
+                    latestObserved.observed();
+            if ("PASS".equalsIgnoreCase(observed.status())
+                    && observed.structuredPresentationRequired()
+                    && !structuredPresentationDelivered(
+                    observed,
+                    latestObserved.candidate())) {
+                return pending(
+                        "Runtime 已执行 PRESENT_OUTPUT，但 Embed 完成事件未携带受支持的卡片 uiRequest",
+                        runtimeEvidence(
+                                observed,
+                                latestObserved.candidate()));
+            }
             return pending(
                     firstText(
-                            latestObserved.message(),
+                            observed.message(),
                             "当前页面 Trace 尚未满足指定 Workflow 版本的执行条件"),
-                    runtimeEvidence(latestObserved));
+                    runtimeEvidence(
+                            observed,
+                            latestObserved.candidate()));
         }
         return pending(
                 "当前页面会话缺少可关联的 pageInstanceId，无法校验 Runtime 执行链路",
@@ -257,7 +303,8 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
     }
 
     private ObjectNode runtimeEvidence(
-            WorkflowExecutionReadinessView observed) {
+            WorkflowExecutionReadinessView observed,
+            EmbedTraceCandidate candidate) {
         ObjectNode evidence = objectMapper.createObjectNode();
         evidence.put("source", "reachai-runtime-service");
         putText(evidence, "status", observed.status());
@@ -280,10 +327,50 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
         putText(evidence, "runStatus", observed.runStatus());
         putText(evidence, "entryType", observed.entryType());
         evidence.put("workflowObserved", observed.workflowObserved());
+        evidence.put("capabilityRequired", observed.capabilityRequired());
+        evidence.put("capabilityObserved", observed.capabilityObserved());
+        evidence.put("pageActionRequired", observed.pageActionRequired());
+        evidence.put("pageActionObserved", observed.pageActionObserved());
+        evidence.put(
+                "pageActionBusinessTerminalObserved",
+                observed.pageActionBusinessTerminalObserved());
+        evidence.put(
+                "structuredPresentationRequired",
+                observed.structuredPresentationRequired());
+        evidence.put(
+                "structuredPresentationObserved",
+                observed.structuredPresentationObserved());
+        evidence.put(
+                "uiRequestObserved",
+                candidate != null && candidate.uiRequestObserved());
+        if (candidate != null
+                && StringUtils.hasText(
+                candidate.uiRequestComponent())) {
+            evidence.put(
+                    "uiRequestComponent",
+                    candidate.uiRequestComponent().trim());
+        }
         if (observed.checkedAt() != null) {
             evidence.put("checkedAt", observed.checkedAt().toString());
         }
         return evidence;
+    }
+
+    private boolean structuredPresentationDelivered(
+            WorkflowExecutionReadinessView observed,
+            EmbedTraceCandidate candidate) {
+        if (observed == null
+                || !observed.structuredPresentationRequired()) {
+            return true;
+        }
+        if (candidate == null || !candidate.uiRequestObserved()) {
+            return false;
+        }
+        String component = normalizeOptional(
+                candidate.uiRequestComponent());
+        return component != null
+                && STRUCTURED_CARD_COMPONENTS.contains(
+                component.toLowerCase(Locale.ROOT));
     }
 
     private static void putText(
@@ -340,7 +427,8 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
             String workflowId,
             Long workflowVersionId,
             String workflowVersion,
-            String workflowName) {
+            String workflowName,
+            String modelInstanceId) {
 
         public boolean complete() {
             return StringUtils.hasText(workflowId)
@@ -348,5 +436,10 @@ public class PageWorkbenchWorkflowTraceReadinessApplicationService {
                     && workflowVersionId > 0
                     && StringUtils.hasText(workflowVersion);
         }
+    }
+
+    private record ObservedTrace(
+            EmbedTraceCandidate candidate,
+            WorkflowExecutionReadinessView observed) {
     }
 }

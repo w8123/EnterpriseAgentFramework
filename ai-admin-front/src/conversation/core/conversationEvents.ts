@@ -5,6 +5,7 @@ export type ConversationEventType =
   | 'session.created'
   | 'session.restored'
   | 'turn.started'
+  | 'turn.progress'
   | 'message.started'
   | 'message.delta'
   | 'ui.requested'
@@ -50,6 +51,13 @@ export interface PageActionRequestedData {
   confirm?: boolean
   target?: Record<string, unknown>
   metadata?: Record<string, unknown>
+}
+
+/** Coarse Embed-safe lifecycle status; it never carries Supervisor reasoning or tool arguments. */
+export interface TurnProgressData {
+  phase: 'plan' | 'replan' | 'workflow' | 'policy' | 'final_answer' | string
+  state: string
+  message: string
 }
 
 export interface TurnTerminalData {

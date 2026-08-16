@@ -132,8 +132,15 @@ public class PageAccessCenterOverviewApplicationService {
                         TaskView::updatedAt,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
+        Optional<TaskView> latestPageBuildTask = latest(
+                orderedTasks,
+                task -> isPageBuildTask(task.taskKind()));
+        boolean publishedSuperseded = published != null
+                && latestPageBuildTask
+                        .map(task -> taskSupersedesPublished(task, published))
+                        .orElse(false);
 
-        if (published != null) {
+        if (published != null && !publishedSuperseded) {
             Optional<TaskView> acceptance = orderedTasks.stream()
                     .filter(task -> "BROWSER_ACCEPTANCE".equals(task.taskKind()))
                     .filter(task -> exactWorkflowTarget(task, published))
@@ -185,10 +192,9 @@ public class PageAccessCenterOverviewApplicationService {
                     unread, kept, null, "AI 正在实施页面接入");
         }
 
-        Optional<TaskView> completedWorkflow = latest(
-                orderedTasks,
-                task -> "WORKFLOW_ENGINEERING".equals(task.taskKind())
-                        && COMPLETED.equals(task.executionStatus()));
+        Optional<TaskView> completedWorkflow = latestPageBuildTask
+                .filter(task -> "WORKFLOW_ENGINEERING".equals(task.taskKind()))
+                .filter(task -> COMPLETED.equals(task.executionStatus()));
         if (completedWorkflow.isPresent()) {
             TaskView task = completedWorkflow.get();
             if (!runtimeAvailable) {
@@ -216,10 +222,9 @@ public class PageAccessCenterOverviewApplicationService {
                     null, unread, kept, null);
         }
 
-        Optional<TaskView> completedImplementation = latest(
-                orderedTasks,
-                task -> "CODE_IMPLEMENTATION".equals(task.taskKind())
-                        && COMPLETED.equals(task.executionStatus()));
+        Optional<TaskView> completedImplementation = latestPageBuildTask
+                .filter(task -> "CODE_IMPLEMENTATION".equals(task.taskKind()))
+                .filter(task -> COMPLETED.equals(task.executionStatus()));
         if (completedImplementation.isPresent()) {
             TaskView task = completedImplementation.get();
             if (page.actions().isEmpty()) {
@@ -365,6 +370,22 @@ public class PageAccessCenterOverviewApplicationService {
 
     private Optional<TaskView> latest(List<TaskView> tasks, Predicate<TaskView> predicate) {
         return tasks.stream().filter(predicate).findFirst();
+    }
+
+    private boolean isPageBuildTask(String taskKind) {
+        return "CODE_IMPLEMENTATION".equals(taskKind)
+                || "WORKFLOW_ENGINEERING".equals(taskKind);
+    }
+
+    private boolean taskSupersedesPublished(
+            TaskView task,
+            PublishedWorkflowView published) {
+        LocalDateTime taskAt = firstDate(
+                task.completedAt(),
+                firstDate(task.updatedAt(), task.createdAt()));
+        return taskAt != null
+                && (published.publishedAt() == null
+                        || taskAt.isAfter(published.publishedAt()));
     }
 
     private boolean exactWorkflowTarget(TaskView task, PublishedWorkflowView published) {

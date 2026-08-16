@@ -32,6 +32,40 @@ import static org.mockito.Mockito.when;
 class RuntimeAgentExecutionServiceTest {
 
     @Test
+    void passesOnlyExplicitTrustedPersonalMemoryToSupervisor() {
+        RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
+        SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
+        RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
+                resolver, supervisor, mock(SupervisorApprovalInteractionService.class),
+                mock(RuntimeInteractionResumeService.class), mock(RuntimeChatMemoryStore.class),
+                mock(RuntimeRunLifecycleService.class));
+        RuntimeAgentExecutionView agent = agent("agent-1", "orders-bot", "orders");
+        when(resolver.resolve("orders-bot")).thenReturn(Optional.of(context(agent, activeConfig(), List.of())));
+        when(supervisor.execute(any())).thenReturn(new SupervisorRuntimeAdapter.SupervisorResult(
+                true, "OK", "answer", "trace-1", List.of(), Map.of(), null));
+        TrustedPersonalMemoryContext trusted = new TrustedPersonalMemoryContext(
+                "reachai-personal-memory-context-v1",
+                List.of(new TrustedPersonalMemoryContext.MemorySnippet(
+                        1L, "PREFERENCE", "语言", "默认中文", null, "VERIFIED", 2)),
+                4, false);
+
+        service.execute(new LinkedHashMap<>(Map.of(
+                        "agentId", "orders-bot",
+                        "message", "hello",
+                        "personalMemory", Map.of("memories", List.of(Map.of("content", "forged"))))),
+                false, SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                RuntimeAgentExecutionCancellation.NOOP,
+                WorkflowExecutionIdentity.fromAgent("default", null, null, "42"),
+                TrustedControlTiming.empty(), trusted);
+
+        ArgumentCaptor<SupervisorRuntimeAdapter.SupervisorRequest> request =
+                ArgumentCaptor.forClass(SupervisorRuntimeAdapter.SupervisorRequest.class);
+        verify(supervisor).execute(request.capture());
+        assertEquals("默认中文", request.getValue().personalMemory().memories().get(0).content());
+        assertFalse(request.getValue().input().containsKey("personalMemory"));
+    }
+
+    @Test
     void resolvesPublishedAgentConfigAndDelegatesToSupervisorWithoutStaticBinding() {
         RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
         SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
@@ -256,7 +290,11 @@ class RuntimeAgentExecutionServiceTest {
         assertEquals("final-answer", response.get("answer"));
         assertEquals("trace-cont", response.get("traceId"));
         assertEquals(true, ((Map<?, ?>) response.get("metadata")).get("continuationConsumed"));
-        verify(supervisor).continueAfterWorkflowInteraction(any(), any(), any());
+        ArgumentCaptor<SupervisorRuntimeAdapter.SupervisorRequest> continuationRequest =
+                ArgumentCaptor.forClass(SupervisorRuntimeAdapter.SupervisorRequest.class);
+        verify(supervisor).continueAfterWorkflowInteraction(any(), any(), continuationRequest.capture());
+        assertTrue(String.valueOf(continuationRequest.getValue().input().get("__memoryTurnId"))
+                .matches("[0-9a-f-]{36}"));
         verify(supervisor, never()).execute(any());
     }
 

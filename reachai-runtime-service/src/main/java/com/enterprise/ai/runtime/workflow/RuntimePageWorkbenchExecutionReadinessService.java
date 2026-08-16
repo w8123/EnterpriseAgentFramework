@@ -18,8 +18,8 @@ import java.util.List;
 /**
  * Verifies that an exact post-task Embed trace successfully executed the
  * published Workflow/version selected by a page-workbench acceptance task.
- * Business scenarios and Page Actions remain explicit acceptance concerns;
- * they are not inferred from the Workflow graph here.
+ * Capability and Page Action coverage is derived from the node types actually
+ * observed in the exact trace, never merely from the published graph.
  */
 @Service
 @RequiredArgsConstructor
@@ -74,7 +74,8 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                     expectedWorkflowId,
                     workflowVersionId,
                     expectedWorkflowVersion,
-                    null);
+                    null,
+                    NodeUsage.none());
         }
         if (!expectedProjectCode.equalsIgnoreCase(
                 workflow.getProjectCode())) {
@@ -89,7 +90,8 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                     expectedWorkflowId,
                     workflowVersionId,
                     expectedWorkflowVersion,
-                    null);
+                    null,
+                    NodeUsage.none());
         }
         if (!WorkflowSemanticValues.KIND_PAGE_ASSISTANT.equals(
                 workflow.getWorkflowKind())
@@ -105,7 +107,8 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                     expectedWorkflowId,
                     workflowVersionId,
                     expectedWorkflowVersion,
-                    null);
+                    null,
+                    NodeUsage.none());
         }
         List<BindingView> targetPages = bindingService.list(expectedWorkflowId)
                 .stream()
@@ -129,7 +132,8 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                     expectedWorkflowId,
                     workflowVersionId,
                     expectedWorkflowVersion,
-                    null);
+                    null,
+                    NodeUsage.none());
         }
 
         RuntimeWorkflowVersionEntity version =
@@ -149,8 +153,10 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                     expectedWorkflowId,
                     workflowVersionId,
                     expectedWorkflowVersion,
-                    null);
+                    null,
+                    NodeUsage.none());
         }
+        NodeUsage nodeUsage = nodeUsage(version);
 
         RuntimeRunEntity run = runMapper.selectOne(
                 Wrappers.<RuntimeRunEntity>lambdaQuery()
@@ -168,7 +174,8 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                     expectedWorkflowId,
                     workflowVersionId,
                     expectedWorkflowVersion,
-                    null);
+                    null,
+                    nodeUsage);
         }
         if (!expectedProjectCode.equalsIgnoreCase(run.getProjectCode())
                 || !expectedSessionId.equals(run.getSessionId())
@@ -185,7 +192,8 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                     expectedWorkflowId,
                     workflowVersionId,
                     expectedWorkflowVersion,
-                    run);
+                    run,
+                    nodeUsage);
         }
         if (!"COMPLETED".equalsIgnoreCase(run.getStatus())) {
             return failed(
@@ -199,21 +207,18 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                     expectedWorkflowId,
                     workflowVersionId,
                     expectedWorkflowVersion,
-                    run);
+                    run,
+                    nodeUsage);
         }
 
-        boolean workflowObserved = defaultList(spanMapper.selectList(
+        List<RuntimeTraceSpanEntity> spans = defaultList(spanMapper.selectList(
                 Wrappers.<RuntimeTraceSpanEntity>lambdaQuery()
                         .eq(
                                 RuntimeTraceSpanEntity::getTraceId,
-                                expectedTraceId)
-                        .eq(
-                                RuntimeTraceSpanEntity::getSpanType,
-                                "WORKFLOW_TOOL")
-                        .eq(
-                                RuntimeTraceSpanEntity::getStatus,
-                                "SUCCESS")))
-                .stream()
+                                expectedTraceId)));
+        boolean workflowObserved = spans.stream()
+                .filter(span -> "WORKFLOW_TOOL".equals(span.getSpanType()))
+                .filter(span -> isWorkflowCompletionStatus(span.getStatus()))
                 .anyMatch(span -> exactWorkflow(
                         span,
                         expectedWorkflowId,
@@ -231,7 +236,28 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                     expectedWorkflowId,
                     workflowVersionId,
                     expectedWorkflowVersion,
-                    run);
+                    run,
+                    nodeUsage);
+        }
+
+        NodeObservation nodeObservation = observedNodes(spans);
+
+        if (nodeUsage.structuredPresentationRequired()
+                && !nodeObservation.structuredPresentationObserved()) {
+            return failedAfterWorkflow(
+                    "STRUCTURED_PRESENTATION_NOT_OBSERVED",
+                    "当前页面 Trace 已执行目标 Workflow，但未执行 INTERACTION/PRESENT_OUTPUT 展示节点",
+                    expectedProjectCode,
+                    expectedPageKey,
+                    expectedSessionId,
+                    expectedPageInstanceId,
+                    expectedTraceId,
+                    expectedWorkflowId,
+                    workflowVersionId,
+                    expectedWorkflowVersion,
+                    run,
+                    nodeUsage,
+                    nodeObservation);
         }
 
         return new ExecutionReadinessView(
@@ -249,7 +275,97 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                 run.getStatus(),
                 run.getEntryType(),
                 true,
+                nodeUsage.capabilityRequired(),
+                nodeUsage.capabilityRequired() && nodeObservation.capabilityObserved(),
+                nodeUsage.pageActionRequired(),
+                nodeUsage.pageActionRequired() && nodeObservation.pageActionObserved(),
+                nodeUsage.pageActionRequired()
+                        && nodeObservation.pageActionBusinessTerminalObserved(),
+                nodeUsage.structuredPresentationRequired(),
+                nodeUsage.structuredPresentationRequired()
+                        && nodeObservation.structuredPresentationObserved(),
                 LocalDateTime.now());
+    }
+
+    private NodeUsage nodeUsage(RuntimeWorkflowVersionEntity version) {
+        if (version == null
+                || !StringUtils.hasText(version.getGraphSpecSnapshotJson())) {
+            return NodeUsage.none();
+        }
+        try {
+            JsonNode nodes = objectMapper.readTree(
+                    version.getGraphSpecSnapshotJson()).path("nodes");
+            if (!nodes.isArray()) {
+                return NodeUsage.none();
+            }
+            boolean capability = false;
+            boolean pageAction = false;
+            boolean structuredPresentation = false;
+            for (JsonNode node : nodes) {
+                String type = node.path("type").asText("").trim().toUpperCase();
+                capability = capability || "CAPABILITY".equals(type) || "TOOL".equals(type);
+                pageAction = pageAction || "PAGE_ACTION".equals(type);
+                if ("INTERACTION".equals(type)) {
+                    JsonNode config = node.path("config");
+                    String interactionType = config.path("interactionType").asText("");
+                    if (!StringUtils.hasText(interactionType)
+                            && config.path("interactionConfig").isObject()) {
+                        interactionType = config.path("interactionConfig")
+                                .path("interactionType").asText("");
+                    }
+                    structuredPresentation = structuredPresentation
+                            || "PRESENT_OUTPUT".equalsIgnoreCase(
+                            interactionType.trim());
+                }
+            }
+            return new NodeUsage(
+                    capability,
+                    pageAction,
+                    structuredPresentation);
+        } catch (Exception ignored) {
+            return NodeUsage.none();
+        }
+    }
+
+    private NodeObservation observedNodes(List<RuntimeTraceSpanEntity> spans) {
+        boolean capabilityObserved = false;
+        boolean pageActionObserved = false;
+        boolean pageActionBusinessTerminalObserved = false;
+        boolean structuredPresentationObserved = false;
+        for (RuntimeTraceSpanEntity span : spans) {
+            if (!"WORKFLOW_NODE".equals(span.getSpanType())) {
+                continue;
+            }
+            String type = metadata(span).path("nodeType").asText("")
+                    .trim().toUpperCase();
+            if (("CAPABILITY".equals(type) || "TOOL".equals(type))
+                    && "SUCCESS".equalsIgnoreCase(span.getStatus())) {
+                capabilityObserved = true;
+            }
+            if ("PAGE_ACTION".equals(type)
+                    && isWorkflowCompletionStatus(span.getStatus())) {
+                pageActionObserved = true;
+                if ("BUSINESS_TERMINAL".equalsIgnoreCase(span.getStatus())) {
+                    pageActionBusinessTerminalObserved = true;
+                }
+            }
+            if ("INTERACTION".equals(type)
+                    && "PRESENT_OUTPUT".equalsIgnoreCase(
+                    metadata(span).path("interactionType").asText(""))
+                    && "SUCCESS".equalsIgnoreCase(span.getStatus())) {
+                structuredPresentationObserved = true;
+            }
+        }
+        return new NodeObservation(
+                capabilityObserved,
+                pageActionObserved,
+                pageActionBusinessTerminalObserved,
+                structuredPresentationObserved);
+    }
+
+    private boolean isWorkflowCompletionStatus(String status) {
+        return "SUCCESS".equalsIgnoreCase(status)
+                || "BUSINESS_TERMINAL".equalsIgnoreCase(status);
     }
 
     private boolean exactWorkflow(
@@ -284,7 +400,8 @@ public class RuntimePageWorkbenchExecutionReadinessService {
             String workflowId,
             Long workflowVersionId,
             String workflowVersion,
-            RuntimeRunEntity run) {
+            RuntimeRunEntity run,
+            NodeUsage nodeUsage) {
         return new ExecutionReadinessView(
                 FAIL,
                 code,
@@ -300,6 +417,52 @@ public class RuntimePageWorkbenchExecutionReadinessService {
                 run == null ? null : run.getStatus(),
                 run == null ? null : run.getEntryType(),
                 false,
+                nodeUsage.capabilityRequired(),
+                false,
+                nodeUsage.pageActionRequired(),
+                false,
+                false,
+                nodeUsage.structuredPresentationRequired(),
+                false,
+                LocalDateTime.now());
+    }
+
+    private ExecutionReadinessView failedAfterWorkflow(
+            String code,
+            String message,
+            String projectCode,
+            String pageKey,
+            String sessionId,
+            String pageInstanceId,
+            String traceId,
+            String workflowId,
+            Long workflowVersionId,
+            String workflowVersion,
+            RuntimeRunEntity run,
+            NodeUsage nodeUsage,
+            NodeObservation observed) {
+        return new ExecutionReadinessView(
+                FAIL,
+                code,
+                message,
+                projectCode,
+                pageKey,
+                sessionId,
+                pageInstanceId,
+                traceId,
+                workflowId,
+                workflowVersionId,
+                workflowVersion,
+                run == null ? null : run.getStatus(),
+                run == null ? null : run.getEntryType(),
+                true,
+                nodeUsage.capabilityRequired(),
+                observed.capabilityObserved(),
+                nodeUsage.pageActionRequired(),
+                observed.pageActionObserved(),
+                observed.pageActionBusinessTerminalObserved(),
+                nodeUsage.structuredPresentationRequired(),
+                observed.structuredPresentationObserved(),
                 LocalDateTime.now());
     }
 
@@ -329,6 +492,30 @@ public class RuntimePageWorkbenchExecutionReadinessService {
             String runStatus,
             String entryType,
             boolean workflowObserved,
+            boolean capabilityRequired,
+            boolean capabilityObserved,
+            boolean pageActionRequired,
+            boolean pageActionObserved,
+            boolean pageActionBusinessTerminalObserved,
+            boolean structuredPresentationRequired,
+            boolean structuredPresentationObserved,
             LocalDateTime checkedAt) {
+    }
+
+    private record NodeUsage(
+            boolean capabilityRequired,
+            boolean pageActionRequired,
+            boolean structuredPresentationRequired) {
+
+        private static NodeUsage none() {
+            return new NodeUsage(false, false, false);
+        }
+    }
+
+    private record NodeObservation(
+            boolean capabilityObserved,
+            boolean pageActionObserved,
+            boolean pageActionBusinessTerminalObserved,
+            boolean structuredPresentationObserved) {
     }
 }

@@ -65,7 +65,7 @@ public class RuntimeModelStreamHttpClient {
                                  ModelStreamSubscription subscription) {
         // 若子类只 override 了两参数版本（历史单测），仍能接到事件；取消句柄在包装层生效
         Consumer<ModelStreamEventDto> guarded = event -> {
-            if (subscription != null && subscription.isCancelled()) {
+            if (subscription != null && (subscription.isCancelled() || subscription.isTransportClosed())) {
                 return;
             }
             onEvent.accept(event);
@@ -87,7 +87,7 @@ public class RuntimeModelStreamHttpClient {
                                     ModelStreamSubscription subscription) {
         InputStream bodyStream = null;
         try {
-            if (subscription != null && subscription.isCancelled()) {
+            if (subscription != null && (subscription.isCancelled() || subscription.isTransportClosed())) {
                 return;
             }
             String body = objectMapper.writeValueAsString(request);
@@ -103,7 +103,7 @@ public class RuntimeModelStreamHttpClient {
                     httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
             if (subscription != null) {
                 subscription.attach(() -> future.cancel(true));
-                if (subscription.isCancelled()) {
+                if (subscription.isCancelled() || subscription.isTransportClosed()) {
                     future.cancel(true);
                     return;
                 }
@@ -113,7 +113,7 @@ public class RuntimeModelStreamHttpClient {
             try {
                 response = future.join();
             } catch (CompletionException | CancellationException ex) {
-                if (subscription != null && subscription.isCancelled()) {
+                if (subscription != null && (subscription.isCancelled() || subscription.isTransportClosed())) {
                     return;
                 }
                 Throwable cause = ex instanceof CompletionException && ex.getCause() != null
@@ -128,7 +128,7 @@ public class RuntimeModelStreamHttpClient {
                 throw new IllegalStateException("Model stream client failed: " + cause.getMessage(), cause);
             }
 
-            if (subscription != null && subscription.isCancelled()) {
+            if (subscription != null && (subscription.isCancelled() || subscription.isTransportClosed())) {
                 closeQuietly(response.body());
                 return;
             }
@@ -137,7 +137,7 @@ public class RuntimeModelStreamHttpClient {
             if (subscription != null) {
                 InputStream attached = bodyStream;
                 subscription.attach(() -> closeQuietly(attached));
-                if (subscription.isCancelled()) {
+                if (subscription.isCancelled() || subscription.isTransportClosed()) {
                     return;
                 }
             }
@@ -151,12 +151,12 @@ public class RuntimeModelStreamHttpClient {
                 String line;
                 StringBuilder data = new StringBuilder();
                 while ((line = reader.readLine()) != null) {
-                    if (subscription != null && subscription.isCancelled()) {
+                    if (subscription != null && (subscription.isCancelled() || subscription.isTransportClosed())) {
                         return;
                     }
                     if (line.isEmpty()) {
                         if (data.length() > 0) {
-                            if (subscription != null && subscription.isCancelled()) {
+                            if (subscription != null && (subscription.isCancelled() || subscription.isTransportClosed())) {
                                 return;
                             }
                             onEvent.accept(parseEvent(data.toString()));
@@ -174,7 +174,7 @@ public class RuntimeModelStreamHttpClient {
                     }
                 }
                 if (data.length() > 0) {
-                    if (subscription != null && subscription.isCancelled()) {
+                    if (subscription != null && (subscription.isCancelled() || subscription.isTransportClosed())) {
                         return;
                     }
                     onEvent.accept(parseEvent(data.toString()));
@@ -183,7 +183,7 @@ public class RuntimeModelStreamHttpClient {
         } catch (IllegalStateException e) {
             throw e;
         } catch (Exception e) {
-            if (subscription != null && subscription.isCancelled()) {
+            if (subscription != null && (subscription.isCancelled() || subscription.isTransportClosed())) {
                 return;
             }
             if (e instanceof InterruptedException) {

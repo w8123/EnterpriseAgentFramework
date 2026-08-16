@@ -12,6 +12,9 @@ import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClien
 import com.enterprise.ai.runtime.client.model.RuntimeModelCatalogClient;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowResourceBindingService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionEntity;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -42,8 +45,9 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
     private static final String DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT =
             "你是当前项目的页面副驾驶 Supervisor。理解用户请求并制定计划，"
                     + "从允许的 Workflow 中选择一个或多个作为 Tool 执行。"
-                    + "只有当用户明确要求打开、跳转、查询或操作页面时，"
-                    + "才使用包含页面操作的 Workflow。"
+                    + "当前页面的数据、列表、筛选、统计、可见行和详情都属于页面请求；"
+                    + "即使用户只说查、查询、统计、多少、哪些或筛选，也应使用匹配的页面 Workflow，"
+                    + "不能因为用户没有说打开或操作页面就拒绝。"
                     + "名称、说明和回复默认使用简体中文；Token、MCP、AI、Agent、"
                     + "Supervisor、Workflow、Tool、API、SDK 等熟知专业术语和技术标识可保留英文。";
     private static final Set<String> LEGACY_PAGE_COPILOT_DESCRIPTIONS = Set.of(
@@ -56,6 +60,7 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
     private final RuntimeCapabilityCatalogClient capabilityClient;
     private final RuntimeModelCatalogClient modelCatalogClient;
     private final RuntimeWorkflowDefinitionService workflowDefinitionService;
+    private final RuntimeWorkflowVersionService workflowVersionService;
     private final RuntimeAgentMapper agentMapper;
     private final RuntimeAgentConfigService agentConfigService;
     private final ObjectMapper objectMapper;
@@ -87,6 +92,7 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                     HttpStatus.BAD_REQUEST,
                     Map.of("workflowId", workflow.getId(), "status", String.valueOf(workflow.getStatus())));
         }
+        validateReplacementTarget(project, workflow, request.replaceWorkflowId());
 
         if (StringUtils.hasText(request.agentId()) && StringUtils.hasText(request.agentKeySlug())) {
             throw new AiCodingAttachmentException(
@@ -109,16 +115,30 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                 .isPresent();
         if (activeEntity.isPresent()) {
             List<WorkflowToolView> tools = agentConfigService.listTools(agent.getId(), activeEntity.get().getId());
-            boolean alreadyAttached = tools.stream().anyMatch(tool -> workflow.getId().equals(tool.workflowId()));
-            if (alreadyAttached && !hasToolOverrides(request)
+            Optional<WorkflowToolView> attachedTool = tools.stream()
+                    .filter(tool -> workflow.getId().equals(tool.workflowId()))
+                    .findFirst();
+            if (attachedTool.isPresent() && !hasToolOverrides(request)
                     && modelMatches(activeEntity.get().getModelInstanceId(), modelInstanceId)
                     && !legacyActiveSystemPrompt) {
-                AgentConfigVersionView activeView = agentConfigService.list(agent.getId()).stream()
-                        .filter(view -> Objects.equals(view.id(), activeEntity.get().getId()))
-                        .findFirst()
-                        .orElseThrow(() -> new AiCodingAttachmentException(
-                                "ATTACHMENT_PUBLISH_FAILED", "ACTIVE config view missing after reuse check"));
-                return toResult(project, agent, workflow, activeView, false, true);
+                RuntimeWorkflowVersionEntity activeWorkflowVersion =
+                        workflowVersionService.resolveActive(workflow.getId());
+                if (activeWorkflowVersion != null
+                        && Objects.equals(attachedTool.get().workflowVersionId(), activeWorkflowVersion.getId())) {
+                    AgentConfigVersionView activeView = agentConfigService.list(agent.getId()).stream()
+                            .filter(view -> Objects.equals(view.id(), activeEntity.get().getId()))
+                            .findFirst()
+                            .orElseThrow(() -> new AiCodingAttachmentException(
+                                    "ATTACHMENT_PUBLISH_FAILED", "ACTIVE config view missing after reuse check"));
+                    return toResult(project, agent, workflow, activeView, false, true, null);
+                }
+
+                AgentConfigVersionView draft = agentConfigService.saveDraft(agent.getId(), new AgentConfigDraftRequest(
+                        null, null, null, null, null, null, null, null, null,
+                        null, null, null, null, null));
+                AgentConfigVersionView published = agentConfigService.publish(
+                        agent.getId(), draft.id(), firstText(request.publishedBy(), "Cursor"));
+                return toResult(project, agent, workflow, published, true, false, null);
             }
         }
 
@@ -143,8 +163,7 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
             boolean defaultReadOnly = !"PAGE_ASSISTANT".equalsIgnoreCase(workflowKind);
             String riskLevel = firstText(request.riskLevel(), defaultReadOnly ? "READ" : "PAGE_ACTION");
             boolean readOnly = request.readOnly() == null ? defaultReadOnly : request.readOnly();
-            AgentConfigVersionView draft = agentConfigService.upsertWorkflowToolInDraft(
-                    agent.getId(), new WorkflowToolRequest(
+            WorkflowToolRequest requestedTool = new WorkflowToolRequest(
                             workflow.getId(),
                             toolName,
                             firstText(request.descriptionOverride(), workflow.getDescription()),
@@ -154,14 +173,33 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                             firstText(request.permissionKey(), "workflow:" + workflow.getKeySlug()),
                             readOnly,
                             true,
-                            request.priority()));
+                            request.priority());
+            AgentConfigVersionView draft = StringUtils.hasText(request.replaceWorkflowId())
+                    ? agentConfigService.replaceWorkflowToolInDraft(
+                            agent.getId(), request.replaceWorkflowId().trim(), requestedTool)
+                    : agentConfigService.upsertWorkflowToolInDraft(
+                            agent.getId(), requestedTool);
             AgentConfigVersionView published = agentConfigService.publish(
                     agent.getId(), draft.id(), firstText(request.publishedBy(), "Cursor"));
-            return toResult(project, agent, workflow, published, true, false);
+            return toResult(
+                    project,
+                    agent,
+                    workflow,
+                    published,
+                    true,
+                    false,
+                    firstText(request.replaceWorkflowId()));
         } catch (IllegalArgumentException ex) {
             String message = ex.getMessage() == null ? "attachment publish failed" : ex.getMessage();
             if (message.contains("ACTIVE published workflow") || message.contains("ACTIVE workflow")) {
                 throw new AiCodingAttachmentException("WORKFLOW_NOT_ACTIVE", message);
+            }
+            if (message.contains("replaceWorkflowId")
+                    || message.contains("replacement Workflow")) {
+                throw new AiCodingAttachmentException(
+                        "WORKFLOW_REPLACEMENT_INVALID",
+                        message,
+                        HttpStatus.CONFLICT);
             }
             throw new AiCodingAttachmentException("ATTACHMENT_PUBLISH_FAILED", message, HttpStatus.CONFLICT);
         }
@@ -189,7 +227,16 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                 request.agentId(),
                 null,
                 request.modelInstanceId(),
-                request.publishedBy()));
+                request.publishedBy(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                request.replaceWorkflowId()));
     }
 
     private AttachmentResult toResult(ProjectRef project,
@@ -197,7 +244,8 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                                       RuntimeWorkflowDefinitionEntity workflow,
                                       AgentConfigVersionView config,
                                       boolean created,
-                                      boolean reused) {
+                                      boolean reused,
+                                      String replacedWorkflowId) {
         return new AttachmentResult(
                 "workflow-tool-attachment.v1",
                 project.projectId(),
@@ -207,7 +255,80 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                 new ActiveConfigRef(config.id(), config.versionNo(), config.status()),
                 resolveToolName(config, workflow),
                 created,
-                reused);
+                reused,
+                replacedWorkflowId);
+    }
+
+    private void validateReplacementTarget(
+            ProjectRef project,
+            RuntimeWorkflowDefinitionEntity workflow,
+            String replaceWorkflowId) {
+        if (!StringUtils.hasText(replaceWorkflowId)) {
+            return;
+        }
+        String oldWorkflowId = replaceWorkflowId.trim();
+        if (oldWorkflowId.equals(workflow.getId())) {
+            throw replacementInvalid(
+                    workflow.getId(), oldWorkflowId,
+                    "replaceWorkflowId must identify a different Workflow");
+        }
+        RuntimeWorkflowDefinitionEntity replaced = workflowDefinitionService
+                .findById(oldWorkflowId)
+                .orElseThrow(() -> replacementInvalid(
+                        workflow.getId(), oldWorkflowId,
+                        "replaceWorkflowId does not reference an existing Workflow"));
+        boolean sameProject = Objects.equals(project.projectId(), replaced.getProjectId())
+                && StringUtils.hasText(replaced.getProjectCode())
+                && project.projectCode().equalsIgnoreCase(
+                        replaced.getProjectCode().trim());
+        if (!sameProject) {
+            throw replacementInvalid(
+                    workflow.getId(), oldWorkflowId,
+                    "replacement Workflow must belong to the same project");
+        }
+        String workflowKind = String.valueOf(workflow.getWorkflowKind());
+        if (!workflowKind.equalsIgnoreCase(
+                String.valueOf(replaced.getWorkflowKind()))) {
+            throw replacementInvalid(
+                    workflow.getId(), oldWorkflowId,
+                    "replacement Workflow must have the same workflowKind");
+        }
+        if ("PAGE_ASSISTANT".equalsIgnoreCase(workflowKind)) {
+            String targetPage = exactTargetPage(workflow.getId());
+            String replacedTargetPage = exactTargetPage(oldWorkflowId);
+            if (targetPage == null
+                    || replacedTargetPage == null
+                    || !targetPage.equals(replacedTargetPage)) {
+                throw replacementInvalid(
+                        workflow.getId(), oldWorkflowId,
+                        "PAGE_ASSISTANT replacement requires the same exact TARGET PAGE binding");
+            }
+        }
+    }
+
+    private String exactTargetPage(String workflowId) {
+        List<RuntimeWorkflowResourceBindingService.BindingView> targets =
+                workflowDefinitionService.listResourceBindings(workflowId)
+                        .stream()
+                        .filter(binding -> RuntimeWorkflowResourceBindingService.RESOURCE_PAGE
+                                .equalsIgnoreCase(binding.resourceType()))
+                        .filter(binding -> RuntimeWorkflowResourceBindingService.ROLE_TARGET
+                                .equalsIgnoreCase(binding.bindingRole()))
+                        .toList();
+        return targets.size() == 1 ? targets.get(0).resourceKey() : null;
+    }
+
+    private AiCodingAttachmentException replacementInvalid(
+            String workflowId,
+            String replaceWorkflowId,
+            String message) {
+        return new AiCodingAttachmentException(
+                "WORKFLOW_REPLACEMENT_INVALID",
+                message,
+                HttpStatus.CONFLICT,
+                Map.of(
+                        "workflowId", workflowId,
+                        "replaceWorkflowId", replaceWorkflowId));
     }
 
     private String resolveToolName(AgentConfigVersionView config, RuntimeWorkflowDefinitionEntity workflow) {
@@ -502,7 +623,8 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                 || StringUtils.hasText(request.riskLevel())
                 || StringUtils.hasText(request.permissionKey())
                 || request.readOnly() != null
-                || request.priority() != null);
+                || request.priority() != null
+                || StringUtils.hasText(request.replaceWorkflowId()));
     }
 
     public record AttachRequest(
@@ -518,7 +640,8 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
             String riskLevel,
             String permissionKey,
             Boolean readOnly,
-            Integer priority
+            Integer priority,
+            String replaceWorkflowId
     ) {
         public AttachRequest(String workflowId,
                              String agentId,
@@ -526,7 +649,26 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
                              String modelInstanceId,
                              String publishedBy) {
             this(workflowId, agentId, agentKeySlug, modelInstanceId, publishedBy,
-                    null, null, null, null, null, null, null, null);
+                    null, null, null, null, null, null, null, null, null);
+        }
+
+        public AttachRequest(
+                String workflowId,
+                String agentId,
+                String agentKeySlug,
+                String modelInstanceId,
+                String publishedBy,
+                String toolName,
+                String descriptionOverride,
+                Map<String, Object> inputSchema,
+                Map<String, Object> outputSchema,
+                String riskLevel,
+                String permissionKey,
+                Boolean readOnly,
+                Integer priority) {
+            this(workflowId, agentId, agentKeySlug, modelInstanceId, publishedBy,
+                    toolName, descriptionOverride, inputSchema, outputSchema,
+                    riskLevel, permissionKey, readOnly, priority, null);
         }
     }
 
@@ -535,8 +677,17 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
             String projectCode,
             String agentId,
             String modelInstanceId,
-            String publishedBy
+            String publishedBy,
+            String replaceWorkflowId
     ) {
+        public PageAssistantAttachRequest(
+                Long projectId,
+                String projectCode,
+                String agentId,
+                String modelInstanceId,
+                String publishedBy) {
+            this(projectId, projectCode, agentId, modelInstanceId, publishedBy, null);
+        }
     }
 
     public record AttachmentResult(
@@ -548,8 +699,22 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService {
             ActiveConfigRef activeConfig,
             String toolName,
             boolean created,
-            boolean reused
+            boolean reused,
+            String replacedWorkflowId
     ) {
+        public AttachmentResult(
+                String schema,
+                Long projectId,
+                String projectCode,
+                AgentRef agent,
+                WorkflowRef workflow,
+                ActiveConfigRef activeConfig,
+                String toolName,
+                boolean created,
+                boolean reused) {
+            this(schema, projectId, projectCode, agent, workflow, activeConfig,
+                    toolName, created, reused, null);
+        }
     }
 
     public record AgentRef(String id, String keySlug) {

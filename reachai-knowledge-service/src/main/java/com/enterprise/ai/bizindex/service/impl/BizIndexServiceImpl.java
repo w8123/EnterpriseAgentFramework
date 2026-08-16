@@ -11,6 +11,7 @@ import com.enterprise.ai.bizindex.repository.BusinessIndexAttachmentRepository;
 import com.enterprise.ai.bizindex.repository.BusinessIndexRecordRepository;
 import com.enterprise.ai.bizindex.repository.BusinessIndexRepository;
 import com.enterprise.ai.bizindex.service.BizIndexService;
+import com.enterprise.ai.bizindex.service.BusinessMemoryIndexPolicy;
 import com.enterprise.ai.bizindex.template.TemplateEngine;
 import com.enterprise.ai.bizindex.vector.BizVectorService;
 import com.enterprise.ai.embedding.EmbeddingService;
@@ -67,6 +68,10 @@ public class BizIndexServiceImpl implements BizIndexService {
         if (index.getSplitType() == null || index.getSplitType().isBlank()) {
             index.setSplitType("FIXED");
         }
+        if (index.getAgentMemoryEnabled() == null) {
+            index.setAgentMemoryEnabled(false);
+        }
+        BusinessMemoryIndexPolicy.validateIndex(index);
         index.setStatus("ACTIVE");
 
         indexRepository.insert(index);
@@ -99,6 +104,15 @@ public class BizIndexServiceImpl implements BizIndexService {
         if (request.getChunkOverlap() != null) index.setChunkOverlap(request.getChunkOverlap());
         if (request.getSplitType() != null) index.setSplitType(request.getSplitType());
         if (request.getRemark() != null) index.setRemark(request.getRemark());
+        if (request.getProjectId() != null) index.setProjectId(request.getProjectId());
+        if (request.getProjectCode() != null) index.setProjectCode(request.getProjectCode());
+        if (request.getEnvironment() != null) index.setEnvironment(request.getEnvironment());
+        if (request.getTenantId() != null) index.setTenantId(request.getTenantId());
+        if (request.getAgentMemoryEnabled() != null) index.setAgentMemoryEnabled(request.getAgentMemoryEnabled());
+        if (request.getResolverCapabilityKey() != null) {
+            index.setResolverCapabilityKey(request.getResolverCapabilityKey());
+        }
+        BusinessMemoryIndexPolicy.validateIndex(index);
 
         indexRepository.updateById(index);
         log.info("业务索引 [{}] 更新成功", indexCode);

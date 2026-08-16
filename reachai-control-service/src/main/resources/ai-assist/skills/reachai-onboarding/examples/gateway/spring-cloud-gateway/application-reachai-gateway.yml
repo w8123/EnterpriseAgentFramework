@@ -1,0 +1,22 @@
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: reachai-embed-proxy
+          uri: https://reachai.example.com
+          predicates:
+            - Path=/api/reachai/embed/**
+          filters:
+            - RewritePath=/api/reachai/embed/?(?<segment>.*), /api/embed/${segment}
+            - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
+
+        - id: reachai-registry-callback
+          uri: http://business-service
+          predicates:
+            - Path=/reachai/registry/**
+
+# Keep /api/reachai/embed-token on the existing authenticated business route.
+# Do not attach RemoveRequestHeader=Authorization to reachai-embed-proxy.
+# Preserve X-ReachAI-App-Key, X-ReachAI-Timestamp, X-ReachAI-Nonce and
+# X-ReachAI-Signature on reachai-registry-callback.
+

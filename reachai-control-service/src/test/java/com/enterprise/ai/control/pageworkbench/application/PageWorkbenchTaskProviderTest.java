@@ -9,9 +9,11 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetVi
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskValues.ArtifactNextAction;
 import com.enterprise.ai.control.aicoding.provider.AiCodingContractResourceLoader;
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
+import com.enterprise.ai.control.client.model.ControlModelCatalogClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PublishedWorkflowView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowDraftValidationView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowDraftView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowEngineeringDraftView;
@@ -33,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -43,8 +46,10 @@ class PageWorkbenchTaskProviderTest {
     private PageCatalogApplicationService pageCatalog;
     private PageAnalysisApplicationService pageAnalysis;
     private CapabilityProjectOnboardingClient capabilityClient;
+    private ControlModelCatalogClient modelCatalogClient;
     private RuntimeProxyClient runtimeClient;
     private PageWorkbenchBrowserReadinessApplicationService browserReadiness;
+    private PageWorkbenchAgentModelReadinessApplicationService modelReadiness;
     private PageWorkbenchWorkflowTraceReadinessApplicationService
             workflowTraceReadiness;
     private PageWorkbenchReleaseReadinessApplicationService releaseReadiness;
@@ -56,9 +61,12 @@ class PageWorkbenchTaskProviderTest {
         pageCatalog = mock(PageCatalogApplicationService.class);
         pageAnalysis = mock(PageAnalysisApplicationService.class);
         capabilityClient = mock(CapabilityProjectOnboardingClient.class);
+        modelCatalogClient = mock(ControlModelCatalogClient.class);
         runtimeClient = mock(RuntimeProxyClient.class);
         browserReadiness = mock(
                 PageWorkbenchBrowserReadinessApplicationService.class);
+        modelReadiness = mock(
+                PageWorkbenchAgentModelReadinessApplicationService.class);
         workflowTraceReadiness = mock(
                 PageWorkbenchWorkflowTraceReadinessApplicationService.class);
         releaseReadiness = mock(
@@ -73,6 +81,13 @@ class PageWorkbenchTaskProviderTest {
                         "projectCode", "orders",
                         "name", "Orders"));
         when(capabilityClient.listProjectTools(7L)).thenReturn(List.of());
+        when(modelCatalogClient.list(null, "LLM", null)).thenReturn(
+                ResponseEntity.ok(Map.of("data", List.of())));
+        when(runtimeClient.pageWorkbenchWorkflowNodeTypes()).thenReturn(
+                ResponseEntity.ok(List.of()));
+        when(modelReadiness.pageOnly()).thenReturn(modelReadiness("PASS"));
+        when(modelReadiness.evaluate("model-orders"))
+                .thenReturn(modelReadiness("PASS"));
     }
 
     @Test
@@ -132,6 +147,148 @@ class PageWorkbenchTaskProviderTest {
                         "ait_page_test".equals(request.get("taskId"))
                                 && "orders.detail".equals(
                                 request.get("pageKey"))));
+    }
+
+    @Test
+    void workflowEngineeringPublishesItsRequiredSkillAndAuthoringCatalog() {
+        PageWorkbenchTaskProvider provider = provider(
+                PageWorkbenchTaskProvider.WORKFLOW_ENGINEERING,
+                "workflow-engineering-report-v1");
+        when(modelCatalogClient.list(null, "LLM", null)).thenReturn(
+                ResponseEntity.ok(Map.of("data", List.of(
+                        Map.of(
+                                "id", "model-active",
+                                "name", "Active model",
+                                "provider", "OPENAI",
+                                "modelName", "gpt-test",
+                                "modelType", "LLM",
+                                "status", "ACTIVE",
+                                "connection", Map.of("secret", "hidden")),
+                        Map.of(
+                                "id", "model-disabled",
+                                "status", "DISABLED")))));
+        Map<String, Object> pageActionNode = new java.util.LinkedHashMap<>();
+        pageActionNode.put("type", "PAGE_ACTION");
+        pageActionNode.put("runtimeExecutable", true);
+        pageActionNode.put("publishable", true);
+        pageActionNode.put("unavailableReason", null);
+        when(runtimeClient.pageWorkbenchWorkflowNodeTypes()).thenReturn(
+                ResponseEntity.ok(List.of(pageActionNode)));
+
+        JsonNode context = provider.materializeContext(
+                task(PageWorkbenchTaskProvider.WORKFLOW_ENGINEERING),
+                provider.buildContext(
+                        task(PageWorkbenchTaskProvider.WORKFLOW_ENGINEERING)),
+                "http://localhost:18603/");
+
+        assertEquals(
+                "http://localhost:18603/api/ai-assist/skills/workflow-ai-coding/latest.zip",
+                context.path("workflowAuthoring")
+                        .path("skillPackageUrl")
+                        .asText());
+        assertEquals(1, context.path("workflowAuthoring")
+                .path("availableModels").size());
+        assertEquals("model-active", context.path("workflowAuthoring")
+                .path("availableModels").path(0).path("id").asText());
+        assertFalse(context.path("workflowAuthoring")
+                .path("availableModels").path(0).has("connection"));
+        assertEquals("PAGE_ACTION", context.path("workflowAuthoring")
+                .path("nodeTypes").path(0).path("type").asText());
+
+        var requiredResources = provider.requiredResources(
+                task(PageWorkbenchTaskProvider.WORKFLOW_ENGINEERING),
+                "http://localhost:18603/");
+        assertEquals(1, requiredResources.size());
+        assertEquals("workflow-ai-coding-skill",
+                requiredResources.get(0).id());
+        assertEquals("workflow-ai-coding/SKILL.md",
+                requiredResources.get(0).entrypoint());
+        assertTrue(requiredResources.get(0).requiredBeforeEditing());
+    }
+
+    @Test
+    void workflowEngineeringContextPublishesCurrentPageWorkflowCatalog() {
+        PageWorkbenchTaskProvider provider = provider(
+                PageWorkbenchTaskProvider.WORKFLOW_ENGINEERING,
+                "workflow-engineering-report-v1");
+        when(runtimeClient.pageWorkbenchPublished(
+                "orders", "orders.detail"))
+                .thenReturn(ResponseEntity.ok(List.of(publishedWorkflow())));
+
+        JsonNode context = provider.buildContext(
+                task(PageWorkbenchTaskProvider.WORKFLOW_ENGINEERING));
+
+        assertEquals(1, context.path("existingPageWorkflows").size());
+        assertEquals("wf-orders-old",
+                context.path("existingPageWorkflows")
+                        .path(0)
+                        .path("workflowId")
+                        .asText());
+        assertTrue(context.path("scope").path("requiredChecks").toString()
+                .contains("replaceWorkflowId"));
+    }
+
+    @Test
+    void workflowEngineeringAcceptsOnlyAnExactCurrentReplacementTarget() {
+        PageWorkbenchTaskProvider provider = provider(
+                PageWorkbenchTaskProvider.WORKFLOW_ENGINEERING,
+                "workflow-engineering-report-v1");
+        when(pageCatalog.findAction(
+                "orders", "orders.detail", "getPageState"))
+                .thenReturn(Optional.of(activeAction()));
+        when(runtimeClient.pageWorkbenchPublished(
+                "orders", "orders.detail"))
+                .thenReturn(ResponseEntity.ok(List.of(publishedWorkflow())));
+        WorkflowEngineeringDraftView draft = new WorkflowEngineeringDraftView(
+                "reachai.page-workbench.workflow-engineering-draft.v1",
+                "ait_page_test",
+                "orders.detail",
+                "替换旧订单详情助手",
+                List.of("getPageState"),
+                List.of("src/views/orders/Detail.vue"),
+                List.of("只读取当前页面"),
+                "wf-orders-old",
+                List.of(),
+                new WorkflowDraftView(
+                        "wf-orders-new",
+                        "orders-detail-page-assistant-v2",
+                        "订单详情页面助手 V2",
+                        "DRAFT",
+                        LocalDateTime.of(2026, 7, 26, 10, 1)),
+                new WorkflowDraftValidationView(true, List.of(), List.of()));
+        when(runtimeClient.createPageWorkbenchWorkflowDraft(
+                org.mockito.ArgumentMatchers.eq("orders"),
+                org.mockito.ArgumentMatchers.anyMap()))
+                .thenReturn(ResponseEntity.ok(draft));
+        ObjectNode content = example("workflow-engineering-report-v1");
+        content.put("replaceWorkflowId", "wf-orders-old");
+
+        ArtifactApplyResult result = provider.applyArtifact(
+                task(PageWorkbenchTaskProvider.WORKFLOW_ENGINEERING),
+                artifact("reachai.workflow-engineering-report", content));
+
+        assertTrue(result.applied());
+        assertEquals("wf-orders-old",
+                result.domainResult()
+                        .path("workflowEngineering")
+                        .path("replaceWorkflowId")
+                        .asText());
+        verify(runtimeClient).createPageWorkbenchWorkflowDraft(
+                org.mockito.ArgumentMatchers.eq("orders"),
+                argThat(request -> "wf-orders-old".equals(
+                        request.get("replaceWorkflowId"))));
+
+        ObjectNode unknown = content.deepCopy();
+        unknown.put("replaceWorkflowId", "wf-not-attached");
+        IllegalArgumentException error =
+                org.junit.jupiter.api.Assertions.assertThrows(
+                        IllegalArgumentException.class,
+                        () -> provider.applyArtifact(
+                                task(PageWorkbenchTaskProvider.WORKFLOW_ENGINEERING),
+                                artifact(
+                                        "reachai.workflow-engineering-report",
+                                        unknown)));
+        assertTrue(error.getMessage().contains("currently attached"));
     }
 
     @Test
@@ -214,6 +371,26 @@ class PageWorkbenchTaskProviderTest {
     }
 
     @Test
+    void browserAcceptanceCannotPassWhenBusinessStateWasNotRestored() {
+        PageWorkbenchTaskProvider provider = provider(
+                PageWorkbenchTaskProvider.BROWSER_ACCEPTANCE,
+                "browser-acceptance-report-v1");
+        ObjectNode content = example("browser-acceptance-report-v1");
+        ((ObjectNode) content.path("stateRestoration"))
+                .put("required", true)
+                .put("passed", false)
+                .put("evidence", "The write succeeded but restore failed.");
+
+        ArtifactApplyResult result = provider.applyArtifact(
+                task(PageWorkbenchTaskProvider.BROWSER_ACCEPTANCE),
+                artifact("reachai.browser-acceptance-report", content));
+
+        assertTrue(result.applied());
+        assertEquals(ArtifactNextAction.FAIL, result.nextAction());
+        assertFalse(result.domainResult().path("reportedPassed").asBoolean());
+    }
+
+    @Test
     void browserAcceptanceRequiresServerObservedCurrentPageConversation() {
         PageWorkbenchTaskProvider provider = provider(
                 PageWorkbenchTaskProvider.BROWSER_ACCEPTANCE,
@@ -235,8 +412,10 @@ class PageWorkbenchTaskProviderTest {
 
         assertEquals("PASS", readiness.get(0).status());
         assertEquals("PASS", readiness.get(1).status());
+        assertEquals("PASS", readiness.get(2).status());
         assertEquals(
                 List.of(
+                        PageWorkbenchAgentModelReadinessApplicationService.KEY,
                         PageWorkbenchBrowserReadinessApplicationService.KEY,
                         PageWorkbenchWorkflowTraceReadinessApplicationService.KEY),
                 provider.acceptanceReadinessKeys());
@@ -267,7 +446,8 @@ class PageWorkbenchTaskProviderTest {
                 "wf-orders",
                 21L,
                 "v1.0.0",
-                "订单页面助手");
+                "订单页面助手",
+                "model-orders");
         when(browserReadiness.evaluate(
                 "orders",
                 "orders.detail",
@@ -283,7 +463,7 @@ class PageWorkbenchTaskProviderTest {
                 task,
                 applied.domainResult());
 
-        assertEquals(2, readiness.size());
+        assertEquals(3, readiness.size());
         verify(workflowTraceReadiness).evaluate(
                 "orders",
                 "orders.detail",
@@ -302,7 +482,8 @@ class PageWorkbenchTaskProviderTest {
                 "wf-orders",
                 21L,
                 "v1.0.0",
-                "订单页面助手");
+                "订单页面助手",
+                "model-orders");
         when(workflowTraceReadiness.requirePublishedTarget(
                 "orders",
                 "orders.detail",
@@ -323,6 +504,32 @@ class PageWorkbenchTaskProviderTest {
                 "orders",
                 "orders.detail",
                 target);
+    }
+
+    @Test
+    void browserContextRejectsUnusableBoundModelBeforeHandoff() {
+        PageWorkbenchTaskProvider provider = provider(
+                PageWorkbenchTaskProvider.BROWSER_ACCEPTANCE,
+                "browser-acceptance-report-v1");
+        TaskDescriptor task = taskWithWorkflow();
+        WorkflowAcceptanceTarget target = new WorkflowAcceptanceTarget(
+                "wf-orders",
+                21L,
+                "v1.0.0",
+                "订单页面助手",
+                "model-orders");
+        when(workflowTraceReadiness.requirePublishedTarget(
+                "orders",
+                "orders.detail",
+                target)).thenReturn(target);
+        when(modelReadiness.evaluate("model-orders"))
+                .thenReturn(modelReadiness("FAIL"));
+
+        IllegalArgumentException error = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> provider.buildContext(task));
+
+        assertTrue(error.getMessage().contains("无法开始真实验收"));
     }
 
     @Test
@@ -377,8 +584,10 @@ class PageWorkbenchTaskProviderTest {
                 pageCatalog,
                 pageAnalysis,
                 capabilityClient,
+                modelCatalogClient,
                 runtimeClient,
                 browserReadiness,
+                modelReadiness,
                 workflowTraceReadiness,
                 releaseReadiness,
                 objectMapper);
@@ -414,6 +623,7 @@ class PageWorkbenchTaskProviderTest {
         workflowSnapshot.put("workflowName", "订单页面助手");
         workflowSnapshot.put("workflowVersionId", 21L);
         workflowSnapshot.put("workflowVersion", "v1.0.0");
+        workflowSnapshot.put("modelInstanceId", "model-orders");
         return new TaskDescriptor(
                 "ait_page_workflow_test",
                 7L,
@@ -424,7 +634,7 @@ class PageWorkbenchTaskProviderTest {
                 "TRAE",
                 "页面任务",
                 "验收已发布页面助手",
-                "READ_ONLY",
+                "READ_WRITE",
                 "RUNNING",
                 objectMapper.createObjectNode(),
                 List.of(
@@ -433,7 +643,7 @@ class PageWorkbenchTaskProviderTest {
                                 "PAGE",
                                 "orders.detail",
                                 "PRIMARY",
-                                "READ_ONLY",
+                                "READ_WRITE",
                                 objectMapper.createObjectNode()),
                         new TaskTargetView(
                                 null,
@@ -457,6 +667,7 @@ class PageWorkbenchTaskProviderTest {
                 "订单详情",
                 null,
                 "/orders/:id",
+                "http://localhost:5173/orders/1",
                 "src/views/orders/Detail.vue",
                 "AI_CODING",
                 "ACTIVE",
@@ -491,6 +702,34 @@ class PageWorkbenchTaskProviderTest {
                 null);
     }
 
+    private PublishedWorkflowView publishedWorkflow() {
+        return new PublishedWorkflowView(
+                "orders.detail",
+                "wf-orders-old",
+                "orders-detail-page-assistant",
+                "订单详情页面助手",
+                "读取订单详情",
+                "ACTIVE",
+                21L,
+                "v1.0.0",
+                "tester",
+                LocalDateTime.of(2026, 7, 26, 9, 30),
+                "agent-orders",
+                "orders-page-copilot",
+                "订单页面副驾驶 Agent",
+                31L,
+                2,
+                "model-orders",
+                "orders_detail",
+                "READ",
+                null,
+                0,
+                null,
+                null,
+                null,
+                null);
+    }
+
     private ArtifactEnvelope artifact(String contractKey, JsonNode content) {
         return new ArtifactEnvelope(
                 "reachai.ai-coding.artifact.v1",
@@ -519,6 +758,15 @@ class PageWorkbenchTaskProviderTest {
         return new ReadinessItem(
                 PageWorkbenchBrowserReadinessApplicationService.KEY,
                 "业务页面浏览器链路",
+                status,
+                "test",
+                objectMapper.createObjectNode());
+    }
+
+    private ReadinessItem modelReadiness(String status) {
+        return new ReadinessItem(
+                PageWorkbenchAgentModelReadinessApplicationService.KEY,
+                "Agent 模型可用性",
                 status,
                 "test",
                 objectMapper.createObjectNode());

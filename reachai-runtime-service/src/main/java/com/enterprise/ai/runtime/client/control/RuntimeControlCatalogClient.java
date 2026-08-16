@@ -28,6 +28,9 @@ public interface RuntimeControlCatalogClient {
     @PostMapping("/internal/control/page-bridge/execute")
     PageBridgeExecutionResponse executePageBridge(@RequestBody PageBridgeExecutionRequest request);
 
+    @PostMapping("/internal/control/page-bridge/resolve-context")
+    PageBridgeContextResolution resolvePageBridgeContext(@RequestBody PageBridgeContextResolutionRequest request);
+
     record PageActionCatalogEntry(
             Long id,
             String projectCode,
@@ -80,7 +83,8 @@ public interface RuntimeControlCatalogClient {
                                       String actionKey,
                                       Map<String, Object> args,
                                       boolean confirmRequired,
-                                      int timeoutMs) {
+                                      int confirmationTimeoutMs,
+                                      int executionTimeoutMs) {
     }
 
     record PageBridgeExecutionResponse(boolean success,
@@ -88,5 +92,19 @@ public interface RuntimeControlCatalogClient {
                                        String status,
                                        Object data,
                                        List<Map<String, Object>> phases) {
+    }
+
+    record PageBridgeContextResolutionRequest(String sessionId, String projectCode) {
+    }
+
+    record PageBridgeContextResolution(boolean resolved,
+                                       String code,
+                                       String message,
+                                       String sessionId,
+                                       String projectCode,
+                                       String agentId,
+                                       String currentPageKey,
+                                       String pageInstanceId,
+                                       String route) {
     }
 }

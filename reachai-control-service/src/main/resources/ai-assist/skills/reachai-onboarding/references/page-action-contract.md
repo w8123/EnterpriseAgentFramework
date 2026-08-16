@@ -38,9 +38,35 @@ The normalized handler result is:
 }
 ```
 
-Allowed status values are `SUCCESS`, `WARN` and `ERROR`. High-risk actions must
-set `confirmRequired=true`, identify `riskLevel=HIGH`, and refuse execution
-unless `options.confirmed` is true.
+Use the public outcome vocabulary below. `SUCCESS` means the requested page
+operation completed. `NO_DATA`, `PRECONDITION_FAILED`, and `USER_CANCELLED`
+are **business-terminal outcomes**: the bridge handled the request correctly,
+but there is no business effect to continue with. Include a short `message`
+for every business-terminal outcome. Do not throw an exception for those
+expected business states.
+
+| Outcome | Use it when | ReachAI treatment |
+| --- | --- | --- |
+| `SUCCESS` | The page operation completed. | Completed action |
+| `NO_DATA` | A read/query found no matching business data. | Completed business terminal |
+| `PRECONDITION_FAILED` | A selected row, workflow state, required filter, or other business precondition is absent. | Completed business terminal |
+| `USER_CANCELLED` | The end user rejects the SDK confirmation. | Completed business terminal |
+| `FAILED`, `ACTION_NOT_FOUND`, `FORBIDDEN`, `TIMEOUT` | The action/bridge could not execute. | Technical failure |
+
+Legacy bridge values `WARN`, `ERROR`, and `CANCELLED` are accepted at the
+boundary and normalized to `PRECONDITION_FAILED`, `FAILED`, and
+`USER_CANCELLED` respectively. New code must return the public values above.
+High-risk actions must set `confirmRequired=true`, identify `riskLevel=HIGH`,
+and refuse execution unless `options.confirmed` is true.
+
+When `confirmRequired=true`, the Embed SDK renders an accessible, non-blocking
+ReachAI confirmation dialog in the business page. The sequence is fixed:
+user confirmation -> atomic request claim -> business handler -> result POST.
+Do not add a second `window.confirm` in the business handler. Native browser
+dialogs block Page Action polling and are not part of the supported contract.
+For an accepted confirmation, the SDK result includes `userConfirmed: true`.
+Runtime and final-answer generation must treat this as verified evidence and
+must not tell the user that confirmation was skipped.
 
 ## Chat action queue
 

@@ -34,10 +34,19 @@ node scripts/check-internal-api-contracts.mjs
 五服务都通过 IDEA 或命令行启动后，运行 live smoke：
 
 ```powershell
+node scripts/check-local-service-artifact-freshness.test.mjs
+node scripts/check-local-service-artifact-freshness.mjs --check-running
+$env:REACHAI_PLATFORM_SESSION_TOKEN = '<登录 ReachAI 管理端后取得的平台会话令牌>'
 node scripts/check-physical-service-smoke.mjs --wait-ms 120000 --interval-ms 3000
+Remove-Item Env:REACHAI_PLATFORM_SESSION_TOKEN
 ```
 
-live smoke 检查：
+本地 artifact freshness 检查先确认每个 `src/main` 都不晚于对应可部署 JAR；Windows 下加
+`--check-running` 后还会核对 18601-18605 监听进程的命令行确实指向该 JAR，且进程启动时间
+不早于 JAR 构建时间。它用于阻止“健康接口为 UP，但运行的仍是旧包”的假绿。该检查通过仍
+不替代下面的接口 smoke 和真实业务 E2E。
+
+live smoke 继续检查：
 
 - `reachai-control-service` 的 `/actuator/health`
 - `reachai-runtime-service` 的 `/internal/runtime/health`
@@ -154,6 +163,19 @@ npx vue-tsc --noEmit
 - `/api/**` -> `reachai-control-service:18603`
 - `/ai/**` -> `reachai-knowledge-service:18602`
 - `/model/**` -> `reachai-model-service:18601`
+
+## Agent Memory 验证
+
+源码与开发库验证：
+
+```powershell
+node --test scripts/apply-memory-migrations.test.mjs
+node scripts/apply-memory-migrations.mjs
+node scripts/apply-memory-migrations.mjs --preflight
+node scripts/apply-memory-migrations.mjs --execute --confirm=reach_ai
+```
+
+默认命令只计算固定迁移顺序和 checksum，不联网、不使用凭据。`--preflight` 使用现有环境变量连接数据库，只读检查目标库、MySQL 版本、字符集和基础表；`--execute` 需要显式确认，远程开发库再增加 `--allow-remote`。runner 沿用项目 JDBC URL，不要求为本地开发额外签发证书或配置 truststore。
 
 ## SQL 验证
 

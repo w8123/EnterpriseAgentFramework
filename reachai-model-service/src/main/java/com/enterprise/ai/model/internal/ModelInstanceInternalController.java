@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -39,6 +40,12 @@ public class ModelInstanceInternalController {
         return ResponseEntity.ok(items);
     }
 
+    @GetMapping("/instances/{id}")
+    public ResponseEntity<Map<String, Object>> get(
+            @PathVariable("id") String id) {
+        return ResponseEntity.ok(toCatalogItem(modelInstanceService.get(id)));
+    }
+
     private Map<String, Object> toCatalogItem(ModelInstanceResponse item) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("id", item.getId());
@@ -49,6 +56,9 @@ public class ModelInstanceInternalController {
         body.put("modelName", item.getModelName());
         body.put("modelType", item.getModelType());
         body.put("status", item.getStatus());
+        body.put("lastTestStatus", item.getLastTestStatus());
+        body.put("lastTestAt", item.getLastTestAt());
+        body.put("lastTestLatencyMs", item.getLastTestLatencyMs());
         return body;
     }
 }

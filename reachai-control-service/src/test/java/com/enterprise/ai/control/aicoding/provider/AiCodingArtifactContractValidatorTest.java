@@ -17,6 +17,7 @@ class AiCodingArtifactContractValidatorTest {
             "project-onboarding-report-v1",
             "page-map-report-v1",
             "page-analysis-report-v1",
+            "workflow-engineering-report-v1",
             "code-implementation-report-v1",
             "browser-acceptance-report-v1",
             "pre-release-report-v1");
@@ -163,5 +164,28 @@ class AiCodingArtifactContractValidatorTest {
                 IllegalArgumentException.class,
                 () -> validator.requireValid(pageMap, pageMapSchema));
         assertTrue(error.getMessage().contains("$.scannedAt"));
+    }
+
+    @Test
+    void enforcesWorkflowKeyPatternAndUniqueLists() {
+        JsonNode schema = loader.load(
+                "workflow-engineering-report-v1.schema.json");
+        var invalidKey = (com.fasterxml.jackson.databind.node.ObjectNode) loader.load(
+                "workflow-engineering-report-v1.example.json").deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) invalidKey.path("workflow"))
+                .put("keySlug", "invalid workflow key");
+        IllegalArgumentException patternError = assertThrows(
+                IllegalArgumentException.class,
+                () -> validator.requireValid(invalidKey, schema));
+        assertTrue(patternError.getMessage().contains("$.workflow.keySlug"));
+
+        var duplicate = (com.fasterxml.jackson.databind.node.ObjectNode) loader.load(
+                "workflow-engineering-report-v1.example.json").deepCopy();
+        var actionKeys = (com.fasterxml.jackson.databind.node.ArrayNode) duplicate.path("selectedActionKeys");
+        actionKeys.add(actionKeys.path(0).deepCopy());
+        IllegalArgumentException uniqueError = assertThrows(
+                IllegalArgumentException.class,
+                () -> validator.requireValid(duplicate, schema));
+        assertTrue(uniqueError.getMessage().contains("$.selectedActionKeys["));
     }
 }

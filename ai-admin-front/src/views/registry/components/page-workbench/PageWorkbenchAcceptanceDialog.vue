@@ -1,20 +1,33 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { CopyDocument } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
-import type { ProjectPage, PublishedPageWorkflow } from '@/types/pageWorkbench'
+import type {
+  PageIntegrationReadinessItem,
+  ProjectPage,
+  PublishedPageWorkflow,
+} from '@/types/pageWorkbench'
 import { pageWorkbenchPageName } from '@/utils/pageWorkbenchPresentation'
 
-defineProps<{
+const props = defineProps<{
   modelValue: boolean
   page?: ProjectPage | null
   workflow?: PublishedPageWorkflow | null
+  modelReadiness?: PageIntegrationReadinessItem | null
+  preflightLoading?: boolean
   busy?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   confirm: [page: ProjectPage, workflow: PublishedPageWorkflow]
+  modelCenter: []
 }>()
+
+const modelPreflightBlocked = computed(() => (
+  !props.preflightLoading
+  && props.modelReadiness?.status !== 'PASS'
+))
 </script>
 
 <template>
@@ -48,6 +61,33 @@ const emit = defineEmits<{
       </article>
 
       <el-alert
+        v-if="preflightLoading"
+        title="正在检查 Agent 模型"
+        description="正在确认当前发布版本绑定的模型是否启用并在最近 24 小时内测试通过。"
+        type="info"
+        :closable="false"
+        show-icon
+      />
+
+      <el-alert
+        v-else-if="modelPreflightBlocked"
+        title="暂不能开始真实验收"
+        :description="modelReadiness?.message || '尚未取得当前 Agent 模型的可用性检查结果。请先完成页面接入诊断。'"
+        type="error"
+        :closable="false"
+        show-icon
+      />
+
+      <el-alert
+        v-else
+        title="Agent 模型预检通过"
+        :description="modelReadiness?.message || '当前 Agent 模型已具备真实验收条件。'"
+        type="success"
+        :closable="false"
+        show-icon
+      />
+
+      <el-alert
         title="AI 自检不能替代人工业务判断"
         description="任务回传并通过平台验证后，仍需要在任务详情中填写验收意见并明确通过或退回。"
         type="warning"
@@ -59,10 +99,18 @@ const emit = defineEmits<{
     <template #footer>
       <el-button @click="emit('update:modelValue', false)">稍后验收</el-button>
       <el-button
+        v-if="modelPreflightBlocked"
+        type="warning"
+        @click="emit('modelCenter')"
+      >
+        去模型中心处理
+      </el-button>
+      <el-button
         v-if="page && workflow"
         type="primary"
         :icon="CopyDocument"
         :loading="busy"
+        :disabled="preflightLoading || modelPreflightBlocked"
         @click="emit('confirm', page, workflow)"
       >
         创建并生成验收交接包

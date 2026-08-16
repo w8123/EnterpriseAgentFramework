@@ -48,6 +48,18 @@ function canvasNode(kind: string, id = `${kind}-1`): CanvasNode {
   } as unknown as CanvasNode
 }
 
+function interactionNode(variant: 'PRESENT_OUTPUT' | 'COLLECT_INPUT'): CanvasNode {
+  const node = canvasNode('interaction')
+  node.data.interactionConfig = {
+    interactionType: variant,
+    title: variant,
+    component: variant === 'PRESENT_OUTPUT' ? 'DETAIL' : 'FORM',
+    fields: [],
+    outputAlias: 'interaction_output',
+  }
+  return node
+}
+
 function createActions(overrides: Record<string, unknown> = {}) {
   const nodes = ref<CanvasNode[]>([])
   const edges = ref([])
@@ -70,9 +82,10 @@ function createActions(overrides: Record<string, unknown> = {}) {
       maturity: 'BETA',
       runtimeExecutable: true,
       publishable: false,
-      studioEnabled: false,
-      aiAuthoringEnabled: false,
-      unavailableReason: 'Workflow interaction pause/resume closure is not complete',
+      studioEnabled: true,
+      aiAuthoringEnabled: true,
+      enabledVariants: ['PRESENT_OUTPUT'],
+      unavailableReason: 'Only PRESENT_OUTPUT is enabled; pause/resume variants remain closed',
     }),
     descriptor({
       type: 'CODE',
@@ -153,15 +166,22 @@ describe('useWorkflowStudioCanvasActions pasteCopiedNode guard', () => {
     expect(elMessage.warning).toHaveBeenCalled()
   })
 
-  it('blocks INTERACTION paste when studioEnabled=false', () => {
+  it('blocks blocking INTERACTION paste while allowing PRESENT_OUTPUT paste', () => {
     const ctx = createActions()
-    ctx.copiedNode.value = canvasNode('interaction')
+    ctx.copiedNode.value = interactionNode('COLLECT_INPUT')
     ctx.api.pasteCopiedNode()
     expect(ctx.nodes.value).toHaveLength(0)
     expect(ctx.markCanvasDirty).not.toHaveBeenCalled()
     expect(ctx.syncJsonFromCanvas).not.toHaveBeenCalled()
     expect(ctx.fitView).not.toHaveBeenCalled()
-    expect(elMessage.warning.mock.calls[0]?.[0]).toContain('pause/resume')
+    expect(elMessage.warning.mock.calls[0]?.[0]).toContain('仅开放')
+
+    elMessage.warning.mockClear()
+    ctx.copiedNode.value = interactionNode('PRESENT_OUTPUT')
+    ctx.api.pasteCopiedNode()
+    expect(ctx.nodes.value).toHaveLength(1)
+    expect(ctx.nodes.value[0].data.interactionConfig?.interactionType).toBe('PRESENT_OUTPUT')
+    expect(elMessage.warning).not.toHaveBeenCalled()
   })
 
   it('blocks PLANNED node paste', () => {

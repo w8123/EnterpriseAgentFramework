@@ -46,6 +46,37 @@ class RuntimeGraphSpecExecutorTest {
     }
 
     @Test
+    void explicitScalarInputTakesPrecedenceOverTransportMessage() {
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {"entryNodeId":"answer","exitNodeIds":["answer"],"nodes":[{"id":"answer","type":"ANSWER","config":{"template":"收到：{{ input }}"}}]}
+                """, Map.of("input", "state-input", "message", "transport-message"));
+
+        assertTrue(result.success());
+        assertEquals("收到：state-input", result.answer());
+    }
+
+    @Test
+    void userInputWritesDeclaredFieldsIntoReservedParamsNamespace() {
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entryNodeId":"input",
+                  "exitNodeIds":["answer"],
+                  "nodes":[
+                    {"id":"input","type":"USER_INPUT","config":{
+                      "outputAlias":"params",
+                      "fields":[{"name":"question","type":"string","required":true,"source":"input.message"}]
+                    }},
+                    {"id":"answer","type":"ANSWER","config":{"template":"收到：{{ params.question }}"}}
+                  ],
+                  "edges":[{"from":"input","to":"answer","condition":"always"}]
+                }
+                """, Map.of("message", "查询班组"));
+
+        assertTrue(result.success());
+        assertEquals("收到：查询班组", result.answer());
+    }
+
+    @Test
     void executesLlmEntryNodeThroughModelGateway() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
@@ -129,7 +160,7 @@ class RuntimeGraphSpecExecutorTest {
         RuntimeGraphSpecExecutionResult result = pageExecutor.execute("""
                 {"entryNodeId":"team","exitNodeIds":["team"],"nodes":[{"id":"team","type":"PAGE_ACTION","config":{
                   "projectCode":"qmssmp","pageKey":"team.departments","route":"/team-build/depart-management",
-                  "actionKey":"queryFirstTeam","inputMapping":{},"args":{"keyword":"{{ teamName }}"}
+                  "actionKey":"queryFirstTeam","confirmRequired":true,"inputMapping":{},"args":{"keyword":"{{ teamName }}"}
                 }}]}
                 """, Map.of(
                 "sessionId", "s1",
@@ -147,6 +178,173 @@ class RuntimeGraphSpecExecutorTest {
                 ArgumentCaptor.forClass(RuntimeControlCatalogClient.PageBridgeExecutionRequest.class);
         verify(controlClient).executePageBridge(request.capture());
         assertEquals("一班", request.getValue().args().get("keyword"));
+        assertEquals(true, request.getValue().confirmRequired());
+        assertEquals(90_000, request.getValue().confirmationTimeoutMs());
+        assertEquals(20_000, request.getValue().executionTimeoutMs());
+    }
+
+    @Test
+    void preservesPageBridgeFailureWhenOptionalResponseFieldsAreNull() {
+        RuntimeControlCatalogClient controlClient = mock(RuntimeControlCatalogClient.class);
+        RuntimeGraphSpecExecutor pageExecutor = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), modelClient, capabilityClient, controlClient);
+        when(controlClient.executePageBridge(any())).thenReturn(
+                new RuntimeControlCatalogClient.PageBridgeExecutionResponse(
+                        false,
+                        "PAGE_BRIDGE_ACTION_FAILED",
+                        "TIMEOUT",
+                        null,
+                        null));
+
+        RuntimeGraphSpecExecutionResult result = pageExecutor.execute("""
+                {"entryNodeId":"team","exitNodeIds":["team"],"nodes":[{"id":"team","type":"PAGE_ACTION","config":{
+                  "projectCode":"qmssmp","pageKey":"teamArchive.list","actionKey":"setEnabled","inputMapping":{}
+                }}]}
+                """, Map.of(
+                "sessionId", "s1", "agentId", "agent-1", "projectCode", "qmssmp", "pageKey", "teamArchive.list"));
+
+        assertEquals(false, result.success());
+        assertEquals("PAGE_BRIDGE_ACTION_FAILED", result.code());
+        assertEquals("TIMEOUT", result.answer());
+        assertEquals("TIMEOUT", result.metadata().get("pageBridgeStatus"));
+    }
+
+    @Test
+    void normalizesNestedPageActionTotalCountWithoutCopyingBusinessRowsIntoTheSummary() {
+        RuntimeControlCatalogClient controlClient = mock(RuntimeControlCatalogClient.class);
+        RuntimeGraphSpecExecutor pageExecutor = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), modelClient, capabilityClient, controlClient);
+        when(controlClient.executePageBridge(any())).thenReturn(
+                new RuntimeControlCatalogClient.PageBridgeExecutionResponse(
+                        true,
+                        "PAGE_BRIDGE_COMPLETED",
+                        "SUCCESS",
+                        Map.of("status", "SUCCESS", "data", Map.of(
+                                "totalCount", 0,
+                                "courses", List.of())),
+                        List.of()));
+
+        RuntimeGraphSpecExecutionResult result = pageExecutor.execute("""
+                {"entryNodeId":"courses","exitNodeIds":["courses"],"nodes":[{"id":"courses","type":"PAGE_ACTION","config":{
+                  "projectCode":"roncoo","pageKey":"course.list","actionKey":"course.list.readTable","inputMapping":{}
+                }}]}
+                """, Map.of(
+                "sessionId", "s-course", "agentId", "agent-1", "projectCode", "roncoo", "pageKey", "course.list"));
+
+        assertTrue(result.success());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> summary = (Map<String, Object>) result.metadata().get("pageActionResultSummary");
+        assertEquals("course.list.readTable", summary.get("actionKey"));
+        assertEquals(0L, summary.get("total"));
+        assertEquals(true, summary.get("empty"));
+        assertFalse(summary.containsKey("courses"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> remembered = (List<Map<String, Object>>) result.resumeCheckpoint()
+                .get("pageActionResults");
+        assertEquals(summary, remembered.get(0));
+    }
+
+    @Test
+    void carriesVerifiedUserConfirmationIntoThePageActionSummary() {
+        RuntimeControlCatalogClient controlClient = mock(RuntimeControlCatalogClient.class);
+        RuntimeGraphSpecExecutor pageExecutor = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), modelClient, capabilityClient, controlClient);
+        when(controlClient.executePageBridge(any())).thenReturn(
+                new RuntimeControlCatalogClient.PageBridgeExecutionResponse(
+                        true,
+                        "PAGE_BRIDGE_COMPLETED",
+                        "SUCCESS",
+                        Map.of("message", "Team state updated", "userConfirmed", true),
+                        List.of()));
+
+        RuntimeGraphSpecExecutionResult result = pageExecutor.execute("""
+                {"entryNodeId":"update","exitNodeIds":["update"],"nodes":[{"id":"update","type":"PAGE_ACTION","config":{
+                  "projectCode":"qmssmp","pageKey":"teamArchive.list","actionKey":"setEnabled","confirm":true,"inputMapping":{}
+                }}]}
+                """, Map.of(
+                "sessionId", "s-confirm", "agentId", "agent-1",
+                "projectCode", "qmssmp", "pageKey", "teamArchive.list"));
+
+        assertTrue(result.success());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> summary = (Map<String, Object>) result.metadata()
+                .get("pageActionResultSummary");
+        assertEquals(true, summary.get("userConfirmed"));
+        assertEquals("Team state updated", summary.get("message"));
+    }
+
+    @Test
+    void treatsBusinessTerminalPageActionAsCompletedWorkflowOutcome() {
+        RuntimeControlCatalogClient controlClient = mock(RuntimeControlCatalogClient.class);
+        RuntimeGraphSpecExecutor pageExecutor = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), modelClient, capabilityClient, controlClient);
+        when(controlClient.executePageBridge(any())).thenReturn(
+                new RuntimeControlCatalogClient.PageBridgeExecutionResponse(
+                        true,
+                        "PAGE_BRIDGE_BUSINESS_TERMINAL",
+                        "PRECONDITION_FAILED",
+                        Map.of("selectedCount", 0,
+                                "message", "Select a row before opening details"),
+                        List.of(Map.of("phase", "PAGE_ACTION",
+                                "status", "PRECONDITION_FAILED"))));
+
+        RuntimeGraphSpecExecutionResult result = pageExecutor.execute("""
+                {"entryNodeId":"open","exitNodeIds":["open"],"nodes":[{"id":"open","type":"PAGE_ACTION","config":{
+                  "projectCode":"qmssmp","pageKey":"teamArchive.list","actionKey":"openSelected","args":{}
+                }}]}
+                """, Map.of(
+                "sessionId", "s1",
+                "agentId", "agent-1",
+                "projectCode", "qmssmp",
+                "pageKey", "teamArchive.list"));
+
+        assertTrue(result.success());
+        assertEquals("RUNTIME_PAGE_ACTION_BUSINESS_TERMINAL", result.code());
+        assertEquals("Select a row before opening details", result.answer());
+        assertEquals("BUSINESS_TERMINAL", result.metadata().get("outcomeClass"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> summary = (Map<String, Object>) result.metadata()
+                .get("pageActionResultSummary");
+        assertEquals("PRECONDITION_FAILED", summary.get("businessOutcome"));
+        assertEquals("BUSINESS_TERMINAL", summary.get("outcomeClass"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> traces = (List<Map<String, Object>>) result.metadata()
+                .get("workflowNodeTraces");
+        assertEquals("BUSINESS_TERMINAL", traces.get(0).get("status"));
+    }
+
+    @Test
+    void resolvesStructuredWorkflowInputForPageActionMappings() {
+        RuntimeControlCatalogClient controlClient = mock(RuntimeControlCatalogClient.class);
+        RuntimeGraphSpecExecutor pageExecutor = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), modelClient, capabilityClient, controlClient);
+        when(controlClient.executePageBridge(any())).thenReturn(
+                new RuntimeControlCatalogClient.PageBridgeExecutionResponse(
+                        true,
+                        "PAGE_BRIDGE_COMPLETED",
+                        "SUCCESS",
+                        Map.of("total", 3),
+                        List.of()));
+
+        RuntimeGraphSpecExecutionResult result = pageExecutor.execute("""
+                {"entryNodeId":"query","exitNodeIds":["query"],"nodes":[{"id":"query","type":"PAGE_ACTION","config":{
+                  "projectCode":"mall","pageKey":"mall.oms.order","route":"/oms/order",
+                  "actionKey":"query","inputMapping":{"orderSn":"input.orderSn","status":"input.status"}
+                }}]}
+                """, Map.of(
+                "input", Map.of("orderSn", "201809150101000001", "status", 4),
+                "message", "filter orders by status",
+                "params", Map.of("orderSn", "201809150101000001", "status", 4),
+                "sessionId", "s1",
+                "agentId", "agent-1",
+                "projectCode", "mall"));
+
+        assertTrue(result.success());
+        ArgumentCaptor<RuntimeControlCatalogClient.PageBridgeExecutionRequest> request =
+                ArgumentCaptor.forClass(RuntimeControlCatalogClient.PageBridgeExecutionRequest.class);
+        verify(controlClient).executePageBridge(request.capture());
+        assertEquals("201809150101000001", request.getValue().args().get("orderSn"));
+        assertEquals(4, request.getValue().args().get("status"));
     }
 
     @Test
@@ -388,6 +586,12 @@ class RuntimeGraphSpecExecutorTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> behavior = (Map<String, Object>) ((Map<?, ?>) result.uiRequest()).get("behavior");
         assertEquals(false, behavior.get("blocking"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> traces = (List<Map<String, Object>>) result.metadata()
+                .get("workflowNodeTraces");
+        assertEquals(
+                "PRESENT_OUTPUT",
+                traces.get(0).get("interactionType"));
     }
 
     @Test
@@ -532,6 +736,31 @@ class RuntimeGraphSpecExecutorTest {
         assertEquals(true, result.success());
         assertEquals(Map.of(
                         "query", Map.of("pageIndex", 1, "pageSize", 10, "enabled", true, "keyword", "一班")),
+                capabilityClient.requests.get(0).get("input"));
+    }
+
+    @Test
+    void preservesLiteralToolArgumentsWhenVariableNamespaceExists() {
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {
+                  "entryNodeId":"search",
+                  "exitNodeIds":["search"],
+                  "nodes":[{
+                    "id":"search",
+                    "type":"TOOL",
+                    "ref":{"qualifiedName":"knowledge:business.search"},
+                    "config":{"args":{
+                      "query":"business memory canary team",
+                      "scope":"businessScope"
+                    }}
+                  }]
+                }
+                """, Map.of("var", Map.of("businessScope", "authorized")));
+
+        assertTrue(result.success());
+        assertEquals(Map.of(
+                        "query", "business memory canary team",
+                        "scope", "authorized"),
                 capabilityClient.requests.get(0).get("input"));
     }
 
@@ -1035,6 +1264,43 @@ class RuntimeGraphSpecExecutorTest {
         assertEquals(true, result.success());
         assertEquals("owner=李四, size=20", result.answer());
         assertEquals("published-model", extractModel.requests.get(0).getModelInstanceId());
+    }
+
+    @Test
+    void parameterExtractUsesMessageWhenTransportAddsEmptyStructuredInput() {
+        CapturingModelClient extractModel = new CapturingModelClient("{\"courseName\":\"Java\"}");
+        RuntimeGraphSpecExecutor extractExecutor = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), extractModel, capabilityClient,
+                mock(RuntimeControlCatalogClient.class));
+
+        RuntimeGraphSpecExecutionResult result = extractExecutor.execute("""
+                {
+                  "entryNodeId":"user_input",
+                  "exitNodeIds":["answer"],
+                  "nodes":[
+                    {"id":"user_input","type":"USER_INPUT"},
+                    {"id":"extract","type":"PARAMETER_EXTRACT","config":{
+                      "extractMode":"llm",
+                      "userPrompt":"{{ input }}",
+                      "fields":[{"name":"courseName","type":"string","required":true}]
+                    }},
+                    {"id":"answer","type":"ANSWER","config":{
+                      "template":"{{ nodeOutput.extract.courseName }}"
+                    }}
+                  ],
+                  "edges":[
+                    {"from":"user_input","to":"extract"},
+                    {"from":"extract","to":"answer"}
+                  ]
+                }
+                """, Map.of(
+                "input", Map.of(),
+                "message", "Find the Java course",
+                "workflowDefaultModelInstanceId", "published-model"));
+
+        assertTrue(result.success());
+        assertEquals("Java", result.answer());
+        assertMessage(extractModel.requests.get(0).getMessages().get(1), "user", "Find the Java course");
     }
 
     @Test

@@ -28,6 +28,7 @@ import com.enterprise.ai.agent.registry.RegistryContracts.ProjectRegisterRequest
 import com.enterprise.ai.agent.registry.RegistryContracts.RegistryProjectResponse;
 import com.enterprise.ai.agent.registry.RegistryContracts.SdkCapabilityDescriptionSettings;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
+import com.enterprise.ai.agent.registry.RegistryEnrollmentService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -38,6 +39,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -56,6 +58,7 @@ class CapabilityRegistryServiceTest {
     private final CapabilityDiffItemMapper diffItemMapper = mock(CapabilityDiffItemMapper.class);
     private final CapabilityApplyRecordMapper applyRecordMapper = mock(CapabilityApplyRecordMapper.class);
     private final RegistrySecurityService registrySecurityService = mock(RegistrySecurityService.class);
+    private final RegistryEnrollmentService registryEnrollmentService = mock(RegistryEnrollmentService.class);
     private final CapabilityRegistryService service = new CapabilityRegistryService(
             scanProjectMapper,
             scanProjectToolMapper,
@@ -66,6 +69,7 @@ class CapabilityRegistryServiceTest {
             diffItemMapper,
             applyRecordMapper,
             registrySecurityService,
+            registryEnrollmentService,
             new ObjectMapper()
     );
 
@@ -79,7 +83,8 @@ class CapabilityRegistryServiceTest {
             inserted.set(entity);
             return 1;
         });
-
+        when(registryEnrollmentService.issueCredential(any(), any()))
+                .thenReturn(new RegistryEnrollmentService.RegistryCredential("rak_generated", "ras_generated"));
         RegistryProjectResponse response = service.registerProject(new ProjectRegisterRequest(
                 "Orders API",
                 "Orders",
@@ -94,7 +99,7 @@ class CapabilityRegistryServiceTest {
                 List.of("agent-1"),
                 300,
                 Map.of("source", "test")
-        ));
+        ), "ren_once", new RegistrySecurityService.RegistrySignatureHeaders(null, null, null, null));
 
         assertEquals(42L, response.projectId());
         assertEquals("orders-api", response.projectCode());
@@ -107,10 +112,11 @@ class CapabilityRegistryServiceTest {
         assertEquals(true, project.getAiCodingAccessEnabled());
         assertNotNull(project.getAiCodingAccessKey());
         assertTrue(project.getAiCodingAccessKey().matches("aic_[0-9a-f]{48}"));
-        verify(registrySecurityService).upsertCredential(42L, "orders-api", "app-key", "app-secret");
+        verify(registryEnrollmentService).consume("ren_once", "orders-api");
+        verify(registrySecurityService).savePrimaryCredential(42L, "orders-api", "rak_generated", "ras_generated");
         verify(registrySecurityService).updateEmbedPolicy(
                 "orders-api",
-                "app-key",
+                "rak_generated",
                 List.of("http://localhost:5173"),
                 List.of("agent-1"),
                 300
@@ -135,6 +141,8 @@ class CapabilityRegistryServiceTest {
         project.setUpdateTime(previousUpdateTime);
         when(scanProjectMapper.selectOne(any())).thenReturn(project);
 
+        RegistrySecurityService.RegistrySignatureHeaders signatureHeaders =
+                new RegistrySecurityService.RegistrySignatureHeaders("rak_existing", "1", "n", "sig");
         RegistryProjectResponse response = service.registerProject(new ProjectRegisterRequest(
                 "Orders API",
                 "Orders",
@@ -149,10 +157,11 @@ class CapabilityRegistryServiceTest {
                 List.of("agent-1"),
                 300,
                 Map.of("source", "test")
-        ));
+        ), null, signatureHeaders);
 
         assertEquals(42L, response.projectId());
         assertEquals(previousUpdateTime, project.getUpdateTime());
+        verify(registrySecurityService).verifyRequired("orders-api", signatureHeaders);
         verify(scanProjectMapper, never()).updateById(any());
     }
 
@@ -382,6 +391,13 @@ class CapabilityRegistryServiceTest {
             insertedTool.set(entity);
             return 1;
         });
+        AtomicReference<ToolDefinitionEntity> insertedGlobalTool = new AtomicReference<>();
+        when(toolDefinitionMapper.insert(any())).thenAnswer(invocation -> {
+            ToolDefinitionEntity entity = invocation.getArgument(0);
+            entity.setId(61L);
+            insertedGlobalTool.set(entity);
+            return 1;
+        });
         AtomicReference<CapabilitySnapshotEntity> insertedSnapshot = new AtomicReference<>();
         when(snapshotMapper.insert(any())).thenAnswer(invocation -> {
             CapabilitySnapshotEntity entity = invocation.getArgument(0);
@@ -418,7 +434,76 @@ class CapabilityRegistryServiceTest {
         assertEquals("POST", tool.getHttpMethod());
         assertEquals("http://orders.local", tool.getBaseUrl());
         assertEquals(Boolean.FALSE, tool.getRemovedFromSource());
+        assertEquals(61L, tool.getGlobalToolDefinitionId());
+        ToolDefinitionEntity globalTool = insertedGlobalTool.get();
+        assertNotNull(globalTool);
+        assertEquals("orders_createOrder", globalTool.getName());
+        assertEquals("orders:createOrder", globalTool.getQualifiedName());
+        assertEquals("WRITE", globalTool.getSideEffect());
+        assertEquals(Boolean.TRUE, globalTool.getEnabled());
         assertEquals("APPLIED", updatedDiffItem.get().getReviewStatus());
+    }
+
+    @Test
+    void syncSelfHealsAnUnlinkedSdkCapabilityEvenWhenItIsUnchanged() {
+        ScanProjectEntity project = new ScanProjectEntity();
+        project.setId(7L);
+        project.setProjectCode("orders");
+        project.setBaseUrl("http://orders.default");
+        project.setContextPath("/orders");
+        ScanProjectToolEntity existing = new ScanProjectToolEntity();
+        existing.setId(51L);
+        existing.setProjectId(7L);
+        existing.setName("orders_createOrder");
+        existing.setTitle("创建订单");
+        existing.setDescription("Create order");
+        existing.setParametersJson("[]");
+        existing.setSourceLocation("sdk:orders:createOrder");
+        existing.setHttpMethod("POST");
+        existing.setBaseUrl("http://orders.local");
+        existing.setContextPath("/orders");
+        existing.setEndpointPath("/create");
+        existing.setRequestBodyType("JSON");
+        existing.setResponseType("JSON");
+        existing.setEnabled(true);
+        existing.setCapabilityMetadataJson("{\"source\":\"sdk\",\"sideEffect\":\"WRITE\"}");
+        existing.setRemovedFromSource(false);
+        when(scanProjectMapper.selectOne(any())).thenReturn(project);
+        when(scanProjectToolMapper.selectOne(any())).thenReturn(existing);
+        when(scanProjectToolMapper.selectList(any())).thenReturn(List.of(existing));
+        when(toolDefinitionMapper.selectOne(any())).thenReturn(null);
+        when(snapshotMapper.insert(any())).thenAnswer(invocation -> {
+            CapabilitySnapshotEntity entity = invocation.getArgument(0);
+            entity.setId(21L);
+            return 1;
+        });
+        when(diffItemMapper.insert(any())).thenAnswer(invocation -> {
+            CapabilityDiffItemEntity entity = invocation.getArgument(0);
+            entity.setId(31L);
+            return 1;
+        });
+        AtomicReference<ToolDefinitionEntity> insertedGlobalTool = new AtomicReference<>();
+        when(toolDefinitionMapper.insert(any())).thenAnswer(invocation -> {
+            ToolDefinitionEntity entity = invocation.getArgument(0);
+            entity.setId(61L);
+            insertedGlobalTool.set(entity);
+            return 1;
+        });
+
+        CapabilitySyncResponse response = service.sync("orders", new CapabilitySyncRequest(
+                "sync-unchanged",
+                "SDK",
+                true,
+                List.of(newCapabilityRegistration())
+        ));
+
+        assertEquals(1, response.unchanged());
+        assertEquals(0, response.applied());
+        assertEquals("UNCHANGED", response.items().get(0).changeType());
+        assertNotNull(insertedGlobalTool.get());
+        assertEquals("orders:createOrder", insertedGlobalTool.get().getQualifiedName());
+        assertEquals(61L, existing.getGlobalToolDefinitionId());
+        verify(toolDefinitionMapper).insert(any());
     }
 
     @Test
@@ -489,8 +574,14 @@ class CapabilityRegistryServiceTest {
         staleTool.setName("orders_oldCapability");
         staleTool.setSourceLocation("sdk:orders:oldCapability");
         staleTool.setGlobalToolDefinitionId(12L);
+        staleTool.setEnabled(true);
         staleTool.setRemovedFromSource(false);
+        ToolDefinitionEntity staleGlobalTool = new ToolDefinitionEntity();
+        staleGlobalTool.setId(12L);
+        staleGlobalTool.setQualifiedName("orders:oldCapability");
+        staleGlobalTool.setEnabled(true);
         when(scanProjectToolMapper.selectList(any())).thenReturn(List.of(staleTool));
+        when(toolDefinitionMapper.selectById(12L)).thenReturn(staleGlobalTool);
         when(snapshotMapper.insert(any())).thenAnswer(invocation -> {
             CapabilitySnapshotEntity entity = invocation.getArgument(0);
             entity.setId(21L);
@@ -521,7 +612,10 @@ class CapabilityRegistryServiceTest {
         ScanProjectToolEntity removedTool = removed.get();
         assertNotNull(removedTool);
         assertEquals(Boolean.TRUE, removedTool.getRemovedFromSource());
+        assertEquals(Boolean.FALSE, removedTool.getEnabled());
         assertNotNull(removedTool.getRemovedAt());
+        assertEquals(Boolean.FALSE, staleGlobalTool.getEnabled());
+        verify(toolDefinitionMapper).updateById(staleGlobalTool);
     }
 
     @Test
@@ -588,6 +682,7 @@ class CapabilityRegistryServiceTest {
         when(diffItemMapper.selectById(31L)).thenReturn(item);
         when(snapshotMapper.selectById(21L)).thenReturn(snapshot);
         when(scanProjectMapper.selectOne(any())).thenReturn(project);
+        when(diffItemMapper.selectList(any())).thenReturn(List.of(item));
         when(diffItemMapper.updateById(any())).thenAnswer(invocation -> {
             updated.set(invocation.getArgument(0));
             return 1;
@@ -612,6 +707,8 @@ class CapabilityRegistryServiceTest {
         assertEquals("IGNORE", record.getAction());
         assertEquals("SUCCESS", record.getStatus());
         assertEquals("alice", record.getOperator());
+        assertEquals("IGNORED", snapshot.getStatus());
+        verify(snapshotMapper).updateById(snapshot);
     }
 
     @Test
@@ -665,10 +762,17 @@ class CapabilityRegistryServiceTest {
         staleTool.setProjectId(7L);
         staleTool.setName("orders_oldCapability");
         staleTool.setSourceLocation("sdk:orders:oldCapability");
+        staleTool.setGlobalToolDefinitionId(12L);
+        staleTool.setEnabled(true);
+        ToolDefinitionEntity staleGlobalTool = new ToolDefinitionEntity();
+        staleGlobalTool.setId(12L);
+        staleGlobalTool.setQualifiedName("orders:oldCapability");
+        staleGlobalTool.setEnabled(true);
         when(diffItemMapper.selectById(31L)).thenReturn(item);
         when(snapshotMapper.selectById(21L)).thenReturn(snapshot);
         when(scanProjectMapper.selectOne(any())).thenReturn(project);
         when(scanProjectToolMapper.selectOne(any())).thenReturn(staleTool);
+        when(toolDefinitionMapper.selectById(12L)).thenReturn(staleGlobalTool);
         AtomicReference<ScanProjectToolEntity> removed = new AtomicReference<>();
         when(scanProjectToolMapper.updateById(any())).thenAnswer(invocation -> {
             removed.set(invocation.getArgument(0));
@@ -682,8 +786,172 @@ class CapabilityRegistryServiceTest {
 
         assertEquals("APPLIED", dto.reviewStatus());
         assertEquals(Boolean.TRUE, removed.get().getRemovedFromSource());
+        assertEquals(Boolean.FALSE, removed.get().getEnabled());
         assertNotNull(removed.get().getRemovedAt());
+        assertEquals(Boolean.FALSE, staleGlobalTool.getEnabled());
         verify(applyRecordMapper).insert(any());
+    }
+
+    @Test
+    void rollbackRestoresCatalogAndExecutableToolState() {
+        ScanProjectEntity project = new ScanProjectEntity();
+        project.setId(7L);
+        project.setProjectCode("orders");
+        CapabilitySnapshotEntity snapshot = new CapabilitySnapshotEntity();
+        snapshot.setId(21L);
+        snapshot.setProjectCode("orders");
+        CapabilityDiffItemEntity item = newDiffItem();
+        item.setChangeType("CHANGED");
+        item.setExistingToolId(12L);
+        item.setReviewStatus("APPLIED");
+        item.setBeforeStateJson("""
+                {
+                  "scanTool": {
+                    "id": 51,
+                    "projectId": 7,
+                    "name": "orders_create_order",
+                    "title": "Stable title",
+                    "description": "Stable description",
+                    "source": "scanner",
+                    "sourceLocation": "sdk:orders:createOrder",
+                    "enabled": true,
+                    "globalToolDefinitionId": 12,
+                    "removedFromSource": false
+                  },
+                  "globalTool": {
+                    "id": 12,
+                    "name": "orders_create_order",
+                    "title": "Stable title",
+                    "kind": "TOOL",
+                    "description": "Stable description",
+                    "source": "scanner",
+                    "sourceLocation": "sdk:orders:createOrder",
+                    "projectId": 7,
+                    "projectCode": "orders",
+                    "qualifiedName": "orders:createOrder",
+                    "enabled": true,
+                    "sideEffect": "READ_ONLY",
+                    "draft": false
+                  }
+                }
+                """);
+
+        ScanProjectToolEntity currentScan = new ScanProjectToolEntity();
+        currentScan.setId(51L);
+        currentScan.setProjectId(7L);
+        currentScan.setName("orders_create_order");
+        currentScan.setTitle("Risky title");
+        currentScan.setDescription("Risky description");
+        currentScan.setSourceLocation("sdk:orders:createOrder");
+        currentScan.setGlobalToolDefinitionId(12L);
+        currentScan.setEnabled(true);
+        ToolDefinitionEntity currentGlobal = new ToolDefinitionEntity();
+        currentGlobal.setId(12L);
+        currentGlobal.setQualifiedName("orders:createOrder");
+        currentGlobal.setTitle("Risky title");
+        currentGlobal.setDescription("Risky description");
+        currentGlobal.setEnabled(true);
+        currentGlobal.setSideEffect("WRITE");
+
+        when(diffItemMapper.selectById(31L)).thenReturn(item);
+        when(diffItemMapper.selectOne(any())).thenReturn(item);
+        when(snapshotMapper.selectById(21L)).thenReturn(snapshot);
+        when(scanProjectMapper.selectOne(any())).thenReturn(project);
+        when(scanProjectToolMapper.selectOne(any())).thenReturn(currentScan);
+        when(toolDefinitionMapper.selectById(12L)).thenReturn(currentGlobal);
+        AtomicReference<CapabilityApplyRecordEntity> insertedRecord = new AtomicReference<>();
+        when(applyRecordMapper.insert(any())).thenAnswer(invocation -> {
+            insertedRecord.set(invocation.getArgument(0));
+            return 1;
+        });
+
+        CapabilityDiffItemDTO dto = service.rollbackDiffItem(
+                31L,
+                new CapabilityReviewRequest("ROLLBACK", "alice", "production regression")
+        );
+
+        assertEquals("ROLLED_BACK", dto.reviewStatus());
+        assertEquals("Stable title", currentScan.getTitle());
+        assertEquals("Stable description", currentScan.getDescription());
+        assertEquals(Boolean.TRUE, currentScan.getEnabled());
+        assertEquals(Boolean.FALSE, currentScan.getRemovedFromSource());
+        assertEquals("Stable title", currentGlobal.getTitle());
+        assertEquals("Stable description", currentGlobal.getDescription());
+        assertEquals("READ_ONLY", currentGlobal.getSideEffect());
+        assertEquals(Boolean.TRUE, currentGlobal.getEnabled());
+        assertEquals("ROLLBACK", insertedRecord.get().getAction());
+        assertEquals("alice", insertedRecord.get().getOperator());
+        verify(scanProjectToolMapper).updateById(currentScan);
+        verify(toolDefinitionMapper).updateById(currentGlobal);
+    }
+
+    @Test
+    void refusesReviewApplyWhenCatalogChangedAfterSnapshot() {
+        ScanProjectEntity project = new ScanProjectEntity();
+        project.setId(7L);
+        project.setProjectCode("orders");
+        CapabilitySnapshotEntity snapshot = new CapabilitySnapshotEntity();
+        snapshot.setId(21L);
+        snapshot.setProjectCode("orders");
+        snapshot.setPayloadJson("{\"syncId\":\"sync-1\",\"source\":\"SDK\",\"apply\":false,\"capabilities\":["
+                + "{\"name\":\"createOrder\",\"description\":\"SDK description\",\"httpMethod\":\"POST\","
+                + "\"enabled\":true,\"sideEffect\":\"WRITE\"}]}");
+        CapabilityDiffItemEntity item = newDiffItem();
+        item.setChangeType("CHANGED");
+        item.setBeforeStateJson("""
+                {
+                  "scanTool": {
+                    "id": 51,
+                    "projectId": 7,
+                    "name": "orders_create_order",
+                    "title": "Snapshot title",
+                    "sourceLocation": "sdk:orders:createOrder",
+                    "enabled": true,
+                    "removedFromSource": false
+                  },
+                  "globalTool": null
+                }
+                """);
+        ScanProjectToolEntity current = new ScanProjectToolEntity();
+        current.setId(51L);
+        current.setProjectId(7L);
+        current.setName("orders_create_order");
+        current.setTitle("Changed after snapshot");
+        current.setSourceLocation("sdk:orders:createOrder");
+        current.setEnabled(true);
+        current.setRemovedFromSource(false);
+        when(diffItemMapper.selectById(31L)).thenReturn(item);
+        when(snapshotMapper.selectById(21L)).thenReturn(snapshot);
+        when(scanProjectMapper.selectOne(any())).thenReturn(project);
+        when(scanProjectToolMapper.selectOne(any())).thenReturn(current);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
+                service.reviewDiffItem(31L, new CapabilityReviewRequest("APPLY", "alice", null)));
+
+        assertEquals("能力目录在生成差异后已变化，请刷新 SDK 快照后重新评审", error.getMessage());
+        verify(scanProjectToolMapper, never()).updateById(any());
+        verify(diffItemMapper, never()).updateById(any());
+        verify(applyRecordMapper, never()).insert(any());
+    }
+
+    @Test
+    void refusesRollbackWhenNewerAppliedChangeExists() {
+        CapabilityDiffItemEntity item = newDiffItem();
+        item.setReviewStatus("APPLIED");
+        item.setBeforeStateJson("{\"scanTool\":null,\"globalTool\":null}");
+        CapabilityDiffItemEntity newer = newDiffItem();
+        newer.setId(32L);
+        newer.setReviewStatus("APPLIED");
+        when(diffItemMapper.selectById(31L)).thenReturn(item);
+        when(diffItemMapper.selectOne(any())).thenReturn(newer);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
+                service.rollbackDiffItem(31L, new CapabilityReviewRequest("ROLLBACK", "alice", null)));
+
+        assertEquals("该能力已有更新的已应用变更，不能覆盖式回滚旧快照", error.getMessage());
+        verify(snapshotMapper, never()).selectById(any());
+        verify(diffItemMapper, never()).updateById(any());
+        verify(applyRecordMapper, never()).insert(any());
     }
 
     private CapabilityDiffItemEntity newDiffItem() {

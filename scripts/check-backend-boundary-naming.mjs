@@ -656,7 +656,7 @@ const keyApiPaths = [
   ['reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/RagController.java', '@RequestMapping("/rag")'],
   ['reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/RetrievalController.java', '@RequestMapping("/retrieval")'],
   ['reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/ScannerController.java', '@RequestMapping("/scanner")'],
-  ['reachai-knowledge-service/src/main/java/com/enterprise/ai/bizindex/controller/BizIndexController.java', '@RequestMapping("/biz-index")'],
+  ['reachai-knowledge-service/src/main/java/com/enterprise/ai/bizindex/controller/BizIndexController.java', '@RequestMapping("/internal/knowledge/console/biz-index")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/registry/CapabilityRegistryOperationsCompatibilityController.java', '@RequestMapping("/api/registry")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/registry/CapabilityRegistryCompatibilityController.java', '@RequestMapping("/api/registry/projects")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/graph/CapabilityApiGraphSnapshotController.java', '@RequestMapping("/api/api-graph/projects/{projectId}")'],

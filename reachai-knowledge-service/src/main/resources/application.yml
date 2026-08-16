@@ -37,6 +37,43 @@ embedding:
   model-service:
     url: ${MODEL_SERVICE_URL:http://localhost:18601}
 
+reachai:
+  internal:
+    service-secret: ${REACHAI_INTERNAL_SERVICE_SECRET:}
+    # Production: DIRECT_TLS requires https URLs; MTLS_MESH explicitly attests sidecar/mesh protection.
+    transport-mode: ${REACHAI_INTERNAL_TRANSPORT_MODE:DEVELOPMENT_PLAINTEXT}
+    # Verification-only overlap keys for rolling rotation. Never used to sign new requests.
+    accepted-service-secrets: ${REACHAI_INTERNAL_SERVICE_ACCEPTED_SECRETS:}
+  personal-memory:
+    # Dedicated HMAC key: Knowledge stores only a pseudonymous owner hash.
+    index-identity-secret: ${REACHAI_PERSONAL_MEMORY_INDEX_IDENTITY_SECRET:}
+    embedding:
+      # Independent from Control's OFF/SHADOW/ACTIVE routing switch.
+      # LEXICAL is the safe rollout default; HYBRID/VECTOR require a Model Center instance id.
+      mode: ${REACHAI_PERSONAL_MEMORY_KNOWLEDGE_SEARCH_MODE:LEXICAL}
+      model-instance-id: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_MODEL_INSTANCE_ID:}
+      candidate-limit: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_CANDIDATE_LIMIT:1000}
+      batch-size: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_BATCH_SIZE:32}
+      fixed-delay-ms: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_FIXED_DELAY_MS:1000}
+      initial-delay-ms: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_INITIAL_DELAY_MS:5000}
+      observability-fixed-delay-ms: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_OBSERVABILITY_DELAY_MS:30000}
+      observability-initial-delay-ms: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_OBSERVABILITY_INITIAL_DELAY_MS:10000}
+      claim-seconds: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_CLAIM_SECONDS:120}
+      max-attempts: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_MAX_ATTEMPTS:12}
+      initial-backoff-seconds: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_INITIAL_BACKOFF_SECONDS:5}
+      max-backoff-seconds: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_MAX_BACKOFF_SECONDS:3600}
+      min-score: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_MIN_SCORE:0.5}
+      vector-weight: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_VECTOR_WEIGHT:0.75}
+      max-text-chars: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_MAX_TEXT_CHARS:4000}
+      max-query-chars: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_MAX_QUERY_CHARS:4000}
+  knowledge:
+    console-ingress:
+      # Must match Control. Large signed multipart bodies are spooled to a
+      # temporary file and removed after Spring MVC finishes the request.
+      max-body-bytes: ${REACHAI_KNOWLEDGE_CONSOLE_MAX_BODY_BYTES:104857600}
+    project-ingress:
+      max-body-bytes: ${REACHAI_KNOWLEDGE_PROJECT_MAX_BODY_BYTES:10485760}
+
 # ---- RAG 閰嶇疆 ----
 rag:
   default-top-k: 5

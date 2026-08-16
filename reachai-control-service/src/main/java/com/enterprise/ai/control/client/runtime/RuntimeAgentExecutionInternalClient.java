@@ -19,6 +19,7 @@ public interface RuntimeAgentExecutionInternalClient {
 
     String EXECUTE_PATH = "/internal/runtime/agents/execute";
     String EXECUTE_STREAM_PATH = "/internal/runtime/agents/execute/stream";
+    String SESSION_PATH_PREFIX = "/internal/runtime/agents/sessions/";
 
     /**
      * Prefer {@link RuntimeTrustedAgentExecutionGateway} which signs the exact serialized body bytes.
@@ -30,6 +31,7 @@ public interface RuntimeAgentExecutionInternalClient {
             @RequestHeader(InternalServiceAuthHeaders.TIMESTAMP) String timestamp,
             @RequestHeader(InternalServiceAuthHeaders.NONCE) String nonce,
             @RequestHeader(InternalServiceAuthHeaders.IDENTITY_SOURCE) String identitySource,
+            @RequestHeader(value = InternalServiceAuthHeaders.IDENTITY_TENANT_ID, required = false) String identityTenantId,
             @RequestHeader(value = InternalServiceAuthHeaders.IDENTITY_USER_ID, required = false) String identityUserId,
             @RequestHeader(InternalServiceAuthHeaders.BODY_SHA256) String bodySha256,
             @RequestHeader(InternalServiceAuthHeaders.SIGNATURE) String signature,
@@ -43,6 +45,7 @@ public interface RuntimeAgentExecutionInternalClient {
 
     record TrustedIdentityPayload(
             String source,
+            String tenantId,
             String userId
     ) {
     }

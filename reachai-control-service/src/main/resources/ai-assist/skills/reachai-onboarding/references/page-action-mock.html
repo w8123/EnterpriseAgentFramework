@@ -72,6 +72,7 @@
           actionKey: request.actionKey,
           status: bridgeResult.status === 'SUCCESS' ? 'SUCCESS' : (bridgeResult.status || 'FAILED'),
           data: bridgeResult.data,
+          message: typeof bridgeResult.message === 'string' ? bridgeResult.message : undefined,
           error: errorText
         })
       }

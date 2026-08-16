@@ -273,7 +273,7 @@ export interface PageAssistantWorkflowAttachRequest {
   projectId?: number | null
   projectCode?: string | null
   agentId?: string | null
-  modelInstanceId: string
+  modelInstanceId?: string | null
   publishedBy?: string | null
 }
 

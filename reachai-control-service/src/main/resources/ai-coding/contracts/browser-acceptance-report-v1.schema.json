@@ -7,7 +7,9 @@
     "passed",
     "summary",
     "checks",
-    "browserVerification"
+    "browserVerification",
+    "structuredPresentation",
+    "stateRestoration"
   ],
   "properties": {
     "passed": {
@@ -26,6 +28,63 @@
     },
     "browserVerification": {
       "$ref": "delivery-evidence-v1.schema.json#/$defs/browserVerification"
+    },
+    "structuredPresentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "passed",
+        "uiRequestedObserved",
+        "cardDomObserved",
+        "component",
+        "evidence"
+      ],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "uiRequestedObserved": {
+          "type": "boolean"
+        },
+        "cardDomObserved": {
+          "type": "boolean"
+        },
+        "component": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "stateRestoration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "passed",
+        "evidence"
+      ],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     },
     "traceId": {
       "type": [

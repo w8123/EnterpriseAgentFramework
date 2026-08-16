@@ -13,6 +13,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -86,6 +87,34 @@ class ContextGovernanceOpsControllerTest {
         assertEquals(1, dryRun.getBody().expiredCandidateCount());
         assertEquals(1, dryRun.getBody().staleItemCount());
         verify(candidateMapper, never()).updateById(any());
+        verify(itemMapper, never()).updateById(any());
+    }
+
+    @Test
+    void genericGovernanceRoutesRejectPrivateRuntimeUserLaneAndHideItsAudit() {
+        ContextItemMapper itemMapper = mock(ContextItemMapper.class);
+        ContextNamespaceMapper namespaceMapper = mock(ContextNamespaceMapper.class);
+        ContextAuditEventMapper auditMapper = mock(ContextAuditEventMapper.class);
+        ContextMemoryCandidateMapper candidateMapper = mock(ContextMemoryCandidateMapper.class);
+        ContextGovernanceOpsController controller =
+                new ContextGovernanceOpsController(itemMapper, namespaceMapper, auditMapper, candidateMapper);
+        ContextAuditEventEntity personalAudit = auditEvent(21L);
+        personalAudit.setActorType("RUNTIME_USER");
+        personalAudit.setNamespaceId(7L);
+        when(auditMapper.selectList(any())).thenReturn(List.of(personalAudit));
+
+        assertEquals(List.of(), controller.audit("default", null, null, null, null,
+                null, null, null, null, null, null, null, 20).getBody());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.query(new ContextGovernanceOpsController.QueryCommand(
+                        "default", null, null, "RUNTIME_USER", "KEYWORD", "private", null, 5)))
+                .getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.summary("default", null, null, "PROJECT_DEV", true)).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.runLifecycle(new ContextGovernanceOpsController.LifecycleCommand(
+                        "default", null, null, true, true))).getStatusCode());
+        verify(itemMapper, never()).selectList(any());
         verify(itemMapper, never()).updateById(any());
     }
 

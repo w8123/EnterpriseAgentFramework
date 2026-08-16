@@ -25,11 +25,14 @@ class RegistryOperationsCompatibilityControllerTest {
         RequestMapping controllerMapping =
                 RegistryOperationsCompatibilityController.class.getAnnotation(RequestMapping.class);
         Method heartbeat = RegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("heartbeat", String.class, Map.class);
+                .getDeclaredMethod("heartbeat", String.class, String.class, String.class,
+                        String.class, String.class, Map.class);
         Method syncCapabilities = RegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("syncCapabilities", String.class, Map.class);
+                .getDeclaredMethod("syncCapabilities", String.class, String.class, String.class,
+                        String.class, String.class, Map.class);
         Method diffCapabilities = RegistryOperationsCompatibilityController.class
-                .getDeclaredMethod("diffCapabilities", String.class, Map.class);
+                .getDeclaredMethod("diffCapabilities", String.class, String.class, String.class,
+                        String.class, String.class, Map.class);
         Method applyCapabilities = RegistryOperationsCompatibilityController.class
                 .getDeclaredMethod("applyCapabilities", String.class, Map.class);
         Method syncAgentGraphs = RegistryOperationsCompatibilityController.class
@@ -40,6 +43,8 @@ class RegistryOperationsCompatibilityControllerTest {
                 .getDeclaredMethod("listCapabilityDiffItems", Long.class);
         Method reviewDiffItem = RegistryOperationsCompatibilityController.class
                 .getDeclaredMethod("reviewCapabilityDiffItem", Long.class, Map.class);
+        Method rollbackDiffItem = RegistryOperationsCompatibilityController.class
+                .getDeclaredMethod("rollbackCapabilityDiffItem", Long.class, Map.class);
 
         assertArrayEquals(new String[] {"/api/registry"}, controllerMapping.value());
         assertArrayEquals(new String[] {"/projects/{projectCode}/instances/heartbeat"},
@@ -58,6 +63,8 @@ class RegistryOperationsCompatibilityControllerTest {
                 listDiffItems.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[] {"/capability-diff-items/{diffItemId}/review"},
                 reviewDiffItem.getAnnotation(PostMapping.class).value());
+        assertArrayEquals(new String[] {"/capability-diff-items/{diffItemId}/rollback"},
+                rollbackDiffItem.getAnnotation(PostMapping.class).value());
     }
 
     @Test
@@ -69,19 +76,28 @@ class RegistryOperationsCompatibilityControllerTest {
         Map<String, Object> request = Map.of("syncId", "sync-1");
         ResponseEntity<Object> delegated = ResponseEntity.ok(Map.of("syncId", "sync-1"));
 
-        when(capabilityProxyClient.heartbeat("orders", request)).thenReturn(delegated);
-        when(capabilityProxyClient.syncCapabilities("orders", request)).thenReturn(delegated);
-        when(capabilityProxyClient.diffCapabilities("orders", request)).thenReturn(delegated);
+        when(capabilityProxyClient.heartbeat(
+                "orders", "key", "123", "nonce", "signature", request)).thenReturn(delegated);
+        when(capabilityProxyClient.syncCapabilities(
+                "orders", "key", "123", "nonce", "signature", request)).thenReturn(delegated);
+        when(capabilityProxyClient.diffCapabilities(
+                "orders", "key", "123", "nonce", "signature", request)).thenReturn(delegated);
         when(capabilityProxyClient.applyCapabilities("orders", request)).thenReturn(delegated);
 
-        assertEquals(delegated, controller.heartbeat("orders", request));
-        assertEquals(delegated, controller.syncCapabilities("orders", request));
-        assertEquals(delegated, controller.diffCapabilities("orders", request));
+        assertEquals(delegated, controller.heartbeat(
+                "orders", "key", "123", "nonce", "signature", request));
+        assertEquals(delegated, controller.syncCapabilities(
+                "orders", "key", "123", "nonce", "signature", request));
+        assertEquals(delegated, controller.diffCapabilities(
+                "orders", "key", "123", "nonce", "signature", request));
         assertEquals(delegated, controller.applyCapabilities("orders", request));
 
-        verify(capabilityProxyClient).heartbeat("orders", request);
-        verify(capabilityProxyClient).syncCapabilities("orders", request);
-        verify(capabilityProxyClient).diffCapabilities("orders", request);
+        verify(capabilityProxyClient).heartbeat(
+                "orders", "key", "123", "nonce", "signature", request);
+        verify(capabilityProxyClient).syncCapabilities(
+                "orders", "key", "123", "nonce", "signature", request);
+        verify(capabilityProxyClient).diffCapabilities(
+                "orders", "key", "123", "nonce", "signature", request);
         verify(capabilityProxyClient).applyCapabilities("orders", request);
     }
 
@@ -110,18 +126,23 @@ class RegistryOperationsCompatibilityControllerTest {
         ResponseEntity<Object> snapshots = ResponseEntity.ok(List.of(Map.of("id", 1L)));
         ResponseEntity<Object> diffItems = ResponseEntity.ok(List.of(Map.of("id", 12L)));
         ResponseEntity<Object> review = ResponseEntity.ok(Map.of("id", 12L, "reviewStatus", "APPLIED"));
+        ResponseEntity<Object> rollback = ResponseEntity.ok(Map.of("id", 12L, "reviewStatus", "ROLLED_BACK"));
         Map<String, Object> reviewRequest = Map.of("action", "APPLY");
+        Map<String, Object> rollbackRequest = Map.of("operator", "alice");
 
         when(capabilityProxyClient.listCapabilitySnapshots("orders")).thenReturn(snapshots);
         when(capabilityProxyClient.listCapabilityDiffItems(1L)).thenReturn(diffItems);
         when(capabilityProxyClient.reviewCapabilityDiffItem(12L, reviewRequest)).thenReturn(review);
+        when(capabilityProxyClient.rollbackCapabilityDiffItem(12L, rollbackRequest)).thenReturn(rollback);
 
         assertEquals(snapshots, controller.listCapabilitySnapshots("orders"));
         assertEquals(diffItems, controller.listCapabilityDiffItems(1L));
         assertEquals(review, controller.reviewCapabilityDiffItem(12L, reviewRequest));
+        assertEquals(rollback, controller.rollbackCapabilityDiffItem(12L, rollbackRequest));
 
         verify(capabilityProxyClient).listCapabilitySnapshots("orders");
         verify(capabilityProxyClient).listCapabilityDiffItems(1L);
         verify(capabilityProxyClient).reviewCapabilityDiffItem(12L, reviewRequest);
+        verify(capabilityProxyClient).rollbackCapabilityDiffItem(12L, rollbackRequest);
     }
 }

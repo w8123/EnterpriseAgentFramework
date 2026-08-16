@@ -86,6 +86,20 @@ describe('adaptEmbedEvent', () => {
     expect(adaptEmbedEvent('supervisor.step', {})).toBeNull()
   })
 
+  it('maps the sanitized Embed lifecycle progress without restoring supervisor details', () => {
+    const event = adaptEmbedEvent('turn.progress', {
+      phase: 'workflow',
+      state: 'started',
+      message: '正在调用业务能力',
+    })
+    expect(event && !Array.isArray(event) && event.type).toBe('turn.progress')
+    expect(event && !Array.isArray(event) && event.data).toEqual({
+      phase: 'workflow',
+      state: 'started',
+      message: '正在调用业务能力',
+    })
+  })
+
   it('maps message.completed to turn.completed with unwrapped metadata', () => {
     const adapted = adaptEmbedEvent('message.completed', {
       sessionId: 's1',

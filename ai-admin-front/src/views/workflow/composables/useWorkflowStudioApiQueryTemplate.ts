@@ -11,8 +11,8 @@ import { createWorkflowCanvasNode } from '@/utils/workflowStudio'
 import { interactionOutputPorts } from '@/utils/studio'
 import {
   API_QUERY_TEMPLATE_REQUIRED_KINDS,
+  resolveApiQueryTemplateCapability,
   resolveStudioNodeCreation,
-  resolveStudioNodeSetCreation,
 } from '@/utils/studioNodeRegistry'
 import {
   filterProjectApiTools,
@@ -232,8 +232,7 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     pageSize: 10,
   })
 
-  const apiQueryTemplateCapability = computed(() => resolveStudioNodeSetCreation(
-    API_QUERY_TEMPLATE_REQUIRED_KINDS,
+  const apiQueryTemplateCapability = computed(() => resolveApiQueryTemplateCapability(
     deps.nodeTypes.value,
     deps.graphNodeTypeCapabilitiesLoaded.value,
   ))
@@ -347,11 +346,12 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     return projectApiToolStatusLabel(tool)
   }
 
-  function ensureCanCreateStudioNode(kind: CanvasNodeKind) {
+  function ensureCanCreateStudioNode(kind: CanvasNodeKind, variant?: string) {
     const decision = resolveStudioNodeCreation(
       kind,
       deps.nodeTypes.value,
       deps.graphNodeTypeCapabilitiesLoaded.value,
+      variant,
     )
     if (!decision.allowed) {
       ElMessage.warning(decision.reason || '当前节点类型不可新增')
@@ -395,6 +395,8 @@ export function useWorkflowStudioApiQueryTemplate(deps: UseWorkflowStudioApiQuer
     for (const kind of API_QUERY_TEMPLATE_REQUIRED_KINDS) {
       if (!ensureCanCreateStudioNode(kind)) return
     }
+    if (!ensureCanCreateStudioNode('interaction', 'COLLECT_INPUT')) return
+    if (!ensureCanCreateStudioNode('interaction', 'PRESENT_OUTPUT')) return
     const toolRef = projectApiToolRef(tool)
     const qualifiedName = projectApiToolQualifiedName(tool, deps.studio.value.projectCode)
     const projectCode = tool.projectCode || deps.studio.value.projectCode || null

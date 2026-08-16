@@ -18,9 +18,11 @@ import java.util.Map;
 public class DefaultCapabilityHttpToolInvoker implements CapabilityHttpToolInvoker {
 
     private final RestTemplateBuilder restTemplateBuilder;
+    private final CapabilityOutboundTransportPolicy transportPolicy;
 
     @Override
     public Map<String, Object> invoke(CapabilityHttpToolInvocation invocation) {
+        transportPolicy.requireAllowed(invocation.url());
         RestTemplate restTemplate = restTemplateBuilder.build();
         HttpMethod method = HttpMethod.valueOf(invocation.method());
         HttpHeaders headers = new HttpHeaders();

@@ -447,8 +447,38 @@ bridge.destroy()
   if (pkg.name !== artifactManifest.packageName) {
     throw new Error(`Unexpected package name: ${pkg.name}`)
   }
-  for (const file of ['index.mjs', 'index.cjs', 'index.d.ts', 'style.css', 'reachai-chat-embed.umd.js']) {
+  for (const file of ['index.mjs', 'index.cjs', 'index.d.ts', 'style.css', 'reachai-chat-embed.umd.js', 'README.md']) {
     await readFile(resolve(pkgRoot, file))
+  }
+
+  const readme = await readFile(resolve(pkgRoot, 'README.md'), 'utf8')
+  const quickReference = await readFile(resolve(
+    repoRoot,
+    'reachai-control-service',
+    'src',
+    'main',
+    'resources',
+    'ai-assist',
+    'skills',
+    'reachai-onboarding',
+    'references',
+    'embed-chat-quick-reference.md',
+  ), 'utf8')
+  if (readme !== quickReference) {
+    throw new Error('Installed SDK README is stale relative to the onboarding Quick Reference')
+  }
+  for (const token of [
+    'createEafChat(options: EafChatOptions): Promise<EafChatClient>',
+    'export interface EafChatTokenProviderContext',
+    'export interface EafChatOptions',
+    'export interface EafChatClient',
+    'createEafPageBridge(options?: EafPageBridgeOptions): EafPageBridge',
+    'export interface EafPageBridge',
+    'embedToken',
+  ]) {
+    if (!readme.includes(token)) {
+      throw new Error(`Installed SDK README missing Quick Reference token: ${token}`)
+    }
   }
 
   // Acceptance object: installed tarball index.d.ts (not repo src/sdk).
@@ -555,6 +585,22 @@ bridge.destroy()
         `Installed style.css contains ${unsupportedCss}, which breaks legacy enterprise CSS optimizers`,
       )
     }
+  }
+  for (const selector of [
+    '.reachai-conversation--compact .reachai-message__user-avatar',
+    '.reachai-conversation--narrow .reachai-message__prism-avatar',
+    '.reachai-conversation--compact .reachai-message__assistant-row',
+    '.reachai-conversation--narrow .reachai-message__user-row',
+    '.reachai-conversation--compact .reachai-message__user-bubble',
+  ]) {
+    if (!installedStyle.includes(selector)) {
+      throw new Error(`Installed style.css missing scoped ancestor selector: ${selector}`)
+    }
+  }
+  if (/\.reachai-conversation--compact\s*,\s*\.reachai-conversation--narrow\s*\{[^}]*\b(?:display|grid-template-columns|gap|max-width)\s*:/.test(installedStyle)) {
+    throw new Error(
+      'Installed style.css collapsed message layout declarations onto the conversation root',
+    )
   }
 
   const assets = (await readdir(pkgRoot)).filter((name) => /\.(webp|png|jpe?g|gif|svg)$/i.test(name))

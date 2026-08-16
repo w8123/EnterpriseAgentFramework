@@ -28,7 +28,8 @@ public class RuntimePageAssistantWorkflowAttachmentService {
                         request == null ? null : request.projectCode(),
                         request == null ? null : request.agentId(),
                         request == null ? null : request.modelInstanceId(),
-                        request == null ? null : request.publishedBy()));
+                        request == null ? null : request.publishedBy(),
+                        request == null ? null : request.replaceWorkflowId()));
         String toolName = StringUtils.hasText(result.toolName())
                 ? result.toolName().trim()
                 : fallbackToolName(result.workflow().keySlug());
@@ -41,7 +42,8 @@ public class RuntimePageAssistantWorkflowAttachmentService {
                 result.activeConfig().id(),
                 result.activeConfig().version(),
                 result.activeConfig().status(),
-                "ACTIVE".equalsIgnoreCase(result.activeConfig().status()));
+                "ACTIVE".equalsIgnoreCase(result.activeConfig().status()),
+                result.replacedWorkflowId());
     }
 
     private static String fallbackToolName(String keySlug) {

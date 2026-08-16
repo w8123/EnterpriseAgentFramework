@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reachai.dev/contracts/reachai-business-memory-reference-v1.schema.json",
+  "title": "ReachAI Business Memory Reference v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "tenantId",
+    "projectCode",
+    "sourceSystem",
+    "resourceType",
+    "resourceId",
+    "sourceVersion",
+    "resolverCapabilityKey",
+    "observedAt"
+  ],
+  "properties": {
+    "schema": { "const": "reachai-business-memory-reference-v1" },
+    "tenantId": { "$ref": "#/$defs/identifier96" },
+    "projectCode": { "$ref": "#/$defs/identifier96" },
+    "sourceSystem": { "$ref": "#/$defs/identifier96" },
+    "resourceType": { "$ref": "#/$defs/identifier96" },
+    "resourceId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "sourceVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "resolverCapabilityKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "observedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "identifier96": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    }
+  }
+}

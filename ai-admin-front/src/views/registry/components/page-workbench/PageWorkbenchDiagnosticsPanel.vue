@@ -26,11 +26,68 @@ const emit = defineEmits<{
 }>()
 
 const statusCounts = computed(() => {
-  const counts = { PASS: 0, PENDING: 0, FAIL: 0, WARN: 0 }
+  const counts: Record<PageIntegrationReadinessItem['status'], number> = {
+    PASS: 0,
+    PENDING: 0,
+    FAIL: 0,
+    WARN: 0,
+    NOT_REQUIRED: 0,
+  }
   for (const item of props.readiness?.items || []) {
     counts[item.status] += 1
   }
   return counts
+})
+
+const recommendedNextStep = computed(() => {
+  const readiness = props.readiness
+  if (!readiness) return null
+
+  const firstAttentionItem = readiness.items.find(
+    (item) => !['PASS', 'NOT_REQUIRED'].includes(item.status),
+  )
+  if (!firstAttentionItem) {
+    return {
+      status: 'PASS' as const,
+      title: '接入检查已通过',
+      message: '页面信息、操作注册和最近一次真实执行均已验证。若当前页面已完成真实浏览器验收，无需重复操作；可在“接入历程”查看发布版本与证据，或继续接入下一个页面。',
+    }
+  }
+
+  const guidanceByKey: Record<string, { title: string; message: string }> = {
+    PAGE_DEFINITION_READY: {
+      title: '先补齐页面定位信息',
+      message: '回到页面资源，补充路由或组件路径；保存后重新检查。ReachAI 需要这一信息将页面操作、浏览器会话和验收证据归到同一个业务页面。',
+    },
+    PAGE_ACTION_CATALOG_READY: {
+      title: '先建立可调用的页面操作',
+      message: '通过 AI Coding 生成页面操作，或由 SDK 上报 @ReachCapability；至少提供一个可验证的只读操作，再回到这里重新检查。',
+    },
+    PAGE_BRIDGE_SESSION_READY: {
+      title: '打开目标业务页面建立会话',
+      message: '确认业务页面已挂载 ReachAI Embed SDK 和对话入口，然后在该页面刷新一次。平台观测到真实 Page Bridge 会话后，会自动更新此项。',
+    },
+    PAGE_ACTION_BINDING_READY: {
+      title: '对齐页面操作的 actionKey',
+      message: '在业务页面的 registerAction(...) 中注册目录里的每个页面操作，并确保 actionKey 完全一致；刷新业务页面后重新检查。',
+    },
+    PAGE_ACTION_RUNTIME_READY: {
+      title: '执行一次真实页面操作',
+      message: '在业务页面的嵌入对话中发起一个已发布的只读查询，例如“查询课程列表”。收到真实结果后重新检查，平台不会把模拟结果当作验收证据。',
+    },
+    PAGE_BROWSER_E2E_READY: {
+      title: '完成浏览器端真实对话验收',
+      message: '在当前业务页面通过 ReachAI 对话入口发送一条真实消息并收到回复，再刷新验收任务。只有浏览器侧实际会话会让这项通过。',
+    },
+  }
+
+  const guidance = guidanceByKey[firstAttentionItem.key]
+  return {
+    status: firstAttentionItem.status,
+    title: guidance?.title || '处理当前待确认项',
+    message: guidance?.message
+      || `${firstAttentionItem.message} 处理完成后重新检查，以平台观测到的事实为准。`,
+  }
 })
 
 function readinessType(item: PageIntegrationReadinessItem) {
@@ -110,8 +167,29 @@ function formatDateTime(value?: string) {
             <dt>未通过</dt>
             <dd>{{ statusCounts.FAIL }}</dd>
           </div>
+          <div>
+            <dt>无需验收</dt>
+            <dd>{{ statusCounts.NOT_REQUIRED }}</dd>
+          </div>
         </dl>
       </div>
+
+      <section
+        v-if="recommendedNextStep"
+        class="page-diagnostics-next-step"
+        :class="`is-${recommendedNextStep.status.toLowerCase()}`"
+        aria-live="polite"
+      >
+        <el-icon aria-hidden="true">
+          <CircleCheck v-if="recommendedNextStep.status === 'PASS'" />
+          <InfoFilled v-else />
+        </el-icon>
+        <div>
+          <small>建议下一步</small>
+          <strong>{{ recommendedNextStep.title }}</strong>
+          <p>{{ recommendedNextStep.message }}</p>
+        </div>
+      </section>
 
       <div class="embedded-readiness-grid">
         <article

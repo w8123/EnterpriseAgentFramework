@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ModelStreamFailureTest {
 
@@ -36,6 +37,20 @@ class ModelStreamFailureTest {
     void mapsMissingCompletedToInterrupted() {
         assertEquals(ModelStreamFailure.MODEL_STREAM_INTERRUPTED,
                 ModelStreamFailure.emptyResponse(diag(null, true, false)).code());
+    }
+
+    @Test
+    void mapsProviderContextOverflowToStableDefinitiveCodeWithoutLeakingPayload() {
+        ModelStreamFailure failure = ModelStreamFailure.providerError(
+                "context_length_exceeded",
+                "maximum context length; upstream-secret=do-not-return",
+                diag(null, false, false));
+
+        assertEquals(ModelStreamFailure.MODEL_CONTEXT_LENGTH_EXCEEDED, failure.code());
+        assertTrue(failure.isContextLengthExceeded());
+        assertTrue(failure.isDefinitiveProviderFailure());
+        assertFalse(failure.safeMessage().contains("upstream-secret"));
+        assertFalse(failure.toSafeMetadata().toString().contains("do-not-return"));
     }
 
     private static ModelStreamDiagnostics diag(String finishReason, boolean consumed, boolean completed) {

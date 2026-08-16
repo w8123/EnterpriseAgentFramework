@@ -24,12 +24,59 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 class WorkflowTraceSanitizerPersistenceTest {
+
+    @Test
+    void preservesSafeInteractionVariantWithoutPersistingCardData() {
+        String businessValue = uuid();
+
+        Map<String, Object> sanitized = WorkflowTraceSanitizer.sanitizeNodeTrace(
+                Map.of(
+                        "nodeId", "present-output",
+                        "nodeType", "INTERACTION",
+                        "status", "SUCCESS",
+                        "interactionType", "PRESENT_OUTPUT",
+                        "uiRequest", Map.of(
+                                "component", "list_card",
+                                "data", List.of(Map.of(
+                                        "name", businessValue)))));
+
+        assertEquals("PRESENT_OUTPUT", sanitized.get("interactionType"));
+        assertFalse(sanitized.containsKey("uiRequest"));
+        assertFalse(String.valueOf(sanitized).contains(businessValue));
+    }
+
+    @Test
+    void preservesBusinessTerminalClassificationWithoutPersistingHandlerMessage() {
+        String handlerMessage = uuid();
+
+        Map<String, Object> sanitized = WorkflowTraceSanitizer.sanitizeNodeTrace(Map.of(
+                "nodeId", "page-action",
+                "nodeType", "PAGE_ACTION",
+                "status", "BUSINESS_TERMINAL",
+                "outcomeClass", "BUSINESS_TERMINAL",
+                "businessOutcome", "NO_DATA",
+                "traceSummary", Map.of(
+                        "actionKey", "orders.search",
+                        "status", "NO_DATA",
+                        "outcomeClass", "BUSINESS_TERMINAL",
+                        "businessOutcome", "NO_DATA",
+                        "total", 0,
+                        "empty", true,
+                        "message", handlerMessage,
+                        "rows", List.of(Map.of("secret", handlerMessage)))));
+
+        assertEquals("BUSINESS_TERMINAL", sanitized.get("outcomeClass"));
+        assertEquals("NO_DATA", sanitized.get("businessOutcome"));
+        assertTrue(String.valueOf(sanitized).contains("NO_DATA"));
+        assertFalse(String.valueOf(sanitized).contains(handlerMessage));
+    }
 
     @Test
     void persistenceNeverReceivesRawCallerContentInAnyStringField() {

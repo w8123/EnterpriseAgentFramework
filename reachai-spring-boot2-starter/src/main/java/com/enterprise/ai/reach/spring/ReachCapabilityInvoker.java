@@ -2,11 +2,14 @@ package com.enterprise.ai.reach.spring;
 
 import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
 import com.enterprise.ai.reach.sdk.annotation.ReachParam;
+import com.enterprise.ai.reach.sdk.memory.ReachBusinessMemoryResolution;
+import com.enterprise.ai.reach.sdk.memory.ReachBusinessMemoryResolverRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.context.ApplicationContext;
 import org.springframework.util.StringUtils;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.LinkedHashMap;
@@ -43,6 +46,38 @@ public class ReachCapabilityInvoker {
         }
     }
 
+    public boolean hasTag(String capabilityName, String expectedTag) {
+        ensureInitialized();
+        Handler handler = handlers.get(capabilityName);
+        if (handler == null || !StringUtils.hasText(expectedTag)) {
+            return false;
+        }
+        for (String tag : handler.capability.tags()) {
+            if (StringUtils.hasText(tag) && expectedTag.trim().equals(tag.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean requiresBusinessMemoryGuard(String capabilityName) {
+        ensureInitialized();
+        Handler handler = handlers.get(capabilityName);
+        if (handler == null) {
+            return false;
+        }
+        if (hasTag(capabilityName, ReachBusinessMemoryResolverGuard.TAG)
+                || ReachBusinessMemoryResolution.class.isAssignableFrom(handler.method.getReturnType())) {
+            return true;
+        }
+        for (Class<?> parameterType : handler.parameterTypes) {
+            if (ReachBusinessMemoryResolverRequest.class.isAssignableFrom(parameterType)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void ensureInitialized() {
         if (initialized) {
             return;
@@ -65,10 +100,32 @@ public class ReachCapabilityInvoker {
                 ? new LinkedHashMap<String, Object>()
                 : arguments;
         for (int i = 0; i < handler.parameterTypes.length; i++) {
-            Object raw = source.get(handler.parameterNames[i]);
+            String parameterName = handler.parameterNames[i];
+            Object raw = source.get(parameterName);
+            if (!source.containsKey(parameterName)
+                    && handler.parameterTypes.length == 1
+                    && hasAnnotatedInputFields(handler.parameterTypes[i])) {
+                // ReachAI Tool input is a flat object. A single DTO whose fields carry
+                // @ReachParam metadata represents that object even when the Java method
+                // gives the parameter a wrapper name such as "request".
+                raw = source;
+            }
             values[i] = raw == null ? null : objectMapper.convertValue(raw, handler.parameterTypes[i]);
         }
         return values;
+    }
+
+    private boolean hasAnnotatedInputFields(Class<?> parameterType) {
+        Class<?> current = parameterType;
+        while (current != null && current != Object.class) {
+            for (Field field : current.getDeclaredFields()) {
+                if (field.getAnnotation(ReachParam.class) != null) {
+                    return true;
+                }
+            }
+            current = current.getSuperclass();
+        }
+        return false;
     }
 
     private void indexBean(Object bean) {
@@ -83,7 +140,8 @@ public class ReachCapabilityInvoker {
             }
             String name = StringUtils.hasText(capability.name()) ? capability.name().trim() : method.getName();
             method.setAccessible(true);
-            handlers.put(name, new Handler(bean, method, parameterNames(method), parameterTypes(method)));
+            handlers.put(name, new Handler(bean, method, capability,
+                    parameterNames(method), parameterTypes(method)));
         }
     }
 
@@ -121,12 +179,15 @@ public class ReachCapabilityInvoker {
     private static class Handler {
         private final Object bean;
         private final Method method;
+        private final ReachCapability capability;
         private final String[] parameterNames;
         private final Class<?>[] parameterTypes;
 
-        Handler(Object bean, Method method, String[] parameterNames, Class<?>[] parameterTypes) {
+        Handler(Object bean, Method method, ReachCapability capability,
+                String[] parameterNames, Class<?>[] parameterTypes) {
             this.bean = bean;
             this.method = method;
+            this.capability = capability;
             this.parameterNames = parameterNames;
             this.parameterTypes = parameterTypes;
         }

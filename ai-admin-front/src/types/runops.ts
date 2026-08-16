@@ -133,6 +133,19 @@ export interface RunDetail {
   repairHints: string[]
 }
 
+export interface TraceWorkflowCandidateEligibility {
+  schema: string
+  traceId: string
+  projectCode?: string
+  eligible: boolean
+  blockers: string[]
+  evidence: string[]
+  sourceWorkflowId?: string
+  sourceWorkflowVersionId?: number
+  sourceWorkflowVersion?: string
+  facts?: Record<string, unknown>
+}
+
 export interface RunExecutionPathItem {
   spanId?: string
   parentSpanId?: string

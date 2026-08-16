@@ -4,6 +4,7 @@ import { ref, watch } from 'vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import type {
   ProjectPage,
+  PublishedPageWorkflow,
   WorkflowEngineeringDraftResult,
 } from '@/types/pageWorkbench'
 import {
@@ -16,19 +17,26 @@ const props = defineProps<{
   modelValue: boolean
   page?: ProjectPage | null
   result?: WorkflowEngineeringDraftResult | null
+  existingWorkflows?: PublishedPageWorkflow[]
   busy?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   studio: [result: WorkflowEngineeringDraftResult]
-  confirm: [result: WorkflowEngineeringDraftResult]
+  confirm: [result: WorkflowEngineeringDraftResult, replaceWorkflowId: string | null]
 }>()
 
 const approved = ref(false)
+const replaceWorkflowId = ref('')
 
 watch(() => props.modelValue, (visible) => {
-  if (visible) approved.value = false
+  if (!visible) return
+  approved.value = false
+  const suggested = props.result?.replaceWorkflowId || ''
+  replaceWorkflowId.value = (props.existingWorkflows || []).some(
+    (workflow) => workflow.workflowId === suggested,
+  ) ? suggested : ''
 })
 </script>
 
@@ -70,8 +78,31 @@ watch(() => props.modelValue, (visible) => {
         <el-empty v-if="!page.actions.length" :image-size="52" description="当前页面尚无有效页面操作" />
       </div>
 
+      <section class="publish-replacement-choice">
+        <div>
+          <strong>上线方式</strong>
+          <p>同一页面可以保留多个不同职责的 Workflow；只有明确替代旧实现时才选择替换。</p>
+        </div>
+        <el-select v-model="replaceWorkflowId" class="publish-replacement-choice__select">
+          <el-option label="新增能力，保留当前页面的全部 Workflow" value="" />
+          <el-option
+            v-for="workflow in existingWorkflows || []"
+            :key="workflow.workflowId"
+            :label="`替换 ${workflow.workflowName}（${workflow.workflowVersion}）`"
+            :value="workflow.workflowId"
+          />
+        </el-select>
+        <el-alert
+          v-if="replaceWorkflowId"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="发布成功后，所选旧 Workflow 将从当前智能体工具目录解除；同页其他能力保持不变。"
+        />
+      </section>
+
       <el-checkbox v-model="approved" class="publish-approval-check">
-        我已确认页面操作范围、权限与风险规则；发布目标来自当前已校验草稿
+        我已确认页面操作范围、权限、风险规则和上述上线方式；发布目标来自当前已校验草稿
       </el-checkbox>
 
       <el-alert
@@ -99,7 +130,7 @@ watch(() => props.modelValue, (visible) => {
         :icon="Promotion"
         :loading="busy"
         :disabled="!approved || !result.validation.valid || !page?.actions.length"
-        @click="emit('confirm', result)"
+        @click="emit('confirm', result, replaceWorkflowId || null)"
       >
         确认发布并接入
       </el-button>

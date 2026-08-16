@@ -5,6 +5,7 @@ import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService;
 import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService.EmbedConversationEvidence;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.RecoverableDataAccessException;
 
 import java.time.LocalDateTime;
 
@@ -76,5 +77,35 @@ class PageWorkbenchBrowserReadinessApplicationServiceTest {
         assertEquals("PENDING", readiness.status());
         assertTrue(readiness.message().contains("No exact page"));
         assertTrue(readiness.message().contains("业务系统打开当前页面"));
+    }
+
+    @Test
+    void keepsTaskDetailReadableWhenConversationEvidenceDatabaseIsUnavailable() {
+        PlatformEmbedE2eEvidenceService evidenceService =
+                mock(PlatformEmbedE2eEvidenceService.class);
+        LocalDateTime observedAfter =
+                LocalDateTime.of(2026, 7, 26, 10, 0);
+        when(evidenceService.latestSuccessfulConversation(
+                "orders",
+                "orders.detail",
+                observedAfter))
+                .thenThrow(new RecoverableDataAccessException(
+                        "connection closed"));
+        PageWorkbenchBrowserReadinessApplicationService service =
+                new PageWorkbenchBrowserReadinessApplicationService(
+                        evidenceService,
+                        new ObjectMapper());
+
+        ReadinessItem readiness = service.evaluate(
+                "orders",
+                "orders.detail",
+                observedAfter);
+
+        assertEquals("PENDING", readiness.status());
+        assertTrue(readiness.message().contains("平台数据库连接"));
+        assertEquals(
+                "DATA_ACCESS_UNAVAILABLE",
+                readiness.evidence().path("reason").asText());
+        assertTrue(readiness.evidence().path("connectionError").isMissingNode());
     }
 }

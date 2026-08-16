@@ -19,9 +19,10 @@ public class PlatformConsoleAuthWebConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(interceptor)
-                .addPathPatterns(
-                        "/api/ai-coding-console/**",
-                        "/api/registry/projects/*/page-workbench/**",
-                        "/api/ai-assist/projects/*/agents/provision");
+                .addPathPatterns(PlatformConsoleRoutePolicy.PROTECTED_PATH_PATTERNS.toArray(new String[0]))
+                // /api/workflows/** is a console namespace, but its narrower
+                // Workflow AI Coding subresource authenticates with the project key.
+                .excludePathPatterns(PlatformConsoleRoutePolicy.INDEPENDENT_PROTOCOL_PATH_PATTERNS.toArray(new String[0]))
+                .excludePathPatterns(PlatformConsoleRoutePolicy.EXCLUDED_PATH_PATTERNS.toArray(new String[0]));
     }
 }

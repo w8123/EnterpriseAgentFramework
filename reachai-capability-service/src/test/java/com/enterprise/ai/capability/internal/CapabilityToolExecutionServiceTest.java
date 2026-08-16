@@ -14,7 +14,9 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -86,6 +88,62 @@ class CapabilityToolExecutionServiceTest {
     }
 
     @Test
+    void rejectsResolverWhenExactToolOrProjectConstraintDoesNotMatch() {
+        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
+        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of()));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker);
+        ToolDefinitionEntity tool = tool("mall:order.resolve", true);
+        tool.setProjectCode("mall");
+        when(mapper.selectOne(any())).thenReturn(tool);
+
+        IllegalStateException projectMismatch = assertThrows(IllegalStateException.class,
+                () -> service.execute("mall:order.resolve", Map.of(
+                        "input", Map.of(),
+                        "constraints", Map.of(
+                                "expectedQualifiedName", "mall:order.resolve",
+                                "expectedProjectCode", "crm"))));
+        assertEquals("Tool does not belong to the required project", projectMismatch.getMessage());
+        assertNull(invoker.invocation);
+
+        IllegalStateException nameMismatch = assertThrows(IllegalStateException.class,
+                () -> service.execute("mall:order.resolve", Map.of(
+                        "input", Map.of(),
+                        "constraints", Map.of(
+                                "expectedQualifiedName", "mall:customer.resolve",
+                                "expectedProjectCode", "mall"))));
+        assertEquals("Tool does not match the required qualified name", nameMismatch.getMessage());
+        assertNull(invoker.invocation);
+    }
+
+    @Test
+    void rejectsResolverWithoutCurrentUserOrSignedBusinessIdentity() {
+        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
+        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of()));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker);
+        ToolDefinitionEntity tool = tool("mall:order.resolve", true);
+        tool.setProjectCode("mall");
+        when(mapper.selectOne(any())).thenReturn(tool);
+        Map<String, Object> constraints = Map.of(
+                "expectedQualifiedName", "mall:order.resolve",
+                "expectedProjectCode", "mall",
+                "requireUserIdentity", true,
+                "requireSignedInvocation", true);
+
+        IllegalStateException missingUser = assertThrows(IllegalStateException.class,
+                () -> service.execute("mall:order.resolve", Map.of(
+                        "input", Map.of(), "context", Map.of(), "constraints", constraints)));
+        assertEquals("Tool invocation requires a current user identity", missingUser.getMessage());
+
+        IllegalStateException unsigned = assertThrows(IllegalStateException.class,
+                () -> service.execute("mall:order.resolve", Map.of(
+                        "input", Map.of(),
+                        "context", Map.of("externalUserId", "user-1"),
+                        "constraints", constraints)));
+        assertEquals("Tool invocation requires a signed business identity", unsigned.getMessage());
+        assertNull(invoker.invocation);
+    }
+
+    @Test
     void appendsInputAsQueryStringForGetTool() {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("orderStatus", "PAID")));
@@ -121,6 +179,79 @@ class CapabilityToolExecutionServiceTest {
         assertEquals("POST", invoker.invocation.method());
         assertEquals("http://orders/api/orders/create", invoker.invocation.url());
         assertEquals(Map.of("orderNo", "A001"), invoker.invocation.body());
+    }
+
+    @Test
+    void rejectsUnlinkedSdkScanToolInsteadOfInvokingItUnsigned() {
+        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
+        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("ok", true)));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker);
+        ScanProjectToolEntity scanTool = scanTool(11L, true);
+        scanTool.setProjectId(33L);
+        scanTool.setSourceLocation("sdk:mall:mall.order.create");
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> service.execute(scanTool, Map.of("input", Map.of())));
+
+        assertTrue(ex.getMessage().contains("signed Tool catalog"));
+        assertNull(invoker.invocation);
+    }
+
+    @Test
+    void signsLinkedScanProjectToolInvocation() {
+        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
+        RegistrySecurityService securityService = mock(RegistrySecurityService.class);
+        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("ok", true)));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker, securityService);
+        ScanProjectToolEntity scanTool = scanTool(11L, true);
+        scanTool.setProjectId(33L);
+        scanTool.setSourceLocation("sdk:mall:mall.order.query");
+        scanTool.setGlobalToolDefinitionId(99L);
+        ToolDefinitionEntity linkedTool = tool("mall:mall.order.query", true);
+        linkedTool.setId(99L);
+        linkedTool.setProjectId(33L);
+        linkedTool.setProjectCode("mall");
+        linkedTool.setName("orders_create");
+        linkedTool.setSourceLocation("sdk:mall:mall.order.query");
+        linkedTool.setEndpointPath("/orders/create");
+        when(mapper.selectById(99L)).thenReturn(linkedTool);
+        RegistryCredentialEntity credential = new RegistryCredentialEntity();
+        credential.setProjectCode("mall");
+        credential.setAppKey("mall");
+        credential.setAppSecret("secret");
+        when(securityService.findPrimaryActiveCredential("mall")).thenReturn(Optional.of(credential));
+
+        service.execute(scanTool, Map.of("input", Map.of(), "context", Map.of("sessionId", "s-1")));
+
+        Map<?, ?> headers = (Map<?, ?>) invoker.invocation.metadata().get("headers");
+        String token = String.valueOf(headers.get(ReachAiInvocationToken.HEADER_NAME));
+        ReachAiInvocationClaims claims = ReachAiInvocationToken.verify(
+                "secret", token, "mall", "mall.order.query", System.currentTimeMillis());
+        assertEquals("mall.order.query", claims.getCapabilityName());
+        assertEquals("s-1", claims.getSessionId());
+    }
+
+    @Test
+    void rejectsSignedScanInvocationWhenLinkedToolIsOutOfSync() {
+        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
+        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", Map.of("ok", true)));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(mapper, invoker);
+        ScanProjectToolEntity scanTool = scanTool(11L, true);
+        scanTool.setProjectId(33L);
+        scanTool.setSourceLocation("sdk:mall:mall.order.create");
+        scanTool.setGlobalToolDefinitionId(99L);
+        ToolDefinitionEntity linkedTool = tool("mall:mall.order.create", true);
+        linkedTool.setId(99L);
+        linkedTool.setProjectId(33L);
+        linkedTool.setName("orders_create");
+        linkedTool.setSourceLocation("sdk:mall:mall.order.create");
+        when(mapper.selectById(99L)).thenReturn(linkedTool);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> service.execute(scanTool, Map.of("input", Map.of())));
+
+        assertEquals(true, ex.getMessage().contains("endpoint"));
+        assertNull(invoker.invocation);
     }
 
     @Test

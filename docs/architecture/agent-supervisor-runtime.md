@@ -63,7 +63,7 @@ Run 类型只有 `AGENT`、`WORKFLOW`。状态为 `RUNNING`、`SUCCESS`、`FAILE
 
 ## 规划与策略边界
 
-AgentScope Supervisor 必须在首次 Workflow 调用前记录 PLAN。Workflow 失败后必须先记录 REPLAN 才能继续调用。默认上限为 6 个计划步骤、4 次 Workflow 调用和 2 次重规划；默认总超时 120 秒、Workflow 超时 60 秒、Page Bridge 超时 20 秒。
+AgentScope Supervisor 必须在首次 Workflow 调用前记录 PLAN。Workflow 失败后必须先记录 REPLAN 才能继续调用。默认上限为 6 个计划步骤、4 次 Workflow 调用和 2 次重规划；默认总超时 300 秒、Workflow 超时 180 秒、Page Bridge 动作执行超时 30 秒。需要用户确认的页面动作另有 90 秒确认窗口，确认后再计算动作执行预算；非只读 Workflow 失败后禁止自动重试同一工具。
 
 只读工具允许并行，写工具串行。所有工具调用先进入 `SupervisorToolPolicyService`，决策顺序为：ACTIVE 配置工具白名单与启停状态 -> project -> tenant -> Agent allowed roles -> permissionKey 角色映射 -> risk level。
 

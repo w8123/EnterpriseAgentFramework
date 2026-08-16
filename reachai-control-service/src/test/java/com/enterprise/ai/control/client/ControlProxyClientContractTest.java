@@ -9,12 +9,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestHeader;
 
 import java.lang.reflect.Method;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class ControlProxyClientContractTest {
 
@@ -31,10 +33,6 @@ class ControlProxyClientContractTest {
         Method executeAgentDetailed = RuntimeProxyClient.class.getMethod("executeAgentDetailed", Map.class);
         assertMapping(executeAgentDetailed, RequestMethod.POST, "/api/runtime/agents/execute/detailed");
         assertEquals(ResponseEntity.class, executeAgentDetailed.getReturnType());
-
-        Method clearAgentSession = RuntimeProxyClient.class.getMethod("clearAgentSession", String.class);
-        assertMapping(clearAgentSession, RequestMethod.DELETE, "/api/runtime/agents/sessions/{sessionId}");
-        assertEquals(ResponseEntity.class, clearAgentSession.getReturnType());
 
         Method routeEvaluation = RuntimeProxyClient.class.getMethod("routeEvaluation", int.class);
         assertMapping(routeEvaluation, RequestMethod.GET, "/api/runtime/agents/route-evaluation");
@@ -142,6 +140,12 @@ class ControlProxyClientContractTest {
                 .getMethod("createWorkflowAiCodingWorkflow", Map.class);
         assertMapping(createWorkflowAiCodingWorkflow, RequestMethod.POST, "/api/workflows/ai-coding/workflows");
         assertEquals(ResponseEntity.class, createWorkflowAiCodingWorkflow.getReturnType());
+
+        Method createTraceWorkflowCandidateDraft = RuntimeProxyClient.class
+                .getMethod("createTraceWorkflowCandidateDraft", Map.class);
+        assertMapping(createTraceWorkflowCandidateDraft, RequestMethod.POST,
+                "/internal/runtime/runops/workflow-candidates/drafts");
+        assertEquals(ResponseEntity.class, createTraceWorkflowCandidateDraft.getReturnType());
 
         Method workflowAiCodingContext = RuntimeProxyClient.class
                 .getMethod("workflowAiCodingContext", String.class);
@@ -369,25 +373,34 @@ class ControlProxyClientContractTest {
         assertEquals("reachai-capability-proxy", feignClient.name());
         assertEquals("${services.capability-service.url:http://localhost:18605}", feignClient.url());
 
-        Method registerProject = CapabilityProxyClient.class.getMethod("registerProject", Map.class);
+        Method registerProject = CapabilityProxyClient.class.getMethod(
+                "registerProject", Map.class, String.class, String.class, String.class, String.class, String.class);
         assertMapping(registerProject, RequestMethod.POST, "/api/registry/projects/register");
         assertEquals(ResponseEntity.class, registerProject.getReturnType());
+        assertRequestHeader(registerProject, 1, "X-ReachAI-Registry-Enrollment-Token");
+        assertSignatureHeaders(registerProject, 2);
 
         Method listInstances = CapabilityProxyClient.class.getMethod("listInstances", String.class);
         assertMapping(listInstances, RequestMethod.GET, "/api/registry/projects/{projectCode}/instances");
         assertEquals(ResponseEntity.class, listInstances.getReturnType());
 
-        Method heartbeat = CapabilityProxyClient.class.getMethod("heartbeat", String.class, Map.class);
+        Method heartbeat = CapabilityProxyClient.class.getMethod(
+                "heartbeat", String.class, String.class, String.class, String.class, String.class, Map.class);
         assertMapping(heartbeat, RequestMethod.POST, "/api/registry/projects/{projectCode}/instances/heartbeat");
         assertEquals(ResponseEntity.class, heartbeat.getReturnType());
+        assertSignatureHeaders(heartbeat, 1);
 
-        Method syncCapabilities = CapabilityProxyClient.class.getMethod("syncCapabilities", String.class, Map.class);
+        Method syncCapabilities = CapabilityProxyClient.class.getMethod(
+                "syncCapabilities", String.class, String.class, String.class, String.class, String.class, Map.class);
         assertMapping(syncCapabilities, RequestMethod.POST, "/api/registry/projects/{projectCode}/capabilities/sync");
         assertEquals(ResponseEntity.class, syncCapabilities.getReturnType());
+        assertSignatureHeaders(syncCapabilities, 1);
 
-        Method diffCapabilities = CapabilityProxyClient.class.getMethod("diffCapabilities", String.class, Map.class);
+        Method diffCapabilities = CapabilityProxyClient.class.getMethod(
+                "diffCapabilities", String.class, String.class, String.class, String.class, String.class, Map.class);
         assertMapping(diffCapabilities, RequestMethod.POST, "/api/registry/projects/{projectCode}/capabilities/diff");
         assertEquals(ResponseEntity.class, diffCapabilities.getReturnType());
+        assertSignatureHeaders(diffCapabilities, 1);
 
         Method getToolDefinition = CapabilityProxyClient.class.getMethod("getToolDefinition", String.class);
         assertMapping(getToolDefinition, RequestMethod.GET, "/internal/capability/tools/{qualifiedName}");
@@ -408,6 +421,10 @@ class ControlProxyClientContractTest {
         Method reviewCapabilityDiffItem = CapabilityProxyClient.class.getMethod("reviewCapabilityDiffItem", Long.class, Map.class);
         assertMapping(reviewCapabilityDiffItem, RequestMethod.POST, "/api/registry/capability-diff-items/{diffItemId}/review");
         assertEquals(ResponseEntity.class, reviewCapabilityDiffItem.getReturnType());
+
+        Method rollbackCapabilityDiffItem = CapabilityProxyClient.class.getMethod("rollbackCapabilityDiffItem", Long.class, Map.class);
+        assertMapping(rollbackCapabilityDiffItem, RequestMethod.POST, "/api/registry/capability-diff-items/{diffItemId}/rollback");
+        assertEquals(ResponseEntity.class, rollbackCapabilityDiffItem.getReturnType());
 
         Method listEmbedCredentialPolicies = CapabilityProxyClient.class
                 .getMethod("listEmbedCredentialPolicies", String.class, String.class, int.class);
@@ -450,5 +467,18 @@ class ControlProxyClientContractTest {
         RequestMapping mapping = method.getAnnotation(RequestMapping.class);
         assertArrayEquals(new RequestMethod[] {expectedMethod}, mapping.method());
         assertArrayEquals(new String[] {expectedPath}, mapping.path());
+    }
+
+    private void assertSignatureHeaders(Method method, int startIndex) {
+        assertRequestHeader(method, startIndex, "X-ReachAI-App-Key");
+        assertRequestHeader(method, startIndex + 1, "X-ReachAI-Timestamp");
+        assertRequestHeader(method, startIndex + 2, "X-ReachAI-Nonce");
+        assertRequestHeader(method, startIndex + 3, "X-ReachAI-Signature");
+    }
+
+    private void assertRequestHeader(Method method, int parameterIndex, String expectedName) {
+        RequestHeader annotation = method.getParameters()[parameterIndex].getAnnotation(RequestHeader.class);
+        assertNotNull(annotation);
+        assertEquals(expectedName, annotation.value());
     }
 }

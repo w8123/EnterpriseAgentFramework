@@ -1,11 +1,12 @@
 /**
  * Page Action pending 补偿轮询调度器。
  *
- * 产品语义：SSE / completion queue 是主路径；pending GET 只做迟到补偿与会话恢复。
+ * 产品语义：SSE / completion queue 是主路径；pending GET 既做迟到补偿与会话恢复，
+ * 也要接收来自页面工作台等外部入口的调试请求。
  * 默认安全策略（不可恢复为永久 500ms）：
  * - Dormant：无 session / 无注册 action / 页面 hidden / destroyed → 不发请求
  * - Active：活动窗口内最多每 1s 一次，窗口建议 5s
- * - Idle：可见空闲最多每 10s 一次
+ * - Idle：只要页面可见、会话在线且仍有页面操作，最多每 10s 一次
  * - Error：5 → 10 → 20 → 40 → 60s 退避，成功清零
  * - 禁止并发 pending GET；进行中只合并一次 rerun
  */
@@ -14,6 +15,8 @@ export const PENDING_POLL_DEFAULTS = {
   activeWindowMs: 5_000,
   activeIntervalMs: 1_000,
   idleIntervalMs: 10_000,
+  /** Kept for timing compatibility; visible active sessions continue low-frequency polling. */
+  recoveryWindowMs: 20_000,
   /** 第 1..n 次连续失败后的等待间隔（ms），封顶取最后一项 */
   backoffMs: [5_000, 10_000, 20_000, 40_000, 60_000] as readonly number[],
 } as const
@@ -22,6 +25,7 @@ export type PendingPollTimings = {
   activeWindowMs: number
   activeIntervalMs: number
   idleIntervalMs: number
+  recoveryWindowMs: number
   backoffMs: readonly number[]
 }
 
@@ -58,6 +62,10 @@ export function createPendingPageActionPollScheduler(
     activeWindowMs: deps.timings?.activeWindowMs ?? PENDING_POLL_DEFAULTS.activeWindowMs,
     activeIntervalMs: deps.timings?.activeIntervalMs ?? PENDING_POLL_DEFAULTS.activeIntervalMs,
     idleIntervalMs: deps.timings?.idleIntervalMs ?? PENDING_POLL_DEFAULTS.idleIntervalMs,
+    recoveryWindowMs: Math.max(
+      deps.timings?.recoveryWindowMs ?? PENDING_POLL_DEFAULTS.recoveryWindowMs,
+      deps.timings?.activeWindowMs ?? PENDING_POLL_DEFAULTS.activeWindowMs,
+    ),
     backoffMs: deps.timings?.backoffMs ?? PENDING_POLL_DEFAULTS.backoffMs,
   }
 
@@ -103,7 +111,7 @@ export function createPendingPageActionPollScheduler(
     return timings.backoffMs[idx]
   }
 
-  function computeDelayMs(at: number): number {
+  function computeDelayMs(at: number): number | null {
     if (backoffUntilMs > at) {
       return backoffUntilMs - at
     }
@@ -145,6 +153,7 @@ export function createPendingPageActionPollScheduler(
 
     const at = now()
     const delay = computeDelayMs(at)
+    if (delay === null) return
     timerId = setTimeoutFn(() => {
       timerId = undefined
       void runPoll()

@@ -2,6 +2,7 @@ package com.enterprise.ai.control.runtime;
 
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.client.runtime.RuntimeTrustedAgentExecutionGateway;
+import com.enterprise.ai.control.context.PersonalMemoryIdentityResolver;
 import com.enterprise.ai.control.identity.PlatformBearerAuthService;
 import com.enterprise.ai.control.identity.PlatformUserEntity;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -41,7 +43,7 @@ class ControlRuntimePublicControllerTest {
         Method executeAgentStream = ControlRuntimePublicController.class
                 .getDeclaredMethod("executeAgentStream", String.class, Map.class);
         Method clearAgentSession = ControlRuntimePublicController.class
-                .getDeclaredMethod("clearAgentSession", String.class);
+                .getDeclaredMethod("clearAgentSession", String.class, String.class);
         Method routeEvaluation = ControlRuntimePublicController.class.getDeclaredMethod("routeEvaluation", int.class);
         Method getTrace = ControlRuntimePublicController.class.getDeclaredMethod("getTrace", String.class);
         Method listRecentTraces = ControlRuntimePublicController.class
@@ -519,6 +521,42 @@ class ControlRuntimePublicControllerTest {
     }
 
     @Test
+    void agentEntryPointsUseTheSameMappedOwnerAsPersonalMemoryManagement() throws Exception {
+        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
+        RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
+        RuntimeTrustedAgentExecutionGateway gateway = mock(RuntimeTrustedAgentExecutionGateway.class);
+        PlatformBearerAuthService bearerAuthService = mock(PlatformBearerAuthService.class);
+        PersonalMemoryIdentityResolver identityResolver = mock(PersonalMemoryIdentityResolver.class);
+        PlatformUserEntity user = new PlatformUserEntity();
+        user.setId(42L);
+        user.setUsername("mapped-user");
+        when(bearerAuthService.resolveBearerUser("Bearer tok")).thenReturn(Optional.of(user));
+        when(identityResolver.resolveAttestedPlatformUser(user, null, "default"))
+                .thenReturn(new PersonalMemoryIdentityResolver.PersonalMemoryPrincipal(
+                        "default", "runtime-user-42", 42L, "mapped-user", null));
+        when(gateway.executeTrusted(any(), eq("AGENT"), eq("runtime-user-42")))
+                .thenReturn(ResponseEntity.ok(Map.of("success", true)));
+        when(gateway.clearTrusted("s1", "AGENT", "default", "runtime-user-42"))
+                .thenReturn(ResponseEntity.noContent().build());
+        ControlRuntimePublicController controller = new ControlRuntimePublicController(
+                runtimeProxyClient, null, streamProxy, gateway, bearerAuthService, identityResolver);
+
+        ResponseEntity<Map<String, Object>> response = controller.executeAgent(
+                "Bearer tok", Map.of("agentId", "a1", "message", "hi"));
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        controller.executeAgentStream(
+                "Bearer tok", Map.of("agentId", "a1", "message", "hi")).getBody().writeTo(output);
+        ResponseEntity<Void> cleared = controller.clearAgentSession("Bearer tok", "s1");
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(HttpStatus.NO_CONTENT, cleared.getStatusCode());
+        verify(identityResolver, times(3)).resolveAttestedPlatformUser(user, null, "default");
+        verify(gateway).executeTrusted(any(), eq("AGENT"), eq("runtime-user-42"));
+        verify(gateway).streamTrusted(any(), eq("AGENT"), eq("runtime-user-42"), eq(output), any());
+        verify(gateway).clearTrusted("s1", "AGENT", "default", "runtime-user-42");
+    }
+
+    @Test
     void agentStreamWithBearerUsesSignedInternalStream() throws Exception {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
         RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
@@ -557,14 +595,35 @@ class ControlRuntimePublicControllerTest {
     }
 
     @Test
-    void delegatesAgentSessionClearToRuntimeService() {
+    void clearsAgentSessionThroughTrustedIdentityBoundary() {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
-        ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);
+        RuntimeTrustedAgentExecutionGateway gateway = mock(RuntimeTrustedAgentExecutionGateway.class);
+        PlatformBearerAuthService bearerAuthService = mock(PlatformBearerAuthService.class);
+        PlatformUserEntity user = new PlatformUserEntity();
+        user.setId(42L);
+        when(bearerAuthService.resolveBearerUser("Bearer tok")).thenReturn(Optional.of(user));
+        ControlRuntimePublicController controller = new ControlRuntimePublicController(
+                runtimeProxyClient, null, null, gateway, bearerAuthService);
         ResponseEntity<Void> cleared = ResponseEntity.noContent().build();
-        when(runtimeProxyClient.clearAgentSession("s1")).thenReturn(cleared);
+        when(gateway.clearTrusted("s1", "AGENT", "default", "42")).thenReturn(cleared);
 
-        assertEquals(cleared, controller.clearAgentSession("s1"));
-        verify(runtimeProxyClient).clearAgentSession("s1");
+        assertEquals(cleared, controller.clearAgentSession("Bearer tok", "s1"));
+        verify(gateway).clearTrusted("s1", "AGENT", "default", "42");
+    }
+
+    @Test
+    void rejectsAgentSessionClearWithoutAuthenticatedUser() {
+        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
+        RuntimeTrustedAgentExecutionGateway gateway = mock(RuntimeTrustedAgentExecutionGateway.class);
+        PlatformBearerAuthService bearerAuthService = mock(PlatformBearerAuthService.class);
+        when(bearerAuthService.resolveBearerUser(null)).thenReturn(Optional.empty());
+        ControlRuntimePublicController controller = new ControlRuntimePublicController(
+                runtimeProxyClient, null, null, gateway, bearerAuthService);
+
+        ResponseEntity<Void> response = controller.clearAgentSession(null, "s1");
+
+        assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
+        verify(gateway, never()).clearTrusted(any(), any(), any(), any());
     }
 
     @Test

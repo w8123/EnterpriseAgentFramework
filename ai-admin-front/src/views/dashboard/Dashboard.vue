@@ -242,6 +242,7 @@ import { listAgents } from '@/api/workflow'
 import { getKnowledgeList } from '@/api/knowledge'
 import { getModelInstances } from '@/api/model'
 import { getTools } from '@/api/tool'
+import { controlRequest } from '@/api/request'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 
@@ -383,13 +384,12 @@ async function checkControlAndInternalServices() {
   }
 
   try {
-    const resp = await fetch('/api/internal-services/health', { signal: AbortSignal.timeout(5000) })
-    if (!resp.ok) {
-      markAllOffline()
-      return
-    }
+    const response = await controlRequest.get<InternalServicesHealthResponse>(
+      '/api/internal-services/health',
+      { timeout: 5000 },
+    )
     serviceHealth['reachai-control-service'] = 'online'
-    const body = (await resp.json()) as InternalServicesHealthResponse
+    const body = response.data
     serviceHealth['reachai-runtime-service'] = isUp(body.services?.runtime) ? 'online' : 'offline'
     serviceHealth['reachai-capability-service'] = isUp(body.services?.capability) ? 'online' : 'offline'
     serviceHealth['reachai-model-service'] = isUp(body.services?.model) ? 'online' : 'offline'

@@ -27,7 +27,8 @@ class CapabilityRegistryCompatibilityControllerTest {
         RequestMapping controllerMapping =
                 CapabilityRegistryCompatibilityController.class.getAnnotation(RequestMapping.class);
         Method registerProject = CapabilityRegistryCompatibilityController.class
-                .getDeclaredMethod("registerProject", ProjectRegisterRequest.class);
+                .getDeclaredMethod("registerProject", ProjectRegisterRequest.class, String.class, String.class,
+                        String.class, String.class, String.class);
         Method listInstances = CapabilityRegistryCompatibilityController.class
                 .getDeclaredMethod("listInstances", String.class);
 
@@ -56,14 +57,16 @@ class CapabilityRegistryCompatibilityControllerTest {
                 120,
                 Map.of("source", "test")
         );
-        RegistryProjectResponse delegated = new RegistryProjectResponse(1L, "demo", "Demo", "dev", "PRIVATE");
-        when(registryService.registerProject(request)).thenReturn(delegated);
+        RegistryProjectResponse delegated = new RegistryProjectResponse(1L, "demo", "Demo", "dev", "PRIVATE", null, null);
+        when(registryService.registerProject(org.mockito.ArgumentMatchers.eq(request),
+                org.mockito.ArgumentMatchers.eq("ren_once"), org.mockito.ArgumentMatchers.any())).thenReturn(delegated);
 
-        ResponseEntity<?> response = controller.registerProject(request);
+        ResponseEntity<?> response = controller.registerProject(request, "ren_once", null, null, null, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(delegated, response.getBody());
-        verify(registryService).registerProject(request);
+        verify(registryService).registerProject(org.mockito.ArgumentMatchers.eq(request),
+                org.mockito.ArgumentMatchers.eq("ren_once"), org.mockito.ArgumentMatchers.any());
     }
 
     @Test

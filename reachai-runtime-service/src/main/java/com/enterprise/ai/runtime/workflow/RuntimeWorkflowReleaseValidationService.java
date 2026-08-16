@@ -28,9 +28,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class RuntimeWorkflowReleaseValidationService {
+
+    private static final Pattern PAGE_ACTION_DATA_WRAPPER_REFERENCE = Pattern.compile(
+            "nodeOutput\\.([A-Za-z0-9_-]+)\\.data(?=\\.|\\b)");
 
     private final RuntimeControlCatalogClient controlCatalogClient;
     private final ObjectMapper objectMapper;
@@ -74,6 +79,7 @@ public class RuntimeWorkflowReleaseValidationService {
             return report.build();
         }
         validateGraph(workflow, graph, boundPageKeys, report);
+        validateWorkflowKindContract(workflow, graph, report);
         return report.build();
     }
 
@@ -90,7 +96,23 @@ public class RuntimeWorkflowReleaseValidationService {
             return report.build();
         }
         validateGraph(workflow, graphSpec, boundPageKeys, report);
+        validateWorkflowKindContract(workflow, graphSpec, report);
         return report.build();
+    }
+
+    /**
+     * Workflow-kind constraints stay beside Runtime release validation so a
+     * GraphSpec accepted through AI Coding cannot be rejected later by Studio
+     * for a rule that was never exposed by the public contract.
+     */
+    private void validateWorkflowKindContract(
+            RuntimeWorkflowDefinitionEntity workflow,
+            GraphSpec graph,
+            RuntimeWorkflowReleaseValidationResult.Builder report) {
+        if (workflow != null
+                && WorkflowSemanticValues.KIND_PAGE_ASSISTANT.equals(workflow.getWorkflowKind())) {
+            RuntimeWorkflowInputContract.validatePageAssistant(graph, report);
+        }
     }
 
     public GraphSpec readGraph(String graphSpecJson, RuntimeWorkflowReleaseValidationResult.Builder report) {
@@ -160,6 +182,8 @@ public class RuntimeWorkflowReleaseValidationService {
         List<GraphSpec.Edge> edges = graph.getEdges() == null ? List.of() : graph.getEdges();
         Map<String, GraphSpec.Node> byId = new LinkedHashMap<>();
         Map<String, String> outputAliases = new LinkedHashMap<>();
+        Map<String, RuntimeControlCatalogClient.PageActionCatalogEntry> pageActionsByNodeId =
+                new LinkedHashMap<>();
         // First pass: index all nodes so LOOP body ownership checks see the full graph.
         for (GraphSpec.Node node : nodes) {
             if (node == null || !StringUtils.hasText(node.getId())) {
@@ -178,10 +202,10 @@ public class RuntimeWorkflowReleaseValidationService {
             String type = knownType ? canonicalType.type() : String.valueOf(node.getType());
             RuntimeWorkflowNodeCapabilityDescriptor capability = nodeCapabilityRegistry.find(type).orElse(null);
             boolean runtimeExecutable = capability != null && capability.runtimeExecutable();
-            // PRESENT_OUTPUT is display-only and never enters pause/resume. It can be published
-            // independently while blocking INTERACTION variants remain behind the production E2E gate.
-            boolean displayOnlyInteraction = "INTERACTION".equals(type) && isPresentOutputInteraction(node);
-            boolean publishable = capability != null && (capability.publishable() || displayOnlyInteraction);
+            // The capability registry applies variant-level openness. PRESENT_OUTPUT can publish
+            // independently while blocking INTERACTION variants remain behind the pause/resume gate.
+            boolean publishable = capability != null
+                    && nodeCapabilityRegistry.isPublishable(type, node.getConfig());
             if (!knownType) {
                 report.error("GRAPH_NODE_TYPE_UNSUPPORTED", nodeId,
                         "Graph node type must use a canonical value: " + node.getType());
@@ -246,7 +270,11 @@ public class RuntimeWorkflowReleaseValidationService {
                     validateLoopNode(node, byId, edges, report);
                 }
                 if ("PAGE_ACTION".equals(type)) {
-                    validatePageActionNode(workflow, node, boundPageKeys, report);
+                    RuntimeControlCatalogClient.PageActionCatalogEntry action =
+                            validatePageActionNode(workflow, node, boundPageKeys, report);
+                    if (action != null) {
+                        pageActionsByNodeId.put(nodeId, action);
+                    }
                 }
                 validateOutputAlias(node, outputAliases, report);
                 validateRetryPolicy(node, report);
@@ -256,6 +284,7 @@ public class RuntimeWorkflowReleaseValidationService {
         for (GraphSpec.Node node : byId.values()) {
             validateErrorPolicy(node, byId.keySet(), report);
         }
+        validatePageActionOutputReferences(byId, pageActionsByNodeId, report);
         validateLoopBodyDualOwnership(byId, report);
 
         String entry = StringUtils.hasText(graph.getEntryNodeId()) ? graph.getEntryNodeId().trim() : null;
@@ -1030,6 +1059,21 @@ public class RuntimeWorkflowReleaseValidationService {
                         "Duplicate PARAMETER_EXTRACT field name: " + name);
             }
         }
+        String mode = firstText(text(config.get("extractMode")), text(config.get("mode")), "expression");
+        String inputExpression = firstText(text(config.get("inputExpression")), "input");
+        String userPrompt = text(config.get("userPrompt"));
+        if ("LLM".equalsIgnoreCase(mode)
+                && inputExpression.startsWith("nodeOutput.")
+                && StringUtils.hasText(userPrompt)
+                && !compactWhitespace(userPrompt).contains(compactWhitespace(inputExpression))) {
+            report.error("GRAPH_PARAMETER_USER_PROMPT_INPUT_MISSING", node.getId(),
+                    "PARAMETER_EXTRACT userPrompt overrides inputExpression; include {{ "
+                            + inputExpression + " }} in userPrompt or leave userPrompt empty");
+        }
+    }
+
+    private String compactWhitespace(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", "");
     }
 
     private void validateIntentClassifier(GraphSpec.Node node,
@@ -1156,16 +1200,6 @@ public class RuntimeWorkflowReleaseValidationService {
             report.error("GRAPH_INTERACTION_SCHEMA_UNSAFE", node.getId(),
                     "INTERACTION schema must not contain HTML/JS/script markup");
         }
-    }
-
-    private boolean isPresentOutputInteraction(GraphSpec.Node node) {
-        Map<String, Object> config = interactionConfig(node);
-        Object rawType = firstPresent(config.get("interactionType"), config.get("mode"), config.get("type"));
-        if (rawType == null) {
-            return false;
-        }
-        String normalized = String.valueOf(rawType).trim().replace('-', '_').toUpperCase(Locale.ROOT);
-        return "PRESENT_OUTPUT".equals(normalized);
     }
 
     private Map<String, Object> interactionConfig(GraphSpec.Node node) {
@@ -1443,10 +1477,11 @@ public class RuntimeWorkflowReleaseValidationService {
         return fallback;
     }
 
-    private void validatePageActionNode(RuntimeWorkflowDefinitionEntity workflow,
-                                        GraphSpec.Node node,
-                                        Set<String> boundPageKeys,
-                                        RuntimeWorkflowReleaseValidationResult.Builder report) {
+    private RuntimeControlCatalogClient.PageActionCatalogEntry validatePageActionNode(
+            RuntimeWorkflowDefinitionEntity workflow,
+            GraphSpec.Node node,
+            Set<String> boundPageKeys,
+            RuntimeWorkflowReleaseValidationResult.Builder report) {
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
         String pageKey = text(config.get("pageKey"));
         String actionKey = text(config.get("actionKey"));
@@ -1458,7 +1493,7 @@ public class RuntimeWorkflowReleaseValidationService {
             report.error("GRAPH_PAGE_ACTION_KEY_EMPTY", node.getId(), "PAGE_ACTION node requires actionKey");
         }
         if (!StringUtils.hasText(projectCode) || !StringUtils.hasText(pageKey) || !StringUtils.hasText(actionKey)) {
-            return;
+            return null;
         }
         if (WorkflowSemanticValues.KIND_PAGE_ASSISTANT.equals(workflow.getWorkflowKind())
                 && !boundPageKeys.contains(pageKey)) {
@@ -1477,7 +1512,7 @@ public class RuntimeWorkflowReleaseValidationService {
         if (action == null) {
             report.error("GRAPH_PAGE_ACTION_CATALOG_MISSING", node.getId(),
                     "PAGE_ACTION catalog entry does not exist: " + projectCode + "/" + pageKey + "/" + actionKey);
-            return;
+            return null;
         }
         if (!"ACTIVE".equalsIgnoreCase(action.status())) {
             report.error("GRAPH_PAGE_ACTION_CATALOG_INACTIVE", node.getId(),
@@ -1507,6 +1542,72 @@ public class RuntimeWorkflowReleaseValidationService {
                     node.getId(),
                     "PAGE_ACTION requires explicit runtime confirmation: " + actionKey);
         }
+        return action;
+    }
+
+    /**
+     * Page Bridge removes the action result envelope before publishing a PAGE_ACTION node output:
+     * {@code nodeOutput.<nodeId>} is the business action's declared {@code data} value itself.
+     * A second {@code .data} silently resolves to null unless that property is explicitly part of
+     * the business output schema, so fail the release while the mistake is still actionable.
+     */
+    private void validatePageActionOutputReferences(
+            Map<String, GraphSpec.Node> nodesById,
+            Map<String, RuntimeControlCatalogClient.PageActionCatalogEntry> pageActionsByNodeId,
+            RuntimeWorkflowReleaseValidationResult.Builder report) {
+        for (GraphSpec.Node consumer : nodesById.values()) {
+            validatePageActionOutputReferences(
+                    consumer.getConfig(),
+                    consumer.getId(),
+                    pageActionsByNodeId,
+                    report);
+        }
+    }
+
+    private void validatePageActionOutputReferences(
+            Object value,
+            String consumerNodeId,
+            Map<String, RuntimeControlCatalogClient.PageActionCatalogEntry> pageActionsByNodeId,
+            RuntimeWorkflowReleaseValidationResult.Builder report) {
+        if (value instanceof Map<?, ?> map) {
+            for (Object nested : map.values()) {
+                validatePageActionOutputReferences(nested, consumerNodeId, pageActionsByNodeId, report);
+            }
+            return;
+        }
+        if (value instanceof Iterable<?> items) {
+            for (Object nested : items) {
+                validatePageActionOutputReferences(nested, consumerNodeId, pageActionsByNodeId, report);
+            }
+            return;
+        }
+        if (!(value instanceof String expression) || !expression.contains("nodeOutput.")) {
+            return;
+        }
+        Matcher matcher = PAGE_ACTION_DATA_WRAPPER_REFERENCE.matcher(expression);
+        while (matcher.find()) {
+            String producerNodeId = matcher.group(1);
+            RuntimeControlCatalogClient.PageActionCatalogEntry action =
+                    pageActionsByNodeId.get(producerNodeId);
+            if (action == null || declaresRootProperty(action.outputSchema(), "data")) {
+                continue;
+            }
+            String corrected = expression.substring(0, matcher.start())
+                    + "nodeOutput." + producerNodeId
+                    + expression.substring(matcher.end());
+            report.error(
+                    "GRAPH_PAGE_ACTION_OUTPUT_DATA_REDUNDANT",
+                    consumerNodeId,
+                    "PAGE_ACTION nodeOutput already is the business action data. Use "
+                            + corrected + " instead of adding another .data after nodeOutput."
+                            + producerNodeId);
+        }
+    }
+
+    private boolean declaresRootProperty(Object schemaValue, String propertyName) {
+        Map<String, Object> schema = mapValue(schemaValue);
+        Map<String, Object> properties = mapValue(schema.get("properties"));
+        return properties.containsKey(propertyName);
     }
 
     private String text(Object value) {

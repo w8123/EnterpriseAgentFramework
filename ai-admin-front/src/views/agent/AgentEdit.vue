@@ -401,7 +401,7 @@
           <el-form-item label="Workflow 超时（秒）">
             <el-input-number v-model="workflowTimeoutSeconds" :min="5" :max="300" />
           </el-form-item>
-          <el-form-item label="页面等待（秒）">
+          <el-form-item label="页面动作执行（秒）">
             <el-input-number v-model="pageBridgeTimeoutSeconds" :min="5" :max="120" />
           </el-form-item>
           <el-form-item label="并行只读工具" class="wide">
@@ -418,7 +418,7 @@
           class="advanced-settings-note"
           type="info"
           :closable="false"
-          title="总超时是整次 Supervisor 执行上限，应大于单个 Workflow 超时；页面等待只控制跨页面导航与动作回传。"
+          title="总超时是整次 Supervisor 执行上限，应大于单个 Workflow 超时；页面动作执行超时不包含用户确认，确认窗口由平台独立保留 90 秒。"
         />
         <el-form-item label="扩展配置">
           <el-input

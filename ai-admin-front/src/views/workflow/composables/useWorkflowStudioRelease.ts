@@ -30,6 +30,7 @@ export interface UseWorkflowStudioReleaseDeps {
   saveStudio: () => Promise<WorkflowWorkingCopyState | null>
   loadStudio: () => Promise<WorkflowWorkingCopyState | null>
   ensurePanelValidationClear?: () => boolean
+  syncPublishedPageAssistant?: () => Promise<boolean>
 }
 
 export function useWorkflowStudioRelease({
@@ -51,6 +52,7 @@ export function useWorkflowStudioRelease({
   saveStudio,
   loadStudio,
   ensurePanelValidationClear,
+  syncPublishedPageAssistant,
 }: UseWorkflowStudioReleaseDeps) {
   const publishWarnings: ComputedRef<string[]> = computed(() => {
     const warnings: string[] = []
@@ -237,7 +239,18 @@ export function useWorkflowStudioRelease({
         publishedBy: publishForm.publishedBy,
         baseRevision: saved.revision || saved.updatedAt || null,
       })
-      ElMessage.success(`已发布 Workflow ${publishForm.version}（灰度 ${publishForm.rolloutPercent ?? 100}%）`)
+      let pageAssistantSynced = false
+      if (syncPublishedPageAssistant) {
+        try {
+          pageAssistantSynced = await syncPublishedPageAssistant()
+        } catch {
+          ElMessage.warning('Workflow 已发布，但页面副驾驶同步失败；可在工作流顶部重试同步。')
+        }
+      }
+      ElMessage.success(
+        `已发布 Workflow ${publishForm.version}（灰度 ${publishForm.rolloutPercent ?? 100}%）`
+        + (pageAssistantSynced ? '，已同步页面副驾驶' : ''),
+      )
       publishDialogOpen.value = false
       if (isCurrentPublishingWorkingCopy()) {
         await loadStudio()

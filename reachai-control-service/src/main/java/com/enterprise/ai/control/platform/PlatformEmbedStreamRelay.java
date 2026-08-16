@@ -53,6 +53,10 @@ public class PlatformEmbedStreamRelay {
                                    OutputStream downstream) throws IOException {
         String normalized = eventName == null ? "" : eventName.trim();
         if ("supervisor.step".equals(normalized)) {
+            Map<String, Object> progress = publicProgress(parseJsonMap(data));
+            if (!progress.isEmpty()) {
+                SseStreamRelay.writeFrame(downstream, "turn.progress", toJson(progress));
+            }
             return;
         }
         if ("execution.completed".equals(normalized)) {
@@ -71,6 +75,42 @@ public class PlatformEmbedStreamRelay {
                 || "page.action.requested".equals(normalized)) {
             SseStreamRelay.writeFrame(downstream, normalized, data);
         }
+    }
+
+    /**
+     * Embed clients may see coarse, user-safe lifecycle progress, but never Supervisor reasoning,
+     * plan text, workflow names, tool arguments, or raw phase detail.
+     */
+    private Map<String, Object> publicProgress(Map<String, Object> phase) {
+        String name = text(phase.get("name"));
+        String state = firstText(text(phase.get("state")), "started");
+        String message = switch (name == null ? "" : name) {
+            case "plan", "replan" -> "completed".equals(state)
+                    ? "已确定处理步骤"
+                    : "正在规划处理步骤";
+            case "workflow" -> switch (state) {
+                case "completed" -> "业务操作已完成，正在整理结果";
+                case "waiting" -> "正在等待必要的页面交互";
+                case "failed" -> "业务操作未完成";
+                case "cancelled" -> "操作已取消";
+                default -> "正在调用业务能力";
+            };
+            case "policy" -> "waiting".equals(state)
+                    ? "正在等待必要的安全确认"
+                    : "正在执行安全校验";
+            case "final_answer" -> "completed".equals(state)
+                    ? "已生成最终回答"
+                    : "正在整理最终回答";
+            default -> null;
+        };
+        if (!StringUtils.hasText(message)) {
+            return Map.of();
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("phase", name);
+        result.put("state", state);
+        result.put("message", message);
+        return result;
     }
 
     private void recordCompletion(PlatformEmbedSessionEntity session, Map<String, Object> payload) {

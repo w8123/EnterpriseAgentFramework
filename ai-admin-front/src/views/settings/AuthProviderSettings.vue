@@ -11,7 +11,6 @@
         <el-tooltip content="刷新认证源" placement="top">
           <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新认证源" @click="reload" />
         </el-tooltip>
-        <el-button type="primary" :icon="Plus" @click="openCreate">新增认证源</el-button>
       </template>
     </PageHeader>
 
@@ -36,9 +35,10 @@
           <CommonStatusTag :status="row.status" />
         </template>
       </el-table-column>
-      <el-table-column prop="configJson" label="配置 JSON（敏感值已脱敏）" min-width="360" show-overflow-tooltip>
+      <el-table-column label="配置" min-width="180">
         <template #default="{ row }">
-          <code>{{ row.configJson }}</code>
+          <el-tag v-if="row.configurationPresent" type="warning">已配置（敏感值不返回浏览器）</el-tag>
+          <span v-else class="text-muted">无敏感配置</span>
         </template>
       </el-table-column>
       <el-table-column prop="updatedAt" label="更新时间" width="170" />
@@ -51,21 +51,21 @@
 
     <AppDialog v-model="dialogOpen" title="认证源配置" width="680px">
       <el-alert
-        type="warning"
+        type="info"
         :closable="false"
         show-icon
-        title="保存会覆盖完整 config_json；如包含 clientSecret、password、token 等字段，请重新填入真实值。"
+        title="当前版本只支持且固定启用 LOCAL 登录。OIDC、SAML 和 HEADER 保持禁用，且认证源密钥不会在浏览器中编辑或返回。"
         style="margin-bottom: 12px"
       />
       <el-form :model="editing" label-width="110px">
         <el-form-item label="认证源编码" required>
-          <el-input v-model="editing.providerCode" placeholder="如 OIDC、SAML、HEADER、LOCAL" />
+          <el-input v-model="editing.providerCode" disabled />
         </el-form-item>
         <el-form-item label="名称" required>
           <el-input v-model="editing.providerName" />
         </el-form-item>
         <el-form-item label="类型" required>
-          <el-select v-model="editing.providerType">
+          <el-select v-model="editing.providerType" disabled>
             <el-option
               v-for="item in AUTH_PROVIDER_TYPE_SELECT_OPTIONS"
               :key="item.value"
@@ -75,7 +75,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
-          <el-select v-model="editing.status">
+          <el-select v-model="editing.status" disabled>
             <el-option
               v-for="item in COMMON_STATUS_SELECT_OPTIONS"
               :key="item.value"
@@ -83,15 +83,6 @@
               :value="item.value"
             />
           </el-select>
-        </el-form-item>
-        <el-form-item label="配置 JSON">
-          <el-input
-            v-model="editing.configJson"
-            type="textarea"
-            :rows="10"
-            spellcheck="false"
-            placeholder='{"issuerUri":"https://iam.example.com","clientId":"reachai"}'
-          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -106,7 +97,7 @@
 import AppDialog from '@/components/common/AppDialog.vue'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import { Refresh } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import CommonStatusTag from '@/components/CommonStatusTag.vue'
@@ -147,33 +138,18 @@ async function reload() {
   }
 }
 
-function openCreate() {
-  editing.providerCode = ''
-  editing.providerName = ''
-  editing.providerType = 'OIDC'
-  editing.status = 'INACTIVE'
-  editing.configJson = '{}'
-  dialogOpen.value = true
-}
-
 function openEdit(row: PlatformAuthProviderView) {
   editing.providerCode = row.providerCode
   editing.providerName = row.providerName
   editing.providerType = row.providerType
   editing.status = row.status
-  editing.configJson = row.configJson || '{}'
+  editing.configJson = '{}'
   dialogOpen.value = true
 }
 
 async function save() {
   if (!editing.providerCode || !editing.providerType) {
     ElMessage.warning('请填写认证源编码和类型')
-    return
-  }
-  try {
-    JSON.parse(editing.configJson || '{}')
-  } catch {
-    ElMessage.warning('配置 JSON 格式不正确')
     return
   }
   saving.value = true

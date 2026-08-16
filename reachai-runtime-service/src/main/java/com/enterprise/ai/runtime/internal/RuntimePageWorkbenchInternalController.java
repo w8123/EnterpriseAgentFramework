@@ -11,6 +11,8 @@ import com.enterprise.ai.runtime.workflow.RuntimePageWorkbenchWorkflowDeliverySe
 import com.enterprise.ai.runtime.workflow.RuntimePageWorkbenchWorkflowDeliveryService.DeliveryView;
 import com.enterprise.ai.runtime.workflow.RuntimePageWorkbenchWorkflowDeliveryService.EngineeringDraftRequest;
 import com.enterprise.ai.runtime.workflow.RuntimePageWorkbenchWorkflowDeliveryService.EngineeringDraftView;
+import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityDescriptor;
+import com.enterprise.ai.runtime.workflow.node.RuntimeWorkflowNodeCapabilityRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,6 +34,13 @@ public class RuntimePageWorkbenchInternalController {
             executionReadinessService;
     private final RuntimePageWorkbenchWorkflowDeliveryService
             workflowDeliveryService;
+    private final RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry;
+
+    @GetMapping("/internal/runtime/page-workbench/workflow-node-types")
+    public ResponseEntity<List<RuntimeWorkflowNodeCapabilityDescriptor>>
+            workflowNodeTypes() {
+        return ResponseEntity.ok(nodeCapabilityRegistry.allCatalog());
+    }
 
     @PostMapping("/internal/runtime/page-workbench/projects/{projectCode}/workflow-drafts")
     public ResponseEntity<EngineeringDraftView> createWorkflowDraft(

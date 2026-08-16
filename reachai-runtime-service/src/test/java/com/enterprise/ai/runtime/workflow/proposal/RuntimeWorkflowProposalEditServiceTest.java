@@ -89,6 +89,8 @@ class RuntimeWorkflowProposalEditServiceTest {
         assertEquals("处理完成", ((Map<?, ?>) answer.getConfig().get("answerConfig")).get("template"));
         assertFalse(node(result.canvasSnapshot(), "answer").containsKey("data"));
         assertEquals("answer", result.graphSpec().getEntryNodeId());
+        assertTrue(result.warnings().isEmpty(),
+                "layout-only canvas edges must not be treated as missing GraphSpec topology");
         verify(adapter).author(any());
     }
 

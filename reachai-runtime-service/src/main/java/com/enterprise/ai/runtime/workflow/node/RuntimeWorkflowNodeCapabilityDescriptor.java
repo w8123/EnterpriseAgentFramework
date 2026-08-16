@@ -1,5 +1,7 @@
 package com.enterprise.ai.runtime.workflow.node;
 
+import java.util.List;
+
 /**
  * Unified Workflow node capability descriptor shared by Studio, release validation and web AI authoring.
  */
@@ -14,6 +16,7 @@ public record RuntimeWorkflowNodeCapabilityDescriptor(
         boolean publishable,
         boolean studioEnabled,
         boolean aiAuthoringEnabled,
+        List<String> enabledVariants,
         String unavailableReason
 ) {
 }

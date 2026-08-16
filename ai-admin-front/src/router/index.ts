@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from 'vue-router'
-import { getPlatformToken } from '@/utils/platformAuth'
+import { resolvePlatformNavigation } from '@/auth/platformNavigation'
 
 /** 项目详情动态面包屑目标：从当前路由取 projectCode。 */
 const toProjectDetail = (route: RouteLocationNormalizedLoaded) => ({
@@ -17,6 +17,12 @@ const routes: RouteRecordRaw[] = [
     name: 'Login',
     component: () => import('@/views/Login.vue'),
     meta: { title: 'Login', public: true },
+  },
+  {
+    path: '/auth-unavailable',
+    name: 'AuthUnavailable',
+    component: () => import('@/views/AuthUnavailable.vue'),
+    meta: { title: '登录状态验证不可用', public: true },
   },
   {
     path: '/',
@@ -445,6 +451,18 @@ const routes: RouteRecordRaw[] = [
 
       // ── 设置 / 护栏 ──
       {
+        path: 'settings/personal-memory',
+        name: 'PersonalMemory',
+        component: () => import('@/views/settings/PersonalMemory.vue'),
+        meta: { title: '我的记忆', layoutMode: 'standard' },
+      },
+      {
+        path: 'settings/memory-erasure',
+        name: 'MemoryErasure',
+        component: () => import('@/views/settings/MemoryErasure.vue'),
+        meta: { title: '跨域记忆擦除', layoutMode: 'standard' },
+      },
+      {
         path: 'settings/platform-users',
         name: 'PlatformUserSettings',
         component: () => import('@/views/settings/PlatformUserSettings.vue'),
@@ -503,13 +521,9 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to) => {
   document.title = `${(to.meta.title as string) || ''} - 睿池 ReachAI`
-  if (!to.meta.public && !getPlatformToken()) {
-    next({ path: '/login', query: { redirect: to.fullPath } })
-    return
-  }
-  next()
+  return resolvePlatformNavigation(to)
 })
 
 export default router

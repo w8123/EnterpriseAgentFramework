@@ -13,6 +13,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -67,6 +68,26 @@ class ContextNamespaceControllerTest {
         assertEquals("DELETED", deleted.getBody().status());
         verify(mapper).insert(any());
         verify(mapper).updateById(any());
+    }
+
+    @Test
+    void genericRoutesHideRuntimeUserNamespaces() {
+        ContextNamespaceMapper mapper = mock(ContextNamespaceMapper.class);
+        ContextNamespaceController controller = new ContextNamespaceController(mapper);
+        ContextNamespaceEntity personal = namespace(7L);
+        personal.setNamespaceType("USER");
+        personal.setOwnerType("RUNTIME_USER");
+        personal.setOwnerId("user-a");
+        when(mapper.selectList(any())).thenReturn(List.of(personal));
+        when(mapper.selectById(7L)).thenReturn(personal);
+
+        assertEquals(List.of(), controller.list("default", null, null, null, "ACTIVE").getBody());
+        assertEquals(HttpStatus.NOT_FOUND, controller.get(7L).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, controller.delete(7L).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.create(new ContextNamespaceController.NamespaceCommand(
+                        null, "USER", "default", null, null, "RUNTIME_USER", "user-a",
+                        "Private memory", null, "user-a"))).getStatusCode());
     }
 
     private ContextNamespaceEntity namespace(Long id) {

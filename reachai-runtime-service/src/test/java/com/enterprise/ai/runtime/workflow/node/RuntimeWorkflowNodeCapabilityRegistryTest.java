@@ -65,14 +65,23 @@ class RuntimeWorkflowNodeCapabilityRegistryTest {
     }
 
     @Test
-    void interactionIsExecutableButNotOpenUntilProductionE2E() {
+    void interactionExposesOnlyDisplayOnlyPresentOutputVariant() {
         RuntimeWorkflowNodeCapabilityDescriptor item = registry.find("INTERACTION").orElseThrow();
         assertEquals(WorkflowNodeMaturity.BETA, item.maturity());
         assertTrue(item.runtimeExecutable());
         assertFalse(item.publishable());
-        assertFalse(item.studioEnabled());
-        assertFalse(item.aiAuthoringEnabled());
-        assertTrue(item.unavailableReason() != null && item.unavailableReason().contains("production E2E"));
+        assertTrue(item.studioEnabled());
+        assertTrue(item.aiAuthoringEnabled());
+        assertEquals(List.of("PRESENT_OUTPUT"), item.enabledVariants());
+        assertTrue(registry.isPublishable("INTERACTION", java.util.Map.of(
+                "interactionType", "PRESENT_OUTPUT")));
+        assertTrue(registry.isAiAuthoringEnabled("INTERACTION", java.util.Map.of(
+                "interactionType", "present-output")));
+        assertFalse(registry.isPublishable("INTERACTION", java.util.Map.of(
+                "interactionType", "COLLECT_INPUT")));
+        assertFalse(registry.isAiAuthoringEnabled("INTERACTION", java.util.Map.of(
+                "interactionType", "CONFIRM_ACTION")));
+        assertTrue(item.unavailableReason() != null && item.unavailableReason().contains("pause/resume"));
     }
 
     @Test
@@ -93,10 +102,10 @@ class RuntimeWorkflowNodeCapabilityRegistryTest {
         Set<String> authoring = registry.aiAuthoringCatalog().stream()
                 .map(RuntimeWorkflowNodeCapabilityDescriptor::type)
                 .collect(Collectors.toSet());
-        assertFalse(studio.contains("INTERACTION"));
+        assertTrue(studio.contains("INTERACTION"));
         assertFalse(studio.contains("CODE"));
         assertTrue(studio.contains("LOOP"));
-        assertFalse(authoring.contains("INTERACTION"));
+        assertTrue(authoring.contains("INTERACTION"));
         assertFalse(authoring.contains("HUMAN_APPROVAL"));
         assertTrue(authoring.contains("LOOP"));
         assertTrue(studio.contains("PAGE_ACTION"));
@@ -107,7 +116,7 @@ class RuntimeWorkflowNodeCapabilityRegistryTest {
         assertTrue(studio.contains("VARIABLE_AGGREGATOR"));
         assertTrue(studio.contains("KNOWLEDGE_RETRIEVAL"));
         assertTrue(studio.contains("HTTP_REQUEST"));
-        assertEquals(15, studio.size());
+        assertEquals(16, studio.size());
     }
 
     @Test

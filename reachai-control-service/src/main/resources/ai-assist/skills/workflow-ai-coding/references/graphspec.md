@@ -24,7 +24,7 @@ Never invent model ids or tool names when context lists are available.
 
 ## Node Types
 
-Read the schema catalog from context `nodeTypes` (`AgentGraphNodeType.catalog()`), then treat Runtime release validation as the executable-capability authority. A catalog type may be present for Studio configuration before its executor is production-ready.
+Read the schema catalog from context `nodeTypes` (`AgentGraphNodeType.catalog()`), then treat `runtimeExecutable`, `publishable`, `studioEnabled`, `aiAuthoringEnabled` and `enabledVariants` as the product-capability authority. A type can be visible while only one variant is open.
 
 Current Runtime-executable node families:
 
@@ -35,9 +35,9 @@ Current Runtime-executable node families:
 - Output: `ANSWER`
 - Integrations: `TOOL`, `CAPABILITY`
 - Page automation: `PAGE_ACTION` (PAGE_ASSISTANT only)
-- Human interaction: `INTERACTION`
+- Structured display: `INTERACTION`, currently restricted to `enabledVariants=["PRESENT_OUTPUT"]`
 
-Do not add catalog-only nodes such as `HTTP_REQUEST`, `MCP_CALL`, `CODE`, `VARIABLE_ASSIGN`, `TEMPLATE`, `LOOP`, or `HUMAN_APPROVAL` until release validation reports them executable.
+Do not rely on a hard-coded list of open node types. Use the live context flags and never use a variant absent from `enabledVariants`. In particular, blocking interaction variants remain closed even though `INTERACTION/PRESENT_OUTPUT` is executable and publishable.
 
 ## Graph Boundaries
 
@@ -68,7 +68,12 @@ For branching flows, declare boundaries separately from topology:
 
 ### USER_INPUT
 
-Minimal entry node:
+`USER_INPUT` is the designated writer for the reserved `params` namespace.
+For a `PAGE_ASSISTANT`, it is not optional: the graph must contain exactly one
+`USER_INPUT` node, `entryNodeId` must point to it, `outputAlias` must be
+`params`, and every declared field must also appear in `graphSpec.inputSchema`.
+
+Canonical entry node:
 
 ```json
 {
@@ -76,10 +81,40 @@ Minimal entry node:
   "node": {
     "id": "user_input",
     "type": "USER_INPUT",
-    "name": "User Input"
+    "name": "User Input",
+    "config": {
+      "outputAlias": "params",
+      "fields": [
+        {
+          "name": "question",
+          "type": "string",
+          "required": true,
+          "description": "User question",
+          "source": "input.message"
+        }
+      ]
+    }
   }
 }
 ```
+
+The matching graph-level schema is:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "question": { "type": "string", "description": "User question" }
+  },
+  "required": ["question"],
+  "additionalProperties": false
+}
+```
+
+At Runtime this makes `params.question` available to subsequent templates,
+parameter extraction and page-action argument mappings. Do not use a bare
+`USER_INPUT` node without fields: Studio and Runtime release validation both
+reject it for `PAGE_ASSISTANT`.
 
 ### LLM
 
@@ -200,9 +235,58 @@ Prefer `toolName` or `qualifiedName` that exists in `availableTools`.
 
 Use `extractMode=expression` to project known runtime values without a model, or `extractMode=llm` to parse natural language with the node model / Workflow default model. Declare at least one uniquely named field. Structured results are published as `nodeOutput.<nodeId>.<fieldName>` and keep their number/boolean types for downstream Tool or PAGE_ACTION mappings.
 
+When a detail Tool requires an opaque id but the user only knows a business name, never pass the name into the id field and never invent an id. Build a visible chain:
+
+1. Extract the business name from `params.question`.
+2. Call the list/query Tool with that name.
+3. Add a `PARAMETER_EXTRACT` node after the query Tool. Use `extractMode=expression` when its declared output schema gives a stable id path; otherwise use `extractMode=llm`, set `inputExpression=nodeOutput.<queryNodeId>`, and use a rendered `userPrompt` containing both `{{ params.question }}` and `{{ nodeOutput.<queryNodeId> }}`. Require exactly one matching `id`; ambiguity or no match must fail instead of guessing.
+4. Map `nodeOutput.<idExtractNodeId>.id` into the detail Tool's id argument.
+
+This is the canonical Tool-output-to-Tool-input pattern for “按名称查详情”. It keeps the list call and detail call independently visible in Run/Trace evidence.
+
 ### PAGE_ACTION args binding
 
 `PAGE_ACTION` `config.args` values are resolved by `resolveConfiguredMap` / `resolveExpression`, not only Mustache templates.
+
+### INTERACTION / PRESENT_OUTPUT
+
+`PRESENT_OUTPUT` is a non-blocking display node. It does not pause a Workflow and does not accept a user submission. Use it after a structured `PAGE_ACTION`, `TOOL` or `CAPABILITY` result so Embed clients receive a formal `ui.requested` event instead of relying on an LLM to turn data into Markdown.
+
+```json
+{
+  "id": "present_teams",
+  "type": "INTERACTION",
+  "name": "展示班组列表",
+  "config": {
+    "interactionType": "PRESENT_OUTPUT",
+    "component": "list_card",
+    "dataExpression": "nodeOutput.read_table",
+    "outputAlias": "presented_teams",
+    "behavior": {
+      "blocking": false,
+      "readonly": true
+    },
+    "presentation": {
+      "mode": "card_only"
+    },
+    "renderSchema": {
+      "titleField": "teamName",
+      "itemKey": "id",
+      "totalPath": "total",
+      "initialVisibleCount": 5,
+      "showCount": true
+    }
+  }
+}
+```
+
+Rules:
+
+- List/page results use `list_card`; single objects use `output_card`, `card` or `detail`.
+- Prefer `dataExpression=nodeOutput.<producerNodeId>` over `lastOutput`; the explicit source is required by business-page AI Coding acceptance.
+- Use `card_only` to avoid duplicate Markdown plus card, or `text_and_card` when a short explanation is useful.
+- Do not author `COLLECT_INPUT`, `USER_CHOICE`, `CONFIRM_ACTION`, `REVIEW_EDIT` or other pause/resume variants until the live node catalog explicitly lists them in `enabledVariants`.
+- A successful debug node is not browser proof. Final acceptance must capture `ui.requested`, the visible card DOM, and the actual business result.
 
 Preferred expression form:
 
@@ -300,7 +384,17 @@ Patch preview example:
   "operations": [
     {
       "op": "ADD_NODE",
-      "node": { "id": "input", "type": "USER_INPUT", "name": "Input" }
+      "node": {
+        "id": "input",
+        "type": "USER_INPUT",
+        "name": "Input",
+        "config": {
+          "outputAlias": "params",
+          "fields": [
+            { "name": "question", "type": "string", "required": true, "source": "input.message" }
+          ]
+        }
+      }
     },
     {
       "op": "ADD_NODE",

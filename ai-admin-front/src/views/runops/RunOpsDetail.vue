@@ -29,6 +29,21 @@
           />
         </el-tooltip>
         <el-button :disabled="!summary" @click="copyIssueSummary">复制运行摘要</el-button>
+        <el-tooltip
+          :disabled="Boolean(candidateEligibility?.eligible)"
+          :content="candidateBlockerSummary"
+          placement="top"
+        >
+          <span>
+            <el-button
+              :loading="candidateLoading"
+              :disabled="!candidateEligibility?.eligible"
+              @click="openCandidateDialog"
+            >
+              生成 Workflow 候选
+            </el-button>
+          </span>
+        </el-tooltip>
         <el-button
           v-if="summary?.runType === 'WORKFLOW' && summary.workflowId"
           @click="router.push(`/workflows/${summary.workflowId}/studio`)"
@@ -78,6 +93,23 @@
         <template #title>
           <div class="hint-list">
             <span v-for="hint in detail.repairHints" :key="hint">{{ hint }}</span>
+          </div>
+        </template>
+      </el-alert>
+
+      <el-alert
+        v-if="candidateEligibility && !candidateEligibility.eligible"
+        class="run-alert"
+        type="info"
+        :closable="false"
+        show-icon
+        title="当前轨迹不满足首批只读 Workflow 候选规则"
+      >
+        <template #default>
+          <div class="hint-list">
+            <span v-for="blocker in candidateEligibility.blockers" :key="blocker">
+              {{ blocker }}
+            </span>
           </div>
         </template>
       </el-alert>
@@ -382,11 +414,107 @@
         <el-button type="primary" :loading="replaying" @click="replayTrace">开始重放</el-button>
       </template>
     </AppDialog>
+
+    <AppDialog
+      v-model="candidateDialogVisible"
+      title="生成 Workflow 候选"
+      width="640px"
+    >
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        title="只创建并校验 DRAFT Workflow"
+        description="不会自动发布、不会绑定 Agent，也不会改动线上路由。后续仍需重放评测、人工审阅和显式发布。"
+      />
+      <el-descriptions v-if="candidateEligibility" :column="1" border class="candidate-summary">
+        <el-descriptions-item label="源追踪">{{ candidateEligibility.traceId }}</el-descriptions-item>
+        <el-descriptions-item label="源 Workflow">
+          {{ candidateEligibility.sourceWorkflowId }} · {{ candidateEligibility.sourceWorkflowVersion }}
+        </el-descriptions-item>
+        <el-descriptions-item label="资格证据">
+          <div class="hint-list">
+            <span v-for="item in candidateEligibility.evidence" :key="item">{{ item }}</span>
+          </div>
+        </el-descriptions-item>
+      </el-descriptions>
+      <el-form label-width="112px">
+        <el-form-item label="AI 编程工具">
+          <el-select v-model="candidateProvider" style="width: 100%">
+            <el-option label="Codex" value="CODEX" />
+            <el-option label="Cursor" value="CURSOR" />
+            <el-option label="Trae" value="TRAE" />
+            <el-option label="Claude Code" value="CLAUDE_CODE" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="candidateDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="candidateTaskBusy"
+          @click="createCandidateTask"
+        >
+          创建 AI Coding 任务
+        </el-button>
+      </template>
+    </AppDialog>
+
+    <AppDialog
+      v-model="candidateHandoffVisible"
+      title="Workflow 候选 AI Coding 交接包"
+      width="860px"
+    >
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="将下方交接包复制到所选 AI 编程工具"
+        description="重复点击同一轨迹会复用未终态任务；同一任务的 Runtime 草稿也会幂等复用。"
+      />
+      <el-input
+        class="candidate-prompt"
+        :model-value="candidateHandoffPrompt"
+        type="textarea"
+        :rows="20"
+        readonly
+      />
+      <template #footer>
+        <el-button @click="candidateHandoffVisible = false">关闭</el-button>
+        <el-button
+          :disabled="!candidateTaskId"
+          @click="openCandidateTaskDetail"
+        >
+          查看任务闭环
+        </el-button>
+        <el-button type="primary" @click="copyCandidateHandoff">复制交接包</el-button>
+      </template>
+    </AppDialog>
+
+    <AppDrawer
+      v-model="candidateTaskDrawerVisible"
+      title="Workflow 候选任务"
+      size="760px"
+    >
+      <AiCodingTaskDetailPanel
+        :detail="candidateTaskDetail"
+        :loading="candidateTaskActionBusy"
+        :busy="candidateTaskActionBusy"
+        @refresh="refreshCandidateTask"
+        @answer="answerCandidateTaskQuestion"
+        @reissue="reissueCandidateTaskHandoff"
+        @verify="verifyCandidateTask"
+        @acceptance="finishCandidateTaskAcceptance"
+        @cancel="cancelCandidateTask"
+      />
+    </AppDrawer>
   </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import AppDialog from '@/components/common/AppDialog.vue'
+import AppDrawer from '@/components/common/AppDrawer.vue'
+import AiCodingTaskDetailPanel from '@/components/ai-coding/AiCodingTaskDetailPanel.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -394,8 +522,17 @@ import { Refresh, VideoPlay } from '@element-plus/icons-vue'
 import HeaderMetaList from '@/components/common/HeaderMetaList.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
-import { compareRunOpsTrace, getRunOpsDetail, replayRunOpsTrace } from '@/api/runops'
+import {
+  compareRunOpsTrace,
+  createTraceWorkflowCandidateTask,
+  getRunOpsDetail,
+  getTraceWorkflowCandidateEligibility,
+  replayRunOpsTrace,
+} from '@/api/runops'
+import { issueAiCodingHandoff } from '@/api/aiCodingTasks'
+import { useAiCodingTask } from '@/composables/useAiCodingTask'
 import { formatRuntimeTypeLabel } from '@/utils/registryLabels'
+import type { AiCodingExecutorProvider } from '@/types/aiCodingTask'
 import type {
   ReplayRequest,
   RunComparison,
@@ -406,6 +543,7 @@ import type {
   RunStatus,
   RunSummary,
   RunToolCall,
+  TraceWorkflowCandidateEligibility,
 } from '@/types/runops'
 
 const route = useRoute()
@@ -414,12 +552,30 @@ const traceId = computed(() => route.params.traceId as string)
 const loading = ref(false)
 const replaying = ref(false)
 const replayDialogVisible = ref(false)
+const candidateDialogVisible = ref(false)
+const candidateHandoffVisible = ref(false)
+const candidateLoading = ref(false)
+const candidateTaskBusy = ref(false)
+const candidateTaskActionBusy = ref(false)
+const candidateTaskDrawerVisible = ref(false)
+const candidateTaskId = ref('')
+const candidateEligibility = ref<TraceWorkflowCandidateEligibility | null>(null)
+const candidateProvider = ref<AiCodingExecutorProvider>('CODEX')
+const candidateHandoffPrompt = ref('')
+const candidateTaskKernel = useAiCodingTask()
+const candidateTaskDetail = candidateTaskKernel.selectedTaskDetail
 const detail = ref<RunDetail | null>(null)
 const comparison = ref<RunComparison | null>(null)
 const replayForm = ref<ReplayRequest>({})
 const replayRoles = ref<string[]>([])
 const summary = computed(() => detail.value?.summary)
 const compareSource = computed(() => route.query.compareWith as string | undefined)
+const candidateBlockerSummary = computed(() => {
+  if (candidateLoading.value) return '正在检查候选资格'
+  if (!candidateEligibility.value) return '尚未取得候选资格'
+  if (candidateEligibility.value.eligible) return ''
+  return candidateEligibility.value.blockers.join('；') || '当前轨迹不满足候选规则'
+})
 const supervisorEvents = computed(() => (detail.value?.spans || []).filter((span) =>
   ['PLAN', 'REPLAN', 'WORKFLOW_TOOL'].includes(span.spanType || ''),
 ))
@@ -514,16 +670,158 @@ const versionIdentity = computed(() => {
 
 async function loadDetail() {
   loading.value = true
+  candidateTaskKernel.reset()
+  candidateTaskId.value = ''
+  candidateHandoffPrompt.value = ''
+  candidateTaskDrawerVisible.value = false
+  candidateHandoffVisible.value = false
   try {
     const { data } = await getRunOpsDetail(traceId.value)
     detail.value = data
-    await loadComparison()
+    await Promise.all([loadComparison(), loadCandidateEligibility()])
   } catch {
     detail.value = null
     comparison.value = null
     ElMessage.error('加载运行详情失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadCandidateEligibility() {
+  candidateLoading.value = true
+  candidateEligibility.value = null
+  try {
+    const { data } = await getTraceWorkflowCandidateEligibility(traceId.value)
+    candidateEligibility.value = data
+  } catch {
+    candidateEligibility.value = null
+  } finally {
+    candidateLoading.value = false
+  }
+}
+
+function openCandidateDialog() {
+  if (!candidateEligibility.value?.eligible) return
+  candidateDialogVisible.value = true
+}
+
+async function createCandidateTask() {
+  if (!candidateEligibility.value?.eligible) return
+  candidateTaskBusy.value = true
+  try {
+    const { data } = await createTraceWorkflowCandidateTask(traceId.value, {
+      executorProvider: candidateProvider.value,
+    })
+    const handoff = (await issueAiCodingHandoff(data.task.taskId)).data
+    candidateTaskId.value = data.task.taskId
+    candidateHandoffPrompt.value = handoff.prompt
+    candidateDialogVisible.value = false
+    candidateHandoffVisible.value = true
+    ElMessage.success(data.created ? '候选任务已创建' : '已复用该轨迹的未完成候选任务')
+  } catch {
+    ElMessage.error('创建 Workflow 候选任务失败')
+  } finally {
+    candidateTaskBusy.value = false
+  }
+}
+
+async function runCandidateTaskAction<T>(
+  action: () => Promise<T>,
+  errorMessage: string,
+): Promise<T | null> {
+  candidateTaskActionBusy.value = true
+  try {
+    return await action()
+  } catch (error) {
+    ElMessage.error((error as Error).message || errorMessage)
+    return null
+  } finally {
+    candidateTaskActionBusy.value = false
+  }
+}
+
+async function openCandidateTaskDetail() {
+  if (!candidateTaskId.value) return
+  candidateHandoffVisible.value = false
+  candidateTaskDrawerVisible.value = true
+  await refreshCandidateTask(candidateTaskId.value)
+}
+
+async function refreshCandidateTask(taskId: string) {
+  await runCandidateTaskAction(
+    () => candidateTaskKernel.refreshTask(taskId),
+    '刷新 Workflow 候选任务失败',
+  )
+}
+
+async function answerCandidateTaskQuestion(
+  taskId: string,
+  questionId: string,
+  answer: string,
+) {
+  const result = await runCandidateTaskAction(
+    () => candidateTaskKernel.answerQuestion(taskId, questionId, answer),
+    '回答写回失败',
+  )
+  if (result) ElMessage.success('回答已写回候选任务')
+}
+
+async function reissueCandidateTaskHandoff(taskId: string) {
+  const handoff = await runCandidateTaskAction(
+    () => candidateTaskKernel.reissueHandoff(taskId),
+    '重新生成交接包失败',
+  )
+  if (!handoff) return
+  candidateHandoffPrompt.value = handoff.prompt
+  candidateTaskDrawerVisible.value = false
+  candidateHandoffVisible.value = true
+}
+
+async function verifyCandidateTask(taskId: string) {
+  const result = await runCandidateTaskAction(
+    () => candidateTaskKernel.verifyAcceptanceReadiness(taskId),
+    '平台验证失败',
+  )
+  if (!result) return
+  ElMessage[result.acceptanceReady ? 'success' : 'warning'](
+    result.acceptanceReady
+      ? '平台已确认候选草稿、发布校验和成功重放证据'
+      : `仍有 ${result.blockers.length} 项未通过平台验证`,
+  )
+}
+
+async function finishCandidateTaskAcceptance(
+  taskId: string,
+  passed: boolean,
+  message: string,
+) {
+  const result = await runCandidateTaskAction(
+    () => candidateTaskKernel.finishAcceptance(taskId, passed, message),
+    '写入验收结果失败',
+  )
+  if (result) {
+    ElMessage[passed ? 'success' : 'warning'](
+      passed ? '候选任务验收已通过' : '候选任务已标记为验收不通过',
+    )
+  }
+}
+
+async function cancelCandidateTask(taskId: string) {
+  const result = await runCandidateTaskAction(
+    () => candidateTaskKernel.cancelTask(taskId),
+    '取消候选任务失败',
+  )
+  if (result) ElMessage.success('候选任务已取消')
+}
+
+async function copyCandidateHandoff() {
+  if (!candidateHandoffPrompt.value) return
+  try {
+    await navigator.clipboard.writeText(candidateHandoffPrompt.value)
+    ElMessage.success('交接包已复制')
+  } catch {
+    ElMessage.error('复制失败，请手动复制')
   }
 }
 
@@ -845,6 +1143,11 @@ onMounted(loadDetail)
 <style scoped lang="scss">
 .replay-alert {
   margin-bottom: 16px;
+}
+
+.candidate-summary,
+.candidate-prompt {
+  margin-top: 16px;
 }
 
 .summary-grid {

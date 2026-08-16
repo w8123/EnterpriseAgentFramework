@@ -16,6 +16,7 @@ import {
   aiCodingExecutionStatusLabel,
   aiCodingProviderLabel,
 } from '@/utils/aiCodingPresentation'
+import { copyAiCodingText } from '@/utils/aiCodingClipboard'
 
 const props = withDefaults(defineProps<{
   detail: AiCodingTaskDetail | null
@@ -127,12 +128,12 @@ function submitAnswer(questionId: string) {
 
 async function copyRestoreCommand() {
   if (!restoreCommand.value) return
-  try {
-    await navigator.clipboard.writeText(restoreCommand.value)
+  const copied = await copyAiCodingText(restoreCommand.value)
+  if (copied.copied) {
     ElMessage.success('恢复命令已复制')
-  } catch {
-    ElMessage.warning('复制失败，请重新生成交接包')
+    return
   }
+  ElMessage.warning('无法自动复制，请手动复制下方恢复命令。')
 }
 
 async function requestAcceptance(passed: boolean) {
@@ -349,6 +350,7 @@ function formatDateTime(value?: string) {
           <small>
             将恢复命令发回原 AI 编程工具；命令不含凭据。若本机加密缓存不存在，再重新生成交接包。
           </small>
+          <code class="ai-task-recovery__command">{{ restoreCommand }}</code>
         </span>
         <el-button
           :icon="CopyDocument"
@@ -745,6 +747,14 @@ function formatDateTime(value?: string) {
   color: var(--text-muted);
   font-size: 0.7rem;
   line-height: 1.5;
+}
+
+.ai-task-recovery__command {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  line-height: 1.5;
+  user-select: all;
 }
 
 .ai-task-split {

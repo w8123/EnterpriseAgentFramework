@@ -71,6 +71,14 @@
           </template>
         </el-dropdown>
         <el-button :loading="saving" :disabled="studioReadOnly" @click="handleSaveStudio">保存</el-button>
+        <el-button
+          v-if="isPageAssistantWorkflow && studio?.activeVersion"
+          :loading="pageAssistantSyncing"
+          :disabled="studioReadOnly"
+          @click="syncPublishedPageAssistant()"
+        >
+          同步页面副驾驶
+        </el-button>
         <el-button type="primary" :loading="releaseChecking" :disabled="studioReadOnly" @click="publishWorkflow">发布</el-button>
       </div>
     </header>
@@ -1325,6 +1333,7 @@
           :param-source-hints="paramSourceHints"
           :project-id="studio?.projectId || null"
           :project-code="studio?.projectCode || null"
+          :node-type-options="nodeTypes"
           @credential-created="handleCredentialCreated"
           @create-call-node="handleCreateInteractionCallNode"
           @validation-change="handlePanelValidationChange"
@@ -1580,9 +1589,31 @@
                 <el-empty description="输入问题后开始一次可恢复调试会话" />
               </template>
               <template #composer>
-                <section class="debug-input-card debug-unified-input debug-chat-composer">
+                <section class="debug-chat-composer">
+                  <template v-if="workflowInitialChatField">
+                    <el-input
+                      v-model="debugInputParams[workflowInitialChatField.name]"
+                      type="textarea"
+                      :rows="3"
+                      resize="none"
+                      :placeholder="workflowInitialChatField.description || '输入测试消息...'"
+                      :disabled="isDebugConversationBusy"
+                    />
+                    <div class="debug-actions">
+                      <el-tooltip content="运行当前工作副本" placement="top">
+                        <el-button
+                          type="primary"
+                          circle
+                          :icon="SendIcon"
+                          :loading="isDebugConversationBusy"
+                          aria-label="运行当前工作副本"
+                          @click="handleRunWorkingCopyDebug"
+                        />
+                      </el-tooltip>
+                    </div>
+                  </template>
                   <UnifiedInteractionRenderer
-                    v-if="workflowInitialUiRequest"
+                    v-else-if="workflowInitialUiRequest"
                     :request="workflowInitialUiRequest"
                     @submit="(action, values) => handleDebugInteractionSubmit(WORKFLOW_INITIAL_INPUT_ID, action, values)"
                     @cancel="handleDebugInteractionCancel(WORKFLOW_INITIAL_INPUT_ID)"
@@ -2089,6 +2120,7 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/minimap/dist/style.css'
 import {
+  attachPageAssistantWorkflowTool,
   getWorkflowDebugSession,
   validateWorkflowRuntime as validateWorkflowRuntimeApi,
 } from '@/api/workflow'
@@ -2183,6 +2215,7 @@ const loading = ref(false)
 const saving = ref(false)
 const validating = ref(false)
 const publishing = ref(false)
+const pageAssistantSyncing = ref(false)
 const releaseChecking = ref(false)
 const releaseValidationReady = ref(false)
 let validationSequence = 0
@@ -2451,6 +2484,8 @@ const workflowVisibilityLabel = computed(() => {
     ? `当前发布 ${activeVersion}`
     : `已发布 ${activeVersion}`
 })
+
+const isPageAssistantWorkflow = computed(() => studio.value?.workflowKind === 'PAGE_ASSISTANT')
 
 const studioDisplayName = computed(() => studio.value?.name || workflowMeta.name || '未命名')
 
@@ -3101,6 +3136,7 @@ const {
   isDebugStepRunning,
   debugConversationSnapshot,
   workflowInitialUiRequest,
+  workflowInitialChatField,
   isDebugConversationBusy,
   disposeDebugConversation,
 } = useWorkflowStudioDebugRun({
@@ -3298,6 +3334,43 @@ const {
   graphNodeTypeCapabilitiesLoaded,
 })
 
+async function syncPublishedPageAssistant(options: { silent?: boolean } = {}) {
+  const current = studio.value
+  if (!current || current.workflowKind !== 'PAGE_ASSISTANT') return false
+
+  const projectId = current.projectId ?? null
+  const projectCode = current.projectCode?.trim() || null
+  if (!projectId && !projectCode) {
+    if (!options.silent) {
+      ElMessage.error('当前页面助手缺少项目归属，无法同步到页面副驾驶。')
+    }
+    return false
+  }
+
+  pageAssistantSyncing.value = true
+  try {
+    const { data } = await attachPageAssistantWorkflowTool(workflowId.value, {
+      projectId,
+      projectCode,
+      modelInstanceId: current.defaultModelInstanceId || workflowMeta.defaultModelInstanceId || null,
+      publishedBy: 'ReachAI Workflow Studio',
+    })
+    if (!options.silent) {
+      ElMessage.success(`已同步到页面副驾驶（${data.agentKeySlug} 配置 v${data.configVersionNo}）`)
+    }
+    return true
+  } catch (error) {
+    if (!options.silent) {
+      const response = (error as { response?: { data?: { message?: string; error?: string } } })?.response
+      ElMessage.error(response?.data?.message || response?.data?.error || '页面副驾驶同步失败')
+      return false
+    }
+    throw error
+  } finally {
+    pageAssistantSyncing.value = false
+  }
+}
+
 const {
   publishWarnings,
   publishWorkflow,
@@ -3322,6 +3395,7 @@ const {
   saveStudio,
   loadStudio,
   ensurePanelValidationClear,
+  syncPublishedPageAssistant: () => syncPublishedPageAssistant({ silent: true }),
 })
 
 function handlePublishDialogBeforeClose(done: () => void) {
@@ -7342,6 +7416,12 @@ function formatDebugResult(value: unknown) {
     box-shadow: none;
   }
 
+  :deep(.el-textarea__inner) {
+    min-height: 64px !important;
+    padding: 10px 4px;
+    line-height: 1.6;
+  }
+
   :deep(.el-textarea__inner::placeholder) {
     color: var(--reachai-chat-text-muted, #64748b);
     opacity: 1;
@@ -7358,10 +7438,6 @@ function formatDebugResult(value: unknown) {
     );
     box-shadow: 0 12px 26px rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.28);
   }
-}
-
-.debug-unified-input {
-  margin-top: 12px;
 }
 
 .debug-drawer-head {

@@ -57,12 +57,24 @@ public class ContextGovernanceOpsController {
                         .eq(StringUtils.hasText(actorId), ContextAuditEventEntity::getActorId, trim(actorId))
                         .eq(StringUtils.hasText(decision), ContextAuditEventEntity::getDecision, upper(decision))
                         .eq(StringUtils.hasText(traceId), ContextAuditEventEntity::getTraceId, trim(traceId))
+                        .and(q -> q.ne(ContextAuditEventEntity::getActorType, PersonalMemoryRouteBoundary.RUNTIME_USER)
+                                .or()
+                                .isNull(ContextAuditEventEntity::getActorType))
+                        .and(q -> q.isNull(ContextAuditEventEntity::getNamespaceId)
+                                .or()
+                                .notInSql(ContextAuditEventEntity::getNamespaceId,
+                                        "SELECT id FROM control_context_namespace WHERE owner_type = 'RUNTIME_USER'"))
+                        .and(q -> q.isNull(ContextAuditEventEntity::getItemId)
+                                .or()
+                                .notInSql(ContextAuditEventEntity::getItemId,
+                                        "SELECT id FROM control_context_item WHERE memory_lane = 'RUNTIME_USER'"))
                         .ge(from != null, ContextAuditEventEntity::getCreatedAt, from)
                         .le(to != null, ContextAuditEventEntity::getCreatedAt, to)
                         .orderByDesc(ContextAuditEventEntity::getCreatedAt)
                         .orderByDesc(ContextAuditEventEntity::getId)
                         .last("LIMIT " + boundedLimit))
                 .stream()
+                .filter(event -> !PersonalMemoryRouteBoundary.isPersonalAudit(event))
                 .map(this::auditView)
                 .toList());
     }
@@ -75,6 +87,7 @@ public class ContextGovernanceOpsController {
             @RequestParam(defaultValue = "PROJECT_DEV") String memoryLane,
             @RequestParam(defaultValue = "false") Boolean includeRuntimeUser) {
         String lane = defaultUpper(memoryLane, "PROJECT_DEV");
+        rejectPrivateGovernance(lane, includeRuntimeUser);
         List<Long> namespaceIds = namespaceIds(tenantId, projectCode, projectId);
         List<String> warnings = new ArrayList<>();
         if (namespaceIds.isEmpty()) {
@@ -103,8 +116,12 @@ public class ContextGovernanceOpsController {
     @PostMapping("/api/context/lifecycle/run")
     @Transactional
     public ResponseEntity<LifecycleRunView> runLifecycle(@RequestBody LifecycleCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("Context lifecycle command is required");
+        }
         String lane = defaultUpper(command.memoryLane(), "PROJECT_DEV");
         boolean includeRuntimeUserItems = Boolean.TRUE.equals(command.includeRuntimeUserItems());
+        rejectPrivateGovernance(lane, includeRuntimeUserItems);
         List<Long> namespaceIds = namespaceIds(command.tenantId(), command.projectCode(), command.projectId());
         List<ContextMemoryCandidateEntity> expiredCandidates = expiredCandidateEntities(
                 command.tenantId(), command.projectCode(), command.projectId(), lane);
@@ -140,6 +157,9 @@ public class ContextGovernanceOpsController {
 
     @PostMapping("/api/context/package")
     public ResponseEntity<PackageView> packageContext(@RequestBody PackageCommand command) {
+        if (command == null || command.query() == null) {
+            throw new IllegalArgumentException("Context package query is required");
+        }
         QueryCommand query = command.query();
         List<SearchResultView> results = queryItems(new QueryCommand(query.tenantId(), query.projectCode(),
                 query.projectId(), query.memoryLane(), query.retrievalMode(), query.query(), query.itemTypes(),
@@ -158,11 +178,15 @@ public class ContextGovernanceOpsController {
     }
 
     private List<SearchResultView> queryItems(QueryCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("Context query command is required");
+        }
+        String lane = defaultUpper(command.memoryLane(), "PROJECT_DEV");
+        PersonalMemoryRouteBoundary.rejectRuntimeUserLane(lane);
         List<Long> namespaceIds = namespaceIds(command.tenantId(), command.projectCode(), command.projectId());
         if (namespaceIds.isEmpty()) {
             return List.of();
         }
-        String lane = defaultUpper(command.memoryLane(), "PROJECT_DEV");
         String keyword = trim(command.query());
         int topK = Math.max(1, Math.min(command.topK() == null ? 20 : command.topK(), 200));
         List<String> itemTypes = command.itemTypes() == null ? List.of() : command.itemTypes().stream()
@@ -184,6 +208,7 @@ public class ContextGovernanceOpsController {
                         .orderByDesc(ContextItemEntity::getUpdatedAt)
                         .last("LIMIT " + topK))
                 .stream()
+                .filter(item -> !PersonalMemoryRouteBoundary.isPersonalItem(item))
                 .filter(item -> itemTypes.isEmpty() || itemTypes.contains(item.getItemType()))
                 .filter(item -> !StringUtils.hasText(keyword) || contains(item.getTitle(), keyword)
                         || contains(item.getContent(), keyword) || contains(item.getSummary(), keyword))
@@ -198,8 +223,12 @@ public class ContextGovernanceOpsController {
                         .eq(StringUtils.hasText(tenantId), ContextNamespaceEntity::getTenantId, trim(tenantId))
                         .eq(StringUtils.hasText(projectCode), ContextNamespaceEntity::getProjectCode, trim(projectCode))
                         .eq(projectId != null, ContextNamespaceEntity::getProjectId, projectId)
+                        .and(q -> q.ne(ContextNamespaceEntity::getOwnerType, PersonalMemoryRouteBoundary.RUNTIME_USER)
+                                .or()
+                                .isNull(ContextNamespaceEntity::getOwnerType))
                         .ne(ContextNamespaceEntity::getStatus, "DELETED"))
                 .stream()
+                .filter(namespace -> !PersonalMemoryRouteBoundary.isPersonalNamespace(namespace))
                 .map(ContextNamespaceEntity::getId)
                 .toList();
     }
@@ -253,6 +282,17 @@ public class ContextGovernanceOpsController {
                 .eq(StringUtils.hasText(tenantId), ContextAuditEventEntity::getTenantId, trim(tenantId))
                 .eq(StringUtils.hasText(projectCode), ContextAuditEventEntity::getProjectCode, trim(projectCode))
                 .eq(projectId != null, ContextAuditEventEntity::getProjectId, projectId)
+                .and(q -> q.ne(ContextAuditEventEntity::getActorType, PersonalMemoryRouteBoundary.RUNTIME_USER)
+                        .or()
+                        .isNull(ContextAuditEventEntity::getActorType))
+                .and(q -> q.isNull(ContextAuditEventEntity::getNamespaceId)
+                        .or()
+                        .notInSql(ContextAuditEventEntity::getNamespaceId,
+                                "SELECT id FROM control_context_namespace WHERE owner_type = 'RUNTIME_USER'"))
+                .and(q -> q.isNull(ContextAuditEventEntity::getItemId)
+                        .or()
+                        .notInSql(ContextAuditEventEntity::getItemId,
+                                "SELECT id FROM control_context_item WHERE memory_lane = 'RUNTIME_USER'"))
                 .ge(ContextAuditEventEntity::getCreatedAt, LocalDateTime.now().minusDays(7)));
     }
 
@@ -310,6 +350,13 @@ public class ContextGovernanceOpsController {
         return Boolean.TRUE.equals(includeRuntimeUser)
                 ? List.of("RUNTIME_USER lifecycle is included for this run.")
                 : List.of();
+    }
+
+    private void rejectPrivateGovernance(String memoryLane, Boolean includeRuntimeUser) {
+        PersonalMemoryRouteBoundary.rejectRuntimeUserLane(memoryLane);
+        if (Boolean.TRUE.equals(includeRuntimeUser)) {
+            throw PersonalMemoryRouteBoundary.forbidden();
+        }
     }
 
     private ContextItemController.ItemView itemView(ContextItemEntity entity) {

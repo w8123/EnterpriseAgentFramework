@@ -116,10 +116,14 @@ function canvasToGraphSpec(base: AgentForm, snapshot: CanvasSnapshot): WorkflowG
     && edge.to !== 'START'
     && edge.to !== 'END'
   ))
+  const userInputSchema = userInputSchemaFromCanvas(snapshot.nodes)
 
   return {
     schemaVersion: 2,
-    inputSchema: base.graphSpec?.inputSchema,
+    // USER_INPUT is the authoring source of truth. Persisting a fresh schema
+    // here prevents Studio from accepting a different contract than Runtime
+    // release validation or the public Workflow AI Coding Skill.
+    inputSchema: userInputSchema || base.graphSpec?.inputSchema,
     stateSchema: base.graphSpec?.stateSchema,
     nodes: graphNodes,
     edges: graphEdges,
@@ -128,6 +132,38 @@ function canvasToGraphSpec(base: AgentForm, snapshot: CanvasSnapshot): WorkflowG
       ? exitNodeIds
       : firstNode ? [graphNodes[graphNodes.length - 1]?.id || firstNode] : [],
   }
+}
+
+function userInputSchemaFromCanvas(nodes: CanvasNode[]): WorkflowGraphSpec['inputSchema'] | undefined {
+  const inputs = nodes.filter((node) => node.data.kind === 'userInput')
+  if (inputs.length !== 1) return undefined
+  const config = inputs[0].data.userInputConfig || defaultUserInputConfig()
+  const fields = (config.fields || []).filter((field) => !!field.name?.trim())
+  if (!fields.length) return undefined
+  const properties: Record<string, Record<string, unknown>> = {}
+  const required: string[] = []
+  for (const field of fields) {
+    const name = field.name!.trim()
+    const property: Record<string, unknown> = {
+      type: jsonSchemaFieldType(field.type),
+    }
+    if (field.description?.trim()) property.description = field.description.trim()
+    if (field.defaultValue != null && String(field.defaultValue).trim()) {
+      property.default = field.defaultValue
+    }
+    properties[name] = property
+    if (field.required === true) required.push(name)
+  }
+  return {
+    type: 'object',
+    properties,
+    ...(required.length ? { required } : {}),
+    additionalProperties: false,
+  }
+}
+
+function jsonSchemaFieldType(type: StudioFieldSchema['type'] | undefined): string {
+  return type === 'file' ? 'string' : (type || 'string')
 }
 
 function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): WorkflowGraphNode {
@@ -1199,37 +1235,19 @@ function defaultUserInputConfig(): UserInputNodeConfig {
 
 function defaultInteractionConfig(): InteractionNodeConfig {
   return {
-    interactionType: 'COLLECT_INPUT',
+    interactionType: 'PRESENT_OUTPUT',
     binding: { sourceKind: 'NONE' },
-    title: '智能输入采集',
-    component: 'FORM',
+    title: '展示结构化结果',
+    component: 'DETAIL',
     outputAlias: 'interaction_output',
-    fields: [
-      {
-        name: 'query',
-        key: 'query',
-        type: 'string',
-        required: true,
-        description: '查询条件',
-        source: 'input.message',
-        component: 'input',
-        targetPath: 'query',
-        slotFilling: {
-          enabled: false,
-          strategies: ['LLM'],
-          confirmPolicy: 'LOW_CONFIDENCE',
-          confidenceThreshold: 0.85,
-          patterns: [],
-          dictionaryValues: [],
-        },
-      },
-    ],
+    fields: [],
     dataExpression: 'lastOutput',
     dataSources: {},
     behavior: {
-      askMissing: true,
-      maxTurns: 6,
+      blocking: false,
+      readonly: true,
     },
+    presentation: { mode: 'card_only' },
     renderSchema: {},
   }
 }

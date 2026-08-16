@@ -1,16 +1,19 @@
 ﻿import { controlRequest } from '@/api/request'
 import {
-  clearPlatformToken,
-  resetExplorationNoticeAcknowledgement,
   setPlatformToken,
-  setPlatformUser,
   type PlatformUserProfile,
 } from '@/utils/platformAuth'
+import {
+  markPlatformSessionAnonymous,
+  markPlatformSessionAuthenticated,
+  type PlatformSessionView,
+} from '@/auth/platformSession'
 
 export interface PlatformLoginResult {
   accessToken: string
   expiresIn: number
   expiresAt: string
+  sessionId: string
   principal: PlatformUserProfile
 }
 
@@ -20,7 +23,7 @@ export interface PlatformAuthProviderView {
   providerName: string
   providerType: string
   status: string
-  configJson: string
+  configurationPresent: boolean
   createdAt?: string
   updatedAt?: string
 }
@@ -65,24 +68,31 @@ export interface PlatformUserRoleGrantCommand {
 }
 
 export function loginPlatform(data: { username: string; password: string }) {
-  return controlRequest.post<PlatformLoginResult>('/api/platform/auth/login', data)
+  return controlRequest.post<PlatformLoginResult>('/api/platform/auth/login', data, {
+    platformAuthFailure: 'ignore',
+  })
 }
 
 export function getCurrentPlatformUser() {
-  return controlRequest.get<PlatformUserProfile>('/api/platform/auth/me')
+  return controlRequest.get<PlatformSessionView>('/api/platform/auth/me', {
+    platformAuthFailure: 'ignore',
+  })
 }
 
 export function applyPlatformLogin(result: PlatformLoginResult) {
-  resetExplorationNoticeAcknowledgement()
-  setPlatformToken(result.accessToken)
-  setPlatformUser(result.principal)
+  setPlatformToken(result.accessToken, result.expiresAt)
+  markPlatformSessionAuthenticated({
+    sessionId: result.sessionId,
+    expiresAt: result.expiresAt,
+    principal: result.principal,
+  })
 }
 
 export async function logoutPlatform() {
   try {
     await controlRequest.post('/api/platform/auth/logout')
   } finally {
-    clearPlatformToken()
+    markPlatformSessionAnonymous()
   }
 }
 

@@ -30,6 +30,8 @@ public class ContextAuditEventEntity {
 
     private String projectCode;
 
+    private String agentId;
+
     private String workflowId;
 
     private String sessionId;

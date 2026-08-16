@@ -300,6 +300,7 @@ export function resolveStudioNodeCreation(
   kind: string | null | undefined,
   descriptors: WorkflowGraphNodeTypeDescriptor[],
   capabilityLoaded: boolean,
+  variant?: string | null,
 ): StudioNodeCreationDecision {
   const normalized = String(kind || '').trim() as CanvasNodeKind
   if (!normalized) {
@@ -316,6 +317,16 @@ export function resolveStudioNodeCreation(
     return { allowed: false, reason: `未知节点类型，禁止新增：${normalized}` }
   }
   if (capability.runtimeExecutable === true && capability.studioEnabled === true) {
+    const enabledVariants = (capability.enabledVariants || [])
+      .map((item) => normalizeNodeVariant(item))
+      .filter(Boolean)
+    const requestedVariant = normalizeNodeVariant(variant)
+    if (enabledVariants.length && requestedVariant && !enabledVariants.includes(requestedVariant)) {
+      return {
+        allowed: false,
+        reason: `${capability.type || normalized} 仅开放 ${enabledVariants.join('、')}；${requestedVariant} 暂未开放`,
+      }
+    }
     return { allowed: true, reason: '' }
   }
   const reason = String(capability.unavailableReason || '').trim()
@@ -327,8 +338,13 @@ export function canCreateStudioNodeKind(
   kind: string | null | undefined,
   descriptors: WorkflowGraphNodeTypeDescriptor[],
   capabilityLoaded: boolean,
+  variant?: string | null,
 ) {
-  return resolveStudioNodeCreation(kind, descriptors, capabilityLoaded).allowed
+  return resolveStudioNodeCreation(kind, descriptors, capabilityLoaded, variant).allowed
+}
+
+function normalizeNodeVariant(value: unknown) {
+  return String(value || '').trim().replace(/[-\s]+/g, '_').toUpperCase()
 }
 
 /**
@@ -359,11 +375,22 @@ export function resolveApiQueryTemplateCapability(
   descriptors: WorkflowGraphNodeTypeDescriptor[],
   capabilityLoaded: boolean,
 ): StudioNodeCreationDecision {
-  return resolveStudioNodeSetCreation(
+  const typeDecision = resolveStudioNodeSetCreation(
     [...API_QUERY_TEMPLATE_REQUIRED_KINDS],
     descriptors,
     capabilityLoaded,
   )
+  if (!typeDecision.allowed) return typeDecision
+  for (const variant of ['COLLECT_INPUT', 'PRESENT_OUTPUT']) {
+    const variantDecision = resolveStudioNodeCreation(
+      'interaction',
+      descriptors,
+      capabilityLoaded,
+      variant,
+    )
+    if (!variantDecision.allowed) return variantDecision
+  }
+  return { allowed: true, reason: '' }
 }
 
 /**

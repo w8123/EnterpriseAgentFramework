@@ -322,7 +322,7 @@ function validate(sources, { validateAssets = true } = {}) {
   expectPageHeader(failures, sources.runOpsDetail, 'entity', 'governance', 'RunOpsDetail', { primaryLast: true })
   expectIncludes(failures, sources.sdkWorkbench, '<HeaderModeSwitch', 'SdkAccessWizard mode control')
   expectIncludes(failures, actionSlot(sources.platformUsers), '@click="reload"', 'PlatformUserSettings reload action')
-  expectIncludes(failures, actionSlot(sources.authProviders), '@click="openCreate"', 'AuthProviderSettings create action')
+  expectIncludes(failures, actionSlot(sources.authProviders), '@click="reload"', 'AuthProviderSettings reload action')
   expectIncludes(failures, actionSlot(sources.domainList), '@click="openCreate"', 'DomainList create action')
   expectIncludes(failures, actionSlot(sources.contextGovernance), '@click="reloadAll"', 'ContextGovernance reload action')
   expectIncludes(failures, actionSlot(sources.runOpsList), '@click="refreshAll"', 'RunOpsList refresh action')

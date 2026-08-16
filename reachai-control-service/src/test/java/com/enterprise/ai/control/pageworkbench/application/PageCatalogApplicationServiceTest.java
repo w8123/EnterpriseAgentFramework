@@ -29,6 +29,45 @@ import static org.mockito.Mockito.when;
 class PageCatalogApplicationServiceTest {
 
     @Test
+    void rejectsNonHttpBusinessPageUrl() {
+        ProjectPageMapper pageMapper = mock(ProjectPageMapper.class);
+        PageResourceMapper resourceMapper = mock(PageResourceMapper.class);
+        PageActionMapper actionMapper = mock(PageActionMapper.class);
+        CapabilityProjectOnboardingClient capabilityClient =
+                mock(CapabilityProjectOnboardingClient.class);
+        when(capabilityClient.getProjectById(7L))
+                .thenReturn(Map.of("id", 7L, "projectCode", "orders"));
+        PageCatalogApplicationService service = new PageCatalogApplicationService(
+                pageMapper,
+                resourceMapper,
+                actionMapper,
+                new ObjectMapper(),
+                capabilityClient);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.createManualPage(
+                        "orders",
+                        new ManualPageCommand(
+                                7L,
+                                "orders.list",
+                                "orders",
+                                "订单",
+                                "订单列表",
+                                null,
+                                "/orders",
+                                "javascript:alert(1)",
+                                "src/views/orders/List.vue",
+                                List.of(),
+                                List.of())));
+
+        assertEquals(
+                "businessPageUrl must be an absolute HTTP(S) business page URL",
+                error.getMessage());
+        verify(pageMapper, never()).insert(any());
+    }
+
+    @Test
     void rejectsAProjectIdThatDoesNotMatchTheRouteProjectCode() {
         ProjectPageMapper pageMapper = mock(ProjectPageMapper.class);
         PageResourceMapper resourceMapper = mock(PageResourceMapper.class);
@@ -54,6 +93,7 @@ class PageCatalogApplicationServiceTest {
                         "订单列表",
                         null,
                         "/orders",
+                        null,
                         "src/views/orders/List.vue",
                         List.of(),
                         List.of())));
@@ -103,6 +143,7 @@ class PageCatalogApplicationServiceTest {
                         "扫描名称",
                         null,
                         "/orders",
+                        null,
                         "src/views/orders/List.vue",
                         List.of(),
                         List.of(new ActionInput(

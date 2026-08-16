@@ -17,12 +17,37 @@
             "actionKey": "getPageState",
             "args": {}
           }
+        },
+        {
+          "id": "present_page",
+          "type": "INTERACTION",
+          "name": "展示订单详情",
+          "config": {
+            "interactionType": "PRESENT_OUTPUT",
+            "component": "output_card",
+            "dataExpression": "nodeOutput.read_page",
+            "outputAlias": "presented_order",
+            "behavior": {
+              "blocking": false,
+              "readonly": true
+            },
+            "presentation": {
+              "mode": "card_only"
+            },
+            "renderSchema": {}
+          }
         }
       ],
-      "edges": [],
+      "edges": [
+        {
+          "from": "read_page",
+          "to": "present_page",
+          "condition": "always"
+        }
+      ],
       "entryNodeId": "read_page",
       "exitNodeIds": [
-        "read_page"
+        "present_page"
       ]
     },
     "canvas": null
@@ -35,7 +60,9 @@
   ],
   "acceptanceCriteria": [
     "在订单详情页面发起请求时，Workflow 只调用 getPageState。",
-    "页面返回结构化状态后，运行 Trace 可定位到当前 Workflow 版本。"
+    "页面返回结构化状态后发出 ui.requested，并用 output_card 展示业务结果。",
+    "运行 Trace 可定位到当前 Workflow 版本和 PRESENT_OUTPUT 节点。"
   ],
+  "replaceWorkflowId": null,
   "remainingQuestions": []
 }

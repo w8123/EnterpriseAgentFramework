@@ -5,16 +5,18 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContext;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionContextResolver;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
+import com.enterprise.ai.runtime.memory.RuntimeSessionMemoryService;
 import com.enterprise.ai.runtime.chat.RuntimeChatMemoryStore;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
 import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
 import com.enterprise.ai.runtime.supervisor.SupervisorApprovalInteractionService;
 import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,15 +25,42 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class RuntimeAgentExecutionService {
 
     private final RuntimeAgentExecutionContextResolver executionContextResolver;
     private final SupervisorRuntimeAdapter supervisorRuntime;
     private final SupervisorApprovalInteractionService approvalInteractionService;
     private final RuntimeInteractionResumeService interactionResumeService;
-    private final RuntimeChatMemoryStore memoryStore;
+    private final RuntimeSessionMemoryService sessionMemoryService;
     private final RuntimeRunLifecycleService runLifecycleService;
+
+    @Autowired
+    public RuntimeAgentExecutionService(
+            RuntimeAgentExecutionContextResolver executionContextResolver,
+            SupervisorRuntimeAdapter supervisorRuntime,
+            SupervisorApprovalInteractionService approvalInteractionService,
+            RuntimeInteractionResumeService interactionResumeService,
+            RuntimeSessionMemoryService sessionMemoryService,
+            RuntimeRunLifecycleService runLifecycleService) {
+        this.executionContextResolver = executionContextResolver;
+        this.supervisorRuntime = supervisorRuntime;
+        this.approvalInteractionService = approvalInteractionService;
+        this.interactionResumeService = interactionResumeService;
+        this.sessionMemoryService = sessionMemoryService;
+        this.runLifecycleService = runLifecycleService;
+    }
+
+    /** Compatibility constructor for existing isolated tests. */
+    public RuntimeAgentExecutionService(
+            RuntimeAgentExecutionContextResolver executionContextResolver,
+            SupervisorRuntimeAdapter supervisorRuntime,
+            SupervisorApprovalInteractionService approvalInteractionService,
+            RuntimeInteractionResumeService interactionResumeService,
+            RuntimeChatMemoryStore ignoredLegacyMemoryStore,
+            RuntimeRunLifecycleService runLifecycleService) {
+        this(executionContextResolver, supervisorRuntime, approvalInteractionService, interactionResumeService,
+                RuntimeSessionMemoryService.transientOnly(), runLifecycleService);
+    }
 
     public Map<String, Object> execute(Map<String, Object> request, boolean detailed) {
         return execute(request, detailed, SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
@@ -74,20 +103,46 @@ public class RuntimeAgentExecutionService {
                                        RuntimeAgentExecutionCancellation cancellation,
                                        WorkflowExecutionIdentity trustedIdentity,
                                        TrustedControlTiming trustedControlTiming) {
+        return execute(request, detailed, eventSink, cancellation, trustedIdentity,
+                trustedControlTiming, TrustedPersonalMemoryContext.empty());
+    }
+
+    /**
+     * Only the HMAC-authenticated internal controller may pass a non-empty personal memory context.
+     * Public callers reach the compatibility overload above and always receive an empty context.
+     */
+    public Map<String, Object> execute(Map<String, Object> request,
+                                       boolean detailed,
+                                       SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
+                                       RuntimeAgentExecutionCancellation cancellation,
+                                       WorkflowExecutionIdentity trustedIdentity,
+                                       TrustedControlTiming trustedControlTiming,
+                                       TrustedPersonalMemoryContext personalMemory) {
         Map<String, Object> body = normalizeContext(request);
         // Discard any client/body controlTiming — trust only the explicit parameter.
         body.remove("controlTiming");
+        // These keys are Runtime-owned continuity markers and must never be
+        // accepted from public or internal request bodies.
+        body.remove("__memoryTurnId");
+        body.remove("__memoryUserMessage");
+        body.remove("personalMemory");
+        body.remove("personalMemoryContext");
+        body.remove("__personalMemory");
         body.putIfAbsent("traceId", newTraceId());
         String interactionId = text(body.get("interactionId"));
+        body.put("__memoryTurnId", memoryTurnId(body, interactionId));
         Map<String, Object> response;
         if (StringUtils.hasText(interactionId)
                 && interactionId.startsWith(SupervisorApprovalInteractionService.INTERACTION_PREFIX)) {
-            response = resumeSupervisorApproval(interactionId, body, detailed, eventSink, cancellation, trustedIdentity);
+            response = resumeSupervisorApproval(interactionId, body, detailed, eventSink, cancellation,
+                    trustedIdentity, personalMemory);
         } else if (StringUtils.hasText(interactionId)
                 && interactionId.startsWith(WorkflowInteractionCodes.ID_PREFIX)) {
-            response = resumeWorkflowInteraction(interactionId, body, detailed, eventSink, cancellation, trustedIdentity);
+            response = resumeWorkflowInteraction(interactionId, body, detailed, eventSink, cancellation,
+                    trustedIdentity, personalMemory);
         } else {
-            response = executeResolved(body, detailed, null, eventSink, cancellation, trustedIdentity);
+            response = executeResolved(body, detailed, null, eventSink, cancellation,
+                    trustedIdentity, personalMemory);
         }
         mergeControlTiming(response, trustedControlTiming);
         return response;
@@ -118,19 +173,27 @@ public class RuntimeAgentExecutionService {
                     resolved.agentView(), body, detailed, List.of());
         }
         return executeResolvedContext(body, detailed, null, SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
-                RuntimeAgentExecutionCancellation.NOOP, resolved, true, null);
+                RuntimeAgentExecutionCancellation.NOOP, resolved, true, null,
+                TrustedPersonalMemoryContext.empty());
     }
 
     public void clearSession(String sessionId) {
-        if (StringUtils.hasText(sessionId)) memoryStore.clear(sessionId.trim());
+        clearSession(sessionId, null);
+    }
+
+    public void clearSession(String sessionId, WorkflowExecutionIdentity trustedIdentity) {
+        if (StringUtils.hasText(sessionId)) {
+            sessionMemoryService.clear(sessionId.trim(), trustedIdentity);
+        }
     }
 
     private Map<String, Object> resumeWorkflowInteraction(String interactionId,
                                                           Map<String, Object> body,
                                                           boolean detailed,
                                                           SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
-                                                          RuntimeAgentExecutionCancellation cancellation,
-                                                          WorkflowExecutionIdentity trustedIdentity) {
+                                                           RuntimeAgentExecutionCancellation cancellation,
+                                                           WorkflowExecutionIdentity trustedIdentity,
+                                                           TrustedPersonalMemoryContext personalMemory) {
         RuntimeInteractionResumeService.Ownership ownership = new RuntimeInteractionResumeService.Ownership(
                 firstText(text(body.get("appId")), text(body.get("projectCode"))),
                 text(body.get("tenantId")),
@@ -189,7 +252,8 @@ public class RuntimeAgentExecutionService {
 
         if (hasAgentContinuation) {
             return continueAfterWorkflowResume(
-                    continuation, result, body, detailed, eventSink, cancellation, trustedIdentity);
+                    continuation, result, body, detailed, eventSink, cancellation, trustedIdentity,
+                    personalMemory);
         }
 
         if (StringUtils.hasText(traceId)) {
@@ -238,8 +302,9 @@ public class RuntimeAgentExecutionService {
                                                             Map<String, Object> body,
                                                             boolean detailed,
                                                             SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
-                                                            RuntimeAgentExecutionCancellation cancellation,
-                                                            WorkflowExecutionIdentity trustedIdentity) {
+                                                             RuntimeAgentExecutionCancellation cancellation,
+                                                             WorkflowExecutionIdentity trustedIdentity,
+                                                             TrustedPersonalMemoryContext personalMemory) {
         String agentId = text(continuation.get("agentId"));
         Long configVersionId = null;
         Object rawConfigId = continuation.get("agentConfigVersionId");
@@ -280,7 +345,7 @@ public class RuntimeAgentExecutionService {
                 workflowResult,
                 new SupervisorRuntimeAdapter.SupervisorRequest(
                         agent, config, resolved.tools(), supervisorInput, null, eventSink, cancellation,
-                        trustedIdentity, resolved.resolvedTargets()));
+                        trustedIdentity, resolved.resolvedTargets(), personalMemory));
         List<Map<String, Object>> steps = new ArrayList<>();
         steps.add(step("resume-workflow-interaction", text(workflowResult.get("interactionId"))));
         steps.add(step("continue-after-workflow", continued.code()));
@@ -322,8 +387,9 @@ public class RuntimeAgentExecutionService {
                                                          Map<String, Object> submission,
                                                          boolean detailed,
                                                          SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
-                                                         RuntimeAgentExecutionCancellation cancellation,
-                                                         WorkflowExecutionIdentity trustedIdentity) {
+                                                          RuntimeAgentExecutionCancellation cancellation,
+                                                          WorkflowExecutionIdentity trustedIdentity,
+                                                          TrustedPersonalMemoryContext personalMemory) {
         try {
             SupervisorApprovalInteractionService.ResumeDecision decision =
                     approvalInteractionService.prepareResume(interactionId, submission);
@@ -358,7 +424,8 @@ public class RuntimeAgentExecutionService {
             originalInput.put("agentId", decision.agentId());
             originalInput.put("traceId", traceId);
             originalInput.put("__resumeExistingTrace", true);
-            return executeResolved(originalInput, detailed, decision.grant(), eventSink, cancellation, trustedIdentity);
+            return executeResolved(originalInput, detailed, decision.grant(), eventSink, cancellation,
+                    trustedIdentity, personalMemory);
         } catch (IllegalArgumentException ex) {
             return error("SUPERVISOR_APPROVAL_INVALID", ex.getMessage(), null,
                     submission, detailed, List.of());
@@ -369,8 +436,9 @@ public class RuntimeAgentExecutionService {
                                                 boolean detailed,
                                                 SupervisorRuntimeAdapter.PolicyApprovalGrant approvalGrant,
                                                 SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
-                                                RuntimeAgentExecutionCancellation cancellation,
-                                                WorkflowExecutionIdentity trustedIdentity) {
+                                                 RuntimeAgentExecutionCancellation cancellation,
+                                                 WorkflowExecutionIdentity trustedIdentity,
+                                                 TrustedPersonalMemoryContext personalMemory) {
         String agentLookup = firstText(
                 text(body.get("agentId")),
                 text(body.get("keySlug")));
@@ -384,7 +452,7 @@ public class RuntimeAgentExecutionService {
                     null, body, detailed, List.of());
         }
         return executeResolvedContext(body, detailed, approvalGrant, eventSink, cancellation,
-                context.get(), false, trustedIdentity);
+                context.get(), false, trustedIdentity, personalMemory);
     }
 
     private Map<String, Object> executeResolvedContext(Map<String, Object> body,
@@ -394,7 +462,8 @@ public class RuntimeAgentExecutionService {
                                                        RuntimeAgentExecutionCancellation cancellation,
                                                        RuntimeAgentExecutionContext context,
                                                        boolean historicalReplay,
-                                                       WorkflowExecutionIdentity trustedIdentity) {
+                                                       WorkflowExecutionIdentity trustedIdentity,
+                                                       TrustedPersonalMemoryContext personalMemory) {
         RuntimeAgentView agentView = context.agentView();
         List<Map<String, Object>> bootstrap = new ArrayList<>();
         bootstrap.add(step("resolve-agent", agentView.id()));
@@ -419,7 +488,7 @@ public class RuntimeAgentExecutionService {
         SupervisorRuntimeAdapter.SupervisorResult result = supervisorRuntime.execute(
                 new SupervisorRuntimeAdapter.SupervisorRequest(
                         agentView, config, tools, body, approvalGrant, eventSink, cancellation,
-                        trustedIdentity, context.resolvedTargets()));
+                        trustedIdentity, context.resolvedTargets(), personalMemory));
         List<Map<String, Object>> steps = new ArrayList<>(bootstrap);
         if (result.steps() != null) steps.addAll(result.steps());
 
@@ -469,6 +538,20 @@ public class RuntimeAgentExecutionService {
             body.put("metadata", metadata);
         }
         return body;
+    }
+
+    private String memoryTurnId(Map<String, Object> body, String interactionId) {
+        String callerTurnId = text(body == null ? null : body.get("turnId"));
+        String idempotencyKey = firstText(
+                text(body == null ? null : body.get("idempotencyKey")),
+                text(body == null ? null : body.get("idempotency_key")));
+        String stableSeed = firstText(
+                StringUtils.hasText(interactionId) && StringUtils.hasText(idempotencyKey)
+                        ? interactionId.trim() + "\n" + idempotencyKey.trim() : null,
+                StringUtils.hasText(callerTurnId) ? callerTurnId.trim() : null);
+        return StringUtils.hasText(stableSeed)
+                ? UUID.nameUUIDFromBytes(stableSeed.getBytes(StandardCharsets.UTF_8)).toString()
+                : UUID.randomUUID().toString();
     }
 
     @SuppressWarnings("unchecked")

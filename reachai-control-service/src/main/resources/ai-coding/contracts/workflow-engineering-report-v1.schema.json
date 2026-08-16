@@ -89,6 +89,14 @@
         "minLength": 1
       }
     },
+    "replaceWorkflowId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "description": "Optional exact workflowId from context.existingPageWorkflows that this draft intentionally supersedes. Omit to keep existing same-page Workflows."
+    },
     "remainingQuestions": {
       "type": "array",
       "items": {

@@ -19,4 +19,7 @@ public interface ControlModelCatalogClient {
 
     @RequestMapping(method = RequestMethod.GET, path = "/model/instances/{id}")
     ResponseEntity<Map<String, Object>> get(@PathVariable("id") String id);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/internal/model/instances/{id}")
+    ResponseEntity<Map<String, Object>> getInternal(@PathVariable("id") String id);
 }

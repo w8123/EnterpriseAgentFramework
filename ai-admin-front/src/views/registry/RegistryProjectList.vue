@@ -192,18 +192,13 @@
             <el-form-item label="Base URL" required>
               <el-input v-model="sdkForm.baseUrl" placeholder="http://localhost:8080" />
             </el-form-item>
-            <el-row :gutter="16">
-              <el-col :span="12">
-                <el-form-item label="App Key" required>
-                  <el-input v-model="sdkForm.appKey" placeholder="业务系统 Registry App Key" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="App Secret" required>
-                  <el-input v-model="sdkForm.appSecret" show-password placeholder="业务系统 Registry App Secret" />
-                </el-form-item>
-              </el-col>
-            </el-row>
+            <el-alert
+              title="无需填写 App Key 或 App Secret"
+              type="success"
+              :closable="false"
+              show-icon
+              description="提交后会生成一个仅限当前项目、有效期 72 小时的一次性 Enrollment Token。将它配置到业务系统的 Starter；首次成功注册后，Starter 会自动保存长期凭据。"
+            />
           </el-form>
         </el-tab-pane>
 
@@ -276,7 +271,7 @@
           :loading="saving"
           @click="saveSdkProject"
         >
-          保存并生成接入配置
+          生成 72 小时接入令牌
         </el-button>
         <el-button
           v-else
@@ -287,6 +282,27 @@
           保存
         </el-button>
       </template>
+    </AppDialog>
+
+    <AppDialog
+      v-model="enrollmentDialogVisible"
+      title="一次性 SDK 接入令牌"
+      description="该令牌只显示这一次，72 小时内只能成功使用一次。请通过受控密钥渠道交给业务系统，不要提交到代码仓库。"
+      width="720px"
+      destroy-on-close
+      @closed="issuedEnrollment = null"
+    >
+      <el-form label-width="120px">
+        <el-form-item label="项目编码">
+          <el-input :model-value="issuedEnrollment?.projectCode" readonly />
+        </el-form-item>
+        <el-form-item label="失效时间">
+          <el-input :model-value="issuedEnrollment?.expiresAt" readonly />
+        </el-form-item>
+        <el-form-item label="Starter 配置">
+          <el-input type="textarea" :rows="5" :model-value="enrollmentSnippet" readonly />
+        </el-form-item>
+      </el-form>
     </AppDialog>
   </div>
 </template>
@@ -309,9 +325,9 @@ import {
   getScanProjects,
   type ScanProjectListQuery,
 } from '@/api/scanProject'
-import { registerRegistryProject } from '@/api/registry'
+import { issueRegistryEnrollment } from '@/api/registry'
 import type { ScanProject, ScanProjectUpsertRequest } from '@/types/scanProject'
-import type { RegistryProjectRegisterRequest } from '@/types/registry'
+import type { RegistryEnrollmentToken, RegistryProjectRegisterRequest } from '@/types/registry'
 import { useProjectStore } from '@/store/project'
 import { useTheme } from '@/composables/useTheme'
 import {
@@ -335,6 +351,8 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const accessDialogVisible = ref(false)
 const accessDialogTab = ref<'sdk' | 'scan'>('sdk')
+const enrollmentDialogVisible = ref(false)
+const issuedEnrollment = ref<RegistryEnrollmentToken | null>(null)
 
 /** 限制表格主体高度，使横向滚动条落在视口内（靠近浏览器窗口底部），无需先滚到卡片最底 */
 const projectTableMaxHeight = ref(480)
@@ -399,13 +417,23 @@ const sdkForm = reactive<RegistryProjectRegisterRequest>({
   visibility: 'PRIVATE',
   baseUrl: '',
   contextPath: '',
-  appKey: '',
-  appSecret: '',
 })
 
 const scanForm = reactive<ScanProjectUpsertRequest>(createEmptyScanForm())
 
 const filteredProjects = computed(() => projects.value)
+
+const enrollmentSnippet = computed(() => {
+  if (!issuedEnrollment.value) return ''
+  return [
+    'reachai:',
+    '  registry:',
+    '    url: <ReachAI Control URL>',
+    `    enrollment-token: ${issuedEnrollment.value.enrollmentToken}`,
+    '  project:',
+    `    code: ${issuedEnrollment.value.projectCode}`,
+  ].join('\n')
+})
 
 const pagedProjects = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
@@ -487,8 +515,6 @@ function resetSdkForm() {
   sdkForm.visibility = 'PRIVATE'
   sdkForm.baseUrl = ''
   sdkForm.contextPath = ''
-  sdkForm.appKey = ''
-  sdkForm.appSecret = ''
 }
 
 function applyScanForm(project: ScanProjectUpsertRequest) {
@@ -542,26 +568,17 @@ function openAccessDialog(tab: 'sdk' | 'scan' = 'sdk') {
 }
 
 async function saveSdkProject() {
-  const appKey = String(sdkForm.appKey || '').trim()
-  const appSecret = String(sdkForm.appSecret || '').trim()
   if (!sdkForm.name.trim() || !sdkForm.projectCode.trim() || !sdkForm.baseUrl.trim()) {
     ElMessage.warning('请填写项目名称、项目编码和 Base URL')
     return
   }
-  if (!appKey || !appSecret) {
-    ElMessage.warning('请填写 App Key 和 App Secret')
-    return
-  }
   saving.value = true
   try {
-    await registerRegistryProject({
-      ...sdkForm,
-      appKey,
-      appSecret,
-    })
-    ElMessage.success('SDK 接入项目已创建')
+    const { data } = await issueRegistryEnrollment(sdkForm.projectCode.trim())
+    issuedEnrollment.value = data
+    ElMessage.success('已生成 72 小时一次性接入令牌')
     accessDialogVisible.value = false
-    await loadProjects()
+    enrollmentDialogVisible.value = true
   } finally {
     saving.value = false
   }

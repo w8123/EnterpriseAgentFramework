@@ -16,6 +16,12 @@ public class BusinessIndex {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    /** Enterprise scope. Agent-memory eligibility requires tenant and project. */
+    private Long projectId;
+    private String projectCode;
+    private String environment;
+    private String tenantId;
+
     /** 索引编码，唯一标识，同时作为 Milvus Collection 名称 */
     private String indexCode;
 
@@ -51,6 +57,12 @@ public class BusinessIndex {
 
     /** 备注 */
     private String remark;
+
+    /** Whether this projection may emit non-authoritative Agent business-memory references. */
+    private Boolean agentMemoryEnabled;
+
+    /** Capability used to hydrate and re-authorize the current business record. */
+    private String resolverCapabilityKey;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;

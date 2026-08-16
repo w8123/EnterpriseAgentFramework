@@ -182,7 +182,17 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
         }
       })
     }
-    const execution = onboardingTask.value?.executionStatus
+    const execution =
+      onboardingTaskDetail.value?.task.executionStatus
+      || onboardingTask.value?.executionStatus
+    if (execution === 'COMPLETED') {
+      return Object.entries(STEP_TITLES).map(([stepKey, title]) => ({
+        stepKey,
+        title,
+        status: 'PASS',
+        message: '该项目接入任务已由用户在 ReachAI 验收通过。',
+      }))
+    }
     return Object.entries(STEP_TITLES).map(([stepKey, title], index) => ({
       stepKey,
       title,

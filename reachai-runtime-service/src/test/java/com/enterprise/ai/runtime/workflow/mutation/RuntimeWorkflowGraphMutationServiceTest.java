@@ -142,27 +142,27 @@ class RuntimeWorkflowGraphMutationServiceTest {
 
     @Test
     void rejectsAddAndUpdateForNonAuthorableNodesButAllowsDelete() {
-        GraphSpec.Node interaction = GraphSpec.Node.builder()
-                .id("ask")
-                .type("INTERACTION")
-                .name("Ask")
+        GraphSpec.Node approval = GraphSpec.Node.builder()
+                .id("approve")
+                .type("HUMAN_APPROVAL")
+                .name("Approve")
                 .build();
         GraphSpec source = GraphSpec.builder()
-                .node(interaction)
-                .entryNodeId("ask")
-                .exitNodeIds(List.of("ask"))
+                .node(approval)
+                .entryNodeId("approve")
+                .exitNodeIds(List.of("approve"))
                 .build();
 
         IllegalArgumentException addRejected = assertThrows(IllegalArgumentException.class, () ->
                 service.mutate(graph(), List.of(new MutationOperation(
-                        MutationOperation.Op.ADD_NODE, interaction, null, null, null, null, null, null))));
+                        MutationOperation.Op.ADD_NODE, approval, null, null, null, null, null, null))));
         assertTrue(addRejected.getMessage().contains("WORKFLOW_NODE_NOT_AUTHORABLE"));
 
         IllegalArgumentException updateRejected = assertThrows(IllegalArgumentException.class, () ->
                 service.mutate(source, List.of(new MutationOperation(
                         MutationOperation.Op.UPDATE_NODE,
                         null,
-                        "ask",
+                        "approve",
                         Map.of("name", "changed"),
                         null,
                         null,
@@ -183,9 +183,9 @@ class RuntimeWorkflowGraphMutationServiceTest {
         assertTrue(typeRejected.getMessage().contains("WORKFLOW_NODE_NOT_AUTHORABLE"));
 
         MutationResult deleted = service.mutate(source, List.of(new MutationOperation(
-                MutationOperation.Op.DELETE_NODE, null, "ask", null, null, null, null, null)));
+                MutationOperation.Op.DELETE_NODE, null, "approve", null, null, null, null, null)));
         assertEquals(List.of(), deleted.graphSpec().getNodes());
-        assertEquals(List.of("ask"), deleted.changedNodes());
+        assertEquals(List.of("approve"), deleted.changedNodes());
     }
 
     @Test

@@ -36,6 +36,11 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `runtime_agent_eval_run` | `reachai-runtime-service` | - | Runtime evaluation run |
 | `runtime_run` | `reachai-runtime-service` | - | RunOps root execution fact used by lists, KPIs, diagnostics, and replay |
 | `runtime_internal_auth_nonce` | `reachai-runtime-service` | - | Control→Runtime HMAC nonce anti-replay store (multi-instance safe) |
+| `runtime_conversation_session` | `reachai-runtime-service` | - | Trusted tenant/user/Agent session ownership, turn/lifecycle leases, Legal Hold, and retention state machine |
+| `runtime_conversation_event` | `reachai-runtime-service` | - | Durable full conversation event ledger; not canonical long-term personal memory |
+| `runtime_session_retention_policy` | `reachai-runtime-service` | - | Tenant-scoped active/cleared session retention policy; Control administers it only through Runtime internal APIs |
+| `runtime_session_retention_audit` | `reachai-runtime-service` | - | Metadata-only policy, Legal Hold, clear, purge, recovery, and failure audit; no conversation body or raw actor ID |
+| `runtime_tool_result_artifact` | `reachai-runtime-service` | - | Session-scoped encrypted large Tool output with bounded read and ciphertext TTL scrubbing; not personal memory |
 | `runtime_trace_span` | `reachai-runtime-service` | - | Runtime generic trace span child event |
 | `runtime_agent_workflow_credential` | `reachai-runtime-service` | - | Workflow credential vault metadata |
 | `runtime_agent` | `reachai-runtime-service` | - | Runtime agent catalog |
@@ -65,8 +70,13 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `control_context_evidence` | `reachai-control-service` | - | Control context evidence |
 | `control_context_item` | `reachai-control-service` | - | Control context item |
 | `control_context_memory_candidate` | `reachai-control-service` | - | Control memory candidate review buffer |
+| `control_context_memory_outbox` | `reachai-control-service` | - | Transactional personal-memory projection outbox; Control canonical write boundary |
+| `control_memory_erasure_request` | `reachai-control-service` | - | Durable cross-domain Agent-memory erasure request, lease, retry, and aggregate completion state |
+| `control_memory_erasure_domain` | `reachai-control-service` | - | Per-domain automated/manual erasure evidence without object identifiers or content |
 | `control_context_namespace` | `reachai-control-service` | - | Control context namespace |
 | `control_context_runtime_user_mapping` | `reachai-control-service` | - | Control to Runtime user mapping |
+| `knowledge_personal_memory_index` | `reachai-knowledge-service` | - | Rebuildable owner-hashed lexical/vector search projection; never canonical |
+| `knowledge_personal_memory_index_event` | `reachai-knowledge-service` | - | Idempotent personal-memory projection consumption ledger |
 | `capability_domain_assignment` | `reachai-capability-service` | - | Capability domain assignment |
 | `capability_domain_def` | `reachai-capability-service` | - | Capability domain definition |
 | `control_ai_coding_task` | `reachai-control-service` | - | ReachAI-wide AI Coding task root |
@@ -104,6 +114,7 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `control_mcp_client` | `reachai-control-service` | - | MCP client credential |
 | `control_mcp_visibility` | `reachai-control-service` | - | MCP tool visibility |
 | `control_platform_auth_provider` | `reachai-control-service` | - | Platform auth provider |
+| `control_platform_auth_audit_event` | `reachai-control-service` | - | Non-secret audit for platform auth and high-risk runtime-user identity mapping changes |
 | `control_platform_login_session` | `reachai-control-service` | - | Platform login session |
 | `control_platform_permission` | `reachai-control-service` | - | Platform permission catalog |
 | `control_platform_role` | `reachai-control-service` | - | Platform role |
@@ -111,6 +122,9 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `control_platform_user` | `reachai-control-service` | - | Platform user |
 | `control_platform_user_role` | `reachai-control-service` | - | Platform user role |
 | `capability_registry_project_credential` | `reachai-capability-service` | - | SDK registry credential |
+| `capability_registry_enrollment_token` | `reachai-capability-service` | - | One-time SDK enrollment proof digest |
+| `capability_internal_auth_nonce` | `reachai-capability-service` | - | Control-to-Capability internal HMAC replay ledger |
+| `capability_registry_request_nonce` | `reachai-capability-service` | - | Body-bound project credential request replay ledger |
 | `capability_scan_module` | `reachai-capability-service` | - | Capability scan module |
 | `capability_scan_project` | `reachai-capability-service` | - | Capability scan project |
 | `capability_scan_project_tool` | `reachai-capability-service` | - | Capability scan project tool |

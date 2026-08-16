@@ -22,9 +22,11 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskContract
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDescriptor;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDetailView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskEndpoints;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskEventStateRule;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskEventView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskProtocolGuide;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskProtocolInputLimits;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskRequiredResource;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetCommand;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskView;
@@ -52,6 +54,7 @@ import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskTargetEntity;
 import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskTargetMapper;
 import com.enterprise.ai.control.aicoding.provider.AiCodingTaskKindProvider;
 import com.enterprise.ai.control.aicoding.provider.AiCodingTaskProviderRegistry;
+import com.enterprise.ai.control.aicoding.provider.AiCodingContractResourceLoader;
 import com.enterprise.ai.control.aicoding.security.AiCodingSensitiveJsonSanitizer;
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -98,6 +101,7 @@ public class AiCodingTaskApplicationService {
     private final CapabilityProjectOnboardingClient capabilityClient;
     private final AiCodingSensitiveJsonSanitizer sanitizer;
     private final ObjectMapper objectMapper;
+    private final AiCodingContractResourceLoader contractResourceLoader;
 
     @Transactional
     public TaskView create(CreateTaskCommand command) {
@@ -401,9 +405,40 @@ public class AiCodingTaskApplicationService {
                         contract.resultContractKey(),
                         contract.resultContractVersion(),
                         sanitizer.sanitize(contract.jsonSchema()),
-                        sanitizer.sanitize(contract.example())),
+                        sanitizer.sanitize(contract.example()),
+                        sanitizeReferencedSchemas(contractResourceLoader.referencedSchemas(
+                                contract.jsonSchema()))),
                 protocolGuide(task, contract),
+                sanitizeRequiredResources(provider.requiredResources(
+                        descriptor,
+                        publicBaseUrl)),
+                sanitizeVerificationGuide(provider.verificationGuide(
+                        descriptor,
+                        taskRoot)),
                 domainContext);
+    }
+
+    private Map<String, JsonNode> sanitizeReferencedSchemas(
+            Map<String, JsonNode> referencedSchemas) {
+        if (referencedSchemas == null || referencedSchemas.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, JsonNode> sanitized = new LinkedHashMap<>();
+        referencedSchemas.forEach((name, schema) -> sanitized.put(
+                name,
+                sanitizer.sanitize(schema)));
+        return Map.copyOf(sanitized);
+    }
+
+    private List<TaskRequiredResource> sanitizeRequiredResources(
+            List<TaskRequiredResource> resources) {
+        return resources == null ? List.of() : List.copyOf(resources);
+    }
+
+    private List<com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.VerificationGuideItem>
+            sanitizeVerificationGuide(
+            List<com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.VerificationGuideItem> guide) {
+        return guide == null ? List.of() : List.copyOf(guide);
     }
 
     @Transactional
@@ -516,7 +551,12 @@ public class AiCodingTaskApplicationService {
                 }
             }
             case "PROGRESS" -> {
-                requireStatus(task, ExecutionStatus.RUNNING);
+                if (current != ExecutionStatus.RUNNING
+                        && current != ExecutionStatus.WAITING_USER) {
+                    throw new IllegalStateException(
+                            "PROGRESS is only valid for RUNNING or WAITING_USER tasks; "
+                                    + "current status is " + current);
+                }
                 task.setLastMessage(eventMessage);
                 task.setUpdatedAt(LocalDateTime.now());
                 requireUpdated(task);
@@ -1814,6 +1854,32 @@ public class AiCodingTaskApplicationService {
         return new TaskProtocolGuide(
                 "application/json; charset=utf-8",
                 List.of("STARTED", "PROGRESS", "RESUMED", "FAILED"),
+                List.of(
+                        new TaskEventStateRule(
+                                "STARTED",
+                                List.of("READY", "RUNNING"),
+                                "TRANSITION_TO_RUNNING",
+                                null),
+                        new TaskEventStateRule(
+                                "PROGRESS",
+                                List.of("RUNNING", "WAITING_USER"),
+                                "PRESERVE_CURRENT_STATUS",
+                                "WAITING_USER progress does not answer questions or resume the task"),
+                        new TaskEventStateRule(
+                                "RESUMED",
+                                List.of("WAITING_USER"),
+                                "TRANSITION_TO_RUNNING",
+                                "All task questions must be answered and read by the client"),
+                        new TaskEventStateRule(
+                                "FAILED",
+                                List.of(
+                                        "READY",
+                                        "RUNNING",
+                                        "WAITING_USER",
+                                        "RESULT_SUBMITTED",
+                                        "RESULT_APPLIED"),
+                                "TRANSITION_TO_FAILED",
+                                null)),
                 started,
                 progress,
                 question,

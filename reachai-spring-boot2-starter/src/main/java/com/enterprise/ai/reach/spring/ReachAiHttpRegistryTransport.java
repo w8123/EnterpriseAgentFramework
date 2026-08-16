@@ -34,7 +34,11 @@ public class ReachAiHttpRegistryTransport implements ReachAiRegistryTransport {
         }
         if (body != null) {
             connection.setDoOutput(true);
-            byte[] bytes = objectMapper.writeValueAsBytes(body);
+            // Body-bound project signatures must be calculated over the exact
+            // bytes put on the wire. Existing registry calls still pass POJOs.
+            byte[] bytes = body instanceof byte[]
+                    ? (byte[]) body
+                    : objectMapper.writeValueAsBytes(body);
             OutputStream output = connection.getOutputStream();
             try {
                 output.write(bytes);

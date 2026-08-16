@@ -629,6 +629,57 @@ class ReachAiAgentScopeChatModelTest {
     }
 
     @Test
+    void completedEventClosesTransportAndStillEmitsResponse() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AtomicBoolean transportClosed = new AtomicBoolean(false);
+        RuntimeModelStreamHttpClient streamClient = new RuntimeModelStreamHttpClient(objectMapper, "http://localhost") {
+            @Override
+            public void streamChatEvents(ModelChatRequest request, Consumer<ModelStreamEventDto> onEvent,
+                                         ModelStreamSubscription subscription) {
+                ModelStreamEventDto content = new ModelStreamEventDto();
+                content.type = "content.delta";
+                content.text = "terminal";
+                onEvent.accept(content);
+
+                ModelStreamEventDto done = new ModelStreamEventDto();
+                done.type = "completed";
+                done.finishReason = "stop";
+                onEvent.accept(done);
+
+                transportClosed.set(subscription != null && subscription.isTransportClosed());
+                if (!transportClosed.get()) {
+                    throw new IllegalStateException("completed event must close stream transport");
+                }
+            }
+        };
+        ReachAiAgentScopeChatModel model = new ReachAiAgentScopeChatModel(
+                "model-1",
+                request -> {
+                    throw new IllegalStateException("sync should not be used when stream succeeds");
+                },
+                streamClient,
+                objectMapper,
+                ignored -> {
+                });
+
+        List<io.agentscope.core.model.ChatResponse> responses = model.stream(
+                        List.of(Msg.builder().name("user").role(MsgRole.USER).textContent("q").build()),
+                        List.of(),
+                        null)
+                .collectList()
+                .toFuture()
+                .get(3, TimeUnit.SECONDS);
+
+        assertTrue(transportClosed.get());
+        List<TextBlock> textBlocks = responses.stream()
+                .flatMap(response -> response.getContent().stream())
+                .filter(TextBlock.class::isInstance)
+                .map(TextBlock.class::cast)
+                .toList();
+        assertEquals(List.of("terminal"), textBlocks.stream().map(TextBlock::getText).toList());
+    }
+
+    @Test
     void syncFallbackMarksTokenStreamingFalse() {
         ObjectMapper objectMapper = new ObjectMapper();
         List<String> publicDeltas = new CopyOnWriteArrayList<>();
@@ -663,6 +714,71 @@ class ReachAiAgentScopeChatModelTest {
         assertEquals("sync_fallback", model.safeStreamMetadata().get("streamMode"));
         assertEquals(Boolean.FALSE, model.safeStreamMetadata().get("tokenStreaming"));
         assertEquals(1, model.publicContentDeltaCount());
+    }
+
+    @Test
+    void providerBalanceErrorIsActionableAndSkipsSyncFallback() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AtomicInteger syncCalls = new AtomicInteger();
+        RuntimeModelStreamHttpClient streamClient = new RuntimeModelStreamHttpClient(objectMapper, "http://localhost") {
+            @Override
+            public void streamChatEvents(ModelChatRequest request, Consumer<ModelStreamEventDto> onEvent) {
+                ModelStreamEventDto error = new ModelStreamEventDto();
+                error.type = "error";
+                error.message = "Model provider API error: HTTP 402 {\"message\":\"Insufficient Balance\"}";
+                onEvent.accept(error);
+            }
+        };
+        ReachAiAgentScopeChatModel model = new ReachAiAgentScopeChatModel(
+                "model-1",
+                request -> {
+                    syncCalls.incrementAndGet();
+                    return new ModelChatResult(200, "success", null);
+                },
+                streamClient,
+                objectMapper,
+                ignored -> {
+                });
+
+        Exception error = assertThrows(Exception.class, () ->
+                model.stream(
+                                List.of(Msg.builder().name("user").role(MsgRole.USER).textContent("q").build()),
+                                List.of(),
+                                null)
+                        .collectList()
+                        .block());
+
+        ModelStreamFailure failure = ModelStreamFailure.findIn(error);
+        assertNotNull(failure);
+        assertEquals(ModelStreamFailure.MODEL_PROVIDER_BALANCE_INSUFFICIENT, failure.code());
+        assertEquals("模型供应商余额不足，当前对话无法执行。请在 ReachAI 模型中心补充额度，或切换到测试通过的模型后重试。",
+                failure.safeMessage());
+        assertEquals(0, syncCalls.get(), "definitive provider error must not trigger a second request");
+        assertFalse(failure.safeMessage().contains("Insufficient Balance"));
+    }
+
+    @Test
+    void syncProviderBalanceEnvelopeMapsToStableFailure() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        ReachAiAgentScopeChatModel model = new ReachAiAgentScopeChatModel(
+                "model-1",
+                request -> new ModelChatResult(
+                        402,
+                        "Model provider API error: HTTP 402 {\"message\":\"Insufficient Balance\"}",
+                        null),
+                objectMapper);
+
+        Exception error = assertThrows(Exception.class, () ->
+                model.stream(
+                                List.of(Msg.builder().name("user").role(MsgRole.USER).textContent("q").build()),
+                                List.of(),
+                                null)
+                        .collectList()
+                        .block());
+
+        ModelStreamFailure failure = ModelStreamFailure.findIn(error);
+        assertNotNull(failure);
+        assertEquals(ModelStreamFailure.MODEL_PROVIDER_BALANCE_INSUFFICIENT, failure.code());
     }
 
     @Test

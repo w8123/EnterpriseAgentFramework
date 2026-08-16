@@ -11,6 +11,15 @@ spring:
     password: ${AI_MYSQL_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  cloud:
+    openfeign:
+      client:
+        config:
+          reachai-control-service:
+            connectTimeout: 5000
+            # Covers navigation plus the separate 90s human-confirmation and action-execution phases.
+            readTimeout: 165000
+
 services:
   control-service:
     url: ${CONTROL_SERVICE_URL:http://localhost:18603}
@@ -22,9 +31,17 @@ services:
     url: ${KNOWLEDGE_SERVICE_URL:http://localhost:18602}
 
 reachai:
+  security:
+    workflow-credential-secret:
+      # Production profiles reject the default automatically. Set this true to enforce the same guard in staging.
+      require-non-default: ${REACHAI_REQUIRE_WORKFLOW_CREDENTIAL_SECRET:false}
   internal:
     # Shared with Control. Required for /internal/runtime/agents/execute(+stream). Fail-closed when blank.
     service-secret: ${REACHAI_INTERNAL_SERVICE_SECRET:}
+    # Production: DIRECT_TLS requires https URLs; MTLS_MESH explicitly attests sidecar/mesh protection.
+    transport-mode: ${REACHAI_INTERNAL_TRANSPORT_MODE:DEVELOPMENT_PLAINTEXT}
+    # Verification-only overlap keys for rolling rotation. Never used to sign new requests.
+    accepted-service-secrets: ${REACHAI_INTERNAL_SERVICE_ACCEPTED_SECRETS:}
     auth:
       skew-seconds: ${REACHAI_INTERNAL_AUTH_SKEW_SECONDS:300}
       # Must be >= 2 * skew-seconds so future-skew timestamps stay anti-replayable for the full window.
@@ -32,6 +49,58 @@ reachai:
       nonce-max-entries: ${REACHAI_INTERNAL_AUTH_NONCE_MAX_ENTRIES:100000}
       max-body-bytes: ${REACHAI_INTERNAL_AUTH_MAX_BODY_BYTES:1048576}
   runtime:
+    business-memory:
+      # Only explicit agentMemoryEnabled business-index hits enter this path.
+      # Resolver failures strip projection text instead of falling back to stale data.
+      max-references: ${RUNTIME_BUSINESS_MEMORY_MAX_REFERENCES:8}
+      max-resolution-bytes: ${RUNTIME_BUSINESS_MEMORY_MAX_RESOLUTION_BYTES:262144}
+    session-memory:
+      enabled: ${RUNTIME_SESSION_MEMORY_ENABLED:true}
+      # Production must use redis; local development may use json or in-memory.
+      state-store: ${RUNTIME_SESSION_MEMORY_STATE_STORE:json}
+      json-directory: ${RUNTIME_SESSION_MEMORY_JSON_DIR:${user.home}/.reachai/runtime-session-state}
+      redis-uri: ${RUNTIME_SESSION_MEMORY_REDIS_URI:redis://localhost:6379}
+      redis-key-prefix: ${RUNTIME_SESSION_MEMORY_REDIS_KEY_PREFIX:reachai:runtime:session-state:}
+      require-redis-in-production: ${RUNTIME_SESSION_MEMORY_REQUIRE_REDIS_IN_PRODUCTION:true}
+      max-context-messages: ${RUNTIME_SESSION_MEMORY_MAX_CONTEXT_MESSAGES:40}
+      max-stored-content-chars: ${RUNTIME_SESSION_MEMORY_MAX_STORED_CONTENT_CHARS:65535}
+      turn-lease-seconds: ${RUNTIME_SESSION_MEMORY_TURN_LEASE_SECONDS:600}
+    session-retention:
+      # Physical purge is destructive. Enable only after migration, tenant policy,
+      # legal-hold, backup-retention and restore procedures have been verified.
+      enabled: ${RUNTIME_SESSION_RETENTION_ENABLED:false}
+      # Defaults are used only when a tenant has no Runtime-owned policy row.
+      default-active-retention-days: ${RUNTIME_SESSION_RETENTION_ACTIVE_DAYS:30}
+      default-cleared-retention-hours: ${RUNTIME_SESSION_RETENTION_CLEARED_HOURS:24}
+      cleanup-batch-size: ${RUNTIME_SESSION_RETENTION_BATCH_SIZE:100}
+      lifecycle-lease-seconds: ${RUNTIME_SESSION_RETENTION_LEASE_SECONDS:300}
+      cleanup-fixed-delay-ms: ${RUNTIME_SESSION_RETENTION_CLEANUP_DELAY_MS:300000}
+      cleanup-initial-delay-ms: ${RUNTIME_SESSION_RETENTION_INITIAL_DELAY_MS:60000}
+    context-engineering:
+      # Canary switch. ReachAI keeps ReActAgent, canonical memory, Tool ACL and Runtime state ownership.
+      enabled: ${RUNTIME_CONTEXT_ENGINEERING_ENABLED:false}
+      compaction-enabled: ${RUNTIME_CONTEXT_COMPACTION_ENABLED:true}
+      overflow-recovery-enabled: ${RUNTIME_CONTEXT_OVERFLOW_RECOVERY_ENABLED:true}
+      compaction-trigger-messages: ${RUNTIME_CONTEXT_COMPACTION_TRIGGER_MESSAGES:24}
+      compaction-trigger-tokens: ${RUNTIME_CONTEXT_COMPACTION_TRIGGER_TOKENS:24000}
+      compaction-keep-messages: ${RUNTIME_CONTEXT_COMPACTION_KEEP_MESSAGES:10}
+      # Keep the completed Tool call/result tail while still reducing a minimal 3-message overflow.
+      emergency-keep-messages: ${RUNTIME_CONTEXT_EMERGENCY_KEEP_MESSAGES:2}
+      compaction-timeout-ms: ${RUNTIME_CONTEXT_COMPACTION_TIMEOUT_MS:60000}
+      # Explicitly opt in after applying the SQL upgrade and provisioning a >=32-char secret.
+      tool-result-offload-enabled: ${RUNTIME_TOOL_RESULT_OFFLOAD_ENABLED:false}
+      tool-result-max-chars: ${RUNTIME_TOOL_RESULT_MAX_CHARS:80000}
+      tool-result-preview-chars: ${RUNTIME_TOOL_RESULT_PREVIEW_CHARS:2000}
+      artifact-max-bytes: ${RUNTIME_CONTEXT_ARTIFACT_MAX_BYTES:16777216}
+      artifact-read-chunk-chars: ${RUNTIME_CONTEXT_ARTIFACT_READ_CHUNK_CHARS:12000}
+      artifact-retention-hours: ${RUNTIME_CONTEXT_ARTIFACT_RETENTION_HOURS:24}
+      artifact-cleanup-batch-size: ${RUNTIME_CONTEXT_ARTIFACT_CLEANUP_BATCH_SIZE:200}
+      artifact-cleanup-fixed-delay-ms: ${RUNTIME_CONTEXT_ARTIFACT_CLEANUP_FIXED_DELAY_MS:60000}
+      artifact-encryption-key-id: ${RUNTIME_CONTEXT_ARTIFACT_KEY_ID:primary}
+      artifact-encryption-secret: ${REACHAI_RUNTIME_CONTEXT_ARTIFACT_SECRET:}
+    workflow-authoring:
+      # One bounded AgentScope authoring turn may include several model/tool rounds.
+      timeout-ms: ${WORKFLOW_AUTHORING_TIMEOUT_MS:240000}
     interaction-expiry:
       enabled: ${RUNTIME_INTERACTION_EXPIRY_ENABLED:true}
       fixed-delay-ms: ${RUNTIME_INTERACTION_EXPIRY_FIXED_DELAY_MS:5000}

@@ -31,6 +31,8 @@ import com.enterprise.ai.agent.registry.RegistryContracts.ProjectRegisterRequest
 import com.enterprise.ai.agent.registry.RegistryContracts.RegistryProjectResponse;
 import com.enterprise.ai.agent.registry.RegistryContracts.SdkCapabilityDescriptionSettings;
 import com.enterprise.ai.agent.registry.RegistrySecurityService;
+import com.enterprise.ai.agent.registry.RegistryEnrollmentService;
+import com.enterprise.ai.agent.registry.RegistryEnrollmentService.RegistryCredential;
 import com.enterprise.ai.capability.aicoding.AiCodingAccessKeys;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -63,13 +65,27 @@ public class CapabilityRegistryService {
     private final CapabilityDiffItemMapper diffItemMapper;
     private final CapabilityApplyRecordMapper applyRecordMapper;
     private final RegistrySecurityService registrySecurityService;
+    private final RegistryEnrollmentService registryEnrollmentService;
     private final ObjectMapper objectMapper;
 
     @Transactional
-    public RegistryProjectResponse registerProject(ProjectRegisterRequest request) {
+    public RegistryProjectResponse registerProject(ProjectRegisterRequest request,
+                                                   String enrollmentToken,
+                                                   RegistrySecurityService.RegistrySignatureHeaders signatureHeaders) {
         validateProjectRequest(request);
         String projectCode = normalizeCode(request.projectCode());
         ScanProjectEntity project = findProject(projectCode);
+        boolean enrollmentRequested = StringUtils.hasText(enrollmentToken);
+        RegistryCredential issuedCredential = null;
+        if (project == null) {
+            if (!enrollmentRequested) {
+                throw new IllegalArgumentException("first registry registration requires a one-time enrollment token");
+            }
+            registryEnrollmentService.consume(enrollmentToken, projectCode);
+            issuedCredential = registryEnrollmentService.issueCredential(null, projectCode);
+        } else {
+            registrySecurityService.verifyRequired(projectCode, signatureHeaders);
+        }
         boolean inserting = project == null;
         boolean registrationChanged = inserting || registrationChanged(project, projectCode, request);
         if (project == null) {
@@ -96,15 +112,17 @@ public class CapabilityRegistryService {
         } else if (registrationChanged) {
             scanProjectMapper.updateById(project);
         }
-        registrySecurityService.upsertCredential(project.getId(), project.getProjectCode(),
-                request.appKey(), request.appSecret());
+        if (issuedCredential != null) {
+            registrySecurityService.savePrimaryCredential(project.getId(), project.getProjectCode(),
+                    issuedCredential.appKey(), issuedCredential.appSecret());
+        }
         registrySecurityService.updateEmbedPolicy(
                 project.getProjectCode(),
-                request.appKey(),
+                issuedCredential == null ? signatureHeaders.appKey() : issuedCredential.appKey(),
                 request.allowedOrigins(),
                 request.allowedAgentIds(),
                 request.tokenTtlSeconds());
-        return toProjectResponse(project);
+        return toProjectResponse(project, issuedCredential);
     }
 
     private boolean registrationChanged(ScanProjectEntity project,
@@ -317,16 +335,21 @@ public class CapabilityRegistryService {
             Map<String, Object> impact = capabilityLocalImpact();
             items.add(new CapabilityDiffItem(qualifiedName, capabilityName, changeType,
                     existingToolId, storageName, fieldDiffs, impact));
+            ToolDefinitionEntity beforeGlobalTool = catalogRow == null
+                    ? existingTool
+                    : findGlobalTool(catalogRow, qualifiedName, existingToolId);
             CapabilityDiffItemEntity diffItem = insertDiffItem(snapshot, project, syncId, qualifiedName, capabilityName, storageName,
-                    changeType, existingToolId, fieldDiffs, impact);
-            if (apply && !"UNCHANGED".equals(changeType)) {
+                    changeType, existingToolId, fieldDiffs, impact, captureCatalogState(catalogRow, beforeGlobalTool));
+            if (apply) {
                 applySdkCapabilityCatalogRow(project, registration, storageName, qualifiedName, capabilityName);
-                diffItem.setReviewStatus("APPLIED");
-                diffItem.setUpdatedAt(LocalDateTime.now());
-                diffItemMapper.updateById(diffItem);
-                recordReviewDecision(snapshot.getId(), diffItem.getId(), syncId, project, qualifiedName,
-                        "APPLY", "SUCCESS", "SYNC", "API目录已更新");
-                applied++;
+                if (!"UNCHANGED".equals(changeType)) {
+                    diffItem.setReviewStatus("APPLIED");
+                    diffItem.setUpdatedAt(LocalDateTime.now());
+                    diffItemMapper.updateById(diffItem);
+                    recordReviewDecision(snapshot.getId(), diffItem.getId(), syncId, project, qualifiedName,
+                            "APPLY", "SUCCESS", "SYNC", "API目录与可执行 Tool 已更新");
+                    applied++;
+                }
             }
         }
 
@@ -351,11 +374,10 @@ public class CapabilityRegistryService {
             items.add(new CapabilityDiffItem(qualifiedName, capabilityName, "DELETED",
                     row.getGlobalToolDefinitionId(), row.getName(), List.of(), impact));
             CapabilityDiffItemEntity diffItem = insertDiffItem(snapshot, project, syncId, qualifiedName,
-                    capabilityName, row.getName(), "DELETED", row.getGlobalToolDefinitionId(), List.of(), impact);
+                    capabilityName, row.getName(), "DELETED", row.getGlobalToolDefinitionId(), List.of(), impact,
+                    captureCatalogState(row, findGlobalTool(row, qualifiedName, row.getGlobalToolDefinitionId())));
             if (apply) {
-                row.setRemovedFromSource(true);
-                row.setRemovedAt(LocalDateTime.now());
-                scanProjectToolMapper.updateById(row);
+                markCatalogRowRemoved(project, diffItem, row);
                 diffItem.setReviewStatus("APPLIED");
                 diffItem.setUpdatedAt(LocalDateTime.now());
                 diffItemMapper.updateById(diffItem);
@@ -404,7 +426,14 @@ public class CapabilityRegistryService {
         String action = request == null || !StringUtils.hasText(request.action())
                 ? "APPLY"
                 : request.action().trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("APPLY", "IGNORE").contains(action)) {
+            throw new IllegalArgumentException("不支持的评审动作: " + action);
+        }
+        if (!"PENDING".equalsIgnoreCase(item.getReviewStatus())) {
+            throw new IllegalArgumentException("只有待评审的差异项可以应用或忽略");
+        }
         if (!"IGNORE".equals(action)) {
+            assertCatalogStateUnchanged(project, item);
             if ("DELETED".equalsIgnoreCase(item.getChangeType())) {
                 markCatalogRowRemoved(project, item);
                 item.setReviewStatus("APPLIED");
@@ -414,6 +443,7 @@ public class CapabilityRegistryService {
                 recordReviewDecision(snapshot.getId(), item.getId(), item.getSyncId(), project, item.getQualifiedName(),
                         "CATALOG_REMOVED", "SUCCESS", defaultString(request == null ? null : request.operator(), "system"),
                         request == null ? null : request.note());
+                refreshSnapshotReviewStatus(snapshot);
                 return toDiffItemDto(item);
             }
             CapabilityRegistration registration = findRegistration(snapshot, item.getQualifiedName());
@@ -432,6 +462,7 @@ public class CapabilityRegistryService {
             recordReviewDecision(snapshot.getId(), item.getId(), item.getSyncId(), project, item.getQualifiedName(),
                     "APPLY", "SUCCESS", defaultString(request == null ? null : request.operator(), "system"),
                     request == null ? null : request.note());
+            refreshSnapshotReviewStatus(snapshot);
             return toDiffItemDto(item);
         }
         String operator = defaultString(request == null ? null : request.operator(), "system");
@@ -442,6 +473,48 @@ public class CapabilityRegistryService {
         diffItemMapper.updateById(item);
         recordReviewDecision(snapshot.getId(), item.getId(), item.getSyncId(), project, item.getQualifiedName(),
                 "IGNORE", "SUCCESS", operator, note);
+        refreshSnapshotReviewStatus(snapshot);
+        return toDiffItemDto(item);
+    }
+
+    @Transactional
+    public CapabilityDiffItemDTO rollbackDiffItem(Long diffItemId, CapabilityReviewRequest request) {
+        CapabilityDiffItemEntity item = diffItemMapper.selectById(diffItemId);
+        if (item == null) {
+            throw new IllegalArgumentException("评审项不存在: " + diffItemId);
+        }
+        if (!"APPLIED".equalsIgnoreCase(item.getReviewStatus())) {
+            throw new IllegalArgumentException("只有已应用的评审项可以回滚");
+        }
+        if (!StringUtils.hasText(item.getBeforeStateJson())) {
+            throw new IllegalArgumentException("该评审项创建时未保存回滚状态，请重新生成差异后再应用");
+        }
+        CapabilityDiffItemEntity latestApplied = diffItemMapper.selectOne(
+                Wrappers.<CapabilityDiffItemEntity>lambdaQuery()
+                        .eq(CapabilityDiffItemEntity::getQualifiedName, item.getQualifiedName())
+                        .eq(CapabilityDiffItemEntity::getReviewStatus, "APPLIED")
+                        .orderByDesc(CapabilityDiffItemEntity::getId)
+                        .last("limit 1"));
+        if (latestApplied != null && !Objects.equals(latestApplied.getId(), item.getId())) {
+            throw new IllegalArgumentException("该能力已有更新的已应用变更，不能覆盖式回滚旧快照");
+        }
+
+        CapabilitySnapshotEntity snapshot = snapshotMapper.selectById(item.getSnapshotId());
+        if (snapshot == null) {
+            throw new IllegalArgumentException("快照不存在: " + item.getSnapshotId());
+        }
+        ScanProjectEntity project = getProject(item.getProjectCode());
+        restoreCatalogState(project, item);
+
+        String operator = defaultString(request == null ? null : request.operator(), "system");
+        String note = request == null ? null : request.note();
+        item.setReviewStatus("ROLLED_BACK");
+        item.setReviewNote(note);
+        item.setUpdatedAt(LocalDateTime.now());
+        diffItemMapper.updateById(item);
+        recordReviewDecision(snapshot.getId(), item.getId(), item.getSyncId(), project, item.getQualifiedName(),
+                "ROLLBACK", "SUCCESS", operator, note);
+        refreshSnapshotReviewStatus(snapshot);
         return toDiffItemDto(item);
     }
 
@@ -471,9 +544,11 @@ public class CapabilityRegistryService {
         return entity;
     }
 
-    private RegistryProjectResponse toProjectResponse(ScanProjectEntity project) {
+    private RegistryProjectResponse toProjectResponse(ScanProjectEntity project, RegistryCredential issuedCredential) {
         return new RegistryProjectResponse(project.getId(), project.getProjectCode(), project.getName(),
-                project.getEnvironment(), project.getVisibility());
+                project.getEnvironment(), project.getVisibility(),
+                issuedCredential == null ? null : issuedCredential.appKey(),
+                issuedCredential == null ? null : issuedCredential.appSecret());
     }
 
     private CapabilitySnapshotDTO toSnapshotDto(CapabilitySnapshotEntity entity) {
@@ -487,7 +562,34 @@ public class CapabilityRegistryService {
         return new CapabilityDiffItemDTO(entity.getId(), entity.getSnapshotId(), entity.getSyncId(),
                 entity.getProjectCode(), entity.getQualifiedName(), entity.getName(), entity.getStorageName(),
                 entity.getChangeType(), entity.getExistingToolId(), entity.getFieldDiffJson(), entity.getImpactJson(),
-                entity.getReviewStatus(), entity.getReviewNote());
+                entity.getReviewStatus(), entity.getReviewNote(), StringUtils.hasText(entity.getBeforeStateJson()));
+    }
+
+    private void refreshSnapshotReviewStatus(CapabilitySnapshotEntity snapshot) {
+        List<CapabilityDiffItemEntity> items = diffItemMapper.selectList(
+                Wrappers.<CapabilityDiffItemEntity>lambdaQuery()
+                        .eq(CapabilityDiffItemEntity::getSnapshotId, snapshot.getId()));
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        long applied = items.stream().filter(item -> "APPLIED".equalsIgnoreCase(item.getReviewStatus())).count();
+        long ignored = items.stream().filter(item -> "IGNORED".equalsIgnoreCase(item.getReviewStatus())).count();
+        long pending = items.stream().filter(item -> "PENDING".equalsIgnoreCase(item.getReviewStatus())).count();
+        String status;
+        if (applied == items.size()) {
+            status = "APPLIED";
+        } else if (ignored == items.size()) {
+            status = "IGNORED";
+        } else if (pending == items.size()) {
+            status = "PENDING";
+        } else {
+            status = "PARTIAL";
+        }
+        if (!Objects.equals(snapshot.getStatus(), status)) {
+            snapshot.setStatus(status);
+            snapshot.setUpdatedAt(LocalDateTime.now());
+            snapshotMapper.updateById(snapshot);
+        }
     }
 
     private CapabilitySnapshotEntity createSnapshot(ScanProjectEntity project,
@@ -524,7 +626,8 @@ public class CapabilityRegistryService {
                                                     String changeType,
                                                     Long existingToolId,
                                                     List<FieldDiff> fieldDiffs,
-                                                    Map<String, Object> impact) {
+                                                    Map<String, Object> impact,
+                                                    String beforeStateJson) {
         CapabilityDiffItemEntity item = new CapabilityDiffItemEntity();
         item.setSnapshotId(snapshot.getId());
         item.setSyncId(syncId);
@@ -537,6 +640,7 @@ public class CapabilityRegistryService {
         item.setExistingToolId(existingToolId);
         item.setFieldDiffJson(writeJson(fieldDiffs));
         item.setImpactJson(writeJson(impact));
+        item.setBeforeStateJson(beforeStateJson);
         item.setReviewStatus("UNCHANGED".equals(changeType) ? "APPLIED" : "PENDING");
         item.setCreatedAt(LocalDateTime.now());
         item.setUpdatedAt(LocalDateTime.now());
@@ -608,9 +712,121 @@ public class CapabilityRegistryService {
         } else {
             scanProjectToolMapper.updateById(row);
         }
+        ensureSdkCapabilityGlobalTool(project, row, registration, qualifiedName);
+    }
+
+    /**
+     * SDK 同步的 apply 语义不能只停留在扫描目录。已应用的 SDK 能力必须同时具备可执行的
+     * ToolDefinition，否则 Workflow / Agent 会把“已上报”误当成“可运行”。
+     */
+    private void ensureSdkCapabilityGlobalTool(ScanProjectEntity project,
+                                                ScanProjectToolEntity scanTool,
+                                                CapabilityRegistration registration,
+                                                String qualifiedName) {
+        ToolDefinitionEntity globalTool = scanTool.getGlobalToolDefinitionId() == null
+                ? null
+                : toolDefinitionMapper.selectById(scanTool.getGlobalToolDefinitionId());
+        if (globalTool == null) {
+            globalTool = toolDefinitionMapper.selectOne(Wrappers.<ToolDefinitionEntity>lambdaQuery()
+                    .eq(ToolDefinitionEntity::getQualifiedName, qualifiedName)
+                    .last("limit 1"));
+        }
+        if (globalTool == null) {
+            globalTool = toolDefinitionMapper.selectOne(Wrappers.<ToolDefinitionEntity>lambdaQuery()
+                    .eq(ToolDefinitionEntity::getProjectId, project.getId())
+                    .eq(ToolDefinitionEntity::getSourceLocation, scanTool.getSourceLocation())
+                    .last("limit 1"));
+        }
+
+        boolean inserting = globalTool == null;
+        if (inserting) {
+            globalTool = new ToolDefinitionEntity();
+            globalTool.setCreateTime(LocalDateTime.now());
+        }
+        applySdkCapabilityToGlobalTool(project, scanTool, registration, qualifiedName, globalTool);
+        globalTool.setUpdateTime(LocalDateTime.now());
+        if (inserting) {
+            toolDefinitionMapper.insert(globalTool);
+        } else {
+            toolDefinitionMapper.updateById(globalTool);
+        }
+
+        if (!Objects.equals(scanTool.getGlobalToolDefinitionId(), globalTool.getId())) {
+            scanTool.setGlobalToolDefinitionId(globalTool.getId());
+            scanTool.setUpdateTime(LocalDateTime.now());
+            scanProjectToolMapper.updateById(scanTool);
+        }
+    }
+
+    private void applySdkCapabilityToGlobalTool(ScanProjectEntity project,
+                                                 ScanProjectToolEntity scanTool,
+                                                 CapabilityRegistration registration,
+                                                 String qualifiedName,
+                                                 ToolDefinitionEntity globalTool) {
+        globalTool.setName(scanTool.getName());
+        globalTool.setTitle(scanTool.getTitle());
+        globalTool.setKind("TOOL");
+        globalTool.setDescription(scanTool.getDescription());
+        globalTool.setAiDescription(scanTool.getAiDescription());
+        globalTool.setCapabilityMetadataJson(scanTool.getCapabilityMetadataJson());
+        globalTool.setParametersJson(scanTool.getParametersJson());
+        globalTool.setSource("scanner");
+        globalTool.setSourceLocation(scanTool.getSourceLocation());
+        globalTool.setHttpMethod(scanTool.getHttpMethod());
+        globalTool.setBaseUrl(scanTool.getBaseUrl());
+        globalTool.setContextPath(scanTool.getContextPath());
+        globalTool.setEndpointPath(scanTool.getEndpointPath());
+        globalTool.setRequestBodyType(scanTool.getRequestBodyType());
+        globalTool.setResponseType(scanTool.getResponseType());
+        globalTool.setProjectId(project.getId());
+        globalTool.setProjectCode(project.getProjectCode());
+        globalTool.setQualifiedName(qualifiedName);
+        globalTool.setModuleId(scanTool.getModuleId());
+        globalTool.setEnabled(Boolean.TRUE.equals(scanTool.getEnabled()));
+        globalTool.setSideEffect(sdkSideEffect(registration.sideEffect()));
+        globalTool.setDraft(false);
+        globalTool.setSkillKind(null);
+        globalTool.setSpecJson(null);
+    }
+
+    private String sdkSideEffect(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "WRITE";
+        }
+        return switch (value.trim().toUpperCase(Locale.ROOT)) {
+            case "READ", "READ_ONLY", "NONE" -> "READ_ONLY";
+            case "IDEMPOTENT_WRITE" -> "IDEMPOTENT_WRITE";
+            case "IRREVERSIBLE" -> "IRREVERSIBLE";
+            default -> "WRITE";
+        };
     }
 
     private void markCatalogRowRemoved(ScanProjectEntity project, CapabilityDiffItemEntity item) {
+        markCatalogRowRemoved(project, item, null);
+    }
+
+    private void markCatalogRowRemoved(ScanProjectEntity project,
+                                       CapabilityDiffItemEntity item,
+                                       ScanProjectToolEntity knownRow) {
+        ScanProjectToolEntity row = knownRow == null ? findCatalogRow(project, item) : knownRow;
+        if (row == null) {
+            return;
+        }
+        row.setEnabled(false);
+        row.setRemovedFromSource(true);
+        row.setRemovedAt(LocalDateTime.now());
+        row.setUpdateTime(LocalDateTime.now());
+        scanProjectToolMapper.updateById(row);
+
+        ToolDefinitionEntity globalTool = findGlobalTool(row, item.getQualifiedName(), item.getExistingToolId());
+        if (globalTool != null && !Boolean.FALSE.equals(globalTool.getEnabled())) {
+            globalTool.setEnabled(false);
+            globalTool.setUpdateTime(LocalDateTime.now());
+            toolDefinitionMapper.updateById(globalTool);
+        }
+    }
+
+    private ScanProjectToolEntity findCatalogRow(ScanProjectEntity project, CapabilityDiffItemEntity item) {
         String capabilityName = StringUtils.hasText(item.getName()) ? item.getName().trim() : null;
         String sourceLocation = StringUtils.hasText(capabilityName)
                 ? "sdk:" + project.getProjectCode().trim() + ":" + capabilityName
@@ -628,11 +844,231 @@ public class CapabilityRegistryService {
                     .eq(ScanProjectToolEntity::getName, item.getStorageName())
                     .last("limit 1"));
         }
-        if (row != null) {
-            row.setRemovedFromSource(true);
-            row.setRemovedAt(LocalDateTime.now());
-            scanProjectToolMapper.updateById(row);
+        return row;
+    }
+
+    private ToolDefinitionEntity findGlobalTool(ScanProjectToolEntity row,
+                                                 String qualifiedName,
+                                                 Long fallbackToolId) {
+        Long toolId = row != null && row.getGlobalToolDefinitionId() != null
+                ? row.getGlobalToolDefinitionId()
+                : fallbackToolId;
+        ToolDefinitionEntity tool = toolId == null ? null : toolDefinitionMapper.selectById(toolId);
+        if (tool == null && StringUtils.hasText(qualifiedName)) {
+            tool = toolDefinitionMapper.selectOne(Wrappers.<ToolDefinitionEntity>lambdaQuery()
+                    .eq(ToolDefinitionEntity::getQualifiedName, qualifiedName)
+                    .last("limit 1"));
         }
+        return tool;
+    }
+
+    private String captureCatalogState(ScanProjectToolEntity scanTool, ToolDefinitionEntity globalTool) {
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("scanTool", scanTool == null ? null : scanToolState(scanTool));
+        state.put("globalTool", globalTool == null ? null : globalToolState(globalTool));
+        return writeJson(state);
+    }
+
+    private void assertCatalogStateUnchanged(ScanProjectEntity project, CapabilityDiffItemEntity item) {
+        if (!StringUtils.hasText(item.getBeforeStateJson())) {
+            return;
+        }
+        JsonNode expected;
+        JsonNode current;
+        try {
+            expected = objectMapper.readTree(item.getBeforeStateJson());
+            ScanProjectToolEntity currentScan = findCatalogRow(project, item);
+            ToolDefinitionEntity currentGlobal = findGlobalTool(
+                    currentScan,
+                    item.getQualifiedName(),
+                    item.getExistingToolId());
+            current = objectMapper.readTree(captureCatalogState(currentScan, currentGlobal));
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("评审项应用前状态无法校验", ex);
+        }
+        if (!Objects.equals(expected, current)) {
+            throw new IllegalArgumentException("能力目录在生成差异后已变化，请刷新 SDK 快照后重新评审");
+        }
+    }
+
+    private Map<String, Object> scanToolState(ScanProjectToolEntity row) {
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("id", row.getId());
+        state.put("projectId", row.getProjectId());
+        state.put("moduleId", row.getModuleId());
+        state.put("name", row.getName());
+        state.put("title", row.getTitle());
+        state.put("description", row.getDescription());
+        state.put("parametersJson", row.getParametersJson());
+        state.put("source", row.getSource());
+        state.put("sourceLocation", row.getSourceLocation());
+        state.put("httpMethod", row.getHttpMethod());
+        state.put("baseUrl", row.getBaseUrl());
+        state.put("contextPath", row.getContextPath());
+        state.put("endpointPath", row.getEndpointPath());
+        state.put("requestBodyType", row.getRequestBodyType());
+        state.put("responseType", row.getResponseType());
+        state.put("aiDescription", row.getAiDescription());
+        state.put("capabilityMetadataJson", row.getCapabilityMetadataJson());
+        state.put("sensitiveDataJson", row.getSensitiveDataJson());
+        state.put("enabled", row.getEnabled());
+        state.put("globalToolDefinitionId", row.getGlobalToolDefinitionId());
+        state.put("removedFromSource", row.getRemovedFromSource());
+        state.put("removedAt", row.getRemovedAt() == null ? null : row.getRemovedAt().toString());
+        return state;
+    }
+
+    private Map<String, Object> globalToolState(ToolDefinitionEntity tool) {
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("id", tool.getId());
+        state.put("name", tool.getName());
+        state.put("title", tool.getTitle());
+        state.put("kind", tool.getKind());
+        state.put("description", tool.getDescription());
+        state.put("aiDescription", tool.getAiDescription());
+        state.put("capabilityMetadataJson", tool.getCapabilityMetadataJson());
+        state.put("parametersJson", tool.getParametersJson());
+        state.put("specJson", tool.getSpecJson());
+        state.put("source", tool.getSource());
+        state.put("sourceLocation", tool.getSourceLocation());
+        state.put("httpMethod", tool.getHttpMethod());
+        state.put("baseUrl", tool.getBaseUrl());
+        state.put("contextPath", tool.getContextPath());
+        state.put("endpointPath", tool.getEndpointPath());
+        state.put("requestBodyType", tool.getRequestBodyType());
+        state.put("responseType", tool.getResponseType());
+        state.put("projectId", tool.getProjectId());
+        state.put("projectCode", tool.getProjectCode());
+        state.put("qualifiedName", tool.getQualifiedName());
+        state.put("moduleId", tool.getModuleId());
+        state.put("enabled", tool.getEnabled());
+        state.put("sideEffect", tool.getSideEffect());
+        state.put("skillKind", tool.getSkillKind());
+        state.put("draft", tool.getDraft());
+        return state;
+    }
+
+    private void restoreCatalogState(ScanProjectEntity project, CapabilityDiffItemEntity item) {
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(item.getBeforeStateJson());
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("评审项回滚状态无法解析", ex);
+        }
+        if (root == null || !root.isObject()) {
+            throw new IllegalArgumentException("评审项回滚状态无法解析");
+        }
+
+        ScanProjectToolEntity currentScan = findCatalogRow(project, item);
+        ToolDefinitionEntity currentGlobal = findGlobalTool(currentScan, item.getQualifiedName(), item.getExistingToolId());
+        JsonNode globalState = root.get("globalTool");
+        if (globalState != null && globalState.isObject()) {
+            ToolDefinitionEntity restored = currentGlobal == null ? new ToolDefinitionEntity() : currentGlobal;
+            restoreGlobalTool(restored, globalState);
+            restored.setUpdateTime(LocalDateTime.now());
+            if (restored.getId() == null) {
+                restored.setCreateTime(LocalDateTime.now());
+                toolDefinitionMapper.insert(restored);
+            } else {
+                toolDefinitionMapper.updateById(restored);
+            }
+        } else if (currentGlobal != null) {
+            currentGlobal.setEnabled(false);
+            currentGlobal.setUpdateTime(LocalDateTime.now());
+            toolDefinitionMapper.updateById(currentGlobal);
+        }
+
+        JsonNode scanState = root.get("scanTool");
+        if (scanState != null && scanState.isObject()) {
+            ScanProjectToolEntity restored = currentScan == null ? new ScanProjectToolEntity() : currentScan;
+            restoreScanTool(restored, scanState);
+            restored.setUpdateTime(LocalDateTime.now());
+            if (restored.getId() == null) {
+                restored.setCreateTime(LocalDateTime.now());
+                scanProjectToolMapper.insert(restored);
+            } else {
+                scanProjectToolMapper.updateById(restored);
+            }
+        } else if (currentScan != null) {
+            currentScan.setEnabled(false);
+            currentScan.setRemovedFromSource(true);
+            currentScan.setRemovedAt(LocalDateTime.now());
+            currentScan.setUpdateTime(LocalDateTime.now());
+            scanProjectToolMapper.updateById(currentScan);
+        }
+    }
+
+    private void restoreScanTool(ScanProjectToolEntity row, JsonNode state) {
+        row.setId(nullableLong(state, "id"));
+        row.setProjectId(nullableLong(state, "projectId"));
+        row.setModuleId(nullableLong(state, "moduleId"));
+        row.setName(nullableText(state, "name"));
+        row.setTitle(nullableText(state, "title"));
+        row.setDescription(nullableText(state, "description"));
+        row.setParametersJson(nullableText(state, "parametersJson"));
+        row.setSource(nullableText(state, "source"));
+        row.setSourceLocation(nullableText(state, "sourceLocation"));
+        row.setHttpMethod(nullableText(state, "httpMethod"));
+        row.setBaseUrl(nullableText(state, "baseUrl"));
+        row.setContextPath(nullableText(state, "contextPath"));
+        row.setEndpointPath(nullableText(state, "endpointPath"));
+        row.setRequestBodyType(nullableText(state, "requestBodyType"));
+        row.setResponseType(nullableText(state, "responseType"));
+        row.setAiDescription(nullableText(state, "aiDescription"));
+        row.setCapabilityMetadataJson(nullableText(state, "capabilityMetadataJson"));
+        row.setSensitiveDataJson(nullableText(state, "sensitiveDataJson"));
+        row.setEnabled(nullableBoolean(state, "enabled"));
+        row.setGlobalToolDefinitionId(nullableLong(state, "globalToolDefinitionId"));
+        row.setRemovedFromSource(nullableBoolean(state, "removedFromSource"));
+        row.setRemovedAt(nullableDateTime(state, "removedAt"));
+    }
+
+    private void restoreGlobalTool(ToolDefinitionEntity tool, JsonNode state) {
+        tool.setId(nullableLong(state, "id"));
+        tool.setName(nullableText(state, "name"));
+        tool.setTitle(nullableText(state, "title"));
+        tool.setKind(nullableText(state, "kind"));
+        tool.setDescription(nullableText(state, "description"));
+        tool.setAiDescription(nullableText(state, "aiDescription"));
+        tool.setCapabilityMetadataJson(nullableText(state, "capabilityMetadataJson"));
+        tool.setParametersJson(nullableText(state, "parametersJson"));
+        tool.setSpecJson(nullableText(state, "specJson"));
+        tool.setSource(nullableText(state, "source"));
+        tool.setSourceLocation(nullableText(state, "sourceLocation"));
+        tool.setHttpMethod(nullableText(state, "httpMethod"));
+        tool.setBaseUrl(nullableText(state, "baseUrl"));
+        tool.setContextPath(nullableText(state, "contextPath"));
+        tool.setEndpointPath(nullableText(state, "endpointPath"));
+        tool.setRequestBodyType(nullableText(state, "requestBodyType"));
+        tool.setResponseType(nullableText(state, "responseType"));
+        tool.setProjectId(nullableLong(state, "projectId"));
+        tool.setProjectCode(nullableText(state, "projectCode"));
+        tool.setQualifiedName(nullableText(state, "qualifiedName"));
+        tool.setModuleId(nullableLong(state, "moduleId"));
+        tool.setEnabled(nullableBoolean(state, "enabled"));
+        tool.setSideEffect(nullableText(state, "sideEffect"));
+        tool.setSkillKind(nullableText(state, "skillKind"));
+        tool.setDraft(nullableBoolean(state, "draft"));
+    }
+
+    private String nullableText(JsonNode state, String field) {
+        JsonNode value = state.get(field);
+        return value == null || value.isNull() ? null : value.asText();
+    }
+
+    private Long nullableLong(JsonNode state, String field) {
+        JsonNode value = state.get(field);
+        return value == null || value.isNull() ? null : value.asLong();
+    }
+
+    private Boolean nullableBoolean(JsonNode state, String field) {
+        JsonNode value = state.get(field);
+        return value == null || value.isNull() ? null : value.asBoolean();
+    }
+
+    private LocalDateTime nullableDateTime(JsonNode state, String field) {
+        String value = nullableText(state, field);
+        return StringUtils.hasText(value) ? LocalDateTime.parse(value) : null;
     }
 
     private List<FieldDiff> fieldDiffsFromCatalog(ScanProjectToolEntity row, CapabilityRegistration registration) {

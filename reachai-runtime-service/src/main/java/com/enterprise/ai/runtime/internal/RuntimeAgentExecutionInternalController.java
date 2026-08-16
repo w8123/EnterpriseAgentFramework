@@ -4,8 +4,10 @@ import com.enterprise.ai.runtime.api.SseHeartbeatSupport;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
 import com.enterprise.ai.runtime.execution.TrustedControlTiming;
+import com.enterprise.ai.runtime.execution.TrustedPersonalMemoryContext;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth;
+import com.enterprise.ai.runtime.memory.RuntimeSessionRetentionException;
 import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +17,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -79,8 +83,24 @@ public class RuntimeAgentExecutionInternalController {
                 SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
                 RuntimeAgentExecutionCancellation.NOOP,
                 identity,
-                controlTiming);
+                controlTiming,
+                request.personalMemory());
         return responseForAgentResult(result);
+    }
+
+    @DeleteMapping("/internal/runtime/agents/sessions/{sessionId}")
+    public ResponseEntity<Void> clearSession(HttpServletRequest httpRequest,
+                                             @PathVariable String sessionId) {
+        WorkflowExecutionIdentity identity = requireVerifiedIdentity(httpRequest, null);
+        if (identity == null) {
+            return ResponseEntity.status(401).build();
+        }
+        try {
+            agentExecutionService.clearSession(sessionId, identity);
+            return ResponseEntity.noContent().build();
+        } catch (RuntimeSessionRetentionException lifecycle) {
+            return ResponseEntity.status(lifecycle.status()).build();
+        }
     }
 
     @PostMapping(value = "/internal/runtime/agents/execute/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -131,7 +151,8 @@ public class RuntimeAgentExecutionInternalController {
         TrustedControlTiming trustedTiming = controlTiming;
         CompletableFuture.runAsync(() -> {
             try {
-                streamAgentExecution(emitter, body, cancellation, trustedIdentity, trustedTiming);
+                streamAgentExecution(emitter, body, cancellation, trustedIdentity, trustedTiming,
+                        request == null ? TrustedPersonalMemoryContext.empty() : request.personalMemory());
             } finally {
                 heartbeatSupport.stop(heartbeat);
             }
@@ -148,7 +169,8 @@ public class RuntimeAgentExecutionInternalController {
                                       Map<String, Object> request,
                                       RuntimeAgentExecutionCancellation cancellation,
                                       WorkflowExecutionIdentity identity,
-                                      TrustedControlTiming controlTiming) {
+                                      TrustedControlTiming controlTiming,
+                                      TrustedPersonalMemoryContext personalMemory) {
         try {
             Map<String, Object> started = new LinkedHashMap<>();
             putIfPresent(started, "agentId", request.get("agentId"));
@@ -163,7 +185,8 @@ public class RuntimeAgentExecutionInternalController {
                     (event, data) -> sendEvent(emitter, event, data, cancellation),
                     cancellation,
                     identity,
-                    controlTiming);
+                    controlTiming,
+                    personalMemory);
             if (cancellation.isCancelled()) {
                 return;
             }
@@ -233,7 +256,9 @@ public class RuntimeAgentExecutionInternalController {
         if (request != null && request.identity() != null) {
             TrustedIdentityPayload payload = request.identity();
             String bodySource = payload.source() == null ? "" : payload.source().trim().toUpperCase(Locale.ROOT);
+            String bodyTenantId = payload.tenantId() == null ? "" : payload.tenantId().trim();
             String bodyUserId = payload.userId() == null ? "" : payload.userId().trim();
+            String authTenantId = verified.identityTenantId() == null ? "" : verified.identityTenantId();
             String authUserId = verified.identityUserId() == null ? "" : verified.identityUserId();
             if (StringUtils.hasText(bodySource) && !bodySource.equals(verified.identitySource())) {
                 return null;
@@ -241,22 +266,26 @@ public class RuntimeAgentExecutionInternalController {
             if (StringUtils.hasText(bodyUserId) && !bodyUserId.equals(authUserId)) {
                 return null;
             }
+            if (StringUtils.hasText(bodyTenantId) && !bodyTenantId.equals(authTenantId)) {
+                return null;
+            }
         }
-        return resolveIdentity(verified.identitySource(), verified.identityUserId());
+        return resolveIdentity(
+                verified.identitySource(), verified.identityTenantId(), verified.identityUserId());
     }
 
-    private static WorkflowExecutionIdentity resolveIdentity(String source, String userId) {
+    private static WorkflowExecutionIdentity resolveIdentity(String source, String tenantId, String userId) {
         if (!StringUtils.hasText(source)) {
             return null;
         }
         String normalized = source.trim().toUpperCase(Locale.ROOT);
         return switch (normalized) {
             case "EMBED_SESSION" -> StringUtils.hasText(userId)
-                    ? WorkflowExecutionIdentity.fromEmbedSession(null, null, userId)
+                    ? WorkflowExecutionIdentity.fromEmbedSession(tenantId, null, null, userId)
                     : null;
             case "AGENT" -> StringUtils.hasText(userId)
-                    ? WorkflowExecutionIdentity.fromAgent(null, null, userId)
-                    : WorkflowExecutionIdentity.fromAgent(null, null);
+                    ? WorkflowExecutionIdentity.fromAgent(tenantId, null, null, userId)
+                    : WorkflowExecutionIdentity.fromAgent(tenantId, null, null, null);
             default -> null;
         };
     }
@@ -266,6 +295,11 @@ public class RuntimeAgentExecutionInternalController {
         safe.remove("__workflowExecutionIdentity");
         safe.remove("trustedIdentity");
         safe.remove("_trustedUserId");
+        safe.remove("__memoryTurnId");
+        safe.remove("__memoryUserMessage");
+        safe.remove("personalMemory");
+        safe.remove("personalMemoryContext");
+        safe.remove("__personalMemory");
         // Timing is extracted separately after auth; never leave forgeable keys on the body.
         safe.remove("controlTiming");
         safe.keySet().removeIf(key -> key != null && key.startsWith("control."));
@@ -295,7 +329,8 @@ public class RuntimeAgentExecutionInternalController {
         if ("RUNTIME_INTERACTION_FORBIDDEN".equals(codeText)) {
             return ResponseEntity.status(403).body(result);
         }
-        if ("RUNTIME_INTERACTION_CONFLICT".equals(codeText)) {
+        if ("RUNTIME_INTERACTION_CONFLICT".equals(codeText)
+                || "RUNTIME_SESSION_OWNERSHIP_CONFLICT".equals(codeText)) {
             return ResponseEntity.status(409).body(result);
         }
         if ("RUNTIME_INTERACTION_EXPIRED".equals(codeText)) {
@@ -383,8 +418,12 @@ public class RuntimeAgentExecutionInternalController {
 
     public record TrustedAgentExecuteRequest(
             Map<String, Object> body,
-            TrustedIdentityPayload identity
+            TrustedIdentityPayload identity,
+            TrustedPersonalMemoryContext personalMemory
     ) {
+        public TrustedAgentExecuteRequest {
+            personalMemory = personalMemory == null ? TrustedPersonalMemoryContext.empty() : personalMemory;
+        }
     }
 
     /**
@@ -393,6 +432,7 @@ public class RuntimeAgentExecutionInternalController {
      */
     public record TrustedIdentityPayload(
             String source,
+            String tenantId,
             String userId
     ) {
     }

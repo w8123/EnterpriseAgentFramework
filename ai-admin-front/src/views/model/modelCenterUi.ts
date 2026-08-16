@@ -201,6 +201,38 @@ export function testStatusTone(status: ModelTestStatus | string | null | undefin
   }
 }
 
+/**
+ * Converts provider-specific test failures into stable, actionable UI copy.
+ * Keep the card summary bounded and do not echo arbitrary upstream payloads,
+ * which may contain implementation details or sensitive values.
+ */
+export function modelTestFailureHint(error: string | null | undefined): string {
+  const value = String(error || '').trim()
+  if (!value) return '请重新测试；仍失败时进入“管理”检查模型连接配置。'
+  if (/\b(?:http\s*)?402\b|insufficient\s+(?:balance|quota)|余额不足|额度不足/i.test(value)) {
+    return '供应商额度不足（HTTP 402），请充值或切换可用模型后重新测试。'
+  }
+  if (/\b(?:http\s*)?401\b|unauthori[sz]ed|invalid\s+(?:api\s*)?key|authentication\s+failed/i.test(value)) {
+    return '供应商认证失败（HTTP 401），请检查 API Key 和认证配置。'
+  }
+  if (/\b(?:http\s*)?403\b|forbidden|permission\s+denied/i.test(value)) {
+    return '供应商拒绝访问（HTTP 403），请检查模型权限、地域或账号策略。'
+  }
+  if (/\b(?:http\s*)?429\b|rate\s*limit|too\s+many\s+requests/i.test(value)) {
+    return '供应商触发限流（HTTP 429），请稍后重试或调整限流配置。'
+  }
+  if (/timed?\s*out|timeout|connection\s+refused|unreachable|unknown\s+host|network\s+error|dns/i.test(value)) {
+    return '模型服务网络不可达或超时，请检查 BaseURL、DNS、代理和防火墙。'
+  }
+  if (/\b(?:http\s*)?5\d\d\b|bad\s+gateway|service\s+unavailable/i.test(value)) {
+    return '供应商服务异常（HTTP 5xx），请稍后重新测试。'
+  }
+  if (/model[^\n]{0,40}not\s+found|unknown\s+model|invalid\s+model/i.test(value)) {
+    return '上游模型不存在或无权使用，请检查模型名称与账号权限。'
+  }
+  return '模型测试未通过，请进入“管理”查看完整原因并检查连接配置。'
+}
+
 export function unwrapApiData<T>(data: T | { data?: T } | undefined | null): T | undefined {
   if (data == null) return undefined
   if (typeof data === 'object' && data !== null && 'data' in data) {

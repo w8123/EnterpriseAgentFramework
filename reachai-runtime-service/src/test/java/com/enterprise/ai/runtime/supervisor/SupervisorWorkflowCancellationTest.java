@@ -271,7 +271,7 @@ class SupervisorWorkflowCancellationTest {
         SupervisorToolPolicyService policy = new SupervisorToolPolicyService(
                 traceService, mock(SupervisorApprovalInteractionService.class), objectMapper);
         return new AgentScopeSupervisorRuntimeAdapter(
-                modelClient, null, workflowMapper, versionMapper, graphExecutor,
+                modelClient, null, null, workflowMapper, versionMapper, graphExecutor,
                 mock(com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService.class),
                 memory, policy, traceService, objectMapper);
     }

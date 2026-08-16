@@ -2,7 +2,26 @@ import axios from 'axios'
 import type { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import type { ApiResult } from '@/types/import'
-import { clearPlatformToken, getPlatformToken } from '@/utils/platformAuth'
+import { getPlatformToken } from '@/utils/platformAuth'
+import { handlePlatformSessionFailure } from '@/auth/platformSession'
+
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    /** Prevent login endpoint failures from being treated as an expired platform session. */
+    platformAuthFailure?: 'handle' | 'ignore'
+  }
+}
+
+export function shouldHandlePlatformSessionFailure(error: any): boolean {
+  const config = error?.config
+  if (!config || config.platformAuthFailure === 'ignore') return false
+  if (config.platformAuthFailure === 'handle') return true
+  // Only Control's explicit marker proves this 401 belongs to the platform
+  // session. A project credential, task token, or downstream service can also
+  // reject a request with 401 and must not sign the console out.
+  const authFailure = error?.response?.headers?.['x-reachai-auth-failure']
+  return authFailure === 'PLATFORM_SESSION_INVALID'
+}
 
 function createInstance(baseURL: string): AxiosInstance {
   const instance = axios.create({
@@ -40,14 +59,17 @@ function createInstance(baseURL: string): AxiosInstance {
       return response as AxiosResponse<ApiResult>
     },
     (error) => {
+      if (error?.config?.platformAuthFailure === 'ignore') {
+        return Promise.reject(error)
+      }
       const message =
         error.response?.data?.message || error.message || '网络异常，请稍后重试'
-      if (error.response?.status === 401 && typeof window !== 'undefined') {
-        clearPlatformToken()
-        const current = window.location.pathname + window.location.search
-        if (!window.location.pathname.startsWith('/login')) {
-          window.location.href = `/login?redirect=${encodeURIComponent(current)}`
+      if (error.response?.status === 401 && shouldHandlePlatformSessionFailure(error)) {
+        const redirected = handlePlatformSessionFailure()
+        if (!redirected) {
+          ElMessage.error(message)
         }
+        return Promise.reject(error)
       }
       ElMessage.error(message)
       return Promise.reject(error)

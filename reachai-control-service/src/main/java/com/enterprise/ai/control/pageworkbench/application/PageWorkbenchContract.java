@@ -21,6 +21,7 @@ public final class PageWorkbenchContract {
             String name,
             String description,
             String routePattern,
+            String businessPageUrl,
             String componentPath,
             List<ResourceInput> resources,
             List<ActionInput> actions) {
@@ -62,6 +63,7 @@ public final class PageWorkbenchContract {
             String name,
             String description,
             String routePattern,
+            String businessPageUrl,
             String componentPath,
             String sourceType,
             String lifecycleStatus,
@@ -164,6 +166,7 @@ public final class PageWorkbenchContract {
             String name,
             String description,
             String routePattern,
+            String businessPageUrl,
             String componentPath,
             List<ResourceInput> resources,
             List<ActionInput> actions) {
@@ -209,6 +212,7 @@ public final class PageWorkbenchContract {
             List<String> selectedActionKeys,
             List<String> referencedFiles,
             List<String> acceptanceCriteria,
+            String replaceWorkflowId,
             List<String> remainingQuestions) {
     }
 
@@ -229,9 +233,25 @@ public final class PageWorkbenchContract {
             List<String> selectedActionKeys,
             List<String> referencedFiles,
             List<String> acceptanceCriteria,
+            String replaceWorkflowId,
             List<String> remainingQuestions,
             WorkflowDraftView workflow,
             WorkflowDraftValidationView validation) {
+        public WorkflowEngineeringDraftView(
+                String schema,
+                String taskId,
+                String pageKey,
+                String summary,
+                List<String> selectedActionKeys,
+                List<String> referencedFiles,
+                List<String> acceptanceCriteria,
+                List<String> remainingQuestions,
+                WorkflowDraftView workflow,
+                WorkflowDraftValidationView validation) {
+            this(schema, taskId, pageKey, summary, selectedActionKeys,
+                    referencedFiles, acceptanceCriteria, null,
+                    remainingQuestions, workflow, validation);
+        }
     }
 
     public record WorkflowDraftView(
@@ -264,7 +284,30 @@ public final class PageWorkbenchContract {
             Integer agentConfigVersion,
             String toolName,
             String configStatus,
-            boolean published) {
+            boolean published,
+            String replacedWorkflowId) {
+        public WorkflowDeliveryView(
+                String schema,
+                String taskId,
+                String pageKey,
+                String workflowId,
+                String workflowKeySlug,
+                String workflowName,
+                Long workflowVersionId,
+                String workflowVersion,
+                LocalDateTime publishedAt,
+                String agentId,
+                String agentKeySlug,
+                Long agentConfigVersionId,
+                Integer agentConfigVersion,
+                String toolName,
+                String configStatus,
+                boolean published) {
+            this(schema, taskId, pageKey, workflowId, workflowKeySlug,
+                    workflowName, workflowVersionId, workflowVersion,
+                    publishedAt, agentId, agentKeySlug, agentConfigVersionId,
+                    agentConfigVersion, toolName, configStatus, published, null);
+        }
     }
 
     public record PageIntegrationReadinessView(
@@ -291,7 +334,24 @@ public final class PageWorkbenchContract {
             String summary,
             List<ReportedCheck> checks,
             BrowserVerification browserVerification,
+            StructuredPresentationVerification structuredPresentation,
+            StateRestoration stateRestoration,
             String traceId) {
+    }
+
+    public record StructuredPresentationVerification(
+            boolean required,
+            boolean passed,
+            boolean uiRequestedObserved,
+            boolean cardDomObserved,
+            String component,
+            String evidence) {
+    }
+
+    public record StateRestoration(
+            boolean required,
+            boolean passed,
+            String evidence) {
     }
 
     public record PreReleasePayload(
@@ -343,6 +403,13 @@ public final class PageWorkbenchContract {
             String runStatus,
             String entryType,
             boolean workflowObserved,
+            boolean capabilityRequired,
+            boolean capabilityObserved,
+            boolean pageActionRequired,
+            boolean pageActionObserved,
+            boolean pageActionBusinessTerminalObserved,
+            boolean structuredPresentationRequired,
+            boolean structuredPresentationObserved,
             LocalDateTime checkedAt) {
     }
 
@@ -362,6 +429,7 @@ public final class PageWorkbenchContract {
             String agentName,
             Long agentConfigVersionId,
             Integer agentConfigVersion,
+            String modelInstanceId,
             String toolName,
             String riskLevel,
             String permissionKey,

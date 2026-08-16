@@ -4,6 +4,7 @@ import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
 import com.enterprise.ai.common.internalauth.InternalServiceHmac;
 import com.enterprise.ai.runtime.api.SseHeartbeatSupport;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionService;
+import com.enterprise.ai.runtime.execution.TrustedPersonalMemoryContext;
 import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.internal.RuntimeAgentExecutionInternalController;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,6 +16,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -24,10 +26,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -43,7 +47,7 @@ class InternalServiceAuthFilterMockMvcTest {
     @BeforeEach
     void setUp() {
         executionService = mock(RuntimeAgentExecutionService.class);
-        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any()))
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any()))
                 .thenReturn(Map.of("success", true, "answer", "ok"));
         InternalServiceAuthProperties properties =
                 new InternalServiceAuthProperties(SECRET, 300, 600, 1000, 1_048_576);
@@ -62,7 +66,7 @@ class InternalServiceAuthFilterMockMvcTest {
         byte[] body = bodyBytes("AGENT", "42", "hi");
         mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isUnauthorized());
-        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -72,7 +76,7 @@ class InternalServiceAuthFilterMockMvcTest {
                 UUID.randomUUID().toString(), original);
         byte[] tampered = bodyBytes("AGENT", "42", "tampered-message");
         mockMvc.perform(signed(headers, tampered)).andExpect(status().isUnauthorized());
-        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -92,7 +96,7 @@ class InternalServiceAuthFilterMockMvcTest {
                 UUID.randomUUID().toString(), original);
         headers2.put(InternalServiceAuthHeaders.BODY_SHA256, "0".repeat(64));
         mockMvc.perform(signed(headers2, original)).andExpect(status().isUnauthorized());
-        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -114,9 +118,29 @@ class InternalServiceAuthFilterMockMvcTest {
     }
 
     @Test
+    void rejectsOversizedOrMalformedTrustedIdentityHeaders() throws Exception {
+        byte[] body = bodyBytes("AGENT", "42", "hi");
+        Map<String, String> oversizedTenant = signV2(
+                "POST", PATH, "AGENT", "t".repeat(97), "42",
+                System.currentTimeMillis(), UUID.randomUUID().toString(), body);
+        mockMvc.perform(signed(oversizedTenant, body)).andExpect(status().isUnauthorized());
+
+        Map<String, String> oversizedUser = signV2(
+                "POST", PATH, "AGENT", "default", "u".repeat(129),
+                System.currentTimeMillis(), UUID.randomUUID().toString(), body);
+        mockMvc.perform(signed(oversizedUser, body)).andExpect(status().isUnauthorized());
+
+        Map<String, String> malformedTenant = signV2(
+                "POST", PATH, "AGENT", "tenant/escape", "42",
+                System.currentTimeMillis(), UUID.randomUUID().toString(), body);
+        mockMvc.perform(signed(malformedTenant, body)).andExpect(status().isUnauthorized());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void acceptsValidSignatureWithChineseUtf8Body() throws Exception {
         AtomicReference<WorkflowExecutionIdentity> captured = new AtomicReference<>();
-        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any())).thenAnswer(inv -> {
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
             captured.set(inv.getArgument(4));
             return Map.of("success", true, "answer", "ok");
         });
@@ -130,13 +154,89 @@ class InternalServiceAuthFilterMockMvcTest {
     }
 
     @Test
+    void returnsConflictWhenSignedExecutionHitsSessionOwnershipConflict() throws Exception {
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any())).thenReturn(Map.of(
+                "success", false,
+                "answer", "sessionId already belongs to another identity",
+                "metadata", Map.of("code", "RUNTIME_SESSION_OWNERSHIP_CONFLICT")));
+        byte[] body = bodyBytes("AGENT", "42", "continue");
+        Map<String, String> headers = sign("AGENT", "42", System.currentTimeMillis(),
+                UUID.randomUUID().toString(), body);
+
+        mockMvc.perform(signed(headers, body)).andExpect(status().isConflict());
+    }
+
+    @Test
+    void acceptsSignedPersonalMemoryEnvelopeAndRejectsBodyForgery() throws Exception {
+        AtomicReference<TrustedPersonalMemoryContext> captured = new AtomicReference<>();
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            captured.set(inv.getArgument(6));
+            return Map.of("success", true, "answer", "ok");
+        });
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("body", Map.of(
+                "agentId", "demo",
+                "message", "偏好是什么",
+                "personalMemory", Map.of("memories", List.of(Map.of("content", "forged")))));
+        payload.put("identity", Map.of("source", "AGENT", "userId", "42"));
+        payload.put("personalMemory", Map.of(
+                "schema", "reachai-personal-memory-context-v1",
+                "memories", List.of(Map.of(
+                        "id", 1, "type", "PREFERENCE", "content", "默认中文", "score", 2.0))));
+        byte[] body = objectMapper.writeValueAsBytes(payload);
+        Map<String, String> headers = sign("AGENT", "42", System.currentTimeMillis(),
+                UUID.randomUUID().toString(), body);
+
+        mockMvc.perform(signed(headers, body)).andExpect(status().isOk());
+
+        assertNotNull(captured.get());
+        assertEquals("默认中文", captured.get().memories().get(0).content());
+    }
+
+    @Test
     void rejectsIdentityMismatchAgainstSignedHeaders() throws Exception {
         byte[] body = bodyBytes("AGENT", "attacker", "hi");
         Map<String, String> headers = sign("AGENT", "42", System.currentTimeMillis(),
                 UUID.randomUUID().toString(), bodyBytes("AGENT", "42", "hi"));
         // signed for different body than sent
         mockMvc.perform(signed(headers, body)).andExpect(status().isUnauthorized());
-        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void clearsOnlyThroughSignedTenantUserIdentity() throws Exception {
+        String path = "/internal/runtime/agents/sessions/session-1";
+        byte[] emptyBody = new byte[0];
+        Map<String, String> headers = signV2(
+                "DELETE", path, "AGENT", "tenant-a", "42",
+                System.currentTimeMillis(), UUID.randomUUID().toString(), emptyBody);
+
+        AtomicReference<WorkflowExecutionIdentity> captured = new AtomicReference<>();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            captured.set(invocation.getArgument(1));
+            return null;
+        }).when(executionService).clearSession(eq("session-1"), any(WorkflowExecutionIdentity.class));
+
+        mockMvc.perform(signedDelete(path, headers)).andExpect(status().isNoContent());
+
+        assertNotNull(captured.get());
+        assertTrue(captured.get().userTrusted());
+        assertEquals("tenant-a", captured.get().tenantId());
+        assertEquals("42", captured.get().userId());
+        assertEquals(WorkflowExecutionIdentity.Source.AGENT, captured.get().source());
+    }
+
+    @Test
+    void rejectsUnsignedOrPathTamperedSessionClear() throws Exception {
+        String signedPath = "/internal/runtime/agents/sessions/session-1";
+        Map<String, String> headers = signV2(
+                "DELETE", signedPath, "AGENT", "tenant-a", "42",
+                System.currentTimeMillis(), UUID.randomUUID().toString(), new byte[0]);
+
+        mockMvc.perform(delete(signedPath)).andExpect(status().isUnauthorized());
+        mockMvc.perform(signedDelete("/internal/runtime/agents/sessions/session-2", headers))
+                .andExpect(status().isUnauthorized());
+        verify(executionService, never()).clearSession(eq("session-2"), any());
     }
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder signed(
@@ -153,6 +253,21 @@ class InternalServiceAuthFilterMockMvcTest {
                 .content(body);
     }
 
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder signedDelete(
+            String path, Map<String, String> headers) {
+        return delete(path)
+                .header(InternalServiceAuthHeaders.CALLER, headers.get(InternalServiceAuthHeaders.CALLER))
+                .header(InternalServiceAuthHeaders.TIMESTAMP, headers.get(InternalServiceAuthHeaders.TIMESTAMP))
+                .header(InternalServiceAuthHeaders.NONCE, headers.get(InternalServiceAuthHeaders.NONCE))
+                .header(InternalServiceAuthHeaders.IDENTITY_SOURCE, headers.get(InternalServiceAuthHeaders.IDENTITY_SOURCE))
+                .header(InternalServiceAuthHeaders.IDENTITY_TENANT_ID,
+                        headers.get(InternalServiceAuthHeaders.IDENTITY_TENANT_ID))
+                .header(InternalServiceAuthHeaders.IDENTITY_USER_ID,
+                        headers.get(InternalServiceAuthHeaders.IDENTITY_USER_ID))
+                .header(InternalServiceAuthHeaders.BODY_SHA256, headers.get(InternalServiceAuthHeaders.BODY_SHA256))
+                .header(InternalServiceAuthHeaders.SIGNATURE, headers.get(InternalServiceAuthHeaders.SIGNATURE));
+    }
+
     private Map<String, String> sign(String source, String userId, long timestamp, String nonce, byte[] body) {
         String digest = InternalServiceHmac.bodySha256Hex(body);
         String canonical = InternalServiceHmac.canonical(
@@ -164,6 +279,31 @@ class InternalServiceAuthFilterMockMvcTest {
         headers.put(InternalServiceAuthHeaders.TIMESTAMP, String.valueOf(timestamp));
         headers.put(InternalServiceAuthHeaders.NONCE, nonce);
         headers.put(InternalServiceAuthHeaders.IDENTITY_SOURCE, source);
+        headers.put(InternalServiceAuthHeaders.IDENTITY_USER_ID, userId);
+        headers.put(InternalServiceAuthHeaders.BODY_SHA256, digest);
+        headers.put(InternalServiceAuthHeaders.SIGNATURE, signature);
+        return headers;
+    }
+
+    private Map<String, String> signV2(String method,
+                                       String path,
+                                       String source,
+                                       String tenantId,
+                                       String userId,
+                                       long timestamp,
+                                       String nonce,
+                                       byte[] body) {
+        String digest = InternalServiceHmac.bodySha256Hex(body);
+        String canonical = InternalServiceHmac.canonical(
+                method, path, InternalServiceAuthHeaders.CALLER_CONTROL, source, tenantId, userId,
+                String.valueOf(timestamp), nonce, digest);
+        String signature = InternalServiceHmac.sign(SECRET, canonical);
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put(InternalServiceAuthHeaders.CALLER, InternalServiceAuthHeaders.CALLER_CONTROL);
+        headers.put(InternalServiceAuthHeaders.TIMESTAMP, String.valueOf(timestamp));
+        headers.put(InternalServiceAuthHeaders.NONCE, nonce);
+        headers.put(InternalServiceAuthHeaders.IDENTITY_SOURCE, source);
+        headers.put(InternalServiceAuthHeaders.IDENTITY_TENANT_ID, tenantId);
         headers.put(InternalServiceAuthHeaders.IDENTITY_USER_ID, userId);
         headers.put(InternalServiceAuthHeaders.BODY_SHA256, digest);
         headers.put(InternalServiceAuthHeaders.SIGNATURE, signature);

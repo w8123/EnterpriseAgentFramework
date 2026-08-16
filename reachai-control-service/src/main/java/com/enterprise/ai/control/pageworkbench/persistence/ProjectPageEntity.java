@@ -21,6 +21,7 @@ public class ProjectPageEntity {
     private String name;
     private String description;
     private String routePattern;
+    private String businessPageUrl;
     private String componentPath;
     private String sourceType;
     private String lifecycleStatus;

@@ -35,7 +35,9 @@
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import axios from 'axios'
 import { applyPlatformLogin, loginPlatform } from '@/api/platformAuth'
+import { sanitizePlatformRedirect } from '@/auth/platformSession'
 
 const router = useRouter()
 const route = useRoute()
@@ -54,8 +56,14 @@ async function handleLogin() {
   try {
     const { data } = await loginPlatform({ username: form.username, password: form.password })
     applyPlatformLogin(data)
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+    const redirect = sanitizePlatformRedirect(route.query.redirect)
     await router.replace(redirect)
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 503) {
+      ElMessage.error('平台登录尚未配置或暂不可用，请联系管理员。')
+      return
+    }
+    ElMessage.error('用户名或密码错误，请重试')
   } finally {
     loading.value = false
   }

@@ -1,4 +1,8 @@
-import type { EafPageBridge, PageActionResult } from './eafPageBridge'
+import type {
+  EafPageBridge,
+  PageActionBeforeExecute,
+  PageActionResult,
+} from './eafPageBridge'
 import type { EafChatEvent, EafChatMessageResponse } from './eafChat'
 
 export interface PageActionDispatchRequest {
@@ -108,18 +112,40 @@ export async function dispatchPageActionExactlyOnce(options: {
     options.handledPageActions.add(requestId)
     options.onRequested?.(normalized)
     try {
+      let executionRejected = false
+      let claimAttempted = false
+      let claimed = false
+      const beforeExecute: PageActionBeforeExecute = async () => {
+        if (claimAttempted) return claimed
+        claimAttempted = true
+        claimed = await claimPageActionWithRefresh(options, normalized)
+        executionRejected = !claimed
+        return claimed
+      }
       const result = await runPageActionBridge(
         normalized,
         options.bridge,
         options.responseMetadata,
         new Set(), // 已认领，内部不再二次 gated
+        beforeExecute,
       )
       if (!result) return
-      if (result.status === 'FAILED' || result.status === 'TIMEOUT') {
+      if (executionRejected) {
+        options.onError?.(new Error(`Page action request expired before execution: ${normalized.actionKey}`))
+        return
+      }
+      if (isTechnicalPageActionFailure(result.status)) {
         options.onError?.(new Error(result.error || `Page action ${result.status}: ${normalized.actionKey}`))
       }
       options.pendingPageActionResults?.set(requestId, result)
-      await deliverPageActionResult(options, result)
+      try {
+        await deliverPageActionResult(options, result)
+      } catch (error) {
+        if (hasStatus(error, 409)) {
+          options.pendingPageActionResults?.delete(requestId)
+        }
+        throw error
+      }
       options.pendingPageActionResults?.delete(requestId)
     } catch (error) {
       options.onError?.(error)
@@ -131,6 +157,44 @@ export async function dispatchPageActionExactlyOnce(options: {
     await work
   } finally {
     options.inFlightPageActions.delete(requestId)
+  }
+}
+
+async function claimPageActionWithRefresh(
+  options: {
+    apiBase: string
+    sessionId: string
+    token: string
+    refreshToken?: () => Promise<string>
+    fetchImpl?: typeof fetch
+  },
+  request: PageActionDispatchRequest,
+): Promise<boolean> {
+  let token = options.token
+  try {
+    return await claimPageActionExecution(
+      options.apiBase,
+      options.sessionId,
+      token,
+      request,
+      options.fetchImpl,
+    )
+  } catch (error) {
+    if (hasStatus(error, 409)) return false
+    if (!isUnauthorized(error) || !options.refreshToken) throw error
+    token = await options.refreshToken()
+    try {
+      return await claimPageActionExecution(
+        options.apiBase,
+        options.sessionId,
+        token,
+        request,
+        options.fetchImpl,
+      )
+    } catch (retryError) {
+      if (hasStatus(retryError, 409)) return false
+      throw retryError
+    }
   }
 }
 
@@ -171,11 +235,22 @@ async function runPageActionBridge(
   bridge: EafPageBridge,
   responseMetadata: Record<string, unknown> | undefined,
   handledPageActions: Set<string>,
+  beforeExecute?: PageActionBeforeExecute,
 ): Promise<PageActionResult | null> {
-  const result = await bridge.handleEvent(normalized)
+  const result = await bridge.handleEvent(normalized, { beforeExecute })
   if (result && result.status !== 'ACTION_NOT_FOUND') {
     handledPageActions.add(normalized.requestId)
     return result
+  }
+  if (beforeExecute && !await beforeExecute(normalized)) {
+    return {
+      protocolVersion: normalized.protocolVersion || '1.0',
+      type: 'page.action.result',
+      requestId: normalized.requestId,
+      actionKey: normalized.actionKey,
+      status: 'TIMEOUT',
+      error: 'Page action request expired before execution',
+    }
   }
   const fallback = await executeWindowPageBridgeAction(normalized, responseMetadata)
   if (fallback) {
@@ -247,8 +322,8 @@ async function executeWindowPageBridgeAction(
       requestId: request.requestId,
     })
     const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : { data: raw }
-    const rawStatus = String(record.status || 'SUCCESS').toUpperCase()
-    const success = rawStatus === 'SUCCESS'
+    const rawStatus = String(record.status || 'SUCCESS').trim().toUpperCase()
+    const status = normalizeWindowBridgeStatus(rawStatus)
     const error = record.error && typeof record.error === 'object'
       ? String((record.error as Record<string, unknown>).message || record.message || '')
       : String(record.message || '')
@@ -257,9 +332,14 @@ async function executeWindowPageBridgeAction(
       type: 'page.action.result',
       requestId: request.requestId,
       actionKey: request.actionKey,
-      status: success ? 'SUCCESS' : 'FAILED',
+      status,
       data: record.data ?? raw,
-      error: success ? undefined : error || `Page action returned ${rawStatus}`,
+      message: typeof record.message === 'string' && record.message.trim()
+        ? record.message.trim()
+        : undefined,
+      error: isTechnicalPageActionFailure(status)
+        ? error || `Page action returned ${rawStatus}`
+        : undefined,
     }
   } catch (error) {
     return {
@@ -270,6 +350,37 @@ async function executeWindowPageBridgeAction(
       status: 'FAILED',
       error: error instanceof Error ? error.message : String(error),
     }
+  }
+}
+
+function isTechnicalPageActionFailure(status: PageActionResult['status']): boolean {
+  return status === 'FAILED'
+    || status === 'TIMEOUT'
+    || status === 'ACTION_NOT_FOUND'
+    || status === 'FORBIDDEN'
+}
+
+function normalizeWindowBridgeStatus(rawStatus: string): PageActionResult['status'] {
+  switch (rawStatus) {
+    case 'SUCCESS':
+    case 'NO_DATA':
+    case 'PRECONDITION_FAILED':
+    case 'USER_CANCELLED':
+    case 'FAILED':
+    case 'CANCELLED':
+    case 'ACTION_NOT_FOUND':
+    case 'FORBIDDEN':
+    case 'TIMEOUT':
+      return rawStatus
+    // Legacy page bridge templates expose WARN / ERROR. Preserve their business
+    // meaning on the public Embed boundary instead of treating a warning as a
+    // transport failure.
+    case 'WARN':
+      return 'PRECONDITION_FAILED'
+    case 'ERROR':
+      return 'FAILED'
+    default:
+      return 'FAILED'
   }
 }
 
@@ -296,6 +407,22 @@ export async function postPageActionResult(
     token,
     fetchImpl,
   )
+}
+
+export async function claimPageActionExecution(
+  apiBase: string,
+  sessionId: string,
+  token: string,
+  request: Pick<PageActionDispatchRequest, 'requestId' | 'actionKey'>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  const response = await postJson<{ claimed?: boolean }>(
+    `${apiBase}/chat/sessions/${encodeURIComponent(sessionId)}/page-actions/${encodeURIComponent(request.requestId)}/claim`,
+    { requestId: request.requestId, actionKey: request.actionKey },
+    token,
+    fetchImpl,
+  )
+  return response.claimed === true
 }
 
 export async function pollPendingPageActions(options: {
@@ -415,4 +542,8 @@ function requestError(message: string, status: number): Error & { status?: numbe
 
 function isUnauthorized(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && (error as { status?: number }).status === 401)
+}
+
+function hasStatus(error: unknown, status: number): boolean {
+  return Boolean(error && typeof error === 'object' && (error as { status?: number }).status === status)
 }

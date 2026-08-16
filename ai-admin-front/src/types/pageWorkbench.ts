@@ -52,6 +52,7 @@ export interface ManualProjectPageRequest {
   name: string
   description?: string
   routePattern?: string
+  businessPageUrl?: string
   componentPath?: string
   resources?: PageResourceInput[]
   actions?: PageActionInput[]
@@ -102,6 +103,7 @@ export interface ProjectPage {
   name: string
   description?: string
   routePattern?: string
+  businessPageUrl?: string
   componentPath?: string
   sourceType: PageSourceType
   lifecycleStatus: PageLifecycleStatus
@@ -186,6 +188,7 @@ export interface PublishedPageWorkflow {
   agentName: string
   agentConfigVersionId: number
   agentConfigVersion: number
+  modelInstanceId?: string
   toolName: string
   riskLevel: string
   permissionKey?: string
@@ -196,7 +199,7 @@ export interface PublishedPageWorkflow {
   latestTraceId?: string
 }
 
-export type PageIntegrationReadinessStatus = 'PASS' | 'PENDING' | 'FAIL' | 'WARN'
+export type PageIntegrationReadinessStatus = 'PASS' | 'PENDING' | 'FAIL' | 'WARN' | 'NOT_REQUIRED'
 
 export interface PageIntegrationReadinessItem {
   key: string
@@ -225,6 +228,7 @@ export interface WorkflowEngineeringDraftResult {
   selectedActionKeys: string[]
   referencedFiles: string[]
   acceptanceCriteria: string[]
+  replaceWorkflowId?: string | null
   remainingQuestions: string[]
   workflow: {
     id: string
@@ -256,6 +260,7 @@ export interface WorkflowDeliveryRequest {
   agentId?: string
   modelInstanceId?: string
   publishedBy?: string
+  replaceWorkflowId?: string | null
 }
 
 export interface WorkflowDeliveryResult {
@@ -275,6 +280,7 @@ export interface WorkflowDeliveryResult {
   toolName: string
   configStatus: string
   published: boolean
+  replacedWorkflowId?: string | null
 }
 
 export type PageAccessJourneyStage =

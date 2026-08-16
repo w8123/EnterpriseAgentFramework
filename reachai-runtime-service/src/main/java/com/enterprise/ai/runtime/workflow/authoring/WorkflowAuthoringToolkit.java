@@ -265,7 +265,8 @@ final class WorkflowAuthoringToolkit {
                 "to", Map.of("type", "string", "minLength", 1),
                 "condition", Map.of("type", "string"),
                 "sourceHandle", Map.of("type", "string"),
-                "targetHandle", Map.of("type", "string")));
+                "targetHandle", Map.of("type", "string"),
+                "priority", Map.of("type", "integer")));
         edgeSchema.put("required", List.of("from", "to"));
         edgeSchema.put("additionalProperties", false);
 

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -13,13 +14,20 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.time.LocalDateTime;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -27,46 +35,63 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PlatformIdentityController {
 
-    private static final long LOGIN_TTL_SECONDS = 86_400L;
+    public static final String AUTH_READINESS_HEADER = "X-ReachAI-Auth-Readiness";
 
     private final PlatformUserMapper userMapper;
     private final PlatformRoleMapper roleMapper;
     private final PlatformUserRoleMapper userRoleMapper;
     private final PlatformLoginSessionMapper sessionMapper;
     private final PlatformAuthProviderMapper authProviderMapper;
+    private final PlatformAuthProperties authProperties;
+    private final PlatformConsoleAuthAvailability consoleAuthAvailability;
+    private final PlatformBearerAuthService bearerAuthService;
+    private final PlatformAuthorizationService authorizationService;
+    private final PlatformAuthAuditService authAuditService;
+    private final PlatformSessionTokenCodec sessionTokenCodec;
+    private final PasswordEncoder platformPasswordEncoder;
 
     @PostMapping("/api/platform/auth/login")
     public ResponseEntity<PlatformLoginResult> login(@RequestBody PlatformLoginRequest request) {
         String username = requireText(request == null ? null : request.username(), "username");
         String password = requireText(request == null ? null : request.password(), "password");
+        PlatformConsoleAuthAvailability.Availability availability = consoleAuthAvailability.current();
+        if (!availability.available()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .header(AUTH_READINESS_HEADER, availability.code())
+                    .build();
+        }
         PlatformUserEntity user = userMapper.selectOne(new LambdaQueryWrapper<PlatformUserEntity>()
                 .eq(PlatformUserEntity::getUsername, username)
                 .last("limit 1"));
-        if (user == null) {
-            user = createLocalUser(username, password);
-        }
-        if (!"ACTIVE".equalsIgnoreCase(user.getStatus()) || !passwordMatches(user, password)) {
+        if (user == null
+                || !"LOCAL".equalsIgnoreCase(user.getSourceProvider())
+                || !"ACTIVE".equalsIgnoreCase(user.getStatus())
+                || !passwordMatches(user, password)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
         user.setLastLoginAt(LocalDateTime.now());
         user.setUpdatedAt(LocalDateTime.now());
         userMapper.updateById(user);
-        PlatformLoginSessionEntity session = createSession(user);
-        sessionMapper.insert(session);
+        IssuedPlatformSession issuedSession = createSession(user);
+        sessionMapper.insert(issuedSession.session());
+        PlatformAuthenticatedSession authenticatedSession = authorizationService.authenticatedSession(
+                user,
+                issuedSession.session());
         return ResponseEntity.ok(new PlatformLoginResult(
-                session.getAccessTokenId(),
-                LOGIN_TTL_SECONDS,
-                instantText(session.getExpiresAt()),
-                toProfile(user)));
+                issuedSession.accessToken(),
+                authProperties.getSessionTtl().toSeconds(),
+                instantText(issuedSession.session().getExpiresAt()),
+                issuedSession.session().getSessionId(),
+                toProfile(authenticatedSession)));
     }
 
     @GetMapping("/api/platform/auth/me")
-    public ResponseEntity<PlatformUserProfile> me(
+    public ResponseEntity<PlatformSessionView> me(
             @RequestHeader(value = "Authorization", required = false) String authorization) {
-        PlatformUserEntity user = resolveBearerUser(authorization);
-        return user == null
-                ? ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
-                : ResponseEntity.ok(toProfile(user));
+        return bearerAuthService.resolveBearerSession(authorization)
+                .map(this::toSessionView)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
     }
 
     @PostMapping("/api/platform/auth/logout")
@@ -75,7 +100,7 @@ public class PlatformIdentityController {
         String token = bearerToken(authorization);
         if (StringUtils.hasText(token)) {
             sessionMapper.update(null, new LambdaUpdateWrapper<PlatformLoginSessionEntity>()
-                    .eq(PlatformLoginSessionEntity::getAccessTokenId, token)
+                    .eq(PlatformLoginSessionEntity::getAccessTokenId, sessionTokenCodec.digest(token))
                     .isNull(PlatformLoginSessionEntity::getRevokedAt)
                     .set(PlatformLoginSessionEntity::getRevokedAt, LocalDateTime.now()));
         }
@@ -83,7 +108,8 @@ public class PlatformIdentityController {
     }
 
     @GetMapping("/api/platform/auth-providers")
-    public ResponseEntity<List<PlatformAuthProviderView>> listAuthProviders() {
+    public ResponseEntity<List<PlatformAuthProviderView>> listAuthProviders(HttpServletRequest request) {
+        requirePlatformAdmin(request);
         return ResponseEntity.ok(authProviderMapper.selectList(new LambdaQueryWrapper<PlatformAuthProviderEntity>()
                         .orderByAsc(PlatformAuthProviderEntity::getId))
                 .stream()
@@ -92,8 +118,16 @@ public class PlatformIdentityController {
     }
 
     @PostMapping("/api/platform/auth-providers")
-    public ResponseEntity<PlatformAuthProviderView> saveAuthProvider(@RequestBody PlatformAuthProviderCommand request) {
-        String providerCode = requireText(request == null ? null : request.providerCode(), "providerCode");
+    @Transactional
+    public ResponseEntity<PlatformAuthProviderView> saveAuthProvider(
+            HttpServletRequest httpRequest,
+            @RequestBody PlatformAuthProviderCommand request) {
+        PlatformAuthenticatedSession actor = requirePlatformAdmin(httpRequest);
+        String providerCode = requireProviderCode(request == null ? null : request.providerCode(), "providerCode");
+        String providerType = requireProviderCode(request == null ? null : request.providerType(), "providerType");
+        if (!providerCode.equals(providerType)) {
+            throw badRequest("providerCode must match providerType");
+        }
         PlatformAuthProviderEntity entity = authProviderMapper.selectOne(new LambdaQueryWrapper<PlatformAuthProviderEntity>()
                 .eq(PlatformAuthProviderEntity::getProviderCode, providerCode)
                 .last("limit 1"));
@@ -103,20 +137,31 @@ public class PlatformIdentityController {
             entity.setCreatedAt(LocalDateTime.now());
         }
         entity.setProviderName(requireText(request.providerName(), "providerName"));
-        entity.setProviderType(requireText(request.providerType(), "providerType"));
-        entity.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : "ACTIVE");
-        entity.setConfigJson(StringUtils.hasText(request.configJson()) ? request.configJson().trim() : "{}");
+        entity.setProviderType(providerType);
+        entity.setStatus(normalizeProviderStatus(providerType, request.status()));
+        entity.setConfigJson(normalizeProviderConfig(providerType, request.configJson()));
         entity.setUpdatedAt(LocalDateTime.now());
         if (entity.getId() == null) {
             authProviderMapper.insert(entity);
         } else {
             authProviderMapper.updateById(entity);
         }
+        authAuditService.record(
+                actor,
+                "PLATFORM_AUTH_PROVIDER_SAVED",
+                "AUTH_PROVIDER",
+                String.valueOf(entity.getId()),
+                Map.of(
+                        "providerCode", entity.getProviderCode(),
+                        "providerType", entity.getProviderType(),
+                        "status", entity.getStatus(),
+                        "configurationPresent", hasNonEmptyProviderConfig(entity)));
         return ResponseEntity.ok(toAuthProviderView(entity));
     }
 
     @GetMapping("/api/platform/users")
-    public ResponseEntity<List<PlatformUserView>> listUsers() {
+    public ResponseEntity<List<PlatformUserView>> listUsers(HttpServletRequest request) {
+        requirePlatformAdmin(request);
         return ResponseEntity.ok(userMapper.selectList(new LambdaQueryWrapper<PlatformUserEntity>()
                         .orderByDesc(PlatformUserEntity::getId))
                 .stream()
@@ -125,7 +170,8 @@ public class PlatformIdentityController {
     }
 
     @GetMapping("/api/platform/roles")
-    public ResponseEntity<List<PlatformRoleView>> listRoles() {
+    public ResponseEntity<List<PlatformRoleView>> listRoles(HttpServletRequest request) {
+        requirePlatformAdmin(request);
         return ResponseEntity.ok(roleMapper.selectList(new LambdaQueryWrapper<PlatformRoleEntity>()
                         .orderByAsc(PlatformRoleEntity::getId))
                 .stream()
@@ -134,87 +180,56 @@ public class PlatformIdentityController {
     }
 
     @GetMapping("/api/platform/users/{userId}/roles")
-    public ResponseEntity<List<PlatformUserRoleGrantView>> listUserRoleGrants(@PathVariable Long userId) {
+    public ResponseEntity<List<PlatformUserRoleGrantView>> listUserRoleGrants(
+            HttpServletRequest request,
+            @PathVariable Long userId) {
+        requirePlatformAdmin(request);
         return ResponseEntity.ok(roleGrantViews(userId));
     }
 
     @PutMapping("/api/platform/users/{userId}/roles")
+    @Transactional
     public ResponseEntity<List<PlatformUserRoleGrantView>> saveUserRoleGrants(
+            HttpServletRequest request,
             @PathVariable Long userId,
             @RequestBody List<PlatformUserRoleGrantCommand> commands) {
+        PlatformAuthenticatedSession actor = requirePlatformAdmin(request);
+        PlatformUserEntity targetUser = userMapper.selectById(userId);
+        if (targetUser == null || !"ACTIVE".equalsIgnoreCase(targetUser.getStatus())) {
+            throw badRequest("target user must exist and be ACTIVE");
+        }
+        List<NormalizedRoleGrantCommand> normalizedCommands = normalizeRoleGrantCommands(commands);
+        ensureGlobalAdministratorInvariant(targetUser, normalizedCommands);
         userRoleMapper.delete(new LambdaQueryWrapper<PlatformUserRoleEntity>()
                 .eq(PlatformUserRoleEntity::getUserId, userId));
-        for (PlatformUserRoleGrantCommand command : commands == null ? List.<PlatformUserRoleGrantCommand>of() : commands) {
+        for (NormalizedRoleGrantCommand command : normalizedCommands) {
             PlatformUserRoleEntity entity = new PlatformUserRoleEntity();
             entity.setUserId(userId);
             entity.setRoleId(command.roleId());
-            entity.setScopeType(StringUtils.hasText(command.scopeType()) ? command.scopeType().trim() : "GLOBAL");
-            entity.setScopeValue(StringUtils.hasText(command.scopeValue()) ? command.scopeValue().trim() : "*");
+            entity.setScopeType(command.scopeType());
+            entity.setScopeValue(command.scopeValue());
             entity.setCreatedAt(LocalDateTime.now());
             userRoleMapper.insert(entity);
         }
+        authAuditService.record(
+                actor,
+                "PLATFORM_USER_ROLE_GRANTS_REPLACED",
+                "PLATFORM_USER",
+                String.valueOf(userId),
+                Map.of("grantCount", normalizedCommands.size()));
         return ResponseEntity.ok(roleGrantViews(userId));
     }
 
-    private PlatformUserEntity createLocalUser(String username, String password) {
-        PlatformUserEntity entity = new PlatformUserEntity();
-        entity.setUsername(username);
-        entity.setDisplayName(username);
-        entity.setStatus("ACTIVE");
-        entity.setSourceProvider("LOCAL");
-        entity.setExternalSubject(username);
-        entity.setPasswordHash("{plain}" + password);
-        entity.setCreatedAt(LocalDateTime.now());
-        entity.setUpdatedAt(LocalDateTime.now());
-        userMapper.insert(entity);
-        grantDefaultAdminRole(entity.getId());
-        return entity;
-    }
-
-    private void grantDefaultAdminRole(Long userId) {
-        if (userId == null) {
-            return;
-        }
-        PlatformRoleEntity adminRole = roleMapper.selectOne(new LambdaQueryWrapper<PlatformRoleEntity>()
-                .eq(PlatformRoleEntity::getRoleCode, "PLATFORM_ADMIN")
-                .last("limit 1"));
-        if (adminRole == null || adminRole.getId() == null) {
-            return;
-        }
-        PlatformUserRoleEntity grant = new PlatformUserRoleEntity();
-        grant.setUserId(userId);
-        grant.setRoleId(adminRole.getId());
-        grant.setScopeType("GLOBAL");
-        grant.setScopeValue("*");
-        grant.setCreatedAt(LocalDateTime.now());
-        userRoleMapper.insert(grant);
-    }
-
-    private PlatformLoginSessionEntity createSession(PlatformUserEntity user) {
+    private IssuedPlatformSession createSession(PlatformUserEntity user) {
+        String accessToken = sessionTokenCodec.issueRawToken();
         PlatformLoginSessionEntity entity = new PlatformLoginSessionEntity();
         entity.setSessionId("pls_" + UUID.randomUUID());
         entity.setUserId(user.getId());
         entity.setProvider(user.getSourceProvider());
-        entity.setAccessTokenId("pat_" + UUID.randomUUID());
-        entity.setExpiresAt(LocalDateTime.now().plusSeconds(LOGIN_TTL_SECONDS));
+        entity.setAccessTokenId(sessionTokenCodec.digest(accessToken));
+        entity.setExpiresAt(LocalDateTime.now().plus(authProperties.getSessionTtl()));
         entity.setCreatedAt(LocalDateTime.now());
-        return entity;
-    }
-
-    private PlatformUserEntity resolveBearerUser(String authorization) {
-        String token = bearerToken(authorization);
-        if (!StringUtils.hasText(token)) {
-            return null;
-        }
-        PlatformLoginSessionEntity session = sessionMapper.selectOne(new LambdaQueryWrapper<PlatformLoginSessionEntity>()
-                .eq(PlatformLoginSessionEntity::getAccessTokenId, token)
-                .isNull(PlatformLoginSessionEntity::getRevokedAt)
-                .last("limit 1"));
-        if (session == null || session.getExpiresAt() == null || session.getExpiresAt().isBefore(LocalDateTime.now())) {
-            return null;
-        }
-        PlatformUserEntity user = userMapper.selectById(session.getUserId());
-        return user == null || !"ACTIVE".equalsIgnoreCase(user.getStatus()) ? null : user;
+        return new IssuedPlatformSession(entity, accessToken);
     }
 
     private String bearerToken(String authorization) {
@@ -227,37 +242,187 @@ public class PlatformIdentityController {
 
     private boolean passwordMatches(PlatformUserEntity user, String password) {
         if (!StringUtils.hasText(user.getPasswordHash())) {
-            return true;
+            return false;
         }
         if (user.getPasswordHash().startsWith("{plain}")) {
-            return user.getPasswordHash().substring("{plain}".length()).equals(password);
+            String legacyPassword = user.getPasswordHash().substring("{plain}".length());
+            boolean matches = MessageDigest.isEqual(
+                    legacyPassword.getBytes(StandardCharsets.UTF_8),
+                    password.getBytes(StandardCharsets.UTF_8));
+            if (matches) {
+                user.setPasswordHash(platformPasswordEncoder.encode(password));
+            }
+            return matches;
         }
-        return user.getPasswordHash().equals(password);
+        try {
+            return platformPasswordEncoder.matches(password, user.getPasswordHash());
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
     }
 
-    private PlatformUserProfile toProfile(PlatformUserEntity user) {
-        List<String> roles = roleCodes(user.getId());
+    private PlatformUserProfile toProfile(PlatformAuthenticatedSession session) {
+        PlatformUserEntity user = session.user();
         return new PlatformUserProfile(
                 user.getId(),
                 user.getUsername(),
                 user.getDisplayName(),
-                roles,
-                permissions(roles));
+                session.roles(),
+                session.permissions());
     }
 
-    private List<String> roleCodes(Long userId) {
-        return roleGrantViews(userId).stream()
-                .map(PlatformUserRoleGrantView::roleCode)
-                .filter(StringUtils::hasText)
-                .distinct()
-                .toList();
+    private PlatformSessionView toSessionView(PlatformAuthenticatedSession session) {
+        return new PlatformSessionView(
+                session.sessionId(),
+                instantText(session.expiresAt()),
+                toProfile(session));
     }
 
-    private List<String> permissions(List<String> roleCodes) {
-        if (roleCodes.stream().anyMatch("PLATFORM_ADMIN"::equalsIgnoreCase)) {
-            return List.of("*", "platform:read", "platform:write", "platform:admin");
+    private PlatformAuthenticatedSession requirePlatformAdmin(HttpServletRequest request) {
+        Object candidate = request.getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE);
+        if (!(candidate instanceof PlatformAuthenticatedSession session)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "live ReachAI platform login is required");
         }
-        return roleCodes.isEmpty() ? List.of() : List.of("platform:read", "platform:write");
+        authorizationService.requireGlobalPermission(session, "platform:admin");
+        return session;
+    }
+
+    private List<NormalizedRoleGrantCommand> normalizeRoleGrantCommands(
+            List<PlatformUserRoleGrantCommand> commands) {
+        List<PlatformUserRoleGrantCommand> requested = commands == null ? List.of() : commands;
+        if (requested.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> roleIds = requested.stream()
+                .map(PlatformUserRoleGrantCommand::roleId)
+                .filter(id -> id != null)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (roleIds.size() != requested.size()) {
+            throw badRequest("each role grant must have one distinct roleId");
+        }
+        Map<Long, PlatformRoleEntity> roles = roleMapper.selectBatchIds(roleIds).stream()
+                .filter(role -> role.getId() != null)
+                .collect(Collectors.toMap(PlatformRoleEntity::getId, role -> role));
+        if (roles.size() != roleIds.size()) {
+            throw badRequest("all roleIds must exist");
+        }
+        List<NormalizedRoleGrantCommand> result = new ArrayList<>();
+        Set<String> grantKeys = new LinkedHashSet<>();
+        for (PlatformUserRoleGrantCommand command : requested) {
+            PlatformRoleEntity role = roles.get(command.roleId());
+            if (!"ACTIVE".equalsIgnoreCase(role.getStatus())) {
+                throw badRequest("role must be ACTIVE: " + role.getRoleCode());
+            }
+            String scopeType = normalizeScopeType(command.scopeType());
+            String scopeValue = normalizeScopeValue(command.scopeValue(), scopeType);
+            if ("PLATFORM_ADMIN".equalsIgnoreCase(role.getRoleCode())
+                    && (!"GLOBAL".equals(scopeType) || !"*".equals(scopeValue))) {
+                throw badRequest("PLATFORM_ADMIN must use GLOBAL/* scope");
+            }
+            String grantKey = command.roleId() + "|" + scopeType + "|" + scopeValue;
+            if (!grantKeys.add(grantKey)) {
+                throw badRequest("duplicate role grant: " + grantKey);
+            }
+            result.add(new NormalizedRoleGrantCommand(command.roleId(), scopeType, scopeValue));
+        }
+        return List.copyOf(result);
+    }
+
+    private void ensureGlobalAdministratorInvariant(
+            PlatformUserEntity targetUser,
+            List<NormalizedRoleGrantCommand> commands) {
+        PlatformRoleEntity administratorRole = roleMapper.selectOne(new LambdaQueryWrapper<PlatformRoleEntity>()
+                .eq(PlatformRoleEntity::getRoleCode, "PLATFORM_ADMIN")
+                .last("limit 1"));
+        if (administratorRole == null || administratorRole.getId() == null
+                || !"ACTIVE".equalsIgnoreCase(administratorRole.getStatus())) {
+            throw new IllegalStateException("ACTIVE PLATFORM_ADMIN role is required");
+        }
+        boolean targetRemainsAdministrator = commands.stream().anyMatch(command ->
+                administratorRole.getId().equals(command.roleId())
+                        && "GLOBAL".equals(command.scopeType())
+                        && "*".equals(command.scopeValue()));
+        if (targetRemainsAdministrator) {
+            return;
+        }
+
+        // Locks every global admin grant until this transaction commits, so two
+        // concurrent role updates cannot both remove the last administrator.
+        List<PlatformUserRoleEntity> existingAdministratorGrants =
+                userRoleMapper.selectGlobalRoleGrantsForUpdate(administratorRole.getId());
+        Set<Long> otherAdministratorIds = existingAdministratorGrants.stream()
+                .map(PlatformUserRoleEntity::getUserId)
+                .filter(id -> id != null && !id.equals(targetUser.getId()))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        boolean anotherActiveAdministrator = !otherAdministratorIds.isEmpty()
+                && userMapper.selectBatchIds(otherAdministratorIds).stream()
+                .anyMatch(user -> "ACTIVE".equalsIgnoreCase(user.getStatus()));
+        if (!anotherActiveAdministrator) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "cannot remove the final ACTIVE global PLATFORM_ADMIN");
+        }
+    }
+
+    private String normalizeScopeType(String value) {
+        String scopeType = StringUtils.hasText(value) ? value.trim().toUpperCase(java.util.Locale.ROOT) : "GLOBAL";
+        if (!Set.of("GLOBAL", "PROJECT").contains(scopeType)) {
+            throw badRequest("unsupported role scopeType: " + scopeType);
+        }
+        return scopeType;
+    }
+
+    private String normalizeScopeValue(String value, String scopeType) {
+        String scopeValue = StringUtils.hasText(value) ? value.trim() : "*";
+        if ("GLOBAL".equals(scopeType)) {
+            if (!"*".equals(scopeValue)) {
+                throw badRequest("GLOBAL role scopeValue must be *");
+            }
+            return scopeValue;
+        }
+        if (!StringUtils.hasText(scopeValue) || "*".equals(scopeValue)) {
+            throw badRequest("PROJECT role scopeValue is required");
+        }
+        return scopeValue;
+    }
+
+    private String requireProviderCode(String value, String field) {
+        String providerCode = requireText(value, field).toUpperCase(java.util.Locale.ROOT);
+        if (!Set.of("LOCAL", "HEADER", "OIDC", "SAML").contains(providerCode)) {
+            throw badRequest("unsupported provider: " + providerCode);
+        }
+        return providerCode;
+    }
+
+    private String normalizeProviderStatus(String providerType, String requestedStatus) {
+        String status = StringUtils.hasText(requestedStatus)
+                ? requestedStatus.trim().toUpperCase(java.util.Locale.ROOT)
+                : "INACTIVE";
+        if (!Set.of("ACTIVE", "INACTIVE").contains(status)) {
+            throw badRequest("unsupported provider status: " + status);
+        }
+        if ("LOCAL".equals(providerType) && !"ACTIVE".equals(status)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "LOCAL is the only implemented provider and cannot be disabled by this release");
+        }
+        if (!"LOCAL".equals(providerType) && "ACTIVE".equals(status)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "provider is not implemented and cannot be ACTIVE: " + providerType);
+        }
+        return status;
+    }
+
+    private String normalizeProviderConfig(String providerType, String configJson) {
+        String normalized = StringUtils.hasText(configJson) ? configJson.trim() : "{}";
+        if (!"{}".equals(normalized)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "provider configuration with secrets is unavailable until encrypted provider support is implemented: "
+                            + providerType);
+        }
+        return "{}";
     }
 
     private List<PlatformUserRoleGrantView> roleGrantViews(Long userId) {
@@ -300,9 +465,17 @@ public class PlatformIdentityController {
                 entity.getProviderName(),
                 entity.getProviderType(),
                 entity.getStatus(),
-                entity.getConfigJson(),
+                hasNonEmptyProviderConfig(entity),
                 instantText(entity.getCreatedAt()),
                 instantText(entity.getUpdatedAt()));
+    }
+
+    private ResponseStatusException badRequest(String message) {
+        return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+    }
+
+    private boolean hasNonEmptyProviderConfig(PlatformAuthProviderEntity entity) {
+        return StringUtils.hasText(entity.getConfigJson()) && !"{}".equals(entity.getConfigJson().trim());
     }
 
     private PlatformUserView toUserView(PlatformUserEntity entity) {
@@ -330,9 +503,20 @@ public class PlatformIdentityController {
     public record PlatformLoginRequest(String username, String password) {
     }
 
+    private record IssuedPlatformSession(PlatformLoginSessionEntity session, String accessToken) {
+    }
+
     public record PlatformLoginResult(
             String accessToken,
             long expiresIn,
+            String expiresAt,
+            String sessionId,
+            PlatformUserProfile principal
+    ) {
+    }
+
+    public record PlatformSessionView(
+            String sessionId,
             String expiresAt,
             PlatformUserProfile principal
     ) {
@@ -353,7 +537,7 @@ public class PlatformIdentityController {
             String providerName,
             String providerType,
             String status,
-            String configJson,
+            boolean configurationPresent,
             String createdAt,
             String updatedAt
     ) {
@@ -397,6 +581,13 @@ public class PlatformIdentityController {
     }
 
     public record PlatformUserRoleGrantCommand(
+            Long roleId,
+            String scopeType,
+            String scopeValue
+    ) {
+    }
+
+    private record NormalizedRoleGrantCommand(
             Long roleId,
             String scopeType,
             String scopeValue

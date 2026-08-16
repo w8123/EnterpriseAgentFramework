@@ -30,6 +30,9 @@ public class ContextRuntimeUserMappingEntity {
 
     private String status;
 
+    /** Non-null only for the single active tenant/platform-user slot. */
+    private Integer activeMarker;
+
     private String createdBy;
 
     private LocalDateTime createdAt;

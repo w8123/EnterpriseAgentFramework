@@ -18,14 +18,18 @@ public class PlatformBearerAuthService {
 
     private final PlatformUserMapper userMapper;
     private final PlatformLoginSessionMapper sessionMapper;
+    private final PlatformSessionTokenCodec sessionTokenCodec;
+    private final PlatformAuthorizationService authorizationService;
 
-    public Optional<PlatformUserEntity> resolveBearerUser(String authorization) {
+    /** Resolves the authenticated server session, including database-backed grants. */
+    public Optional<PlatformAuthenticatedSession> resolveBearerSession(String authorization) {
         String token = bearerToken(authorization);
         if (!StringUtils.hasText(token)) {
             return Optional.empty();
         }
+        String tokenDigest = sessionTokenCodec.digest(token);
         PlatformLoginSessionEntity session = sessionMapper.selectOne(new LambdaQueryWrapper<PlatformLoginSessionEntity>()
-                .eq(PlatformLoginSessionEntity::getAccessTokenId, token)
+                .eq(PlatformLoginSessionEntity::getAccessTokenId, tokenDigest)
                 .isNull(PlatformLoginSessionEntity::getRevokedAt)
                 .last("limit 1"));
         if (session == null || session.getExpiresAt() == null || session.getExpiresAt().isBefore(LocalDateTime.now())) {
@@ -35,7 +39,15 @@ public class PlatformBearerAuthService {
         if (user == null || !"ACTIVE".equalsIgnoreCase(user.getStatus())) {
             return Optional.empty();
         }
-        return Optional.of(user);
+        return Optional.of(authorizationService.authenticatedSession(user, session));
+    }
+
+    /**
+     * Compatibility entrypoint for existing public Runtime and AI Coding call
+     * sites. New console authorization must use {@link #resolveBearerSession}.
+     */
+    public Optional<PlatformUserEntity> resolveBearerUser(String authorization) {
+        return resolveBearerSession(authorization).map(PlatformAuthenticatedSession::user);
     }
 
     private static String bearerToken(String authorization) {

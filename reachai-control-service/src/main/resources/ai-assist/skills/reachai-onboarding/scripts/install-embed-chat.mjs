@@ -193,6 +193,7 @@ if (vendoredSha !== manifest.integritySha256) {
     `Vendored artifact SHA-256 mismatch: expected=${manifest.integritySha256} actual=${vendoredSha}`,
   )
 }
+await writeFile(`${vendoredTarball}.sha256`, `${vendoredSha}\n`, 'utf8')
 
 const dependencySpec = `file:${vendoredRelativePath.replaceAll('\\', '/')}`
 const { installedPackageDir } = installVendoredTarball(
@@ -267,6 +268,11 @@ if (installedPackageJson.version !== manifest.version) {
     `${manifest.packageName} installed version mismatch: expected=${manifest.version} actual=${installedPackageJson.version}`,
   )
 }
+await writeFile(
+  resolve(installedPackageDir, '.reachai-artifact-sha256'),
+  `${vendoredSha}\n`,
+  'utf8',
+)
 
 console.log(`[install-embed-chat] package=${manifest.packageName}@${manifest.version}`)
 console.log(`[install-embed-chat] vendored=${vendoredRelativePath}`)

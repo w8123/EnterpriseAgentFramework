@@ -2,6 +2,7 @@ package com.enterprise.ai.control.platform;
 
 import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService.EmbedConversationEvidence;
 import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService.EmbedTraceCandidate;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -36,7 +37,8 @@ class PlatformEmbedE2eEvidenceServiceTest {
         EmbedConversationEvidence evidence =
                 new PlatformEmbedE2eEvidenceService(
                         sessionMapper,
-                        eventMapper)
+                        eventMapper,
+                        new ObjectMapper())
                         .latestSuccessfulConversation("orders", startedAt);
 
         assertTrue(evidence.passed());
@@ -64,7 +66,8 @@ class PlatformEmbedE2eEvidenceServiceTest {
         EmbedConversationEvidence evidence =
                 new PlatformEmbedE2eEvidenceService(
                         sessionMapper,
-                        eventMapper)
+                        eventMapper,
+                        new ObjectMapper())
                         .latestSuccessfulConversation("orders", startedAt);
 
         assertFalse(evidence.passed());
@@ -88,7 +91,8 @@ class PlatformEmbedE2eEvidenceServiceTest {
         EmbedConversationEvidence evidence =
                 new PlatformEmbedE2eEvidenceService(
                         sessionMapper,
-                        eventMapper)
+                        eventMapper,
+                        new ObjectMapper())
                         .latestSuccessfulConversation(
                                 "orders",
                                 "orders.detail",
@@ -117,6 +121,7 @@ class PlatformEmbedE2eEvidenceServiceTest {
                 "assistant",
                 startedAt.plusMinutes(3));
         assistant.setTraceId("trace-orders");
+        assistant.setPayloadJson("{\"uiRequest\":{\"type\":\"PRESENT_OUTPUT\",\"component\":\"list_card\"}}");
         when(sessionMapper.selectList(any())).thenReturn(List.of(session));
         when(eventMapper.selectList(any())).thenReturn(List.of(
                 event(
@@ -128,7 +133,8 @@ class PlatformEmbedE2eEvidenceServiceTest {
         List<EmbedTraceCandidate> candidates =
                 new PlatformEmbedE2eEvidenceService(
                         sessionMapper,
-                        eventMapper)
+                        eventMapper,
+                        new ObjectMapper())
                         .successfulTraceCandidates(
                                 "orders",
                                 "orders.detail",
@@ -138,6 +144,9 @@ class PlatformEmbedE2eEvidenceServiceTest {
         assertEquals("trace-orders", candidates.get(0).traceId());
         assertEquals("page-instance",
                 candidates.get(0).pageInstanceId());
+        assertTrue(candidates.get(0).uiRequestObserved());
+        assertEquals("list_card",
+                candidates.get(0).uiRequestComponent());
     }
 
     @Test
@@ -169,7 +178,8 @@ class PlatformEmbedE2eEvidenceServiceTest {
         List<EmbedTraceCandidate> candidates =
                 new PlatformEmbedE2eEvidenceService(
                         sessionMapper,
-                        eventMapper)
+                        eventMapper,
+                        new ObjectMapper())
                         .successfulTraceCandidates(
                                 "orders",
                                 "orders.detail",

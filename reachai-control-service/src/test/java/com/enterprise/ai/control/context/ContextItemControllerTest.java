@@ -16,6 +16,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -149,6 +150,40 @@ class ContextItemControllerTest {
 
         assertEquals(HttpStatus.OK, listed.getStatusCode());
         assertEquals(List.of(), listed.getBody());
+        verify(itemMapper, never()).selectList(any());
+    }
+
+    @Test
+    void genericRoutesCannotReadOrCreatePrivateRuntimeUserMemory() {
+        ContextItemMapper itemMapper = mock(ContextItemMapper.class);
+        ContextEvidenceMapper evidenceMapper = mock(ContextEvidenceMapper.class);
+        ContextBindingMapper bindingMapper = mock(ContextBindingMapper.class);
+        ContextNamespaceMapper namespaceMapper = mock(ContextNamespaceMapper.class);
+        ContextItemController controller = new ContextItemController(
+                itemMapper, evidenceMapper, bindingMapper, namespaceMapper);
+        ContextItemEntity personalItem = item(99L);
+        personalItem.setMemoryLane("RUNTIME_USER");
+        personalItem.setVisibility("PRIVATE");
+        personalItem.setNamespaceId(7L);
+        ContextNamespaceEntity personalNamespace = namespace(7L);
+        personalNamespace.setOwnerType("RUNTIME_USER");
+        personalNamespace.setOwnerId("user-a");
+        when(itemMapper.selectById(99L)).thenReturn(personalItem);
+        when(namespaceMapper.selectById(7L)).thenReturn(personalNamespace);
+
+        assertEquals(HttpStatus.NOT_FOUND, controller.get(99L).getStatusCode());
+        assertEquals(List.of(), controller.list(
+                "default", null, null, "PROJECT_DEV", 7L, null, null, null, 20, 0).getBody());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.list("default", null, null, "RUNTIME_USER", null,
+                        null, null, null, 20, 0)).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.create(new ContextItemController.ItemCommand(
+                        7L, null, "FACT", "RUNTIME_USER", "Private", "secret", null, null,
+                        "USER_CONFIRMED", null, null, null, "PRIVATE", null, null,
+                        "default", null, null, "user-a", null, null, null, null, null,
+                        List.of(), List.of()))).getStatusCode());
+        verify(itemMapper, never()).insert(any());
         verify(itemMapper, never()).selectList(any());
     }
 

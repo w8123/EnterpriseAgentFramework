@@ -28,10 +28,13 @@ public final class WorkflowTraceSanitizer {
             "statusCode", "bodyBytes", "redirectCount", "contentType", "durationMs");
     private static final Set<String> KNOWLEDGE_SUMMARY_KEYS = Set.of(
             "queryLength", "hitCount", "topK", "searchMode", "rerankApplied");
+    private static final Set<String> PAGE_ACTION_SUMMARY_KEYS = Set.of(
+            "actionKey", "success", "status", "outcomeClass", "businessOutcome",
+            "total", "empty");
     private static final Set<String> SAFE_FINISH_KEYS = Set.of(
             "status", "code", "failureCode", "waiting", "planCount", "replanCount",
             "workflowCallCount", "toolCallCount", "guardDenyCount", "approvalCount",
-            "tokenCost");
+            "tokenCost", "outcomeClass", "businessOutcome");
     private static final Pattern NODE_TYPE_PATTERN =
             Pattern.compile("\"type\"\\s*:\\s*\"([A-Za-z0-9_.-]{1,120})\"");
 
@@ -106,6 +109,8 @@ public final class WorkflowTraceSanitizer {
         putScalar(out, "interactionId", resultMetadata.get("interactionId"));
         putScalar(out, "callNo", resultMetadata.get("callNo"));
         putScalar(out, "toolName", resultMetadata.get("toolName"));
+        putScalar(out, "outcomeClass", resultMetadata.get("outcomeClass"));
+        putScalar(out, "businessOutcome", resultMetadata.get("businessOutcome"));
         Object traces = resultMetadata.get("workflowNodeTraces");
         if (traces instanceof List<?> list) {
             out.put("workflowNodeTraces", sanitizeNodeTraces(list));
@@ -222,6 +227,9 @@ public final class WorkflowTraceSanitizer {
         putScalar(node, "failureCode", trace.get("failureCode"));
         putScalar(node, "fallbackNodeId", trace.get("fallbackNodeId"));
         putScalar(node, "interactionId", trace.get("interactionId"));
+        putScalar(node, "interactionType", trace.get("interactionType"));
+        putScalar(node, "outcomeClass", trace.get("outcomeClass"));
+        putScalar(node, "businessOutcome", trace.get("businessOutcome"));
         putScalar(node, "latencyMs", trace.get("latencyMs"));
         putScalar(node, "startedAt", trace.get("startedAt"));
         putScalar(node, "endedAt", trace.get("endedAt"));
@@ -274,6 +282,10 @@ public final class WorkflowTraceSanitizer {
             }
         } else if ("KNOWLEDGE_RETRIEVAL".equals(nodeType)) {
             for (String key : KNOWLEDGE_SUMMARY_KEYS) {
+                putScalar(out, key, summary.get(key));
+            }
+        } else if ("PAGE_ACTION".equals(nodeType)) {
+            for (String key : PAGE_ACTION_SUMMARY_KEYS) {
                 putScalar(out, key, summary.get(key));
             }
         }

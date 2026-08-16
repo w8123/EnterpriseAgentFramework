@@ -4,6 +4,7 @@ import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -14,7 +15,13 @@ import java.util.Map;
 public interface CapabilityProxyClient {
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/registry/projects/register")
-    ResponseEntity<Map<String, Object>> registerProject(@RequestBody Map<String, Object> body);
+    ResponseEntity<Map<String, Object>> registerProject(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "X-ReachAI-Registry-Enrollment-Token", required = false) String enrollmentToken,
+            @RequestHeader(value = "X-ReachAI-App-Key", required = false) String appKey,
+            @RequestHeader(value = "X-ReachAI-Timestamp", required = false) String timestamp,
+            @RequestHeader(value = "X-ReachAI-Nonce", required = false) String nonce,
+            @RequestHeader(value = "X-ReachAI-Signature", required = false) String signature);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/registry/projects/{projectCode}/instances")
     // The capability public route may retain its ApiResult envelope, so Control must not
@@ -23,14 +30,26 @@ public interface CapabilityProxyClient {
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/registry/projects/{projectCode}/instances/heartbeat")
     ResponseEntity<Object> heartbeat(@PathVariable("projectCode") String projectCode,
+                                     @RequestHeader(value = "X-ReachAI-App-Key", required = false) String appKey,
+                                     @RequestHeader(value = "X-ReachAI-Timestamp", required = false) String timestamp,
+                                     @RequestHeader(value = "X-ReachAI-Nonce", required = false) String nonce,
+                                     @RequestHeader(value = "X-ReachAI-Signature", required = false) String signature,
                                      @RequestBody Map<String, Object> body);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/registry/projects/{projectCode}/capabilities/sync")
     ResponseEntity<Object> syncCapabilities(@PathVariable("projectCode") String projectCode,
+                                            @RequestHeader(value = "X-ReachAI-App-Key", required = false) String appKey,
+                                            @RequestHeader(value = "X-ReachAI-Timestamp", required = false) String timestamp,
+                                            @RequestHeader(value = "X-ReachAI-Nonce", required = false) String nonce,
+                                            @RequestHeader(value = "X-ReachAI-Signature", required = false) String signature,
                                             @RequestBody Map<String, Object> body);
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/registry/projects/{projectCode}/capabilities/diff")
     ResponseEntity<Object> diffCapabilities(@PathVariable("projectCode") String projectCode,
+                                            @RequestHeader(value = "X-ReachAI-App-Key", required = false) String appKey,
+                                            @RequestHeader(value = "X-ReachAI-Timestamp", required = false) String timestamp,
+                                            @RequestHeader(value = "X-ReachAI-Nonce", required = false) String nonce,
+                                            @RequestHeader(value = "X-ReachAI-Signature", required = false) String signature,
                                             @RequestBody Map<String, Object> body);
 
     @RequestMapping(method = RequestMethod.GET, path = "/internal/capability/tools/{qualifiedName}")
@@ -49,6 +68,10 @@ public interface CapabilityProxyClient {
     @RequestMapping(method = RequestMethod.POST, path = "/api/registry/capability-diff-items/{diffItemId}/review")
     ResponseEntity<Object> reviewCapabilityDiffItem(@PathVariable("diffItemId") Long diffItemId,
                                                     @RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/registry/capability-diff-items/{diffItemId}/rollback")
+    ResponseEntity<Object> rollbackCapabilityDiffItem(@PathVariable("diffItemId") Long diffItemId,
+                                                      @RequestBody Map<String, Object> body);
 
     @RequestMapping(method = RequestMethod.GET, path = "/internal/capability/embed/credentials")
     ResponseEntity<Object> listEmbedCredentialPolicies(@RequestParam(value = "projectCode", required = false) String projectCode,

@@ -1,0 +1,49 @@
+{
+  "sourceTraceId": "trace_01JEXAMPLE",
+  "summary": "将该成功只读查询路径收敛为一个可复用的 Workflow 候选。",
+  "workflow": {
+    "name": "团队档案只读查询候选",
+    "keySlug": "team-archive-read-candidate",
+    "description": "根据用户输入提取查询参数，并调用已注册的只读能力。",
+    "workflowKind": "GENERAL",
+    "defaultModelInstanceId": null,
+    "graphSpec": {
+      "nodes": [
+        {
+          "id": "input",
+          "type": "USER_INPUT",
+          "config": {
+            "outputAlias": "params"
+          }
+        },
+        {
+          "id": "query",
+          "type": "TOOL",
+          "ref": {
+            "qualifiedName": "project.module.readDetail"
+          },
+          "config": {
+            "inputMapping": {
+              "id": "{{params.id}}"
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "input",
+          "to": "query"
+        }
+      ],
+      "entryNodeId": "input",
+      "exitNodeIds": ["query"]
+    },
+    "canvas": null
+  },
+  "acceptanceCriteria": [
+    "GraphSpec 通过 Runtime 当前发布校验。",
+    "候选保持 DRAFT，未发布且未绑定 Agent。",
+    "后续使用代表性输入完成重放评测和人工审阅。"
+  ],
+  "remainingQuestions": []
+}

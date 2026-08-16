@@ -4,11 +4,51 @@
     <el-form-item label="模式">
       <el-segmented v-model="config.mode" :options="['expression', 'llm']" />
     </el-form-item>
+    <el-form-item v-if="config.mode === 'llm'" label="输入表达式">
+      <el-input
+        v-model="config.inputExpression"
+        placeholder="input / lastOutput / nodeOutput.query_node"
+      />
+    </el-form-item>
     <el-form-item v-if="config.mode === 'llm'" label="模型实例">
       <el-select v-model="config.modelInstanceId" filterable placeholder="选择用于提取的模型" style="width: 100%">
         <el-option v-for="item in modelOptions" :key="item.id" :label="`${item.name} / ${item.modelName}`" :value="item.id" />
       </el-select>
     </el-form-item>
+    <template v-if="config.mode === 'llm'">
+      <el-form-item label="系统提示词">
+        <el-input
+          v-model="config.systemPrompt"
+          type="textarea"
+          :rows="3"
+          placeholder="留空则使用平台内置的结构化参数提取提示词"
+        />
+      </el-form-item>
+      <el-form-item label="用户提示词">
+        <el-input
+          v-model="config.userPrompt"
+          type="textarea"
+          :rows="4"
+          placeholder="留空则直接使用输入表达式；也可通过 {{ nodeOutput.query_node }} 显式引用上游输出"
+        />
+      </el-form-item>
+      <el-alert
+        v-if="promptInputWarning"
+        :title="promptInputWarning"
+        type="error"
+        :closable="false"
+        show-icon
+        class="parameter-prompt-alert"
+      />
+      <el-alert
+        v-else
+        title="用户提示词非空时会替代输入表达式的默认内容；如需使用上游结果，请在提示词中显式引用对应变量。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="parameter-prompt-alert"
+      />
+    </template>
     <div class="field-table-head">
       <strong>目标字段结构</strong>
       <el-button size="small" type="primary" plain @click="addField(fields)">添加字段</el-button>
@@ -36,6 +76,7 @@ import { computed } from 'vue'
 import type { CanvasNodeData, ParameterNodeConfig } from '@/types/studio'
 import type { ModelInstance } from '@/types/model'
 import { addField, ensureFieldList } from './panelUtils'
+import { parameterPromptInputWarning } from './parameterPromptContract'
 
 const props = defineProps<{
   data: CanvasNodeData
@@ -54,4 +95,11 @@ const config = computed<ParameterNodeConfig>(() => {
   return props.data.parameterConfig
 })
 const fields = computed(() => ensureFieldList(props.data))
+const promptInputWarning = computed(() => parameterPromptInputWarning(config.value))
 </script>
+
+<style scoped>
+.parameter-prompt-alert {
+  margin: 2px 0 16px;
+}
+</style>

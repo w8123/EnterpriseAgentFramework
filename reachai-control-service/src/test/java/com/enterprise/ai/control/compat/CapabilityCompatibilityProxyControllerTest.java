@@ -27,9 +27,10 @@ class CapabilityCompatibilityProxyControllerTest {
     void keepsCapabilityRouteFamiliesAheadOfLegacyAgentFallback() throws Exception {
         var method = CapabilityCompatibilityProxyController.class
                 .getDeclaredMethod("proxy", RequestEntity.class, HttpServletRequest.class);
+        var registryMethod = CapabilityCompatibilityProxyController.class
+                .getDeclaredMethod("proxyRegistry", RequestEntity.class, HttpServletRequest.class);
 
         assertArrayEquals(new String[] {
-                "/api/registry/{*path}",
                 "/api/capabilities",
                 "/api/capabilities/{*path}",
                 "/api/tools",
@@ -53,6 +54,8 @@ class CapabilityCompatibilityProxyControllerTest {
                 "/api/domains",
                 "/api/domains/{*path}"
         }, method.getAnnotation(org.springframework.web.bind.annotation.RequestMapping.class).path());
+        assertArrayEquals(new String[] {"/api/registry/{*path}"},
+                registryMethod.getAnnotation(org.springframework.web.bind.annotation.RequestMapping.class).path());
     }
 
     @Test

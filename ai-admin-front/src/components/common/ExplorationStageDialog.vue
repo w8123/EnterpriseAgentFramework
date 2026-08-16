@@ -1,18 +1,36 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowRight, CircleCheckFilled, SwitchButton } from '@element-plus/icons-vue'
 import { logoutPlatform } from '@/api/platformAuth'
 import {
-  acknowledgeExplorationNotice,
-  hasAcknowledgedExplorationNotice,
-} from '@/utils/platformAuth'
+  acknowledgePlatformExplorationNotice,
+  platformSessionState,
+  platformSessionId,
+  requiresPlatformExplorationAcknowledgement,
+} from '@/auth/platformSession'
 import AppDialog from '@/components/common/AppDialog.vue'
 
 const router = useRouter()
-const visible = ref(!hasAcknowledgedExplorationNotice())
+const visible = ref(false)
 const accepted = ref(false)
 const leaving = ref(false)
+
+const currentSessionId = computed(() => platformSessionId.value)
+
+watch(
+  [platformSessionState, currentSessionId, requiresPlatformExplorationAcknowledgement],
+  ([sessionState, sessionId, requiresAcknowledgement]) => {
+    if (sessionState !== 'AUTHENTICATED' || !sessionId) {
+      visible.value = false
+      accepted.value = false
+      return
+    }
+    visible.value = requiresAcknowledgement
+    accepted.value = false
+  },
+  { immediate: true },
+)
 
 const noticeItems = [
   '功能、接口与数据结构可能持续调整',
@@ -22,8 +40,9 @@ const noticeItems = [
 
 function enterPlatform() {
   if (!accepted.value) return
-  acknowledgeExplorationNotice()
-  visible.value = false
+  if (acknowledgePlatformExplorationNotice()) {
+    visible.value = false
+  }
 }
 
 async function exitPlatform() {

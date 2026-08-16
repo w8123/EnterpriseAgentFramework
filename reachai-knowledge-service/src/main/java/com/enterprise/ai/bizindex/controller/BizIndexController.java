@@ -15,7 +15,7 @@ import java.util.List;
  * 业务索引管理 —— 索引的注册、更新、删除、查询。
  */
 @RestController
-@RequestMapping("/biz-index")
+@RequestMapping("/internal/knowledge/console/biz-index")
 @RequiredArgsConstructor
 public class BizIndexController {
 

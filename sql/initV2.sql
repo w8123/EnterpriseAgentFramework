@@ -525,6 +525,10 @@ CALL add_idx_if_absent('knowledge_hit_log', 'idx_kb_score_time', '`knowledge_bas
 
 CREATE TABLE IF NOT EXISTS `knowledge_business_index` (
     `id`              BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    `project_id`      BIGINT       DEFAULT NULL COMMENT '所属项目',
+    `project_code`    VARCHAR(96)  DEFAULT NULL COMMENT '所属项目编码',
+    `environment`     VARCHAR(32)  DEFAULT NULL COMMENT '环境',
+    `tenant_id`       VARCHAR(96)  DEFAULT NULL COMMENT '租户',
     `index_code`      VARCHAR(64)  NOT NULL COMMENT '索引编码，唯一标识，对应 Milvus Collection 名称',
     `index_name`      VARCHAR(128) NOT NULL COMMENT '索引显示名称',
     `source_system`   VARCHAR(64)  NOT NULL COMMENT '来源系统标识，如 material_system、contract_system',
@@ -537,9 +541,12 @@ CREATE TABLE IF NOT EXISTS `knowledge_business_index` (
     `split_type`      VARCHAR(32)  NOT NULL DEFAULT 'FIXED' COMMENT '附件切分策略: FIXED / PARAGRAPH / SEMANTIC',
     `status`          VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE' COMMENT '状态: ACTIVE-启用 / INACTIVE-停用',
     `remark`          VARCHAR(512) DEFAULT NULL COMMENT '备注说明',
+    `agent_memory_enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否允许生成非权威 Agent 业务记忆引用',
+    `resolver_capability_key` VARCHAR(128) DEFAULT NULL COMMENT '按当前业务身份回源并重新鉴权的 Capability key',
     `create_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `update_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY `uk_index_code` (`index_code`)
+    UNIQUE KEY `uk_index_code` (`index_code`),
+    KEY `idx_biz_agent_memory` (`tenant_id`, `project_code`, `agent_memory_enabled`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='业务语义索引注册表';
 
 CREATE TABLE IF NOT EXISTS `knowledge_business_index_record` (
@@ -550,6 +557,8 @@ CREATE TABLE IF NOT EXISTS `knowledge_business_index_record` (
     `search_text`     TEXT         NOT NULL COMMENT '由模板渲染生成的索引文本',
     `fields_json`     JSON         DEFAULT NULL COMMENT '业务系统推送的原始字段（便于模板变更后重建索引）',
     `metadata_json`   JSON         DEFAULT NULL COMMENT '元数据（搜索结果中回显的摘要信息，不参与语义搜索）',
+    `source_version`  VARCHAR(128) DEFAULT NULL COMMENT '业务源版本；Agent 回源时用于新鲜度校验',
+    `source_updated_at` DATETIME   DEFAULT NULL COMMENT '业务源更新时间；不替代 source_version',
     `owner_user_id`   VARCHAR(64)  DEFAULT NULL COMMENT '数据所有者用户 ID（用于权限过滤）',
     `owner_org_id`    VARCHAR(64)  DEFAULT NULL COMMENT '数据所属组织 ID（用于权限过滤）',
     `vector_id`       VARCHAR(128) DEFAULT NULL COMMENT '主记录在 Milvus 中的向量 ID',
@@ -559,7 +568,8 @@ CREATE TABLE IF NOT EXISTS `knowledge_business_index_record` (
     `update_time`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY `uk_index_biz` (`index_code`, `biz_id`),
     INDEX `idx_owner_org`  (`index_code`, `owner_org_id`),
-    INDEX `idx_owner_user` (`index_code`, `owner_user_id`)
+    INDEX `idx_owner_user` (`index_code`, `owner_user_id`),
+    INDEX `idx_biz_source_version` (`index_code`, `biz_id`, `source_version`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='业务索引记录表';
 
 CREATE TABLE IF NOT EXISTS `knowledge_business_index_attachment` (
@@ -756,6 +766,126 @@ CREATE TABLE IF NOT EXISTS `runtime_internal_auth_nonce` (
     PRIMARY KEY (`nonce`),
     KEY `idx_runtime_internal_auth_nonce_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime internal service auth nonce anti-replay store';
+
+CREATE TABLE IF NOT EXISTS `runtime_conversation_session` (
+    `id`                      BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `tenant_id`               VARCHAR(96)  NOT NULL COMMENT '经 Control HMAC 认证的租户；旧协议固定为 default',
+    `session_id`              VARCHAR(128) NOT NULL COMMENT '对外会话 ID',
+    `user_id`                 VARCHAR(128) NOT NULL COMMENT '经 Control HMAC 认证的 Runtime 用户 ID',
+    `agent_id`                VARCHAR(64)  NOT NULL COMMENT '会话绑定 Agent ID',
+    `agent_config_version_id` BIGINT       DEFAULT NULL COMMENT '最近使用的 Agent 配置版本',
+    `project_code`            VARCHAR(96)  DEFAULT NULL COMMENT 'Agent 所属项目编码快照',
+    `identity_source`         VARCHAR(32)  NOT NULL COMMENT 'AGENT / EMBED_SESSION',
+    `state_user_key`          VARCHAR(80)  NOT NULL COMMENT 'AgentScope 状态用户键（哈希后）',
+    `state_session_key`       VARCHAR(160) NOT NULL COMMENT 'AgentScope 状态会话键（Agent + session 哈希）',
+    `status`                  VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE / CLEARING / CLEARED / EXPIRED / PURGING',
+    `event_count`             INT          NOT NULL DEFAULT 0 COMMENT '已写入事件序号上界',
+    `turn_lease_owner`        VARCHAR(64)  DEFAULT NULL COMMENT '跨 Runtime 实例的当前 turn 租约持有者',
+    `turn_lease_expires_at`   DATETIME     DEFAULT NULL COMMENT 'turn 租约过期时间',
+    `last_turn_at`            DATETIME     DEFAULT NULL COMMENT '最近一次完成或挂起的 turn',
+    `cleared_at`              DATETIME     DEFAULT NULL COMMENT '会话清空时间',
+    `legal_hold`              TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '1 表示合规保全，禁止清空和保留期擦除',
+    `legal_hold_reason_code`  VARCHAR(64)  DEFAULT NULL COMMENT '机器可读的保全原因码，不保存说明正文',
+    `legal_hold_reference`    VARCHAR(128) DEFAULT NULL COMMENT '外部案件/审批引用，不保存个人记忆正文',
+    `legal_hold_set_at`       DATETIME     DEFAULT NULL COMMENT '最近设置保全时间',
+    `legal_hold_set_by_hash`  CHAR(64)     DEFAULT NULL COMMENT '设置者平台用户 ID 的单向摘要',
+    `lifecycle_owner`         VARCHAR(64)  DEFAULT NULL COMMENT 'CLEARING/PURGING 生命周期租约持有者',
+    `lifecycle_lease_expires_at` DATETIME  DEFAULT NULL COMMENT '生命周期租约过期时间，支持崩溃恢复',
+    `lifecycle_reason_code`   VARCHAR(64)  DEFAULT NULL COMMENT 'USER_CLEAR / RETENTION_* / 管理员原因码',
+    `lifecycle_previous_status` VARCHAR(24) DEFAULT NULL COMMENT '生命周期操作前状态，仅用于无正文审计',
+    `created_at`              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_runtime_conversation_tenant_session` (`tenant_id`, `session_id`),
+    UNIQUE KEY `uk_runtime_conversation_state_slot` (`state_user_key`, `state_session_key`),
+    KEY `idx_runtime_conversation_user_time` (`tenant_id`, `user_id`, `last_turn_at`),
+    KEY `idx_runtime_conversation_agent_time` (`agent_id`, `last_turn_at`),
+    KEY `idx_runtime_conversation_lease` (`turn_lease_expires_at`),
+    KEY `idx_runtime_conversation_retention` (`legal_hold`, `status`, `updated_at`),
+    KEY `idx_runtime_conversation_cleared_retention` (`legal_hold`, `status`, `cleared_at`),
+    KEY `idx_runtime_conversation_lifecycle_lease` (`status`, `lifecycle_lease_expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime Agent 企业会话状态目录与所有权边界';
+
+CREATE TABLE IF NOT EXISTS `runtime_conversation_event` (
+    `id`                      BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `conversation_session_id` BIGINT      NOT NULL COMMENT 'runtime_conversation_session.id',
+    `sequence_no`             INT         NOT NULL COMMENT '会话内单调事件序号',
+    `trace_id`                VARCHAR(64) DEFAULT NULL COMMENT '关联 Runtime traceId',
+    `turn_id`                 VARCHAR(128) NOT NULL COMMENT '同一 trace 内的用户 turn 唯一 ID，用于幂等写入',
+    `event_type`              VARCHAR(24) NOT NULL COMMENT 'MESSAGE / WAITING / FAILED',
+    `role`                    VARCHAR(24) NOT NULL COMMENT 'user / assistant / system / tool',
+    `content`                 MEDIUMTEXT  DEFAULT NULL COMMENT '完整但按平台上限截断的会话内容；受企业留存策略治理',
+    `content_sha256`          CHAR(64)    NOT NULL COMMENT '内容完整性与去重摘要',
+    `payload_json`            MEDIUMTEXT  DEFAULT NULL COMMENT '不含 secret/token 的结构化结果元数据',
+    `created_at`              DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_runtime_conversation_event_sequence` (`conversation_session_id`, `sequence_no`),
+    UNIQUE KEY `uk_runtime_conversation_event_turn_role` (`conversation_session_id`, `turn_id`, `role`),
+    KEY `idx_runtime_conversation_event_trace` (`trace_id`),
+    KEY `idx_runtime_conversation_event_time` (`conversation_session_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime Agent 完整会话事件账本；不作为长期个人记忆事实源';
+
+CREATE TABLE IF NOT EXISTS `runtime_session_retention_policy` (
+    `id`                      BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `tenant_id`               VARCHAR(96)  NOT NULL COMMENT '租户；无记录时使用 Runtime 安全默认值',
+    `active_retention_days`   INT          NOT NULL COMMENT 'ACTIVE 会话未活动保留天数，范围 1..3650',
+    `cleared_retention_hours` INT          NOT NULL COMMENT 'CLEARED 会话保留小时数，范围 1..87600',
+    `updated_by_hash`         CHAR(64)     NOT NULL COMMENT '最后修改者平台用户 ID 的单向摘要',
+    `created_at`              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_runtime_session_retention_tenant` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime 租户级会话保留策略；Control 仅通过内部 API 管理';
+
+CREATE TABLE IF NOT EXISTS `runtime_session_retention_audit` (
+    `id`                      BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `tenant_id`               VARCHAR(96)  NOT NULL COMMENT '租户',
+    `session_id_hash`         CHAR(64)     DEFAULT NULL COMMENT 'tenant + sessionId 的单向摘要',
+    `conversation_session_id` BIGINT       DEFAULT NULL COMMENT '操作时的会话行 ID；擦除后仅作审计引用',
+    `event_type`              VARCHAR(64)  NOT NULL COMMENT 'POLICY / HOLD / CLEAR / PURGE 生命周期事件',
+    `actor_type`              VARCHAR(32)  NOT NULL COMMENT 'SYSTEM / PLATFORM_USER / RUNTIME_USER',
+    `actor_id_hash`           CHAR(64)     DEFAULT NULL COMMENT '操作人 ID 单向摘要；SYSTEM 为空',
+    `reason_code`             VARCHAR(64)  DEFAULT NULL COMMENT '机器可读原因码，不保存会话正文',
+    `reference_id`            VARCHAR(128) DEFAULT NULL COMMENT '外部审批/案件引用',
+    `previous_status`         VARCHAR(24)  DEFAULT NULL,
+    `result_status`           VARCHAR(24)  DEFAULT NULL,
+    `failure_code`            VARCHAR(128) DEFAULT NULL COMMENT '失败异常类型，不保存异常消息或正文',
+    `created_at`              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_runtime_session_retention_audit_tenant` (`tenant_id`, `created_at`),
+    KEY `idx_runtime_session_retention_audit_session` (`session_id_hash`, `created_at`),
+    KEY `idx_runtime_session_retention_audit_event` (`event_type`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime 会话保留、保全和擦除的无正文审计';
+
+CREATE TABLE IF NOT EXISTS `runtime_tool_result_artifact` (
+    `id`                    BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `artifact_ref`          CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '仅供模型回读的不可猜测引用 tra_<uuid>',
+    `owner_scope_hash`      CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Runtime 状态用户键的单向作用域摘要',
+    `session_scope_hash`    CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'Runtime 状态用户+会话键的单向作用域摘要',
+    `agent_name`            VARCHAR(128) NOT NULL COMMENT '产生结果的 Agent keySlug 快照',
+    `trace_id`              VARCHAR(64)  DEFAULT NULL COMMENT '关联 Runtime traceId',
+    `tool_call_id`          VARCHAR(128) NOT NULL COMMENT 'AgentScope Tool call ID',
+    `tool_name`             VARCHAR(128) DEFAULT NULL COMMENT 'Tool 名称快照',
+    `content_hmac_sha256`   CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '密钥化正文完整性与去重摘要',
+    `active_slot`           TINYINT UNSIGNED DEFAULT 1 COMMENT 'ACTIVE 去重槽；密文擦除时置空，允许未来重新卸载',
+    `content_chars`         INT UNSIGNED NOT NULL COMMENT '明文 UTF-16 字符数',
+    `content_bytes`         INT UNSIGNED NOT NULL COMMENT '明文 UTF-8 字节数',
+    `encryption_key_id`     VARCHAR(64)  NOT NULL COMMENT '企业密钥版本标识，不保存密钥',
+    `encryption_nonce`      VARBINARY(12) DEFAULT NULL COMMENT 'AES-GCM 96-bit nonce；擦除后为空',
+    `content_ciphertext`    LONGBLOB      DEFAULT NULL COMMENT 'AES-256-GCM 密文；过期/清空后擦除',
+    `status`                VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE / EXPIRED / DELETED',
+    `expires_at`            DATETIME     NOT NULL COMMENT '密文强制过期时间',
+    `created_at`            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `deleted_at`            DATETIME     DEFAULT NULL COMMENT '密文擦除时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_runtime_tool_result_artifact_ref` (`artifact_ref`),
+    UNIQUE KEY `uk_runtime_tool_result_active_dedupe`
+        (`owner_scope_hash`, `session_scope_hash`, `tool_call_id`, `content_hmac_sha256`, `active_slot`),
+    KEY `idx_runtime_tool_result_expiry` (`status`, `expires_at`),
+    KEY `idx_runtime_tool_result_scope` (`owner_scope_hash`, `session_scope_hash`, `status`),
+    KEY `idx_runtime_tool_result_trace` (`trace_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime 大 Tool 结果短期加密工件；不是个人长期记忆';
 
 CREATE TABLE IF NOT EXISTS `runtime_run` (
     `id`                      BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -1611,7 +1741,13 @@ CALL add_col_if_absent('knowledge_business_index', 'project_id', 'BIGINT DEFAULT
 CALL add_col_if_absent('knowledge_business_index', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
 CALL add_col_if_absent('knowledge_business_index', 'environment', 'VARCHAR(32) DEFAULT NULL COMMENT ''环境'' AFTER `project_code`');
 CALL add_col_if_absent('knowledge_business_index', 'tenant_id', 'VARCHAR(96) DEFAULT NULL COMMENT ''租户'' AFTER `environment`');
+CALL add_col_if_absent('knowledge_business_index', 'agent_memory_enabled', 'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''是否允许生成非权威 Agent 业务记忆引用'' AFTER `remark`');
+CALL add_col_if_absent('knowledge_business_index', 'resolver_capability_key', 'VARCHAR(128) DEFAULT NULL COMMENT ''按当前业务身份回源并重新鉴权的 Capability key'' AFTER `agent_memory_enabled`');
 CALL add_idx_if_absent('knowledge_business_index', 'idx_biz_index_project', '`project_id`, `status`');
+CALL add_idx_if_absent('knowledge_business_index', 'idx_biz_agent_memory', '`tenant_id`, `project_code`, `agent_memory_enabled`, `status`');
+CALL add_col_if_absent('knowledge_business_index_record', 'source_version', 'VARCHAR(128) DEFAULT NULL COMMENT ''业务源版本；Agent 回源时用于新鲜度校验'' AFTER `metadata_json`');
+CALL add_col_if_absent('knowledge_business_index_record', 'source_updated_at', 'DATETIME DEFAULT NULL COMMENT ''业务源更新时间；不替代 source_version'' AFTER `source_version`');
+CALL add_idx_if_absent('knowledge_business_index_record', 'idx_biz_source_version', '`index_code`, `biz_id`, `source_version`');
 
 CALL add_col_if_absent('runtime_tool_call_log', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''所属项目'' AFTER `intent_type`');
 CALL add_col_if_absent('runtime_tool_call_log', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''所属项目编码'' AFTER `project_id`');
@@ -1724,6 +1860,7 @@ CREATE TABLE IF NOT EXISTS `capability_diff_item` (
     `existing_tool_id` BIGINT       DEFAULT NULL,
     `field_diff_json`  JSON         DEFAULT NULL,
     `impact_json`      JSON         DEFAULT NULL,
+    `before_state_json` JSON        DEFAULT NULL COMMENT '评审应用前的扫描目录与全局 Tool 状态，用于真实回滚',
     `review_status`    VARCHAR(24)  NOT NULL DEFAULT 'PENDING',
     `review_note`      VARCHAR(512) DEFAULT NULL,
     `created_at`       DATETIME     DEFAULT CURRENT_TIMESTAMP,
@@ -1768,6 +1905,37 @@ CREATE TABLE IF NOT EXISTS `capability_registry_project_credential` (
     UNIQUE KEY `uk_registry_credential` (`project_code`, `app_key`),
     KEY `idx_registry_credential_project` (`project_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='注册中心项目接入凭证';
+
+CREATE TABLE IF NOT EXISTS `capability_registry_enrollment_token` (
+    `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
+    `project_code`       VARCHAR(96)  NOT NULL,
+    `token_digest`       CHAR(64)     NOT NULL COMMENT 'SHA-256 digest only; raw token is returned once',
+    `created_by_user_id` BIGINT       DEFAULT NULL,
+    `expires_at`         DATETIME     NOT NULL,
+    `consumed_at`        DATETIME     DEFAULT NULL,
+    `created_at`         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_capability_registry_enrollment_digest` (`token_digest`),
+    KEY `idx_capability_registry_enrollment_project` (`project_code`, `expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='一次性 SDK 注册 enrollment token，仅保存摘要';
+
+CREATE TABLE IF NOT EXISTS `capability_internal_auth_nonce` (
+    `nonce`       VARCHAR(128) NOT NULL,
+    `caller`      VARCHAR(96)  NOT NULL,
+    `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`nonce`),
+    KEY `idx_capability_internal_auth_nonce_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Capability 内部 HMAC 请求防重放 nonce';
+
+CREATE TABLE IF NOT EXISTS `capability_registry_request_nonce` (
+    `nonce_digest` CHAR(64)     NOT NULL COMMENT 'SHA-256(projectCode, appKey, nonce)',
+    `project_code` VARCHAR(96)  NOT NULL,
+    `app_key_hash` CHAR(64)     NOT NULL COMMENT 'SHA-256 appKey; raw appKey is not retained in replay history',
+    `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`nonce_digest`),
+    KEY `idx_capability_registry_request_nonce_created` (`created_at`),
+    KEY `idx_capability_registry_request_nonce_project` (`project_code`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='项目凭证业务写入请求防重放 nonce';
 
 CALL add_col_if_absent('capability_registry_project_credential', 'allowed_origins_json',   'TEXT DEFAULT NULL COMMENT ''允许嵌入 Chat 的业务前端 origin JSON 数组'' AFTER `expires_at`');
 CALL add_col_if_absent('capability_registry_project_credential', 'allowed_agent_ids_json', 'TEXT DEFAULT NULL COMMENT ''允许申请 embedToken 的 Agent ID / keySlug JSON 数组，空数组表示按项目归属校验'' AFTER `allowed_origins_json`');
@@ -1909,6 +2077,7 @@ CREATE TABLE IF NOT EXISTS `control_project_page` (
     `name`               VARCHAR(160)  NOT NULL,
     `description`        VARCHAR(1000) DEFAULT NULL,
     `route_pattern`      VARCHAR(512)  DEFAULT NULL,
+    `business_page_url`  VARCHAR(1024) DEFAULT NULL COMMENT '浏览器可直接打开的绝对 HTTP(S) 业务页面地址',
     `component_path`     VARCHAR(768)  DEFAULT NULL,
     `source_type`        VARCHAR(32)   NOT NULL COMMENT 'AI_SCAN / MANUAL / SDK',
     `lifecycle_status`   VARCHAR(24)   NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE / ARCHIVED',
@@ -2230,6 +2399,76 @@ CREATE TABLE IF NOT EXISTS `control_context_item` (
     KEY `idx_context_item_trust` (`trust_level`, `confidence`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上下文资产主表';
 
+CREATE TABLE IF NOT EXISTS `control_context_memory_outbox` (
+    `id`              BIGINT        NOT NULL AUTO_INCREMENT,
+    `event_id`        VARCHAR(64)   NOT NULL COMMENT '跨服务幂等事件 ID',
+    `aggregate_type`  VARCHAR(32)   NOT NULL COMMENT 'PERSONAL_MEMORY',
+    `aggregate_id`    VARCHAR(128)  NOT NULL COMMENT 'control_context_item.id',
+    `event_type`      VARCHAR(48)   NOT NULL COMMENT 'PERSONAL_MEMORY_UPSERT / PERSONAL_MEMORY_DELETE',
+    `correlation_id`  VARCHAR(64)   DEFAULT NULL COMMENT '跨域擦除请求关联号；不包含 owner 或正文',
+    `payload_json`    MEDIUMTEXT    NOT NULL COMMENT '最小搜索投影事件；删除事件不含原文',
+    `status`          VARCHAR(24)   NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / PUBLISHING / PUBLISHED / DEAD / SUPERSEDED',
+    `attempt_count`   INT           NOT NULL DEFAULT 0,
+    `next_attempt_at` DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `locked_at`       DATETIME      DEFAULT NULL,
+    `last_error`      VARCHAR(1000) DEFAULT NULL COMMENT '应用仅写最长 64 字符机器失败码；禁止异常消息、响应正文或记忆内容',
+    `created_at`      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `published_at`    DATETIME      DEFAULT NULL,
+    `updated_at`      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_context_memory_outbox_event` (`event_id`),
+    KEY `idx_context_memory_outbox_dispatch` (`status`, `next_attempt_at`, `id`),
+    KEY `idx_context_memory_outbox_aggregate` (`aggregate_type`, `aggregate_id`, `id`),
+    KEY `idx_context_memory_outbox_correlation` (`correlation_id`, `status`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Control 个人记忆到 Knowledge 搜索投影的事务 outbox';
+
+CREATE TABLE IF NOT EXISTS `control_memory_erasure_request` (
+    `id`                      BIGINT       NOT NULL AUTO_INCREMENT,
+    `request_id`              VARCHAR(64)  NOT NULL COMMENT '对外不可变请求 ID',
+    `client_request_id`       VARCHAR(64)  NOT NULL COMMENT 'tenant 内幂等键',
+    `tenant_id`               VARCHAR(96)  NOT NULL,
+    `runtime_user_id`         VARCHAR(128) DEFAULT NULL COMMENT '自动域完成后立即擦除',
+    `runtime_user_hash`       CHAR(64)     NOT NULL COMMENT '独立密钥 HMAC 后的 owner 证明',
+    `reason_code`             VARCHAR(64)  NOT NULL COMMENT '机器可读原因码',
+    `reference_id`            VARCHAR(128) NOT NULL COMMENT '审批/工单引用，不保存说明正文',
+    `status`                  VARCHAR(32)  NOT NULL COMMENT 'REQUESTED/RUNNING/RETRY/BLOCKED_LEGAL_HOLD/ACTION_REQUIRED/FAILED/COMPLETED/COMPLETED_WITH_RETENTION',
+    `attempt_count`           INT          NOT NULL DEFAULT 0,
+    `next_attempt_at`         DATETIME     DEFAULT NULL,
+    `lease_owner`             VARCHAR(64)  DEFAULT NULL,
+    `lease_expires_at`        DATETIME     DEFAULT NULL,
+    `last_failure_code`       VARCHAR(64)  DEFAULT NULL COMMENT '机器失败码；禁止异常正文',
+    `requested_by_hash`       CHAR(64)     NOT NULL,
+    `automated_completed_at`  DATETIME     DEFAULT NULL,
+    `completed_at`            DATETIME     DEFAULT NULL,
+    `created_at`              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_memory_erasure_request_id` (`request_id`),
+    UNIQUE KEY `uk_memory_erasure_client` (`tenant_id`, `client_request_id`),
+    KEY `idx_memory_erasure_dispatch` (`status`, `next_attempt_at`, `lease_expires_at`, `id`),
+    KEY `idx_memory_erasure_target` (`tenant_id`, `runtime_user_hash`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Control 跨域 Agent 记忆擦除任务';
+
+CREATE TABLE IF NOT EXISTS `control_memory_erasure_domain` (
+    `id`                  BIGINT       NOT NULL AUTO_INCREMENT,
+    `erasure_request_id`  BIGINT       NOT NULL,
+    `domain_code`         VARCHAR(64)  NOT NULL,
+    `owner_service`       VARCHAR(96)  NOT NULL,
+    `execution_mode`      VARCHAR(32)  NOT NULL COMMENT 'AUTOMATED / MANUAL_EVIDENCE',
+    `status`              VARCHAR(32)  NOT NULL COMMENT 'PENDING/WAITING_DEPENDENCY/WAITING_EVIDENCE/BLOCKED_LEGAL_HOLD/FAILED/COMPLETED',
+    `result_code`         VARCHAR(64)  DEFAULT NULL,
+    `affected_count`      BIGINT       DEFAULT NULL COMMENT '仅聚合数量，不保存对象 ID',
+    `evidence_reference`  VARCHAR(128) DEFAULT NULL COMMENT '外部证据引用，不保存正文或 URL 凭据',
+    `attempt_count`       INT          NOT NULL DEFAULT 0,
+    `last_failure_code`   VARCHAR(64)  DEFAULT NULL,
+    `completed_at`        DATETIME     DEFAULT NULL,
+    `created_at`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_memory_erasure_domain` (`erasure_request_id`, `domain_code`),
+    KEY `idx_memory_erasure_domain_status` (`status`, `updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='跨域 Agent 记忆擦除逐域证据状态';
+
 CREATE TABLE IF NOT EXISTS `control_context_binding` (
     `id`           BIGINT       NOT NULL AUTO_INCREMENT,
     `item_id`      BIGINT       NOT NULL,
@@ -2302,6 +2541,9 @@ CREATE TABLE IF NOT EXISTS `control_context_memory_candidate` (
     `candidate_type`    VARCHAR(32)   NOT NULL COMMENT 'PREFERENCE/FACT/RULE/PAGE_CONTEXT/WORKFLOW_CONTEXT/API_CONTEXT/NOTE',
     `title`             VARCHAR(256)  DEFAULT NULL,
     `content`           MEDIUMTEXT    NOT NULL,
+    `content_sha256`    CHAR(64)      DEFAULT NULL COMMENT '规范化候选内容摘要；不替代加密与访问控制',
+    `dedupe_key`        VARCHAR(128)  DEFAULT NULL COMMENT '仅 PENDING 阶段持有的并发去重键；审核后清空',
+    `semantic_key`      VARCHAR(128)  DEFAULT NULL COMMENT '可选稳定语义键，用于识别属性替换冲突',
     `summary`           TEXT          DEFAULT NULL,
     `reason`            VARCHAR(512)  DEFAULT NULL,
     `source_type`       VARCHAR(48)   NOT NULL COMMENT 'USER_MESSAGE/USER_CONFIRMED/AGENT_OUTPUT/TRACE/PAGE/WORKFLOW/MANUAL/SYSTEM',
@@ -2326,6 +2568,11 @@ CREATE TABLE IF NOT EXISTS `control_context_memory_candidate` (
     `reviewed_at`       DATETIME      DEFAULT NULL,
     `review_reason`     VARCHAR(512)  DEFAULT NULL,
     `approved_item_id`  BIGINT        DEFAULT NULL COMMENT '批准后写入 control_context_item.id',
+    `conflict_item_id`  BIGINT        DEFAULT NULL COMMENT '同一语义键下待替换的既有个人记忆条目',
+    `conflict_type`     VARCHAR(32)   DEFAULT NULL COMMENT 'REPLACEMENT；精确重复会直接跳过而不创建候选',
+    `occurrence_count`  INT           NOT NULL DEFAULT 1 COMMENT '同一 pending 候选被重复观察到的次数',
+    `last_seen_at`      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '最近一次重复观察时间',
+    `extraction_version` VARCHAR(32)  DEFAULT NULL COMMENT '规则或模型提取器版本',
     `metadata_json`     MEDIUMTEXT    DEFAULT NULL,
     `expires_at`        DATETIME      DEFAULT NULL,
     `created_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -2333,14 +2580,108 @@ CREATE TABLE IF NOT EXISTS `control_context_memory_candidate` (
     `deleted_at`        DATETIME      DEFAULT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_context_memory_candidate_key` (`candidate_key`),
+    UNIQUE KEY `uk_context_memory_candidate_dedupe` (`dedupe_key`),
     KEY `idx_context_memory_candidate_scope` (`tenant_id`, `project_code`, `memory_lane`, `status`),
     KEY `idx_context_memory_candidate_user` (`tenant_id`, `user_id`, `status`, `created_at`),
     KEY `idx_context_memory_candidate_session` (`session_id`, `status`, `created_at`),
     KEY `idx_context_memory_candidate_trace` (`trace_id`),
     KEY `idx_context_memory_candidate_agent` (`agent_id`, `status`, `created_at`),
     KEY `idx_context_memory_candidate_review` (`status`, `expires_at`, `created_at`),
-    KEY `idx_context_memory_candidate_namespace` (`namespace_id`, `status`)
+    KEY `idx_context_memory_candidate_namespace` (`namespace_id`, `status`),
+    KEY `idx_context_memory_candidate_semantic` (`namespace_id`, `semantic_key`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime User Memory 写回候选（确认前缓冲）';
+
+CREATE TABLE IF NOT EXISTS `knowledge_personal_memory_index` (
+    `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
+    `memory_id`          BIGINT       NOT NULL COMMENT 'Control canonical control_context_item.id',
+    `tenant_id`          VARCHAR(96)  NOT NULL,
+    `runtime_user_hash`  CHAR(64)     NOT NULL COMMENT 'HMAC 后用户标识；Knowledge 不保存原始 Runtime user id',
+    `item_type`          VARCHAR(32)  NOT NULL,
+    `title`              VARCHAR(256) DEFAULT NULL,
+    `content`            MEDIUMTEXT   NOT NULL,
+    `summary`            TEXT         DEFAULT NULL,
+    `trust_level`        VARCHAR(24)  NOT NULL,
+    `source_version`     BIGINT       NOT NULL COMMENT 'Control 条目版本；旧事件不得覆盖新投影',
+    `status`             VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
+    `expires_at`         DATETIME     DEFAULT NULL,
+    `embedding_vector`   MEDIUMBLOB   DEFAULT NULL COMMENT '可重建 float32 向量；不作为 canonical 事实源',
+    `embedding_format`   VARCHAR(32)  DEFAULT NULL COMMENT '当前为 FLOAT32_BE_V1',
+    `embedding_dimension` INT         DEFAULT NULL,
+    `embedding_model_instance_id` VARCHAR(64) DEFAULT NULL,
+    `embedding_source_version` BIGINT DEFAULT NULL COMMENT '必须等于 source_version 才可参与召回',
+    `embedding_text_sha256` CHAR(64)  DEFAULT NULL COMMENT '发送给 Model Gateway 的截断文本摘要',
+    `embedding_status`   VARCHAR(24)  NOT NULL DEFAULT 'DISABLED' COMMENT 'DISABLED/PENDING/PROCESSING/RETRY/READY/DEAD/DELETED',
+    `embedding_attempts` INT          NOT NULL DEFAULT 0,
+    `embedding_error_code` VARCHAR(64) DEFAULT NULL COMMENT '仅机器错误码，不保存供应商响应或记忆正文',
+    `embedding_next_attempt_at` DATETIME DEFAULT NULL,
+    `embedding_claim_token` VARCHAR(64) DEFAULT NULL,
+    `embedding_claim_until` DATETIME DEFAULT NULL,
+    `created_at`         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `deleted_at`         DATETIME     DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_knowledge_personal_memory` (`tenant_id`, `runtime_user_hash`, `memory_id`),
+    KEY `idx_knowledge_personal_memory_scope` (`tenant_id`, `runtime_user_hash`, `status`, `updated_at`),
+    KEY `idx_knowledge_personal_memory_expiry` (`status`, `expires_at`),
+    KEY `idx_knowledge_personal_memory_embedding` (`embedding_status`, `embedding_next_attempt_at`, `embedding_claim_until`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Knowledge 可重建的个人记忆搜索投影；非事实源';
+
+-- Keep initV2 re-runnable against an earlier baseline where the projection
+-- table already exists. Fresh databases already have these definitions above.
+CALL add_col_if_absent('knowledge_personal_memory_index', 'embedding_vector',
+    'MEDIUMBLOB DEFAULT NULL COMMENT ''可重建 float32 向量；不作为 canonical 事实源'' AFTER `expires_at`');
+CALL add_col_if_absent('knowledge_personal_memory_index', 'embedding_format',
+    'VARCHAR(32) DEFAULT NULL COMMENT ''当前为 FLOAT32_BE_V1'' AFTER `embedding_vector`');
+CALL add_col_if_absent('knowledge_personal_memory_index', 'embedding_dimension',
+    'INT DEFAULT NULL AFTER `embedding_format`');
+CALL add_col_if_absent('knowledge_personal_memory_index', 'embedding_model_instance_id',
+    'VARCHAR(64) DEFAULT NULL AFTER `embedding_dimension`');
+CALL add_col_if_absent('knowledge_personal_memory_index', 'embedding_source_version',
+    'BIGINT DEFAULT NULL COMMENT ''必须等于 source_version 才可参与召回'' AFTER `embedding_model_instance_id`');
+CALL add_col_if_absent('knowledge_personal_memory_index', 'embedding_text_sha256',
+    'CHAR(64) DEFAULT NULL COMMENT ''发送给 Model Gateway 的截断文本摘要'' AFTER `embedding_source_version`');
+CALL add_col_if_absent('knowledge_personal_memory_index', 'embedding_status',
+    'VARCHAR(24) NOT NULL DEFAULT ''DISABLED'' COMMENT ''DISABLED/PENDING/PROCESSING/RETRY/READY/DEAD/DELETED'' AFTER `embedding_text_sha256`');
+CALL add_col_if_absent('knowledge_personal_memory_index', 'embedding_attempts',
+    'INT NOT NULL DEFAULT 0 AFTER `embedding_status`');
+CALL add_col_if_absent('knowledge_personal_memory_index', 'embedding_error_code',
+    'VARCHAR(64) DEFAULT NULL COMMENT ''仅机器错误码，不保存供应商响应或记忆正文'' AFTER `embedding_attempts`');
+CALL add_col_if_absent('knowledge_personal_memory_index', 'embedding_next_attempt_at',
+    'DATETIME DEFAULT NULL AFTER `embedding_error_code`');
+CALL add_col_if_absent('knowledge_personal_memory_index', 'embedding_claim_token',
+    'VARCHAR(64) DEFAULT NULL AFTER `embedding_next_attempt_at`');
+CALL add_col_if_absent('knowledge_personal_memory_index', 'embedding_claim_until',
+    'DATETIME DEFAULT NULL AFTER `embedding_claim_token`');
+CALL add_idx_if_absent('knowledge_personal_memory_index', 'idx_knowledge_personal_memory_embedding',
+    '`embedding_status`, `embedding_next_attempt_at`, `embedding_claim_until`, `id`');
+
+UPDATE `knowledge_personal_memory_index`
+SET `embedding_vector` = NULL,
+    `embedding_format` = NULL,
+    `embedding_dimension` = NULL,
+    `embedding_model_instance_id` = NULL,
+    `embedding_source_version` = NULL,
+    `embedding_text_sha256` = NULL,
+    `embedding_status` = 'DELETED',
+    `embedding_attempts` = 0,
+    `embedding_error_code` = NULL,
+    `embedding_next_attempt_at` = NULL,
+    `embedding_claim_token` = NULL,
+    `embedding_claim_until` = NULL
+WHERE `status` <> 'ACTIVE';
+
+CREATE TABLE IF NOT EXISTS `knowledge_personal_memory_index_event` (
+    `id`            BIGINT        NOT NULL AUTO_INCREMENT,
+    `event_id`      VARCHAR(64)   NOT NULL,
+    `event_type`    VARCHAR(48)   NOT NULL,
+    `memory_id`     BIGINT        NOT NULL,
+    `status`        VARCHAR(24)   NOT NULL COMMENT 'APPLIED / IGNORED_STALE',
+    `payload_sha256` CHAR(64)     NOT NULL,
+    `processed_at`  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_knowledge_personal_memory_event` (`event_id`),
+    KEY `idx_knowledge_personal_memory_event_memory` (`memory_id`, `processed_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个人记忆搜索投影消费幂等账本';
 
 CREATE TABLE IF NOT EXISTS `control_context_runtime_user_mapping` (
     `id`               BIGINT       NOT NULL AUTO_INCREMENT,
@@ -2352,11 +2693,13 @@ CREATE TABLE IF NOT EXISTS `control_context_runtime_user_mapping` (
     `project_id`       BIGINT       DEFAULT NULL,
     `project_code`     VARCHAR(96)  DEFAULT NULL,
     `status`           VARCHAR(24)  NOT NULL DEFAULT 'ACTIVE',
+    `active_marker`    TINYINT(1)   DEFAULT 1 COMMENT 'ACTIVE 时为 1，删除后为 NULL；用于唯一活跃 owner 槽位',
     `created_by`       VARCHAR(128) DEFAULT NULL,
     `created_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `deleted_at`       DATETIME     DEFAULT NULL,
     PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_context_runtime_user_mapping_active` (`tenant_id`, `platform_user_id`, `active_marker`),
     KEY `idx_context_runtime_user_mapping_actor` (`tenant_id`, `platform_user_id`, `runtime_user_id`, `status`),
     KEY `idx_context_runtime_user_mapping_project` (`tenant_id`, `project_code`, `project_id`, `status`),
     KEY `idx_context_runtime_user_mapping_runtime` (`tenant_id`, `runtime_user_id`, `status`)
@@ -2457,6 +2800,20 @@ CREATE TABLE IF NOT EXISTS `control_platform_auth_provider` (
     UNIQUE KEY `uk_platform_auth_provider` (`provider_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台管理端身份提供方配置';
 
+CREATE TABLE IF NOT EXISTS `control_platform_auth_audit_event` (
+    `id`               BIGINT       NOT NULL AUTO_INCREMENT,
+    `event_type`       VARCHAR(96)  NOT NULL,
+    `actor_user_id`    BIGINT       DEFAULT NULL,
+    `actor_session_id` VARCHAR(96)  DEFAULT NULL,
+    `target_type`      VARCHAR(64)  NOT NULL,
+    `target_id`        VARCHAR(128) DEFAULT NULL,
+    `details_json`     TEXT         DEFAULT NULL COMMENT '不含密码、Token、密钥或个人记忆正文的安全元数据',
+    `created_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_platform_auth_audit_actor` (`actor_user_id`, `created_at`),
+    KEY `idx_platform_auth_audit_target` (`target_type`, `target_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台认证与高风险身份映射管理操作审计';
+
 INSERT IGNORE INTO `control_platform_role` (`role_code`, `role_name`, `description`, `status`)
 VALUES
 ('PLATFORM_ADMIN', '平台管理员', '平台全量管理与配置', 'ACTIVE'),
@@ -2472,13 +2829,17 @@ VALUES
 ('platform:write', 'Write platform assets', 'PLATFORM', 'WRITE'),
 ('platform:admin', 'Administer platform users and roles', 'PLATFORM', 'ADMIN'),
 ('context:runtime-user:review', 'Review runtime user context candidates', 'CONTEXT_RUNTIME_USER', 'REVIEW'),
-('context:runtime-user:mapping:manage', 'Manage runtime user review mappings', 'CONTEXT_RUNTIME_USER', 'MANAGE_MAPPING');
+('context:runtime-user:mapping:manage', 'Manage runtime user review mappings', 'CONTEXT_RUNTIME_USER', 'MANAGE_MAPPING'),
+('context:memory:erasure:manage', 'Manage cross-domain Agent memory erasure', 'CONTEXT_MEMORY', 'MANAGE_ERASURE'),
+('runtime:session:retention:manage', 'Manage Runtime session retention and legal hold', 'RUNTIME_SESSION', 'MANAGE_RETENTION');
 
 INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
 SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
 WHERE r.role_code = 'PLATFORM_ADMIN'
   AND p.permission_code IN ('*', 'platform:read', 'platform:write', 'platform:admin',
-                            'context:runtime-user:review', 'context:runtime-user:mapping:manage');
+                            'context:runtime-user:review', 'context:runtime-user:mapping:manage',
+                            'context:memory:erasure:manage',
+                            'runtime:session:retention:manage');
 
 INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
 SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p

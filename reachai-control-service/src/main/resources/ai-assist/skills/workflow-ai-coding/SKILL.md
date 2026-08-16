@@ -21,6 +21,7 @@ Core mental model:
 - Workflow AI Coding may publish a validated Working Copy through `POST /api/workflows/{workflowId}/ai-coding/publish`; publish still runs release validation and creates an ACTIVE `runtime_workflow_version`.
 - Always read `GET .../context` before patching or publishing. Use the latest `workflow.updatedAt` as `baseRevision` when saving and publishing.
 - First-class resource bindings may be replaced only while the Workflow is `DRAFT`, through `PUT .../resource-bindings` with the latest `baseRevision`. They are immutable after the first publish.
+- Node openness can be variant-specific. Read `nodeTypes[].enabledVariants`; for `INTERACTION`, only `PRESENT_OUTPUT` is currently open. Do not infer that `COLLECT_INPUT`, `USER_CHOICE`, `CONFIRM_ACTION` or other pause/resume variants are available merely because the `INTERACTION` type appears in the catalog.
 - Default patch behavior is `dryRun=true`. Only set `dryRun=false` after validation passes.
 
 Authentication: Workflow AI Coding endpoints use **aiCodingKey only** (no platform Bearer). Obtain the project-level key from ReachAI **项目详情 → AI Coding 接入秘钥**. Send it on every request as header `X-ReachAI-AiCoding-Key`; do not put the key in generated URLs, scripts, logs, or browser runtime code. Missing key returns `401`; invalid or disabled key returns `403`. API base URL depends on deployment; use the base URL in the current project or task handoff context.
@@ -75,6 +76,8 @@ When calling Workflow AI Coding APIs from Windows, prevent Chinese text from bei
 9. Check release readiness: `GET .../versions`
 10. Re-read context, then publish when release validation is valid: `POST .../publish` with the latest `workflow.updatedAt` as `baseRevision`
 11. Report: changed nodes/edges, validation result, traceId, release readiness, published version, and any remaining issues
+
+For any branch that returns structured business data, do not stop at an `ANSWER` that serializes the object as Markdown. Add a downstream display-only `INTERACTION/PRESENT_OUTPUT` node. Use `list_card` for list/page results, `output_card`/`card`/`detail` for one object, an explicit `dataExpression` such as `nodeOutput.read_table`, and `presentation.mode=card_only` or `text_and_card`. Browser acceptance must observe both the real `ui.requested` SSE event and the rendered card DOM.
 
 ## Endpoint Map
 
@@ -139,9 +142,25 @@ When building LLM nodes, pick `modelInstanceId` from `availableModels[].id` only
 
 Generic Workflow create defaults to `workflowKind=GENERAL`. A business-page Workflow must send `"workflowKind":"PAGE_ASSISTANT"` and its `resourceBindings` explicitly. Attach GENERAL or PAGE_ASSISTANT with:
 
+Risk and routing are evaluated at the attached Workflow-tool boundary, not per
+intent branch inside one graph. If the business experience must support both
+page operations and an explicit page-independent API query (for example,
+"use the business API and do not operate the page"), create two published
+Workflows:
+
+- keep page navigation, reads and writes in `PAGE_ASSISTANT`, attached as
+  `PAGE_ACTION`;
+- put the API-only, read-only Tool chain in a separate `GENERAL` Workflow and
+  attach it with `riskLevel=READ`.
+
+Do not hide a read-only API route inside a `PAGE_ASSISTANT` and then claim that
+the Agent can select it independently. The Supervisor guard sees the attached
+Workflow's declared risk, so a mixed graph cannot provide branch-sensitive
+routing evidence.
+
 `POST /api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach`
 
-Body uses `workflowId` plus optional `agentKeySlug` (preferred) or internal `agentId` (mutually exclusive). Prefer omitting agent identifiers so the project default page-copilot keySlug is used. The Page Assistant-specific endpoint `/api/workflows/{id}/page-assistant/attach-tool` accepts PAGE_ASSISTANT only and returns `ai-coding-error.v1` with `WORKFLOW_KIND_NOT_SUPPORTED` for GENERAL.
+Body uses `workflowId` plus optional `agentKeySlug` (preferred) or internal `agentId` (mutually exclusive). Prefer omitting agent identifiers so the project default page-copilot keySlug is used. Attachment is additive by default. Set `replaceWorkflowId` only after reading the current attached catalog and selecting the exact predecessor to supersede; ReachAI requires the same project and workflowKind, and for PAGE_ASSISTANT also the same exact TARGET PAGE. It replaces that one entry and preserves every other Workflow. Never infer replacement from pageKey or name. Invalid targets return `ai-coding-error.v1` with `WORKFLOW_REPLACEMENT_INVALID` and do not publish a new config. The Page Assistant-specific endpoint `/api/workflows/{id}/page-assistant/attach-tool` accepts PAGE_ASSISTANT only and returns `WORKFLOW_KIND_NOT_SUPPORTED` for GENERAL.
 
 ### Validate
 

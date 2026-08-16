@@ -33,8 +33,9 @@ describe('enabledStudioNodeKinds', () => {
         maturity: 'BETA',
         runtimeExecutable: true,
         publishable: false,
-        studioEnabled: false,
-        aiAuthoringEnabled: false,
+        studioEnabled: true,
+        aiAuthoringEnabled: true,
+        enabledVariants: ['PRESENT_OUTPUT'],
       }),
       descriptor({
         type: 'CODE',
@@ -55,7 +56,7 @@ describe('enabledStudioNodeKinds', () => {
 
     expect(enabled.has('llm')).toBe(true)
     expect(enabled.has('pageAction')).toBe(true)
-    expect(enabled.has('interaction')).toBe(false)
+    expect(enabled.has('interaction')).toBe(true)
     expect(enabled.has('code')).toBe(false)
     expect(enabled.has('start')).toBe(true)
     expect(enabled.has('end')).toBe(true)
@@ -88,14 +89,16 @@ describe('enabledStudioNodeKinds', () => {
         canvasKind: 'interaction',
         maturity: 'BETA',
         runtimeExecutable: true,
-        studioEnabled: false,
+        studioEnabled: true,
         publishable: false,
-        aiAuthoringEnabled: false,
-        unavailableReason: 'Workflow interaction pause/resume closure is not complete',
+        aiAuthoringEnabled: true,
+        enabledVariants: ['PRESENT_OUTPUT'],
+        unavailableReason: 'Only PRESENT_OUTPUT is enabled; pause/resume variants remain closed',
       }),
     ])
     expect(map.pageAction?.maturity).toBe('BETA')
-    expect(map.interaction?.studioEnabled).toBe(false)
+    expect(map.interaction?.studioEnabled).toBe(true)
+    expect(map.interaction?.enabledVariants).toEqual(['PRESENT_OUTPUT'])
     expect(map.interaction?.unavailableReason).toContain('pause/resume')
   })
 })
@@ -110,9 +113,10 @@ describe('resolveStudioNodeCreation / paste create guard', () => {
       maturity: 'BETA',
       runtimeExecutable: true,
       publishable: false,
-      studioEnabled: false,
-      aiAuthoringEnabled: false,
-      unavailableReason: 'Workflow interaction pause/resume closure is not complete',
+      studioEnabled: true,
+      aiAuthoringEnabled: true,
+      enabledVariants: ['PRESENT_OUTPUT'],
+      unavailableReason: 'Only PRESENT_OUTPUT is enabled; pause/resume variants remain closed',
     }),
     descriptor({
       type: 'CODE',
@@ -126,9 +130,11 @@ describe('resolveStudioNodeCreation / paste create guard', () => {
     }),
   ]
 
-  it('blocks INTERACTION and PLANNED paste/create while allowing STABLE kinds', () => {
-    expect(canCreateStudioNodeKind('interaction', catalog, true)).toBe(false)
-    expect(resolveStudioNodeCreation('interaction', catalog, true).reason).toContain('pause/resume')
+  it('allows PRESENT_OUTPUT, blocks interaction pause/resume variants and PLANNED kinds', () => {
+    expect(canCreateStudioNodeKind('interaction', catalog, true)).toBe(true)
+    expect(canCreateStudioNodeKind('interaction', catalog, true, 'PRESENT_OUTPUT')).toBe(true)
+    expect(canCreateStudioNodeKind('interaction', catalog, true, 'COLLECT_INPUT')).toBe(false)
+    expect(resolveStudioNodeCreation('interaction', catalog, true, 'CONFIRM_ACTION').reason).toContain('仅开放')
     expect(canCreateStudioNodeKind('code', catalog, true)).toBe(false)
     expect(resolveStudioNodeCreation('code', catalog, true).reason).toContain('Runtime Handler')
     expect(canCreateStudioNodeKind('llm', catalog, true)).toBe(true)

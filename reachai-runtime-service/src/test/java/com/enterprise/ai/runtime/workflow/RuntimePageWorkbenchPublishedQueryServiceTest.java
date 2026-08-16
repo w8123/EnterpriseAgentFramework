@@ -75,6 +75,7 @@ class RuntimePageWorkbenchPublishedQueryServiceTest {
         assertEquals(1, result.size());
         assertEquals("orders.detail", result.get(0).pageKey());
         assertEquals("ACTIVE", result.get(0).workflowStatus());
+        assertEquals("model-orders", result.get(0).modelInstanceId());
         assertEquals(3, result.get(0).recentCallCount());
         assertEquals(66.67, result.get(0).successRate());
         assertEquals("COMPLETED", result.get(0).latestCallStatus());
@@ -170,6 +171,7 @@ class RuntimePageWorkbenchPublishedQueryServiceTest {
         config.setAgentId("agent-orders");
         config.setVersionNo(3);
         config.setStatus("ACTIVE");
+        config.setModelInstanceId("model-orders");
         return config;
     }
 }

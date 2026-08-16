@@ -25,7 +25,7 @@ import java.util.List;
  */
 @Slf4j
 @RestController
-@RequestMapping("/biz-index/{indexCode}")
+@RequestMapping("/internal/knowledge/console/biz-index/{indexCode}")
 @RequiredArgsConstructor
 public class BizIndexDataController {
 

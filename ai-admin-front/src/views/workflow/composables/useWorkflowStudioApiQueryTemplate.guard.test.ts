@@ -50,7 +50,7 @@ function descriptor(
   }
 }
 
-function currentCatalog(openInteraction = false): WorkflowGraphNodeTypeDescriptor[] {
+function currentCatalog(openBlockingInteraction = false): WorkflowGraphNodeTypeDescriptor[] {
   return [
     descriptor({ type: 'TOOL', canvasKind: 'tool' }),
     descriptor({
@@ -64,11 +64,14 @@ function currentCatalog(openInteraction = false): WorkflowGraphNodeTypeDescripto
       maturity: 'BETA',
       runtimeExecutable: true,
       publishable: false,
-      studioEnabled: openInteraction,
-      aiAuthoringEnabled: openInteraction,
-      unavailableReason: openInteraction
+      studioEnabled: true,
+      aiAuthoringEnabled: true,
+      enabledVariants: openBlockingInteraction
+        ? ['PRESENT_OUTPUT', 'COLLECT_INPUT']
+        : ['PRESENT_OUTPUT'],
+      unavailableReason: openBlockingInteraction
         ? null
-        : 'Workflow interaction pause/resume closure is not complete',
+        : 'Only PRESENT_OUTPUT is enabled; pause/resume variants remain closed',
     }),
   ]
 }
@@ -150,7 +153,7 @@ describe('useWorkflowStudioApiQueryTemplate capability guard', () => {
     getScanProjectTools.mockResolvedValue({ data: [selectableTool()] })
   })
 
-  it('blocks open/apply/generate when INTERACTION is not studio-enabled', async () => {
+  it('blocks open/apply/generate while COLLECT_INPUT remains closed', async () => {
     const ctx = createTemplate()
     expect(ctx.api.apiQueryTemplateAvailable.value).toBe(false)
 
@@ -178,7 +181,7 @@ describe('useWorkflowStudioApiQueryTemplate capability guard', () => {
     expect(ctx.syncJsonFromCanvas).not.toHaveBeenCalled()
   })
 
-  it('allows generate when synthetic catalog opens all required kinds', () => {
+  it('allows generate only when a synthetic catalog also opens COLLECT_INPUT', () => {
     const ctx = createTemplate()
     ctx.nodeTypes.value = currentCatalog(true)
     expect(ctx.api.apiQueryTemplateAvailable.value).toBe(true)

@@ -588,7 +588,7 @@ if (projectListDarkStart === -1 || projectListDarkEnd === -1) {
 
 const refinedMarker = '/* Shared refined access progress:'
 const refinedStart = sdkSource.indexOf(refinedMarker)
-const refinedEnd = sdkSource.indexOf('/* AI Coding keeps the same progress-card height', refinedStart)
+const refinedEnd = sdkSource.indexOf('/* AI Coding progress card stretches with the workbench', refinedStart)
 if (refinedStart === -1 || refinedEnd === -1) {
   failures.push('SDK refined progress contract boundaries are missing')
 } else {

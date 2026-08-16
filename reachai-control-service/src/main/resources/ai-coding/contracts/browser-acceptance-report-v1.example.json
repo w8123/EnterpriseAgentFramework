@@ -22,5 +22,18 @@
     ],
     "evidence": "Observed the real business request and result."
   },
+  "structuredPresentation": {
+    "required": true,
+    "passed": true,
+    "uiRequestedObserved": true,
+    "cardDomObserved": true,
+    "component": "list_card",
+    "evidence": "The assistant SSE emitted ui.requested and the browser rendered a visible list card containing the returned business rows."
+  },
+  "stateRestoration": {
+    "required": false,
+    "passed": true,
+    "evidence": "No business state was changed in this example scenario."
+  },
   "traceId": null
 }

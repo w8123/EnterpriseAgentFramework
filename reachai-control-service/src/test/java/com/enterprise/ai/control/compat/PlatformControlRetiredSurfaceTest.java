@@ -41,6 +41,7 @@ class PlatformControlRetiredSurfaceTest {
         assertHasRoute(PlatformEmbedPublicController.class, "/api/embed/chat/sessions/{sessionId}/messages");
         assertHasRoute(PlatformEmbedPublicController.class, "/api/embed/chat/sessions/{sessionId}/messages/stream");
         assertHasRoute(PlatformEmbedPublicController.class, "/api/embed/chat/sessions/{sessionId}/page-actions/pending");
+        assertHasRoute(PlatformEmbedPublicController.class, "/api/embed/chat/sessions/{sessionId}/page-actions/{requestId}/claim");
         assertHasRoute(PlatformEmbedPublicController.class, "/api/embed/chat/sessions/{sessionId}/page-actions/{requestId}/result");
     }
 

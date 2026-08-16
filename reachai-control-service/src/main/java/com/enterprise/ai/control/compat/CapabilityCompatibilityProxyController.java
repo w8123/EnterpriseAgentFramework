@@ -57,8 +57,16 @@ public class CapabilityCompatibilityProxyController {
         this.capabilityServiceUrl = normalizeBaseUrl(capabilityServiceUrl);
     }
 
+    @RequestMapping(path = "/api/registry/{*path}")
+    public ResponseEntity<byte[]> proxyRegistry(RequestEntity<byte[]> requestEntity, HttpServletRequest request) {
+        return proxyRequest(requestEntity, request);
+    }
+
+    /**
+     * Console-only Capability catalog APIs. These paths are guarded by
+     * PlatformConsoleAuthInterceptor before this proxy is entered.
+     */
     @RequestMapping(path = {
-            "/api/registry/{*path}",
             "/api/capabilities",
             "/api/capabilities/{*path}",
             "/api/tools",
@@ -83,6 +91,10 @@ public class CapabilityCompatibilityProxyController {
             "/api/domains/{*path}"
     })
     public ResponseEntity<byte[]> proxy(RequestEntity<byte[]> requestEntity, HttpServletRequest request) {
+        return proxyRequest(requestEntity, request);
+    }
+
+    private ResponseEntity<byte[]> proxyRequest(RequestEntity<byte[]> requestEntity, HttpServletRequest request) {
         URI targetUri = targetUri(request);
         HttpEntity<byte[]> entity = new HttpEntity<>(requestEntity.getBody(), forwardHeaders(requestEntity.getHeaders()));
         try {

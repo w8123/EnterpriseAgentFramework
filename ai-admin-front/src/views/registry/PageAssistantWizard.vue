@@ -66,6 +66,8 @@ import {
   pageImplementationObjective,
   readPageImplementationGoalSelection,
 } from '@/utils/aiCodingGoalSelection'
+import { copyAiCodingText } from '@/utils/aiCodingClipboard'
+import { normalizeBusinessPageUrl } from '@/utils/businessPageUrl'
 import {
   pageWorkbenchHumanText,
   pageWorkbenchPageName,
@@ -185,6 +187,10 @@ const selectedPageWorkflow = computed(() => {
     : item.pageKey === selectedPage.value?.pageKey) || null
 })
 
+const selectedPagePublishedWorkflows = computed(() => published.value.filter(
+  (workflow) => workflow.pageKey === selectedPage.value?.pageKey,
+))
+
 const detailPageId = computed(() => {
   const raw = Array.isArray(route.query.pageId) ? route.query.pageId[0] : route.query.pageId
   if (!raw) return null
@@ -259,6 +265,12 @@ const selectedPageTasks = computed(() => tasks.value.filter(
 
 const selectedPageReadiness = computed(() => (
   readinessPage.value?.id === selectedPage.value?.id ? readinessResult.value : null
+))
+
+const acceptanceModelReadiness = computed(() => (
+  readinessPage.value?.id === acceptanceTargetPage.value?.id
+    ? readinessResult.value?.items.find((item) => item.key === 'AGENT_MODEL_RUNTIME_READY') || null
+    : null
 ))
 
 const selectedBusinessPageUrl = computed(() => businessPageUrl(selectedPage.value))
@@ -508,11 +520,17 @@ async function createAcceptanceActivity(
   })
 }
 
-function openAcceptancePreparation(page: ProjectPage, workflow: PublishedPageWorkflow) {
+async function openAcceptancePreparation(page: ProjectPage, workflow: PublishedPageWorkflow) {
   selectedPageId.value = page.id
   acceptanceTargetPage.value = page
   acceptanceTargetWorkflow.value = workflow
   acceptanceDialogVisible.value = true
+  await loadPageReadiness(page)
+}
+
+function openModelCenterFromAcceptance() {
+  acceptanceDialogVisible.value = false
+  void router.push({ name: 'ModelInstances' })
 }
 
 async function confirmAcceptanceActivity(
@@ -876,23 +894,14 @@ function openWorkflowStudio(result: WorkflowEngineeringDraftResult) {
 async function deliverWorkflow(
   result: WorkflowEngineeringDraftResult,
   confirmationCompleted = false,
+  replaceWorkflowId: string | null = result.replaceWorkflowId || null,
 ) {
   const task = selectedTaskDetail.value?.task
   if (!task || task.taskId !== result.taskId) return
   if (!confirmationCompleted) {
-    try {
-      await ElMessageBox.confirm(
-        `将重新校验并发布「${result.workflow.name}」，随后接入当前项目的页面副驾驶智能体。是否继续？`,
-        '发布并接入页面副驾驶',
-        {
-          type: 'warning',
-          confirmButtonText: '确认发布并接入',
-          cancelButtonText: '取消',
-        },
-      )
-    } catch {
-      return
-    }
+    publishResult.value = result
+    publishConfirmVisible.value = true
+    return
   }
   taskDetailLoading.value = true
   try {
@@ -900,6 +909,7 @@ async function deliverWorkflow(
       pageKey: result.pageKey,
       version: 'v1.0.0',
       publishedBy: 'ReachAI Page Workbench',
+      replaceWorkflowId,
     })
     ElMessage.success(
       `${delivered.workflowName} ${delivered.workflowVersion} 已发布并接入页面副驾驶`,
@@ -916,8 +926,11 @@ async function deliverWorkflow(
   }
 }
 
-async function confirmWorkflowDelivery(result: WorkflowEngineeringDraftResult) {
-  await deliverWorkflow(result, true)
+async function confirmWorkflowDelivery(
+  result: WorkflowEngineeringDraftResult,
+  replaceWorkflowId: string | null,
+) {
+  await deliverWorkflow(result, true, replaceWorkflowId)
 }
 
 function setTaskHandoff(handoff: AiCodingHandoffPackage) {
@@ -993,13 +1006,14 @@ async function copyHandoffPrompt() {
     ElMessage.error('当前任务没有可复制的交接包，请重新生成')
     return
   }
-  try {
-    await navigator.clipboard.writeText(prompt)
+  const copied = await copyAiCodingText(prompt)
+  if (copied.copied) {
     handoffCopied.value = true
     ElMessage.success('交接包已复制，等待 AI 编程工具激活当前任务')
-  } catch {
-    ElMessage.error('浏览器未允许访问剪贴板，请检查站点权限后重试')
+    return
   }
+  handoffCopied.value = false
+  ElMessage.warning('无法自动复制，交接包仍保留在文本框中，请手动选择全部内容后复制。')
 }
 
 async function reopenTaskHandoff(taskId: string) {
@@ -1128,15 +1142,7 @@ function openPublishedRun(workflow: PublishedPageWorkflow) {
 }
 
 function businessPageUrl(page?: ProjectPage | null) {
-  const baseUrl = project.value?.baseUrl?.trim()
-  const routePattern = page?.routePattern?.trim()
-  if (!baseUrl || !routePattern) return ''
-  try {
-    const normalizedBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
-    return new URL(routePattern.replace(/^\//, ''), normalizedBase).toString()
-  } catch {
-    return ''
-  }
+  return normalizeBusinessPageUrl(page?.businessPageUrl)
 }
 
 async function refreshWorkbenchStatus() {
@@ -1644,6 +1650,7 @@ watch(projectCode, loadAll, { immediate: true })
       v-model="publishConfirmVisible"
       :page="selectedPage"
       :result="publishResult"
+      :existing-workflows="selectedPagePublishedWorkflows"
       :busy="taskDetailLoading || publishReviewLoading"
       @studio="openWorkflowStudio"
       @confirm="confirmWorkflowDelivery"
@@ -1653,8 +1660,11 @@ watch(projectCode, loadAll, { immediate: true })
       v-model="acceptanceDialogVisible"
       :page="acceptanceTargetPage"
       :workflow="acceptanceTargetWorkflow"
+      :model-readiness="acceptanceModelReadiness"
+      :preflight-loading="readinessLoading"
       :busy="journeyBusy"
       @confirm="confirmAcceptanceActivity"
+      @model-center="openModelCenterFromAcceptance"
     />
 
     <AppDrawer

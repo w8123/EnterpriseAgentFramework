@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotEmpty;
 import lombok.Data;
 
 import java.util.Map;
+import java.time.LocalDateTime;
 
 /**
  * 业务数据推送请求（JSON 部分）。
@@ -25,6 +26,12 @@ public class BizUpsertRequest {
 
     /** 元数据，搜索结果中原样返回（不参与语义检索） */
     private Map<String, Object> metadata;
+
+    /** Required when the index is enabled for Agent business-memory references. */
+    private String sourceVersion;
+
+    /** Optional source-system timestamp; does not grant freshness by itself. */
+    private LocalDateTime sourceUpdatedAt;
 
     /** 数据所有者用户 ID */
     private String ownerUserId;

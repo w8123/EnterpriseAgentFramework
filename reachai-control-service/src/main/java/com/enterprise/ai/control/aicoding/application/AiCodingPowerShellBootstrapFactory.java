@@ -264,12 +264,211 @@ public class AiCodingPowerShellBootstrapFactory {
                     -Headers $reachAiHeaders
                 }
 
+                function Get-ReachAiJsonProperty {
+                  param([object]$Value, [Parameter(Mandatory = $true)][string]$Name)
+                  if ($null -eq $Value) { return $null }
+                  if ($Value -is [System.Collections.IDictionary] -or $Value -is [System.Collections.Generic.IDictionary[string, object]]) {
+                    Write-Output -NoEnumerate $Value[$Name]
+                    return
+                  }
+                  $property = $Value.PSObject.Properties[$Name]
+                  if ($property) {
+                    Write-Output -NoEnumerate $property.Value
+                    return
+                  }
+                  return $null
+                }
+
+                function Test-ReachAiJsonProperty {
+                  param([object]$Value, [Parameter(Mandatory = $true)][string]$Name)
+                  if ($null -eq $Value) { return $false }
+                  if ($Value -is [System.Collections.IDictionary] -or $Value -is [System.Collections.Generic.IDictionary[string, object]]) {
+                    if ($null -ne $Value.PSObject.Methods['ContainsKey']) { return $Value.ContainsKey($Name) }
+                    return $Value.Contains($Name)
+                  }
+                  return $null -ne $Value.PSObject.Properties[$Name]
+                }
+
+                function Get-ReachAiJsonProperties {
+                  param([object]$Value)
+                  if ($null -eq $Value) { return @() }
+                  if ($Value -is [System.Collections.IDictionary] -or $Value -is [System.Collections.Generic.IDictionary[string, object]]) { return @($Value.Keys | ForEach-Object { [string]$_ }) }
+                  return @($Value.PSObject.Properties | ForEach-Object { $_.Name })
+                }
+
+                function Get-ReachAiSchemaPointer {
+                  param([object]$Root, [Parameter(Mandatory = $true)][string]$Pointer)
+                  $current = $Root
+                  $segments = $Pointer.TrimStart('#').TrimStart('/').Split('/', [System.StringSplitOptions]::RemoveEmptyEntries)
+                  foreach ($segment in $segments) {
+                    $name = $segment.Replace('~1', '/').Replace('~0', '~')
+                    $current = Get-ReachAiJsonProperty -Value $current -Name $name
+                    if ($null -eq $current) { throw "Artifact schema reference cannot be resolved: $Pointer" }
+                  }
+                  return $current
+                }
+
+                function Resolve-ReachAiSchemaReference {
+                  param([Parameter(Mandatory = $true)][string]$Reference, [object]$Root)
+                  $parts = $Reference.Split('#', 2)
+                  $fileName = $parts[0]
+                  $fragment = if ($parts.Count -gt 1) { '#' + $parts[1] } else { '' }
+                  $referenceRoot = $Root
+                  if ($fileName) {
+                    $referenceRoot = Get-ReachAiJsonProperty -Value $script:reachAiArtifactReferencedSchemas -Name $fileName
+                    if ($null -eq $referenceRoot) { throw "Artifact contract did not include referenced schema: $fileName" }
+                  }
+                  $schema = if ($fragment) { Get-ReachAiSchemaPointer -Root $referenceRoot -Pointer $fragment } else { $referenceRoot }
+                  return @{ schema = $schema; root = $referenceRoot }
+                }
+
+                function Test-ReachAiSchemaType {
+                  param([object]$Value, [string]$Type)
+                  switch ($Type) {
+                    'null' { return $null -eq $Value }
+                    'object' { return $Value -is [System.Collections.IDictionary] -or $Value -is [System.Collections.Generic.IDictionary[string, object]] -or $Value -is [pscustomobject] }
+                    'array' { return $null -ne $Value -and $Value -isnot [string] -and $Value -is [System.Collections.IEnumerable] -and $Value -isnot [System.Collections.IDictionary] }
+                    'string' { return $Value -is [string] }
+                    'boolean' { return $Value -is [bool] }
+                    'integer' { return $Value -is [sbyte] -or $Value -is [byte] -or $Value -is [int16] -or $Value -is [uint16] -or $Value -is [int32] -or $Value -is [uint32] -or $Value -is [int64] -or $Value -is [uint64] }
+                    'number' { return $Value -is [System.ValueType] -and $Value -isnot [bool] -and $Value -isnot [char] }
+                    default { throw "Artifact schema uses unsupported type: $Type" }
+                  }
+                }
+
+                function Assert-ReachAiArtifactSchema {
+                  param([object]$Value, [object]$Schema, [object]$Root, [string]$Path = '$')
+                  if ($null -eq $Schema) { throw "Artifact schema is missing at $Path" }
+                  $reference = Get-ReachAiJsonProperty -Value $Schema -Name '$ref'
+                  if ($reference) {
+                    $resolved = Resolve-ReachAiSchemaReference -Reference ([string]$reference) -Root $Root
+                    Assert-ReachAiArtifactSchema -Value $Value -Schema $resolved.schema -Root $resolved.root -Path $Path
+                    return
+                  }
+                  $anyOf = Get-ReachAiJsonProperty -Value $Schema -Name 'anyOf'
+                  if ($anyOf) {
+                    $matched = $false
+                    foreach ($option in $anyOf) {
+                      try { Assert-ReachAiArtifactSchema -Value $Value -Schema $option -Root $Root -Path $Path; $matched = $true; break } catch {}
+                    }
+                    if (-not $matched) { throw "Artifact contract violation at ${Path}: does not match any allowed schema" }
+                    return
+                  }
+                  $type = Get-ReachAiJsonProperty -Value $Schema -Name 'type'
+                  if ($type) {
+                    $types = [System.Collections.Generic.List[string]]::new()
+                    if ($type -is [string]) {
+                      $types.Add([string]$type)
+                    } else {
+                      foreach ($candidateType in $type) { $types.Add([string]$candidateType) }
+                    }
+                    if (-not (@($types | Where-Object { Test-ReachAiSchemaType -Value $Value -Type ([string]$_) }).Count)) {
+                      throw "Artifact contract violation at ${Path}: has an invalid JSON type; expected $($types -join ', ')"
+                    }
+                  }
+                  $constant = Get-ReachAiJsonProperty -Value $Schema -Name 'const'
+                  if ($null -ne $constant -and (($Value | ConvertTo-Json -Depth 100 -Compress) -ne ($constant | ConvertTo-Json -Depth 100 -Compress))) {
+                    throw "Artifact contract violation at ${Path}: must equal $constant"
+                  }
+                  $enum = Get-ReachAiJsonProperty -Value $Schema -Name 'enum'
+                  if ($enum) {
+                    $actual = $Value | ConvertTo-Json -Depth 100 -Compress
+                    if (-not (@($enum | Where-Object { ($_ | ConvertTo-Json -Depth 100 -Compress) -eq $actual }).Count)) {
+                      throw "Artifact contract violation at ${Path}: must be one of the contract enum values"
+                    }
+                  }
+                  if ($null -eq $Value) { return }
+                  if (Test-ReachAiSchemaType -Value $Value -Type 'object') {
+                    $required = Get-ReachAiJsonProperty -Value $Schema -Name 'required'
+                    if ($required) {
+                      foreach ($name in $required) {
+                        if (-not (Test-ReachAiJsonProperty -Value $Value -Name ([string]$name))) { throw "Artifact contract violation at ${Path}.${name}: is required" }
+                      }
+                    }
+                    $properties = Get-ReachAiJsonProperty -Value $Schema -Name 'properties'
+                    if ($properties) {
+                      foreach ($name in Get-ReachAiJsonProperties -Value $properties) {
+                        if (Test-ReachAiJsonProperty -Value $Value -Name $name) {
+                          Assert-ReachAiArtifactSchema -Value (Get-ReachAiJsonProperty -Value $Value -Name $name) -Schema (Get-ReachAiJsonProperty -Value $properties -Name $name) -Root $Root -Path "${Path}.${name}"
+                        }
+                      }
+                    }
+                    if ((Get-ReachAiJsonProperty -Value $Schema -Name 'additionalProperties') -eq $false) {
+                      foreach ($name in Get-ReachAiJsonProperties -Value $Value) {
+                        if (-not (Test-ReachAiJsonProperty -Value $properties -Name $name)) { throw "Artifact contract violation at ${Path}.${name}: is not allowed by the artifact contract" }
+                      }
+                    }
+                    return
+                  }
+                  if (Test-ReachAiSchemaType -Value $Value -Type 'array') {
+                    $items = [System.Collections.Generic.List[object]]::new()
+                    foreach ($item in $Value) { $items.Add($item) }
+                    $minimum = Get-ReachAiJsonProperty -Value $Schema -Name 'minItems'
+                    $maximum = Get-ReachAiJsonProperty -Value $Schema -Name 'maxItems'
+                    if ($null -ne $minimum -and $items.Count -lt [int]$minimum) { throw "Artifact contract violation at ${Path}: must contain at least $minimum items" }
+                    if ($null -ne $maximum -and $items.Count -gt [int]$maximum) { throw "Artifact contract violation at ${Path}: must contain at most $maximum items" }
+                    $uniqueItems = Get-ReachAiJsonProperty -Value $Schema -Name 'uniqueItems'
+                    if ($null -ne $uniqueItems -and $uniqueItems -isnot [bool]) { throw "Artifact schema contains invalid uniqueItems at $Path" }
+                    if ($uniqueItems -eq $true) {
+                      $seenItems = New-Object 'System.Collections.Generic.HashSet[string]'
+                      for ($index = 0; $index -lt $items.Count; $index++) {
+                        $fingerprint = $items[$index] | ConvertTo-Json -Depth 100 -Compress
+                        if (-not $seenItems.Add($fingerprint)) { throw "Artifact contract violation at ${Path}[$index]: must be unique within the array" }
+                      }
+                    }
+                    $itemSchema = Get-ReachAiJsonProperty -Value $Schema -Name 'items'
+                    if ($itemSchema) {
+                      for ($index = 0; $index -lt $items.Count; $index++) { Assert-ReachAiArtifactSchema -Value $items[$index] -Schema $itemSchema -Root $Root -Path "${Path}[$index]" }
+                    }
+                    return
+                  }
+                  if ($Value -is [string]) {
+                    $characterCount = [int]([System.Text.Encoding]::UTF32.GetByteCount($Value) / 4)
+                    $minimum = Get-ReachAiJsonProperty -Value $Schema -Name 'minLength'
+                    $maximum = Get-ReachAiJsonProperty -Value $Schema -Name 'maxLength'
+                    if ($null -ne $minimum -and $characterCount -lt [int]$minimum) { throw "Artifact contract violation at ${Path}: must contain at least $minimum characters" }
+                    if ($null -ne $maximum -and $characterCount -gt [int]$maximum) { throw "Artifact contract violation at ${Path}: must contain at most $maximum characters" }
+                    $pattern = Get-ReachAiJsonProperty -Value $Schema -Name 'pattern'
+                    if ($null -ne $pattern) {
+                      if ($pattern -isnot [string]) { throw "Artifact schema contains invalid pattern at $Path" }
+                      try { $regularExpression = New-Object System.Text.RegularExpressions.Regex ([string]$pattern) } catch { throw "Artifact schema contains invalid pattern at ${Path}: $($_.Exception.Message)" }
+                      if (-not $regularExpression.IsMatch($Value)) { throw "Artifact contract violation at ${Path}: must match pattern $pattern" }
+                    }
+                    if ((Get-ReachAiJsonProperty -Value $Schema -Name 'format') -eq 'date-time') {
+                      $parsed = [datetimeoffset]::MinValue
+                      $isoDateTime = '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?(?:Z|[+-]\\d{2}:\\d{2})?$'
+                      if ($Value -notmatch $isoDateTime -or -not [datetimeoffset]::TryParse($Value, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsed)) { throw "Artifact contract violation at ${Path}: must be an ISO-8601 date-time" }
+                    }
+                    return
+                  }
+                  if (Test-ReachAiSchemaType -Value $Value -Type 'number') {
+                    $minimum = Get-ReachAiJsonProperty -Value $Schema -Name 'minimum'
+                    $maximum = Get-ReachAiJsonProperty -Value $Schema -Name 'maximum'
+                    if ($null -ne $minimum -and [decimal]$Value -lt [decimal]$minimum) { throw "Artifact contract violation at ${Path}: must be at least $minimum" }
+                    if ($null -ne $maximum -and [decimal]$Value -gt [decimal]$maximum) { throw "Artifact contract violation at ${Path}: must be at most $maximum" }
+                  }
+                }
+
+                function Test-ReachAiArtifact {
+                  param([Parameter(Mandatory = $true)][object]$Content)
+                  try {
+                    $schema = $reachAiContext.artifactContract.jsonSchema
+                    $script:reachAiArtifactReferencedSchemas = $reachAiContext.artifactContract.referencedSchemas
+                    Assert-ReachAiArtifactSchema -Value $Content -Schema $schema -Root $schema -Path '$'
+                    return @{ valid = $true; contract = $reachAiContext.artifactContract.key + '/' + $reachAiContext.artifactContract.version; message = 'Artifact content matches the locally bundled contract schema.' }
+                  } catch {
+                    return @{ valid = $false; contract = $reachAiContext.artifactContract.key + '/' + $reachAiContext.artifactContract.version; message = $_.Exception.Message; location = $_.InvocationInfo.PositionMessage }
+                  }
+                }
+
                 function Send-ReachAiArtifact {
                   param(
                     [Parameter(Mandatory = $true)][string]$ArtifactKey,
                     [Parameter(Mandatory = $true)][object]$Content,
                     [string]$SessionRef
                   )
+                  $localValidation = Test-ReachAiArtifact -Content $Content
+                  if (-not $localValidation.valid) { throw "ReachAI artifact local validation failed: $($localValidation.message) $($localValidation.location)" }
                   $request = [ordered]@{
                     schema = 'reachai.ai-coding.artifact.v1'
                     clientEventId = [guid]::NewGuid().ToString()

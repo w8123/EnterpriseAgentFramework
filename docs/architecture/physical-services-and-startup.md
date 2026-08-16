@@ -73,6 +73,9 @@
 | `KNOWLEDGE_SERVICE_URL` | 默认 `http://localhost:18602` |
 | `CAPABILITY_SERVICE_URL` | 默认 `http://localhost:18605` |
 | `RUNTIME_SERVICE_URL` | 默认 `http://localhost:18604` |
+| `REACHAI_INTERNAL_TRANSPORT_MODE` | 开发默认 `DEVELOPMENT_PLAINTEXT`。prod/production 必须显式使用 `DIRECT_TLS`（全部内部和动态 Capability URL 为 HTTPS）或 `MTLS_MESH`（由部署侧 mTLS mesh 保护 sidecar hop）。 |
+
+`MTLS_MESH` 只是应用侧的显式部署声明，不会自动建立 mTLS。生产验收仍须核对证书、mesh policy、NetworkPolicy/安全组和链路抓包；HMAC 不能替代传输加密。
 
 ## 验证入口
 
@@ -94,7 +97,18 @@ git diff --check
 五个服务已经通过 IDEA 或命令行启动后，再运行一次 live smoke：
 
 ```powershell
+node scripts/check-local-service-artifact-freshness.test.mjs
+node scripts/check-local-service-artifact-freshness.mjs --check-running
+$env:REACHAI_PLATFORM_SESSION_TOKEN = '<登录 ReachAI 管理端后取得的平台会话令牌>'
 node scripts/check-physical-service-smoke.mjs --wait-ms 120000 --interval-ms 3000
+Remove-Item Env:REACHAI_PLATFORM_SESSION_TOKEN
 ```
+
+第一条真实检查会拒绝 `src/main` 晚于可部署 JAR 的模块；Windows 下的 `--check-running`
+还会确认 18601-18605 的监听进程使用预期 JAR，并且是在该 JAR 构建完成之后启动。不能只凭
+`UP` 判断当前源码已部署；artifact freshness、监听进程、接口 smoke 和业务 E2E 是四层不同证据。
+冒烟脚本对五个服务的直接健康接口做无凭证检查；Control 的聚合接口
+`/api/internal-services/health` 属于管理端路由，因此必须通过 `REACHAI_PLATFORM_SESSION_TOKEN`
+显式提供当前平台会话。脚本不会输出该令牌。
 
 旧 `ai-agent-service` module 已删除，不再提供历史 fallback 编译入口。

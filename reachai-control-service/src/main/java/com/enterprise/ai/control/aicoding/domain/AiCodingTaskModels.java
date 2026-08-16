@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 public final class AiCodingTaskModels {
 
@@ -259,7 +260,33 @@ public final class AiCodingTaskModels {
             String key,
             String version,
             JsonNode jsonSchema,
-            JsonNode example) {
+            JsonNode example,
+            Map<String, JsonNode> referencedSchemas) {
+    }
+
+    /** A resource an AI Coding client must obtain before it changes code. */
+    public record TaskRequiredResource(
+            String id,
+            String title,
+            String type,
+            String url,
+            String entrypoint,
+            String purpose,
+            boolean requiredBeforeEditing) {
+    }
+
+    /** Distinguishes triggerable verification, observation and readiness gates. */
+    public record VerificationGuideItem(
+            String key,
+            String type,
+            String title,
+            String description,
+            String method,
+            String url,
+            List<String> prerequisites,
+            List<String> affectsReadiness,
+            String expectedResult,
+            String evidenceSource) {
     }
 
     public record TaskCompletionPolicy(
@@ -290,9 +317,18 @@ public final class AiCodingTaskModels {
             int clientSessionRefMaxCharacters) {
     }
 
+    /** Machine-readable execution-state contract for one client event type. */
+    public record TaskEventStateRule(
+            String eventType,
+            List<String> acceptedExecutionStatuses,
+            String statusEffect,
+            String precondition) {
+    }
+
     public record TaskProtocolGuide(
             String requestContentType,
             List<String> supportedEventTypes,
+            List<TaskEventStateRule> eventStateRules,
             JsonNode startedEventExample,
             JsonNode progressEventExample,
             JsonNode questionExample,
@@ -315,6 +351,8 @@ public final class AiCodingTaskModels {
             TaskEndpoints endpoints,
             ArtifactContractView artifactContract,
             TaskProtocolGuide protocolGuide,
+            List<TaskRequiredResource> requiredResources,
+            List<VerificationGuideItem> verificationGuide,
             JsonNode domainContext) {
     }
 

@@ -5,6 +5,8 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ArtifactEnve
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskContract;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDescriptor;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskRequiredResource;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.VerificationGuideItem;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.List;
@@ -33,6 +35,18 @@ public interface AiCodingTaskKindProvider {
     }
 
     default List<String> acceptanceReadinessKeys() {
+        return List.of();
+    }
+
+    default List<TaskRequiredResource> requiredResources(
+            TaskDescriptor task,
+            String publicBaseUrl) {
+        return List.of();
+    }
+
+    default List<VerificationGuideItem> verificationGuide(
+            TaskDescriptor task,
+            String taskRoot) {
         return List.of();
     }
 

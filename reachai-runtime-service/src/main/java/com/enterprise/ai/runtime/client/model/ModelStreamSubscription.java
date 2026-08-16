@@ -5,26 +5,27 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 模型流读取取消句柄。支持注册多个取消动作（Future.cancel + InputStream.close）。
- * cancel 幂等；cancel 后再 attach 立即关闭且不保留引用。
+ * 模型流读取句柄。支持注册多个关闭动作（Future.cancel + InputStream.close）。
+ * cancel 表示调用方主动中断；closeTransport 表示上游已发送终止事件、只关闭底层连接。
  */
 public final class ModelStreamSubscription {
 
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
+    private final AtomicBoolean transportClosed = new AtomicBoolean(false);
     private final List<AutoCloseable> resources = new ArrayList<>();
 
     public void attach(AutoCloseable closeable) {
         if (closeable == null) {
             return;
         }
-        boolean alreadyCancelled;
+        boolean shouldClose;
         synchronized (resources) {
-            alreadyCancelled = cancelled.get();
-            if (!alreadyCancelled) {
+            shouldClose = cancelled.get() || transportClosed.get();
+            if (!shouldClose) {
                 resources.add(closeable);
             }
         }
-        if (alreadyCancelled) {
+        if (shouldClose) {
             // 不持有 resources 锁时关闭，避免外部 close 阻塞取消路径
             closeQuietly(closeable);
         }
@@ -39,10 +40,31 @@ public final class ModelStreamSubscription {
         return cancelled.get();
     }
 
+    /**
+     * 上游已明确发送 completed 事件，底层 SSE 传输已关闭，但不等同于调用方取消。
+     */
+    public boolean isTransportClosed() {
+        return transportClosed.get();
+    }
+
+    /**
+     * 在收到上游 completed 后主动关闭可能仍保持的 SSE 连接，避免等待连接空闲超时。
+     */
+    public void closeTransport() {
+        if (!transportClosed.compareAndSet(false, true)) {
+            return;
+        }
+        closeResources();
+    }
+
     public void cancel() {
         if (!cancelled.compareAndSet(false, true)) {
             return;
         }
+        closeResources();
+    }
+
+    private void closeResources() {
         List<AutoCloseable> snapshot;
         synchronized (resources) {
             snapshot = new ArrayList<>(resources);

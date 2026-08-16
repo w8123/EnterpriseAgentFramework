@@ -442,6 +442,77 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
         }
     }
 
+    @Test
+    void compactUserPromptKeepsAuthoritativeGraphAndResourcesBehindInspectTool() {
+        AgentScopeWorkflowAuthoringAgentAdapter adapter = adapter(
+                request -> new ModelChatResult(200, "success", text("done")),
+                validationService(true));
+        WorkflowAuthoringRequest request = new WorkflowAuthoringRequest(
+                "wf-1",
+                "班组页面助手",
+                "demo",
+                "PAGE_ASSISTANT",
+                "按班组名称查询详情",
+                "model-1",
+                GraphSpec.builder().node(GraphSpec.Node.builder()
+                        .id("secret_graph_node")
+                        .type("ANSWER")
+                        .build()).build(),
+                List.of("selected-node"),
+                List.of(),
+                Map.of("tools", List.of(Map.of("qualifiedName", "large:resource"))));
+
+        String prompt = adapter.userPrompt(request);
+
+        assertTrue(prompt.contains("按班组名称查询详情"));
+        assertTrue(prompt.contains("inspect_workflow_context"));
+        assertFalse(prompt.contains("secret_graph_node"));
+        assertFalse(prompt.contains("large:resource"));
+        assertFalse(prompt.contains("currentGraphSpec"));
+        assertFalse(prompt.contains("availableResources"));
+    }
+
+    @Test
+    void mapsBlockingReadTimeoutToActionableFailureCode() {
+        AgentScopeWorkflowAuthoringAgentAdapter adapter = adapter(
+                request -> {
+                    throw new IllegalStateException("Timeout on blocking read for 25000000 NANOSECONDS");
+                },
+                validationService(true));
+        adapter.timeoutMs = 25L;
+
+        WorkflowAuthoringResult result = adapter.author(request(emptyGraph(), "触发编排超时"));
+
+        assertEquals(WorkflowAuthoringResult.Status.FAILED, result.status());
+        assertEquals("AUTHORING_TIMEOUT", result.failureCode());
+        assertTrue(result.validationErrors().contains("AUTHORING_TIMEOUT"));
+        assertTrue(result.summary().contains("已取消本次生成"));
+        assertTrue(result.summary().contains(result.authoringId()));
+    }
+
+    @Test
+    void mapsProvider402InSuppressedStreamFailureToActionableBalanceCode() {
+        AgentScopeWorkflowAuthoringAgentAdapter adapter = adapter(
+                request -> {
+                    IllegalStateException syncFailure =
+                            new IllegalStateException("ReachAI model service returned no data");
+                    syncFailure.addSuppressed(new IllegalStateException(
+                            "Model provider API error: HTTP 402 {\"message\":\"Insufficient Balance\"}"));
+                    throw syncFailure;
+                },
+                validationService(true));
+
+        WorkflowAuthoringResult result = adapter.author(request(emptyGraph(), "触发模型额度不足"));
+
+        assertEquals(WorkflowAuthoringResult.Status.FAILED, result.status());
+        assertEquals("AUTHORING_MODEL_BALANCE_INSUFFICIENT", result.failureCode());
+        assertTrue(result.validationErrors().contains("AUTHORING_MODEL_BALANCE_INSUFFICIENT"));
+        assertTrue(result.summary().contains("模型额度不足"));
+        assertTrue(result.summary().contains("模型中心"));
+        assertTrue(result.summary().contains(result.authoringId()));
+        assertFalse(result.summary().contains("Insufficient Balance"));
+    }
+
     private List<Map<String, Object>> metroClassifierOperations() {
         return List.of(
                 Map.of("op", "ADD_NODE", "node", Map.of(

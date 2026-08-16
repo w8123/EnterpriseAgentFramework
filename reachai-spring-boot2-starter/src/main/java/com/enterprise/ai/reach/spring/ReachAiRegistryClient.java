@@ -24,12 +24,14 @@ public class ReachAiRegistryClient {
     private static final Logger log = LoggerFactory.getLogger(ReachAiRegistryClient.class);
     static final String DEFAULT_SYNC_SOURCE = "SDK";
     static final String CALLBACK_SYNC_SOURCE = "SDK_CALLBACK";
+    static final String ENROLLMENT_TOKEN_HEADER = "X-ReachAI-Registry-Enrollment-Token";
 
     private final ReachAiRegistryProperties properties;
     private final ReachCapabilityBeanScanner capabilityBeanScanner;
     private final ReachAiRegistryTransport transport;
     private final String registryBaseUrl;
     private final String instanceId;
+    private final ReachAiRegistryCredentialStore credentialStore;
     private final AtomicBoolean configurationErrorLogged = new AtomicBoolean(false);
     private final AtomicBoolean registrationConfirmed = new AtomicBoolean(false);
 
@@ -44,6 +46,8 @@ public class ReachAiRegistryClient {
         this.properties = properties;
         this.capabilityBeanScanner = capabilityBeanScanner;
         this.transport = transport;
+        this.credentialStore = new ReachAiRegistryCredentialStore(properties);
+        this.credentialStore.loadIntoProperties();
         this.registryBaseUrl = trimTrailingSlash(properties == null ? null : properties.getRegistry().getUrl());
         this.instanceId = resolveInstanceId();
     }
@@ -219,9 +223,8 @@ public class ReachAiRegistryClient {
         body.put("visibility", defaultString(properties.getProject().getVisibility(), "PRIVATE"));
         body.put("baseUrl", defaultString(properties.getProject().getBaseUrl(), ""));
         body.put("contextPath", defaultString(properties.getProject().getContextPath(), ""));
-        body.put("appKey", defaultString(properties.getRegistry().getAppKey(), ""));
-        if (StringUtils.hasText(properties.getRegistry().getAppSecret())) {
-            body.put("appSecret", properties.getRegistry().getAppSecret());
+        if (StringUtils.hasText(properties.getRegistry().getAppKey())) {
+            body.put("appKey", properties.getRegistry().getAppKey());
         }
         if (properties.getEmbed().getAllowedOrigins() != null && !properties.getEmbed().getAllowedOrigins().isEmpty()) {
             body.put("allowedOrigins", properties.getEmbed().getAllowedOrigins());
@@ -232,19 +235,37 @@ public class ReachAiRegistryClient {
         if (properties.getEmbed().getTokenTtlSeconds() != null && properties.getEmbed().getTokenTtlSeconds() > 0) {
             body.put("tokenTtlSeconds", properties.getEmbed().getTokenTtlSeconds());
         }
-        post("/api/registry/projects/register", body);
+        boolean enrollment = !credentialsConfigured() && StringUtils.hasText(properties.getRegistry().getEnrollmentToken());
+        String response = transportExchange("POST", "/api/registry/projects/register", body, enrollment);
+        if (enrollment) {
+            credentialStore.persistFromRegistrationResponse(response);
+        }
     }
 
     private String post(String uriTemplate, Object body) {
-        return transportExchange("POST", uriTemplate, body);
+        return transportExchange("POST", uriTemplate, body, false);
     }
 
     private String transportExchange(String method, String uriTemplate, Object body) {
+        return transportExchange(method, uriTemplate, body, false);
+    }
+
+    private String transportExchange(String method, String uriTemplate, Object body, boolean enrollment) {
         try {
-            return transport.exchange(method, registryBaseUrl + expandProjectCode(uriTemplate), signedHeaders(), body);
+            return transport.exchange(method, registryBaseUrl + expandProjectCode(uriTemplate),
+                    requestHeaders(enrollment), body);
         } catch (Exception e) {
             throw new IllegalStateException(e.getMessage(), e);
         }
+    }
+
+    private Map<String, String> requestHeaders(boolean enrollment) {
+        if (enrollment) {
+            Map<String, String> headers = new LinkedHashMap<String, String>();
+            headers.put(ENROLLMENT_TOKEN_HEADER, properties.getRegistry().getEnrollmentToken().trim());
+            return headers;
+        }
+        return signedHeaders();
     }
 
     private Map<String, String> signedHeaders() {
@@ -271,7 +292,7 @@ public class ReachAiRegistryClient {
             log.error("[ReachAI Registry] config missing: reachai properties are not available");
             return;
         }
-        log.info("[ReachAI Registry] config registryEnabled={} registryUrl={} projectCode={} projectName={} baseUrl={} contextPath={} appKeyConfigured={} appSecretConfigured={} scanBeans={} scanMode={} heartbeatIntervalMs={}",
+        log.info("[ReachAI Registry] config registryEnabled={} registryUrl={} projectCode={} projectName={} baseUrl={} contextPath={} appKeyConfigured={} appSecretConfigured={} enrollmentTokenConfigured={} scanBeans={} scanMode={} heartbeatIntervalMs={}",
                 properties.getRegistry().isEnabled(),
                 properties.getRegistry().getUrl(),
                 properties.getProject().getCode(),
@@ -280,6 +301,7 @@ public class ReachAiRegistryClient {
                 properties.getProject().getContextPath(),
                 StringUtils.hasText(properties.getRegistry().getAppKey()),
                 StringUtils.hasText(properties.getRegistry().getAppSecret()),
+                StringUtils.hasText(properties.getRegistry().getEnrollmentToken()),
                 properties.getCapability().isScanBeans(),
                 properties.getCapability().getScanMode(),
                 properties.getRegistry().getHeartbeatIntervalMs());
@@ -290,7 +312,7 @@ public class ReachAiRegistryClient {
         if (problems.isEmpty() || !configurationErrorLogged.compareAndSet(false, true)) {
             return;
         }
-        log.error("[ReachAI Registry] skip {} because configuration is incomplete: {}. Set reachai.registry.url/app-key/app-secret and reachai.project.code; do not log app-secret value.",
+        log.error("[ReachAI Registry] skip {} because configuration is incomplete: {}. Set reachai.registry.url and either app-key/app-secret or enrollment-token, plus reachai.project.code; do not log credential values.",
                 action, problems);
     }
 
@@ -307,11 +329,13 @@ public class ReachAiRegistryClient {
         if (!StringUtils.hasText(properties.getRegistry().getUrl())) {
             problems.add("reachai.registry.url missing");
         }
-        if (!StringUtils.hasText(properties.getRegistry().getAppKey())) {
-            problems.add("reachai.registry.app-key missing");
+        boolean appKey = StringUtils.hasText(properties.getRegistry().getAppKey());
+        boolean appSecret = StringUtils.hasText(properties.getRegistry().getAppSecret());
+        if (appKey != appSecret) {
+            problems.add("reachai.registry.app-key and app-secret must be configured together");
         }
-        if (!StringUtils.hasText(properties.getRegistry().getAppSecret())) {
-            problems.add("reachai.registry.app-secret missing");
+        if (!appKey && !StringUtils.hasText(properties.getRegistry().getEnrollmentToken())) {
+            problems.add("reachai.registry app-key/app-secret or enrollment-token missing");
         }
         if (!StringUtils.hasText(properties.getProject().getCode())) {
             problems.add("reachai.project.code missing");
@@ -368,6 +392,11 @@ public class ReachAiRegistryClient {
 
     private String defaultString(String value, String fallback) {
         return StringUtils.hasText(value) ? value : fallback;
+    }
+
+    private boolean credentialsConfigured() {
+        return StringUtils.hasText(properties.getRegistry().getAppKey())
+                && StringUtils.hasText(properties.getRegistry().getAppSecret());
     }
 
     public static class ManualCapabilitySyncResponse {

@@ -63,7 +63,7 @@
 加群二维码如下（二维码有效期有限，如失效可重新获取）：
 
 <p align="center">
-  <img src="docs/系统截图/ReachAI学习交流群.jpg" alt="ReachAI 学习交流群二维码" width="360" />
+  <img src="docs/系统截图/ReachAI学习交流群.png" alt="ReachAI 学习交流群二维码" width="360" />
 </p>
 
 ## ReachAI 是什么
@@ -376,7 +376,9 @@ $env:RUNTIME_SERVICE_URL="http://localhost:18604"
 五个服务都启动后，在仓库根目录执行一次启动链路自检：
 
 ```powershell
+$env:REACHAI_PLATFORM_SESSION_TOKEN = '<登录 ReachAI 管理端后取得的平台会话令牌>'
 node scripts/check-physical-service-smoke.mjs --wait-ms 120000 --interval-ms 3000
+Remove-Item Env:REACHAI_PLATFORM_SESSION_TOKEN
 ```
 
 ### 5. 启动管理端

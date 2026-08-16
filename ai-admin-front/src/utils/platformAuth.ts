@@ -1,6 +1,10 @@
 const TOKEN_KEY = 'reachai.platform.accessToken'
 const USER_KEY = 'reachai.platform.user'
-const EXPLORATION_NOTICE_ACK_KEY = 'reachai.platform.explorationNotice.ack.v1'
+const SESSION_ID_KEY = 'reachai.platform.sessionId'
+const SESSION_EXPIRES_AT_KEY = 'reachai.platform.expiresAt'
+const EXPLORATION_NOTICE_ACK_PREFIX = 'reachai.platform.explorationNotice.ack.v3'
+const LEGACY_EXPLORATION_NOTICE_ACK_KEY_V1 = 'reachai.platform.explorationNotice.ack.v1'
+const LEGACY_EXPLORATION_NOTICE_ACK_PREFIX_V2 = 'reachai.platform.explorationNotice.ack.v2'
 
 export interface PlatformUserProfile {
   userId: number
@@ -10,26 +14,118 @@ export interface PlatformUserProfile {
   permissions?: string[]
 }
 
-export function getPlatformToken(): string {
-  return localStorage.getItem(TOKEN_KEY) || ''
+/**
+ * Management-console credentials intentionally use window-scoped storage. A
+ * privacy-restricted browser may reject sessionStorage; in that case a
+ * best-effort in-memory fallback preserves only the current page lifetime and
+ * never widens the session to localStorage.
+ */
+const inMemorySessionStorage = new Map<string, string>()
+
+function getSessionValue(key: string): string {
+  try {
+    return sessionStorage.getItem(key) || ''
+  } catch {
+    return inMemorySessionStorage.get(key) || ''
+  }
 }
 
-export function setPlatformToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token)
+function setSessionValue(key: string, value: string) {
+  try {
+    sessionStorage.setItem(key, value)
+    inMemorySessionStorage.delete(key)
+  } catch {
+    inMemorySessionStorage.set(key, value)
+  }
+}
+
+function removeSessionValue(key: string) {
+  inMemorySessionStorage.delete(key)
+  try {
+    sessionStorage.removeItem(key)
+  } catch {
+    // The in-memory fallback was already cleared above.
+  }
+}
+
+/** Removes old cross-window tokens and acknowledgement keys without migrating them. */
+export function discardLegacyPlatformPersistentSession() {
+  try {
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(USER_KEY)
+    localStorage.removeItem(SESSION_EXPIRES_AT_KEY)
+  } catch {
+    // Storage can be disabled; there is no safe persistent fallback.
+  }
+
+  removeSessionValue(LEGACY_EXPLORATION_NOTICE_ACK_KEY_V1)
+  try {
+    for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = sessionStorage.key(index)
+      if (key?.startsWith(`${LEGACY_EXPLORATION_NOTICE_ACK_PREFIX_V2}.`)) {
+        sessionStorage.removeItem(key)
+      }
+    }
+  } catch {
+    // Legacy acknowledgement is best-effort only when storage is unavailable.
+  }
+}
+
+export function getPlatformToken(): string {
+  return getSessionValue(TOKEN_KEY)
+}
+
+export function setPlatformToken(token: string, expiresAt?: string) {
+  setSessionValue(TOKEN_KEY, token)
+  if (expiresAt) {
+    setSessionValue(SESSION_EXPIRES_AT_KEY, expiresAt)
+  } else {
+    removeSessionValue(SESSION_EXPIRES_AT_KEY)
+  }
+}
+
+export function getPlatformSessionExpiresAt(): string {
+  return getSessionValue(SESSION_EXPIRES_AT_KEY)
+}
+
+export function setPlatformSessionExpiresAt(expiresAt?: string) {
+  if (expiresAt) {
+    setSessionValue(SESSION_EXPIRES_AT_KEY, expiresAt)
+  } else {
+    removeSessionValue(SESSION_EXPIRES_AT_KEY)
+  }
+}
+
+export function setPlatformSessionId(sessionId: string) {
+  setSessionValue(SESSION_ID_KEY, sessionId)
+}
+
+export function getPlatformSessionId(): string {
+  return getSessionValue(SESSION_ID_KEY)
+}
+
+export function hasLocallyExpiredPlatformSession(now = Date.now()): boolean {
+  const expiresAt = getPlatformSessionExpiresAt()
+  if (!expiresAt) return false
+  const expiresAtMs = Date.parse(expiresAt)
+  return Number.isFinite(expiresAtMs) && expiresAtMs <= now
 }
 
 export function clearPlatformToken() {
-  localStorage.removeItem(TOKEN_KEY)
-  localStorage.removeItem(USER_KEY)
-  resetExplorationNoticeAcknowledgement()
+  const currentSessionId = getPlatformSessionId()
+  removeSessionValue(TOKEN_KEY)
+  removeSessionValue(USER_KEY)
+  removeSessionValue(SESSION_ID_KEY)
+  removeSessionValue(SESSION_EXPIRES_AT_KEY)
+  resetExplorationNoticeAcknowledgement(currentSessionId)
 }
 
 export function setPlatformUser(user: PlatformUserProfile) {
-  localStorage.setItem(USER_KEY, JSON.stringify(user))
+  setSessionValue(USER_KEY, JSON.stringify(user))
 }
 
 export function getPlatformUser(): PlatformUserProfile | null {
-  const raw = localStorage.getItem(USER_KEY)
+  const raw = getSessionValue(USER_KEY)
   if (!raw) return null
   try {
     return JSON.parse(raw) as PlatformUserProfile
@@ -38,27 +134,25 @@ export function getPlatformUser(): PlatformUserProfile | null {
   }
 }
 
-export function hasAcknowledgedExplorationNotice(): boolean {
-  try {
-    return sessionStorage.getItem(EXPLORATION_NOTICE_ACK_KEY) === 'true'
-  } catch {
-    return false
+function explorationNoticeAcknowledgementKey(sessionId?: string): string | null {
+  return sessionId ? `${EXPLORATION_NOTICE_ACK_PREFIX}.${sessionId}` : null
+}
+
+export function hasAcknowledgedExplorationNotice(sessionId?: string): boolean {
+  const key = explorationNoticeAcknowledgementKey(sessionId)
+  return key != null && getSessionValue(key) === 'true'
+}
+
+export function acknowledgeExplorationNotice(sessionId?: string) {
+  const key = explorationNoticeAcknowledgementKey(sessionId)
+  if (key) {
+    setSessionValue(key, 'true')
   }
 }
 
-export function acknowledgeExplorationNotice() {
-  try {
-    sessionStorage.setItem(EXPLORATION_NOTICE_ACK_KEY, 'true')
-  } catch {
-    // Storage can be unavailable in privacy-restricted browsers. The current
-    // layout still keeps the dialog closed after acknowledgement.
-  }
-}
-
-export function resetExplorationNoticeAcknowledgement() {
-  try {
-    sessionStorage.removeItem(EXPLORATION_NOTICE_ACK_KEY)
-  } catch {
-    // Keep authentication cleanup resilient when storage access is blocked.
+export function resetExplorationNoticeAcknowledgement(sessionId?: string) {
+  const key = explorationNoticeAcknowledgementKey(sessionId)
+  if (key) {
+    removeSessionValue(key)
   }
 }

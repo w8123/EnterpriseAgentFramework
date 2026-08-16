@@ -10,7 +10,8 @@ import java.util.Objects;
 /**
  * HMAC-SHA256 helpers for Control → Runtime internal calls.
  * Canonical string:
- * {@code METHOD\nPATH\nCALLER\nSOURCE\nUSER_ID\nTIMESTAMP\nNONCE\nBODY_SHA256}
+ * V1: {@code METHOD\nPATH\nCALLER\nSOURCE\nUSER_ID\nTIMESTAMP\nNONCE\nBODY_SHA256}
+ * V2: {@code METHOD\nPATH\nCALLER\nSOURCE\nTENANT_ID\nUSER_ID\nTIMESTAMP\nNONCE\nBODY_SHA256}
  */
 public final class InternalServiceHmac {
 
@@ -32,6 +33,26 @@ public final class InternalServiceHmac {
                 + "\n" + normalize(path)
                 + "\n" + normalize(caller)
                 + "\n" + normalize(identitySource).toUpperCase(Locale.ROOT)
+                + "\n" + normalize(identityUserId)
+                + "\n" + normalize(timestamp)
+                + "\n" + normalize(nonce)
+                + "\n" + normalize(bodySha256).toLowerCase(Locale.ROOT);
+    }
+
+    public static String canonical(String method,
+                                   String path,
+                                   String caller,
+                                   String identitySource,
+                                   String identityTenantId,
+                                   String identityUserId,
+                                   String timestamp,
+                                   String nonce,
+                                   String bodySha256) {
+        return normalize(method).toUpperCase(Locale.ROOT)
+                + "\n" + normalize(path)
+                + "\n" + normalize(caller)
+                + "\n" + normalize(identitySource).toUpperCase(Locale.ROOT)
+                + "\n" + normalize(identityTenantId)
                 + "\n" + normalize(identityUserId)
                 + "\n" + normalize(timestamp)
                 + "\n" + normalize(nonce)
@@ -80,6 +101,29 @@ public final class InternalServiceHmac {
         } catch (RuntimeException ex) {
             return false;
         }
+    }
+
+    /**
+     * Verifies against every configured key without returning early on a match.
+     * Signing always uses the active key; this method is only for a bounded
+     * verification overlap during rolling rotation.
+     */
+    public static boolean verifyAnyConstantTime(Iterable<String> secrets,
+                                                String canonicalMessage,
+                                                String providedSignature) {
+        if (secrets == null) {
+            return false;
+        }
+        boolean evaluated = false;
+        boolean matched = false;
+        for (String secret : secrets) {
+            if (secret == null || secret.isBlank()) {
+                continue;
+            }
+            evaluated = true;
+            matched |= verifyConstantTime(secret, canonicalMessage, providedSignature);
+        }
+        return evaluated && matched;
     }
 
     public static boolean digestEqualsConstantTime(String expectedHex, String providedHex) {

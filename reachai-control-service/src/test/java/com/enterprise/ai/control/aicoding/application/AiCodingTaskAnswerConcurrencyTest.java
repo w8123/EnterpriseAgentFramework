@@ -9,6 +9,7 @@ import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskQuestionEntity
 import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskQuestionMapper;
 import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskTargetMapper;
 import com.enterprise.ai.control.aicoding.provider.AiCodingTaskProviderRegistry;
+import com.enterprise.ai.control.aicoding.provider.AiCodingContractResourceLoader;
 import com.enterprise.ai.control.aicoding.security.AiCodingSensitiveJsonSanitizer;
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,7 +46,8 @@ class AiCodingTaskAnswerConcurrencyTest {
                     mock(AiCodingHandoffApplicationService.class),
                     mock(CapabilityProjectOnboardingClient.class),
                     sanitizer,
-                    new ObjectMapper());
+                    new ObjectMapper(),
+                    new AiCodingContractResourceLoader(new ObjectMapper()));
 
     @BeforeEach
     void setUp() {

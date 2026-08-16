@@ -280,9 +280,9 @@ const foundationWorkspaceActive = computed(() => (
 
 const milestones = [
   { step: 1, label: '选择目标', description: '确认 AI 要完成什么' },
-  { step: 2, label: 'AI 实施', description: '实施代码并完成自检' },
-  { step: 3, label: '确认上线', description: '核对权限与发布版本' },
-  { step: 4, label: '真实验收', description: '在业务页面验证结果' },
+  { step: 2, label: '页面接入', description: '实施代码、登记页面操作并自检' },
+  { step: 3, label: '工作流与上线', description: '生成工作流草稿、校验并确认发布' },
+  { step: 4, label: '真实验收', description: '在业务页面验证对话和操作结果' },
 ]
 
 function milestoneClass(step: number) {
@@ -364,8 +364,8 @@ const flowNavNodes = computed<FlowNavNode[]>(() => {
     },
     {
       key: 'implementation',
-      label: 'AI 实施',
-      description: '交给 AI Coding 完成页面改造',
+      label: '页面接入',
+      description: '先完成页面代码和操作登记，再生成工作流',
       workspace: 'implementation',
       icon: MagicStick,
       complete: implementationDone,
@@ -665,7 +665,7 @@ function openDiagnostics() {
       >
         <div>
           <strong>{{ milestones[journey.currentStep - 1]?.label }}</strong>
-          <b>{{ journey.currentStep }} / 4</b>
+          <b>阶段 {{ journey.currentStep }} / 4</b>
         </div>
         <ol aria-hidden="true">
           <li
@@ -708,6 +708,16 @@ function openDiagnostics() {
           aria-label="查看业务页面"
           title="查看业务页面"
         />
+        <el-tooltip v-else content="请先在“页面信息”中配置浏览器可直接打开的业务页面地址">
+          <span>
+            <el-button
+              :icon="TopRight"
+              circle
+              disabled
+              aria-label="业务页面地址尚未配置"
+            />
+          </span>
+        </el-tooltip>
       </div>
     </header>
 
@@ -1078,6 +1088,16 @@ function openDiagnostics() {
         </template>
 
         <template v-else-if="activeCapabilityWorkspace === 'implementation' && journey.stage === 'AI_IMPLEMENTATION'">
+        <header
+          v-if="task?.taskKind === 'CODE_IMPLEMENTATION'"
+          class="page-detail-stage-heading"
+        >
+          <div>
+            <small>第 2 步 · 页面接入</small>
+            <h2>先完成页面代码与浏览器自检</h2>
+            <p>当前任务只负责登记页面操作、接入 SDK 并验证业务页面；通过后，平台会引导 AI Coding 创建页面助手工作流草稿。工作流不会在本步骤自动发布。</p>
+          </div>
+        </header>
         <header
           v-if="journey.nextAction.code === 'START_WORKFLOW_ENGINEERING'"
           class="page-detail-stage-heading"

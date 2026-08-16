@@ -1,4 +1,4 @@
-import request from './request'
+import { controlRequest as request } from './request'
 import type {
   BizIndex,
   BizIndexForm,
@@ -11,27 +11,27 @@ import type { ApiResult } from '@/types/import'
 // ==================== 索引管理 ====================
 
 export function getBizIndexList() {
-  return request.get<ApiResult<BizIndex[]>>('/biz-index/list')
+  return request.get<ApiResult<BizIndex[]>>('/api/knowledge/biz-index/list')
 }
 
 export function getBizIndexDetail(indexCode: string) {
-  return request.get<ApiResult<BizIndex>>(`/biz-index/${indexCode}`)
+  return request.get<ApiResult<BizIndex>>(`/api/knowledge/biz-index/${indexCode}`)
 }
 
 export function createBizIndex(data: BizIndexForm) {
-  return request.post<ApiResult<void>>('/biz-index', data)
+  return request.post<ApiResult<void>>('/api/knowledge/biz-index', data)
 }
 
 export function updateBizIndex(indexCode: string, data: BizIndexForm) {
-  return request.put<ApiResult<void>>(`/biz-index/${indexCode}`, data)
+  return request.put<ApiResult<void>>(`/api/knowledge/biz-index/${indexCode}`, data)
 }
 
 export function deleteBizIndex(indexCode: string) {
-  return request.delete<ApiResult<void>>(`/biz-index/${indexCode}`)
+  return request.delete<ApiResult<void>>(`/api/knowledge/biz-index/${indexCode}`)
 }
 
 export function getBizIndexStats(indexCode: string) {
-  return request.get<ApiResult<BizIndexStats>>(`/biz-index/${indexCode}/stats`)
+  return request.get<ApiResult<BizIndexStats>>(`/api/knowledge/biz-index/${indexCode}/stats`)
 }
 
 // ==================== 数据同步 ====================
@@ -50,24 +50,24 @@ export function bizIndexUpsert(
     })
   }
 
-  return request.post<ApiResult<void>>(`/biz-index/${indexCode}/upsert`, formData, {
+  return request.post<ApiResult<void>>(`/api/knowledge/biz-index/${indexCode}/upsert`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 300000,
   })
 }
 
 export function bizIndexBatchUpsert(indexCode: string, items: Record<string, unknown>[]) {
-  return request.post<ApiResult<void>>(`/biz-index/${indexCode}/batch`, { items }, {
+  return request.post<ApiResult<void>>(`/api/knowledge/biz-index/${indexCode}/batch`, { items }, {
     timeout: 300000,
   })
 }
 
 export function bizIndexDeleteRecord(indexCode: string, bizId: string) {
-  return request.delete<ApiResult<void>>(`/biz-index/${indexCode}/record/${bizId}`)
+  return request.delete<ApiResult<void>>(`/api/knowledge/biz-index/${indexCode}/record/${encodeURIComponent(bizId)}`)
 }
 
 export function bizIndexRebuild(indexCode: string) {
-  return request.post<ApiResult<void>>(`/biz-index/${indexCode}/rebuild`, null, {
+  return request.post<ApiResult<void>>(`/api/knowledge/biz-index/${indexCode}/rebuild`, null, {
     timeout: 600000,
   })
 }
@@ -75,7 +75,7 @@ export function bizIndexRebuild(indexCode: string) {
 // ==================== 语义搜索 ====================
 
 export function bizIndexSearch(indexCode: string, data: BizSearchRequest) {
-  return request.post<ApiResult<BizSearchResponse>>(`/biz-index/${indexCode}/search`, data, {
+  return request.post<ApiResult<BizSearchResponse>>(`/api/knowledge/biz-index/${indexCode}/search`, data, {
     timeout: 120000,
   })
 }

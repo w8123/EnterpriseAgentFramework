@@ -103,6 +103,25 @@ class ProjectOnboardingTaskProviderTest {
                         .path("skillPackageUrl")
                         .asText());
 
+        var requiredResources = provider.requiredResources(
+                task,
+                "http://localhost:18603/");
+        assertEquals(1, requiredResources.size());
+        assertEquals("reachai-onboarding-skill", requiredResources.get(0).id());
+        assertEquals("reachai-onboarding/SKILL.md", requiredResources.get(0).entrypoint());
+        assertEquals(true, requiredResources.get(0).requiredBeforeEditing());
+
+        var verificationGuide = provider.verificationGuide(
+                task,
+                "http://localhost:18603/api/ai-coding/tasks/ait_test");
+        assertEquals(4, verificationGuide.size());
+        assertEquals("ACTION", verificationGuide.get(0).type());
+        assertEquals("http://localhost:18603/api/ai-coding/tasks/ait_test/verifications/SDK_SYNC",
+                verificationGuide.get(0).url());
+        assertEquals("OBSERVATION", verificationGuide.get(2).type());
+        assertEquals("EMBED_CONVERSATION_E2E", verificationGuide.get(2).key());
+        assertEquals("READINESS_GATE", verificationGuide.get(3).type());
+
         when(client.triggerSdkSync(7L)).thenReturn(Map.of(
                 "projectId", 7L,
                 "projectCode", "orders",

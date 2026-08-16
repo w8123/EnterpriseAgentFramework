@@ -135,8 +135,9 @@ public class RuntimePublicController {
 
     @DeleteMapping("/api/runtime/agents/sessions/{sessionId}")
     public ResponseEntity<Void> clearAgentSession(@PathVariable String sessionId) {
-        agentExecutionService.clearSession(sessionId);
-        return ResponseEntity.noContent().build();
+        // Session state is identity-bound. Only Control's HMAC-authenticated
+        // /internal/runtime/agents/sessions/{sessionId} contract may clear it.
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 
     @GetMapping("/api/runtime/agents/route-evaluation")
@@ -309,7 +310,8 @@ public class RuntimePublicController {
         if ("RUNTIME_INTERACTION_FORBIDDEN".equals(code)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(result);
         }
-        if ("RUNTIME_INTERACTION_CONFLICT".equals(code)) {
+        if ("RUNTIME_INTERACTION_CONFLICT".equals(code)
+                || "RUNTIME_SESSION_OWNERSHIP_CONFLICT".equals(code)) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(result);
         }
         if ("RUNTIME_INTERACTION_EXPIRED".equals(code)) {

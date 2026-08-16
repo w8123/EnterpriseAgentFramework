@@ -10,6 +10,11 @@ import lombok.Data;
 @Data
 public class BizIndexRequest {
 
+    private Long projectId;
+    private String projectCode;
+    private String environment;
+    private String tenantId;
+
     @NotBlank(message = "索引编码不能为空")
     @Pattern(regexp = "^[a-zA-Z][a-zA-Z0-9_]{1,62}$",
             message = "索引编码只能包含字母、数字和下划线，以字母开头，2-63 个字符")
@@ -45,4 +50,10 @@ public class BizIndexRequest {
 
     /** 备注 */
     private String remark;
+
+    /** Disabled by default. Enabling requires tenant/project/resolver configuration. */
+    private Boolean agentMemoryEnabled;
+
+    /** Registered Capability that re-reads the authoritative business record. */
+    private String resolverCapabilityKey;
 }

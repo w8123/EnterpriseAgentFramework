@@ -77,6 +77,7 @@
         :options="toolLikeOptions"
         :tool-options="toolOptions"
         :composition-options="compositionOptions"
+        :node-type-options="nodeTypeOptions"
         @credential-created="$emit('credentialCreated', $event)"
         @create-call-node="$emit('createCallNode', $event)"
         @validation-change="$emit('validationChange', $event)"
@@ -135,6 +136,7 @@ import type { ToolInfo } from '@/types/tool'
 import type { CompositionInfo } from '@/types/composition'
 import type { WorkflowCredential } from '@/types/workflowCredential'
 import type { ApiGraphParamSourceHint } from '@/api/apiGraph'
+import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
 import LlmConfigPanel from './LlmConfigPanel.vue'
 import UserInputConfigPanel from './UserInputConfigPanel.vue'
 import InteractionConfigPanel from './InteractionConfigPanel.vue'
@@ -169,6 +171,7 @@ const props = defineProps<{
   paramSourceHints: ApiGraphParamSourceHint[]
   projectId?: number | null
   projectCode?: string | null
+  nodeTypeOptions?: WorkflowGraphNodeTypeDescriptor[]
 }>()
 
 defineEmits<{

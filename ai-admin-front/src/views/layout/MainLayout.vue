@@ -3,31 +3,33 @@
     class="main-layout"
     :class="[`layout-${layoutMode}`, { 'is-dark': theme === 'dark' }]"
   >
-    <AppPageBackground v-if="!isStudioPage" />
+    <template v-if="isPlatformWorkspaceReady">
+      <AppPageBackground v-if="!isStudioPage" />
 
-    <el-aside v-if="!isStudioPage" :width="sidebarWidth" class="sidebar-aside">
-      <AppSidebar
-        :collapsed="isSidebarCollapsed"
-        :hide-project-panel="hideSidebarProjectPanel"
-        @toggle-collapse="toggleSidebar"
-      />
-    </el-aside>
+      <el-aside v-if="!isStudioPage" :width="sidebarWidth" class="sidebar-aside">
+        <AppSidebar
+          :collapsed="isSidebarCollapsed"
+          :hide-project-panel="hideSidebarProjectPanel"
+          @toggle-collapse="toggleSidebar"
+        />
+      </el-aside>
 
-    <el-container class="layout-workspace">
-      <div v-if="!isStudioPage" class="breadcrumb-rail">
-        <AppBreadcrumb :show-back="breadcrumbShowBack" />
-      </div>
+      <el-container class="layout-workspace">
+        <div v-if="!isStudioPage" class="breadcrumb-rail">
+          <AppBreadcrumb :show-back="breadcrumbShowBack" />
+        </div>
 
-      <el-main class="main-content">
-        <router-view v-slot="{ Component }">
-          <transition name="page" mode="out-in">
-            <component :is="Component" class="main-content-page" />
-          </transition>
-        </router-view>
-      </el-main>
-    </el-container>
+        <el-main class="main-content">
+          <router-view v-slot="{ Component }">
+            <transition name="page" mode="out-in">
+              <component :is="Component" class="main-content-page" />
+            </transition>
+          </router-view>
+        </el-main>
+      </el-container>
+    </template>
 
-    <ExplorationStageDialog />
+    <ExplorationStageDialog v-if="isPlatformAuthenticated" />
   </el-container>
 </template>
 
@@ -36,6 +38,10 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useAppStore } from '@/store/app'
+import {
+  isPlatformAuthenticated,
+  isPlatformWorkspaceReady,
+} from '@/auth/platformSession'
 import AppBreadcrumb from '@/components/common/AppBreadcrumb.vue'
 import ExplorationStageDialog from '@/components/common/ExplorationStageDialog.vue'
 import AppPageBackground from '@/components/common/AppPageBackground.vue'

@@ -101,9 +101,9 @@ class RuntimeWorkflowProposalGenerationServiceTest {
     }
 
     @Test
-    void proposalPromptUsesOnlyAiAuthoringCatalogAndRejectsClosedNodes() throws Exception {
+    void proposalPromptExposesPresentOutputAndRejectsBlockingInteractionVariant() throws Exception {
         CapturingModelClient modelClient = new CapturingModelClient("""
-                {"entryNodeId":"ask","exitNodeIds":["answer"],"nodes":[{"id":"ask","type":"INTERACTION","label":"Ask"},{"id":"answer","type":"ANSWER","label":"Answer"}],"edges":[{"from":"ask","to":"answer"}]}
+                {"entryNodeId":"ask","exitNodeIds":["answer"],"nodes":[{"id":"ask","type":"INTERACTION","label":"Ask","config":{"interactionType":"COLLECT_INPUT"}},{"id":"answer","type":"ANSWER","label":"Answer"}],"edges":[{"from":"ask","to":"answer"}]}
                 """);
         ObjectMapper objectMapper = new ObjectMapper();
         RuntimeWorkflowProposalValidationService validationService = validationService();
@@ -130,7 +130,7 @@ class RuntimeWorkflowProposalGenerationServiceTest {
                 List.of()));
 
         assertFalse(result.validationErrors().isEmpty());
-        assertTrue(result.validationErrors().stream().anyMatch(item -> item.contains("WORKFLOW_NODE_NOT_AUTHORABLE")));
+        assertTrue(result.validationErrors().stream().anyMatch(item -> item.contains("WORKFLOW_NODE_VARIANT_NOT_AUTHORABLE")));
 
         String userPrompt = modelClient.requests.get(0).getMessages().stream()
                 .filter(message -> "user".equals(message.getRole()))
@@ -152,11 +152,12 @@ class RuntimeWorkflowProposalGenerationServiceTest {
         assertTrue(promptTypes.contains("KNOWLEDGE_RETRIEVAL"));
         assertTrue(promptTypes.contains("HTTP_REQUEST"));
         assertTrue(promptTypes.contains("LOOP"));
-        assertFalse(promptTypes.contains("INTERACTION"));
+        assertTrue(promptTypes.contains("INTERACTION"));
         assertFalse(promptTypes.contains("HUMAN_APPROVAL"));
         assertFalse(promptTypes.contains("MCP_CALL"));
         assertTrue(systemPrompt.contains("Authorable canonical node types"));
         assertTrue(systemPrompt.contains("Closed / non-authorable types are forbidden"));
+        assertTrue(systemPrompt.contains("config.interactionType=PRESENT_OUTPUT"));
         assertFalse(systemPrompt.contains("INTERACTION(confirm_action)"));
         assertFalse(systemPrompt.contains("|approval|"));
     }
@@ -227,8 +228,43 @@ class RuntimeWorkflowProposalGenerationServiceTest {
         assertFalse(systemPrompt.contains("ask the user to reconfirm"));
         assertFalse(systemPrompt.contains("动作后再要求确认"));
         assertFalse(systemPrompt.contains("let ANSWER state the action result or ask the user to reconfirm"));
-        assertTrue(systemPrompt.contains("Do not emit INTERACTION/HUMAN_APPROVAL"));
+        assertTrue(systemPrompt.contains("Do not emit blocking INTERACTION or HUMAN_APPROVAL"));
+        assertTrue(systemPrompt.contains("Every branch that returns structured read data must end with INTERACTION/PRESENT_OUTPUT"));
         assertFalse(systemPrompt.contains("INTERACTION(confirm_action)"));
+    }
+
+    @Test
+    void acceptsAndNormalizesDisplayOnlyPresentOutputProposal() {
+        CapturingModelClient modelClient = new CapturingModelClient("""
+                {"entryNodeId":"answer","exitNodeIds":["display"],"nodes":[
+                  {"id":"answer","type":"ANSWER","label":"Answer","config":{"template":"ok"}},
+                  {"id":"display","type":"INTERACTION","label":"Display","config":{"interactionType":"present-output","component":"list_card","dataExpression":"nodeOutput.answer"}}
+                ],"edges":[{"from":"answer","to":"display"}]}
+                """);
+        ObjectMapper objectMapper = new ObjectMapper();
+        RuntimeWorkflowProposalValidationService validationService = validationService();
+        RuntimeWorkflowGraphMutationService mutationService = new RuntimeWorkflowGraphMutationService(objectMapper);
+        RuntimeWorkflowProposalGenerationService service = new RuntimeWorkflowProposalGenerationService(
+                objectMapper,
+                modelClient,
+                new RuntimeWorkflowCanvasLayoutService(objectMapper),
+                validationService,
+                new RuntimeWorkflowProposalRepairService(objectMapper, modelClient, mutationService, validationService),
+                new RuntimeWorkflowNodeCapabilityRegistry());
+
+        RuntimeWorkflowProposalGenerationView result = service.generate(new RuntimeWorkflowProposalGenerationRequest(
+                "workflow-1", "Order Workflow", "展示查询结果", "orders", "model-1", "GENERAL",
+                List.of(), List.of(), List.of(), List.of()));
+
+        assertTrue(result.validationErrors().isEmpty(), String.valueOf(result.validationErrors()));
+        Map<String, Object> config = result.graphSpec().getNodes().stream()
+                .filter(node -> "INTERACTION".equals(node.getType()))
+                .findFirst()
+                .orElseThrow()
+                .getConfig();
+        assertEquals("PRESENT_OUTPUT", config.get("interactionType"));
+        assertEquals("card_only", ((Map<?, ?>) config.get("presentation")).get("mode"));
+        assertEquals(false, ((Map<?, ?>) config.get("behavior")).get("blocking"));
     }
 
     @SuppressWarnings("unchecked")

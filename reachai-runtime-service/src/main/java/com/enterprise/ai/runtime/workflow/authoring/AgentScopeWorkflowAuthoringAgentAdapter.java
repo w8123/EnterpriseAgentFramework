@@ -16,13 +16,17 @@ import io.agentscope.core.tool.Toolkit;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -41,12 +45,21 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
     public static final long DEFAULT_TIMEOUT_MS = 240_000L;
     private static final String USER_EXECUTION_FAILED_SUMMARY =
             "AI 编排执行异常，请重新生成。如问题持续出现，请联系管理员并提供错误编号：%s。";
+    private static final String USER_TIMEOUT_SUMMARY =
+            "AI 编排在 %d 秒内未完成，已取消本次生成。请缩小修改范围后重试；"
+                    + "如问题持续出现，请联系管理员并提供错误编号：%s。";
+    private static final String USER_MODEL_BALANCE_SUMMARY =
+            "所选 AI 编排模型额度不足，供应商拒绝了本次调用。请在模型中心补充额度，"
+                    + "或切换到其他可用模型后重试。错误编号：%s。";
 
     private final ObjectMapper objectMapper;
     private final RuntimeModelServiceClient modelClient;
     private final RuntimeModelStreamHttpClient modelStreamClient;
     private final RuntimeWorkflowGraphMutationService mutationService;
     private final RuntimeWorkflowProposalValidationService validationService;
+
+    @Value("${reachai.runtime.workflow-authoring.timeout-ms:240000}")
+    long timeoutMs = DEFAULT_TIMEOUT_MS;
 
     @Override
     public WorkflowAuthoringResult author(WorkflowAuthoringRequest request) {
@@ -95,12 +108,12 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
                     .generateOptions(options)
                     .build()) {
                 RuntimeContext context = buildRuntimeContext(session, request);
-                Msg response = reactAgent.call(List.of(Msg.builder()
+                 Msg response = reactAgent.call(List.of(Msg.builder()
                                 .name("user")
                                 .role(MsgRole.USER)
-                                .textContent(userPrompt(request))
-                                .build()), context)
-                        .block(Duration.ofMillis(DEFAULT_TIMEOUT_MS));
+                                 .textContent(userPrompt(request))
+                                 .build()), context)
+                        .block(Duration.ofMillis(effectiveTimeoutMs()));
                 if (response != null && StringUtils.hasText(response.getTextContent())
                         && !StringUtils.hasText(session.summary())) {
                     session.setSummary(response.getTextContent().trim());
@@ -126,21 +139,43 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
             }
             return result;
         } catch (Exception ex) {
-            log.error("Workflow authoring execution failed: authoringId={}, workflowId={}, projectCode={}, "
-                            + "modelInstanceId={}, mutationRounds={}",
-                    authoringId,
-                    blankToDash(request.workflowId()),
-                    blankToDash(request.projectCode()),
-                    request.modelInstanceId().trim(),
-                    session.mutationRounds(),
-                    ex);
+            boolean timeout = isTimeout(ex);
+            boolean insufficientBalance = isInsufficientBalance(ex);
+            if (timeout) {
+                log.warn("Workflow authoring timed out: authoringId={}, workflowId={}, projectCode={}, "
+                                + "modelInstanceId={}, mutationRounds={}, timeoutMs={}",
+                        authoringId,
+                        blankToDash(request.workflowId()),
+                        blankToDash(request.projectCode()),
+                        request.modelInstanceId().trim(),
+                        session.mutationRounds(),
+                        effectiveTimeoutMs());
+            } else {
+                log.error("Workflow authoring execution failed: authoringId={}, workflowId={}, projectCode={}, "
+                                + "modelInstanceId={}, mutationRounds={}",
+                        authoringId,
+                        blankToDash(request.workflowId()),
+                        blankToDash(request.projectCode()),
+                        request.modelInstanceId().trim(),
+                        session.mutationRounds(),
+                        ex);
+            }
             List<String> errors = new ArrayList<>(validationErrors(session));
-            errors.add("AUTHORING_EXECUTION_FAILED");
+            String failureCode = timeout
+                    ? "AUTHORING_TIMEOUT"
+                    : insufficientBalance
+                    ? "AUTHORING_MODEL_BALANCE_INSUFFICIENT"
+                    : "AUTHORING_EXECUTION_FAILED";
+            errors.add(failureCode);
             return failed(
                     session,
                     authoringId,
-                    USER_EXECUTION_FAILED_SUMMARY.formatted(authoringId),
-                    "AUTHORING_EXECUTION_FAILED",
+                    timeout
+                            ? USER_TIMEOUT_SUMMARY.formatted(effectiveTimeoutMs() / 1_000L, authoringId)
+                            : insufficientBalance
+                            ? USER_MODEL_BALANCE_SUMMARY.formatted(authoringId)
+                            : USER_EXECUTION_FAILED_SUMMARY.formatted(authoringId),
+                    failureCode,
                     session.mutationRounds(),
                     errors);
         } finally {
@@ -293,6 +328,12 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
                   ref={"qualifiedName":"project:capability"}. Never put ref inside node.config.
                   TOOL config.inputMapping maps target argument names to runtime expressions such as
                   "nodeOutput.extract_query.teamName". Keep errorPolicy at the top-level node field.
+                - When a detail Tool requires an opaque id but the user supplies a business name, build an explicit
+                  chain: list/query TOOL -> PARAMETER_EXTRACT -> detail TOOL. Feed the query Tool's structured output
+                  through inputExpression="nodeOutput.<queryNodeId>". Leave userPrompt empty to consume that input,
+                  or make userPrompt explicitly include BOTH {{ nodeOutput.<queryNodeId> }} and the business match key.
+                  A non-empty userPrompt overrides inputExpression at runtime. Require a unique id, then map it into
+                  the detail Tool. Never guess the id and never pass a business name into an id field.
                 - ANSWER config uses template. Set the ANSWER node as an exit node after it has been added.
 
                 Branching conventions:
@@ -310,12 +351,85 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
                 """;
     }
 
-    private String userPrompt(WorkflowAuthoringRequest request) {
+    String userPrompt(WorkflowAuthoringRequest request) {
         try {
-            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request);
+            Map<String, Object> prompt = new LinkedHashMap<>();
+            prompt.put("instruction", request.instruction());
+            putIfHasText(prompt, "workflowId", request.workflowId());
+            putIfHasText(prompt, "workflowName", request.workflowName());
+            putIfHasText(prompt, "projectCode", request.projectCode());
+            putIfHasText(prompt, "workflowKind", request.workflowKind());
+            putIfHasText(prompt, "modelInstanceId", request.modelInstanceId());
+            prompt.put("selectedNodeIds", request.selectedNodeIds());
+            prompt.put("selectedEdgeIds", request.selectedEdgeIds());
+            prompt.put("contextContract",
+                    "Call inspect_workflow_context once before editing; its result is the authoritative "
+                            + "Workflow and resource context.");
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(prompt);
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to serialize authoring request", ex);
         }
+    }
+
+    private void putIfHasText(Map<String, Object> target, String key, String value) {
+        if (StringUtils.hasText(value)) {
+            target.put(key, value.trim());
+        }
+    }
+
+    private long effectiveTimeoutMs() {
+        return timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
+    }
+
+    private boolean isTimeout(Throwable throwable) {
+        return anyThrowable(throwable, current -> {
+            if (current instanceof TimeoutException) {
+                return true;
+            }
+            String message = current.getMessage();
+            return StringUtils.hasText(message)
+                    && message.toLowerCase().contains("timeout on blocking read");
+        });
+    }
+
+    private boolean isInsufficientBalance(Throwable throwable) {
+        return anyThrowable(throwable, current -> {
+            String message = current.getMessage();
+            if (!StringUtils.hasText(message)) {
+                return false;
+            }
+            String normalized = message.toLowerCase();
+            return normalized.contains("insufficient balance")
+                    || normalized.contains("http 402")
+                    || normalized.contains("payment required");
+        });
+    }
+
+    private boolean anyThrowable(Throwable throwable,
+                                 java.util.function.Predicate<Throwable> predicate) {
+        if (throwable == null) {
+            return false;
+        }
+        List<Throwable> pending = new ArrayList<>();
+        List<Throwable> visited = new ArrayList<>();
+        pending.add(throwable);
+        while (!pending.isEmpty()) {
+            Throwable current = pending.remove(pending.size() - 1);
+            if (current == null || visited.contains(current)) {
+                continue;
+            }
+            visited.add(current);
+            if (predicate.test(current)) {
+                return true;
+            }
+            if (current.getCause() != null) {
+                pending.add(current.getCause());
+            }
+            for (Throwable suppressed : current.getSuppressed()) {
+                pending.add(suppressed);
+            }
+        }
+        return false;
     }
 
     private String firstText(String... values) {

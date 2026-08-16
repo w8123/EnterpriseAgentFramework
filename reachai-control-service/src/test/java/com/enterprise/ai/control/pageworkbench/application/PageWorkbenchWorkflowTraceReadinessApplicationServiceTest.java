@@ -10,6 +10,7 @@ import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService.EmbedT
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.RecoverableDataAccessException;
 import org.springframework.http.ResponseEntity;
 
 import java.time.LocalDateTime;
@@ -17,6 +18,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -127,6 +129,42 @@ class PageWorkbenchWorkflowTraceReadinessApplicationServiceTest {
     }
 
     @Test
+    void keepsTaskDetailReadableWhenTraceEvidenceDatabaseIsUnavailable() {
+        when(embedEvidence.successfulTraceCandidates(
+                "orders",
+                "orders.detail",
+                observedAfter)).thenThrow(
+                        new RecoverableDataAccessException(
+                                "connection closed"));
+
+        ReadinessItem result = service.evaluate(
+                "orders",
+                "orders.detail",
+                observedAfter,
+                target(),
+                null);
+
+        assertEquals("PENDING", result.status());
+        assertEquals(
+                "DATA_ACCESS_UNAVAILABLE",
+                result.evidence().path("reason").asText());
+        assertEquals(
+                "reachai-control-database",
+                result.evidence().path("dependency").asText());
+        assertTrue(result.evidence().path("connectionError")
+                .isMissingNode());
+        verify(runtimeClient, never()).pageWorkbenchExecutionReadiness(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
     void multipleEligibleTracesRequireAnExplicitSelection() {
         when(embedEvidence.successfulTraceCandidates(
                 "orders",
@@ -223,6 +261,89 @@ class PageWorkbenchWorkflowTraceReadinessApplicationServiceTest {
     }
 
     @Test
+    void structuredPresentationRequiresEmbedUiRequestEvidence() {
+        when(embedEvidence.successfulTraceCandidates(
+                "orders",
+                "orders.detail",
+                observedAfter)).thenReturn(List.of(
+                        candidate("trace-orders")));
+        when(runtimeClient.pageWorkbenchExecutionReadiness(
+                "orders",
+                "orders.detail",
+                "embed-session",
+                "page-instance",
+                "trace-orders",
+                "wf-orders",
+                21L,
+                "v1.0.0")).thenReturn(ResponseEntity.ok(
+                        observed(
+                                "trace-orders",
+                                "PASS",
+                                "PAGE_WORKFLOW_TRACE_READY",
+                                true,
+                                true)));
+
+        ReadinessItem result = service.evaluate(
+                "orders",
+                "orders.detail",
+                observedAfter,
+                target(),
+                "trace-orders");
+
+        assertEquals("PENDING", result.status());
+        assertTrue(result.message().contains("uiRequest"));
+        assertTrue(result.evidence().path(
+                "structuredPresentationObserved").asBoolean());
+        assertTrue(!result.evidence().path(
+                "uiRequestObserved").asBoolean());
+    }
+
+    @Test
+    void structuredPresentationPassesWithSupportedEmbedCard() {
+        EmbedTraceCandidate candidate = new EmbedTraceCandidate(
+                "orders",
+                "orders.detail",
+                "embed-session",
+                "page-instance",
+                "trace-orders",
+                LocalDateTime.of(2026, 7, 27, 10, 5),
+                true,
+                "list_card");
+        when(embedEvidence.successfulTraceCandidates(
+                "orders",
+                "orders.detail",
+                observedAfter)).thenReturn(List.of(candidate));
+        when(runtimeClient.pageWorkbenchExecutionReadiness(
+                "orders",
+                "orders.detail",
+                "embed-session",
+                "page-instance",
+                "trace-orders",
+                "wf-orders",
+                21L,
+                "v1.0.0")).thenReturn(ResponseEntity.ok(
+                        observed(
+                                "trace-orders",
+                                "PASS",
+                                "PAGE_WORKFLOW_TRACE_READY",
+                                true,
+                                true)));
+
+        ReadinessItem result = service.evaluate(
+                "orders",
+                "orders.detail",
+                observedAfter,
+                target(),
+                "trace-orders");
+
+        assertEquals("PASS", result.status());
+        assertTrue(result.evidence().path(
+                "uiRequestObserved").asBoolean());
+        assertEquals("list_card",
+                result.evidence().path("uiRequestComponent").asText());
+    }
+
+    @Test
     void creationValidationResolvesTheExactPublishedTarget() {
         when(runtimeClient.pageWorkbenchPublished(
                 "orders",
@@ -249,7 +370,8 @@ class PageWorkbenchWorkflowTraceReadinessApplicationServiceTest {
                 "wf-orders",
                 22L,
                 "v2.0.0",
-                "前端快照");
+                "前端快照",
+                "model-orders");
 
         assertThrows(
                 IllegalArgumentException.class,
@@ -264,7 +386,8 @@ class PageWorkbenchWorkflowTraceReadinessApplicationServiceTest {
                 "wf-orders",
                 21L,
                 "v1.0.0",
-                "订单页面助手");
+                "订单页面助手",
+                "model-orders");
     }
 
     private EmbedTraceCandidate candidate(String traceId) {
@@ -287,6 +410,15 @@ class PageWorkbenchWorkflowTraceReadinessApplicationServiceTest {
             String traceId,
             String status,
             String code) {
+        return observed(traceId, status, code, false, false);
+    }
+
+    private WorkflowExecutionReadinessView observed(
+            String traceId,
+            String status,
+            String code,
+            boolean structuredPresentationRequired,
+            boolean structuredPresentationObserved) {
         return new WorkflowExecutionReadinessView(
                 status,
                 code,
@@ -302,6 +434,13 @@ class PageWorkbenchWorkflowTraceReadinessApplicationServiceTest {
                 "COMPLETED",
                 "EMBED",
                 true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                structuredPresentationRequired,
+                structuredPresentationObserved,
                 LocalDateTime.of(2026, 7, 27, 10, 6));
     }
 
@@ -322,6 +461,7 @@ class PageWorkbenchWorkflowTraceReadinessApplicationServiceTest {
                 "订单助手",
                 31L,
                 3,
+                "model-orders",
                 "query_orders",
                 "READ",
                 null,

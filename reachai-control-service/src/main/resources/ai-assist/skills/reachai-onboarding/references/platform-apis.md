@@ -8,7 +8,7 @@ Do not assume every ReachAI endpoint uses the same JSON wrapper.
 
 | API family | Wrapped in `ApiResult`? | Read business fields from |
 | --- | --- | --- |
-| Embed 对外 API：`POST /api/embed/token/exchange`、`/api/embed/chat/sessions`、messages、page-actions | **Yes** | `data.token`, `data.sessionId`, `data.answer`, ... |
+| Embed 对外 API：`POST /api/embed/token/exchange`、`/api/embed/chat/sessions`、messages、page-actions、page-bridge rebind | **Yes** | `data.token`, `data.sessionId`, `data.answer`, ... |
 | `POST /api/ai-coding/projects/{projectId}/agents/provision` | **No** | `agent.keySlug` (not `data.agent.keySlug`) |
 | AI Coding handoff activation and task protocol | **No** | top-level `taskToken`, `taskRoot`, task/event/question/artifact fields |
 | `POST /api/scan-projects/{projectId}/sdk-access-check` | **No** | top-level `overallStatus`, `checks` |
@@ -35,6 +35,30 @@ The SDK recognizes `/api/embed` and `/api/reachai/embed` as Embed API roots to a
 The token broker path (e.g. `/api/reachai/embed-token`) is separate from Chat `apiBase`.
 
 Keep the same `pageKey`, `pageInstanceId`, `route`, and `origin` across token exchange, session create, and page actions.
+
+For a platform-requested SPA cross-route Page Action, the target page obtains a
+fresh token for its own Page Bridge identity, then the official SDK calls:
+
+```http
+POST /api/embed/chat/sessions/{sessionId}/page-bridge/rebind
+Authorization: Bearer <target-page-embedToken>
+Content-Type: application/json
+
+{
+  "navigationRequestId": "SDK-managed",
+  "pageKey": "orders.audit",
+  "pageInstanceId": "page-target-001",
+  "route": "/orders/audit/42",
+  "bridgeActions": ["orders.audit.search"],
+  "sdkVersion": "1.0.0-SNAPSHOT"
+}
+```
+
+Do not call this endpoint directly from business code. Use
+`createEafPageBridge({ onNavigate })` and `chat.rebindPage(...)`; the SDK
+owns the pending navigation ID and validates the handoff timing. The platform
+only accepts a rebind that matches a pending `NAVIGATE` event and the exact
+target token/project/Agent/business-user binding.
 
 ## Manifest
 
@@ -159,7 +183,9 @@ Request body:
 }
 ```
 
-If the version already exists, read `/versions` and choose the next semantic version. For a Page Assistant Workflow, add the ACTIVE Workflow to the Supervisor catalog through `agentSupervisor.endpoints.workflowToolAttachUrlTemplate`, normally `POST /api/workflows/{workflowId}/page-assistant/attach-tool`, with `modelInstanceId` and `publishedBy`. The attach operation publishes a new ACTIVE Agent config version.
+If the version already exists, read `/versions` and choose the next semantic version. Add the ACTIVE Workflow to the Supervisor catalog through `agentSupervisor.endpoints.workflowToolAttachUrlTemplate`, normally `POST /api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach`, with `workflowId`, optional `modelInstanceId`, and `publishedBy`. The attach operation publishes a new ACTIVE Agent config version.
+
+Attachment is additive when `replaceWorkflowId` is omitted. A page may have multiple independent Workflows, so name, pageKey, route, or list position must never imply replacement. When the new Workflow intentionally supersedes one currently attached predecessor, read the current catalog first and send that predecessor's exact id as `replaceWorkflowId`. ReachAI validates project, page binding, and current attachment, replaces only that entry, preserves every other tool, and returns `WORKFLOW_REPLACEMENT_INVALID` without publishing when the target is invalid.
 
 ## Embed Token Exchange
 
@@ -270,7 +296,7 @@ POST /api/scan-projects/{projectId}/sdk-access-check
 
 Run this only after the business service compiles and has a reachable local or test instance.
 
-The response summarizes platform-observed `CODE_READY`, `RUNTIME_READY`, and `SDK_CALLBACK_READY` facts. It does not invoke a project API and does not prove the browser Embed path. AI Coding task readiness `E2E_READY` is a separate Control-side gate based on a real Embed session, user message and assistant reply observed after the current task started.
+The response summarizes platform-observed `CODE_READY`, `RUNTIME_READY`, and `SDK_CALLBACK_READY` facts. It does not invoke a project API and does not prove the Embed conversation path. AI Coding task readiness `E2E_READY` is a separate Control-side gate based on an authorized SDK/doctor session, user message and assistant reply observed after the current task started. Doctor automation must use business-supplied test Authorization/Cookie from environment variables and does not replace final visible browser acceptance.
 
 ## AI Coding Task Protocol
 
@@ -306,6 +332,8 @@ Read `GET <taskRoot>/context` before scanning or editing. The response freezes t
 - `POST <taskRoot>/verifications/SDK_SYNC` once, after Starter registration and heartbeat pass, to request the task's project-scoped signed SDK callback. No request body is required.
 - `POST <taskRoot>/artifacts` exactly once per logical result, following the contract key, version and JSON Schema returned by context.
 
+Follow the machine-readable `protocolGuide.eventStateRules` returned by context. `PROGRESS` is valid in both `RUNNING` and `WAITING_USER`; in `WAITING_USER` it records independent progress while preserving the status and every open question. Only `RESUMED`, after all answers have been read, returns the task to `RUNNING`.
+
 Every event and artifact uses a caller-generated idempotency key. Retrying the same key with different content is a conflict. Verification operations are explicit, task-token scoped, valid only while the onboarding task is `RUNNING`, and generate a server-side task event. Client completion first means `RESULT_SUBMITTED`; only ReachAI validation and domain application can produce `RESULT_APPLIED`, `ACCEPTANCE_READY`, or `COMPLETED`.
 
 ReachAI cannot wake an inactive local Cursor/Codex session without installing a local component. Do not claim otherwise and do not install a Runner, resident process, global package, or system software.
@@ -325,7 +353,7 @@ Task-scoped `SDK_SYNC` verification and API Management manual SDK sync use the s
 
 The inbound business-system callback must bypass ordinary business login/JWT authentication and CSRF, but it is not anonymous: the Starter validates `X-ReachAI-App-Key`, `X-ReachAI-Timestamp`, `X-ReachAI-Nonce`, and `X-ReachAI-Signature`. If the registered base URL is a gateway, route `/reachai/registry/**` to the Starter service and preserve those headers. CORS is not involved because both hops are server-to-server.
 
-The SDK access check may report the computed callback target, but only an actual signed sync and received `SDK_CALLBACK` snapshot proves reachability and security-chain compatibility. `SDK_CALLBACK_READY` and browser `E2E_READY` remain independent acceptance gates. Diagnose failures by status/signature: connection refused or timeout means address/network/firewall, 401/403 usually means business security or credential mismatch, and 404/405 usually means gateway route or context-path mismatch.
+The SDK access check may report the computed callback target, but only an actual signed sync and received `SDK_CALLBACK` snapshot proves reachability and security-chain compatibility. `SDK_CALLBACK_READY` and authorized-conversation `E2E_READY` remain independent acceptance gates. Diagnose failures by status/signature: connection refused or timeout means address/network/firewall, 401/403 usually means business security or credential mismatch, and 404/405 usually means gateway route or context-path mismatch.
 
 ## Future Extension Points
 

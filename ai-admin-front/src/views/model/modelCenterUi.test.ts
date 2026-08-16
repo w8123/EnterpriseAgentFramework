@@ -19,6 +19,7 @@ import {
   hasBaseUrlAuthorityChanged,
   isMaskedApiKey,
   isSupportedModelType,
+  modelTestFailureHint,
   runtimeStatusLabel,
   testStatusLabel,
   validateDraftForSave,
@@ -89,6 +90,21 @@ describe('modelCenterUi V2 contract helpers', () => {
     expect(testStatusLabel('FAILED')).toBe('测试失败')
     expect(testStatusLabel('UNKNOWN')).toBe('未测试')
     expect(runtimeStatusLabel('ACTIVE')).not.toBe('测试通过')
+  })
+
+  it('turns provider test errors into stable actionable hints', () => {
+    expect(modelTestFailureHint('Model provider API error: HTTP 402 Insufficient Balance')).toBe(
+      '供应商额度不足（HTTP 402），请充值或切换可用模型后重新测试。',
+    )
+    expect(modelTestFailureHint('HTTP 401 invalid API key')).toBe(
+      '供应商认证失败（HTTP 401），请检查 API Key 和认证配置。',
+    )
+    expect(modelTestFailureHint('connect timeout to api.example.com')).toBe(
+      '模型服务网络不可达或超时，请检查 BaseURL、DNS、代理和防火墙。',
+    )
+    expect(modelTestFailureHint('provider returned an opaque internal payload')).toBe(
+      '模型测试未通过，请进入“管理”查看完整原因并检查连接配置。',
+    )
   })
 
   it('defaults list excludes archived and archived filter can include them', () => {

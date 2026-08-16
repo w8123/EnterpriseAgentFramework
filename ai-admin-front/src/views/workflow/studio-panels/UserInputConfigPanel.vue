@@ -79,6 +79,7 @@ function addInputField() {
     type: 'string',
     required: false,
     description: '',
+    source: 'input.message',
   })
 }
 

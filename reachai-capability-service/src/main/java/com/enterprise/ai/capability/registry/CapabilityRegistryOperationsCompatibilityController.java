@@ -103,6 +103,16 @@ public class CapabilityRegistryOperationsCompatibilityController {
         }
     }
 
+    @PostMapping("/capability-diff-items/{diffItemId}/rollback")
+    public ResponseEntity<?> rollbackCapabilityDiffItem(@PathVariable Long diffItemId,
+                                                        @RequestBody(required = false) CapabilityReviewRequest request) {
+        try {
+            return ResponseEntity.ok(registryService.rollbackDiffItem(diffItemId, request));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(ex.getMessage()));
+        }
+    }
+
     @PostMapping("/projects/{projectCode}/instances/purge-offline")
     public ResponseEntity<?> purgeOfflineInstances(@PathVariable String projectCode,
                                                    @RequestBody(required = false) PurgeOfflineRequest request) {

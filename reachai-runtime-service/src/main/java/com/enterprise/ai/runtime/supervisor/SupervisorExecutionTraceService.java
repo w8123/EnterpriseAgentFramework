@@ -210,11 +210,15 @@ public class SupervisorExecutionTraceService {
                 || "WAITING_USER".equalsIgnoreCase(code)
                 || "RUNTIME_INTERACTION_WAITING".equals(code);
         Map<String, Object> safeResult = WorkflowTraceSanitizer.sanitizeWorkflowResult(resultMetadata);
+        boolean businessTerminal = "BUSINESS_TERMINAL".equalsIgnoreCase(
+                firstText(safeResult.get("outcomeClass")));
         Map<String, Object> safeArgs = WorkflowTraceSanitizer.sanitizeArgs(args);
         String safeAnswer = WorkflowTraceSanitizer.sanitizeAnswer(answer);
         span.setToolName(toolName);
         span.setNodeId(workflowId);
-        span.setStatus(waiting ? "WAITING_USER" : (success ? "SUCCESS" : "FAILED"));
+        span.setStatus(waiting
+                ? "WAITING_USER"
+                : (businessTerminal ? "BUSINESS_TERMINAL" : (success ? "SUCCESS" : "FAILED")));
         span.setInputSummary(limit(json(safeArgs), 4000));
         span.setOutputSummary(limit(safeAnswer, 4000));
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -223,8 +227,8 @@ public class SupervisorExecutionTraceService {
         metadata.put("workflowVersion", workflowVersion);
         metadata.put("workflowResult", safeResult);
         span.setMetadataJson(json(metadata));
-        span.setErrorCode(success || waiting ? null : code);
-        span.setErrorMessage(success || waiting ? null : limit(safeAnswer, 2000));
+        span.setErrorCode(success || waiting || businessTerminal ? null : code);
+        span.setErrorMessage(success || waiting || businessTerminal ? null : limit(safeAnswer, 2000));
         span.setLatencyMs(toInt(elapsedMs));
         span.setStartedAt(endedAt.minus(elapsedMs, ChronoUnit.MILLIS));
         span.setEndedAt(waiting ? null : endedAt);
@@ -362,8 +366,11 @@ public class SupervisorExecutionTraceService {
             putIfPresent(childMetadata, "errorPolicy", nodeTrace.get("errorPolicy"));
             putIfPresent(childMetadata, "failureCode", nodeTrace.get("failureCode"));
             putIfPresent(childMetadata, "fallbackNodeId", nodeTrace.get("fallbackNodeId"));
+            putIfPresent(childMetadata, "outcomeClass", nodeTrace.get("outcomeClass"));
+            putIfPresent(childMetadata, "businessOutcome", nodeTrace.get("businessOutcome"));
             putIfPresent(childMetadata, "traceSummary", nodeTrace.get("traceSummary"));
             putIfPresent(childMetadata, "interactionId", nodeTrace.get("interactionId"));
+            putIfPresent(childMetadata, "interactionType", nodeTrace.get("interactionType"));
             child.setMetadataJson(json(childMetadata));
             child.setErrorCode(firstText(nodeTrace.get("failureCode"),
                     "FAILED".equalsIgnoreCase(status) ? workflowCode : null));

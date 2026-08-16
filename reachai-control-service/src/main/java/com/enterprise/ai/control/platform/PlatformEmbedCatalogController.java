@@ -170,6 +170,7 @@ public class PlatformEmbedCatalogController {
                         request.routePattern(),
                         null,
                         null,
+                        null,
                         List.of(actionInput)),
                 PageSource.MANUAL,
                 false);
@@ -201,6 +202,7 @@ public class PlatformEmbedCatalogController {
                         request.name(),
                         stringValue(metadata.get("description")),
                         request.routePattern(),
+                        businessPageUrl(request.origin(), request.routePattern()),
                         stringValue(metadata.get("componentPath")),
                         null,
                         actionInputs),
@@ -367,7 +369,9 @@ public class PlatformEmbedCatalogController {
                 entity.pageKey(),
                 entity.name(),
                 entity.routePattern(),
-                entity.sourceType(),
+                currentSession == null
+                        ? businessPageOrigin(entity.businessPageUrl())
+                        : currentSession.getOrigin(),
                 currentSession == null ? null : currentSession.getPageInstanceId(),
                 entity.lifecycleStatus(),
                 instantText(currentSession == null
@@ -376,6 +380,7 @@ public class PlatformEmbedCatalogController {
                 toJson(Map.of(
                         "moduleKey", nullToEmpty(entity.moduleKey()),
                         "moduleName", nullToEmpty(entity.moduleName()),
+                        "businessPageUrl", nullToEmpty(entity.businessPageUrl()),
                         "componentPath", nullToEmpty(entity.componentPath()))));
     }
 
@@ -524,7 +529,12 @@ public class PlatformEmbedCatalogController {
 
     private Long projectId(String projectCode) {
         Map<String, Object> project = capabilityClient.getProjectByCode(projectCode);
-        Object value = project.get("id");
+        // Capability project views use projectId; older clients returned id. Accept both
+        // so SDK page registration works against the canonical Capability service contract.
+        Object value = project.get("projectId");
+        if (value == null) {
+            value = project.get("id");
+        }
         if (value instanceof Number number) {
             return number.longValue();
         }
@@ -536,6 +546,29 @@ public class PlatformEmbedCatalogController {
 
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private String businessPageUrl(String origin, String route) {
+        if (!StringUtils.hasText(origin)) {
+            return null;
+        }
+        String normalizedOrigin = origin.trim().replaceAll("/+$", "");
+        if (!StringUtils.hasText(route)) {
+            return normalizedOrigin;
+        }
+        return normalizedOrigin + "/" + route.trim().replaceFirst("^/+", "");
+    }
+
+    private String businessPageOrigin(String businessPageUrl) {
+        if (!StringUtils.hasText(businessPageUrl)) {
+            return null;
+        }
+        try {
+            java.net.URI uri = java.net.URI.create(businessPageUrl);
+            return uri.getScheme() + "://" + uri.getRawAuthority();
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
     }
 
     private String nullToEmpty(String value) {
