@@ -36,7 +36,7 @@ export interface UseWorkflowStudioGraphAnalysisDeps {
 }
 
 function nodeInputMapping(data: CanvasNode['data']) {
-  if (data.kind === 'tool' || data.kind === 'skill') return data.toolConfig?.inputMapping || data.inputMapping || {}
+  if (data.kind === 'tool') return data.toolConfig?.inputMapping || data.inputMapping || {}
   if (data.kind === 'mcp') return data.mcpConfig?.inputMapping || data.inputMapping || {}
   return data.inputMapping || {}
 }
@@ -175,7 +175,7 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
       if (!(outgoing.get(node.id) || 0)) {
         items.push({ level: 'warning', nodeId: node.id, message: `${node.data.label || node.id} 没有出边` })
       }
-      if ((node.data.kind === 'tool' || node.data.kind === 'skill') && !node.data.toolConfig?.ref) {
+      if (node.data.kind === 'tool' && !node.data.toolConfig?.ref) {
         items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 未选择引用能力` })
       }
       const mapping = nodeInputMapping(node.data)

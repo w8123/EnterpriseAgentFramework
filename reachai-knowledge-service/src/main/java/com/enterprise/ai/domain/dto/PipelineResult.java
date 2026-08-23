@@ -15,6 +15,9 @@ public class PipelineResult {
     /** 文件业务ID */
     private String fileId;
 
+    /** Async document import job, when this pipeline was committed from one. */
+    private String importJobId;
+
     /** 知识库编码 */
     private String knowledgeBaseCode;
 
@@ -32,4 +35,8 @@ public class PipelineResult {
 
     /** 错误信息（仅失败时有值） */
     private String errorMessage;
+
+    private String providerType;
+
+    private String providerVersion;
 }

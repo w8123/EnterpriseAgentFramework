@@ -41,7 +41,6 @@ public class CapabilityToolCatalogController {
             @RequestParam(required = false) Long projectId) {
         IPage<ToolDefinitionEntity> page = toolCatalogService.page(current, size, keyword, source, enabled, projectId);
         List<ToolInfoDTO> records = page.getRecords().stream()
-                .filter(entity -> !CapabilityToolCatalogService.KIND_SKILL.equalsIgnoreCase(entity.getKind()))
                 .map(this::toDto)
                 .toList();
         return ResponseEntity.ok(new ToolListPageResponse(
@@ -138,7 +137,6 @@ public class CapabilityToolCatalogController {
         return new ToolInfoDTO(
                 entity.getName(),
                 entity.getTitle(),
-                entity.getKind() == null ? CapabilityToolCatalogService.KIND_TOOL : entity.getKind(),
                 entity.getDescription(),
                 params,
                 entity.getSource(),
@@ -164,8 +162,7 @@ public class CapabilityToolCatalogController {
     }
 
     private CatalogLink resolveCatalogLink(ToolDefinitionEntity entity) {
-        if (entity.getProjectId() == null
-                || !CapabilityToolCatalogService.KIND_TOOL.equalsIgnoreCase(entity.getKind())) {
+        if (entity.getProjectId() == null) {
             return CatalogLink.empty();
         }
         return toolCatalogService.findCatalogScanTool(entity)
@@ -190,7 +187,6 @@ public class CapabilityToolCatalogController {
 
     record ToolInfoDTO(String name,
                        String title,
-                       String kind,
                        String description,
                        List<ToolParameterDTO> parameters,
                        String source,

@@ -4,7 +4,6 @@ import { useWorkflowStudioResources } from './useWorkflowStudioResources'
 
 const mocks = vi.hoisted(() => ({
   getApiGraphParamHints: vi.fn(),
-  listAllCompositions: vi.fn(),
   getKnowledgeList: vi.fn(),
   getModelInstances: vi.fn(),
   listAllTools: vi.fn(),
@@ -14,9 +13,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/api/apiGraph', () => ({
   getApiGraphParamHints: mocks.getApiGraphParamHints,
-}))
-vi.mock('@/api/composition', () => ({
-  listAllCompositions: mocks.listAllCompositions,
 }))
 vi.mock('@/api/knowledge', () => ({
   getKnowledgeList: mocks.getKnowledgeList,

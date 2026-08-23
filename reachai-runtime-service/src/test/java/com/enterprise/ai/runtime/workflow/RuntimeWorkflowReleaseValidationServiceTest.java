@@ -381,7 +381,7 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                 {
                   "nodes":[
                     {"id":"tool","type":"TOOL","config":{"inputMapping":{}}},
-                    {"id":"capability","type":"CAPABILITY","config":{}}
+                    {"id":"capability","type":"TOOL","config":{}}
                   ],
                   "edges":[{"from":"tool","to":"capability"}],
                   "entryNodeId":"tool",
@@ -406,8 +406,8 @@ class RuntimeWorkflowReleaseValidationServiceTest {
                 {
                   "nodes":[
                     {"id":"tool","type":"TOOL","ref":{"qualifiedName":"orders:query"}},
-                    {"id":"capability","type":"CAPABILITY","config":{
-                      "capabilityConfig":{"ref":{"qualifiedName":"orders:submit"}}
+                    {"id":"capability","type":"TOOL","config":{
+                      "toolConfig":{"ref":{"qualifiedName":"orders:submit"}}
                     }}
                   ],
                   "edges":[{"from":"tool","to":"capability"}],

@@ -33,7 +33,7 @@ Current Runtime-executable node families:
 - Branching: `IF_ELSE`, `INTENT_CLASSIFIER`
 - Structured extraction: `PARAMETER_EXTRACT`
 - Output: `ANSWER`
-- Integrations: `TOOL`, `CAPABILITY`
+- Integrations: `TOOL`
 - Page automation: `PAGE_ACTION` (PAGE_ASSISTANT only)
 - Structured display: `INTERACTION`, currently restricted to `enabledVariants=["PRESENT_OUTPUT"]`
 
@@ -250,7 +250,7 @@ This is the canonical Tool-output-to-Tool-input pattern for “按名称查详�
 
 ### INTERACTION / PRESENT_OUTPUT
 
-`PRESENT_OUTPUT` is a non-blocking display node. It does not pause a Workflow and does not accept a user submission. Use it after a structured `PAGE_ACTION`, `TOOL` or `CAPABILITY` result so Embed clients receive a formal `ui.requested` event instead of relying on an LLM to turn data into Markdown.
+`PRESENT_OUTPUT` is a non-blocking display node. It does not pause a Workflow and does not accept a user submission. Use it after a structured `PAGE_ACTION` or `TOOL` result so Embed clients receive a formal `ui.requested` event instead of relying on an LLM to turn data into Markdown.
 
 ```json
 {

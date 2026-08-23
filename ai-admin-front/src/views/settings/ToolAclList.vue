@@ -5,7 +5,7 @@
       domain="governance"
       eyebrow="Runtime Governance"
       title="Tool ACL（角色 × 能力 黑白名单）"
-      description="以角色为入口管理 Tool 与能力的允许、拒绝规则，并在发布前完成权限诊断。"
+      description="以角色为入口管理 Tool 的允许、拒绝规则，并在发布前完成权限诊断。"
     >
       <template #actions>
         <el-tooltip content="批量授权" placement="top">
@@ -32,7 +32,7 @@
       show-icon
       :closable="false"
       title="决策规则：DENY 优先；无命中默认拒绝"
-      description="上下文 roles 为空时后端走兼容旧行为（不拦截，仅 warn），接入生产前请确保所有入口都把用户角色注入 ChatRequest.roles 或由网关从 JWT 解出。target_name='*' 代表通配；target_kind='ALL' = TOOL ∪ SKILL。"
+      description="上下文 roles 为空时后端走兼容旧行为（不拦截，仅 warn），接入生产前请确保所有入口都把用户角色注入 ChatRequest.roles 或由网关从 JWT 解出。target_name='*' 代表通配；target_kind='ALL' 表示全部 TOOL。"
     />
 
     <div class="acl-body workbench-list-surface">
@@ -141,7 +141,6 @@
         <el-form-item label="类型" required>
           <el-radio-group v-model="editing.targetKind">
             <el-radio-button label="TOOL" />
-            <el-radio-button label="SKILL" />
             <el-radio-button label="ALL" />
           </el-radio-group>
         </el-form-item>
@@ -185,14 +184,6 @@
             type="textarea"
             :rows="3"
             placeholder="每行一个 tool 名，留空则跳过"
-          />
-        </el-form-item>
-        <el-form-item label="SKILL 列表">
-          <el-input
-            v-model="batchForm.skillsRaw"
-            type="textarea"
-            :rows="3"
-            placeholder="每行一个能力名（后端 kind 仍为 SKILL）"
           />
         </el-form-item>
         <el-form-item label="备注">
@@ -287,7 +278,6 @@ const batchForm = reactive({
   roleCode: '',
   permission: 'ALLOW' as ToolAclPermission,
   toolsRaw: '',
-  skillsRaw: '',
   note: '',
 })
 
@@ -305,7 +295,6 @@ const filteredRoles = computed(() => {
 })
 
 function kindTagType(kind: ToolAclTargetKind) {
-  if (kind === 'SKILL') return 'warning'
   if (kind === 'ALL') return 'info'
   return ''
 }
@@ -435,7 +424,6 @@ function openBatchDialog() {
   batchForm.roleCode = selectedRole.value || ''
   batchForm.permission = 'ALLOW'
   batchForm.toolsRaw = ''
-  batchForm.skillsRaw = ''
   batchForm.note = ''
   batchDialogOpen.value = true
 }
@@ -447,10 +435,9 @@ async function handleBatchGrant() {
   }
   const targets: ToolAclTargetRef[] = [
     ...parseLines(batchForm.toolsRaw, 'TOOL'),
-    ...parseLines(batchForm.skillsRaw, 'SKILL'),
   ]
   if (targets.length === 0) {
-    ElMessage.warning('请至少填写一个 tool 或能力条目')
+    ElMessage.warning('请至少填写一个 tool 条目')
     return
   }
   saving.value = true

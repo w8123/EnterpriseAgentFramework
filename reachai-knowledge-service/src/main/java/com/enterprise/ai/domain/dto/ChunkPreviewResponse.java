@@ -28,5 +28,8 @@ public class ChunkPreviewResponse {
         private int index;
         private String content;
         private int length;
+        private String elementType;
+        private String sectionPath;
+        private String sourceLocatorJson;
     }
 }

@@ -436,7 +436,7 @@ assertFile('scripts/check-frontend-public-api-routes.test.mjs')
 assertIncludes('README.md', 'Knowledge / Retrieval')
 assertIncludes('README.md', 'Capability Catalog')
 assertIncludes('README.md', 'Runtime Host')
-assertIncludes('README.md', 'Platform Control')
+assertIncludes('README.md', 'Control / Embed Gateway')
 assertIncludes('AGENTS.md', 'ReachAI Agent Rules')
 assertIncludes('AGENTS.md', 'reachai-control-service')
 assertIncludes('AGENTS.md', 'reachai-runtime-service')
@@ -475,7 +475,6 @@ assertNotIncludes('docs/architecture/public-route-contracts.md', '`/api/agent/ex
 assertIncludes('docs/architecture/public-route-contracts.md', '`/api/skill-mining/**`')
 assertIncludes('docs/architecture/public-route-contracts.md', '`/internal/runtime/**`')
 assertIncludes('docs/README.md', 'architecture/public-route-contracts.md')
-assertIncludes('README.md', 'Public Route Contracts')
 assertIncludes('docs/architecture/service-table-ownership.md', '`runtime_skill_interaction`')
 assertIncludes('docs/architecture/service-table-ownership.md', 'Shared Table Exceptions Retired')
 assertIncludes('docs/architecture/internal-api-contracts.md', '`GET /internal/control/page-actions/{projectCode}/{pageKey}/{actionKey}`')
@@ -652,7 +651,7 @@ const keyApiPaths = [
   ['reachai-model-service/src/main/java/com/enterprise/ai/model/instance/ModelInstanceController.java', '@RequestMapping("/model/instances")'],
   ['reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/KnowledgeController.java', '@RequestMapping("/knowledge")'],
   ['reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/FileController.java', '@RequestMapping("/file")'],
-  ['reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/PipelineController.java', '@RequestMapping("/pipeline")'],
+  ['reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/DocumentImportJobController.java', '@RequestMapping(KnowledgeBizIndexConsoleAuthFilter.DOCUMENT_IMPORT_PREFIX)'],
   ['reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/RagController.java', '@RequestMapping("/rag")'],
   ['reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/RetrievalController.java', '@RequestMapping("/retrieval")'],
   ['reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/ScannerController.java', '@RequestMapping("/scanner")'],
@@ -660,15 +659,13 @@ const keyApiPaths = [
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/registry/CapabilityRegistryOperationsCompatibilityController.java', '@RequestMapping("/api/registry")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/registry/CapabilityRegistryCompatibilityController.java', '@RequestMapping("/api/registry/projects")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/graph/CapabilityApiGraphSnapshotController.java', '@RequestMapping("/api/api-graph/projects/{projectId}")'],
-  ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/mining/CapabilityMiningController.java', '@RequestMapping({"/api/skill-mining", "/api/capability-mining"})'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/scan/CapabilityScanProjectCatalogController.java', '@RequestMapping("/api/scan-projects")'],
-  ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/composition/CapabilityCompositionCatalogController.java', '@RequestMapping({"/api/compositions", "/api/skills"})'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/tool/CapabilityToolCatalogController.java', '@RequestMapping("/api/tools")'],
   ['reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/retrieval/CapabilityToolRetrievalController.java', '@RequestMapping("/api/tool-retrieval")'],
   ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/api/RuntimePublicController.java', '@PostMapping("/api/runtime/agents/execute")'],
   ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/api/RuntimeWorkflowPublicController.java', '@GetMapping("/api/workflows")'],
   ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/api/RuntimeWorkflowCredentialPublicController.java', '@GetMapping("/api/workflows/credentials")'],
-  ['reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/internal/RuntimeToolCallLogInternalController.java', '@RequestMapping("/internal/runtime/tool-call-logs")'],
+  ['reachai-control-service/src/main/java/com/enterprise/ai/control/knowledge/KnowledgeDocumentImportController.java', '@RequestMapping("/api/knowledge")'],
   ['reachai-control-service/src/main/java/com/enterprise/ai/control/platform/PlatformEmbedPublicController.java', '@RequestMapping("/api/embed")'],
   ['reachai-control-service/src/main/java/com/enterprise/ai/control/aiassist/ControlAiAssistSkillController.java', '@RequestMapping("/api/ai-assist")'],
   ['reachai-control-service/src/main/java/com/enterprise/ai/control/aiassist/ControlAiCodingProjectController.java', '@RequestMapping("/api/ai-coding/projects/{projectId}")'],
@@ -679,6 +676,15 @@ const keyApiPaths = [
 
 for (const [rel, apiPath] of keyApiPaths) {
   assertIncludes(rel, apiPath)
+}
+
+for (const retiredController of [
+  'reachai-knowledge-service/src/main/java/com/enterprise/ai/controller/PipelineController.java',
+  'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/mining/CapabilityMiningController.java',
+  'reachai-capability-service/src/main/java/com/enterprise/ai/capability/catalog/composition/CapabilityCompositionCatalogController.java',
+  'reachai-runtime-service/src/main/java/com/enterprise/ai/runtime/internal/RuntimeToolCallLogInternalController.java'
+]) {
+  assertPathAbsent(retiredController)
 }
 
 const allowedDiffScanFiles = new Set(['scripts/check-backend-boundary-naming.mjs'])

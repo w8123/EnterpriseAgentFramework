@@ -35,7 +35,7 @@ alwaysApply: true
 - 当前后端主路径是 `reachai-control-service`、`reachai-runtime-service`、`reachai-capability-service`、`reachai-knowledge-service`、`reachai-model-service`；旧 `ai-agent-service` 不再作为 Maven、IDEA、本地启动或部署单元存在。
 - `GraphSpec` 是运行语义，`canvas_json` 只是画布布局。
 - `AgentRuntimeAdapter` 是运行时统一执行契约。
-- `Capability / 能力` 是产品默认命名；`Skill` 多为历史命名或兼容敏感存储名，不能盲目全局替换。
+- `Capability / 能力` 是产品默认命名。ReachAI 禁止重新引入自创的 Skill 业务资产模型。Skill 仅用于标准 Agent Skill 包或外部协议字段；Capability 是业务资产，Tool 是调用协议，Workflow 是 GraphSpec 编排。
 
 ## Validation
 

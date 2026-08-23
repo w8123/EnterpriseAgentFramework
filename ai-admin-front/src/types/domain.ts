@@ -12,7 +12,7 @@ export interface DomainDef {
 
 export interface DomainAssignment {
   id?: number
-  targetKind: 'TOOL' | 'SKILL' | 'PROJECT' | 'AGENT'
+  targetKind: 'TOOL' | 'PROJECT' | 'AGENT'
   targetName: string
   domainCode: string
   weight?: number
@@ -25,7 +25,6 @@ export interface DomainCoverageRow {
   domainCode: string
   name: string
   toolCount: number
-  skillCount: number
   agentCount: number
   projectCount: number
 }
@@ -43,7 +42,7 @@ export interface DomainClassifyResponse {
 }
 
 export interface TargetRefBody {
-  kind: 'TOOL' | 'SKILL' | 'PROJECT' | 'AGENT'
+  kind: 'TOOL' | 'PROJECT' | 'AGENT'
   name: string
   weight?: number
 }

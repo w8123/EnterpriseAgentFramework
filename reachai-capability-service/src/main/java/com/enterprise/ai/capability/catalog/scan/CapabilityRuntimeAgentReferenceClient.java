@@ -11,6 +11,6 @@ public interface CapabilityRuntimeAgentReferenceClient {
     @GetMapping("/internal/runtime/agent-tool-references")
     List<AgentToolReferenceView> listAgentToolReferences();
 
-    record AgentToolReferenceView(String agentId, String agentName, List<String> tools, List<String> skills) {
+    record AgentToolReferenceView(String agentId, String agentName, List<String> tools) {
     }
 }

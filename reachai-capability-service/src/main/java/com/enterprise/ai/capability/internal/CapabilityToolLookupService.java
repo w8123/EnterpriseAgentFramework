@@ -40,12 +40,10 @@ public class CapabilityToolLookupService {
         body.put("id", entity.getId());
         body.put("name", entity.getName());
         body.put("title", entity.getTitle());
-        body.put("kind", entity.getKind());
         body.put("description", entity.getDescription());
         body.put("aiDescription", entity.getAiDescription());
         body.put("capabilityMetadataJson", entity.getCapabilityMetadataJson());
         body.put("parametersJson", entity.getParametersJson());
-        body.put("specJson", entity.getSpecJson());
         body.put("source", entity.getSource());
         body.put("sourceLocation", entity.getSourceLocation());
         body.put("httpMethod", entity.getHttpMethod());
@@ -60,8 +58,6 @@ public class CapabilityToolLookupService {
         body.put("moduleId", entity.getModuleId());
         body.put("enabled", entity.getEnabled());
         body.put("sideEffect", entity.getSideEffect());
-        body.put("skillKind", entity.getSkillKind());
-        body.put("draft", entity.getDraft());
         body.put("createTime", String.valueOf(entity.getCreateTime()));
         body.put("updateTime", String.valueOf(entity.getUpdateTime()));
         return body;

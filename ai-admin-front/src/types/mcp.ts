@@ -20,7 +20,7 @@ export interface McpClientCreateResult {
 
 export interface McpVisibility {
   id?: number
-  targetKind: 'TOOL' | 'SKILL'
+  targetKind: 'TOOL'
   targetName: string
   exposed: boolean
   note?: string | null

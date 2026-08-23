@@ -5,7 +5,7 @@
       domain="governance"
       eyebrow="MCP Governance"
       title="MCP 暴露白名单"
-      description="决定哪些 Tool 与粗粒度能力可被外部 MCP Client 发现。"
+      description="决定哪些 Tool 可被外部 MCP Client 发现。"
     >
       <template #tags>
         <el-tag round effect="plain" type="success">{{ exposedCount }} 已暴露</el-tag>
@@ -33,14 +33,13 @@
           <el-input
             v-model="filterText"
             class="visibility-search"
-            placeholder="搜索 Tool 或能力名称"
+            placeholder="搜索 Tool 名称"
             clearable
             :prefix-icon="Search"
           />
           <el-radio-group v-model="filterKind" aria-label="按类型筛选">
             <el-radio-button value="">全部</el-radio-button>
             <el-radio-button value="TOOL">Tool</el-radio-button>
-            <el-radio-button value="SKILL">能力</el-radio-button>
           </el-radio-group>
         </div>
       </header>
@@ -68,7 +67,7 @@
         <el-table :data="filteredRows" class="visibility-table" row-key="id" size="default">
           <el-table-column prop="targetKind" label="类型" width="112">
             <template #default="{ row }">
-              <el-tag size="small" effect="plain" :type="row.targetKind === 'SKILL' ? 'success' : 'info'">
+              <el-tag size="small" effect="plain" type="info">
                 {{ kindLabel(row.targetKind) }}
               </el-tag>
             </template>
@@ -140,7 +139,6 @@
         <el-form-item label="对象类型" required>
           <el-radio-group v-model="addForm.kind" class="add-kind-selector">
             <el-radio-button value="TOOL">Tool</el-radio-button>
-            <el-radio-button value="SKILL">粗粒度能力</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="名称" required>
@@ -193,11 +191,11 @@ const saving = ref(false)
 const updatingKey = ref('')
 const rows = ref<McpVisibility[]>([])
 const filterText = ref('')
-const filterKind = ref<'' | 'TOOL' | 'SKILL'>('')
+const filterKind = ref<'' | 'TOOL'>('')
 const addDialogOpen = ref(false)
 
 const addForm = reactive({
-  kind: 'TOOL' as 'TOOL' | 'SKILL',
+  kind: 'TOOL' as 'TOOL',
   name: '',
   note: '',
 })
@@ -214,8 +212,8 @@ const filteredRows = computed(() => {
 const exposedCount = computed(() => rows.value.filter((row) => row.exposed).length)
 const hasActiveFilters = computed(() => Boolean(filterText.value.trim() || filterKind.value))
 
-function kindLabel(kind: McpVisibility['targetKind']) {
-  return kind === 'SKILL' ? '能力' : 'Tool'
+function kindLabel(_kind: McpVisibility['targetKind']) {
+  return 'Tool'
 }
 
 function rowKey(row: McpVisibility) {

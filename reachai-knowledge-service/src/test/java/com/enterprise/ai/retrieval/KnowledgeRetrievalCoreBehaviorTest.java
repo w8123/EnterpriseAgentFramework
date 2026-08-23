@@ -5,8 +5,7 @@ import com.enterprise.ai.domain.entity.Chunk;
 import com.enterprise.ai.domain.entity.FileInfo;
 import com.enterprise.ai.domain.entity.KnowledgeBase;
 import com.enterprise.ai.embedding.EmbeddingService;
-import com.enterprise.ai.pipeline.chunk.ChunkStrategyFactory;
-import com.enterprise.ai.pipeline.parser.DocumentParserFactory;
+import com.enterprise.ai.pipeline.document.artifact.DocumentArtifactStore;
 import com.enterprise.ai.repository.ChunkRepository;
 import com.enterprise.ai.repository.FileInfoRepository;
 import com.enterprise.ai.repository.KnowledgeBaseRepository;
@@ -75,8 +74,7 @@ class KnowledgeRetrievalCoreBehaviorTest {
                 embeddingService,
                 modelServiceClient,
                 vectorService,
-                mock(DocumentParserFactory.class),
-                mock(ChunkStrategyFactory.class));
+                mock(DocumentArtifactStore.class));
         core = new KnowledgeRetrievalCore(engine);
     }
 

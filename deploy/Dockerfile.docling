@@ -1,0 +1,20 @@
+# Docling supports legacy .doc only when LibreOffice is present.  The base
+# image already includes Docling models and Tesseract; this derivative adds
+# headless Office conversion and CJK fonts for enterprise documents.
+FROM ghcr.io/docling-project/docling-serve-cpu:v1.30.0@sha256:d822fc5d69272b5e614fd370ed835a6b5f1add34674968527f1e598a97260b48
+
+USER 0
+
+RUN dnf -y install --best --nodocs --setopt=install_weak_deps=False \
+      libreoffice-headless libreoffice-writer libreoffice-calc libreoffice-impress \
+      fontconfig google-noto-sans-cjk-ttc-fonts glibc-langpack-zh && \
+    fc-cache -f && \
+    dnf -y clean all && \
+    rm -rf /var/cache/dnf && \
+    /usr/bin/fix-permissions /opt/app-root/src
+
+USER 1001
+
+ENV LANG=zh_CN.UTF-8 \
+    LC_ALL=zh_CN.UTF-8 \
+    DOCLING_SERVE_ENABLE_UI=false

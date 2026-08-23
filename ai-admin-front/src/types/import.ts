@@ -10,7 +10,6 @@ export interface ChunkConfig {
 
 /** 高级参数 */
 export interface ExtraParams {
-  enableOcr: boolean
   tags: string[]
   deptId: string
   overwrite: boolean
@@ -21,6 +20,9 @@ export interface ChunkItem {
   index: number
   content: string
   length: number
+  elementType?: string | null
+  sectionPath?: string | null
+  sourceLocatorJson?: string | null
 }
 
 /** Chunk 预览响应 */
@@ -33,15 +35,38 @@ export interface ChunkPreviewResponse {
   chunks: ChunkItem[]
 }
 
-/** Pipeline 执行结果 */
-export interface PipelineResult {
+export type DocumentImportJobStatus =
+  | 'QUEUED'
+  | 'PARSING'
+  | 'PARSED'
+  | 'INDEXING'
+  | 'COMPLETED'
+  | 'RETRY_WAIT'
+  | 'FAILED'
+  | 'CANCELLED'
+
+/** One upload is retained while parsing, preview and formal indexing share it. */
+export interface DocumentImportJob {
+  jobId: string
   fileId: string
+  replaceFileId?: string | null
   knowledgeBaseCode: string
-  chunkCount: number
-  vectorCount: number
-  stepDurations: Record<string, number>
-  status: 'SUCCESS' | 'FAILED' | 'ABORTED'
-  errorMessage: string | null
+  fileName: string
+  fileType: string
+  providerType: 'JAVA_FAST' | 'DOCLING'
+  providerVersion?: string | null
+  status: DocumentImportJobStatus
+  stage: string
+  attemptCount: number
+  maxAttempts: number
+  autoCommit: boolean
+  errorCode?: string | null
+  errorMessage?: string | null
+  parsedAt?: string | null
+  completedAt?: string | null
+  createTime?: string | null
+  updateTime?: string | null
+  preview?: ChunkPreviewResponse | null
 }
 
 /** 统一响应结构 */

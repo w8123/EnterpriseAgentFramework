@@ -28,7 +28,6 @@ class CapabilityToolLookupServiceTest {
         assertEquals(12L, tool.get("id"));
         assertEquals("createOrder", tool.get("name"));
         assertEquals("创建订单", tool.get("title"));
-        assertEquals("TOOL", tool.get("kind"));
         assertEquals("orders:createOrder", tool.get("qualifiedName"));
         assertEquals("orders", tool.get("projectCode"));
         assertEquals(Boolean.TRUE, tool.get("enabled"));
@@ -52,12 +51,10 @@ class CapabilityToolLookupServiceTest {
         entity.setId(12L);
         entity.setName("createOrder");
         entity.setTitle("创建订单");
-        entity.setKind("TOOL");
         entity.setDescription("Create order");
         entity.setAiDescription("Creates an order");
         entity.setCapabilityMetadataJson("{}");
         entity.setParametersJson("[]");
-        entity.setSpecJson(null);
         entity.setSource("sdk");
         entity.setSourceLocation("sdk:orders:createOrder");
         entity.setHttpMethod("POST");
@@ -72,8 +69,6 @@ class CapabilityToolLookupServiceTest {
         entity.setModuleId(3L);
         entity.setEnabled(true);
         entity.setSideEffect("WRITE");
-        entity.setSkillKind(null);
-        entity.setDraft(false);
         entity.setCreateTime(LocalDateTime.of(2026, 6, 29, 10, 0));
         entity.setUpdateTime(LocalDateTime.of(2026, 6, 29, 10, 5));
         return entity;

@@ -52,7 +52,7 @@ node scripts/apply-memory-migrations.mjs --execute --confirm=reach_ai --allow-re
 - 注册中心、项目实例、能力快照、字段级 diff、review/apply。
 - 扫描项目、扫描模块、项目接口、语义文档、API 图谱。
 - Tool / Capability 资产、交互式能力挂起恢复。
-- RunOps 根运行事实 `runtime_run`、通用子事件 `runtime_trace_span`、Tool 调用、Tool ACL、Guard、SlotExtractor、DomainClassifier。
+- RunOps 根运行事实 `runtime_run`、通用子事件 `runtime_trace_span`、Tool 调用、Tool ACL、Guard、DomainClassifier。
 - MCP、A2A、Gateway、市场资产、嵌入式对话。
 - 业务页面工作台：`control_project_page`、页面资源/动作/分析结果，以及版本化 AI Coding 任务、问题、事件和报告。
 - AI Coding 凭据策略：`control_ai_coding_project_policy`，未配置项目使用平台默认 72 小时。
@@ -76,6 +76,72 @@ node scripts/apply-memory-migrations.mjs --execute --confirm=reach_ai --allow-re
 根目录 `sql/` 保留 `initV2.sql`、本说明和当前仍需应用的 `upgrade-*.sql`。后续真实数据库变更仍需新增当次 upgrade 脚本；该脚本在确认已合入基线且开发/测试库不再需要单独执行后，可以按同样规则清理。
 
 不再执行或新增任何历史 service-level SQL 目录。不要在各服务目录下恢复独立迁移入口；当前唯一入口仍是根目录 `sql/`。
+
+## Upgrade: 20260820 Docling 文档导入闭环
+
+已有开发或测试库在部署新的知识文档导入任务前执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260820-docling-document-import.sql
+```
+
+该脚本只新增 Knowledge-owned 的原件/结构化结果引用列、Chunk 来源锚点和
+`knowledge_document_import_job`。它不会上传、删除或回填任何历史文档；旧文件没有
+原件对象 key，因此不能被“重新解析”接口猜测性地重跑。部署时必须先配置共享的
+S3/MinIO 工件存储，再设置 `REACHAI_KNOWLEDGE_ARTIFACT_STORE_TYPE=s3`；单机开发
+可临时使用默认的 `local` 存储。Docling 本身是 Knowledge 服务的内部依赖，不能作为
+浏览器可访问入口。
+
+验证：
+
+```sql
+SHOW CREATE TABLE knowledge_document_import_job;
+SHOW FULL COLUMNS FROM knowledge_file_info LIKE 'source_object_key';
+SHOW FULL COLUMNS FROM knowledge_chunk LIKE 'source_locator_json';
+```
+
+## Upgrade: 20260820 Docling 索引重试幂等
+
+部署支持安全索引重试的 Knowledge 服务前，在已经完成上一个 Docling 升级的开发或测试库执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260820-docling-import-idempotency.sql
+```
+
+该脚本为 `knowledge_file_info.file_id`、`knowledge_document_import_job.file_id` 以及
+`knowledge_chunk(file_id, chunk_index)` 建立唯一约束，与应用侧 Milvus upsert 和事务内
+元数据替换共同形成幂等闭环。脚本不会静默删除重复知识数据；如果三个前置查询返回
+重复行，唯一索引创建会失败，必须先人工确认并处理冲突数据。
+
+## Upgrade: 20260823 文档导入鉴权作用域
+
+已执行 20260820 Docling 文档导入升级的开发或测试库，在部署 Control 文档导入 BFF 前执行：
+
+```bash
+mysql -uroot -p < sql/upgrade-20260823-document-import-auth-scope.sql
+```
+
+该脚本为 `knowledge_document_import_job` 幂等增加 Control 已验证的 tenant、创建用户以及
+workspace/project/resource scope 快照和查询索引。既有任务不会猜测或回填创建用户，因此
+不能通过新的用户作用域 BFF 查询或变更；内部 Worker 仍可按原任务状态继续执行。
+
+验证：
+
+```sql
+SHOW FULL COLUMNS FROM knowledge_document_import_job LIKE 'created_by_actor_id';
+SHOW FULL COLUMNS FROM knowledge_document_import_job LIKE 'resource_scope';
+SHOW INDEX FROM knowledge_document_import_job WHERE Key_name = 'idx_knowledge_document_import_actor';
+```
+
+## Upgrade: 20260817 删除自创 Skill 业务契约
+
+已有开发或测试库在部署删除 ReachAI 自创 Skill 业务模型的代码前执行。**本脚本是破坏性的，不要由 AI 编程工具自动执行。** 执行前备份。
+
+```bash
+mysql -uroot -p < sql/upgrade-20260817-remove-legacy-skill-contract.sql
+```
+
+影响：删除 `capability_tool_definition.kind='SKILL'` 行及 `kind` / `spec_json` / `skill_kind` / `draft` 列；删除 Tool ACL、Domain、MCP、Guard、Market 中的 SKILL 行（不改名为 CAPABILITY）；DROP `capability_draft`、`capability_eval_snapshot`、`runtime_skill_interaction` 和 SlotExtractor 四表；把存量 GraphSpec / canvas 的旧节点类型、引用类型及 `capabilityConfig` 键一次性改写为 `TOOL` / `toolConfig`，兼容紧凑与常见 pretty-print JSON，并且转义快照只匹配字段名，不会改写普通文本中的 `SKILL`。若仍有旧别名则中止升级并报告目标表列。脚本同时给 `runtime_interaction_session` 增加 `agent_id`、回填已有 Supervisor 审批并建立待审批查询索引。运行时和 Studio 不再读取旧别名。`CAPABILITY_HOST` 与错误码字符串不会被改写。全新环境只执行 `initV2.sql`，不必跑本脚本。
 
 ## Upgrade: 20260815 跨域 Agent 记忆擦除编排
 

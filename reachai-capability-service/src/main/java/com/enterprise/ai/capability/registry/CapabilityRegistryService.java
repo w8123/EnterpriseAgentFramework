@@ -765,7 +765,6 @@ public class CapabilityRegistryService {
                                                  ToolDefinitionEntity globalTool) {
         globalTool.setName(scanTool.getName());
         globalTool.setTitle(scanTool.getTitle());
-        globalTool.setKind("TOOL");
         globalTool.setDescription(scanTool.getDescription());
         globalTool.setAiDescription(scanTool.getAiDescription());
         globalTool.setCapabilityMetadataJson(scanTool.getCapabilityMetadataJson());
@@ -784,9 +783,6 @@ public class CapabilityRegistryService {
         globalTool.setModuleId(scanTool.getModuleId());
         globalTool.setEnabled(Boolean.TRUE.equals(scanTool.getEnabled()));
         globalTool.setSideEffect(sdkSideEffect(registration.sideEffect()));
-        globalTool.setDraft(false);
-        globalTool.setSkillKind(null);
-        globalTool.setSpecJson(null);
     }
 
     private String sdkSideEffect(String value) {
@@ -923,12 +919,10 @@ public class CapabilityRegistryService {
         state.put("id", tool.getId());
         state.put("name", tool.getName());
         state.put("title", tool.getTitle());
-        state.put("kind", tool.getKind());
         state.put("description", tool.getDescription());
         state.put("aiDescription", tool.getAiDescription());
         state.put("capabilityMetadataJson", tool.getCapabilityMetadataJson());
         state.put("parametersJson", tool.getParametersJson());
-        state.put("specJson", tool.getSpecJson());
         state.put("source", tool.getSource());
         state.put("sourceLocation", tool.getSourceLocation());
         state.put("httpMethod", tool.getHttpMethod());
@@ -943,8 +937,6 @@ public class CapabilityRegistryService {
         state.put("moduleId", tool.getModuleId());
         state.put("enabled", tool.getEnabled());
         state.put("sideEffect", tool.getSideEffect());
-        state.put("skillKind", tool.getSkillKind());
-        state.put("draft", tool.getDraft());
         return state;
     }
 
@@ -1027,12 +1019,10 @@ public class CapabilityRegistryService {
         tool.setId(nullableLong(state, "id"));
         tool.setName(nullableText(state, "name"));
         tool.setTitle(nullableText(state, "title"));
-        tool.setKind(nullableText(state, "kind"));
         tool.setDescription(nullableText(state, "description"));
         tool.setAiDescription(nullableText(state, "aiDescription"));
         tool.setCapabilityMetadataJson(nullableText(state, "capabilityMetadataJson"));
         tool.setParametersJson(nullableText(state, "parametersJson"));
-        tool.setSpecJson(nullableText(state, "specJson"));
         tool.setSource(nullableText(state, "source"));
         tool.setSourceLocation(nullableText(state, "sourceLocation"));
         tool.setHttpMethod(nullableText(state, "httpMethod"));
@@ -1047,8 +1037,6 @@ public class CapabilityRegistryService {
         tool.setModuleId(nullableLong(state, "moduleId"));
         tool.setEnabled(nullableBoolean(state, "enabled"));
         tool.setSideEffect(nullableText(state, "sideEffect"));
-        tool.setSkillKind(nullableText(state, "skillKind"));
-        tool.setDraft(nullableBoolean(state, "draft"));
     }
 
     private String nullableText(JsonNode state, String field) {
@@ -1127,7 +1115,6 @@ public class CapabilityRegistryService {
     private Map<String, Object> capabilityLocalImpact() {
         Map<String, Object> impact = new LinkedHashMap<>();
         impact.put("agents", List.of());
-        impact.put("skills", List.of());
         impact.put("aclRuleIds", List.of());
         impact.put("mcp", "MCP visibility is resolved by Control service");
         impact.put("a2a", "A2A impact is resolved by Control service");

@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.supervisor;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
+import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.supervisor.SupervisorApprovalInteractionService.ApprovalRequest;
 import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter.PolicyApprovalGrant;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -48,6 +49,17 @@ public class SupervisorToolPolicyService {
                                    Map<String, Object> input,
                                    Map<String, Object> args,
                                    PolicyApprovalGrant approvalGrant) {
+        return evaluate(trace, agent, config, tool, input, args, approvalGrant, null);
+    }
+
+    public PolicyDecision evaluate(SupervisorExecutionTraceService.TraceHandle trace,
+                                   RuntimeAgentView agent,
+                                   RuntimeAgentConfigVersionEntity config,
+                                   RuntimeAgentWorkflowToolEntity tool,
+                                   Map<String, Object> input,
+                                   Map<String, Object> args,
+                                   PolicyApprovalGrant approvalGrant,
+                                   WorkflowExecutionIdentity trustedIdentity) {
         String riskLevel = normalizeRisk(tool);
         String permissionKey = text(tool.getPermissionKey());
         String profile = firstText(config.getPolicyProfile(), "STANDARD").toUpperCase(Locale.ROOT);
@@ -80,7 +92,8 @@ public class SupervisorToolPolicyService {
         if (confirmationRequired && !approved(permissionKey, tool.getToolName(), args, approvalGrant)) {
             String reason = "执行该 " + riskLevel + " 操作前需要用户确认："
                     + firstText(tool.getToolName(), "Workflow Tool");
-            ApprovalRequest approval = approvalService.create(trace, agent, config, tool, input, args, reason);
+            ApprovalRequest approval = approvalService.create(
+                    trace, agent, config, tool, input, args, reason, trustedIdentity);
             PolicyDecision required = new PolicyDecision(
                     false, true, "REQUIRE_CONFIRMATION", reason, approval.interactionId(), approval.uiRequest());
             trace(required, trace, agent, input, tool, metadata);

@@ -38,7 +38,7 @@ const GRAPH_EDGE_FIELDS = new Set([
   'id', 'from', 'to', 'condition', 'sourceHandle', 'targetHandle', 'priority',
 ])
 const GRAPH_NODE_TYPES = new Set([
-  'LLM', 'USER_INPUT', 'INTERACTION', 'PAGE_ACTION', 'TOOL', 'CAPABILITY',
+  'LLM', 'USER_INPUT', 'INTERACTION', 'PAGE_ACTION', 'TOOL',
   'IF_ELSE', 'VARIABLE_ASSIGN', 'TEMPLATE', 'ANSWER', 'CODE', 'INTENT_CLASSIFIER',
   'VARIABLE_AGGREGATOR', 'HUMAN_APPROVAL', 'LOOP', 'KNOWLEDGE_WRITE',
   'DOCUMENT_EXTRACT', 'MCP_CALL', 'PARAMETER_EXTRACT', 'HTTP_REQUEST',
@@ -137,7 +137,6 @@ function workflowStudioToCanvasForm(studio: WorkflowWorkingCopyState): AgentForm
     intentType: studio.workflowKind || 'GENERAL',
     systemPrompt: '',
     tools: [],
-    skills: [],
     modelInstanceId: studio.defaultModelInstanceId || '',
     runtimeType: toCanvasAgentRuntimeType(studio.executionEngine),
     runtimePlacement: 'CENTRAL',
@@ -187,6 +186,13 @@ export function parseWorkflowGraphSpec(graphSpecJson: string | null | undefined)
     assertOnlyFields(record, GRAPH_NODE_FIELDS, 'GraphSpec node')
     if (typeof record.type !== 'string' || !GRAPH_NODE_TYPES.has(record.type)) {
       throw new Error(`GraphSpec node.type must use a canonical value: ${String(record.type)}`)
+    }
+    const ref = record.ref
+    if (record.type === 'TOOL' && ref && typeof ref === 'object' && !Array.isArray(ref)) {
+      const refRecord = ref as Record<string, unknown>
+      if (refRecord.kind != null && refRecord.kind !== 'TOOL') {
+        throw new Error('GraphSpec TOOL node ref.kind must be TOOL')
+      }
     }
     const config = record.config
     if (config && typeof config === 'object' && !Array.isArray(config)) {

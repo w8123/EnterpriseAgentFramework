@@ -17,7 +17,11 @@ export function getFileExtension(fileName: string): string {
  * 判断文件类型是否支持
  */
 export function isSupportedFile(fileName: string): boolean {
-  const supported = ['doc', 'docx', 'pdf', 'txt']
+  const supported = [
+    'txt', 'md', 'markdown', 'csv',
+    'doc', 'docx', 'pdf', 'pptx', 'xlsx',
+    'png', 'jpg', 'jpeg', 'tif', 'tiff', 'bmp', 'webp',
+  ]
   return supported.includes(getFileExtension(fileName))
 }
 

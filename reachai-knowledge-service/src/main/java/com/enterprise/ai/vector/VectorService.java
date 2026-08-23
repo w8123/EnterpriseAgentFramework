@@ -14,7 +14,8 @@ public interface VectorService {
     void ensureCollection(String collectionName, int dimension);
 
     /**
-     * 批量插入向量
+     * 批量幂等写入向量。相同主键必须覆盖，确保文档索引失败后的任务重试
+     * 不会留下重复主键或重复向量。
      *
      * @param collectionName collection 名称
      * @param ids            向量 ID 列表
@@ -22,7 +23,7 @@ public interface VectorService {
      * @param fileIds        每条向量对应的 file_id（用于权限过滤）
      * @param contents       每条向量对应的文本内容
      */
-    void insert(String collectionName, List<String> ids, List<List<Float>> vectors,
+    void upsert(String collectionName, List<String> ids, List<List<Float>> vectors,
                 List<String> fileIds, List<String> contents);
 
     /**

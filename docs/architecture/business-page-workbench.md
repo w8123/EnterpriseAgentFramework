@@ -70,7 +70,7 @@ JSON 只用于结构化 schema、快照、证据列表和可扩展元数据。�
 
 从“已发布”列表发起验收时，页面同时提交精确的 Workflow 与版本快照。Control 在创建任务时通过 Runtime 已发布查询复核目标，拒绝已下线、页面不匹配或版本漂移的对象。运行后，`PAGE_WORKFLOW_TRACE_READY` 只接受当前任务启动后的当前页面 Trace，并要求 Runtime Run 已完成且成功 `WORKFLOW_TOOL` Span 精确匹配该 Workflow 版本。AI Coding 回传的 `traceId` 必须精确命中；没有回传时仅允许唯一符合条件的 Trace 自动关联，多条候选继续等待明确选择。
 
-`PAGE_WORKFLOW_TRACE_READY` 通过后，Control 再按该精确已发布版本的 GraphSpec 判断是否声明了 `CAPABILITY` / `TOOL` 与 `PAGE_ACTION` 节点。声明的能力节点只有在同一精确 Trace 中观察到相应成功 `WORKFLOW_NODE` 后，`CAPABILITY_TOOL_E2E_READY` 才能通过；声明的页面动作只有在观察到相应节点的 `SUCCESS` 或可解释的 `BUSINESS_TERMINAL` 后，`PAGE_ACTION_E2E_READY` 才能通过。未声明的类别明确显示为 `NOT_REQUIRED`，图中存在节点本身绝不等于已执行。
+`PAGE_WORKFLOW_TRACE_READY` 通过后，Control 再按该精确已发布版本的 GraphSpec 判断是否声明了 `TOOL` 与 `PAGE_ACTION` 节点。声明的能力节点只有在同一精确 Trace 中观察到相应成功 `WORKFLOW_NODE` 后，`CAPABILITY_TOOL_E2E_READY` 才能通过；声明的页面动作只有在观察到相应节点的 `SUCCESS` 或可解释的 `BUSINESS_TERMINAL` 后，`PAGE_ACTION_E2E_READY` 才能通过。未声明的类别明确显示为 `NOT_REQUIRED`，图中存在节点本身绝不等于已执行。
 
 如果页面动作会写入业务数据，`WRITE_ACTION_E2E_READY` 仍只接受真实 `SUCCESS`；`NO_DATA`、`PRECONDITION_FAILED` 与 `USER_CANCELLED` 证明桥接和业务终态已被正确传回，但不会被误标为“写操作成功”。入口可见性、业务正确性和视觉体验继续由结构化浏览器材料与人工验收负责，不能被“Workflow 执行过”替代。
 

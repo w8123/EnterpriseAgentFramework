@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
                 "spring.datasource.driver-class-name=org.h2.Driver",
                 "spring.datasource.username=sa",
                 "spring.datasource.password=",
+                "reachai.auth.local.bootstrap-admin.enabled=false",
                 "reachai.context.personal-memory.outbox-enabled=false",
                 "reachai.context.personal-memory.lifecycle-enabled=false",
                 "services.capability-service.url=http://localhost:18605",

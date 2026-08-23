@@ -860,7 +860,7 @@ class RuntimeGraphSpecExecutorTest {
 
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {"entryNodeId":"query","exitNodeIds":["query"],"nodes":[
-                  {"id":"query","type":"CAPABILITY","ref":{"qualifiedName":"qmssmp:team.search"}}
+                  {"id":"query","type":"TOOL","ref":{"qualifiedName":"qmssmp:team.search"}}
                 ]}
                 """, Map.of());
 
@@ -926,8 +926,8 @@ class RuntimeGraphSpecExecutorTest {
                   "entryNodeId":"tool",
                   "exitNodeIds":["answer"],
                   "nodes":[
-                    {"id":"tool","type":"CAPABILITY","config":{
-                      "capabilityConfig":{"ref":{"qualifiedName":"orders:plain"}}
+                    {"id":"tool","type":"TOOL","config":{
+                      "toolConfig":{"ref":{"qualifiedName":"orders:plain"}}
                     }},
                     {"id":"answer","type":"ANSWER","config":{"template":"{{ lastOutput }}"}}
                   ],

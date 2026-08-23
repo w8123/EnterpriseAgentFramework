@@ -176,7 +176,7 @@ public class ControlMcpAdminController {
 
     private String targetKind(String value) {
         String normalized = StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : "TOOL";
-        if (!List.of("TOOL", "SKILL").contains(normalized)) {
+        if (!List.of("TOOL").contains(normalized)) {
             throw new IllegalArgumentException("target kind is invalid");
         }
         return normalized;

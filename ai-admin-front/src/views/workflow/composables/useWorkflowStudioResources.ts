@@ -1,12 +1,10 @@
 import { computed, ref, type Ref } from 'vue'
 import { getApiGraphParamHints, type ApiGraphParamSourceHint } from '@/api/apiGraph'
-import { listAllCompositions } from '@/api/composition'
 import { getKnowledgeList } from '@/api/knowledge'
 import { getModelInstances } from '@/api/model'
 import { listAllTools } from '@/api/tool'
 import { getWorkflowGraphNodeTypes } from '@/api/workflow'
 import { listWorkflowCredentials } from '@/api/workflowCredential'
-import type { CompositionInfo } from '@/types/composition'
 import type { KnowledgeBase } from '@/types/knowledge'
 import type { ModelInstance } from '@/types/model'
 import type { ToolInfo } from '@/types/tool'
@@ -40,7 +38,6 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
   const modelOptions = ref<ModelInstance[]>([])
   const knowledgeOptions = ref<KnowledgeBase[]>([])
   const toolOptions = ref<ToolInfo[]>([])
-  const compositionOptions = ref<CompositionInfo[]>([])
   const credentialOptions = ref<WorkflowCredential[]>([])
   const paramSourceHints = ref<ApiGraphParamSourceHint[]>([])
   const graphNodeTypeCapabilitiesLoaded = ref(false)
@@ -48,10 +45,6 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
 
   const availableTools = computed(() =>
     toolOptions.value.filter((tool) => tool.enabled),
-  )
-
-  const availableCompositions = computed(() =>
-    compositionOptions.value.filter((composition) => composition.enabled && !composition.draft),
   )
 
   const authoringModelOptions = computed(() => {
@@ -93,14 +86,6 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
       toolOptions.value = await listAllTools({ enabled: true })
     } catch {
       toolOptions.value = []
-    }
-  }
-
-  async function loadCompositionOptions() {
-    try {
-      compositionOptions.value = await listAllCompositions({ enabled: true, draft: false })
-    } catch {
-      compositionOptions.value = []
     }
   }
 
@@ -174,13 +159,11 @@ export function useWorkflowStudioResources(deps: UseWorkflowStudioResourcesDeps)
     paramSourceHints,
     graphNodeTypeCapabilitiesLoaded,
     availableTools,
-    availableCompositions,
     authoringModelOptions,
     selectedAiEditModel,
     selectedToolInfo,
     loadNodeTypes,
     loadToolOptions,
-    loadCompositionOptions,
     loadModelOptions,
     loadKnowledgeOptions,
     loadCredentialOptions,

@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 import java.util.regex.Pattern;
 
 /**
- * 步骤三：文本清洗 — 去除噪声字符，规范化文本格式。
+ * 文本清洗 — 去除噪声字符，规范化文本格式。
  *
  * <p>清洗规则：
  * <ul>
@@ -34,8 +34,8 @@ public class TextCleanStep implements PipelineStep {
 
     @Override
     public void process(PipelineContext context) {
-        // 优先使用 OCR 处理后的文本，否则使用原始文本
-        String text = context.getOcrText() != null ? context.getOcrText() : context.getRawText();
+        // OCR is part of the Docling provider.  TextClean must never try to run a second OCR path.
+        String text = context.getRawText();
         if (text == null) {
             text = "";
         }

@@ -10,7 +10,7 @@ import com.enterprise.ai.bizindex.template.TemplateEngine;
 import com.enterprise.ai.bizindex.vector.BizVectorService;
 import com.enterprise.ai.embedding.EmbeddingService;
 import com.enterprise.ai.pipeline.chunk.ChunkStrategyFactory;
-import com.enterprise.ai.pipeline.parser.DocumentParserFactory;
+import com.enterprise.ai.pipeline.document.DocumentParseRouter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
@@ -38,7 +38,7 @@ class BizIndexProjectScopeTest {
                 mock(BizVectorService.class),
                 mock(EmbeddingService.class),
                 mock(TemplateEngine.class),
-                mock(DocumentParserFactory.class),
+                mock(DocumentParseRouter.class),
                 mock(ChunkStrategyFactory.class),
                 new ObjectMapper());
 

@@ -80,7 +80,7 @@
 
 产品和文档默认使用 `Capability / 能力`。
 
-`Skill` 多为历史命名或兼容存储名。当前新库基线已把历史 SQL 表 `skill_draft`、`skill_eval_snapshot`、`skill_interaction` 收敛为 `capability_draft`、`capability_eval_snapshot`、`runtime_skill_interaction`。`skill_name`、`skill_kind` 等字段如仍承载业务语义，不做无关改名。
+`Skill` 仅用于标准 Agent Skill 包或外部协议字段。ReachAI 禁止重新引入自创的 Skill 业务资产模型；Capability 是业务资产，Tool 是调用协议，Workflow 是 GraphSpec 编排。已退役的 `capability_draft`、`runtime_skill_interaction`、`kind=SKILL` 目录和 GraphSpec `CAPABILITY` 节点不得作为现行资产模型。
 
 `reachai-knowledge-service` 是 Knowledge / Retrieval 部署单元，不再称为“技能服务”。
 

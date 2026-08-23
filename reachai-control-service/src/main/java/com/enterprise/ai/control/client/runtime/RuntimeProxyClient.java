@@ -365,14 +365,6 @@ public interface RuntimeProxyClient {
                                               @RequestParam(value = "userId", required = false) String userId,
                                               @RequestParam("limit") int limit);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/interactions/human-approvals/{interactionId}/submit")
-    ResponseEntity<Object> submitHumanApproval(@PathVariable("interactionId") String interactionId,
-                                               @RequestBody Map<String, Object> body);
-
-    @RequestMapping(method = RequestMethod.DELETE, path = "/api/runtime/interactions/human-approvals/{interactionId}")
-    ResponseEntity<Object> cancelHumanApproval(@PathVariable("interactionId") String interactionId,
-                                               @RequestParam(value = "userId", required = false) String userId);
-
     @RequestMapping(method = RequestMethod.POST, path = "/api/registry/projects/{projectCode}/agent-graphs/sync")
     ResponseEntity<Object> syncAgentGraphs(@PathVariable("projectCode") String projectCode,
                                            @RequestBody Map<String, Object> body);

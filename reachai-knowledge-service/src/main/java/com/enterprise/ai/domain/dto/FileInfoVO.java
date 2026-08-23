@@ -17,6 +17,9 @@ public class FileInfoVO {
     private Integer chunkCount;
     /** 状态: 0-解析中 1-完成 2-失败 */
     private Integer status;
+    private String parseProvider;
+    private String parseProviderVersion;
+    private String importJobId;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }

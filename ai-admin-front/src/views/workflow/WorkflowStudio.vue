@@ -329,36 +329,17 @@
               </button>
             </div>
           </template>
-          <template #node-skill="nodeProps">
-            <div class="studio-node skill-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed }]">
+          <template #node-tool="nodeProps">
+            <div class="studio-node tool-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed, 'needs-config': nodeProps.data.needsConfiguration }]">
               <Handle type="target" :position="Position.Left" />
               <Handle type="source" :position="Position.Right" />
               <div class="node-icon"><el-icon><Briefcase /></el-icon></div>
               <div class="node-head">
                 <span class="node-kind">能力</span>
-                <span class="node-state">{{ nodeProps.data.toolConfig?.ref ? '已配置' : '未配置' }}</span>
-              </div>
-              <div class="node-label">{{ nodeProps.data.toolConfig?.ref || '未选择能力' }}</div>
-              <div class="node-desc">{{ nodeProps.data.description || '粗粒度业务能力' }}</div>
-              <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
-              <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
-              <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
-                <span class="runtime-dot"></span>
-                <span>{{ nodeRunLabel(nodeProps.id) }}</span>
-              </button>
-            </div>
-          </template>
-          <template #node-tool="nodeProps">
-            <div class="studio-node tool-node" :class="[nodeRunClass(nodeProps.id), { collapsed: nodeProps.data.collapsed, 'needs-config': nodeProps.data.needsConfiguration }]">
-              <Handle type="target" :position="Position.Left" />
-              <Handle type="source" :position="Position.Right" />
-              <div class="node-icon"><el-icon><Tools /></el-icon></div>
-              <div class="node-head">
-                <span class="node-kind">工具</span>
                 <span class="node-state">{{ nodeProps.data.toolConfig?.projectCode || studio?.projectCode || '全局' }}</span>
               </div>
-              <div class="node-label">{{ nodeProps.data.toolConfig?.ref || '未选择工具' }}</div>
-              <div class="node-desc">{{ nodeProps.data.description || '原子工具调用' }}</div>
+              <div class="node-label">{{ nodeProps.data.toolConfig?.ref || '未选择能力' }}</div>
+              <div class="node-desc">{{ nodeProps.data.description || '业务能力调用' }}</div>
               <div class="node-port-row">{{ portSummary(nodeProps.data.inputs, '入') }} · {{ portSummary(nodeProps.data.outputs, '出') }}</div>
               <div v-if="nodeProps.data.outputAlias" class="node-alias">输出别名：{{ nodeProps.data.outputAlias }}</div>
               <button v-if="nodeDebugState(nodeProps.id)" class="node-runtime" type="button" @click.stop="openNodeTrace(nodeProps.id)">
@@ -1327,7 +1308,6 @@
           :model-options="modelOptions"
           :knowledge-options="knowledgeOptions"
           :tool-options="availableTools"
-          :composition-options="availableCompositions"
           :variable-options="variableOptions"
           :credential-options="credentialOptions"
           :param-source-hints="paramSourceHints"
@@ -1535,30 +1515,6 @@
                       <span>{{ item.nodeId }}</span>
                       <em>{{ formatElapsed(item.elapsedMs) }}</em>
                     </button>
-                  </div>
-                  <div class="trace-toolbar">
-                    <el-select
-                      v-model="traceToolPick"
-                      multiple
-                      filterable
-                      placeholder="选中若干工具作为能力草稿序列（留空表示全量）"
-                      style="width: 100%"
-                    >
-                      <el-option
-                        v-for="name in traceToolNames"
-                        :key="name"
-                        :label="name"
-                        :value="name"
-                      />
-                    </el-select>
-                    <el-button
-                      type="warning"
-                      size="small"
-                      :icon="Collection"
-                      :disabled="!traceToolNames.length"
-                      @click="handleExtractCompositionDraft"
-                      :loading="extracting"
-                    >抽取为能力草稿</el-button>
                   </div>
                   <TraceTimeline :nodes="traceNodes" />
                 </div>
@@ -2107,7 +2063,6 @@ import {
   SetUp,
   Switch,
   Tickets,
-  Tools,
   VideoPlay,
   ZoomIn,
   ZoomOut,
@@ -2124,7 +2079,6 @@ import {
   getWorkflowDebugSession,
   validateWorkflowRuntime as validateWorkflowRuntimeApi,
 } from '@/api/workflow'
-import { extractDraftFromTrace } from '@/api/capabilityMining'
 import type { TraceNode } from '@/types/trace'
 import type { RunDetail, RunExecutionPathItem, RunSpan, RunSummary } from '@/types/runops'
 import type { ChatResponse } from '@/types/chat'
@@ -2257,8 +2211,6 @@ const selectedRecentTraceId = ref('')
 const traceReplayLoading = ref(false)
 const recentRunsLoading = ref(false)
 const recentRuns = ref<RunSummary[]>([])
-const traceToolPick = ref<string[]>([])
-const extracting = ref(false)
 const selectedDebugStepIndex = ref<number | null>(null)
 const currentDebugNodeId = ref('')
 const debugPlaybackToken = ref(0)
@@ -2342,13 +2294,11 @@ const {
   paramSourceHints,
   graphNodeTypeCapabilitiesLoaded,
   availableTools,
-  availableCompositions,
   authoringModelOptions,
   selectedAiEditModel,
   selectedToolInfo,
   loadNodeTypes,
   loadToolOptions,
-  loadCompositionOptions,
   loadModelOptions,
   loadKnowledgeOptions,
   loadCredentialOptions,
@@ -2713,13 +2663,6 @@ const debugCurrentUiRequest = computed<UiRequestPayload | null>(() =>
 const debugSessionSteps = computed<WorkflowDebugStepResult[]>(() =>
   debugSession.value?.steps || debugRunResult.value?.steps || [],
 )
-
-const traceToolNames = computed(() => {
-  const names = traceNodes.value
-    .map((n) => (n.toolName || '').trim())
-    .filter((n) => !!n)
-  return Array.from(new Set(names))
-})
 
 const workflowExecutionPath = computed<RunExecutionPathItem[]>(() =>
   (runOpsDetail.value?.executionPath ?? []).filter((item) => {
@@ -3103,7 +3046,6 @@ async function handleSaveStudio() {
 const {
   resolveAiModelInstanceId,
   toolToProposalResource,
-  compositionToProposalResource,
   knowledgeToProposalResource,
 } = useWorkflowStudioProposalContext({
   aiModelInstanceId,
@@ -3288,11 +3230,9 @@ const {
   aiEditLoading,
   aiEditPreview,
   availableTools,
-  availableCompositions,
   knowledgeOptions,
   resolveAiModelInstanceId,
   toolToProposalResource,
-  compositionToProposalResource,
   knowledgeToProposalResource,
   syncJsonFromCanvas,
   canvasSnapshot,
@@ -3496,7 +3436,6 @@ onMounted(async () => {
     loadStudio(),
     loadNodeTypes(),
     loadToolOptions(),
-    loadCompositionOptions(),
     loadModelOptions(),
     loadKnowledgeOptions(),
   ])
@@ -3772,13 +3711,13 @@ async function applySourceBuffer() {
 function handleCreateInteractionCallNode(request: InteractionCallNodeRequest) {
   if (studioReadOnly.value) return
   if (!studio.value || !selectedNode.value || selectedNode.value.data.kind !== 'interaction') return
-  const kind: CanvasNodeKind = request.sourceKind === 'COMPOSITION' ? 'skill' : 'tool'
+  const kind: CanvasNodeKind = 'tool'
   const node = createWorkflowCanvasNode(kind, {
     x: selectedNode.value.position.x + 320,
     y: selectedNode.value.position.y,
   }, studio.value)
   const outputAlias = request.outputAlias || node.data.outputAlias || `${kind}_output`
-  node.data.label = request.label || (kind === 'skill' ? `调用能力 ${request.ref}` : `调用工具 ${request.ref}`)
+  node.data.label = request.label || `调用能力 ${request.ref}`
   node.data.description = request.description || node.data.description || ''
   node.data.outputAlias = outputAlias
   node.data.inputs = Object.keys(request.inputMapping || {}).map((key) => ({
@@ -3978,7 +3917,6 @@ function normalizeCanvasKind(type: string): CanvasNodeKind {
   if (upper === 'INTERACTION') return 'interaction'
   if (upper === 'PAGE_ACTION') return 'pageAction'
   if (upper === 'LLM') return 'llm'
-  if (upper === 'CAPABILITY') return 'skill'
   if (upper === 'TOOL') return 'tool'
   if (upper === 'KNOWLEDGE_RETRIEVAL') return 'knowledge'
   if (upper === 'IF_ELSE') return 'condition'
@@ -4002,7 +3940,6 @@ function normalizeCanvasKind(type: string): CanvasNodeKind {
     'interaction',
     'pageAction',
     'llm',
-    'skill',
     'tool',
     'knowledge',
     'condition',
@@ -4020,9 +3957,10 @@ function normalizeCanvasKind(type: string): CanvasNodeKind {
     'documentExtract',
     'mcp',
   ]
-  return allowed.includes(normalized as CanvasNodeKind)
-    ? normalized as CanvasNodeKind
-    : 'tool'
+  if (!allowed.includes(normalized as CanvasNodeKind)) {
+    throw new Error(`Canvas node kind must use a canonical value: ${type}`)
+  }
+  return normalized as CanvasNodeKind
 }
 
 function sourceLabel(value?: string | null) {
@@ -4293,30 +4231,6 @@ function spanToNodeTraceState(span: RunSpan): WorkflowNodeTraceState | null {
     route: stringMeta(metadata, 'lastRoute') || stringMeta(metadata, 'route'),
     interactionId: stringMeta(metadata, 'interactionId'),
     createdAt: span.startedAt,
-  }
-}
-
-async function handleExtractCompositionDraft() {
-  if (!currentTraceId.value) {
-    ElMessage.warning('请先执行调试获取 trace')
-    return
-  }
-  const picks = traceToolPick.value.length ? traceToolPick.value : traceToolNames.value
-  if (picks.length < 2) {
-    ElMessage.warning('选中工具数量不足 2，无法抽取能力草稿')
-    return
-  }
-  extracting.value = true
-  try {
-    const { data } = await extractDraftFromTrace({
-      traceId: currentTraceId.value,
-      toolNames: picks,
-    })
-    ElMessage.success('已生成能力草稿：' + data.name + '（ID ' + data.id + '）')
-  } catch (err) {
-    ElMessage.error('抽取失败：' + (err as Error).message)
-  } finally {
-    extracting.value = false
   }
 }
 
@@ -6987,16 +6901,10 @@ function formatDebugResult(value: unknown) {
   --node-line: rgba(99, 91, 255, 0.24);
 }
 
-.studio-page .skill-node {
+.studio-page .tool-node {
   --node-color: #d97706;
   --node-soft: rgba(217, 119, 6, 0.1);
   --node-line: rgba(217, 119, 6, 0.24);
-}
-
-.studio-page .tool-node {
-  --node-color: #2563eb;
-  --node-soft: rgba(37, 99, 235, 0.1);
-  --node-line: rgba(37, 99, 235, 0.24);
 }
 
 .studio-page .knowledge-node {

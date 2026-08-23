@@ -18,8 +18,7 @@ public class CapabilityScanProjectAgentReferenceReader implements ScanProjectAge
                 .map(ref -> new AgentToolReference(
                         ref.agentId(),
                         ref.agentName(),
-                        safeList(ref.tools()),
-                        safeList(ref.skills())))
+                        safeList(ref.tools())))
                 .toList();
     }
 

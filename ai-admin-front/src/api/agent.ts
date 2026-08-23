@@ -1,8 +1,5 @@
 import { controlRequest } from './request'
-import type {
-  AgentResult,
-  PendingHumanApproval,
-} from '@/types/agent'
+import type { AgentResult, PendingHumanApproval } from '@/types/agent'
 import type { ChatRequest } from '@/types/chat'
 import { parseSseStream } from '@/conversation/core/parseSseStream'
 import { getPlatformToken } from '@/utils/platformAuth'
@@ -17,16 +14,6 @@ export {
 
 export function listPendingHumanApprovals(params?: { agentId?: string; userId?: string; limit?: number }) {
   return controlRequest.get<PendingHumanApproval[]>('/api/runtime/interactions/human-approvals', { params })
-}
-
-export function submitHumanApproval(
-  interactionId: string,
-  data: { action?: string; values?: Record<string, unknown>; userId?: string; sessionId?: string },
-) {
-  return controlRequest.post<AgentResult>(
-    `/api/runtime/interactions/human-approvals/${encodeURIComponent(interactionId)}/submit`,
-    data,
-  )
 }
 
 export interface AgentExecutionStreamEvent {

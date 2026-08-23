@@ -5,10 +5,14 @@ import com.enterprise.ai.pipeline.PipelineException;
 import com.enterprise.ai.pipeline.PipelineStep;
 import com.enterprise.ai.pipeline.chunk.ChunkStrategy;
 import com.enterprise.ai.pipeline.chunk.ChunkStrategyFactory;
+import com.enterprise.ai.pipeline.document.DocumentChunkSource;
+import com.enterprise.ai.pipeline.document.ParsedDocumentElement;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -39,13 +43,31 @@ public class ChunkStep implements PipelineStep {
         }
 
         ChunkStrategy strategy = strategyFactory.getStrategy(context.getChunkStrategy());
-        List<String> chunks = strategy.split(text, context.getChunkSize(), context.getChunkOverlap());
+        List<String> chunks = new ArrayList<>();
+        List<DocumentChunkSource> sources = new ArrayList<>();
+
+        List<ParsedDocumentElement> elements = context.getParsedDocument() == null
+                ? List.of() : context.getParsedDocument().getElements();
+        if (elements != null && !elements.isEmpty()) {
+            elements.stream()
+                    .filter(element -> element.getText() != null && !element.getText().isBlank())
+                    .sorted(Comparator.comparingInt(ParsedDocumentElement::getOrder))
+                    .forEach(element -> appendElementChunks(strategy, context, chunks, sources, element));
+        }
+        if (chunks.isEmpty()) {
+            List<String> fallbackChunks = strategy.split(text, context.getChunkSize(), context.getChunkOverlap());
+            chunks.addAll(fallbackChunks);
+            for (int index = 0; index < fallbackChunks.size(); index++) {
+                sources.add(DocumentChunkSource.builder().elementType("TEXT").build());
+            }
+        }
 
         if (chunks.isEmpty()) {
             throw new PipelineException(getName(), context.getFileId(), "切分结果为空");
         }
 
         context.setChunks(chunks);
+        context.setChunkSources(sources);
         log.debug("ChunkStep 完成: fileId={}, 策略={}, chunk数量={}",
                 context.getFileId(), context.getChunkStrategy(), chunks.size());
     }
@@ -53,5 +75,22 @@ public class ChunkStep implements PipelineStep {
     @Override
     public String getName() {
         return "CHUNK";
+    }
+
+    private static void appendElementChunks(ChunkStrategy strategy, PipelineContext context,
+                                            List<String> chunks, List<DocumentChunkSource> sources,
+                                            ParsedDocumentElement element) {
+        List<String> elementChunks = strategy.split(element.getText(), context.getChunkSize(), context.getChunkOverlap());
+        for (String elementChunk : elementChunks) {
+            if (elementChunk == null || elementChunk.isBlank()) {
+                continue;
+            }
+            chunks.add(elementChunk);
+            sources.add(DocumentChunkSource.builder()
+                    .elementType(element.getType())
+                    .sectionPath(element.getSectionPath())
+                    .sourceLocator(element.getSourceLocator())
+                    .build());
+        }
     }
 }

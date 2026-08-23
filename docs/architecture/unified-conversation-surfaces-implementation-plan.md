@@ -76,7 +76,9 @@ ReachAI 当前存在三类面向用户的对话入口：
 
 - `POST /api/runtime/agents/execute/stream`
 - `DELETE /api/runtime/agents/sessions/{sessionId}`
-- `POST /api/runtime/interactions/human-approvals/{interactionId}/submit`
+- `GET /api/runtime/interactions/human-approvals`
+
+Supervisor 审批确认/拒绝不提供独立“只改状态”接口；前端携带 `interactionId + uiSubmit` 继续调用 Agent execute/stream，由 Runtime 使用 Control 签名传入的可信身份校验审批归属（不信任请求体 `userId`），原子领取恢复权、续跑并持久化可幂等重放的完整结果。
 
 当前 SSE 事件至少包括：
 

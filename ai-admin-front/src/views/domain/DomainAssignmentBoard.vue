@@ -41,7 +41,6 @@
               <div class="dom-name">{{ d.name }}</div>
               <code class="dom-code">{{ d.code }}</code>
               <el-tag size="small">{{ coverageMap[d.code]?.toolCount ?? 0 }} T</el-tag>
-              <el-tag size="small" type="success">{{ coverageMap[d.code]?.skillCount ?? 0 }} 能</el-tag>
             </div>
           </el-scrollbar>
         </el-card>
@@ -87,10 +86,6 @@
         <el-card shadow="never">
           <template #header>
             <span>候选目标</span>
-            <el-radio-group v-model="targetKind" size="small" style="margin-left: 12px">
-              <el-radio-button label="TOOL">Tool</el-radio-button>
-              <el-radio-button label="SKILL">能力</el-radio-button>
-            </el-radio-group>
             <el-input
               v-model="searchText"
               size="small"
@@ -156,7 +151,6 @@ import {
   listDomains,
 } from '@/api/domain'
 import { getTools } from '@/api/tool'
-import { listCompositions } from '@/api/composition'
 import type {
   DomainAssignment,
   DomainCoverageRow,
@@ -177,19 +171,17 @@ interface Candidate {
 }
 
 const tools = ref<Candidate[]>([])
-const compositionCandidates = ref<Candidate[]>([])
-const targetKind = ref<'TOOL' | 'SKILL'>('TOOL')
+const targetKind = ref<'TOOL'>('TOOL')
 const searchText = ref('')
 const checked = ref<Candidate[]>([])
 
 async function reload() {
   loading.value = true
   try {
-    const [d, cov, t, s] = await Promise.all([
+    const [d, cov, t] = await Promise.all([
       listDomains(),
       getDomainCoverage(),
       getTools({ current: 1, size: 500 }),
-      listCompositions({ current: 1, size: 500 }),
     ])
     domains.value = d.data ?? []
     const m: Record<string, DomainCoverageRow> = {}
@@ -198,11 +190,6 @@ async function reload() {
     tools.value = (t.data?.records ?? []).map((row: any) => ({
       name: row.name,
       description: row.description ?? row.aiDescription,
-      domains: [],
-    }))
-    compositionCandidates.value = (s.data?.records ?? []).map((row: any) => ({
-      name: row.name,
-      description: row.description,
       domains: [],
     }))
     if (!selectedCode.value && domains.value.length) {
@@ -220,7 +207,6 @@ async function loadAssignments(code: string) {
   // 把"已挂到当前领域"的标记同步到候选列表，便于直观判断
   const set = new Set(assignments.value.map((a) => `${a.targetKind}:${a.targetName}`))
   for (const t of tools.value) t.domains = set.has(`TOOL:${t.name}`) ? [code] : []
-  for (const s of compositionCandidates.value) s.domains = set.has(`SKILL:${s.name}`) ? [code] : []
 }
 
 function selectDomain(code: string) {
@@ -228,9 +214,7 @@ function selectDomain(code: string) {
   loadAssignments(code)
 }
 
-const candidates = computed<Candidate[]>(() =>
-  targetKind.value === 'TOOL' ? tools.value : compositionCandidates.value,
-)
+const candidates = computed<Candidate[]>(() => tools.value)
 
 const filteredCandidates = computed<Candidate[]>(() => {
   if (!searchText.value) return candidates.value
@@ -263,13 +247,11 @@ async function handleUnassign(row: DomainAssignment) {
 }
 
 function formatTargetKind(kind: string): string {
-  if (kind === 'SKILL') return '能力'
   return kind
 }
 
 function kindTagType(kind: string): 'success' | 'warning' | 'info' | '' {
   if (kind === 'TOOL') return ''
-  if (kind === 'SKILL') return 'success'
   if (kind === 'AGENT') return 'warning'
   return 'info'
 }

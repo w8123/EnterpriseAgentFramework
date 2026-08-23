@@ -41,6 +41,41 @@ spec:
               value: milvus
             - name: MODEL_SERVICE_URL
               value: http://reachai-model-service:18601
+            - name: REACHAI_DOCLING_BASE_URL
+              value: http://reachai-docling:5001
+            - name: REACHAI_DOCLING_MAX_CONCURRENT_REQUESTS
+              value: "1"
+            - name: REACHAI_DOCLING_MAX_RESPONSE_BYTES
+              value: "67108864"
+            - name: REACHAI_DOCLING_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: docling-api-key
+            - name: REACHAI_KNOWLEDGE_ARTIFACT_STORE_TYPE
+              value: s3
+            - name: REACHAI_KNOWLEDGE_ARTIFACT_S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: knowledge-artifact-s3-endpoint
+            - name: REACHAI_KNOWLEDGE_ARTIFACT_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: knowledge-artifact-s3-access-key
+            - name: REACHAI_KNOWLEDGE_ARTIFACT_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: knowledge-artifact-s3-secret-key
+            - name: REACHAI_KNOWLEDGE_ARTIFACT_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: knowledge-artifact-s3-bucket
+            - name: REACHAI_KNOWLEDGE_ARTIFACT_S3_AUTO_CREATE_BUCKET
+              value: "false"
           resources:
             requests:
               memory: "512Mi"

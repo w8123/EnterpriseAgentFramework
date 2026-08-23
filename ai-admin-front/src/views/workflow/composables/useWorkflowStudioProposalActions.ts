@@ -1,7 +1,6 @@
 import { ElMessage } from 'element-plus'
 import { computed, type ComputedRef, type Ref } from 'vue'
 import { editWorkflowProposal } from '@/api/workflow'
-import type { CompositionInfo } from '@/types/composition'
 import type { KnowledgeBase } from '@/types/knowledge'
 import type { ToolInfo } from '@/types/tool'
 import type { CanvasEdge, CanvasNode, CanvasSnapshot } from '@/types/studio'
@@ -32,11 +31,9 @@ export interface UseWorkflowStudioProposalActionsDeps {
   aiEditLoading: Ref<boolean>
   aiEditPreview: Ref<WorkflowProposalEditResult | null>
   availableTools: ComputedRef<ToolInfo[]>
-  availableCompositions: ComputedRef<CompositionInfo[]>
   knowledgeOptions: Ref<KnowledgeBase[]>
   resolveAiModelInstanceId: () => string
   toolToProposalResource: (tool: ToolInfo) => WorkflowProposalResource
-  compositionToProposalResource: (composition: CompositionInfo) => WorkflowProposalResource
   knowledgeToProposalResource: (knowledge: KnowledgeBase) => WorkflowProposalResource
   syncJsonFromCanvas: () => void
   canvasSnapshot: () => CanvasSnapshot
@@ -244,7 +241,7 @@ export function useWorkflowStudioProposalActions(deps: UseWorkflowStudioProposal
         selectedNodeIds: selectedNodeIdsForAi.value,
         selectedEdgeIds: selectedEdgeIdsForAi.value,
         tools: deps.availableTools.value.map((tool) => deps.toolToProposalResource(tool)),
-        capabilities: deps.availableCompositions.value.map((item) => deps.compositionToProposalResource(item)),
+        capabilities: [],
         knowledgeBases: deps.knowledgeOptions.value.map((item) => deps.knowledgeToProposalResource(item)),
       })
       if (!isRequestCurrent()) {

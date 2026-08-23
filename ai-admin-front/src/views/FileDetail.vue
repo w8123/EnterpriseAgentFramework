@@ -3,13 +3,19 @@
     <PageHeader
       variant="entity"
       domain="knowledge"
-      title="文档段落运营"
+      :title="fileInfo?.fileName || '文档段落运营'"
       show-back
       back-label="返回知识库详情"
       @back="router.push(`/knowledge/${kbCode}`)"
     >
       <template #tags>
         <el-tag effect="plain" size="small">{{ fileId }}</el-tag>
+        <el-tag v-if="fileInfo" effect="plain" size="small">
+          {{ documentProviderLabel(fileInfo.parseProvider) }}
+        </el-tag>
+        <el-tag v-if="fileInfo?.parseProviderVersion" effect="plain" size="small" type="info">
+          {{ fileInfo.parseProviderVersion }}
+        </el-tag>
       </template>
       <template #meta>
         <HeaderMetaList :items="fileMetaItems" />
@@ -33,6 +39,13 @@
       <el-table-column label="段落" min-width="460">
         <template #default="{ row }">
           <div class="chunk-title">{{ row.title || `段落 ${row.chunkIndex}` }}</div>
+          <div v-if="row.elementType || row.sectionPath || chunkSourceLabel(row)" class="chunk-source">
+            <el-tag v-if="row.elementType" size="small" effect="plain">
+              {{ documentElementLabel(row.elementType) }}
+            </el-tag>
+            <span v-if="row.sectionPath" class="source-section">{{ row.sectionPath }}</span>
+            <span v-if="chunkSourceLabel(row)">{{ chunkSourceLabel(row) }}</span>
+          </div>
           <div class="chunk-content">
             {{ expandedIds.has(row.id) ? row.content : truncate(row.content, 220) }}
             <el-button v-if="row.content?.length > 220" type="primary" link size="small" @click="toggleExpand(row.id)">
@@ -99,8 +112,14 @@ import { Refresh, Search } from '@element-plus/icons-vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import HeaderMetaList from '@/components/common/HeaderMetaList.vue'
-import { getFileChunks, reembedChunk, toggleChunk, updateChunk } from '@/api/knowledge'
-import type { ChunkDetail } from '@/types/knowledge'
+import { getFileChunks, getKbFiles, reembedChunk, toggleChunk, updateChunk } from '@/api/knowledge'
+import type { ChunkDetail, FileInfo } from '@/types/knowledge'
+import { formatFileSize } from '@/utils'
+import {
+  documentElementLabel,
+  documentProviderLabel,
+  formatDocumentSourceLocator,
+} from '@/utils/documentImport'
 
 const route = useRoute()
 const router = useRouter()
@@ -108,6 +127,7 @@ const kbCode = route.params.code as string
 const fileId = route.params.fileId as string
 
 const chunkList = ref<ChunkDetail[]>([])
+const fileInfo = ref<FileInfo | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const togglingId = ref<number | null>(null)
@@ -129,6 +149,8 @@ const filterOptions = [
 const enabledCount = computed(() => chunkList.value.filter((item) => item.enabled !== 0).length)
 
 const fileMetaItems = computed(() => [
+  { key: 'type', label: '格式', value: fileInfo.value?.fileType?.toUpperCase() || '—' },
+  { key: 'size', label: '大小', value: fileInfo.value ? formatFileSize(fileInfo.value.fileSize) : '—' },
   { key: 'chunks', label: '段落', value: chunkList.value.length },
   { key: 'enabled', label: '启用', value: enabledCount.value, tone: 'success' as const },
 ])
@@ -156,11 +178,20 @@ function toggleExpand(id: number) {
 async function fetchChunks() {
   loading.value = true
   try {
-    const { data } = await getFileChunks(fileId)
-    chunkList.value = Array.isArray(data) ? data : []
+    const [filesResponse, chunksResponse] = await Promise.all([
+      getKbFiles(kbCode),
+      getFileChunks(fileId),
+    ])
+    const files = Array.isArray(filesResponse.data) ? filesResponse.data as unknown as FileInfo[] : []
+    fileInfo.value = files.find((item) => item.fileId === fileId) || null
+    chunkList.value = Array.isArray(chunksResponse.data) ? chunksResponse.data : []
   } finally {
     loading.value = false
   }
+}
+
+function chunkSourceLabel(row: ChunkDetail): string {
+  return formatDocumentSourceLocator(row.sourceLocatorJson)
 }
 
 function openEdit(row: ChunkDetail) {
@@ -241,5 +272,20 @@ onMounted(fetchChunks)
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.chunk-source {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.source-section {
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 </style>

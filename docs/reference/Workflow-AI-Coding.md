@@ -243,7 +243,7 @@ curl -s -X POST -H "X-ReachAI-AiCoding-Key: $AI_CODING_KEY" -H "Content-Type: ap
 **Run 默认 `dryRun=false`**（会尝试执行）。安全约束：
 
 - 含 `PAGE_ACTION` 且缺少 `embedSessionId` / 非空 `pageBridge` / 非空 `pageContext` / `bridgeGlobal` 时返回 `SKIPPED`。
-- 含 `HTTP_REQUEST` / `TOOL` / `CAPABILITY` / `MCP_CALL` / `KNOWLEDGE_WRITE` 等副作用节点时，需 `runtimeContext.confirmSideEffects=true` 才会执行。
+- 含 `HTTP_REQUEST` / `TOOL` / `MCP_CALL` / `KNOWLEDGE_WRITE` 等副作用节点时，需 `runtimeContext.confirmSideEffects=true` 才会执行。
 - 即使执行成功，`PAGE_ACTION` 也只是 queue 客户端动作，不保证真实页面已执行。
 
 返回字段：

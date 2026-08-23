@@ -63,7 +63,7 @@ export type AgentConfigDraft = Omit<AgentConfigVersion,
   'id' | 'agentId' | 'versionNo' | 'status' | 'publishedBy' | 'publishedAt' | 'createdAt' | 'updatedAt'>
 
 export interface CapabilityReference {
-  kind: 'TOOL' | 'SKILL'
+  kind: 'TOOL'
   projectCode?: string | null
   name: string
   qualifiedName?: string | null
@@ -95,7 +95,6 @@ export interface WorkflowGraphNode {
     | 'INTERACTION'
     | 'PAGE_ACTION'
     | 'TOOL'
-    | 'CAPABILITY'
     | 'IF_ELSE'
     | 'VARIABLE_ASSIGN'
     | 'TEMPLATE'
@@ -134,7 +133,7 @@ export interface WorkflowGraphEdge {
 }
 
 export interface WorkflowGraphCapabilityRef {
-  kind: 'TOOL' | 'SKILL' | 'CAPABILITY' | 'INTERACTION'
+  kind: 'TOOL' | 'INTERACTION'
   name?: string
   qualifiedName?: string
   definitionId?: number | null
@@ -163,7 +162,7 @@ export interface WorkflowGraphErrorPolicy {
 }
 
 export interface WorkflowProposalResource {
-  kind: 'TOOL' | 'SKILL' | 'CAPABILITY' | 'KNOWLEDGE' | string
+  kind: 'TOOL' | 'KNOWLEDGE' | string
   name: string
   qualifiedName?: string | null
   definitionId?: number | null
@@ -306,8 +305,6 @@ export interface AgentForm {
   systemPrompt: string
   tools: string[]
   toolRefs?: CapabilityReference[]
-  skills: string[]
-  skillRefs?: CapabilityReference[]
   modelInstanceId: string
   runtimeType?: AgentRuntimeType
   runtimePlacement: AgentRuntimePlacement

@@ -57,7 +57,7 @@ class ReachGraphTest {
         assertEquals("intent", llm.getConfig().get("outputAlias"));
 
         ReachGraphSpec.Node capability = spec.getNodes().get(1);
-        assertEquals("CAPABILITY", capability.getType());
+        assertEquals("TOOL", capability.getType());
         assertEquals("contract.query", capability.getRef().getQualifiedName());
         Map<?, ?> inputMapping = (Map<?, ?>) capability.getConfig().get("inputMapping");
         assertEquals("${input.contractNo}", inputMapping.get("contractNo"));

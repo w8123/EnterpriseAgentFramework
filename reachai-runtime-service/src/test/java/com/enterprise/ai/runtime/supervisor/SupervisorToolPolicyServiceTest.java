@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.supervisor;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolEntity;
+import com.enterprise.ai.runtime.execution.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.supervisor.SupervisorRuntimeAdapter.PolicyApprovalGrant;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,7 +19,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -123,12 +126,14 @@ class SupervisorToolPolicyServiceTest {
                 {"policy":{"allowedTenantIds":["tenant-a"],"permissionRoles":{"team:write":["team:user"]}}}
                 """);
         Map<String, Object> args = Map.of("teamId", "T-1", "name", "一班");
-        when(approvalService.create(any(), any(), any(), any(), any(), any(), any()))
+        when(approvalService.create(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new SupervisorApprovalInteractionService.ApprovalRequest(
                         "spv_1", Map.of("component", "confirm")));
+        WorkflowExecutionIdentity trustedIdentity =
+                WorkflowExecutionIdentity.fromAgent("default", 7L, "qmssmp", "u-1");
 
         SupervisorToolPolicyService.PolicyDecision pending = service.evaluate(
-                trace, agent, config, tool, input("把 T-1 班组名称改为一班"), args, null);
+                trace, agent, config, tool, input("把 T-1 班组名称改为一班"), args, null, trustedIdentity);
         PolicyApprovalGrant exactGrant = new PolicyApprovalGrant(
                 "spv_1", "team:write", "query_team", args, "u-1");
         SupervisorToolPolicyService.PolicyDecision approved = service.evaluate(
@@ -140,6 +145,8 @@ class SupervisorToolPolicyServiceTest {
         assertTrue(pending.confirmationRequired());
         assertEquals("spv_1", pending.interactionId());
         assertNotNull(pending.uiRequest());
+        verify(approvalService).create(
+                any(), any(), any(), any(), any(), any(), any(), same(trustedIdentity));
         assertTrue(approved.allowed());
         assertTrue(changedArgs.confirmationRequired());
     }

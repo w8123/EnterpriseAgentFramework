@@ -160,10 +160,6 @@ class ControlRuntimePublicControllerTest {
                 .getDeclaredMethod("submitRuntimeDebugSessionStream", String.class, Map.class);
         Method listHumanApprovals = ControlRuntimePublicController.class
                 .getDeclaredMethod("listHumanApprovals", String.class, String.class, int.class);
-        Method submitHumanApproval = ControlRuntimePublicController.class
-                .getDeclaredMethod("submitHumanApproval", String.class, Map.class);
-        Method cancelHumanApproval = ControlRuntimePublicController.class
-                .getDeclaredMethod("cancelHumanApproval", String.class, String.class);
         Method listGuardDecisions = ControlRuntimePublicController.class
                 .getDeclaredMethod("listGuardDecisions", String.class, String.class, String.class, String.class,
                         String.class, String.class, String.class, int.class);
@@ -282,10 +278,6 @@ class ControlRuntimePublicControllerTest {
                 submitRuntimeDebugSessionStream.getAnnotation(PostMapping.class).value());
         assertArrayEquals(new String[] {"/api/runtime/interactions/human-approvals"},
                 listHumanApprovals.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[] {"/api/runtime/interactions/human-approvals/{interactionId}/submit"},
-                submitHumanApproval.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[] {"/api/runtime/interactions/human-approvals/{interactionId}"},
-                cancelHumanApproval.getAnnotation(DeleteMapping.class).value());
         assertArrayEquals(new String[] {"/api/trace-center/guard-decisions"},
                 listGuardDecisions.getAnnotation(GetMapping.class).value());
     }
@@ -1025,18 +1017,11 @@ class ControlRuntimePublicControllerTest {
     void delegatesAgentInteractionsToRuntimeService() {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
         ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);
-        Map<String, Object> request = Map.of("decision", "approve");
         ResponseEntity<Object> pending = ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
                 .body(Map.of("code", "RUNTIME_AGENT_INTERACTION_PENDING"));
         when(runtimeProxyClient.listHumanApprovals("agent-7", "user-1", 25)).thenReturn(pending);
-        when(runtimeProxyClient.submitHumanApproval("ix-1", request)).thenReturn(pending);
-        when(runtimeProxyClient.cancelHumanApproval("ix-1", "user-1")).thenReturn(pending);
 
         assertEquals(pending, controller.listHumanApprovals("agent-7", "user-1", 25));
-        assertEquals(pending, controller.submitHumanApproval("ix-1", request));
-        assertEquals(pending, controller.cancelHumanApproval("ix-1", "user-1"));
         verify(runtimeProxyClient).listHumanApprovals("agent-7", "user-1", 25);
-        verify(runtimeProxyClient).submitHumanApproval("ix-1", request);
-        verify(runtimeProxyClient).cancelHumanApproval("ix-1", "user-1");
     }
 }

@@ -85,8 +85,7 @@
 
 - 默认使用 `Capability / 能力` 描述产品能力。
 - `reachai-knowledge-service` 是 Knowledge / Retrieval 部署单元，不再在产品、文档或 UI 中描述成“技能服务”。
-- `Skill` 多为历史代码、legacy SQL 或内部旧命名。
-- 不要盲目全局替换 `Skill`，尤其不要自动重命名 SQL 表、字段、API 路径或 SDK 契约。
+- ReachAI 禁止重新引入自创的 Skill 业务资产模型。Skill 仅用于标准 Agent Skill 包或外部协议字段；Capability 是业务资产，Tool 是调用协议，Workflow 是 GraphSpec 编排。
 
 ## Verification Policy
 
@@ -106,6 +105,8 @@
   - `node scripts/check-service-table-ownership.mjs`
   - `node scripts/check-internal-api-contracts.test.mjs`
   - `node scripts/check-internal-api-contracts.mjs`
+  - `node --test scripts/check-legacy-skill-contract.test.mjs`
+  - `node scripts/check-legacy-skill-contract.mjs`
   - `node scripts/check-physical-service-smoke.test.mjs`
   - 五服务 Maven compile
 - 不能执行某项验证时，最终说明必须明确说没跑以及原因。

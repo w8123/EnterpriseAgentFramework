@@ -209,6 +209,12 @@ public class RuntimeWorkflowReleaseValidationService {
             if (!knownType) {
                 report.error("GRAPH_NODE_TYPE_UNSUPPORTED", nodeId,
                         "Graph node type must use a canonical value: " + node.getType());
+            } else if (canonicalType == AgentGraphNodeType.TOOL
+                    && node.getRef() != null
+                    && StringUtils.hasText(node.getRef().getKind())
+                    && !"TOOL".equals(node.getRef().getKind())) {
+                report.error("GRAPH_TOOL_REF_KIND_INVALID", nodeId,
+                        "GraphSpec TOOL node ref.kind must be TOOL");
             } else if (!runtimeExecutable) {
                 report.error("GRAPH_NODE_RUNTIME_UNSUPPORTED", nodeId,
                         "Graph node type is known but not executable by the current Runtime: " + type);
@@ -252,7 +258,7 @@ public class RuntimeWorkflowReleaseValidationService {
                     if ("LLM".equalsIgnoreCase(mode)) {
                         validateModelInstance(workflow, node, config, report);
                     }
-                } else if ("TOOL".equals(type) || "CAPABILITY".equals(type)) {
+                } else if ("TOOL".equals(type)) {
                     validateToolReference(node, type, report);
                 } else if ("INTERACTION".equals(type)) {
                     validateInteractionNode(node, edges, report);
@@ -1012,10 +1018,7 @@ public class RuntimeWorkflowReleaseValidationService {
             }
         }
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
-        Object nestedConfig = config.get("toolConfig") != null
-                ? config.get("toolConfig")
-                : config.get("capabilityConfig");
-        Map<String, Object> nested = mapValue(nestedConfig);
+        Map<String, Object> nested = mapValue(config.get("toolConfig"));
         return firstText(
                 text(config.get("qualifiedName")),
                 configuredReference(config.get("ref")),

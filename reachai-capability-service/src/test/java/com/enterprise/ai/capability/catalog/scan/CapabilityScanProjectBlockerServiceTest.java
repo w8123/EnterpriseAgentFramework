@@ -17,35 +17,32 @@ import static org.mockito.Mockito.when;
 class CapabilityScanProjectBlockerServiceTest {
 
     @Test
-    void reportsAgentsReferencingProjectOwnedToolsAndSkills() {
+    void reportsAgentsReferencingProjectOwnedTools() {
         ToolDefinitionMapper toolDefinitionMapper = mock(ToolDefinitionMapper.class);
         ScanProjectAgentReferenceReader referenceReader = mock(ScanProjectAgentReferenceReader.class);
         CapabilityScanProjectBlockerService service =
                 new CapabilityScanProjectBlockerService(toolDefinitionMapper, referenceReader);
         when(toolDefinitionMapper.selectList(any())).thenReturn(List.of(
-                tool("orders_create", "TOOL"),
-                tool("orders_skill", "SKILL")
+                tool("orders_create"),
+                tool("orders_query")
         ));
         when(referenceReader.listAgentToolReferences()).thenReturn(List.of(
                 new ScanProjectAgentReferenceReader.AgentToolReference(
                         "agent-1",
                         "Team Assistant",
-                        List.of("orders_create"),
-                        List.of("orders_skill"))
+                        List.of("orders_create"))
         ));
 
         ScanProjectBlockers blockers = service.analyze(7L);
 
         assertTrue(blockers.blocked());
         assertEquals(List.of("orders_create"), blockers.tools());
-        assertEquals(List.of("orders_skill"), blockers.skills());
         assertEquals(List.of(new ScanProjectBlockers.AgentRef("agent-1", "Team Assistant")), blockers.agents());
     }
 
-    private ToolDefinitionEntity tool(String name, String kind) {
+    private ToolDefinitionEntity tool(String name) {
         ToolDefinitionEntity entity = new ToolDefinitionEntity();
         entity.setName(name);
-        entity.setKind(kind);
         return entity;
     }
 }

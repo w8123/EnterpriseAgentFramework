@@ -62,6 +62,9 @@ export interface FileInfo {
   fileSize: number
   chunkCount: number
   status: number
+  parseProvider?: string
+  parseProviderVersion?: string
+  importJobId?: string
   createTime: string
   updateTime: string
 }
@@ -77,6 +80,9 @@ export interface ChunkDetail {
   vectorId: string
   hitCount: number
   enabled: number
+  elementType?: string
+  sectionPath?: string
+  sourceLocatorJson?: string
   createTime: string
 }
 

@@ -34,6 +34,7 @@ import java.util.UUID;
 public class KnowledgeBizIndexGateway {
 
     static final String INTERNAL_ROOT = "/internal/knowledge/console/biz-index";
+    static final String DOCUMENT_IMPORT_INTERNAL_ROOT = "/internal/knowledge/console/document-import";
     static final String PROJECT_INTERNAL_ROOT = "/internal/knowledge/project-ingress/projects";
     private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(5);
 
@@ -180,6 +181,71 @@ public class KnowledgeBizIndexGateway {
         }
     }
 
+    /** Streams one document upload and its signed form fields without buffering it in heap. */
+    GatewayResponse exchangeDocumentMultipart(String internalPath,
+                                               String tenantId,
+                                               String actorId,
+                                               MultipartFile file,
+                                               Map<String, String> fields) {
+        String path = requireInternalPath(internalPath);
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document file is required");
+        }
+        String boundary = "ReachAI-" + UUID.randomUUID();
+        Path bodyFile = null;
+        try {
+            Files.createDirectories(temporaryDirectory);
+            bodyFile = Files.createTempFile(temporaryDirectory, "reachai-document-import-proxy-", ".multipart");
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (OutputStream fileOutput = Files.newOutputStream(bodyFile);
+                 BoundedOutputStream bounded = new BoundedOutputStream(fileOutput, maxRequestBytes);
+                 DigestOutputStream output = new DigestOutputStream(bounded, digest)) {
+                if (fields != null) {
+                    for (Map.Entry<String, String> entry : fields.entrySet()) {
+                        if (!StringUtils.hasText(entry.getKey()) || entry.getValue() == null) {
+                            continue;
+                        }
+                        writePartHeader(output, boundary, entry.getKey(), null,
+                                "text/plain; charset=UTF-8");
+                        output.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                        output.write("\r\n".getBytes(StandardCharsets.US_ASCII));
+                    }
+                }
+                writePartHeader(output, boundary, "file", safeFilename(file.getOriginalFilename()),
+                        safeContentType(file.getContentType()));
+                try (InputStream input = file.getInputStream()) {
+                    input.transferTo(output);
+                }
+                output.write("\r\n".getBytes(StandardCharsets.US_ASCII));
+                output.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.US_ASCII));
+            }
+            String bodySha256 = HexFormat.of().formatHex(digest.digest());
+            Map<String, String> signed = signer.signBodyDigest(
+                    "POST",
+                    path,
+                    InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION,
+                    tenantId,
+                    actorId,
+                    bodySha256);
+            return send("POST", path, signed, HttpRequest.BodyPublishers.ofFile(bodyFile),
+                    "multipart/form-data; boundary=" + boundary, DEFAULT_TIMEOUT);
+        } catch (BoundedOutputStream.LimitExceededException tooLarge) {
+            throw tooLarge();
+        } catch (ResponseStatusException expected) {
+            throw expected;
+        } catch (Exception failure) {
+            throw unavailable("Knowledge document-import multipart request failed", failure);
+        } finally {
+            if (bodyFile != null) {
+                try {
+                    Files.deleteIfExists(bodyFile);
+                } catch (IOException ignored) {
+                    // The request already completed; a later ops sweep can remove a locked temp file.
+                }
+            }
+        }
+    }
+
     private GatewayResponse send(String method,
                                  String internalPath,
                                  Map<String, String> signedHeaders,
@@ -270,9 +336,10 @@ public class KnowledgeBizIndexGateway {
 
     private static String requireInternalPath(String value) {
         String path = value == null ? "" : value.trim();
-        if (!(INTERNAL_ROOT.equals(path) || path.startsWith(INTERNAL_ROOT + "/"))
+        if (!(matchesInternalRoot(path, INTERNAL_ROOT)
+                || matchesInternalRoot(path, DOCUMENT_IMPORT_INTERNAL_ROOT))
                 || path.contains("?") || path.contains("#") || path.contains("..")) {
-            throw new IllegalArgumentException("invalid Knowledge business-index internal path");
+            throw new IllegalArgumentException("invalid Knowledge console internal path");
         }
         return path;
     }
@@ -293,11 +360,18 @@ public class KnowledgeBizIndexGateway {
         if (INTERNAL_ROOT.equals(path) || path.startsWith(INTERNAL_ROOT + "/")) {
             return requireInternalPath(path);
         }
+        if (matchesInternalRoot(path, DOCUMENT_IMPORT_INTERNAL_ROOT)) {
+            return requireInternalPath(path);
+        }
         if (path.startsWith(PROJECT_INTERNAL_ROOT + "/")
                 && !path.contains("?") && !path.contains("#") && !path.contains("..")) {
             return path;
         }
         throw new IllegalArgumentException("invalid Knowledge business-index internal path");
+    }
+
+    private static boolean matchesInternalRoot(String path, String root) {
+        return root.equals(path) || path.startsWith(root + "/");
     }
 
     private static String normalizeBaseUrl(String value) {

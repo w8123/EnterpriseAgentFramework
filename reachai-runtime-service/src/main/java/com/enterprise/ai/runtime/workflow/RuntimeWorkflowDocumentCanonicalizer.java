@@ -87,7 +87,8 @@ public class RuntimeWorkflowDocumentCanonicalizer {
             if (node == null) {
                 throw new IllegalArgumentException("GraphSpec nodes must not contain null items");
             }
-            requireCanonicalNodeType(node.getType());
+            AgentGraphNodeType nodeType = requireCanonicalNodeType(node.getType());
+            requireCanonicalToolRef(nodeType, node.getRef());
         }
         if (sourceEdges.stream().anyMatch(edge -> edge == null)) {
             throw new IllegalArgumentException("GraphSpec edges must not contain null items");
@@ -301,10 +302,20 @@ public class RuntimeWorkflowDocumentCanonicalizer {
         }
     }
 
-    private void requireCanonicalNodeType(String rawType) {
+    private AgentGraphNodeType requireCanonicalNodeType(String rawType) {
         AgentGraphNodeType type = AgentGraphNodeType.find(rawType).orElse(null);
         if (type == null || !type.type().equals(rawType)) {
             throw new IllegalArgumentException("GraphSpec node.type must use a canonical value: " + rawType);
+        }
+        return type;
+    }
+
+    private void requireCanonicalToolRef(AgentGraphNodeType nodeType, GraphSpec.CapabilityRef ref) {
+        if (nodeType != AgentGraphNodeType.TOOL || ref == null || !StringUtils.hasText(ref.getKind())) {
+            return;
+        }
+        if (!"TOOL".equals(ref.getKind())) {
+            throw new IllegalArgumentException("GraphSpec TOOL node ref.kind must be TOOL");
         }
     }
 

@@ -73,6 +73,7 @@ prototypes/
 # ---- Local test and QA output ----
 output/
 _runtime/
+.codex-tmp/
 .tmp-*
 .local-e2e-logs/
 *.err

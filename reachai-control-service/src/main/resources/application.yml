@@ -60,16 +60,17 @@ services:
 
 reachai:
   auth:
-    # Production must opt into an enterprise provider. LOCAL is available only
-    # when its flag is explicitly enabled; bootstrap credentials have no defaults.
+    # Open-source/local quick start: LOCAL login and the well-known development
+    # administrator are enabled by default. Production must disable both flags
+    # or replace the bootstrap credentials before exposing this service.
     provider: ${REACHAI_AUTH_PROVIDER:LOCAL}
     session-ttl: ${REACHAI_PLATFORM_SESSION_TTL:24h}
     local:
-      enabled: ${REACHAI_LOCAL_AUTH_ENABLED:false}
+      enabled: ${REACHAI_LOCAL_AUTH_ENABLED:true}
       bootstrap-admin:
-        enabled: ${REACHAI_BOOTSTRAP_ADMIN_ENABLED:false}
-        username: ${REACHAI_BOOTSTRAP_ADMIN_USERNAME:}
-        password: ${REACHAI_BOOTSTRAP_ADMIN_PASSWORD:}
+        enabled: ${REACHAI_BOOTSTRAP_ADMIN_ENABLED:true}
+        username: ${REACHAI_BOOTSTRAP_ADMIN_USERNAME:admin}
+        password: ${REACHAI_BOOTSTRAP_ADMIN_PASSWORD:admin123}
   internal:
     # Shared with Runtime. Required for trusted Agent/Embed execute (sync + SSE). Fail-closed when blank.
     service-secret: ${REACHAI_INTERNAL_SERVICE_SECRET:}

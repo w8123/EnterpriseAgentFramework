@@ -53,14 +53,13 @@ class CapabilityToolCatalogControllerTest {
     }
 
     @Test
-    void listReturnsOnlyToolKindRecords() {
+    void listReturnsToolRecords() {
         CapabilityToolCatalogService service = mock(CapabilityToolCatalogService.class);
         CapabilityToolCatalogController controller = new CapabilityToolCatalogController(
                 service, mock(CapabilityToolExecutionService.class));
-        ToolDefinitionEntity tool = tool("orders_create", "TOOL");
-        ToolDefinitionEntity skill = tool("orders_skill", "SKILL");
-        Page<ToolDefinitionEntity> page = new Page<>(1, 20, 2);
-        page.setRecords(List.of(tool, skill));
+        ToolDefinitionEntity tool = tool("orders_create");
+        Page<ToolDefinitionEntity> page = new Page<>(1, 20, 1);
+        page.setRecords(List.of(tool));
         when(service.page(1, 20, "order", "manual", true, 7L)).thenReturn(page);
         when(service.parseParameters(null)).thenReturn(List.of());
 
@@ -91,7 +90,7 @@ class CapabilityToolCatalogControllerTest {
         CapabilityToolCatalogController controller = new CapabilityToolCatalogController(
                 service, mock(CapabilityToolExecutionService.class));
         CapabilityToolCatalogController.ToolUpsertRequest request = request("orders_create");
-        ToolDefinitionEntity created = tool("orders_create", "TOOL");
+        ToolDefinitionEntity created = tool("orders_create");
         when(service.create(any())).thenReturn(created);
         when(service.parseParameters(null)).thenReturn(List.of());
 
@@ -108,7 +107,7 @@ class CapabilityToolCatalogControllerTest {
         CapabilityToolCatalogService service = mock(CapabilityToolCatalogService.class);
         CapabilityToolCatalogController controller = new CapabilityToolCatalogController(
                 service, mock(CapabilityToolExecutionService.class));
-        ToolDefinitionEntity toggled = tool("orders_create", "TOOL");
+        ToolDefinitionEntity toggled = tool("orders_create");
         toggled.setEnabled(false);
         when(service.toggle("orders_create", false)).thenReturn(toggled);
         when(service.parseParameters(null)).thenReturn(List.of());
@@ -140,12 +139,11 @@ class CapabilityToolCatalogControllerTest {
         verify(executionService).execute("orders_create", Map.of("input", Map.of("orderId", "A-1")));
     }
 
-    private ToolDefinitionEntity tool(String name, String kind) {
+    private ToolDefinitionEntity tool(String name) {
         ToolDefinitionEntity entity = new ToolDefinitionEntity();
         entity.setId(11L);
         entity.setName(name);
         entity.setTitle("创建订单");
-        entity.setKind(kind);
         entity.setDescription("Create order");
         entity.setParametersJson(null);
         entity.setSource("manual");

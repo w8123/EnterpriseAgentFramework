@@ -67,6 +67,7 @@ import static org.mockito.ArgumentMatchers.anyString;
                 "spring.sql.init.mode=always",
                 "spring.sql.init.schema-locations=classpath:ai-coding-task-test-schema.sql",
                 "spring.data.redis.repositories.enabled=false",
+                "reachai.auth.local.bootstrap-admin.enabled=false",
                 "reachai.ai-coding-task.secret-pepper=test-only-ai-coding-http-secret-pepper",
                 "reachai.context.personal-memory.outbox-enabled=false",
                 "reachai.context.personal-memory.lifecycle-enabled=false"

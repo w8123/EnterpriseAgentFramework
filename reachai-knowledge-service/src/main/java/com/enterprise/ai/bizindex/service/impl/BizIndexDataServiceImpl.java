@@ -15,8 +15,9 @@ import com.enterprise.ai.bizindex.vector.BizVectorService;
 import com.enterprise.ai.embedding.EmbeddingService;
 import com.enterprise.ai.pipeline.chunk.ChunkStrategy;
 import com.enterprise.ai.pipeline.chunk.ChunkStrategyFactory;
-import com.enterprise.ai.pipeline.parser.DocumentParser;
-import com.enterprise.ai.pipeline.parser.DocumentParserFactory;
+import com.enterprise.ai.pipeline.document.DocumentParseRequest;
+import com.enterprise.ai.pipeline.document.DocumentParseResult;
+import com.enterprise.ai.pipeline.document.DocumentParseRouter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -38,7 +39,7 @@ public class BizIndexDataServiceImpl implements BizIndexDataService {
     private final BizVectorService bizVectorService;
     private final EmbeddingService embeddingService;
     private final TemplateEngine templateEngine;
-    private final DocumentParserFactory documentParserFactory;
+    private final DocumentParseRouter documentParseRouter;
     private final ChunkStrategyFactory chunkStrategyFactory;
     private final ObjectMapper objectMapper;
 
@@ -235,8 +236,9 @@ public class BizIndexDataServiceImpl implements BizIndexDataService {
             if (fileName == null || fileName.isBlank()) continue;
 
             // 解析文档
-            DocumentParser parser = documentParserFactory.getParser(fileName);
-            String rawText = parser.parse(attachment);
+            DocumentParseResult parsedDocument = documentParseRouter.parse(
+                    DocumentParseRequest.fromMultipartFile(attachment));
+            String rawText = parsedDocument.getNormalizedText();
 
             if (rawText == null || rawText.isBlank()) {
                 log.warn("附件 [{}] 解析结果为空，跳过", fileName);

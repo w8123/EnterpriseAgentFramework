@@ -97,9 +97,7 @@ public final class ReachGraph {
         }
 
         public Builder capability(String id) {
-            currentNode = addNode(id, "CAPABILITY");
-            currentNode.ref.setKind("CAPABILITY");
-            return this;
+            return tool(id);
         }
 
         public Builder tool(String id) {

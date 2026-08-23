@@ -26,12 +26,11 @@ public class RuntimeAgentToolReferenceService {
                     return new AgentToolReference(
                             entity.getId(),
                             entity.getName(),
-                            workflowTools,
-                            List.of());
+                            workflowTools);
                 })
                 .toList();
     }
 
-    public record AgentToolReference(String agentId, String agentName, List<String> tools, List<String> skills) {
+    public record AgentToolReference(String agentId, String agentName, List<String> tools) {
     }
 }

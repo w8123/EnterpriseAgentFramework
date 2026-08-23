@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 领域定义。{@code code} 是逻辑主键，前端做"领域 ↔ Tool/Skill"挂接时使用。
+ * 领域定义。{@code code} 是逻辑主键，前端做"领域 ↔ Tool"挂接时使用。
  * 关键词以 JSON 数组字符串存储（避免 MySQL JSON 列查询语法依赖）。
  */
 @Data

@@ -79,6 +79,30 @@ class PlatformAuthorizationServiceTest {
         assertEquals(HttpStatus.FORBIDDEN, error.getStatusCode());
     }
 
+    @Test
+    void resourcePermissionHonorsWorkspaceProjectHierarchyAndKeepsSharedGlobal() {
+        PlatformAuthenticatedSession authenticated = new PlatformAuthenticatedSession(
+                user(7L),
+                "pls_7",
+                LocalDateTime.now().plusHours(1),
+                List.of("PROJECT_OWNER"),
+                List.of("platform:read", "platform:write"),
+                List.of(
+                        new PlatformPermissionGrant("platform:read", "WORKSPACE", "workspace-a"),
+                        new PlatformPermissionGrant("platform:write", "PROJECT", "orders")));
+
+        assertTrue(authenticated.hasResourcePermission(
+                "platform:read", "WORKSPACE", "workspace-a", null));
+        assertTrue(authenticated.hasResourcePermission(
+                "platform:read", "PROJECT", "workspace-a", "billing"));
+        assertTrue(authenticated.hasResourcePermission(
+                "platform:write", "PROJECT", "workspace-a", "orders"));
+        assertFalse(authenticated.hasResourcePermission(
+                "platform:write", "PROJECT", "workspace-a", "billing"));
+        assertFalse(authenticated.hasResourcePermission(
+                "platform:read", "SHARED", "workspace-a", null));
+    }
+
     private PlatformUserEntity user(Long id) {
         PlatformUserEntity user = new PlatformUserEntity();
         user.setId(id);

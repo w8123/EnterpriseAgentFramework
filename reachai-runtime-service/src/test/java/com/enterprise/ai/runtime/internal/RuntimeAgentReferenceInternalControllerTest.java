@@ -32,8 +32,7 @@ class RuntimeAgentReferenceInternalControllerTest {
                 new RuntimeAgentToolReferenceService.AgentToolReference(
                         "agent-1",
                         "Team Assistant",
-                        List.of("orders_create"),
-                        List.of("orders_skill"))
+                        List.of("orders_create"))
         ));
 
         ResponseEntity<List<RuntimeAgentReferenceInternalController.AgentToolReferenceView>> response =

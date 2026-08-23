@@ -387,45 +387,59 @@ public class RuntimeAgentExecutionService {
                                                          Map<String, Object> submission,
                                                          boolean detailed,
                                                          SupervisorRuntimeAdapter.SupervisorEventSink eventSink,
-                                                          RuntimeAgentExecutionCancellation cancellation,
-                                                          WorkflowExecutionIdentity trustedIdentity,
-                                                          TrustedPersonalMemoryContext personalMemory) {
+                                                         RuntimeAgentExecutionCancellation cancellation,
+                                                         WorkflowExecutionIdentity trustedIdentity,
+                                                         TrustedPersonalMemoryContext personalMemory) {
         try {
             SupervisorApprovalInteractionService.ResumeDecision decision =
-                    approvalInteractionService.prepareResume(interactionId, submission);
+                    approvalInteractionService.prepareResume(interactionId, submission, trustedIdentity);
+            if (decision.replayResult() != null) {
+                return decision.replayResult();
+            }
             Map<String, Object> originalInput = normalizeContext(decision.originalInput());
             String traceId = firstText(
                     text(originalInput.get("traceId")),
                     text(submission.get("traceId")),
                     newTraceId());
-            if (decision.rejected()) {
-                Map<String, Object> finishMetadata = new LinkedHashMap<>();
-                finishMetadata.put("code", "SUPERVISOR_ACTION_REJECTED");
-                finishMetadata.put("interactionId", interactionId);
-                finishMetadata.put("interactionPending", false);
-                putIfPresent(finishMetadata, "sessionId", firstText(
-                        text(submission.get("sessionId")),
-                        text(originalInput.get("sessionId"))));
-                runLifecycleService.resumeAgent(traceId);
-                runLifecycleService.finishAgent(traceId, false, "SUPERVISOR_ACTION_REJECTED",
-                        decision.message(), finishMetadata, null, trustedIdentity);
-                Map<String, Object> response = new LinkedHashMap<>();
-                response.put("success", true);
-                response.put("answer", decision.message());
-                putIfPresent(response, "sessionId", text(submission.get("sessionId")));
-                response.put("metadata", Map.of(
-                        "code", "SUPERVISOR_ACTION_REJECTED",
-                        "agentId", decision.agentId(),
-                        "traceId", traceId,
-                        "interactionId", interactionId,
-                        "interactionPending", false));
-                return response;
+            Map<String, Object> response;
+            try {
+                if (decision.rejected()) {
+                    Map<String, Object> finishMetadata = new LinkedHashMap<>();
+                    finishMetadata.put("code", "SUPERVISOR_ACTION_REJECTED");
+                    finishMetadata.put("interactionId", interactionId);
+                    finishMetadata.put("interactionPending", false);
+                    putIfPresent(finishMetadata, "sessionId", firstText(
+                            text(submission.get("sessionId")),
+                            text(originalInput.get("sessionId"))));
+                    runLifecycleService.resumeAgent(traceId);
+                    runLifecycleService.finishAgent(traceId, false, "SUPERVISOR_ACTION_REJECTED",
+                            decision.message(), finishMetadata, null, trustedIdentity);
+                    response = new LinkedHashMap<>();
+                    response.put("success", true);
+                    response.put("answer", decision.message());
+                    putIfPresent(response, "sessionId", text(submission.get("sessionId")));
+                    response.put("metadata", Map.of(
+                            "code", "SUPERVISOR_ACTION_REJECTED",
+                            "agentId", decision.agentId(),
+                            "traceId", traceId,
+                            "interactionId", interactionId,
+                            "interactionPending", false));
+                } else {
+                    originalInput.put("agentId", decision.agentId());
+                    originalInput.put("traceId", traceId);
+                    originalInput.put("__resumeExistingTrace", true);
+                    response = executeResolved(originalInput, detailed, decision.grant(), eventSink, cancellation,
+                            trustedIdentity, personalMemory);
+                }
+            } catch (RuntimeException ex) {
+                Map<String, Object> failureContext = normalizeContext(submission);
+                failureContext.put("traceId", traceId);
+                response = error("SUPERVISOR_APPROVAL_RESUME_FAILED",
+                        firstText(ex.getMessage(), "Supervisor approval resume failed"),
+                        null, failureContext, detailed, List.of());
             }
-            originalInput.put("agentId", decision.agentId());
-            originalInput.put("traceId", traceId);
-            originalInput.put("__resumeExistingTrace", true);
-            return executeResolved(originalInput, detailed, decision.grant(), eventSink, cancellation,
-                    trustedIdentity, personalMemory);
+            return approvalInteractionService.completeResume(
+                    interactionId, decision.idempotencyKey(), decision.submittedPayload(), response);
         } catch (IllegalArgumentException ex) {
             return error("SUPERVISOR_APPROVAL_INVALID", ex.getMessage(), null,
                     submission, detailed, List.of());

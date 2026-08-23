@@ -76,7 +76,6 @@
         :project-code="projectCode"
         :options="toolLikeOptions"
         :tool-options="toolOptions"
-        :composition-options="compositionOptions"
         :node-type-options="nodeTypeOptions"
         @credential-created="$emit('credentialCreated', $event)"
         @create-call-node="$emit('createCallNode', $event)"
@@ -133,7 +132,6 @@ import type { CanvasNodeData, InteractionCallNodeRequest, StudioPort, StudioVari
 import type { ModelInstance } from '@/types/model'
 import type { KnowledgeBase } from '@/types/knowledge'
 import type { ToolInfo } from '@/types/tool'
-import type { CompositionInfo } from '@/types/composition'
 import type { WorkflowCredential } from '@/types/workflowCredential'
 import type { ApiGraphParamSourceHint } from '@/api/apiGraph'
 import type { WorkflowGraphNodeTypeDescriptor } from '@/types/agent'
@@ -165,7 +163,6 @@ const props = defineProps<{
   modelOptions: ModelInstance[]
   knowledgeOptions: KnowledgeBase[]
   toolOptions: ToolInfo[]
-  compositionOptions: CompositionInfo[]
   variableOptions: Array<string | StudioVariableOption>
   credentialOptions: WorkflowCredential[]
   paramSourceHints: ApiGraphParamSourceHint[]
@@ -201,11 +198,10 @@ const registry = {
   documentExtract: DocumentExtractConfigPanel,
   mcp: McpConfigPanel,
   tool: ToolConfigPanel,
-  skill: ToolConfigPanel,
 }
 
 const panel = computed(() => registry[props.data.kind as keyof typeof registry])
-const toolLikeOptions = computed(() => props.data.kind === 'skill' ? props.compositionOptions : props.toolOptions)
+const toolLikeOptions = computed(() => props.toolOptions)
 const activeContractTab = ref('config')
 const editableInputs = ref<StudioPort[]>([])
 const editableOutputs = ref<StudioPort[]>([])
@@ -330,7 +326,7 @@ function runtimeVariableLabel(value: string) {
 }
 
 const inputMapping = computed(() => {
-  if (props.data.kind === 'tool' || props.data.kind === 'skill') {
+  if (props.data.kind === 'tool') {
     props.data.toolConfig ||= { inputMapping: {} }
     props.data.toolConfig.inputMapping ||= {}
     return props.data.toolConfig.inputMapping
@@ -389,7 +385,7 @@ function bindInput(target: string, source: string) {
     ]),
   )
   props.data.inputMapping = stringMapping
-  if (props.data.kind === 'tool' || props.data.kind === 'skill') {
+  if (props.data.kind === 'tool') {
     props.data.toolConfig ||= { inputMapping: {} }
     props.data.toolConfig.inputMapping = { ...inputMapping.value }
   }

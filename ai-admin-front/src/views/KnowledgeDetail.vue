@@ -96,6 +96,17 @@
       </el-tab-pane>
 
       <el-tab-pane label="文件" name="files">
+        <DocumentImportJobCard
+          :job="reparseJob"
+          title="重新解析任务"
+          :busy="reparseActionLoading"
+          :client-error="reparseClientError"
+          dismissible
+          @refresh="resumeReparseJob"
+          @retry="handleRetryReparse"
+          @cancel="handleCancelReparse"
+          @dismiss="dismissReparseJob"
+        />
         <div class="toolbar">
           <span class="selection-hint">已选 {{ selectedFiles.length }} 个文件</span>
           <el-button type="primary" size="small" :disabled="selectedFiles.length === 0" @click="openBatchTagDialog('FILE')">
@@ -111,6 +122,14 @@
           <el-table :data="fileList" stripe empty-text=" " @selection-change="handleFileSelectionChange">
             <el-table-column type="selection" width="48" />
             <el-table-column prop="fileName" label="文件名" min-width="220" show-overflow-tooltip />
+            <el-table-column label="解析器" width="170">
+              <template #default="{ row }">
+                <div class="provider-cell">
+                  <el-tag size="small" effect="plain">{{ documentProviderLabel(row.parseProvider) }}</el-tag>
+                  <span>{{ row.parseProviderVersion || '—' }}</span>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column prop="chunkCount" label="段落" width="100" align="center" />
             <el-table-column label="状态" width="100" align="center">
               <template #default="{ row }">
@@ -118,12 +137,19 @@
               </template>
             </el-table-column>
             <el-table-column prop="createTime" label="创建时间" width="180" />
-            <el-table-column label="操作" width="230" fixed="right">
+            <el-table-column label="操作" width="240" fixed="right">
               <template #default="{ row }">
                 <el-button type="primary" link size="small" @click="router.push(`/knowledge/${kbCode}/file/${row.fileId}`)">
                   段落运营
                 </el-button>
-                <el-button type="warning" link size="small" :loading="reparsingId === row.fileId" @click="handleReparse(row)">
+                <el-button
+                  type="warning"
+                  link
+                  size="small"
+                  :loading="reparsingId === row.fileId || isReparsingFile(row.fileId)"
+                  :disabled="reparseInProgress && !isReparsingFile(row.fileId)"
+                  @click="handleReparse(row)"
+                >
                   重解析
                 </el-button>
                 <el-popconfirm title="确定删除该文件及关联段落和向量？" @confirm="handleDelete(row)">
@@ -172,6 +198,13 @@
             <el-table-column label="内容" min-width="420">
               <template #default="{ row }">
                 <div class="chunk-title">{{ row.title || `段落 ${row.chunkIndex}` }}</div>
+                <div v-if="row.elementType || row.sectionPath || chunkSourceLabel(row)" class="chunk-source">
+                  <el-tag v-if="row.elementType" size="small" effect="plain">
+                    {{ documentElementLabel(row.elementType) }}
+                  </el-tag>
+                  <span v-if="row.sectionPath">{{ row.sectionPath }}</span>
+                  <span v-if="chunkSourceLabel(row)">{{ chunkSourceLabel(row) }}</span>
+                </div>
                 <div class="chunk-content">{{ truncate(row.content, 180) }}</div>
               </template>
             </el-table-column>
@@ -370,9 +403,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Search, Upload } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import DataTableShell from '@/components/common/DataTableShell.vue'
@@ -381,6 +414,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
+import DocumentImportJobCard from '@/components/DocumentImportJobCard.vue'
 import type { MetricStripItem, StatusTone } from '@/components/common/glassWorkbench'
 import {
   batchCreateKnowledgeTags,
@@ -401,7 +435,21 @@ import {
   reparseFile,
   updateKbConfig,
 } from '@/api/knowledge'
+import {
+  cancelDocumentImportJob,
+  getDocumentImportJob,
+  retryDocumentImportJob,
+} from '@/api/import'
 import type { ChunkDetail, FileInfo, KbConfig, KnowledgeBase, KnowledgeHitLog, KnowledgeOpsDashboard, KnowledgeQuestion, KnowledgeStats, KnowledgeTag, KnowledgeTagStats } from '@/types/knowledge'
+import type { DocumentImportJob } from '@/types/import'
+import {
+  documentElementLabel,
+  documentProviderLabel,
+  formatDocumentSourceLocator,
+  isAbortError,
+  isDocumentJobTerminal,
+  pollDocumentImportJob,
+} from '@/utils/documentImport'
 
 const route = useRoute()
 const router = useRouter()
@@ -425,6 +473,10 @@ const tagSaving = ref(false)
 const batchTagSaving = ref(false)
 const questionSaving = ref(false)
 const reparsingId = ref<string | null>(null)
+const reparseJob = ref<DocumentImportJob | null>(null)
+const reparseActionLoading = ref(false)
+const reparseClientError = ref('')
+const reparsePollingController = ref<AbortController | null>(null)
 const tagDialogVisible = ref(false)
 const batchTagDialogVisible = ref(false)
 const questionDialogVisible = ref(false)
@@ -447,6 +499,7 @@ const knowledgeMetrics = computed<MetricStripItem[]>(() => [
   { key: 'hits', label: '命中', value: stats.value.hitCount, iconKey: 'scan', tone: 'brand' },
 ])
 const selectedBatchCount = computed(() => batchTagTargetType.value === 'FILE' ? selectedFiles.value.length : selectedChunks.value.length)
+const reparseInProgress = computed(() => !!reparseJob.value && !isDocumentJobTerminal(reparseJob.value.status))
 
 const configForm = reactive<KbConfig>({ splitType: 'FIXED', chunkSize: 500, chunkOverlap: 50, searchMode: 'hybrid', topK: 5, similarityThreshold: 0.5, directReturnEnabled: true, directReturnThreshold: 0.9, rerankEnabled: true, vectorWeight: 0.7, keywordWeight: 0.3 })
 const tagForm = reactive({
@@ -652,14 +705,171 @@ async function handleDelete(row: FileInfo) {
 }
 
 async function handleReparse(row: FileInfo) {
+  if (reparseInProgress.value) {
+    ElMessage.warning('请先等待当前重新解析任务完成或取消该任务')
+    return
+  }
   reparsingId.value = row.fileId
+  reparseClientError.value = ''
   try {
-    await reparseFile(row.fileId)
-    ElMessage.success('重解析完成')
-    await Promise.all([fetchFiles(), fetchDashboard()])
+    const { data } = await reparseFile(row.fileId)
+    const job = data as unknown as DocumentImportJob
+    setReparseJob(job)
+    ElMessage.success('已提交重新解析任务，可在文件页持续查看进度')
+    await trackReparseJob(job)
   } finally {
     reparsingId.value = null
   }
+}
+
+async function handleRetryReparse() {
+  const job = reparseJob.value
+  if (!job) return
+  reparseActionLoading.value = true
+  reparseClientError.value = ''
+  stopReparsePolling()
+  try {
+    const { data } = await retryDocumentImportJob(job.jobId)
+    const retried = data as unknown as DocumentImportJob
+    setReparseJob(retried)
+    reparseActionLoading.value = false
+    await trackReparseJob(retried)
+  } catch (error) {
+    if (!isAbortError(error)) reparseClientError.value = errorMessage(error, '重新解析重试失败')
+  } finally {
+    reparseActionLoading.value = false
+  }
+}
+
+async function handleCancelReparse() {
+  const job = reparseJob.value
+  if (!job) return
+  try {
+    await ElMessageBox.confirm(
+      `确认取消“${job.fileName}”的重新解析任务？当前线上文件不会被删除。`,
+      '取消重新解析',
+      { confirmButtonText: '确认取消', cancelButtonText: '继续处理', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  reparseActionLoading.value = true
+  stopReparsePolling()
+  try {
+    await cancelDocumentImportJob(job.jobId)
+    reparseJob.value = { ...job, status: 'CANCELLED', stage: 'CANCELLED' }
+    clearStoredReparseJob()
+    ElMessage.success('重新解析任务已取消')
+  } catch (error) {
+    reparseClientError.value = errorMessage(error, '无法取消重新解析任务')
+  } finally {
+    reparseActionLoading.value = false
+  }
+}
+
+function resumeReparseJob() {
+  if (!reparseJob.value) return
+  reparseClientError.value = ''
+  void trackReparseJob(reparseJob.value)
+}
+
+function dismissReparseJob() {
+  stopReparsePolling()
+  reparseJob.value = null
+  reparseClientError.value = ''
+  clearStoredReparseJob()
+}
+
+async function trackReparseJob(job: DocumentImportJob) {
+  stopReparsePolling()
+  const controller = new AbortController()
+  reparsePollingController.value = controller
+  try {
+    const result = await pollDocumentImportJob({
+      jobId: job.jobId,
+      fetchJob: fetchImportJob,
+      signal: controller.signal,
+      stopWhen: (current) => current.status === 'COMPLETED',
+      onUpdate: setReparseJob,
+    })
+    setReparseJob(result)
+    if (result.status === 'COMPLETED') {
+      clearStoredReparseJob()
+      ElMessage.success('文件重新解析并替换完成')
+      await Promise.all([fetchFiles(), fetchDashboard()])
+    } else if (result.status === 'FAILED') {
+      ElMessage.error(result.errorMessage || `重新解析失败（${result.errorCode || 'FAILED'}）`)
+    }
+  } catch (error) {
+    if (!isAbortError(error)) reparseClientError.value = errorMessage(error, '无法刷新重新解析任务')
+  } finally {
+    if (reparsePollingController.value === controller) reparsePollingController.value = null
+  }
+}
+
+async function fetchImportJob(jobId: string, includePreview: boolean): Promise<DocumentImportJob> {
+  const { data } = await getDocumentImportJob(jobId, includePreview)
+  return data as unknown as DocumentImportJob
+}
+
+function setReparseJob(job: DocumentImportJob) {
+  reparseJob.value = job
+  if (job.status === 'COMPLETED' || job.status === 'CANCELLED') clearStoredReparseJob()
+  else storeReparseJob(job.jobId)
+}
+
+function isReparsingFile(fileId: string): boolean {
+  return reparseInProgress.value && reparseJob.value?.replaceFileId === fileId
+}
+
+function stopReparsePolling() {
+  reparsePollingController.value?.abort()
+  reparsePollingController.value = null
+}
+
+function reparseStorageKey() {
+  return `reachai:knowledge:reparse-job:${kbCode}`
+}
+
+function storeReparseJob(jobId: string) {
+  try {
+    window.sessionStorage.setItem(reparseStorageKey(), jobId)
+  } catch {
+    // Server-side durable state remains authoritative.
+  }
+}
+
+function clearStoredReparseJob() {
+  try {
+    window.sessionStorage.removeItem(reparseStorageKey())
+  } catch {
+    // Ignore unavailable browser storage.
+  }
+}
+
+async function restoreReparseJob() {
+  let jobId = ''
+  try {
+    jobId = window.sessionStorage.getItem(reparseStorageKey()) || ''
+  } catch {
+    return
+  }
+  if (!jobId) return
+  try {
+    const job = await fetchImportJob(jobId, false)
+    setReparseJob(job)
+    if (!isDocumentJobTerminal(job.status)) await trackReparseJob(job)
+  } catch (error) {
+    reparseClientError.value = errorMessage(error, '无法恢复重新解析任务')
+  }
+}
+
+function chunkSourceLabel(row: ChunkDetail): string {
+  return formatDocumentSourceLocator(row.sourceLocatorJson)
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback
 }
 
 async function handleCreateTag() {
@@ -747,6 +957,8 @@ watch(activeTab, (tab) => {
 })
 
 onMounted(refreshAll)
+onMounted(restoreReparseJob)
+onBeforeUnmount(stopReparsePolling)
 </script>
 
 <style scoped lang="scss">
@@ -825,6 +1037,30 @@ onMounted(refreshAll)
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.provider-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  span {
+    overflow: hidden;
+    font-size: 12px;
+    color: var(--text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.chunk-source {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .policy-form {

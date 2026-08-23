@@ -56,7 +56,7 @@ export function getScanProjectDetail(id: number) {
   return controlRequest.get<ScanProject>(`/api/scan-projects/${id}`)
 }
 
-/** 获取项目工具是否仍被 Agent 使用；legacy 工具名（如 SKILL）也会返回。 */
+/** 获取项目工具是否仍被 Agent 使用。 */
 export function getScanProjectOperationBlockers(id: number) {
   return controlRequest.get<ScanProjectBlockers>(`/api/scan-projects/${id}/operation-blockers`)
 }

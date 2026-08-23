@@ -116,12 +116,13 @@ class RuntimeWorkflowNodeCapabilityRegistryTest {
         assertTrue(studio.contains("VARIABLE_AGGREGATOR"));
         assertTrue(studio.contains("KNOWLEDGE_RETRIEVAL"));
         assertTrue(studio.contains("HTTP_REQUEST"));
-        assertEquals(16, studio.size());
+        assertEquals(15, studio.size());
     }
 
     @Test
     void findsByCanonicalTypeAndCanvasKindOnly() {
-        assertEquals("CAPABILITY", registry.find("skill").orElseThrow().type());
+        assertEquals("TOOL", registry.find("tool").orElseThrow().type());
+        assertTrue(registry.find("skill").isEmpty());
         assertEquals("INTENT_CLASSIFIER", registry.find("classifier").orElseThrow().type());
         assertEquals("PAGE_ACTION", registry.find("pageAction").orElseThrow().type());
         assertEquals("LOOP", registry.find("loop").orElseThrow().type());

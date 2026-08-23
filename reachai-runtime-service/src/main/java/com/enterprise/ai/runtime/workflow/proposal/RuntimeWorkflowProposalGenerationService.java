@@ -530,7 +530,7 @@ public class RuntimeWorkflowProposalGenerationService {
                     "fields", fields(config),
                     "outputAlias", firstText(text(config.get("outputAlias")), "params")));
             case "llm" -> data.put("llmConfig", llmConfig(config));
-            case "tool", "skill" -> data.put("toolConfig", toolConfig(config));
+            case "tool" -> data.put("toolConfig", toolConfig(config));
             case "knowledge" -> data.put("knowledgeConfig", knowledgeConfig(config));
             case "answer" -> {
                 data.put("answerConfig", Map.of("template", firstText(text(config.get("template")), "{{ lastOutput }}")));
@@ -1043,7 +1043,7 @@ public class RuntimeWorkflowProposalGenerationService {
     }
 
     private java.util.Optional<GraphSpec.CapabilityRef> capabilityRef(ProposalNode node) {
-        if (!"TOOL".equals(node.type()) && !"CAPABILITY".equals(node.type()) && !"MCP_CALL".equals(node.type())) {
+        if (!"TOOL".equals(node.type()) && !"MCP_CALL".equals(node.type())) {
             return java.util.Optional.empty();
         }
         Map<String, Object> config = mutableMap(node.config());
@@ -1051,7 +1051,7 @@ public class RuntimeWorkflowProposalGenerationService {
         if (!StringUtils.hasText(name) || bool(config.get("needsConfiguration"))) {
             return java.util.Optional.empty();
         }
-        String kind = "CAPABILITY".equals(node.type()) ? "CAPABILITY" : "TOOL";
+        String kind = "TOOL";
         return java.util.Optional.of(GraphSpec.CapabilityRef.builder()
                 .kind(kind)
                 .name(name)

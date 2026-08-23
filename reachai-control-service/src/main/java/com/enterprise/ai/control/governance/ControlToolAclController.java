@@ -211,7 +211,7 @@ public class ControlToolAclController {
 
     private String kind(String value) {
         String normalized = StringUtils.hasText(value) ? upper(value) : "TOOL";
-        if (!List.of("TOOL", "SKILL", "ALL").contains(normalized)) {
+        if (!List.of("TOOL", "ALL").contains(normalized)) {
             throw new IllegalArgumentException("target kind is invalid");
         }
         return normalized;

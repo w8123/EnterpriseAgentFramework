@@ -18,5 +18,8 @@ public class ChunkVO {
     private String vectorId;
     private Integer hitCount;
     private Integer enabled;
+    private String elementType;
+    private String sectionPath;
+    private String sourceLocatorJson;
     private LocalDateTime createTime;
 }

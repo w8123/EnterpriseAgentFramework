@@ -58,12 +58,11 @@ class RuntimeGraphSpecExecutorHandlerConformanceTest {
         assertEquals("RUNTIME_HTTP_CLIENT_UNAVAILABLE", codes.get("HTTP_REQUEST"));
         assertNotEquals(UNSUPPORTED, codes.get("LLM"));
         assertNotEquals(UNSUPPORTED, codes.get("TOOL"));
-        assertNotEquals(UNSUPPORTED, codes.get("CAPABILITY"));
         assertNotEquals(UNSUPPORTED, codes.get("VARIABLE_ASSIGN"));
         assertNotEquals(UNSUPPORTED, codes.get("TEMPLATE"));
         assertNotEquals(UNSUPPORTED, codes.get("VARIABLE_AGGREGATOR"));
         assertNotEquals(UNSUPPORTED, codes.get("LOOP"));
-        assertEquals(16, codes.size());
+        assertEquals(15, codes.size());
     }
 
     @Test
@@ -91,7 +90,6 @@ class RuntimeGraphSpecExecutorHandlerConformanceTest {
                 "ANSWER",
                 "LLM",
                 "TOOL",
-                "CAPABILITY",
                 "PAGE_ACTION",
                 "INTERACTION",
                 "VARIABLE_ASSIGN",
@@ -100,7 +98,7 @@ class RuntimeGraphSpecExecutorHandlerConformanceTest {
                 "KNOWLEDGE_RETRIEVAL",
                 "HTTP_REQUEST",
                 "LOOP"), RuntimeGraphSpecExecutor.handledNodeTypes());
-        assertEquals(Arrays.stream(AgentGraphNodeType.values()).count(), 21);
+        assertEquals(Arrays.stream(AgentGraphNodeType.values()).count(), 20);
     }
 
     private Map<String, Object> minimalContext(String nodeType) {
@@ -128,9 +126,6 @@ class RuntimeGraphSpecExecutorHandlerConformanceTest {
                     """;
             case "TOOL" -> """
                     {"entryNodeId":"n1","nodes":[{"id":"n1","type":"TOOL","config":{}}],"exitNodeIds":["n1"]}
-                    """;
-            case "CAPABILITY" -> """
-                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"CAPABILITY","config":{}}],"exitNodeIds":["n1"]}
                     """;
             case "PAGE_ACTION" -> """
                     {"entryNodeId":"n1","nodes":[{"id":"n1","type":"PAGE_ACTION","config":{

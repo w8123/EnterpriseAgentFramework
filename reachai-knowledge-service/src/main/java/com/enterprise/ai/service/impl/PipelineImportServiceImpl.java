@@ -44,6 +44,7 @@ public class PipelineImportServiceImpl implements PipelineImportService {
                 log.warn("Pipeline 执行被中断: fileId={}, 原因: {}", fileId, context.getAbortReason());
                 return PipelineResult.builder()
                         .fileId(fileId)
+                        .importJobId(context.getImportJobId())
                         .knowledgeBaseCode(kbCode)
                         .chunkCount(context.getChunks() != null ? context.getChunks().size() : 0)
                         .vectorCount(context.getVectorIds() != null ? context.getVectorIds().size() : 0)
@@ -55,17 +56,23 @@ public class PipelineImportServiceImpl implements PipelineImportService {
 
             return PipelineResult.builder()
                     .fileId(fileId)
+                    .importJobId(context.getImportJobId())
                     .knowledgeBaseCode(kbCode)
                     .chunkCount(context.getChunks() != null ? context.getChunks().size() : 0)
                     .vectorCount(context.getVectorIds() != null ? context.getVectorIds().size() : 0)
                     .stepDurations(context.getStepDurations())
                     .status("SUCCESS")
+                    .providerType(context.getParsedDocument() == null || context.getParsedDocument().getProviderType() == null
+                            ? null : context.getParsedDocument().getProviderType().name())
+                    .providerVersion(context.getParsedDocument() == null ? null
+                            : context.getParsedDocument().getProviderVersion())
                     .build();
 
         } catch (PipelineException e) {
             log.error("Pipeline 执行失败: fileId={}, step={}", fileId, e.getStepName(), e);
             return PipelineResult.builder()
                     .fileId(fileId)
+                    .importJobId(context.getImportJobId())
                     .knowledgeBaseCode(kbCode)
                     .chunkCount(context.getChunks() != null ? context.getChunks().size() : 0)
                     .vectorCount(context.getVectorIds() != null ? context.getVectorIds().size() : 0)
@@ -78,6 +85,7 @@ public class PipelineImportServiceImpl implements PipelineImportService {
             log.error("Pipeline 执行异常: fileId={}", fileId, e);
             return PipelineResult.builder()
                     .fileId(fileId)
+                    .importJobId(context.getImportJobId())
                     .knowledgeBaseCode(kbCode)
                     .stepDurations(context.getStepDurations())
                     .status("FAILED")

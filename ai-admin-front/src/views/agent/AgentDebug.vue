@@ -419,10 +419,7 @@ import type { AgentResult, PendingHumanApproval, StepRecord } from '@/types/agen
 import type { TraceNode } from '@/types/trace'
 import type { Agent } from '@/types/workflow'
 import { getAgent } from '@/api/workflow'
-import {
-  listPendingHumanApprovals,
-  submitHumanApproval,
-} from '@/api/agent'
+import { listPendingHumanApprovals } from '@/api/agent'
 import { getTraceDetail } from '@/api/trace'
 import {
   ConversationView,
@@ -1063,26 +1060,9 @@ async function handlePendingApprovalAction(
   values: Record<string, unknown>,
 ) {
   const routeAction = values?.confirm === false ? 'reject' : action
-  if (approval.interactionId.startsWith('spv_')) {
-    beginTurnShellReset()
-    await controller.submitInteraction(approval.interactionId, routeAction, values)
-    await loadPendingApprovals()
-    return
-  }
-
-  try {
-    const { data } = await submitHumanApproval(approval.interactionId, {
-      action: routeAction,
-      values,
-      sessionId: sessionId.value || approval.sessionId || undefined,
-    })
-    lastAgentResult.value = data
-    executionPhase.value = data.success ? 'success' : 'error'
-    await loadPendingApprovals()
-    ElMessage.success(data.answer || '审批已提交')
-  } catch {
-    ElMessage.error('审批提交失败')
-  }
+  beginTurnShellReset()
+  await controller.submitInteraction(approval.interactionId, routeAction, values)
+  await loadPendingApprovals()
 }
 
 async function handleClearSession() {

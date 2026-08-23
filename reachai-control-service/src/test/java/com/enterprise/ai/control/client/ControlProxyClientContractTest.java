@@ -350,18 +350,6 @@ class ControlProxyClientContractTest {
         assertMapping(listHumanApprovals, RequestMethod.GET, "/api/runtime/interactions/human-approvals");
         assertEquals(ResponseEntity.class, listHumanApprovals.getReturnType());
 
-        Method submitHumanApproval = RuntimeProxyClient.class
-                .getMethod("submitHumanApproval", String.class, Map.class);
-        assertMapping(submitHumanApproval, RequestMethod.POST,
-                "/api/runtime/interactions/human-approvals/{interactionId}/submit");
-        assertEquals(ResponseEntity.class, submitHumanApproval.getReturnType());
-
-        Method cancelHumanApproval = RuntimeProxyClient.class
-                .getMethod("cancelHumanApproval", String.class, String.class);
-        assertMapping(cancelHumanApproval, RequestMethod.DELETE,
-                "/api/runtime/interactions/human-approvals/{interactionId}");
-        assertEquals(ResponseEntity.class, cancelHumanApproval.getReturnType());
-
         Method syncAgentGraphs = RuntimeProxyClient.class.getMethod("syncAgentGraphs", String.class, Map.class);
         assertMapping(syncAgentGraphs, RequestMethod.POST, "/api/registry/projects/{projectCode}/agent-graphs/sync");
         assertEquals(ResponseEntity.class, syncAgentGraphs.getReturnType());

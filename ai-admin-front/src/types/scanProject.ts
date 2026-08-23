@@ -408,7 +408,6 @@ export interface ScanProjectScanResult {
 export interface ScanProjectBlockers {
   blocked: boolean
   toolNames: string[]
-  skillNames: string[]
   agents: { id: string; name: string }[]
 }
 

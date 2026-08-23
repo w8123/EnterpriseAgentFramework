@@ -451,7 +451,6 @@ class CapabilityScanProjectCatalogControllerTest {
         ScanProjectBlockers blockers = new ScanProjectBlockers(
                 true,
                 List.of("orders_create"),
-                List.of(),
                 List.of());
         when(service.rescan(7L)).thenThrow(new CapabilityScanProjectCatalogService.ScanProjectBlockedException(blockers));
 
@@ -798,7 +797,6 @@ class CapabilityScanProjectCatalogControllerTest {
         ScanProjectBlockers blockers = new ScanProjectBlockers(
                 true,
                 List.of("orders_create"),
-                List.of(),
                 List.of(new ScanProjectBlockers.AgentRef("agent-1", "Team Assistant")));
         when(service.operationBlockers(7L)).thenReturn(blockers);
 

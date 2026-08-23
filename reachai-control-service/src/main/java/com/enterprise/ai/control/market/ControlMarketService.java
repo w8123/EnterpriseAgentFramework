@@ -60,37 +60,6 @@ public class ControlMarketService {
     }
 
     @Transactional
-    public ControlMarketItemEntity submitSkill(String qualifiedName, String version, String submittedBy) {
-        if (!StringUtils.hasText(qualifiedName)) {
-            throw new IllegalArgumentException("qualifiedName is required");
-        }
-        Map<String, Object> skill = requireMap(capabilityClient.getToolDefinition(qualifiedName),
-                "Capability not found: " + qualifiedName);
-        if (!"SKILL".equalsIgnoreCase(text(skill.get("kind")))) {
-            throw new IllegalArgumentException("Only kind=SKILL capability assets can be listed");
-        }
-        String visibility = firstText(text(skill.get("visibility")), "PRIVATE");
-        if (!isMarketVisible(visibility)) {
-            throw new IllegalArgumentException("Only SHARED / PUBLIC capability assets can be listed");
-        }
-        ControlMarketItemEntity item = baseItem(
-                "SKILL",
-                firstText(text(skill.get("id")), qualifiedName),
-                firstText(text(skill.get("qualifiedName")), qualifiedName),
-                longValue(skill.get("projectId")),
-                text(skill.get("projectCode")),
-                firstText(text(skill.get("name")), qualifiedName),
-                text(skill.get("description")),
-                version,
-                visibility,
-                submittedBy);
-        item.setDependencyManifestJson(text(skill.get("specJson")));
-        item.setSnapshotJson(toJson(skill));
-        marketItemMapper.insert(item);
-        return item;
-    }
-
-    @Transactional
     public ControlMarketItemEntity approve(Long id, String operator) {
         ControlMarketItemEntity item = requireItem(id);
         ImportCheckResult check = checkDependencies(id);
@@ -170,7 +139,7 @@ public class ControlMarketService {
 
     private List<Map<String, Object>> capabilityRefs(Map<String, Object> agent) {
         List<Map<String, Object>> refs = new ArrayList<>();
-        for (Object source : new Object[] {agent.get("tools"), agent.get("skills")}) {
+        for (Object source : new Object[] {agent.get("tools")}) {
             if (!(source instanceof Collection<?> collection)) {
                 continue;
             }

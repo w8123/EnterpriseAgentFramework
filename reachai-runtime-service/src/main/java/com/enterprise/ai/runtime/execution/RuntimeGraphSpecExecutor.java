@@ -52,7 +52,7 @@ import java.util.regex.Pattern;
  * 取消语义为<strong>节点边界协作式取消</strong>：
  * <ul>
  *   <li>节点前后检查 cancellation；取消后停止后续节点，返回 {@code RUNTIME_GRAPH_CANCELLED}</li>
- *   <li>LLM / TOOL / CAPABILITY / PAGE_ACTION / 模型分类与参数抽取在同步 Feign 调用前后检查取消；
+ *   <li>LLM / TOOL / PAGE_ACTION / 模型分类与参数抽取在同步 Feign 调用前后检查取消；
  *       调用返回后若已取消，丢弃成功结果且不发 public delta</li>
  *   <li>OpenFeign 同步 HTTP（{@code modelServiceClient.chat}、{@code capabilityClient.executeTool}、
  *       {@code controlClient.executePageBridge}）在现有技术栈下<strong>无法硬中断</strong>进行中的 socket；
@@ -77,7 +77,6 @@ public class RuntimeGraphSpecExecutor {
             "ANSWER",
             "LLM",
             "TOOL",
-            "CAPABILITY",
             "PAGE_ACTION",
             "INTERACTION",
             "PARAMETER_EXTRACT",
@@ -222,10 +221,23 @@ public class RuntimeGraphSpecExecutor {
         }
         for (GraphSpec.Node node : graph.getNodes()) {
             AgentGraphNodeType type = node == null ? null : AgentGraphNodeType.find(node.getType()).orElse(null);
-            if (type == null || !type.type().equals(node.getType())) {
+            if (type == null) {
                 return failure("RUNTIME_GRAPH_NODE_TYPE_INVALID",
                         "GraphSpec node.type must use a canonical value: " + (node == null ? null : node.getType()),
                         node == null ? null : node.getId(), node == null ? null : node.getType());
+            }
+            if (!type.type().equals(node.getType())) {
+                return failure("RUNTIME_GRAPH_NODE_TYPE_INVALID",
+                        "GraphSpec node.type must use a canonical value: " + node.getType(),
+                        node.getId(), node.getType());
+            }
+            if (type == AgentGraphNodeType.TOOL
+                    && node.getRef() != null
+                    && StringUtils.hasText(node.getRef().getKind())
+                    && !"TOOL".equals(node.getRef().getKind())) {
+                return failure("RUNTIME_GRAPH_TOOL_REF_KIND_INVALID",
+                        "GraphSpec TOOL node ref.kind must be TOOL",
+                        node.getId(), node.getType());
             }
         }
         String declaredEntry = text(graph.getEntryNodeId());
@@ -804,7 +816,7 @@ public class RuntimeGraphSpecExecutor {
             case "PARAMETER_EXTRACT" -> executeParameterExtract(node, context, cancel);
             case "ANSWER" -> executeAnswer(node, context);
             case "LLM" -> executeLlm(node, context, graph, eventSink, cancel);
-            case "TOOL", "CAPABILITY" -> executeTool(node, nodeType, context, cancel);
+            case "TOOL" -> executeTool(node, nodeType, context, cancel);
             case "PAGE_ACTION" -> executePageAction(node, context, cancel);
             case "INTERACTION" -> executeInteraction(node, context);
             case "VARIABLE_ASSIGN" -> executeVariableAssign(node, context);
@@ -2949,7 +2961,7 @@ public class RuntimeGraphSpecExecutor {
             }
         }
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
-        Map<String, Object> nested = mapValue(firstPresent(config.get("toolConfig"), config.get("capabilityConfig")));
+        Map<String, Object> nested = mapValue(config.get("toolConfig"));
         return firstText(
                 text(config.get("qualifiedName")),
                 configuredReference(config.get("ref")),

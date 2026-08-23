@@ -18,7 +18,7 @@ Use these endpoints only when `workflow.workflowKind=PAGE_ASSISTANT`.
 API as part of a page flow, but it is not a substitute for an independently
 routable API Tool. When users must be able to say "call the business API and do
 not operate the page", create and publish a separate `GENERAL` Workflow that
-contains only the required read-only `TOOL`/`CAPABILITY` chain, then attach it
+contains only the required read-only `TOOL` chain, then attach it
 to the same Agent with `riskLevel=READ`.
 
 Do not add API-only classifier branches to a PAGE_ASSISTANT as the sole API

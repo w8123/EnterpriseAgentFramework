@@ -18,7 +18,7 @@
       </div>
       <template #tip>
         <div class="el-upload__tip">
-          支持 doc / docx / pdf 格式，单文件上传
+          TXT / Markdown / CSV 使用 Java Fast；Office、PDF 和图片/扫描件使用 Docling。单文件最大 50 MB
         </div>
       </template>
     </el-upload>
@@ -39,6 +39,7 @@ import type { UploadFile, UploadInstance, UploadRawFile } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import { UploadFilled, Document } from '@element-plus/icons-vue'
 import { isSupportedFile, formatFileSize } from '@/utils'
+import { validateDocumentFileSize } from '@/utils/documentImport'
 
 const emit = defineEmits<{
   change: [file: File | null]
@@ -48,15 +49,25 @@ const uploadRef = ref<UploadInstance>()
 const currentFile = ref<File | null>(null)
 const fileList = ref<UploadFile[]>([])
 
-const acceptTypes = '.doc,.docx,.pdf'
+const acceptTypes = '.txt,.md,.markdown,.csv,.doc,.docx,.pdf,.pptx,.xlsx,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp'
 
 function handleFileChange(uploadFile: UploadFile) {
   const rawFile = uploadFile.raw
   if (!rawFile) return
 
   if (!isSupportedFile(rawFile.name)) {
-    ElMessage.warning('不支持的文件格式，请上传 doc / docx / pdf 文件')
+    ElMessage.warning('不支持的文件格式，请上传文本、Office、PDF 或图片/扫描件')
     fileList.value = []
+    return
+  }
+
+  const sizeError = validateDocumentFileSize(rawFile)
+  if (sizeError) {
+    ElMessage.warning(sizeError)
+    currentFile.value = null
+    fileList.value = []
+    uploadRef.value?.clearFiles()
+    emit('change', null)
     return
   }
 

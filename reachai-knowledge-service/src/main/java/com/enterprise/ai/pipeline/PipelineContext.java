@@ -1,5 +1,7 @@
 package com.enterprise.ai.pipeline;
 
+import com.enterprise.ai.pipeline.document.DocumentParseResult;
+import com.enterprise.ai.pipeline.document.DocumentChunkSource;
 import lombok.Data;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -16,8 +18,7 @@ import java.util.Map;
  *
  * <h3>生命周期</h3>
  * <pre>
- * 创建 → FileParseStep(写入rawText)
- *       → OcrStep(补充rawText)
+ * 创建 → FileParseStep(写入parsedDocument/rawText)
  *       → TextCleanStep(写入cleanedText)
  *       → ChunkStep(写入chunks)
  *       → EmbeddingStep(写入vectors)
@@ -39,6 +40,14 @@ public class PipelineContext {
     /** 文件名称 */
     private String fileName;
 
+    /** Durable source metadata. Present for asynchronous document import jobs. */
+    private Long sourceFileSize;
+    private String sourceContentType;
+    private String sourceObjectKey;
+    private String sourceSha256;
+    private String parseArtifactObjectKey;
+    private String importJobId;
+
     /** 目标知识库编码 */
     private String knowledgeBaseCode;
 
@@ -51,7 +60,7 @@ public class PipelineContext {
     /** 切分重叠（字符数） */
     private int chunkOverlap = 50;
 
-    /** 扩展参数（用于未来步骤传参，如 OCR 语言、rerank 模型等） */
+    /** 扩展参数（用于未来步骤传参，如清洗规则、追踪ID等） */
     private Map<String, Object> extraParams = new HashMap<>();
 
     // ==================== 流水线中间产物 ====================
@@ -59,14 +68,17 @@ public class PipelineContext {
     /** 文件解析后的原始文本 */
     private String rawText;
 
-    /** OCR 处理后的文本（无 OCR 时与 rawText 相同） */
-    private String ocrText;
+    /** 结构化解析结果；OCR、表格和来源定位均由 Provider 在本步骤完成。 */
+    private DocumentParseResult parsedDocument;
 
     /** 清洗后的文本 */
     private String cleanedText;
 
     /** 切分后的文本块列表 */
     private List<String> chunks = new ArrayList<>();
+
+    /** Chunk 与 Docling/Java Fast 来源锚点按索引一一对应。 */
+    private List<DocumentChunkSource> chunkSources = new ArrayList<>();
 
     /** 每个 chunk 对应的向量 */
     private List<List<Float>> vectors = new ArrayList<>();

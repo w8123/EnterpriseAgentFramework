@@ -399,13 +399,68 @@ CREATE TABLE IF NOT EXISTS `knowledge_file_info` (
     `file_size`         BIGINT       DEFAULT 0               COMMENT '文件大小（字节）',
     `chunk_count`       INT          DEFAULT 0               COMMENT 'knowledge_chunk 数量',
     `status`            TINYINT      DEFAULT 0               COMMENT '状态: 0-处理中 1-已完成 2-失败',
-    `raw_text`          LONGTEXT     DEFAULT NULL            COMMENT '解析后的原始文本（用于重新解析）',
+    `raw_text`          LONGTEXT     DEFAULT NULL            COMMENT '清洗后的检索文本快照；重新解析必须使用 source_object_key',
+    `source_object_key` VARCHAR(512) DEFAULT NULL            COMMENT '上传原件的对象存储 key',
+    `source_content_type` VARCHAR(128) DEFAULT NULL          COMMENT '上传时声明的 MIME',
+    `source_sha256`     CHAR(64)     DEFAULT NULL            COMMENT '上传原件 SHA-256',
+    `parse_provider`    VARCHAR(32)  DEFAULT NULL            COMMENT 'JAVA_FAST / DOCLING',
+    `parse_provider_version` VARCHAR(64) DEFAULT NULL        COMMENT '解析 Provider 版本',
+    `parse_artifact_object_key` VARCHAR(512) DEFAULT NULL    COMMENT '结构化解析 JSON 的对象存储 key',
+    `import_job_id`     VARCHAR(64)  DEFAULT NULL            COMMENT '产生文件记录的导入任务',
     `create_time`       DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
-    KEY `idx_file_id` (`file_id`),
+    UNIQUE KEY `uk_knowledge_file_file_id` (`file_id`),
     KEY `idx_kb_id` (`knowledge_base_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文件信息';
+
+CREATE TABLE IF NOT EXISTS `knowledge_document_import_job` (
+    `id`                    BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `job_id`                VARCHAR(64)  NOT NULL                COMMENT '对外导入任务ID',
+    `file_id`               VARCHAR(128) NOT NULL                COMMENT '完成后对应 knowledge_file_info.file_id',
+    `replace_file_id`       VARCHAR(128) DEFAULT NULL            COMMENT '完成后被替换的旧文件ID',
+    `knowledge_base_id`     BIGINT       NOT NULL                COMMENT '所属知识库ID',
+    `knowledge_base_code`   VARCHAR(64)  NOT NULL                COMMENT '提交时知识库编码快照',
+    `tenant_id`             VARCHAR(96)  NOT NULL DEFAULT 'default' COMMENT 'Control 已验证租户快照',
+    `created_by_actor_id`   VARCHAR(128) DEFAULT NULL            COMMENT 'Control 已验证任务创建用户',
+    `workspace_id`          VARCHAR(64)  NOT NULL DEFAULT 'default' COMMENT '知识库 workspace 授权快照',
+    `project_code`          VARCHAR(64)  DEFAULT NULL            COMMENT '知识库 project 授权快照',
+    `resource_scope`        VARCHAR(20)  NOT NULL DEFAULT 'WORKSPACE' COMMENT 'SHARED / WORKSPACE / PROJECT 授权快照',
+    `file_name`             VARCHAR(256) NOT NULL                COMMENT '原始文件名',
+    `file_type`             VARCHAR(32)  NOT NULL                COMMENT '严格检测后的格式',
+    `content_type`          VARCHAR(128) DEFAULT NULL            COMMENT '上传时声明 MIME',
+    `file_size`             BIGINT       NOT NULL DEFAULT 0      COMMENT '原件字节数',
+    `source_object_key`     VARCHAR(512) NOT NULL                COMMENT '原件对象存储 key',
+    `source_sha256`         CHAR(64)     DEFAULT NULL            COMMENT '原件 SHA-256',
+    `provider_type`         VARCHAR(32)  NOT NULL                COMMENT 'JAVA_FAST / DOCLING',
+    `provider_version`      VARCHAR(64)  DEFAULT NULL            COMMENT '实际解析版本',
+    `parse_artifact_object_key` VARCHAR(512) DEFAULT NULL        COMMENT '结构化解析 JSON 工件 key',
+    `status`                VARCHAR(32)  NOT NULL                COMMENT 'QUEUED/PARSING/PARSED/INDEXING/COMPLETED/RETRY_WAIT/FAILED/CANCELLED',
+    `stage`                 VARCHAR(32)  NOT NULL                COMMENT '当前阶段',
+    `chunk_strategy`        VARCHAR(32)  NOT NULL DEFAULT 'fixed_length' COMMENT '切分策略',
+    `chunk_size`            INT          NOT NULL DEFAULT 500    COMMENT '切分大小',
+    `chunk_overlap`         INT          NOT NULL DEFAULT 50     COMMENT '切分重叠',
+    `extra_params_json`     MEDIUMTEXT   DEFAULT NULL            COMMENT '非秘密扩展处理参数',
+    `auto_commit`           TINYINT(1)   NOT NULL DEFAULT 0      COMMENT '解析成功后是否自动向量入库',
+    `attempt_count`         INT          NOT NULL DEFAULT 0      COMMENT '同一 Provider 的解析尝试数',
+    `max_attempts`          INT          NOT NULL DEFAULT 3      COMMENT '最大解析尝试数',
+    `error_code`            VARCHAR(64)  DEFAULT NULL            COMMENT '稳定错误码',
+    `error_message`         VARCHAR(1024) DEFAULT NULL           COMMENT '脱敏且截断的错误详情',
+    `next_attempt_at`       DATETIME     DEFAULT NULL            COMMENT '重试可执行时间',
+    `lease_owner`           VARCHAR(128) DEFAULT NULL            COMMENT '短租约 worker',
+    `lease_until`           DATETIME     DEFAULT NULL            COMMENT '短租约截止时间',
+    `parsed_at`             DATETIME     DEFAULT NULL            COMMENT '结构化结果持久化时间',
+    `completed_at`          DATETIME     DEFAULT NULL            COMMENT '索引完成时间',
+    `create_time`           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_knowledge_document_import_job_id` (`job_id`),
+    KEY `idx_knowledge_document_import_status_retry` (`status`, `next_attempt_at`),
+    KEY `idx_knowledge_document_import_autocommit` (`status`, `auto_commit`, `parsed_at`),
+    UNIQUE KEY `uk_knowledge_document_import_file_id` (`file_id`),
+    KEY `idx_knowledge_document_import_kb` (`knowledge_base_id`, `create_time`),
+    KEY `idx_knowledge_document_import_actor` (`tenant_id`, `created_by_actor_id`, `create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识文档原件、解析工件和入库任务状态';
 
 CREATE TABLE IF NOT EXISTS `knowledge_chunk` (
     `id`                BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -415,9 +470,12 @@ CREATE TABLE IF NOT EXISTS `knowledge_chunk` (
     `chunk_index`       INT           DEFAULT 0               COMMENT 'knowledge_chunk 在文件内的序号',
     `vector_id`         VARCHAR(256)  DEFAULT NULL            COMMENT 'Milvus 中的向量 ID',
     `collection_name`   VARCHAR(64)   DEFAULT NULL            COMMENT '关联的 collection 名称',
+    `element_type`      VARCHAR(32)   DEFAULT NULL            COMMENT '结构化解析元素类型',
+    `section_path`      VARCHAR(1024) DEFAULT NULL            COMMENT '元素标题路径',
+    `source_locator_json` MEDIUMTEXT  DEFAULT NULL            COMMENT '页/幻灯片/单元格/坐标来源锚点',
     `create_time`       DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
-    KEY `idx_file_id` (`file_id`),
+    UNIQUE KEY `uk_knowledge_chunk_file_index` (`file_id`, `chunk_index`),
     KEY `idx_kb_id` (`knowledge_base_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文本块';
 
@@ -447,13 +505,26 @@ CALL add_col_if_absent('knowledge_base', 'keyword_weight', 'FLOAT NOT NULL DEFAU
 CALL add_col_if_absent('knowledge_chunk', 'title', 'VARCHAR(256) DEFAULT NULL COMMENT ''paragraph title'' AFTER `content`');
 CALL add_col_if_absent('knowledge_chunk', 'hit_count', 'INT NOT NULL DEFAULT 0 COMMENT ''retrieval hit count'' AFTER `collection_name`');
 CALL add_col_if_absent('knowledge_chunk', 'enabled', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''paragraph enabled flag'' AFTER `hit_count`');
+CALL add_col_if_absent('knowledge_file_info', 'source_object_key', 'VARCHAR(512) DEFAULT NULL COMMENT ''上传原件的对象存储 key'' AFTER `raw_text`');
+CALL add_col_if_absent('knowledge_file_info', 'source_content_type', 'VARCHAR(128) DEFAULT NULL COMMENT ''上传时声明的 MIME'' AFTER `source_object_key`');
+CALL add_col_if_absent('knowledge_file_info', 'source_sha256', 'CHAR(64) DEFAULT NULL COMMENT ''上传原件 SHA-256'' AFTER `source_content_type`');
+CALL add_col_if_absent('knowledge_file_info', 'parse_provider', 'VARCHAR(32) DEFAULT NULL COMMENT ''JAVA_FAST / DOCLING'' AFTER `source_sha256`');
+CALL add_col_if_absent('knowledge_file_info', 'parse_provider_version', 'VARCHAR(64) DEFAULT NULL COMMENT ''解析 Provider 版本'' AFTER `parse_provider`');
+CALL add_col_if_absent('knowledge_file_info', 'parse_artifact_object_key', 'VARCHAR(512) DEFAULT NULL COMMENT ''结构化解析 JSON 的对象存储 key'' AFTER `parse_provider_version`');
+CALL add_col_if_absent('knowledge_file_info', 'import_job_id', 'VARCHAR(64) DEFAULT NULL COMMENT ''产生文件记录的导入任务'' AFTER `parse_artifact_object_key`');
+CALL add_col_if_absent('knowledge_chunk', 'element_type', 'VARCHAR(32) DEFAULT NULL COMMENT ''结构化解析元素类型'' AFTER `collection_name`');
+CALL add_col_if_absent('knowledge_chunk', 'section_path', 'VARCHAR(1024) DEFAULT NULL COMMENT ''元素标题路径'' AFTER `element_type`');
+CALL add_col_if_absent('knowledge_chunk', 'source_locator_json', 'MEDIUMTEXT DEFAULT NULL COMMENT ''页/幻灯片/单元格/坐标来源锚点'' AFTER `section_path`');
 CALL add_idx_if_absent('knowledge_base', 'idx_kb_workspace_scope', '`workspace_id`, `scope`');
 CALL add_idx_if_absent('knowledge_base', 'idx_kb_project_code', '`project_code`');
 CALL add_idx_if_absent('knowledge_chunk', 'idx_kb_enabled', '`knowledge_base_id`, `enabled`');
 CALL add_idx_if_absent('knowledge_chunk', 'idx_kb_hit_count', '`knowledge_base_id`, `hit_count`');
-CALL add_idx_if_absent('knowledge_chunk', 'idx_file_chunk_index', '`file_id`, `chunk_index`');
+CALL add_unique_idx_if_absent('knowledge_file_info', 'uk_knowledge_file_file_id', '`file_id`');
+CALL add_unique_idx_if_absent('knowledge_document_import_job', 'uk_knowledge_document_import_file_id', '`file_id`');
+CALL add_unique_idx_if_absent('knowledge_chunk', 'uk_knowledge_chunk_file_index', '`file_id`, `chunk_index`');
 CALL add_idx_if_absent('knowledge_chunk', 'idx_kb_created', '`knowledge_base_id`, `create_time`');
 CALL add_idx_if_absent('knowledge_file_info', 'idx_kb_file_created', '`knowledge_base_id`, `create_time`');
+CALL add_idx_if_absent('knowledge_file_info', 'idx_knowledge_file_import_job', '`import_job_id`');
 
 CREATE TABLE IF NOT EXISTS `knowledge_tag` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
@@ -697,21 +768,17 @@ CREATE TABLE IF NOT EXISTS `capability_semantic_doc` (
 
 
 -- ============================================================================
--- 四、Tool / Skill 统一能力表（历史 v1 + v5 + v6 + Phase 2.0 合并最终态）
---    kind = 'TOOL'  → 原子 Tool
---    kind = 'SKILL' → 能力粒度（Phase 2.0 仅 SUB_AGENT，spec_json 承载专属参数）
+-- 四、Tool 能力表
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS `capability_tool_definition` (
     `id`                  BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
     `name`                VARCHAR(128)  NOT NULL                COMMENT '能力唯一标识 (snake_case)',
     `title`               VARCHAR(192)  NOT NULL                COMMENT '用户可读的简短工具名称',
-    `kind`                VARCHAR(16)   NOT NULL DEFAULT 'TOOL' COMMENT '能力形态: TOOL / SKILL',
     `description`         TEXT          NOT NULL                COMMENT '能力描述',
     `ai_description`      MEDIUMTEXT    DEFAULT NULL            COMMENT 'LLM 生成的业务语义描述（Agent 运行时优先使用）',
     `capability_metadata_json` MEDIUMTEXT DEFAULT NULL          COMMENT '@ReachCapability 能力声明元数据 JSON',
     `parameters_json`     TEXT          DEFAULT NULL            COMMENT '参数定义 JSON',
-    `spec_json`           MEDIUMTEXT    DEFAULT NULL            COMMENT 'Skill 专属 spec JSON（SubAgent: systemPrompt/toolWhitelist/modelInstanceId/maxSteps）',
     `source`              VARCHAR(32)   NOT NULL DEFAULT 'manual' COMMENT '来源: code/scanner/manual',
     `source_location`     VARCHAR(512)  DEFAULT NULL            COMMENT '来源详情',
     `http_method`         VARCHAR(8)    DEFAULT NULL            COMMENT 'HTTP 方法',
@@ -724,35 +791,27 @@ CREATE TABLE IF NOT EXISTS `capability_tool_definition` (
     `module_id`           BIGINT        DEFAULT NULL            COMMENT '所属模块（capability_scan_module.id）',
     `enabled`             TINYINT       NOT NULL DEFAULT 1      COMMENT '是否启用',
     `side_effect`         VARCHAR(24)   NOT NULL DEFAULT 'WRITE' COMMENT '副作用等级: NONE / READ_ONLY / IDEMPOTENT_WRITE / WRITE / IRREVERSIBLE',
-    `skill_kind`          VARCHAR(24)   DEFAULT NULL            COMMENT 'kind=SKILL 时填: SUB_AGENT / WORKFLOW / AUGMENTED_TOOL',
-    `draft`               TINYINT(1)    NOT NULL DEFAULT 0      COMMENT '1=Skill草稿暂存，不落registry、不可执行',
     `create_time`         DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`         DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_name`                  (`name`),
     KEY        `idx_project_id`           (`project_id`),
     KEY        `idx_tool_module_id`       (`module_id`),
-    KEY        `idx_kind_enabled`         (`kind`, `enabled`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool/Skill 统一能力表（Phase 2.0 起 kind 区分）';
+    KEY        `idx_enabled`              (`enabled`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool 能力表';
 
--- 兼容老库：如果 capability_tool_definition 已存在但缺少 Phase 2 新列，这里补齐（CREATE TABLE IF NOT EXISTS 不会重建）
+-- 兼容老库：如果 capability_tool_definition 已存在但缺少当前基线列，这里补齐（CREATE TABLE IF NOT EXISTS 不会重建）
 CALL add_col_if_absent('capability_tool_definition', 'title',            'VARCHAR(192) DEFAULT NULL COMMENT ''用户可读的简短工具名称'' AFTER `name`');
 UPDATE `capability_tool_definition` SET `title` = `name` WHERE `title` IS NULL OR TRIM(`title`) = '';
 ALTER TABLE `capability_tool_definition` MODIFY COLUMN `title` VARCHAR(192) NOT NULL COMMENT '用户可读的简短工具名称';
-CALL add_col_if_absent('capability_tool_definition', 'kind',             'VARCHAR(16) NOT NULL DEFAULT ''TOOL'' COMMENT ''能力形态: TOOL / SKILL'' AFTER `title`');
 CALL add_col_if_absent('capability_tool_definition', 'ai_description',   'MEDIUMTEXT DEFAULT NULL COMMENT ''LLM 生成的业务语义描述'' AFTER `description`');
 CALL add_col_if_absent('capability_tool_definition', 'capability_metadata_json', 'MEDIUMTEXT DEFAULT NULL COMMENT ''@ReachCapability 能力声明元数据 JSON'' AFTER `ai_description`');
-CALL add_col_if_absent('capability_tool_definition', 'spec_json',        'MEDIUMTEXT DEFAULT NULL COMMENT ''Skill 专属 spec JSON'' AFTER `parameters_json`');
 CALL add_col_if_absent('capability_tool_definition', 'project_id',       'BIGINT DEFAULT NULL COMMENT ''关联的扫描项目 ID'' AFTER `response_type`');
 CALL add_col_if_absent('capability_tool_definition', 'module_id',        'BIGINT DEFAULT NULL COMMENT ''所属模块'' AFTER `project_id`');
 CALL add_col_if_absent('capability_tool_definition', 'side_effect',      'VARCHAR(24) NOT NULL DEFAULT ''WRITE'' COMMENT ''副作用等级'' AFTER `enabled`');
-CALL add_col_if_absent('capability_tool_definition', 'skill_kind',       'VARCHAR(24) DEFAULT NULL COMMENT ''Skill 形态子类型'' AFTER `side_effect`');
 CALL add_idx_if_absent('capability_tool_definition', 'idx_project_id',           'project_id');
 CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_module_id',       'module_id');
-CALL add_idx_if_absent('capability_tool_definition', 'idx_kind_enabled', 'kind, enabled');
-
--- Skill 草稿：kind=SKILL 时 draft=1 表示暂存，不参与注册与执行（与 skill_draft_tool_definition.sql 一致）
-CALL add_col_if_absent('capability_tool_definition', 'draft', 'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''1=Skill草稿暂存，不落registry、不可执行'' AFTER `skill_kind`');
+CALL add_idx_if_absent('capability_tool_definition', 'idx_enabled', 'enabled');
 
 
 -- ============================================================================
@@ -952,16 +1011,16 @@ CREATE TABLE IF NOT EXISTS `runtime_tool_call_log` (
     `trace_id`             VARCHAR(64)  NOT NULL                COMMENT '一次 Agent 执行的 trace id',
     `session_id`           VARCHAR(64)  DEFAULT NULL            COMMENT '会话 ID',
     `user_id`              VARCHAR(64)  DEFAULT NULL            COMMENT '用户 ID',
-    `agent_name`           VARCHAR(128) DEFAULT NULL            COMMENT '触发 tool 的 Agent 名（子 Skill 形如 skill:xxx）',
+    `agent_name`           VARCHAR(128) DEFAULT NULL            COMMENT '触发 tool 的 Agent 名',
     `intent_type`          VARCHAR(64)  DEFAULT NULL            COMMENT '意图类型',
-    `tool_name`            VARCHAR(128) NOT NULL                COMMENT '被调用的 Tool / Skill',
+    `tool_name`            VARCHAR(128) NOT NULL                COMMENT '被调用的 Tool',
     `args_json`            TEXT         DEFAULT NULL            COMMENT '调用入参 JSON',
     `result_summary`       MEDIUMTEXT   DEFAULT NULL            COMMENT '结果摘要（按 result-max-chars 截断）',
     `success`              TINYINT      NOT NULL DEFAULT 1      COMMENT '是否成功',
     `error_code`           VARCHAR(64)  DEFAULT NULL            COMMENT '失败时的错误码/异常类',
     `elapsed_ms`           INT          DEFAULT NULL            COMMENT '耗时毫秒',
     `token_cost`           INT          DEFAULT NULL            COMMENT '本次调用消耗 token',
-    `retrieval_trace_json` MEDIUMTEXT   DEFAULT NULL            COMMENT '召回 top-K + 分数 + 选中项 JSON（Skill Mining 用）',
+    `retrieval_trace_json` MEDIUMTEXT   DEFAULT NULL            COMMENT '召回 top-K + 分数 + 选中项 JSON',
     `create_time`          DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
     KEY `idx_trace_id`         (`trace_id`),
@@ -970,7 +1029,7 @@ CREATE TABLE IF NOT EXISTS `runtime_tool_call_log` (
     KEY `idx_create_time`      (`create_time`),
     KEY `idx_user_create_time` (`user_id`,     `create_time`),
     KEY `idx_intent_create`    (`intent_type`, `create_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime Tool 调用子事件审计日志（Phase 2 Skill Mining 数据源）';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime Tool 调用子事件审计日志';
 
 -- 兼容老库：加 Phase 2.0.1 新增的三个索引
 CALL add_idx_if_absent('runtime_tool_call_log', 'idx_create_time',      'create_time');
@@ -1016,78 +1075,20 @@ CREATE TABLE IF NOT EXISTS `runtime_trace_span` (
 
 
 -- ============================================================================
--- 六、Skill Mining（Phase 2.1）：草稿 + 评估快照
+-- 六、Runtime Interaction 会话表见文末 runtime_interaction_session
+--     Supervisor 策略确认写入 source_type=SUPERVISOR_POLICY，不再使用已退役的 Skill 交互表
 -- ============================================================================
-
-CREATE TABLE IF NOT EXISTS `capability_draft` (
-    `id`                BIGINT       NOT NULL AUTO_INCREMENT,
-    `name`              VARCHAR(128) NOT NULL                     COMMENT '草稿生成名（首尾 tool ASCII 片段 + 6 位 hash）',
-    `description`       VARCHAR(512) DEFAULT NULL                 COMMENT '草稿描述',
-    `status`            VARCHAR(32)  NOT NULL DEFAULT 'DRAFT'     COMMENT 'DRAFT/APPROVED/DISCARDED/ROLLBACK_CANDIDATE/PUBLISHED',
-    `source_trace_ids`  TEXT         DEFAULT NULL                 COMMENT '来源 traceId 列表（逗号分隔）',
-    `spec_json`         TEXT         DEFAULT NULL                 COMMENT '生成的 Skill spec（systemPrompt / toolWhitelist）',
-    `confidence_score`  DOUBLE       DEFAULT NULL                 COMMENT '基于 support 的置信度',
-    `review_note`       VARCHAR(512) DEFAULT NULL                 COMMENT '评审备注',
-    `create_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `update_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_status_create` (`status`, `create_time`),
-    KEY `idx_draft_name`    (`name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Skill 挖掘草稿表（Phase 2.1）';
-
-CREATE TABLE IF NOT EXISTS `capability_eval_snapshot` (
-    `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
-    `skill_name`         VARCHAR(128) NOT NULL                 COMMENT '被评估的 Skill 名（= capability_tool_definition.name where kind=SKILL）',
-    `call_count`         INT          NOT NULL DEFAULT 0       COMMENT '统计窗口内调用次数',
-    `hit_rate`           DOUBLE       DEFAULT NULL             COMMENT '命中率（覆盖率：有调用日的天数 / 总天数）',
-    `replacement_rate`   DOUBLE       DEFAULT NULL             COMMENT '替代率（Skill 调用次数 / (Skill + 同意图多工具 trace)）',
-    `success_rate_diff`  DOUBLE       DEFAULT NULL             COMMENT '成功率差（Skill vs ReAct 基线）',
-    `token_savings`      INT          DEFAULT NULL             COMMENT 'Token 节省（单次中位差）',
-    `status`             VARCHAR(32)  NOT NULL DEFAULT 'OBSERVE' COMMENT 'OBSERVE/OK/ROLLBACK_CANDIDATE',
-    `note`               VARCHAR(512) DEFAULT NULL,
-    `create_time`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_skill_time`  (`skill_name`, `create_time`),
-    KEY `idx_status_time` (`status`,     `create_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Skill 评估快照（每日 02:00 SkillEvaluationScheduler 写入）';
 
 
 -- ============================================================================
--- 六.五、Runtime Interaction — 交互式表单与 Supervisor 策略确认挂起/恢复
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS `runtime_skill_interaction` (
-  `id`              VARCHAR(64)   NOT NULL COMMENT 'interactionId，与前端 uiRequest.interactionId 对齐',
-  `trace_id`        VARCHAR(64)   NOT NULL,
-  `session_id`      VARCHAR(64)   DEFAULT NULL,
-  `user_id`         VARCHAR(64)   DEFAULT NULL,
-  `agent_id`        VARCHAR(64)   DEFAULT NULL COMMENT '关联 runtime_agent.id',
-  `skill_name`      VARCHAR(128)  NOT NULL,
-  `status`          VARCHAR(16)   NOT NULL COMMENT 'PENDING / SUBMITTED / EXPIRED / CANCELLED',
-  `slot_state`      JSON          NOT NULL COMMENT '含 slots 与 phase: COLLECT|CONFIRM',
-  `pending_keys`    JSON          DEFAULT NULL,
-  `ui_payload`      JSON          DEFAULT NULL,
-  `spec_snapshot`   JSON          NOT NULL,
-  `created_at`      DATETIME(3)   NOT NULL,
-  `updated_at`      DATETIME(3)   NOT NULL,
-  `expires_at`      DATETIME(3)   NOT NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_trace` (`trace_id`),
-  KEY `idx_status_expires` (`status`, `expires_at`),
-  KEY `idx_user_status` (`user_id`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT='Runtime 交互挂起状态（交互式表单 / 人工审批 / Supervisor 策略确认）';
-
-
--- ============================================================================
--- 七、Phase 2.0.1 sideEffect 回填（历史 tool 数据对齐）
---   - 仅覆盖 kind='TOOL' 且 side_effect 为 NULL/空/WRITE 的记录，避免推翻人工校准值
+-- 七、sideEffect 回填（历史 tool 数据对齐）
+--   - 仅覆盖 side_effect 为 NULL/空/WRITE 的记录，避免推翻人工校准值
 --   - 规则与 SideEffectInferrer 对齐
 -- ============================================================================
 
 UPDATE `capability_tool_definition`
 SET `side_effect` = CASE
-    WHEN UPPER(IFNULL(`http_method`, '')) = 'DELETE'
+  WHEN UPPER(IFNULL(`http_method`, '')) = 'DELETE'
       OR LOWER(IFNULL(`endpoint_path`, '')) REGEXP 'delete|drop|purge|remove|refund|cancel|void|destroy|erase'
         THEN 'IRREVERSIBLE'
     WHEN UPPER(IFNULL(`http_method`, '')) IN ('GET', 'HEAD', 'OPTIONS')
@@ -1101,8 +1102,7 @@ SET `side_effect` = CASE
         THEN 'WRITE'
     ELSE 'WRITE'
 END
-WHERE UPPER(IFNULL(`kind`, 'TOOL')) = 'TOOL'
-  AND (`side_effect` IS NULL OR TRIM(`side_effect`) = '' OR UPPER(`side_effect`) = 'WRITE');
+WHERE (`side_effect` IS NULL OR TRIM(`side_effect`) = '' OR UPPER(`side_effect`) = 'WRITE');
 
 
 -- ============================================================================
@@ -1339,14 +1339,14 @@ INSERT IGNORE INTO `capability_tool_retrieval_setting` (`id`, `embedding_model_i
 -- 九、Phase 3.1 Tool ACL（角色 × 能力 黑白名单）
 -- ----------------------------------------------------------------------------
 -- 与历史 tool_acl_phase3_1 补丁保持一致（幂等）。
---   - DENY 优先；无命中默认拒绝；target_name='*' 通配；target_kind='ALL' = TOOL ∪ SKILL。
+--   - DENY 优先；无命中默认拒绝；target_name='*' 通配；target_kind='ALL' 表示全部 TOOL。
 --   - 上下文 roles 为空时走旧行为（不拦截，仅 warn），方便灰度接入。
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS `control_tool_acl` (
     `id`            BIGINT        NOT NULL AUTO_INCREMENT,
     `role_code`     VARCHAR(64)   NOT NULL                     COMMENT '角色编码',
-    `target_kind`   VARCHAR(16)   NOT NULL DEFAULT 'TOOL'      COMMENT 'TOOL / SKILL / ALL',
+    `target_kind`   VARCHAR(16)   NOT NULL DEFAULT 'TOOL'      COMMENT 'TOOL / ALL',
     `target_name`   VARCHAR(128)  NOT NULL                     COMMENT 'capability_tool_definition.name 或 *',
     `permission`    VARCHAR(16)   NOT NULL DEFAULT 'ALLOW'     COMMENT 'ALLOW / DENY',
     `note`          VARCHAR(512)  DEFAULT NULL,
@@ -1357,9 +1357,9 @@ CREATE TABLE IF NOT EXISTS `control_tool_acl` (
     UNIQUE KEY `uk_role_kind_target` (`role_code`, `target_kind`, `target_name`),
     KEY `idx_role_enabled`   (`role_code`, `enabled`),
     KEY `idx_target`         (`target_kind`, `target_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool / Skill 角色访问控制（Phase 3.1）';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool 角色访问控制（Phase 3.1）';
 
-CALL add_col_if_absent('control_tool_acl', 'target_kind', 'VARCHAR(16) NOT NULL DEFAULT ''TOOL'' COMMENT ''TOOL / SKILL / ALL'' AFTER `role_code`');
+CALL add_col_if_absent('control_tool_acl', 'target_kind', 'VARCHAR(16) NOT NULL DEFAULT ''TOOL'' COMMENT ''TOOL / ALL'' AFTER `role_code`');
 CALL add_col_if_absent('control_tool_acl', 'permission',  'VARCHAR(16) NOT NULL DEFAULT ''ALLOW'' COMMENT ''ALLOW / DENY'' AFTER `target_name`');
 CALL add_idx_if_absent('control_tool_acl', 'idx_role_enabled', 'role_code, enabled');
 CALL add_idx_if_absent('control_tool_acl', 'idx_target',       'target_kind, target_name');
@@ -1370,83 +1370,6 @@ SELECT * FROM (
     SELECT 'public',               'TOOL',                 '*',                 'DENY',             '内建：匿名身份默认拒绝所有 TOOL'
 ) AS seed
 WHERE NOT EXISTS (SELECT 1 FROM `control_tool_acl` LIMIT 1);
-
-
--- ============================================================================
--- 七.b、Phase P1 —— SlotExtractor SPI（字典 + 调用日志 + 字段绑定）
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS `control_slot_dict_dept` (
-    `id`            BIGINT        NOT NULL AUTO_INCREMENT,
-    `parent_id`     BIGINT        DEFAULT NULL,
-    `name`          VARCHAR(128)  NOT NULL,
-    `pinyin`        VARCHAR(256)  DEFAULT NULL,
-    `aliases`       VARCHAR(512)  DEFAULT NULL,
-    `project_scope` BIGINT        DEFAULT NULL                 COMMENT '为空表示全局',
-    `enabled`       TINYINT(1)    NOT NULL DEFAULT 1,
-    `created_at`    DATETIME      DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`    DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_parent` (`parent_id`),
-    KEY `idx_name`   (`name`),
-    KEY `idx_pinyin` (`pinyin`),
-    KEY `idx_project_scope` (`project_scope`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='SlotExtractor 部门字典 (Phase P1)';
-
-CALL add_idx_if_absent('control_slot_dict_dept', 'idx_project_scope', '`project_scope`');
-
-CREATE TABLE IF NOT EXISTS `control_slot_dict_user` (
-    `id`            BIGINT        NOT NULL AUTO_INCREMENT,
-    `dept_id`       BIGINT        DEFAULT NULL,
-    `name`          VARCHAR(128)  NOT NULL,
-    `pinyin`        VARCHAR(256)  DEFAULT NULL,
-    `employee_no`   VARCHAR(64)   DEFAULT NULL,
-    `aliases`       VARCHAR(512)  DEFAULT NULL,
-    `enabled`       TINYINT(1)    NOT NULL DEFAULT 1,
-    `created_at`    DATETIME      DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`    DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_dept`   (`dept_id`),
-    KEY `idx_name`   (`name`),
-    KEY `idx_pinyin` (`pinyin`),
-    KEY `idx_employee_no` (`employee_no`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='SlotExtractor 人员字典 (Phase P1)';
-
-CALL add_idx_if_absent('control_slot_dict_user', 'idx_employee_no', '`employee_no`');
-
-CREATE TABLE IF NOT EXISTS `control_slot_extract_log` (
-    `id`             BIGINT        NOT NULL AUTO_INCREMENT,
-    `trace_id`       VARCHAR(64)   DEFAULT NULL,
-    `skill_name`     VARCHAR(128)  DEFAULT NULL,
-    `field_key`      VARCHAR(128)  DEFAULT NULL,
-    `extractor_name` VARCHAR(64)   NOT NULL,
-    `hit`            TINYINT(1)    NOT NULL DEFAULT 0,
-    `value`          VARCHAR(1024) DEFAULT NULL,
-    `confidence`     DOUBLE        DEFAULT NULL,
-    `evidence`       VARCHAR(1024) DEFAULT NULL,
-    `user_text`      VARCHAR(4000) DEFAULT NULL,
-    `latency_ms`     BIGINT        DEFAULT NULL,
-    `create_time`    DATETIME      DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_trace`               (`trace_id`),
-    KEY `idx_extractor_create`    (`extractor_name`, `create_time`),
-    KEY `idx_skill_field`         (`skill_name`, `field_key`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='SlotExtractor 调用日志 (Phase P1)';
-
-CALL add_col_if_absent('control_slot_extract_log', 'user_text', 'VARCHAR(4000) DEFAULT NULL COMMENT ''用户原文，用于排查'' AFTER `evidence`');
-CALL add_col_if_absent('control_slot_extract_log', 'create_time', 'DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT ''创建时间'' AFTER `latency_ms`');
-CALL add_idx_if_absent('control_slot_extract_log', 'idx_extractor_create', '`extractor_name`, `create_time`');
-
-CREATE TABLE IF NOT EXISTS `control_field_extractor_binding` (
-    `id`                   BIGINT       NOT NULL AUTO_INCREMENT,
-    `skill_name`           VARCHAR(128) NOT NULL,
-    `field_key`            VARCHAR(128) NOT NULL,
-    `extractor_names_json` VARCHAR(1024) DEFAULT NULL,
-    `created_at`           DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`           DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_skill_field` (`skill_name`, `field_key`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Skill 字段 ↔ 提取器白名单 (Phase P1)';
 
 
 -- ============================================================================
@@ -1474,7 +1397,7 @@ CALL add_idx_if_absent('capability_domain_def', 'idx_parent', '`parent_code`');
 
 CREATE TABLE IF NOT EXISTS `capability_domain_assignment` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT,
-    `target_kind`   VARCHAR(16)  NOT NULL                COMMENT 'PROJECT / TOOL / SKILL / AGENT',
+    `target_kind`   VARCHAR(16)  NOT NULL                COMMENT 'PROJECT / TOOL / AGENT',
     `target_name`   VARCHAR(192) NOT NULL,
     `domain_code`   VARCHAR(64)  NOT NULL,
     `weight`        DECIMAL(5,3) NOT NULL DEFAULT 1.000,
@@ -1485,7 +1408,7 @@ CREATE TABLE IF NOT EXISTS `capability_domain_assignment` (
     UNIQUE KEY `uk_kind_name_domain` (`target_kind`, `target_name`, `domain_code`),
     KEY `idx_domain` (`domain_code`),
     KEY `idx_target` (`target_kind`, `target_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool/Skill/Agent 领域挂接 (Phase P1)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Tool/Agent 领域挂接 (Phase P1)';
 
 CALL add_col_if_absent('capability_scan_project', 'default_domain_code', 'VARCHAR(64) DEFAULT NULL COMMENT ''扫描项目默认领域 (Phase P1)''');
 
@@ -1535,7 +1458,7 @@ CREATE TABLE IF NOT EXISTS `control_mcp_call_log` (
 
 CREATE TABLE IF NOT EXISTS `control_mcp_visibility` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT,
-    `target_kind`   VARCHAR(16)  NOT NULL                COMMENT 'TOOL / SKILL',
+    `target_kind`   VARCHAR(16)  NOT NULL                COMMENT 'TOOL',
     `target_name`   VARCHAR(192) NOT NULL,
     `exposed`       TINYINT(1)   NOT NULL DEFAULT 0,
     `note`          VARCHAR(512) DEFAULT NULL,
@@ -1668,7 +1591,7 @@ CREATE TABLE IF NOT EXISTS `runtime_guard_decision_log` (
     `id`             BIGINT       NOT NULL AUTO_INCREMENT,
     `trace_id`       VARCHAR(64)  DEFAULT NULL                 COMMENT '关联 traceId，可为空',
     `decision_type`  VARCHAR(32)  NOT NULL                     COMMENT 'RATE_LIMIT / BREAKER / ACL / SIDE_EFFECT / PREFLIGHT',
-    `target_kind`    VARCHAR(32)  NOT NULL                     COMMENT 'AGENT / TOOL / SKILL / MCP_CLIENT / A2A_ENDPOINT / PROJECT',
+    `target_kind`    VARCHAR(32)  NOT NULL                     COMMENT 'AGENT / TOOL / MCP_CLIENT / A2A_ENDPOINT / PROJECT',
     `target_name`    VARCHAR(255) NOT NULL                     COMMENT '目标名称或 key',
     `decision`       VARCHAR(16)  NOT NULL                     COMMENT 'ALLOW / DENY / WARN / SKIP / DRY_RUN',
     `reason`         VARCHAR(512) DEFAULT NULL                 COMMENT '决策原因',
@@ -1723,8 +1646,8 @@ CALL add_idx_if_absent('capability_scan_project', 'idx_scan_project_env', '`envi
 
 CALL add_col_if_absent('capability_tool_definition', 'project_code', 'VARCHAR(96) DEFAULT NULL COMMENT ''冗余项目编码'' AFTER `project_id`');
 CALL add_col_if_absent('capability_tool_definition', 'qualified_name', 'VARCHAR(256) DEFAULT NULL COMMENT ''projectCode:name 稳定能力全名'' AFTER `project_code`');
-CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_project_kind', '`project_id`, `kind`, `enabled`');
-CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_project_code', '`project_code`, `kind`');
+CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_project_enabled', '`project_id`, `enabled`');
+CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_project_code', '`project_code`');
 CALL add_idx_if_absent('capability_tool_definition', 'idx_tool_qualified_name', '`qualified_name`');
 
 CALL add_col_if_absent('control_tool_acl', 'project_id', 'BIGINT DEFAULT NULL COMMENT ''为空表示全局规则'' AFTER `role_code`');
@@ -2898,7 +2821,7 @@ CREATE TABLE IF NOT EXISTS `control_market_item` (
     PRIMARY KEY (`id`),
     KEY `idx_market_status` (`asset_kind`, `status`),
     KEY `idx_market_project` (`project_id`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent/Skill 市场资产';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent 市场资产';
 
 CREATE TABLE IF NOT EXISTS `capability_module` (
     `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
@@ -2983,23 +2906,24 @@ CREATE TABLE IF NOT EXISTS `capability_interaction_definition` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Interaction definition assets';
 
 CREATE TABLE IF NOT EXISTS `runtime_interaction_session` (
-    `id`                         VARCHAR(64)  NOT NULL COMMENT 'interactionId（wfi_ 前缀）',
-    `source_type`                VARCHAR(32)  NOT NULL DEFAULT 'WORKFLOW' COMMENT 'WORKFLOW / COMPOSITION / DEBUG',
+    `id`                         VARCHAR(64)  NOT NULL COMMENT '运行时 interactionId',
+    `source_type`                VARCHAR(32)  NOT NULL DEFAULT 'WORKFLOW' COMMENT 'WORKFLOW / COMPOSITION / DEBUG / SUPERVISOR_POLICY',
+    `agent_id`                   VARCHAR(64)  DEFAULT NULL COMMENT '关联 Runtime Agent；Supervisor 审批查询键',
     `run_id`                     VARCHAR(64)  DEFAULT NULL COMMENT '关联 runtime_run / 调试 runId',
     `trace_id`                   VARCHAR(64)  DEFAULT NULL COMMENT '关联 root traceId',
     `workflow_id`                VARCHAR(64)  DEFAULT NULL COMMENT 'Workflow ID',
     `workflow_version_id`        BIGINT       DEFAULT NULL COMMENT '已发布 Workflow 版本 ID',
     `composition_qualified_name` VARCHAR(256) DEFAULT NULL COMMENT '历史 composition 兼容字段；GraphSpec-native 可为空',
     `graph_spec_snapshot_json`   MEDIUMTEXT   DEFAULT NULL COMMENT '暂停时 GraphSpec 快照，恢复不得读最新版',
-    `node_id`                    VARCHAR(128) NOT NULL COMMENT '当前等待的 INTERACTION 节点',
+    `node_id`                    VARCHAR(128) NOT NULL COMMENT '当前等待节点或 Supervisor Tool 名称',
     `interaction_type`           VARCHAR(32)  NOT NULL COMMENT 'COLLECT_INPUT / USER_CHOICE / CONFIRM_ACTION / PRESENT_OUTPUT / CUSTOM',
     `status`                     VARCHAR(32)  NOT NULL DEFAULT 'WAITING_USER' COMMENT 'WAITING_USER / RESUMING / COMPLETED / CANCELLED / EXPIRED / FAILED',
     `revision`                   INT          NOT NULL DEFAULT 0 COMMENT '乐观锁版本',
-    `idempotency_key`            VARCHAR(128) DEFAULT NULL COMMENT '最近一次成功提交的幂等键',
+    `idempotency_key`            VARCHAR(128) DEFAULT NULL COMMENT '当前恢复尝试的幂等键',
     `resume_checkpoint_json`     MEDIUMTEXT   DEFAULT NULL COMMENT '恢复同一 GraphSpec 执行所需的内部断点；不得作为公共结果返回',
     `ui_request_json`            MEDIUMTEXT   DEFAULT NULL COMMENT 'canonical uiRequest',
     `submitted_payload_json`     MEDIUMTEXT   DEFAULT NULL COMMENT '最近一次提交（已脱敏策略由服务层保证）',
-    `result_json`                MEDIUMTEXT   DEFAULT NULL COMMENT '恢复结果摘要',
+    `result_json`                MEDIUMTEXT   DEFAULT NULL COMMENT '可幂等重放的完整恢复结果',
     `continuation_json`          MEDIUMTEXT   DEFAULT NULL COMMENT 'Supervisor 续跑信息',
     `app_id`                     VARCHAR(96)  DEFAULT NULL,
     `tenant_id`                  VARCHAR(96)  DEFAULT NULL,
@@ -3013,13 +2937,14 @@ CREATE TABLE IF NOT EXISTS `runtime_interaction_session` (
     KEY `idx_interaction_session_trace` (`trace_id`),
     KEY `idx_interaction_session_status` (`status`, `expires_at`),
     KEY `idx_interaction_session_owner` (`session_id`, `app_id`, `status`),
+    KEY `idx_interaction_session_agent` (`source_type`, `interaction_type`, `agent_id`, `status`, `create_time`),
     KEY `idx_interaction_session_idem` (`id`, `idempotency_key`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow GraphSpec-native interaction sessions';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Runtime interaction sessions';
 
 CREATE TABLE IF NOT EXISTS `runtime_interaction_event` (
     `id`           BIGINT       NOT NULL AUTO_INCREMENT,
     `session_id`   VARCHAR(64)  NOT NULL COMMENT 'runtime_interaction_session.id',
-    `event_type`   VARCHAR(32)  NOT NULL COMMENT 'CREATED / REQUESTED / SUBMITTED / RESUMED / COMPLETED / CANCELLED / EXPIRED / FAILED',
+    `event_type`   VARCHAR(32)  NOT NULL COMMENT 'CREATED / REQUESTED / SUBMITTED / RESUMING / RESUMED / COMPLETED / CANCELLED / EXPIRED / FAILED',
     `payload_json` MEDIUMTEXT   DEFAULT NULL COMMENT '脱敏后事件载荷，禁止 secret/token 原文',
     `operator_id`  VARCHAR(128) DEFAULT NULL,
     `create_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP,

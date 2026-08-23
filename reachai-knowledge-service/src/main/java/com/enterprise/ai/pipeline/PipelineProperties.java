@@ -20,7 +20,7 @@ import java.util.Map;
  *     kb_contract:
  *       steps: [FILE_PARSE, TEXT_CLEAN, CHUNK, EMBEDDING, VECTOR_STORE, METADATA_PERSIST]
  *     kb_scan:
- *       steps: [FILE_PARSE, OCR, TEXT_CLEAN, CHUNK, EMBEDDING, VECTOR_STORE, METADATA_PERSIST]
+ *       steps: [FILE_PARSE, TEXT_CLEAN, CHUNK, EMBEDDING, VECTOR_STORE, METADATA_PERSIST]
  * </pre>
  *
  * <p>每个知识库编码对应一个 Pipeline 定义，不在列表中的知识库使用 "default" 配置。</p>

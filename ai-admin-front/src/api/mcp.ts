@@ -40,7 +40,7 @@ export function listMcpVisibility() {
   return controlRequest.get<McpVisibility[]>('/api/mcp/visibility')
 }
 
-export function setMcpVisibility(body: { kind: 'TOOL' | 'SKILL'; name: string; exposed: boolean; note?: string }) {
+export function setMcpVisibility(body: { kind: 'TOOL'; name: string; exposed: boolean; note?: string }) {
   return controlRequest.post<McpVisibility>('/api/mcp/visibility', body)
 }
 

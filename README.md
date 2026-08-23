@@ -1,418 +1,359 @@
 <p align="center">
-  <img src="ai-admin-front/public/reachai-logo-horizontal.svg" alt="ReachAI" width="340" />
+  <img src="ai-admin-front/public/reachai-logo-horizontal.svg" alt="ReachAI" width="320" />
 </p>
 
-<h1 align="center">睿池 ReachAI</h1>
+<h1 align="center">快速、安全完成业务系统智能化改造：<br />让 AI 能查数据、填表单、办业务</h1>
 
 <p align="center">
-  <strong>让已有 Java 企业系统快速接入可控 AI</strong>
-</p>
-
-<p align="center">
-  用 AI 辅助搭建确定性业务流程，用 Graph 层固化可执行语义，让智能体安全调用 OA、ERP、CRM、工单、合同、采购等系统中的真实业务能力。
+  <strong>适用于 OA、ERP、CRM、eHR、采购、工单、合同等已有业务系统。</strong>
 </p>
 
 <p align="center">
-  <strong>AI Coding 原生：</strong>通过 Manifest、可安装 Skill 与工程化 API，让 Codex、Cursor、Claude Code 等工具直接完成业务系统接入、页面助手建设和 Workflow 全生命周期工程。
+  <strong>ReachAI · 面向 Java 企业系统的企业智能体开发与运行底座</strong>
 </p>
 
-<p align="center">
-  <a href="https://openjdk.org/projects/jdk/17/"><img src="https://img.shields.io/badge/Java-17%2B-orange.svg" alt="Java 17+" /></a>
-  <a href="https://spring.io/projects/spring-boot"><img src="https://img.shields.io/badge/Spring%20Boot-3.4-brightgreen.svg" alt="Spring Boot 3.4" /></a>
-  <a href="https://spring.io/projects/spring-ai"><img src="https://img.shields.io/badge/Spring%20AI-1.0-blue.svg" alt="Spring AI 1.0" /></a>
-  <a href="https://vuejs.org/"><img src="https://img.shields.io/badge/Vue-3-42b883.svg" alt="Vue 3" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="MIT License" /></a>
-</p>
+## 改造完成后，业务系统能做什么
 
-<p align="center">
-  <img src="docs/系统截图/项目详情.png" alt="项目详情" width="760" />
-</p>
+ReachAI 将 AI 助手嵌入 OA、eHR、采购、CRM 等现有业务页面。员工无需切换系统，即可通过自然语言查询数据、填写表单、办理业务：
 
-## 产品截图
-
-| SDK 快速接入 | Workflow Studio / GraphSpec |
+| 业务系统 | AI 可执行的业务任务 |
 | --- | --- |
-| <img src="docs/系统截图/SDK快速接入.png" alt="SDK 快速接入" width="420" /> | <img src="docs/系统截图/workflow编排.png" alt="Workflow Studio" width="420" /> |
-
-| 嵌入到业务系统 | 使用 AI Coding 快速接入 |
-| --- | --- |
-| <img src="docs/系统截图/嵌入到业务系统.png" alt="嵌入到业务系统" width="420" /> | <img src="docs/系统截图/使用AiCoding快速接入.png" alt="使用 AI Coding 快速接入" width="420" /> |
-
-| 页面接入中心            | AI Coding完成页面智能化改造                                                             |
-|-------------------------------------------------------------|--------------------------------------------------------------------------------|
-| <img src="docs/系统截图/页面接入中心.png" alt="页面接入中心" width="420" /> | <img src="docs/系统截图/页面智能化改造.png" alt="页面智能化改造" width="420" /> |
-
-| AI 生成 Workflow 草稿 | 接口图谱与业务能力 |
-| --- | --- |
-| <img src="docs/系统截图/05AI自动生成workflow草稿.png" alt="AI 生成 Workflow 草稿" width="420" /> | <img src="docs/系统截图/接口图谱1.png" alt="接口图谱与业务能力" width="420" /> |
-
-| RunOps 运行中心 | 执行链路追踪 |
-| --- | --- |
-| <img src="docs/系统截图/07RunOps 运行中心.png" alt="RunOps 运行中心" width="420" /> | <img src="docs/系统截图/智能体执行链路追踪.png" alt="执行链路追踪" width="420" /> |
-
-| 交互式卡片 | 高频能力识别 |
-| --- | --- |
-| <img src="docs/系统截图/交互式卡片.png" alt="交互式卡片" width="420" /> | <img src="docs/系统截图/高频Skill识别.png" alt="高频能力识别" width="420" /> |
-
-> ReachAI 不只把 AI 能力嵌入业务系统，也把平台的工程能力开放给 AI Coding 工具。开发者可以把项目接入信息交给 Codex、Cursor 或 Claude Code，由它们在真实业务仓库中完成改造，并通过 ReachAI API 创建、校验、调试和发布 Workflow。
-
-## 学习交流
-
-如果你对 ReachAI 感兴趣，欢迎加入学习交流群。项目还在持续完善中，欢迎大家一起交流实践经验、提出建议，也请多多指教。
-
-加群二维码如下（二维码有效期有限，如失效可重新获取）：
+| OA | “汇总我今天的待办，并打开最紧急的一项。” |
+| eHR | “查询本月异常考勤，筛出还没有处理的记录。” |
+| 采购 | “帮我创建办公用品采购申请，提交前给我确认。” |
+| CRM | “根据本周客户动态生成跟进计划。” |
 
 <p align="center">
-  <img src="docs/系统截图/ReachAI学习交流群.png" alt="ReachAI 学习交流群二维码" width="360" />
+  <img src="docs/系统截图/使用ReachAI改造后的业务系统-四场景.png" alt="使用 ReachAI 改造后的 OA、eHR、采购和 CRM 系统" width="1200" />
 </p>
 
-## ReachAI 是什么
+ReachAI 会结合当前登录身份、页面状态与业务上下文理解需求，仅调用已授予当前用户的业务能力。页面筛选、跳转与表单操作由已注册的页面动作执行；真实数据查询与写入仍由后端 Capability 或业务 API 完成。涉及写入、提交和审批等关键操作时，必须经用户确认后执行。
 
-ReachAI 面向已有 Java 企业系统，帮助企业把存量接口、领域方法、页面动作、知识库和固定业务流程接入到 AI 智能体体系中。
+## 从现有系统到上线使用
 
-它不是再搭一个孤立的 AI 应用，也不是只做聊天机器人或工作流画布。ReachAI 的核心思路是：
+<p align="center">
+  <strong>连接业务系统并接入智能运行底座 → 扫描页面、接口和能力 → 推荐改造项 → AI Coding 实施 → 发布与验收 → 原系统使用 AI</strong>
+</p>
 
-**AI 负责理解需求和辅助搭建，Graph 负责确定性执行，SDK 和临时 token 负责跨系统连接，智能体最终回到真实业务页面里完成工作。**
+ReachAI 覆盖业务系统接入、系统盘点、改造实施、能力发布、业务验收和上线运行：
 
-对于 OA、ERP、CRM、MES、合同、采购、工单、班组管理等系统，ReachAI 希望解决的是一个很现实的问题：
+| AI主动完成          | ReachAI 做什么 | 交付结果 |
+|-----------------| --- | --- |
+| 1. 添加AI运行底座     | 识别项目技术栈，生成标准接入任务，由 AI Coding 集成后端连接、网关通信、页面助手、身份传递和安全校验组件 | 业务系统与 ReachAI 建立受控连接，获得能力注册、智能调度、页面交互与运行治理的统一支撑 |
+| 2. 扫描业务系统       | 主动识别页面、路由、组件、接口和已有业务能力 | 形成系统能力地图，明确业务资源的位置、实现方式和调用关系 |
+| 3. 推荐改造项        | 对选定页面进行只读分析，区分已确认事实、技术推断和待确认问题 | 自动推荐最多 3 个候选改造项，并提供代码证据、实现参考和验收标准 |
+| 4. AI Coding 实施 | 将业务目标、代码上下文、技术约束和验收条件组织为标准化工程任务 | AI Coding 在真实代码仓库中完成接入、修改和测试，并回传实施证据 |
+| 5. 组装并发布智能能力    | 同步 Capability，编排并发布 Workflow，挂载 Agent 和页面助手 | 形成可版本化、可授权、可复用、可追踪的企业智能能力 |
+| 6. 真实业务验收       | 核验代码、服务、SDK 回调、浏览器会话、运行轨迹和业务结果 | 验收通过后，业务人员可在原业务系统中使用 AI |
 
-> 已有企业系统如何低改造接入 AI，同时不牺牲流程确定性、权限边界、审计追踪和跨系统协作？
+业务系统继续沿用原有页面、身份、权限、接口和业务规则；ReachAI 在平台侧统一提供智能体调度、工作流执行、模型接入、操作确认和运行追踪。完成基础接入后，后续新增 AI 场景可以持续复用同一套智能运行底座。
 
-## 为什么不是 AI 孤岛
+<p align="center">
+  <img src="docs/系统截图/页面接入中心.png" alt="ReachAI 页面接入中心与改造清单" width="1100" />
+</p>
 
-很多 AI 应用搭建平台更适合从零构建一个独立 AI 应用。但企业现场的大量价值已经沉淀在现有系统中：接口、审批流、页面操作、业务权限、用户身份、运行日志和历史数据都在老系统里。
+### 三类角色，形成持续改造闭环
 
-ReachAI 不要求企业把业务搬到另一个 AI 平台里，而是把 AI 接回企业系统：
+> AI 主动扫描与推荐 → 开发者确认并实施 → 用户在原系统使用 → 系统识别新的改造机会 → 管理者制定计划 → 进入下一轮改造
 
-- 后端通过 `reachai-spring-boot2-starter` 和 `reachai-capability-sdk` 注册已有业务能力。
-- 平台形成项目、实例、能力快照、字段级 diff 和评审链路。
-- Workflow Studio 用 `GraphSpec` 固化确定性业务流程。
-- Agent 根据用户意图选择 Workflow、Capability、Tool、知识检索、MCP 调用或页面动作。
-- Chat Embed SDK 和 Page Bridge 让智能体嵌入到 OA / ERP / CRM 等业务页面。
-- 临时 token 机制打通平台身份、业务用户、Agent 授权和跨系统调用。
-- Trace / RunOps / ACL / Guard 让每一次调用都可审计、可复盘、可治理。
+| 角色 | 在持续改造闭环中的作用 |
+| --- | --- |
+| 开发者 | AI 主动扫描系统的页面、接口和业务能力并推荐改造项；开发者确认后，平台生成标准工程任务，协同 AI Coding 完成接入、改造和测试 |
+| 用户 | 无需改变原有使用习惯，在原业务系统中即可通过 AI 查询数据、填写表单和办理业务 |
+| 管理者 | 系统持续分析真实使用中的高频问题、耗时环节和异常记录，主动推荐高价值改造点，为制定下一步改造计划提供依据 |
 
-## 和 Dify 这类 AI 应用编排平台的区别
+## ReachAI 与 Dify、OpenClaw 有什么不同
 
-Dify 这类平台很适合快速搭建独立 AI 应用、Prompt 编排和知识库问答。但在已有企业系统改造场景里，如果 AI 应用和业务系统之间只靠手写 HTTP 接口连接，就很容易变成新的孤岛：
-
-- 业务接口需要在 AI 平台里手工配置和维护。
-- 业务系统字段、参数、权限或流程变化后，Workflow 需要人工同步修改。
-- 一旦变量很多，节点之间的参数传递、字段映射和错误排查会越来越痛苦。
-- AI 应用知道自己的流程，却不天然知道企业系统里的项目、实例、能力版本、页面动作和业务用户身份。
-- 调用链路分散在 AI 平台和业务系统两边，审计、复盘、权限解释和变更影响分析都更难闭环。
-
-ReachAI 更关注“已有企业系统如何持续接入 AI”，所以它不是把业务系统当成外部黑盒接口，而是通过 SDK、Graph、临时 token 和治理链路把系统连接起来。
-
-| 对比点 | 常见独立 AI 应用编排方式 | ReachAI 的方式 |
+| 平台类型 | 主要解决什么 | ReachAI 的不同 |
 | --- | --- | --- |
-| 业务能力接入 | 手写 HTTP Tool，靠人工维护接口参数 | SDK / Starter 主动注册能力、实例、快照和 SDK 图 |
-| 业务变化同步 | 接口变了以后手动改 Workflow | 字段级 diff、评审 apply/ignore、稳定能力引用 |
-| 流程语义 | 画布和变量配置容易绑定在应用内部 | `GraphSpec` 作为 Workflow 的可执行语义层 |
-| 复杂变量传递 | 变量越多，节点映射越难维护 | Graph 节点、端口、引用、上下文和运行轨迹统一建模 |
-| 业务身份 | AI 应用通常只知道自己的用户或 API Key | 临时 token 连接平台用户、业务用户、Agent、页面实例和 Origin |
-| 网页内操作 | 通常需要业务系统额外写大量胶水代码 | Chat Embed + Page Bridge + Page Action 嵌入当前业务页面 |
-| 运行治理 | 调用日志和业务审计容易割裂 | Trace / RunOps / ACL / Guard / Replay / Compare 统一复盘 |
-| 外部 AI 修改流程 | 多数停留在平台内拖拽和配置 | Workflow AI Coding 接口支持 Codex、Cursor 等工具读取、patch、校验、运行 |
+| Dify 等 AI 应用编排平台 | 创建和发布 AI 应用、Agent 与 Workflow | ReachAI 面向已有业务系统，覆盖系统扫描、改造推荐、AI Coding 实施、能力接入、真实业务验收和上线治理 |
+| OpenClaw 等个人智能体 | 从聊天入口连接工具和服务，帮助个人跨应用完成任务 | ReachAI 面向企业多用户、多系统和生产业务，让 AI 在原业务系统中受控调用已授权能力，关键操作需确认，全程可追踪 |
 
-一句话说：**Dify 更像独立 AI 应用搭建器，ReachAI 更像已有企业系统的 AI 接入层、Graph 工程层和运行治理层。**
+**一句话：Dify 侧重创建 AI 应用，OpenClaw 侧重个人智能体的跨应用执行，ReachAI 侧重已有业务系统的快速、安全智能化改造与生产级治理。**
 
-## 核心闭环
+## 技术优势：ReachAI 解决的六个关键问题
 
-```mermaid
-flowchart LR
-  app["OA / ERP / CRM / 工单等业务系统"] --> sdk["SDK / Starter 接入"]
-  sdk --> registry["项目与能力注册中心"]
-  registry --> snapshot["能力快照与字段级 Diff"]
-  snapshot --> review["评审 Apply / Ignore"]
-  review --> catalog["Capability / Tool 资产目录"]
-  catalog --> workflow["Workflow Studio"]
-  workflow --> gspec["GraphSpec 确定性流程"]
-  gspec --> agent["Agent 身份与 Supervisor 策略"]
-  agent --> embed["嵌入式网页智能体"]
-  agent --> open["Gateway / MCP / A2A"]
-  embed --> page["Page Action 当前页面动作"]
-  agent --> runops["Trace / RunOps / 审计复盘"]
-```
+### 1. 对存量系统做有证据的智能化盘点
 
-这条链路把企业 AI 落地拆成几件可控的事情：
+许多存量企业系统缺少完整接口文档，页面、路由、组件、后端接口和权限逻辑分散在代码中。ReachAI 将系统资产识别与改造分析拆分为两个可验证阶段：
 
-1. 业务系统注册自己已有的接口、领域方法和运行实例。
-2. 平台把这些能力沉淀为可评审、可治理、可复用的资产。
-3. AI 辅助生成或修改 Workflow，但最终落到可执行的 `GraphSpec`。
-4. Agent 作为统一入口，根据用户意图调用确定性流程和企业能力。
-5. 网页智能体嵌入到业务页面内，通过临时 token 和 Page Action 安全操作当前页面。
-6. RunOps、Trace、ACL、Guard 和审计日志负责生产治理。
+- 页面地图首先识别页面、路由、组件和 API 依赖，扫描阶段不依据名称推断业务价值。
+- 开发者选定页面后再进行只读分析，推荐最有价值的改造候选项。
+- 每个候选项分别记录 `confirmedFact`、`technicalInference`、`openQuestion`、`codeReferences`、`implementationReference` 和 `acceptanceCriteria`。
 
-## 亮点能力
+最终输出可由开发者复核并直接进入实施的改造清单，而不是缺少代码依据的概念性建议。
 
-### AI 生成流程，但 Graph 保证确定性
 
-企业业务不能完全依赖大模型临场发挥。请假审批、费用报销、合同查询、工单流转、采购申请等流程需要可校验、可发布、可回滚和可审计。
+### 2. 将改造需求转化为可验收的 AI Coding 工程任务
 
-ReachAI 支持用 AI 生成 Workflow 草稿，也支持用自然语言对局部节点和流程进行语义修改。但最终保存和执行的是平台统一的 `GraphSpec`，而不是一段不可控提示词。
+ReachAI 将任务范围、仓库上下文、修改约束、结构化输出和验收条件封装为标准化工程任务，交付给 Codex、Trae、Cursor 或 Claude Code 执行。AI Coding 工具持续回传进度、问题和交付证据；只有代码、服务与真实业务验收全部通过，任务才会闭环。
 
-`GraphSpec` 是 ReachAI 的运行语义层：
+平台持续核验：
 
-- 连接 Workflow Studio 画布、AI 生成、AI 局部修改和 SDK 图同步。
-- 支撑发布校验、版本快照、Runtime 执行和 RunOps 复盘。
-- 区分运行语义和画布布局，避免流程只停留在前端展示层。
+- 客户端是否连接、任务处于什么状态；
+- 代码是否接入、服务是否运行、SDK 回调是否闭环；
+- Embed 对话、页面动作和真实业务结果是否通过验收；
+- 本次验收对应的会话、Trace、Workflow 与发布版本是否一致。
 
-### AI Coding 原生：让 Codex、Cursor 直接操作 ReachAI
+<p align="center">
+  <img src="docs/系统截图/AI Coding接入工作台-V2.png" alt="ReachAI AI Coding 接入工作台" width="1100" />
+</p>
 
-ReachAI 将系统接入和 Workflow 工程能力设计成面向 AI Coding 工具的一等接口，而不是只提供一套需要人工阅读的 SDK 文档。项目接入和业务页面任务由平台签发一次性交接包；Cursor 或 Codex 激活后只获得当前任务的短期 Token，读取受限上下文并回传事件、问题和结构化结果。Workflow 工程接口是另一条独立链路，继续使用显式项目级鉴权完成 GraphSpec 的创建、修改、校验、调试和发布。
+### 3. 将 Java 接口和业务方法沉淀为可治理的 Capability
 
-| AI Coding 场景 | 可完成的工作 | ReachAI 的控制边界 |
-| --- | --- | --- |
-| 业务系统接入 | 识别 Maven 模块、Java / Spring Boot 版本，接入 SDK / Starter，补充注册配置、网关路由、Embed Token Broker 和前端嵌入 | 一次性交接、任务级短期 Token、事件/问题/Artifact 回传和 `CODE_READY / RUNTIME_READY / E2E_READY` 分层自检 |
-| 业务页面工作台 | 扫描业务模块、路由、页面组件和直接关联 API；按选定页面发起只读分析、明确实施和浏览器验收任务 | 页面目录、目标级读写范围、结构化结果契约、状态机、Page Bridge、发布数据与验收审计 |
-| Workflow 工程 | 创建 Workflow，读取上下文，结构化 patch `GraphSpec`，校验、调试运行、查看 Trace / RunOps、检查版本并发布 | `dryRun` 预览、并发 revision、发布校验、版本快照、权限与审计 |
-| 项目上下文治理 | 提交从代码中提取的项目、页面、API、模块和 Workflow 上下文候选，回查状态与审计记录 | 候选评审后进入治理资产，不允许 AI 绕过审核直接污染正式上下文 |
-
-典型使用方式是：
-
-1. 在 ReachAI 的 **项目接入工作台** 或 **业务页面工作台** 创建任务并生成一次性交接包。
-2. 把交接包复制一次给当前仍活跃的 Cursor 或 Codex 会话；客户端激活一次性代码并读取当前任务上下文。
-3. AI 工具只使用短期任务 Token 回传真实进度、待回答问题和符合 JSON Schema 的 Artifact；终态、取消或交接关闭后 Token 立即失效。
-4. ReachAI 校验并应用结果，开发者在工作台复核平台检查、页面地图、Trace 和真实浏览器验收结果。
-
-Workflow AI Coding 不复用任务 Token：它继续使用项目级 `X-ReachAI-AiCoding-Key` 调用受版本、revision、dry-run、发布校验和审计约束的工程接口。ReachAI 不安装 Runner，也不承诺在本地 AI Coding 会话停止后自动唤醒它。
-
-例如，开发者可以直接提出：
-
-- “把这个 Spring Boot 2 系统接入 ReachAI，并完成 SDK 注册、网关和网页智能体自检。”
-- “创建一个合同审批 Workflow，在审批前增加金额校验，失败时转人工处理。”
-- “把客户查询节点改为调用 CRM Capability，先 dry-run、校验，再执行调试并给出 traceId。”
-- “为当前订单页面增加筛选和提交两个 Page Action，完成页面助手 Workflow 并做 smoke test。”
-
-这里开放的是**受认证、校验、版本和审计约束的工程接口**，不是让外部 AI 直接修改数据库。Workflow 的运行语义始终以 `GraphSpec` 为准，`canvas_json` 只承载画布布局。完整 API 与 Patch 协议见 [Workflow AI Coding](docs/reference/Workflow-AI-Coding.md)。
-
-### SDK 低改造接入已有系统
-
-业务系统不需要为了接入 AI 重写一套服务。新系统和核心系统可以通过 ReachAI SDK 主动注册能力，存量系统也可以通过扫描和治理逐步接入。
+对于可修改的 Java 系统，JDK 8 兼容的 SDK 与 Spring Boot 2 Starter 可以主动注册项目、实例和业务能力；对于暂不具备代码改造条件的历史系统，可通过扫描方式完成补充盘点。
 
 ```java
+import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
+import com.enterprise.ai.reach.sdk.annotation.ReachParam;
+import com.enterprise.ai.reach.sdk.annotation.ReachSideEffectLevel;
+
+import java.util.List;
+
 @ReachCapability(
-    name = "submitLeaveRequest",
-    title = "提交请假申请",
-    description = "根据员工、时间和请假类型提交 OA 请假流程",
-    domain = "oa",
-    module = "leave",
+    name = "purchase.createApplication",
+    title = "创建采购申请",
+    description = "创建采购申请草稿，提交前需要用户确认",
+    domain = "purchase",
+    module = "application",
     sideEffect = ReachSideEffectLevel.WRITE,
-    requiredRoles = {"oa.leave.submit"}
+    requiredRoles = {"PURCHASE_APPLICANT"}
 )
-public LeaveResult submitLeave(
-    @ReachParam(name = "request", description = "请假申请信息", required = true)
-    LeaveRequest request
-) {
-    return leaveService.submit(request);
+public PurchaseApplication create(
+        @ReachParam(name = "reason", description = "采购事由", required = true)
+        String reason,
+        @ReachParam(name = "items", description = "采购明细", required = true)
+        List<PurchaseItem> items) {
+    // 继续复用原业务系统的领域服务、权限和事务
 }
 ```
 
-Starter 会同步项目、实例、能力快照和 SDK 图。平台侧不会直接覆盖生产资产，而是形成字段级 diff、评审 apply/ignore、稳定引用和审计记录。
+Starter 自动扫描 `@ReachCapability` 业务方法和 Spring MVC 接口，完成实例心跳与签名上报。平台保存能力快照，计算字段级 diff，再由开发者执行 apply / ignore，最终沉淀为 Capability Catalog。
 
-### 临时 token 打通平台和业务身份
 
-企业智能体不能只知道“平台用户是谁”，还必须知道“业务系统当前登录用户是谁”。
+### 4. 智能体应对新需求，Workflow 稳定执行成熟业务
 
-ReachAI 的嵌入式对话链路使用短期 token：
+固定 Workflow 稳定，却难以覆盖不断出现的新需求；全部依赖 AI 动态规划虽然灵活，但成本、速度和结果一致性难以控制。
 
-- 前端 SDK 只持有短期 `embedToken`，不保存 `appSecret`。
-- 业务后端使用应用凭证和当前登录用户向平台申请 token。
-- 平台校验 App、Origin、Agent、用户状态、TTL、撤销记录和密钥。
-- Tool 调用和 Page Action 可以携带业务用户上下文，方便业务系统二次鉴权。
-- Trace / RunOps 可以按平台用户、业务用户、Agent、项目、会话和页面实例复盘。
+**ReachAI 让智能体负责理解需求、规划任务和选择路径，让 Workflow 按已验证、已授权的步骤稳定执行。**
 
-### 网页智能体嵌入业务页面
+- **未知需求灵活处理**：智能体理解意图，并选择合适的执行路径。
+- **已有业务稳定复用**：高频任务直接运行已发布 Workflow，执行更快、结果更稳定、全程可追溯。
+- **成功经验持续沉淀**：新路径留下 Trace；高频稳定模式可生成 Workflow 草稿，经人工审核后发布。
 
-ReachAI 支持把智能体嵌入到已有业务系统页面中，而不是把用户带到另一个平台。
+<details>
+<summary><strong>查看运行机制与代码依据</strong></summary>
 
-业务页面可以通过 Chat Embed SDK 接入对话框，通过 Page Bridge 注册当前页面动作。智能体可以理解当前页面上下文，并在授权范围内调用已注册动作：
+```text
+Agent → 已发布配置版本 → AgentScope Supervisor
+      → 选择 0 / 1 / 多个已授权 Workflow-as-Tool
+      → Runtime 执行版本固定的 GraphSpec
+      → 汇总结果并记录 Trace
+```
 
-- 打开详情。
-- 设置筛选条件。
-- 回填表单。
-- 提交审批。
-- 创建工单。
-- 展示结构化结果。
+- AgentScope Supervisor 负责意图理解、任务规划、Workflow 选择和有限重规划。
+- Workflow 的 `GraphSpec` 保存可执行语义；`canvas_json` 只保存画布布局。
+- Workflow Studio、AI 编排与发布校验共用 Runtime 节点能力注册表，并在发布前检查执行器支持，避免“画布能画、运行时不能跑”。
+- Agent 只能选择白名单中的 Workflow-as-Tool，Runtime 始终执行对应的已发布版本。
 
-页面动作必须绑定当前 `sessionId + pageInstanceId`，执行结果会回传平台并写入审计。
+</details>
 
-### 开放协议连接更多工具和智能体
 
-ReachAI 不只服务自己的管理端。平台可以通过 Gateway、MCP、A2A 等协议，把已治理的 Agent 和 Capability 暴露给 IDE、外部 Agent、自动化工具或其他业务系统。
+<p align="center">
+  <img src="docs/系统截图/Workflow可视化编排-V2.png" alt="ReachAI Workflow Studio 与 GraphSpec 编排" width="1100" />
+</p>
 
-这让 ReachAI 更像企业 AI 能力的控制面和运行治理层，而不是一个封闭工作流编辑器。
+### 5. 通过显式协议接入业务页面，不依赖截图识别和鼠标模拟
 
-## 你可以用 ReachAI 做什么
+ReachAI Embed 将对话入口嵌入原业务系统，Page Bridge 则将当前页面允许执行的筛选、跳转、读取和表单操作显式注册为 AI 可用动作。跨页面操作采用可观测的导航与目标页面就绪协议；修改真实业务数据时，仍调用后端 Capability 或业务 API。
 
-| 场景 | ReachAI 提供的能力 |
+因此，页面自动化依赖已登记的动作契约、页面上下文和后端能力，而非通过 Computer Use 推断坐标并模拟鼠标键盘。
+
+代码与说明：[eafPageBridge.ts](ai-admin-front/src/sdk/eafPageBridge.ts) · [嵌入式对话与页面动作](docs/reference/嵌入式对话与页面动作.md)
+
+### 6. 在调用真实业务能力前后建立治理证据链
+
+**让 AI 以当前业务用户的身份工作。** 业务后端为当前登录用户签发短期 Token，前端不保存 App Secret。ReachAI 将用户、Agent、项目和页面绑定到同一会话，调用真实业务能力时携带业务身份，并由原系统完成最终鉴权。
+
+ReachAI 在模型与企业系统之间执行明确的运行策略：
+
+- 继承企业用户、租户、项目、角色和权限上下文；
+- 先按 Capability 白名单、Tool ACL、风险级别和页面意图过滤可用工具；
+- `READ` 可自动执行，`PAGE_ACTION` 需要明确页面意图，`WRITE` 需要一次确认，`IRREVERSIBLE` 默认拒绝；
+- 后端业务系统保留最终鉴权与业务校验；
+- 理解、规划、Workflow、节点、工具调用、Guard 决策、耗时和异常进入 Trace / RunOps，可回放并关联发布版本。
+
+
+<p align="center">
+  <img src="docs/系统截图/07RunOps 运行中心.png" alt="ReachAI RunOps 运行中心" width="1100" />
+</p>
+
+## ReachAI 平台能力全景
+
+| 能力域 | 作用 |
 | --- | --- |
-| OA 快速接入 AI | 把请假、审批、通知、查询等能力注册为可治理 Capability，并用 Workflow 固化流程 |
-| 企业固定流程自动化 | 用 AI 生成流程草稿，用 `GraphSpec` 发布可校验、可回放的确定性流程 |
-| 智能体调用多个系统 | Agent 根据用户意图选择 Workflow、Tool、Capability、MCP 或 A2A 调用 |
-| 网页智能体嵌入 | 在业务页面内接入 Chat Widget，通过 Page Bridge 调用当前页面动作 |
-| 跨系统身份打通 | 用短期 token 连接平台用户、业务用户、Agent 授权和页面实例 |
-| 运行治理与审计 | 通过 RunOps、Trace、ACL、Guard、Replay 和 Compare 复盘每一次执行 |
-| 外部 AI Coding 修改流程 | 让 Codex、Cursor 等工具读取 Workflow 上下文、提交 Graph patch、校验、调试并发布 |
-| 能力资产治理 | 管理项目、实例、能力快照、字段级 diff、评审记录和稳定引用 |
+| 项目与页面工程 | 注册业务系统，扫描页面和接口，管理改造清单、AI Coding 任务和真实验收 |
+| Capability Catalog | 管理 SDK 注册、历史扫描、能力快照、diff、评审、授权和语义文档 |
+| Workflow Studio | AI 生成或可视化编排 GraphSpec，完成校验、调试、版本发布和回放 |
+| Agent Runtime | 管理 Agent 身份与配置版本，由 Supervisor 调度白名单中的 Workflow-as-Tool |
+| Page Embed / Bridge | 在原业务页面建立对话、页面上下文和显式动作通道 |
+| Model / Knowledge | 统一管理 Chat、Embedding、Rerank、知识库、文件、RAG 和业务索引 |
+| Governance / Open | 提供身份、ACL、Guard、Trace、RunOps、Gateway、MCP 和 A2A 边界 |
 
-## 当前功能模块
+**开放协议连接外部工具与智能体。** ReachAI 通过 Gateway、MCP 和 A2A，将经过登记和授权的 Tool、Capability 与 Agent 提供给 IDE、自动化工具、其他业务系统和远程智能体调用。外部调用仍遵守能力可见范围、客户端白名单、身份权限和审计规则，不会绕开平台治理。
 
-| 模块 | 说明 |
+因此，ReachAI 不只是 Workflow 编辑器，更是企业 AI 能力的开放控制面与运行治理层。
+
+三个核心对象具有明确边界：**Capability 是企业业务资产，Tool 是模型调用协议，Workflow 是 GraphSpec 编排。** ReachAI 对三者进行独立建模与治理，不将其合并为单一“插件”抽象。
+
+## 技术架构
+
+```mermaid
+flowchart LR
+    subgraph BUILD[智能化建设阶段]
+        SYS[现有 Java 业务系统]
+        MAP[项目与页面工作台<br/>页面 / 路由 / 接口 / 能力地图]
+        TASK[AI Coding Task Protocol<br/>范围 / 上下文 / 约束 / 验收]
+        CODER[Codex / Trae / Cursor<br/>Claude Code]
+        CATALOG[Capability Catalog<br/>快照 / Diff / 评审]
+        STUDIO[Workflow Studio<br/>GraphSpec / 发布版本]
+
+        SYS --> MAP --> TASK --> CODER --> SYS
+        SYS -- SDK 注册与心跳 --> CATALOG --> STUDIO
+    end
+
+    subgraph RUN[上线运行阶段]
+        PAGE[原业务页面<br/>ReachAI Embed + Page Bridge]
+        CONTROL[Control / Embed Gateway<br/>身份与公共入口]
+        SUPERVISOR[AgentScope Supervisor<br/>理解 / 规划 / 选择]
+        WORKFLOW[版本固定的 Workflow<br/>GraphSpec Executor]
+        POLICY[Tool ACL / Guard<br/>确认与风险策略]
+        BIZ[真实业务 Capability / API]
+        MODEL[Model Gateway]
+        KNOWLEDGE[Knowledge / Retrieval]
+        OPS[Trace / RunOps / Replay]
+
+        PAGE --> CONTROL --> SUPERVISOR --> WORKFLOW --> POLICY --> BIZ
+        SUPERVISOR --> MODEL
+        WORKFLOW --> KNOWLEDGE
+        SUPERVISOR -. 运行证据 .-> OPS
+        WORKFLOW -. 节点轨迹 .-> OPS
+        POLICY -. 调用与决策 .-> OPS
+    end
+
+    STUDIO -. 发布 .-> WORKFLOW
+    CATALOG -. 授权能力 .-> POLICY
+```
+
+### 当前五服务拓扑
+
+| 服务 | 默认端口 | 当前职责 |
+| --- | ---: | --- |
+| `reachai-model-service` | 18601 | Model Gateway：Chat、Embedding、Rerank 和模型实例管理 |
+| `reachai-knowledge-service` | 18602 | Knowledge / Retrieval：知识库、文件、Chunk、RAG、向量检索和业务索引；context path 为 `/ai` |
+| `reachai-control-service` | 18603 | Public API / BFF：项目与页面工程、身份、公共 `/api/**`、`/embed/**` 和 SDK 兼容入口 |
+| `reachai-runtime-service` | 18604 | Runtime Host：Agent、Workflow、GraphSpec 执行、Trace、RunOps 和调试 |
+| `reachai-capability-service` | 18605 | Capability Catalog：SDK 注册、快照、diff、评审、扫描目录和能力资产 |
+
+第一阶段五个服务共用一个 MySQL 实例，但每张表有唯一 owning service；跨服务协作通过 internal API 或显式 client 完成。边界以 [服务表所有权](docs/architecture/service-table-ownership.md) 为准。
+
+### 主要技术栈
+
+| 层次 | 技术 |
 | --- | --- |
-| `reachai-capability-sdk` | JDK8 兼容的业务能力声明 SDK 契约 |
-| `reachai-spring-boot2-starter` | Spring Boot 2 业务系统接入 Starter，支持注册、心跳、能力同步和 SDK 图同步 |
-| `reachai-control-service` | 当前 Platform Control / public API BFF 主入口，承接 `/api/**`、`/embed/**` 和 SDK 注册公开入口 |
-| `reachai-runtime-service` | 当前 Runtime Host 部署单元，承接 Agent、Workflow、GraphSpec、Trace、RunOps、调试和运行时内部 API |
-| `reachai-capability-service` | 当前 Capability Catalog 部署单元，承接 SDK 注册、项目实例、能力快照、diff/review/apply、扫描目录和能力资产 API |
-| `reachai-knowledge-service` | 当前 Knowledge / Retrieval 部署单元，承接知识库、文件、chunk、RAG、业务索引、向量检索和历史扫描器实现 |
-| `reachai-model-service` | 当前 Model Gateway 部署单元，承接模型实例、Chat、Embedding、Rerank 和 OpenAI 兼容代理 |
-| `ai-runtime-contract` | 中台内部 Tool / Skill 运行时契约 |
-| `ai-admin-front` | Vue 3 管理端，承载注册中心、Workflow Studio、RunOps、模型、知识、治理和开放协议页面 |
-| `sql` | 统一 SQL 基线和升级脚本 |
-| `docs` | 系统知识库、产品说明和截图资料 |
+| 平台后端 | Java 17、Spring Boot 3.4.5、Spring AI 1.0.0、Spring AI Alibaba 1.0.0.2 |
+| 智能体与工作流 | AgentScope 2.0.0、LangGraph4j 1.8.16、GraphSpec |
+| 业务系统接入 | JDK 8 兼容 Capability SDK / Spring Boot 2 Starter、Embed Chat SDK、Page Bridge |
+| 管理端 | Vue 3.5、TypeScript、Element Plus、Pinia、Vue Flow、Vite 6 |
+| 基础设施 | MySQL 8、Redis 7、Milvus 2.4；Docling 可选 |
 
-## 当前部署单元与目标逻辑域
+<details>
+<summary><strong>当前实现边界</strong></summary>
 
-当前后端重塑已进入物理服务拆分后的旧结构退场阶段。第一阶段保持同一个 MySQL 库，不拆库；公共入口由 `reachai-control-service` 保持 `/api/**`、`/embed/**` 和 SDK 注册入口兼容。默认 Maven reactor、本地启动和部署清单收敛到五个当前物理服务：
+- 项目处于快速迭代阶段；README 描述的是当前主路径，不代表所有能力都已经达到生产完备状态。
+- 新建或可修改的 Java 系统优先使用 SDK 主动注册；历史扫描用于存量系统盘点和补充接入。
+- Workflow 节点按 Runtime 能力注册表分级开放，部分节点仍处于 BETA；发布校验结果优先于画布显示。
+- Tool ACL、Guard、人工确认、开放协议和治理面仍在持续产品化；真实业务系统保留最终鉴权与事务边界。
+- 当前五服务共用一个 MySQL 库，但代码、表所有权和 internal API 必须遵守服务边界。
 
-| 目标逻辑域 | 当前部署单元 | 说明 |
-| --- | --- | --- |
-| Model Gateway | `reachai-model-service` | 模型实例、供应商适配、Chat、Embedding、Rerank、OpenAI 兼容代理 |
-| Knowledge / Retrieval | `reachai-knowledge-service` | 知识库、文件、chunk、RAG、向量检索、业务索引 |
-| Capability Catalog | `reachai-capability-service` | SDK 注册、能力快照、字段级 diff、评审 apply/ignore、扫描目录、语义文档、Tool/Capability 资产 |
-| Runtime Host | `reachai-runtime-service` | Agent 身份与 Supervisor、Workflow、GraphSpec 执行、调试、人工交互、Runtime Adapter |
-| Platform Control | `reachai-control-service` | 身份、RBAC、ACL、Guard、Gateway、MCP、A2A、市场、RunOps/Trace 管理面和 public API/BFF |
+最新事实请以 [项目文档入口](docs/README.md)、当前代码和 [SQL 基线](sql/initV2.sql) 为准。
 
-这次拆分不改变公开路由、SQL 表名、前端代理或页面结构。旧 `ai-agent-service` 已从仓库主路径删除，不再是平台主后端、Maven module、IDEA 后端项目、本地启动项或部署单元；剩余兼容路径必须显式迁入 owning service 本地实现，或正式删除。公共路由主路径、冻结兼容 alias 和 retired route 见 [Public Route Contracts](docs/architecture/public-route-contracts.md)；详细规则见 [Backend Boundaries And Naming](docs/architecture/backend-boundaries-and-naming.md)、[Physical Split Route Ownership](docs/architecture/physical-split-route-ownership.md) 和 [Legacy Retirement](docs/architecture/legacy-retirement.md)。
+</details>
 
 ## 快速开始
 
-### 1. 启动基础设施
+### 环境要求
+
+- JDK 17 和 Maven
+- Node.js 与 npm
+- Docker Compose
+
+### 1. 启动基础设施并初始化数据库
 
 ```bash
 docker compose -f deploy/docker-compose.infra.yml up -d
+mysql --default-character-set=utf8mb4 -h localhost -u root -proot -e "source sql/initV2.sql"
 ```
 
-### 2. 初始化数据库
-
-```bash
-mysql -h localhost -u root -proot < sql/initV2.sql
-```
-
-### 3. 构建后端
+### 2. 构建后端
 
 ```bash
 mvn clean install -DskipTests
 ```
 
-默认 Maven reactor 只包含当前主路径模块和五服务部署单元；旧 `ai-agent-service` module 已删除。
+### 3. 启动五个服务
 
-### 4. 启动服务
+仓库提供 `.run/00-reachai-five-services.run.xml`，可在 IntelliJ IDEA 中一键启动。也可以按以下顺序分别执行 `mvn spring-boot:run`：
 
-仓库已提供 IDEA 共享 Run Configurations：`00 ReachAI Five Services` 可一键启动五个服务，`01 ReachAI Model Service` 到 `05 ReachAI Control Service` 可按编号单独启动和调试。在 IDEA 重新加载 Maven 项目后即可使用；这些配置只指定 Spring Boot 主类和 Maven module，不写入任何本机密钥。
-
-```bash
-# Model Gateway，默认 18601
-cd reachai-model-service
-mvn spring-boot:run
-
-# Knowledge / Retrieval，默认 18602，context-path /ai
-cd ../reachai-knowledge-service
-mvn spring-boot:run
-
-# Capability Catalog，默认 18605
-cd ../reachai-capability-service
-mvn spring-boot:run
-
-# Runtime Host，默认 18604
-cd ../reachai-runtime-service
-mvn spring-boot:run
-
-# Platform Control / public API BFF，默认 18603
-cd ../reachai-control-service
-mvn spring-boot:run
+```text
+reachai-model-service      18601
+reachai-knowledge-service  18602  /ai
+reachai-capability-service 18605
+reachai-runtime-service    18604
+reachai-control-service    18603
 ```
 
-本地推荐启动顺序：`reachai-model-service`（18601）→ `reachai-knowledge-service`（18602，`/ai`）→ `reachai-capability-service`（18605）→ `reachai-runtime-service`（18604）→ `reachai-control-service`（18603）。默认五服务拓扑不再包含 `ai-agent-service:18606`；剩余 public route 必须逐路由确认由 owning service 本地实现承接，或正式删除。
-
-常用环境变量：
-
-推荐在 Windows 上运行交互式脚本，它会写入当前用户环境变量，并自动生成 `AI_MYSQL_URL`：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\set-ai-mysql-env.ps1
-```
-
-也可以在资源管理器或 `cmd` 中运行：
-
-```cmd
-scripts\setup-ai-mysql-env.cmd
-```
-
-脚本执行后，如果使用 IntelliJ IDEA 启动后端，请重启 IDEA，再重新启动 Spring Boot Run Configuration。Windows 用户环境变量不会自动刷新到已经打开的 IDEA、Cursor、Codex 或 PowerShell 进程中。
-
-只想在当前 PowerShell 窗口临时启动时，可以手动设置：
-
-```powershell
-$env:AI_MYSQL_HOST="localhost"
-$env:AI_MYSQL_PORT="3306"
-$env:AI_MYSQL_DATABASE="reach_ai"
-$env:AI_MYSQL_USER="reach_ai"
-$env:AI_MYSQL_PASSWORD="<your-mysql-password>"
-$env:AI_MYSQL_URL="jdbc:mysql://$env:AI_MYSQL_HOST`:$env:AI_MYSQL_PORT/$env:AI_MYSQL_DATABASE?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai"
-$env:REDIS_HOST="localhost"
-$env:REDIS_PORT="6379"
-$env:REDIS_PASSWORD=""
-$env:MILVUS_HOST="localhost"
-$env:MILVUS_PORT="19530"
-$env:MODEL_SERVICE_URL="http://localhost:18601"
-$env:KNOWLEDGE_SERVICE_URL="http://localhost:18602"
-$env:CAPABILITY_SERVICE_URL="http://localhost:18605"
-$env:RUNTIME_SERVICE_URL="http://localhost:18604"
-```
-
-五个服务都启动后，在仓库根目录执行一次启动链路自检：
-
-```powershell
-$env:REACHAI_PLATFORM_SESSION_TOKEN = '<登录 ReachAI 管理端后取得的平台会话令牌>'
-node scripts/check-physical-service-smoke.mjs --wait-ms 120000 --interval-ms 3000
-Remove-Item Env:REACHAI_PLATFORM_SESSION_TOKEN
-```
-
-### 5. 启动管理端
+### 4. 启动管理端
 
 ```bash
 cd ai-admin-front
-npm install
+npm ci
 npm run dev
 ```
 
-访问 [http://localhost:5200](http://localhost:5200)。
+本地开源模式默认提供 `admin / admin123` 方便首次体验。该账号只用于本地开发；生产环境必须设置 `REACHAI_LOCAL_AUTH_ENABLED=false` 和 `REACHAI_BOOTSTRAP_ADMIN_ENABLED=false`，并接入正式身份体系。
 
-## 技术栈
+更完整的启动、环境变量和服务检查说明见 [物理服务与启动说明](docs/architecture/physical-services-and-startup.md)。
 
-| 层级 | 技术 |
+## 给 AI 编程工具的入口
+
+Codex、Trae、Cursor、Claude Code 等工具进入仓库后，请按以下顺序读取事实源：
+
+1. [AGENTS.md](AGENTS.md)：项目规则、模块边界、SQL 和验证要求。
+2. [docs/README.md](docs/README.md)：当前五服务拓扑与权威文档导航。
+3. [PROJECT-MEMORY.md](docs/ai-memory/PROJECT-MEMORY.md)：产品定位、模块地图与当前事实。
+4. [WORKING-RULES.md](docs/ai-memory/WORKING-RULES.md)：开发、SQL、验证和协作规则。
+5. 与任务直接相关的真实代码、接口、SQL 和测试。
+
+接入业务系统时，从 [SDK 与 Embed Chat 快速参考](docs/reference/SDK接入与EmbedChat快速参考.md) 开始；开发 Workflow 时，从 [Workflow AI Coding](docs/reference/Workflow-AI-Coding.md) 开始。不要根据旧截图、旧服务名或历史文档猜测当前实现。
+
+## 继续阅读
+
+| 文档 | 说明 |
 | --- | --- |
-| 后端 | Java 17、Spring Boot 3.4、Spring Cloud 2024、Spring Cloud Alibaba |
-| AI | Spring AI 1.0、Spring AI Alibaba、AgentScope、LangGraph4j |
-| 数据 | MySQL、Redis、Milvus |
-| ORM | MyBatis-Plus |
-| 文档与扫描 | JavaParser、Apache POI、PDFBox |
-| 前端 | Vue 3、Vite、Element Plus、TypeScript、Pinia、Vue Flow、AntV G6 |
-| 部署 | Docker、Kubernetes |
+| [平台定位与架构总览](docs/01-平台定位与架构总览.md) | 产品定位、核心主线和平台页面 |
+| [项目注册与能力资产](docs/02-项目注册与能力资产.md) | SDK、扫描、Capability 快照、diff 与评审 |
+| [Workflow Studio 与 Runtime](docs/03-Workflow-Studio与Runtime.md) | Agent、Supervisor、GraphSpec、Page Bridge 和发布运行 |
+| [运行治理与开放协议](docs/04-运行治理与开放协议.md) | Trace、RunOps、ACL、Guard、MCP、A2A 与 Gateway |
+| [知识、模型与企业资产](docs/05-知识模型与企业资产.md) | Model Gateway、Knowledge / Retrieval 和企业资产 |
 
-## 命名说明
+## License
 
-- 产品语义中，可编排、可治理、可复用的业务单元统一称为 **Capability / 能力**。
-- 历史代码和接口中仍可能出现 `skill`、`skills` 等命名；当前新库表名已收敛为 service/domain 前缀，例如 `capability_draft`、`runtime_skill_interaction`。
-- `GraphSpec` 是 Workflow 的运行语义，`canvas_json` 是画布布局，不应把画布 JSON 当作运行时语义来源。
-- `eaf.*`、`X-EAF-*`、`Eaf*` 等历史技术标识仍可能作为兼容边界存在；产品品牌和新接入默认使用 ReachAI。
+[MIT License](LICENSE)
 
-## 一句话总结
-
-ReachAI 让企业已有系统快速拥有可控 AI：**Codex、Cursor 等 AI Coding 工具负责接入与工程实施，Graph 固化确定性执行，SDK 连接真实业务能力，临时 token 打通跨系统身份，网页智能体回到 OA/ERP/CRM 页面里完成工作。**
+<p align="center">
+  <img src="docs/系统截图/ReachAI学习交流群.png" alt="ReachAI 学习交流群" width="240" />
+</p>
 
 ## OpenAI Build Week 2026 Submission
 

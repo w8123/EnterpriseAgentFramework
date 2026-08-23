@@ -31,7 +31,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台。它不是单纯的 Work
 - `ai-common/`: 通用模型、响应和工具类。
 - `reachai-capability-sdk/`: JDK8 兼容的业务系统能力声明 SDK 契约。
 - `reachai-spring-boot2-starter/`: Spring Boot 2 接入、扫描、注册、心跳、能力同步和 SDK 图同步。
-- `ai-runtime-contract/`: 中台内部 Tool / Skill 运行时契约。
+- `ai-runtime-contract/`: 中台内部业务记忆引用契约。
 - `sql/`: `initV2.sql` 新库 SQL 基线与升级脚本入口。
 - `docs/`: 当前权威知识库。
 
@@ -92,7 +92,7 @@ Supervisor 策略链已实现分级执行：READ 自动执行，PAGE_ACTION 校�
 ## 命名规则
 
 - 产品和文档默认使用 `Capability / 能力`。
-- `Skill` 多为历史代码、legacy SQL 或内部旧命名，不要盲目全局替换。
+- ReachAI 禁止重新引入自创的 Skill 业务资产模型。Skill 仅用于标准 Agent Skill 包或外部协议字段；Capability 是业务资产，Tool 是调用协议，Workflow 是 GraphSpec 编排。
 - `reachai-knowledge-service` 是 Knowledge / Retrieval 部署单元，不要再描述成“技能服务”。
 - `eaf.*`、`X-EAF-*`、`Eaf*` 属于兼容敏感技术身份；品牌文案改成 ReachAI 时不要顺手替换这些标识。
 

@@ -324,7 +324,6 @@ class CapabilityToolExecutionServiceTest {
         entity.setId(9L);
         entity.setName("queryOrder");
         entity.setTitle("查询订单");
-        entity.setKind("TOOL");
         entity.setQualifiedName(qualifiedName);
         entity.setEnabled(enabled);
         entity.setHttpMethod("POST");

@@ -12,9 +12,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 
 /**
- * Creates exactly one explicit LOCAL development administrator. It is never
- * invoked from the login endpoint and therefore cannot turn arbitrary login
- * attempts into administrators.
+ * Creates exactly one LOCAL development administrator. The source distribution
+ * ships a well-known quick-start credential; production deployment templates
+ * disable both LOCAL login and bootstrap explicitly.
  */
 @Component
 @RequiredArgsConstructor
@@ -38,7 +38,7 @@ public class PlatformLocalBootstrapAdminInitializer implements ApplicationRunner
         }
         String username = requireBootstrapValue(bootstrap.getUsername(), "username");
         String password = requireBootstrapValue(bootstrap.getPassword(), "password");
-        if (password.length() < 12) {
+        if (password.length() < 12 && !authProperties.usesBuiltInDevelopmentAdmin(username, password)) {
             throw new IllegalStateException("LOCAL bootstrap admin password must contain at least 12 characters");
         }
         if (!userRoleMapper.selectActiveGlobalPlatformAdministratorGrantsForUpdate().isEmpty()) {

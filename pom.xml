@@ -48,10 +48,8 @@
         <hutool.version>5.8.27</hutool.version>
         <lombok.version>1.18.34</lombok.version>
         <javaparser.version>3.27.1</javaparser.version>
+        <minio.version>8.5.17</minio.version>
 
-        <!-- Document processing -->
-        <poi.version>5.2.5</poi.version>
-        <pdfbox.version>2.0.31</pdfbox.version>
     </properties>
 
     <dependencyManagement>
@@ -149,24 +147,13 @@
                 <version>${hutool.version}</version>
             </dependency>
 
-            <!-- Apache POI -->
+            <!-- S3-compatible document source/artifact storage -->
             <dependency>
-                <groupId>org.apache.poi</groupId>
-                <artifactId>poi-ooxml</artifactId>
-                <version>${poi.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.poi</groupId>
-                <artifactId>poi-scratchpad</artifactId>
-                <version>${poi.version}</version>
+                <groupId>io.minio</groupId>
+                <artifactId>minio</artifactId>
+                <version>${minio.version}</version>
             </dependency>
 
-            <!-- PDFBox -->
-            <dependency>
-                <groupId>org.apache.pdfbox</groupId>
-                <artifactId>pdfbox</artifactId>
-                <version>${pdfbox.version}</version>
-            </dependency>
         </dependencies>
     </dependencyManagement>
 

@@ -35,12 +35,4 @@ public class FileController {
         return ApiResult.ok();
     }
 
-    /**
-     * POST /ai/file/{fileId}/reparse — 使用知识库最新配置重新解析文件
-     */
-    @PostMapping("/{fileId}/reparse")
-    public ApiResult<Void> reparseFile(@PathVariable String fileId) {
-        knowledgeService.reparseFile(fileId);
-        return ApiResult.ok();
-    }
 }

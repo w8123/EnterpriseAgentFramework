@@ -9,6 +9,10 @@
         </div>
       </div>
 
+      <div class="development-login-hint">
+        本地开发默认账号：<code>admin</code> / <code>admin123</code>。生产部署必须关闭 LOCAL 登录或替换默认凭据。
+      </div>
+
       <el-form class="login-form" label-position="top" @submit.prevent="handleLogin">
         <el-form-item label="Username">
           <el-input v-model="form.username" autocomplete="username" size="large" />
@@ -123,6 +127,22 @@ async function handleLogin() {
   :deep(.el-form-item__label) {
     color: #334155;
     font-weight: 600;
+  }
+}
+
+.development-login-hint {
+  margin: -10px 0 22px;
+  padding: 10px 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+  color: #475569;
+  background: #eff6ff;
+  font-size: 13px;
+  line-height: 1.55;
+
+  code {
+    color: #1d4ed8;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   }
 }
 

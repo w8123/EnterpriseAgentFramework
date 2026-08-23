@@ -1,31 +1,12 @@
-import request from './request'
-import type { ApiResult, ChunkPreviewResponse, PipelineResult } from '@/types/import'
+import { controlRequest } from './request'
+import type { ApiResult, DocumentImportJob } from '@/types/import'
 
 /**
- * 预览切分结果 — 上传文件 + 切分参数，返回 chunk 列表（不入库）
+ * Upload once into the durable import lifecycle.  Preview and commit read the
+ * same stored parse result; neither endpoint asks the browser for the file a
+ * second time.
  */
-export function previewChunks(params: {
-  file: File
-  chunkStrategy: string
-  chunkSize: number
-  chunkOverlap: number
-}) {
-  const formData = new FormData()
-  formData.append('file', params.file)
-  formData.append('chunkStrategy', params.chunkStrategy)
-  formData.append('chunkSize', String(params.chunkSize))
-  formData.append('chunkOverlap', String(params.chunkOverlap))
-
-  return request.post<ApiResult<ChunkPreviewResponse>>('/knowledge/preview', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 120000,
-  })
-}
-
-/**
- * 文件入库 — 上传文件并触发 Pipeline 完整流程
- */
-export function importFile(params: {
+export function submitDocumentImportJob(params: {
   file: File
   knowledgeBaseCode: string
   chunkStrategy: string
@@ -39,12 +20,37 @@ export function importFile(params: {
   formData.append('chunkStrategy', params.chunkStrategy)
   formData.append('chunkSize', String(params.chunkSize))
   formData.append('chunkOverlap', String(params.chunkOverlap))
+  formData.append('autoCommit', 'false')
   if (params.extraParams) {
     formData.append('extraParams', JSON.stringify(params.extraParams))
   }
-
-  return request.post<ApiResult<PipelineResult>>('/knowledge/import/file', formData, {
+  return controlRequest.post<ApiResult<DocumentImportJob>>('/api/knowledge/import-jobs', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 300000,
+    timeout: 120000,
+  })
+}
+
+export function getDocumentImportJob(jobId: string, includePreview = false) {
+  return controlRequest.get<ApiResult<DocumentImportJob>>(`/api/knowledge/import-jobs/${jobId}`, {
+    params: { includePreview },
+    timeout: 30000,
+  })
+}
+
+export function commitDocumentImportJob(jobId: string) {
+  return controlRequest.post<ApiResult<DocumentImportJob>>(`/api/knowledge/import-jobs/${jobId}/commit`, null, {
+    timeout: 30000,
+  })
+}
+
+export function retryDocumentImportJob(jobId: string) {
+  return controlRequest.post<ApiResult<DocumentImportJob>>(`/api/knowledge/import-jobs/${jobId}/retry`, null, {
+    timeout: 30000,
+  })
+}
+
+export function cancelDocumentImportJob(jobId: string) {
+  return controlRequest.post<ApiResult<void>>(`/api/knowledge/import-jobs/${jobId}/cancel`, null, {
+    timeout: 30000,
   })
 }

@@ -67,6 +67,59 @@ reachai:
       max-text-chars: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_MAX_TEXT_CHARS:4000}
       max-query-chars: ${REACHAI_PERSONAL_MEMORY_EMBEDDING_MAX_QUERY_CHARS:4000}
   knowledge:
+    document-import:
+      # This is also enforced in the parser before an untrusted file reaches Docling.
+      max-file-bytes: ${REACHAI_KNOWLEDGE_DOCUMENT_MAX_FILE_BYTES:52428800}
+      max-java-fast-file-bytes: ${REACHAI_KNOWLEDGE_JAVA_FAST_MAX_FILE_BYTES:52428800}
+      format-probe-bytes: ${REACHAI_KNOWLEDGE_DOCUMENT_FORMAT_PROBE_BYTES:64}
+    document-artifact-store:
+      # local is for a single-node developer workstation only. Deployed instances
+      # must use the shared S3-compatible backend so job retries work across pods.
+      type: ${REACHAI_KNOWLEDGE_ARTIFACT_STORE_TYPE:local}
+      local-root: ${REACHAI_KNOWLEDGE_ARTIFACT_LOCAL_ROOT:./data/reachai-knowledge-artifacts}
+      endpoint: ${REACHAI_KNOWLEDGE_ARTIFACT_S3_ENDPOINT:}
+      access-key: ${REACHAI_KNOWLEDGE_ARTIFACT_S3_ACCESS_KEY:}
+      secret-key: ${REACHAI_KNOWLEDGE_ARTIFACT_S3_SECRET_KEY:}
+      region: ${REACHAI_KNOWLEDGE_ARTIFACT_S3_REGION:us-east-1}
+      bucket: ${REACHAI_KNOWLEDGE_ARTIFACT_S3_BUCKET:reachai-knowledge}
+      auto-create-bucket: ${REACHAI_KNOWLEDGE_ARTIFACT_S3_AUTO_CREATE_BUCKET:true}
+    docling:
+      # Internal-only Docling Serve dependency. Browser traffic must never use this URL.
+      enabled: ${REACHAI_DOCLING_ENABLED:true}
+      base-url: ${REACHAI_DOCLING_BASE_URL:http://localhost:5001}
+      # Matches the opt-in local Compose profile. Production deployments must
+      # override this value from a Secret; the production configuration guard
+      # rejects weak/default internal credentials.
+      api-key: ${REACHAI_DOCLING_API_KEY:local-dev-change-me}
+      expected-version: ${REACHAI_DOCLING_EXPECTED_VERSION:v1.30.0}
+      connect-timeout-ms: ${REACHAI_DOCLING_CONNECT_TIMEOUT_MS:5000}
+      request-timeout-ms: ${REACHAI_DOCLING_REQUEST_TIMEOUT_MS:900000}
+      document-timeout-seconds: ${REACHAI_DOCLING_DOCUMENT_TIMEOUT_SECONDS:900}
+      # File/request and response bodies are streamed. Limit concurrent JSON
+      # normalization so the Knowledge pod's heap remains bounded.
+      max-concurrent-requests: ${REACHAI_DOCLING_MAX_CONCURRENT_REQUESTS:1}
+      concurrency-wait-timeout-ms: ${REACHAI_DOCLING_CONCURRENCY_WAIT_TIMEOUT_MS:30000}
+      max-response-bytes: ${REACHAI_DOCLING_MAX_RESPONSE_BYTES:67108864}
+      # Verified against the pinned v1.30.0 OpenAPI contract.
+      ocr-preset: ${REACHAI_DOCLING_OCR_PRESET:}
+      ocr-languages: ${REACHAI_DOCLING_OCR_LANGUAGES:ch,en}
+      table-mode: ${REACHAI_DOCLING_TABLE_MODE:accurate}
+      image-export-mode: ${REACHAI_DOCLING_IMAGE_EXPORT_MODE:placeholder}
+      do-ocr: ${REACHAI_DOCLING_DO_OCR:true}
+      force-ocr: ${REACHAI_DOCLING_FORCE_OCR:false}
+      do-table-structure: ${REACHAI_DOCLING_DO_TABLE_STRUCTURE:true}
+      do-pdf-heading-hierarchy: ${REACHAI_DOCLING_DO_PDF_HEADING_HIERARCHY:true}
+    document-import-worker:
+      enabled: ${REACHAI_KNOWLEDGE_DOCUMENT_IMPORT_WORKER_ENABLED:true}
+      poll-interval-ms: ${REACHAI_KNOWLEDGE_DOCUMENT_IMPORT_POLL_INTERVAL_MS:5000}
+      dispatch-batch-size: ${REACHAI_KNOWLEDGE_DOCUMENT_IMPORT_DISPATCH_BATCH_SIZE:8}
+      max-attempts: ${REACHAI_KNOWLEDGE_DOCUMENT_IMPORT_MAX_ATTEMPTS:3}
+      lease-seconds: ${REACHAI_KNOWLEDGE_DOCUMENT_IMPORT_LEASE_SECONDS:1200}
+      core-pool-size: ${REACHAI_KNOWLEDGE_DOCUMENT_IMPORT_CORE_POOL_SIZE:2}
+      max-pool-size: ${REACHAI_KNOWLEDGE_DOCUMENT_IMPORT_MAX_POOL_SIZE:4}
+      queue-capacity: ${REACHAI_KNOWLEDGE_DOCUMENT_IMPORT_QUEUE_CAPACITY:32}
+      retry-initial-delay-seconds: ${REACHAI_KNOWLEDGE_DOCUMENT_IMPORT_RETRY_INITIAL_DELAY_SECONDS:10}
+      retry-max-delay-seconds: ${REACHAI_KNOWLEDGE_DOCUMENT_IMPORT_RETRY_MAX_DELAY_SECONDS:300}
     console-ingress:
       # Must match Control. Large signed multipart bodies are spooled to a
       # temporary file and removed after Spring MVC finishes the request.
@@ -101,7 +154,6 @@ pipeline:
     kb_scan:
       steps:
         - FILE_PARSE
-        - OCR
         - TEXT_CLEAN
         - CHUNK
         - EMBEDDING

@@ -16,7 +16,7 @@ import java.util.Set;
  * The public input contract shared by PAGE_ASSISTANT AI Coding, Studio and Runtime.
  *
  * <p>The contract deliberately lives beside Workflow semantics rather than in a Vue
- * component or a Skill example.  A generated Workflow is therefore validated by the
+ * component or an Agent Skill package example.  A generated Workflow is therefore validated by the
  * same rules that make {@code params.question} available at execution time.</p>
  */
 public final class RuntimeWorkflowInputContract {
@@ -33,7 +33,7 @@ public final class RuntimeWorkflowInputContract {
 
     /**
      * A valid, editable PAGE_ASSISTANT starter. It is intentionally only an input
-     * node: AI Coding is expected to add the selected PAGE_ACTION / CAPABILITY and
+     * node: AI Coding is expected to add the selected PAGE_ACTION / TOOL and
      * ANSWER nodes instead of inheriting a hidden fake action.
      */
     public static GraphSpec pageAssistantStarterGraph() {

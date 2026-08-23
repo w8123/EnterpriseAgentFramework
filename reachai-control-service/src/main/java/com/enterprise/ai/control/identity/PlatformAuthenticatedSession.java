@@ -16,4 +16,12 @@ public record PlatformAuthenticatedSession(
     public boolean hasGlobalPermission(String requiredPermission) {
         return permissionGrants.stream().anyMatch(grant -> grant.grantsGlobal(requiredPermission));
     }
+
+    public boolean hasResourcePermission(String requiredPermission,
+                                         String resourceScope,
+                                         String workspaceId,
+                                         String projectCode) {
+        return permissionGrants.stream().anyMatch(grant -> grant.grantsResource(
+                requiredPermission, resourceScope, workspaceId, projectCode));
+    }
 }

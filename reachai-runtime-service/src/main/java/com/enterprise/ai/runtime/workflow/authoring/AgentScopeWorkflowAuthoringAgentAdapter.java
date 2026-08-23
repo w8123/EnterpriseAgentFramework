@@ -324,7 +324,7 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
                 - PARAMETER_EXTRACT config MUST use extractMode="llm" or "expression" and a non-empty fields array.
                   Each field uses name, type, required, source when expression mode, and defaultValue for defaults.
                   Never use config.parameters, config.targetFields, or a field key named default.
-                - TOOL and CAPABILITY put qualifiedName in the top-level node.ref object, for example
+                - TOOL puts qualifiedName in the top-level node.ref object, for example
                   ref={"qualifiedName":"project:capability"}. Never put ref inside node.config.
                   TOOL config.inputMapping maps target argument names to runtime expressions such as
                   "nodeOutput.extract_query.teamName". Keep errorPolicy at the top-level node field.

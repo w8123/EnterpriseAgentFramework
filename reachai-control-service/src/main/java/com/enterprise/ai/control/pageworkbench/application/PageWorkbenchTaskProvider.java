@@ -558,8 +558,7 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
         for (Map.Entry<String, JsonNode> entry : nodesById.entrySet()) {
             JsonNode node = entry.getValue();
             String type = jsonText(node, "type");
-            boolean structuredRead = "TOOL".equalsIgnoreCase(type)
-                    || "CAPABILITY".equalsIgnoreCase(type);
+            boolean structuredRead = "TOOL".equalsIgnoreCase(type);
             if ("PAGE_ACTION".equalsIgnoreCase(type)) {
                 String actionKey = configText(node, "actionKey");
                 PageWorkbenchContract.ActionView action = selectedByKey.get(

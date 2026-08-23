@@ -8,6 +8,7 @@
 | [physical-split-route-ownership.md](./physical-split-route-ownership.md) | public route owning service 归属和迁移状态 |
 | [internal-api-contracts.md](./internal-api-contracts.md) | 服务间 internal API 契约、owner/consumer 和前端禁用边界 |
 | [service-table-ownership.md](./service-table-ownership.md) | 同库阶段的服务表所有权 |
+| [docling-document-ingestion.md](./docling-document-ingestion.md) | Java Fast / Docling 固定路由、原件与解析工件、异步导入任务、Chunk 来源锚点和部署安全边界 |
 | [model-center-v2.md](./model-center-v2.md) | 模型中心 V2：template / instance 职责、稳定 modelInstanceId、归档与测试语义 |
 | [agent-supervisor-runtime.md](./agent-supervisor-runtime.md) | AgentScope Supervisor、Agent 配置版本、Workflow-as-Tool 与跨路由 Page Bridge 主路径 |
 | [runtime-context-engineering.md](./runtime-context-engineering.md) | Harness 选择性接入、会话压缩、大 Tool 结果加密卸载、一次性超限恢复和灰度边界 |

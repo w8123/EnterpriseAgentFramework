@@ -50,7 +50,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 - `reachai-model-service/`: 当前 Model Gateway 部署单元；包括模型中心 V2（`model_template` + `model_instance`）、Chat、Embedding、Rerank。不再提供未使用的 `/model/openai-proxy` 入口。
 - `reachai-capability-sdk/`: JDK8 兼容的业务能力声明 SDK 契约。
 - `reachai-spring-boot2-starter/`: Spring Boot 2 业务系统接入、扫描、注册和 SDK 图同步。
-- `ai-runtime-contract/`: 中台内部 Tool / Skill 运行时契约。
+- `ai-runtime-contract/`: 中台内部业务记忆引用契约。
 - `sql/initV2.sql`: 当前新库 SQL 基线入口；第一阶段仍是同一个 MySQL 库，不拆库。
 - `sql/upgrade-*.sql`: 仅用于当次数据库变更升级已有开发/测试库；当前新库基线不要求兼容旧数据。
 - `docs/`: 当前权威知识库。
@@ -67,7 +67,7 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 - 同库阶段仍必须维护 `docs/architecture/service-table-ownership.md`；`sql/initV2.sql` 中每张 `CREATE TABLE` 表都必须有唯一 owning service。
 - 跨服务直接读写表默认违规，扫描范围包括 `@TableName`、MyBatis 注解 SQL、MyBatis XML SQL 和 JdbcTemplate SQL。确有历史兼容需要时，只能作为临时例外写入 `Additional direct access`，并说明访问服务和原因。
 - 服务协作优先通过 owning service 的 internal API、显式 client 或服务自有 read model，不允许为了快速编译跨服务复用对方 Mapper、Entity 或直接 SQL。
-- 当前表名按 owner service / domain 前缀收口，例如 `runtime_workflow`、`runtime_agent`、`capability_draft`、`runtime_skill_interaction`、`control_page_registry`、`runtime_tool_call_log`、`knowledge_base`。本项目当前按新库重建，不要求兼容旧表名或旧数据迁移。
+- 当前表名按 owner service / domain 前缀收口，例如 `runtime_workflow`、`runtime_agent`、`capability_tool_definition`、`runtime_interaction_session`、`control_page_registry`、`runtime_tool_call_log`、`knowledge_base`。本项目当前按新库重建，不要求兼容旧表名或旧数据迁移。
 
 ## GraphSpec 与 Runtime
 
@@ -82,8 +82,8 @@ ReachAI 是面向 Java 企业系统的 AI 能力中台，不只是 Workflow Buil
 ## 命名规则
 
 - 产品和文档默认使用 `Capability / 能力`。
-- `Skill` 在本项目中多为历史命名或代码遗留，不能简单全局替换。
-- 当前新库基线中历史 `skill_draft`、`skill_eval_snapshot`、`skill_interaction` 已收敛为 `capability_draft`、`capability_eval_snapshot`、`runtime_skill_interaction`；`skill_name`、`skill_kind` 等字段名如仍承载业务语义，不做无关改名。
+- ReachAI 禁止重新引入自创的 Skill 业务资产模型。Skill 仅用于标准 Agent Skill 包或外部协议字段；Capability 是业务资产，Tool 是调用协议，Workflow 是 GraphSpec 编排。
+- 合法 Skill 仅包括 `ai-assist/skills/**` 中的 `SKILL.md` 包、`/api/ai-assist/skills/**` 下载入口、A2A 标准 `skills` 字段，以及对已退役 `ai-skills-service` 的否定性记录。不要把旧 Skill 目录、GraphSpec `CAPABILITY` 节点或 `kind=SKILL` 行包装成 AgentScope Skill。
 - `eaf.*`、`X-EAF-*`、`Eaf*` 类名、Maven artifactId、运行时路径属于技术身份，品牌文案改成 ReachAI 时不要顺手改这些兼容敏感标识。
 
 ## 前端规则

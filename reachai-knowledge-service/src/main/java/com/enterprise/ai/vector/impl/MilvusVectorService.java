@@ -15,6 +15,7 @@ import io.milvus.param.collection.*;
 import io.milvus.param.dml.DeleteParam;
 import io.milvus.param.dml.InsertParam;
 import io.milvus.param.dml.SearchParam;
+import io.milvus.param.dml.UpsertParam;
 import io.milvus.param.index.CreateIndexParam;
 import io.milvus.response.SearchResultsWrapper;
 import lombok.RequiredArgsConstructor;
@@ -97,7 +98,7 @@ public class MilvusVectorService implements VectorService {
     }
 
     @Override
-    public void insert(String collectionName, List<String> ids, List<List<Float>> vectors,
+    public void upsert(String collectionName, List<String> ids, List<List<Float>> vectors,
                        List<String> fileIds, List<String> contents) {
         List<InsertParam.Field> fields = new ArrayList<>();
         fields.add(new InsertParam.Field("id", ids));
@@ -105,16 +106,16 @@ public class MilvusVectorService implements VectorService {
         fields.add(new InsertParam.Field("content", contents));
         fields.add(new InsertParam.Field("vector", vectors));
 
-        InsertParam insertParam = InsertParam.newBuilder()
+        UpsertParam upsertParam = UpsertParam.newBuilder()
                 .withCollectionName(collectionName)
                 .withFields(fields)
                 .build();
 
-        R<MutationResult> result = milvusClient.insert(insertParam);
+        R<MutationResult> result = milvusClient.upsert(upsertParam);
         if (result.getException() != null) {
-            throw new RuntimeException("Milvus insert failed", result.getException());
+            throw new RuntimeException("Milvus upsert failed", result.getException());
         }
-        log.info("Inserted {} vectors into {}", ids.size(), collectionName);
+        log.info("Upserted {} vectors into {}", ids.size(), collectionName);
     }
 
     @Override

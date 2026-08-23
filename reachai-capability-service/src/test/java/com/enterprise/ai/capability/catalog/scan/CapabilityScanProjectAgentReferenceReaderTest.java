@@ -18,8 +18,7 @@ class CapabilityScanProjectAgentReferenceReaderTest {
                 new CapabilityRuntimeAgentReferenceClient.AgentToolReferenceView(
                         "agent-1",
                         "Team Assistant",
-                        List.of("orders_create"),
-                        List.of("orders_skill"))
+                        List.of("orders_create"))
         ));
 
         List<com.enterprise.ai.agent.capability.catalog.scan.ScanProjectAgentReferenceReader.AgentToolReference> refs =

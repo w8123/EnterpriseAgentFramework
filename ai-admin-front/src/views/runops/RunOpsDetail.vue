@@ -3,6 +3,8 @@
     <PageHeader
       variant="entity"
       domain="governance"
+      height-preset="compact"
+      eyebrow="运行诊断"
       :title="detailTitle"
       show-back
       @back="router.push('/runops')"
@@ -11,12 +13,9 @@
         <el-tag v-if="summary" size="small" effect="plain" :type="summary.runType === 'AGENT' ? 'success' : 'primary'">
           {{ runTypeLabel(summary.runType) }}
         </el-tag>
-        <el-tag v-if="summary" :type="statusTagType(summary.status)">
-          {{ runStatusLabel(summary) }}
+        <el-tag v-if="summary" size="small" effect="plain" :type="statusTagType(summary.status)">
+          {{ lifecycleStatusLabel(summary) }}
         </el-tag>
-      </template>
-      <template #meta>
-        <HeaderMetaList :items="headerMetaItems" />
       </template>
       <template #actions>
         <el-tooltip content="刷新运行详情" placement="top">
@@ -29,27 +28,27 @@
           />
         </el-tooltip>
         <el-button :disabled="!summary" @click="copyIssueSummary">复制运行摘要</el-button>
-        <el-tooltip
-          :disabled="Boolean(candidateEligibility?.eligible)"
-          :content="candidateBlockerSummary"
-          placement="top"
-        >
-          <span>
-            <el-button
-              :loading="candidateLoading"
-              :disabled="!candidateEligibility?.eligible"
-              @click="openCandidateDialog"
-            >
-              生成 Workflow 候选
-            </el-button>
-          </span>
-        </el-tooltip>
         <el-button
           v-if="summary?.runType === 'WORKFLOW' && summary.workflowId"
           @click="router.push(`/workflows/${summary.workflowId}/studio`)"
         >
           打开工作流编排
         </el-button>
+        <el-dropdown trigger="click" @command="handleMoreCommand">
+          <el-button :icon="MoreFilled" aria-label="更多运行操作" />
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="context">运行上下文</el-dropdown-item>
+              <el-dropdown-item command="candidate">
+                Workflow 候选资格
+                <span class="menu-state">
+                  {{ candidateEligibility?.eligible ? '可创建' : `${candidateEligibility?.blockers.length || 0} 项未满足` }}
+                </span>
+              </el-dropdown-item>
+              <el-dropdown-item v-if="comparison" command="compare">查看重放对比</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-button
           type="primary"
           :icon="VideoPlay"
@@ -65,56 +64,63 @@
     <el-empty v-if="!loading && !detail" description="未找到运行记录" />
 
     <template v-if="detail && summary">
-      <section class="summary-grid">
-        <div v-for="item in summaryItems" :key="item.label" class="summary-card">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
-          <small>{{ item.hint }}</small>
+      <section :class="['run-overview-panel', `is-${diagnosticState.tone}`]" aria-label="运行结论与上下文">
+        <div class="run-conclusion-row">
+          <div class="run-conclusion-icon" aria-hidden="true">{{ diagnosticIcon }}</div>
+          <div class="run-conclusion-copy">
+            <div class="run-conclusion-heading">
+              <el-tag size="small" :type="diagnosticState.tagType" effect="plain" round>
+                {{ diagnosticState.label }}
+              </el-tag>
+              <strong>{{ diagnosticState.title }}</strong>
+              <el-button v-if="failureFocus" link type="danger" @click="focusFailure">定位失败点 →</el-button>
+            </div>
+            <p>{{ diagnosticState.description }}</p>
+          </div>
+          <dl class="run-vitals" aria-label="运行关键指标">
+            <div>
+              <dt>耗时</dt>
+              <dd>{{ formatDuration(summary.latencyMs) }}</dd>
+            </div>
+            <div>
+              <dt>Token</dt>
+              <dd>{{ formatTokenCount(summary.tokenCost) }}</dd>
+            </div>
+            <div>
+              <dt>规划</dt>
+              <dd>{{ summary.planCount ?? 0 }} / 重规划 {{ summary.replanCount ?? 0 }}</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="run-context-strip">
+          <span>项目 <strong>{{ summary.projectCode || '-' }}</strong></span>
+          <span>发布版本 <strong>{{ runVersionLabel(summary) }}</strong></span>
+          <span>入口 <strong>{{ entryTypeLabel(summary.entryType) }}</strong></span>
+          <span class="trace-context">
+            Trace
+            <el-tooltip :content="traceId" placement="top" :show-after="400">
+              <code>{{ shortIdentifier(traceId) }}</code>
+            </el-tooltip>
+            <el-button
+              link
+              :icon="CopyDocument"
+              aria-label="复制追踪 ID"
+              @click="copyIdentifier('追踪 ID', traceId)"
+            />
+          </span>
+          <el-button link class="context-entry" @click="contextDrawerVisible = true">运行上下文 ›</el-button>
         </div>
       </section>
 
-      <el-alert
-        v-if="summary.errorCode || summary.errorMessage"
-        class="run-alert"
-        type="error"
-        :closable="false"
-        show-icon
-        :title="summary.errorCode || '运行失败'"
-        :description="summary.errorMessage || '未记录错误详情'"
+      <RunOpsInvestigationWorkbench
+        ref="investigationWorkbenchRef"
+        :detail="detail"
+        :summary="summary"
+        :comparison="comparison"
       />
 
-      <el-alert
-        v-if="detail.repairHints?.length"
-        class="run-alert"
-        type="warning"
-        :closable="false"
-        show-icon
-      >
-        <template #title>
-          <div class="hint-list">
-            <span v-for="hint in detail.repairHints" :key="hint">{{ hint }}</span>
-          </div>
-        </template>
-      </el-alert>
-
-      <el-alert
-        v-if="candidateEligibility && !candidateEligibility.eligible"
-        class="run-alert"
-        type="info"
-        :closable="false"
-        show-icon
-        title="当前轨迹不满足首批只读 Workflow 候选规则"
-      >
-        <template #default>
-          <div class="hint-list">
-            <span v-for="blocker in candidateEligibility.blockers" :key="blocker">
-              {{ blocker }}
-            </span>
-          </div>
-        </template>
-      </el-alert>
-
-      <el-card v-if="comparison" class="compare-card" shadow="never">
+      <el-card v-if="comparison && legacyDetailVisible" class="compare-card" shadow="never">
         <template #header>
           <div class="card-header">
             <span>原运行与重放对比</span>
@@ -212,8 +218,9 @@
         </el-tabs>
       </el-card>
 
-      <el-tabs>
-        <el-tab-pane v-if="summary.runType === 'AGENT'" label="调度决策">
+      <section v-if="detail && summary && legacyDetailVisible" ref="detailTabsSection" class="run-detail-section">
+        <el-tabs v-model="activeTab" class="run-detail-tabs">
+        <el-tab-pane v-if="summary.runType === 'AGENT'" label="调度决策" name="supervisor">
           <section class="supervisor-metrics">
             <div v-for="item in supervisorMetrics" :key="item.label" class="supervisor-metric">
               <span>{{ item.label }}</span>
@@ -237,13 +244,13 @@
               <template #default="{ row }"><el-tag :type="statusTagType(row.status)">{{ executionStatusLabel(row.status) }}</el-tag></template>
             </el-table-column>
             <el-table-column label="耗时" width="100">
-              <template #default="{ row }">{{ row.latencyMs ?? 0 }} ms</template>
+              <template #default="{ row }">{{ formatDuration(row.latencyMs) }}</template>
             </el-table-column>
           </el-table>
           <el-empty v-if="!supervisorEvents.length" description="该运行尚无结构化调度决策事件" />
         </el-tab-pane>
 
-        <el-tab-pane label="执行路径">
+        <el-tab-pane label="执行路径" name="execution">
           <div class="execution-model" :class="{ 'workflow-only': summary.runType === 'WORKFLOW' }">
             <template v-if="summary.runType === 'AGENT'">
               <div><strong>调度器</strong><small>理解与调度</small></div>
@@ -274,13 +281,17 @@
             <el-table-column label="状态" width="112">
               <template #default="{ row }"><el-tag size="small" :type="statusTagType(row.status)">{{ executionStatusLabel(row.status) }}</el-tag></template>
             </el-table-column>
-            <el-table-column prop="startedAt" label="开始时间" width="180" />
-            <el-table-column prop="endedAt" label="结束时间" width="180" />
+            <el-table-column label="开始时间" width="180">
+              <template #default="{ row }">{{ formatDateTime(row.startedAt) }}</template>
+            </el-table-column>
+            <el-table-column label="结束时间" width="180">
+              <template #default="{ row }">{{ formatDateTime(row.endedAt) }}</template>
+            </el-table-column>
           </el-table>
           <el-empty v-if="!executionPath.length" description="暂无结构化执行路径" />
         </el-tab-pane>
 
-        <el-tab-pane label="链路明细">
+        <el-tab-pane label="链路明细" name="spans">
           <el-timeline class="span-timeline">
             <el-timeline-item
               v-for="span in detail.spans"
@@ -297,10 +308,12 @@
                   </div>
                   <div class="span-tags">
                     <el-tag size="small" :type="statusTagType(span.status)">{{ executionStatusLabel(span.status) }}</el-tag>
-                    <el-tag size="small" effect="plain">{{ span.latencyMs ?? 0 }} ms</el-tag>
+                    <el-tag size="small" effect="plain">{{ formatDuration(span.latencyMs) }}</el-tag>
                   </div>
                 </div>
-                <div v-if="span.errorMessage" class="error-text">{{ span.errorCode || 'SPAN_FAILED' }}：{{ span.errorMessage }}</div>
+                <div v-if="span.errorMessage" class="error-text">
+                  {{ span.errorCode || 'SPAN_FAILED' }}：{{ executionSummaryLabel(span.errorMessage) }}
+                </div>
                 <div class="io-grid">
                   <pre>{{ executionSummaryLabel(span.inputSummary) }}</pre>
                   <pre>{{ executionSummaryLabel(span.outputSummary) }}</pre>
@@ -311,7 +324,7 @@
           <el-empty v-if="!detail.spans.length" description="暂无结构化链路片段" />
         </el-tab-pane>
 
-        <el-tab-pane label="工具调用">
+        <el-tab-pane label="工具调用" name="tools">
           <el-table :data="detail.toolCalls" stripe>
             <el-table-column prop="success" label="状态" width="100">
               <template #default="{ row }">
@@ -320,7 +333,7 @@
             </el-table-column>
             <el-table-column prop="toolName" label="工具" min-width="220" show-overflow-tooltip />
             <el-table-column prop="elapsedMs" label="耗时" width="100">
-              <template #default="{ row }">{{ row.elapsedMs ?? 0 }} ms</template>
+              <template #default="{ row }">{{ formatDuration(row.elapsedMs) }}</template>
             </el-table-column>
             <el-table-column prop="tokenCost" label="Token 数" width="100" />
             <el-table-column prop="errorCode" label="错误" width="180" show-overflow-tooltip />
@@ -329,7 +342,7 @@
           <el-empty v-if="!detail.toolCalls.length" description="该运行未调用工具" />
         </el-tab-pane>
 
-        <el-tab-pane label="治理决策">
+        <el-tab-pane label="治理决策" name="guards">
           <el-table :data="detail.guardDecisions" stripe>
             <el-table-column prop="decision" label="决策" width="100">
               <template #default="{ row }">
@@ -351,7 +364,7 @@
           <el-empty v-if="!detail.guardDecisions.length" description="暂无治理决策记录" />
         </el-tab-pane>
 
-        <el-tab-pane label="发布配置与元数据">
+        <el-tab-pane label="发布配置与元数据" name="metadata">
           <section class="snapshot-grid">
             <div class="snapshot-panel">
               <div class="panel-title">根运行元数据</div>
@@ -371,8 +384,76 @@
             </div>
           </section>
         </el-tab-pane>
-      </el-tabs>
+        </el-tabs>
+      </section>
     </template>
+
+    <AppDrawer
+      v-if="summary"
+      v-model="contextDrawerVisible"
+      title="运行上下文"
+      description="用于复现、审计与跨团队协作的完整运行证据。"
+      size="560px"
+    >
+      <section class="context-drawer-section">
+        <h3>标识与入口</h3>
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="追踪 ID">
+            <div class="copyable-value">
+              <code>{{ traceId }}</code>
+              <el-button link :icon="CopyDocument" @click="copyIdentifier('追踪 ID', traceId)" />
+            </div>
+          </el-descriptions-item>
+          <el-descriptions-item label="会话 ID">
+            <div class="copyable-value">
+              <code>{{ summary.sessionId || '-' }}</code>
+              <el-button
+                link
+                :icon="CopyDocument"
+                :disabled="!summary.sessionId"
+                @click="copyIdentifier('会话 ID', summary.sessionId)"
+              />
+            </div>
+          </el-descriptions-item>
+          <el-descriptions-item label="用户 ID"><code>{{ summary.userId || '-' }}</code></el-descriptions-item>
+          <el-descriptions-item label="租户"><code>{{ summary.tenantId || '-' }}</code></el-descriptions-item>
+          <el-descriptions-item label="所属项目">{{ summary.projectCode || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="运行入口">{{ entryTypeLabel(summary.entryType) }}</el-descriptions-item>
+        </el-descriptions>
+      </section>
+
+      <section class="context-drawer-section">
+        <h3>发布快照</h3>
+        <el-descriptions :column="1" border>
+          <el-descriptions-item :label="runTypeLabel(summary.runType)">{{ runObjectId(summary) }}</el-descriptions-item>
+          <el-descriptions-item label="发布版本">{{ runVersionLabel(summary) }}</el-descriptions-item>
+          <el-descriptions-item label="运行时">{{ formatRuntimeTypeLabel(summary.runtimeType) }}</el-descriptions-item>
+          <el-descriptions-item label="开始时间">{{ formatDateTime(summary.startedAt) }}</el-descriptions-item>
+          <el-descriptions-item label="结束时间">{{ summary.endedAt ? formatDateTime(summary.endedAt) : '—（运行未结束）' }}</el-descriptions-item>
+          <el-descriptions-item label="调用统计">
+            {{ summary.planCount ?? 0 }} 规划 · {{ summary.replanCount ?? 0 }} 重规划 ·
+            {{ summary.workflowCallCount ?? 0 }} Workflow · {{ summary.toolCallCount ?? 0 }} Tool
+          </el-descriptions-item>
+        </el-descriptions>
+      </section>
+
+      <section v-if="summary.replayOfTraceId || compareSource" class="context-drawer-section">
+        <h3>重放关系</h3>
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="原始运行"><code>{{ summary.replayOfTraceId || compareSource }}</code></el-descriptions-item>
+          <el-descriptions-item label="当前运行"><code>{{ traceId }}</code></el-descriptions-item>
+        </el-descriptions>
+      </section>
+
+      <section class="context-drawer-section">
+        <h3>重放边界</h3>
+        <el-alert
+          type="info"
+          :closable="false"
+          description="重放固定使用本次运行的历史发布版本与配置快照，不会静默切换到当前最新配置；新运行会保留对原始运行的审计引用。"
+        />
+      </section>
+    </AppDrawer>
 
     <AppDialog v-model="replayDialogVisible" title="重放运行" width="560px">
       <el-alert
@@ -383,7 +464,12 @@
         title="重放使用原运行的已发布配置版本"
         description="重放不会切换到当前活动配置；新的追踪记录将自动与原运行建立对比关系。"
       />
-      <el-form label-width="110px">
+      <div v-if="summary" class="replay-version-box">
+        固定版本：<strong>{{ runTypeLabel(summary.runType) }} · {{ runVersionLabel(summary) }} · {{ formatRuntimeTypeLabel(summary.runtimeType) }}</strong>
+      </div>
+      <details class="replay-advanced">
+        <summary>高级覆盖选项 <small>默认复用原运行输入与身份</small></summary>
+        <el-form label-width="110px">
         <el-form-item label="覆盖输入">
           <el-input
             v-model="replayForm.messageOverride"
@@ -408,7 +494,8 @@
             placeholder="可选，输入后回车创建"
           />
         </el-form-item>
-      </el-form>
+        </el-form>
+      </details>
       <template #footer>
         <el-button @click="replayDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="replaying" @click="replayTrace">开始重放</el-button>
@@ -417,40 +504,62 @@
 
     <AppDialog
       v-model="candidateDialogVisible"
-      title="生成 Workflow 候选"
+      :title="candidateEligibility?.eligible ? '生成 Workflow 候选' : 'Workflow 候选资格'"
       width="640px"
     >
-      <el-alert
-        type="warning"
-        :closable="false"
-        show-icon
-        title="只创建并校验 DRAFT Workflow"
-        description="不会自动发布、不会绑定 Agent，也不会改动线上路由。后续仍需重放评测、人工审阅和显式发布。"
-      />
-      <el-descriptions v-if="candidateEligibility" :column="1" border class="candidate-summary">
-        <el-descriptions-item label="源追踪">{{ candidateEligibility.traceId }}</el-descriptions-item>
-        <el-descriptions-item label="源 Workflow">
-          {{ candidateEligibility.sourceWorkflowId }} · {{ candidateEligibility.sourceWorkflowVersion }}
-        </el-descriptions-item>
-        <el-descriptions-item label="资格证据">
-          <div class="hint-list">
-            <span v-for="item in candidateEligibility.evidence" :key="item">{{ item }}</span>
-          </div>
-        </el-descriptions-item>
-      </el-descriptions>
-      <el-form label-width="112px">
-        <el-form-item label="AI 编程工具">
-          <el-select v-model="candidateProvider" style="width: 100%">
-            <el-option label="Codex" value="CODEX" />
-            <el-option label="Cursor" value="CURSOR" />
-            <el-option label="Trae" value="TRAE" />
-            <el-option label="Claude Code" value="CLAUDE_CODE" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+      <template v-if="candidateLoading">
+        <el-skeleton :rows="6" animated />
+      </template>
+      <template v-else-if="candidateEligibility?.eligible">
+        <el-alert
+          type="success"
+          :closable="false"
+          show-icon
+          title="资格检查通过，可以创建候选任务"
+          description="只创建并校验 DRAFT Workflow；不会自动发布、绑定 Agent 或改动线上路由。"
+        />
+        <el-descriptions :column="1" border class="candidate-summary">
+          <el-descriptions-item label="源追踪">{{ candidateEligibility.traceId }}</el-descriptions-item>
+          <el-descriptions-item label="源 Workflow">
+            {{ candidateEligibility.sourceWorkflowId }} · {{ candidateEligibility.sourceWorkflowVersion }}
+          </el-descriptions-item>
+          <el-descriptions-item label="资格证据">
+            <div class="hint-list">
+              <span v-for="item in candidateEligibility.evidence" :key="item">{{ item }}</span>
+            </div>
+          </el-descriptions-item>
+        </el-descriptions>
+        <el-form label-width="112px">
+          <el-form-item label="AI 编程工具">
+            <el-select v-model="candidateProvider" style="width: 100%">
+              <el-option label="Codex" value="CODEX" />
+              <el-option label="Cursor" value="CURSOR" />
+              <el-option label="Trae" value="TRAE" />
+              <el-option label="Claude Code" value="CLAUDE_CODE" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+      </template>
+      <template v-else-if="candidateEligibility">
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="当前运行不满足 Workflow 候选规则"
+          description="这些限制会阻止把失败或缺少治理证据的偶然轨迹固化成 Workflow。"
+        />
+        <div class="candidate-blocker-panel">
+          <strong>{{ candidateEligibility.blockers.length }} 项规则未满足</strong>
+          <ol>
+            <li v-for="blocker in candidateEligibility.blockers" :key="blocker">{{ blocker }}</li>
+          </ol>
+        </div>
+      </template>
+      <el-empty v-else description="暂时无法读取候选资格，请刷新运行详情后重试" />
       <template #footer>
-        <el-button @click="candidateDialogVisible = false">取消</el-button>
+        <el-button @click="candidateDialogVisible = false">关闭</el-button>
         <el-button
+          v-if="candidateEligibility?.eligible"
           type="primary"
           :loading="candidateTaskBusy"
           @click="createCandidateTask"
@@ -515,13 +624,13 @@
 import AppDialog from '@/components/common/AppDialog.vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import AiCodingTaskDetailPanel from '@/components/ai-coding/AiCodingTaskDetailPanel.vue'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, VideoPlay } from '@element-plus/icons-vue'
-import HeaderMetaList from '@/components/common/HeaderMetaList.vue'
+import { CopyDocument, MoreFilled, Refresh, VideoPlay } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
+import RunOpsInvestigationWorkbench from './components/RunOpsInvestigationWorkbench.vue'
 import {
   compareRunOpsTrace,
   createTraceWorkflowCandidateTask,
@@ -546,12 +655,35 @@ import type {
   TraceWorkflowCandidateEligibility,
 } from '@/types/runops'
 
+type DetailTabName = 'supervisor' | 'execution' | 'spans' | 'tools' | 'guards' | 'metadata'
+type DiagnosticTone = 'success' | 'danger' | 'warning' | 'primary' | 'info'
+type RunOpsMoreCommand = 'context' | 'candidate' | 'compare'
+
+interface FailureFocus {
+  kindLabel: string
+  title: string
+  status?: string
+  code?: string
+  message: string
+  tab: DetailTabName
+}
+
+interface DiagnosticState {
+  tone: DiagnosticTone
+  tagType: DiagnosticTone
+  label: string
+  title: string
+  description: string
+}
+
 const route = useRoute()
 const router = useRouter()
 const traceId = computed(() => route.params.traceId as string)
+const legacyDetailVisible = false
 const loading = ref(false)
 const replaying = ref(false)
 const replayDialogVisible = ref(false)
+const contextDrawerVisible = ref(false)
 const candidateDialogVisible = ref(false)
 const candidateHandoffVisible = ref(false)
 const candidateLoading = ref(false)
@@ -568,14 +700,13 @@ const detail = ref<RunDetail | null>(null)
 const comparison = ref<RunComparison | null>(null)
 const replayForm = ref<ReplayRequest>({})
 const replayRoles = ref<string[]>([])
+const activeTab = ref<DetailTabName>('execution')
+const detailTabsSection = ref<HTMLElement | null>(null)
+const investigationWorkbenchRef = ref<InstanceType<typeof RunOpsInvestigationWorkbench> | null>(null)
 const summary = computed(() => detail.value?.summary)
-const compareSource = computed(() => route.query.compareWith as string | undefined)
-const candidateBlockerSummary = computed(() => {
-  if (candidateLoading.value) return '正在检查候选资格'
-  if (!candidateEligibility.value) return '尚未取得候选资格'
-  if (candidateEligibility.value.eligible) return ''
-  return candidateEligibility.value.blockers.join('；') || '当前轨迹不满足候选规则'
-})
+const compareSource = computed(() =>
+  (route.query.compareWith as string | undefined) || summary.value?.replayOfTraceId,
+)
 const supervisorEvents = computed(() => (detail.value?.spans || []).filter((span) =>
   ['PLAN', 'REPLAN', 'WORKFLOW_TOOL'].includes(span.spanType || ''),
 ))
@@ -620,6 +751,148 @@ function executionPathLabel(item: RunExecutionPathItem) {
   return label ? labels[label] || label : '-'
 }
 
+const failureFocus = computed<FailureFocus | null>(() => {
+  const run = summary.value
+  if (!run) return null
+
+  const failedSpan = detail.value?.spans
+    .filter((span) => isFailureStatus(span.status) || Boolean(span.errorCode || span.errorMessage))
+    .sort((left, right) => {
+      const depthDelta = semanticDepth(right) - semanticDepth(left)
+      if (depthDelta !== 0) return depthDelta
+      return timestampValue(left.startedAt) - timestampValue(right.startedAt)
+    })[0]
+  if (failedSpan) {
+    const title = failureSpanTitle(failedSpan)
+    const codeSuffix = failedSpan.errorCode ? `，错误码 ${failedSpan.errorCode}` : ''
+    return {
+      kindLabel: phaseLabel(failedSpan.spanType),
+      title,
+      status: failedSpan.status || 'FAILED',
+      code: failedSpan.errorCode,
+      message: compactMessage(
+        failedSpan.errorMessage || failedSpan.outputSummary,
+        `${phaseLabel(failedSpan.spanType)}“${title}”未成功完成${codeSuffix}。`,
+      ),
+      tab: 'spans',
+    }
+  }
+
+  const failedTool = detail.value?.toolCalls.find((tool) => !tool.success)
+  if (failedTool) {
+    return {
+      kindLabel: '工具调用',
+      title: failedTool.toolName || '未命名工具',
+      status: 'FAILED',
+      code: failedTool.errorCode,
+      message: compactMessage(
+        failedTool.resultSummary,
+        '工具调用失败，但没有记录更具体的错误信息。',
+      ),
+      tab: 'tools',
+    }
+  }
+
+  const failedPath = executionPath.value.find((item) => isFailureStatus(item.status))
+  if (failedPath) {
+    return {
+      kindLabel: phaseLabel(failedPath.spanType),
+      title: executionPathLabel(failedPath),
+      status: failedPath.status,
+      message: '执行路径中记录了非成功阶段，请展开对应链路查看输入、输出和错误码。',
+      tab: 'execution',
+    }
+  }
+
+  if (isFailureStatus(run.status) || run.errorCode || run.errorMessage) {
+    return {
+      kindLabel: '根运行',
+      title: runObjectLabel(run),
+      status: run.status,
+      code: run.errorCode,
+      message: compactMessage(run.errorMessage, '根运行失败，但没有记录更具体的错误信息。'),
+      tab: 'execution',
+    }
+  }
+
+  return null
+})
+
+const diagnosticState = computed<DiagnosticState>(() => {
+  const run = summary.value
+  if (!run) {
+    return {
+      tone: 'info',
+      tagType: 'info',
+      label: '正在加载',
+      title: '正在读取运行结果',
+      description: '运行数据加载完成后将在此给出明确结论。',
+    }
+  }
+  if (run.status === 'RUNNING') {
+    return {
+      tone: 'primary',
+      tagType: 'primary',
+      label: '运行中',
+      title: '本次运行仍在执行',
+      description: '页面会保留当前已产生的执行路径，可刷新查看最新进展。',
+    }
+  }
+  if (run.status === 'SUSPENDED') {
+    return {
+      tone: 'warning',
+      tagType: 'warning',
+      label: runStatusLabel(run),
+      title: run.suspensionReason === 'APPROVAL' ? '运行正在等待审批' : '运行正在等待用户输入',
+      description: '完成当前交互后，运行会从暂停位置继续执行。',
+    }
+  }
+  if (failureFocus.value) {
+    return {
+      tone: 'danger',
+      tagType: 'danger',
+      label: run.status === 'COMPLETED' ? '异常完成' : runStatusLabel(run),
+      title: run.status === 'COMPLETED'
+        ? '流程已结束，但执行链中存在失败'
+        : `本次运行${runStatusLabel(run)}`,
+      description: failureFocus.value.message,
+    }
+  }
+  if (run.status === 'CANCELLED') {
+    return {
+      tone: 'info',
+      tagType: 'info',
+      label: '已取消',
+      title: '本次运行已取消',
+      description: '运行没有继续执行，已产生的链路仍可用于审计。',
+    }
+  }
+  if (detail.value?.repairHints?.length) {
+    return {
+      tone: 'warning',
+      tagType: 'warning',
+      label: '需要检查',
+      title: '流程已结束，但仍有诊断提示',
+      description: detail.value.repairHints[0],
+    }
+  }
+  return {
+    tone: 'success',
+    tagType: 'success',
+    label: '运行成功',
+    title: '本次运行已成功完成',
+    description: '未发现失败阶段、失败工具调用或治理拒绝。',
+  }
+})
+
+const diagnosticIcon = computed(() => {
+  if (diagnosticState.value.tone === 'success') return '✓'
+  if (diagnosticState.value.tone === 'primary') return '↻'
+  if (diagnosticState.value.tone === 'warning') return '…'
+  if (diagnosticState.value.tone === 'danger') return '!'
+  return 'i'
+})
+
 const changedSummaryDiffs = computed(() => comparison.value?.summaryDiffs.filter((item) => item.changed) ?? [])
 const changedSpanDiffs = computed(() => comparison.value?.spanDiffs.filter((item) => item.changed) ?? [])
 const changedToolDiffs = computed(() => comparison.value?.toolDiffs.filter((item) => item.changed) ?? [])
@@ -629,28 +902,20 @@ const summaryItems = computed(() => {
   const run = summary.value
   if (!run) return []
   return [
-    { label: runTypeLabel(run.runType), value: runObjectLabel(run), hint: runObjectId(run) },
+    { label: '所属项目', value: run.projectCode || '-', hint: runObjectId(run) },
     { label: '发布版本', value: runVersionLabel(run), hint: run.runtimeType ? formatRuntimeTypeLabel(run.runtimeType) : '未记录运行时' },
-    { label: '入口', value: entryTypeLabel(run.entryType), hint: `${run.projectCode || '-'} · ${run.userId || '匿名用户'}` },
-    { label: '规划 / 重规划', value: `${run.planCount ?? 0} / ${run.replanCount ?? 0}`, hint: '调度决策' },
-    { label: '工作流 / 工具', value: `${run.workflowCallCount ?? 0} / ${run.toolCallCount ?? 0}`, hint: '运行内调用' },
-    { label: '治理 / 审批', value: `${run.guardDenyCount ?? 0} / ${run.approvalCount ?? 0}`, hint: '拒绝与审批事件' },
-    { label: '耗时', value: `${run.latencyMs ?? 0} ms`, hint: `${run.tokenCost ?? 0} Token` },
-    { label: '会话', value: run.sessionId || '-', hint: run.replayOfTraceId ? `重放自 ${run.replayOfTraceId}` : '原始运行' },
+    { label: '运行入口', value: entryTypeLabel(run.entryType), hint: run.userId ? `用户 ${shortIdentifier(run.userId)}` : '匿名用户' },
+    { label: '调度', value: `${run.planCount ?? 0} 次规划`, hint: `${run.replanCount ?? 0} 次重规划` },
+    { label: '执行调用', value: `${run.workflowCallCount ?? 0} 个工作流`, hint: `${run.toolCallCount ?? 0} 个工具调用` },
+    { label: '治理事件', value: `${run.guardDenyCount ?? 0} 次拒绝`, hint: `${run.approvalCount ?? 0} 次审批` },
   ]
 })
 
 const detailTitle = computed(() => {
   const run = summary.value
   if (!run) return '运行详情'
-  return `${runTypeLabel(run.runType)}运行 · ${runObjectLabel(run)}`
+  return runObjectLabel(run)
 })
-
-const headerMetaItems = computed(() => [
-  { key: 'trace', label: '追踪 ID', value: traceId.value },
-  { key: 'project', label: '项目', value: summary.value?.projectCode || '-' },
-  { key: 'entry', label: '入口', value: summary.value ? entryTypeLabel(summary.value.entryType) : '-' },
-])
 
 const versionIdentity = computed(() => {
   const run = summary.value
@@ -702,8 +967,19 @@ async function loadCandidateEligibility() {
 }
 
 function openCandidateDialog() {
-  if (!candidateEligibility.value?.eligible) return
   candidateDialogVisible.value = true
+}
+
+function handleMoreCommand(command: RunOpsMoreCommand) {
+  if (command === 'context') {
+    contextDrawerVisible.value = true
+    return
+  }
+  if (command === 'candidate') {
+    openCandidateDialog()
+    return
+  }
+  investigationWorkbenchRef.value?.showCompare()
 }
 
 async function createCandidateTask() {
@@ -902,6 +1178,83 @@ function entryTypeLabel(entryType?: string) {
   return entryType ? labels[entryType] || entryType : '-'
 }
 
+function formatDuration(ms?: number | null) {
+  const value = Number(ms ?? 0)
+  if (!Number.isFinite(value) || value <= 0) return '0 毫秒'
+  if (value < 1000) return `${Math.round(value)} 毫秒`
+  if (value < 60_000) {
+    const seconds = value / 1000
+    return `${seconds >= 10 ? seconds.toFixed(1) : seconds.toFixed(2)} 秒`
+  }
+  const minutes = Math.floor(value / 60_000)
+  const seconds = (value % 60_000) / 1000
+  return seconds > 0 ? `${minutes} 分 ${seconds.toFixed(1)} 秒` : `${minutes} 分钟`
+}
+
+function formatTokenCount(value?: number | null) {
+  const count = Number(value ?? 0)
+  if (!Number.isFinite(count) || count <= 0) return '0 个'
+  return `${Math.round(count).toLocaleString('zh-CN')} 个`
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+}
+
+function formatCompactDateTime(value?: string | null) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date)
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}`
+}
+
+function shortIdentifier(value?: string | null) {
+  if (!value) return '-'
+  if (value.length <= 24) return value
+  return `${value.slice(0, 10)}…${value.slice(-8)}`
+}
+
+function compactMessage(value?: string | null, fallback = '未记录详细信息。') {
+  const text = value?.replace(/\s+/g, ' ').trim()
+  if (!text || text === '[omitted]' || text === '[redacted]') return fallback
+  return text.length > 240 ? `${text.slice(0, 237)}…` : text
+}
+
+function timestampValue(value?: string | null) {
+  if (!value) return Number.MAX_SAFE_INTEGER
+  const timestamp = new Date(value).getTime()
+  return Number.isNaN(timestamp) ? Number.MAX_SAFE_INTEGER : timestamp
+}
+
+function failureSpanTitle(span: RunSpan) {
+  const nodeName = typeof span.metadata?.nodeName === 'string' ? span.metadata.nodeName : undefined
+  if (span.spanType === 'WORKFLOW_TOOL') {
+    const workflowName = typeof span.metadata?.workflowName === 'string' ? span.metadata.workflowName : undefined
+    return span.toolName || workflowName || nodeName || span.nodeId || '未命名工作流工具'
+  }
+  return nodeName || span.nodeId || span.toolName || spanDisplayName(span)
+}
+
 function statusLabel(status: RunStatus) {
   const labels: Record<RunStatus, string> = {
     RUNNING: '运行中',
@@ -919,6 +1272,14 @@ function runStatusLabel(run: RunSummary) {
   if (run.suspensionReason === 'APPROVAL') return '等待审批'
   if (run.suspensionReason === 'USER_INPUT') return '等待用户交互'
   return statusLabel(run.status)
+}
+
+function lifecycleStatusLabel(run: RunSummary) {
+  return run.status === 'COMPLETED' ? '流程已结束' : runStatusLabel(run)
+}
+
+function isFailureStatus(status?: string) {
+  return status === 'FAILED' || status === 'TIMED_OUT' || status === 'TIMEOUT'
 }
 
 function statusTagType(status?: string) {
@@ -975,6 +1336,7 @@ function semanticDepth(span: RunSpan) {
 
 function spanDisplayName(span: RunSpan) {
   const nodeName = span.metadata?.nodeName
+  const workflowName = span.metadata?.workflowName
   const spanTypeLabels: Record<string, string> = {
     SUPERVISOR: '智能体调度',
     PLAN: '规划',
@@ -982,7 +1344,9 @@ function spanDisplayName(span: RunSpan) {
     WORKFLOW_TOOL: '工作流工具',
   }
   const spanTypeLabel = span.spanType ? spanTypeLabels[span.spanType] || span.spanType : undefined
-  const base = span.nodeId || span.toolName || spanTypeLabel || span.spanId || '-'
+  const base = span.spanType === 'WORKFLOW_TOOL'
+    ? span.toolName || (typeof workflowName === 'string' ? workflowName : undefined) || span.nodeId || spanTypeLabel || span.spanId || '-'
+    : span.nodeId || span.toolName || spanTypeLabel || span.spanId || '-'
   return nodeName ? `${base} · ${nodeName}` : base
 }
 
@@ -1050,8 +1414,8 @@ function displayDiffValue(field: string, value: unknown) {
     return labels[String(value)] || String(value)
   }
   if (field === 'runtimeType') return formatRuntimeTypeLabel(String(value))
-  if (field === 'latencyMs') return `${value} ms`
-  if (field === 'tokenCost') return `${value} Token`
+  if (field === 'latencyMs') return formatDuration(Number(value))
+  if (field === 'tokenCost') return `${formatTokenCount(Number(value))} Token`
   if (typeof value === 'boolean') return value ? '是' : '否'
   return String(value)
 }
@@ -1091,12 +1455,12 @@ function spanDigest(span?: RunSpan) {
   const summaryText = ['PLAN', 'REPLAN'].includes(span.spanType || '')
     ? supervisorEventResultLabel(span)
     : executionSummaryLabel(span.outputSummary)
-  return `${executionStatusLabel(span.status)} · ${span.latencyMs ?? 0} ms · ${span.errorCode || summaryText}`
+  return `${executionStatusLabel(span.status)} · ${formatDuration(span.latencyMs)} · ${span.errorCode || summaryText}`
 }
 
 function toolDigest(tool?: RunToolCall) {
   if (!tool) return '缺失'
-  return `${tool.success ? '成功' : '失败'} · ${tool.elapsedMs ?? 0} ms · ${tool.errorCode || tool.resultSummary || '-'}`
+  return `${tool.success ? '成功' : '失败'} · ${formatDuration(tool.elapsedMs)} · ${tool.errorCode || tool.resultSummary || '-'}`
 }
 
 function guardDigest(guard?: RunGuardDecision) {
@@ -1114,7 +1478,9 @@ async function copyIssueSummary() {
     `发布版本: ${runVersionLabel(run)}`,
     `运行入口: ${entryTypeLabel(run.entryType)} (${run.entryType})`,
     `运行状态: ${runStatusLabel(run)} (${run.status})`,
+    `诊断结论: ${diagnosticState.value.label}`,
     `错误: ${run.errorCode || '-'} ${run.errorMessage || ''}`.trim(),
+    `耗时: ${formatDuration(run.latencyMs)}`,
     `规划/重规划: ${run.planCount ?? 0}/${run.replanCount ?? 0}`,
     `工作流/工具调用: ${run.workflowCallCount ?? 0}/${run.toolCallCount ?? 0}`,
     `修复建议: ${(detail.value?.repairHints || []).join(' | ') || '-'}`,
@@ -1127,6 +1493,23 @@ async function copyIssueSummary() {
   }
 }
 
+async function copyIdentifier(label: string, value?: string | null) {
+  if (!value) return
+  try {
+    await navigator.clipboard.writeText(value)
+    ElMessage.success(`${label}已复制`)
+  } catch {
+    ElMessage.error(`${label}复制失败`)
+  }
+}
+
+function focusFailure() {
+  if (!failureFocus.value) return
+  nextTick(() => {
+    investigationWorkbenchRef.value?.focusFailure()
+  })
+}
+
 function pretty(value: unknown) {
   if (value == null) return '-'
   try {
@@ -1136,11 +1519,25 @@ function pretty(value: unknown) {
   }
 }
 
-watch(traceId, loadDetail)
+watch(traceId, () => {
+  activeTab.value = 'execution'
+  loadDetail()
+})
 onMounted(loadDetail)
 </script>
 
 <style scoped lang="scss">
+.runops-detail {
+  --layout-page-header-art-opacity: 0.18;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.runops-detail :deep(.app-page-header) {
+  border: 1px solid var(--border-color);
+  box-shadow: none;
+}
+
 .replay-alert {
   margin-bottom: 16px;
 }
@@ -1150,13 +1547,116 @@ onMounted(loadDetail)
   margin-top: 16px;
 }
 
-.summary-grid {
+.diagnostic-overview {
+  --diagnostic-tone: var(--status-info);
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  min-width: 0;
+  grid-template-columns: minmax(380px, 0.9fr) minmax(0, 1.1fr);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--diagnostic-tone) 30%, var(--border-color));
+  border-left: 4px solid var(--diagnostic-tone);
+  border-radius: 12px;
+  background: var(--card-bg);
+  box-shadow: 0 14px 30px -28px color-mix(in srgb, var(--diagnostic-tone) 55%, transparent);
+
+  &.is-success { --diagnostic-tone: var(--status-success); }
+  &.is-danger { --diagnostic-tone: var(--status-danger); }
+  &.is-warning { --diagnostic-tone: var(--status-warning); }
+  &.is-primary { --diagnostic-tone: var(--brand-primary); }
 }
 
-.summary-card,
+.diagnostic-result {
+  min-width: 0;
+  padding: 20px 22px;
+  background: color-mix(in srgb, var(--diagnostic-tone) 6%, var(--card-bg));
+
+  h2,
+  p {
+    margin: 0;
+  }
+
+  h2 {
+    margin-top: 10px;
+    color: var(--text-primary);
+    font-size: clamp(20px, 1.6vw, 26px);
+    line-height: 1.35;
+  }
+
+  > p {
+    display: -webkit-box;
+    margin-top: 8px;
+    overflow: hidden;
+    color: var(--text-secondary);
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
+
+.diagnostic-result__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  > span {
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+}
+
+.run-vitals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0 0;
+
+  div {
+    min-width: 0;
+  }
+
+  dt,
+  dd {
+    margin: 0;
+  }
+
+  dt {
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  dd {
+    margin-top: 4px;
+    overflow: hidden;
+    color: var(--text-primary);
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.diagnostic-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+
+  :deep(.el-button + .el-button) {
+    margin-left: 0;
+  }
+}
+
+.summary-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: stretch;
+  margin: 0;
+}
+
 .snapshot-panel,
 .span-item {
   border: 1px solid var(--border-color);
@@ -1165,19 +1665,214 @@ onMounted(loadDetail)
 }
 
 .summary-card {
-  padding: 16px;
+  min-width: 0;
+  padding: 16px 18px;
+  border-left: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
 
-  span,
+  dt,
+  dd,
   small {
     display: block;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  dt,
+  small {
     color: var(--text-secondary);
   }
 
-  strong {
-    display: block;
-    margin: 8px 0 4px;
-    font-size: 20px;
+  dt {
+    font-size: 12px;
+  }
+
+  dd {
+    margin: 7px 0 3px;
     color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 750;
+  }
+
+  small {
+    font-size: 12px;
+  }
+}
+
+.identifier-strip {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.identifier-item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--card-bg);
+
+  > span {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  code {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-primary);
+    font-family: var(--el-font-family-monospace, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.diagnosis-panel {
+  min-width: 0;
+  padding: 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--status-danger) 28%, var(--border-color));
+  border-radius: 12px;
+  background: var(--card-bg);
+}
+
+.diagnosis-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+
+  span,
+  h2 {
+    margin: 0;
+  }
+
+  > div > span {
+    color: var(--status-danger);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+  }
+
+  h2 {
+    margin-top: 3px;
+    color: var(--text-primary);
+    font-size: 18px;
+  }
+}
+
+.diagnosis-panel__content {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+  gap: 18px;
+  margin-top: 16px;
+}
+
+.failure-focus {
+  padding: 14px 16px;
+  border-left: 3px solid var(--status-danger);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--status-danger) 7%, var(--fill-color-light));
+
+  p {
+    margin: 8px 0 0;
+    color: var(--text-secondary);
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+  }
+}
+
+.failure-focus__location {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+
+  > span {
+    color: var(--status-danger);
+    font-size: 12px;
+    font-weight: 750;
+  }
+
+  strong {
+    min-width: 0;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+  }
+}
+
+.repair-list {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--fill-color-light);
+
+  h3 {
+    margin: 0 0 8px;
+    color: var(--text-primary);
+    font-size: 14px;
+  }
+
+  ol {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding-left: 20px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+  }
+
+  li {
+    padding-left: 4px;
+    overflow-wrap: anywhere;
+  }
+}
+
+.candidate-blockers {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary);
+
+  summary {
+    width: fit-content;
+    color: var(--text-primary);
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  ul {
+    display: grid;
+    gap: 5px;
+    margin: 12px 0 0;
+    padding-left: 20px;
+    line-height: 1.5;
+  }
+}
+
+.run-detail-section {
+  min-width: 0;
+  scroll-margin-top: 18px;
+}
+
+.run-detail-tabs {
+  min-width: 0;
+
+  :deep(.el-tabs__content),
+  :deep(.el-tab-pane) {
+    min-width: 0;
   }
 }
 
@@ -1224,6 +1919,21 @@ onMounted(loadDetail)
 .card-header,
 .span-head {
   justify-content: space-between;
+}
+
+.card-header {
+  min-width: 0;
+  flex-wrap: wrap;
+
+  :deep(.el-tag) {
+    max-width: 100%;
+  }
+
+  :deep(.el-tag__content) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .compare-summary {
@@ -1393,6 +2103,16 @@ onMounted(loadDetail)
   }
 }
 
+@media (max-width: 1240px) {
+  .diagnostic-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-grid {
+    border-top: 1px solid var(--border-color);
+  }
+}
+
 @media (max-width: 1100px) {
   .summary-grid,
   .supervisor-metrics,
@@ -1410,6 +2130,25 @@ onMounted(loadDetail)
       transform: rotate(90deg);
     }
   }
+
+  .diagnosis-panel__content {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .identifier-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .diagnostic-result,
+  .diagnosis-panel {
+    padding: 16px;
+  }
+
+  .run-vitals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -1420,6 +2159,390 @@ onMounted(loadDetail)
   .snapshot-grid,
   .io-grid {
     grid-template-columns: 1fr;
+  }
+
+  .run-vitals {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* RunOps investigation workbench V2 */
+.runops-detail {
+  align-items: center;
+  gap: 8px;
+}
+
+.runops-detail :deep(.app-page-header),
+.runops-detail > .run-overview-panel,
+.runops-detail :deep(.investigation-workbench) {
+  width: min(100%, 1840px);
+  margin-inline: auto;
+}
+
+.runops-detail :deep(.app-page-header__actions) {
+  flex-wrap: nowrap;
+}
+
+.runops-detail :deep(.app-page-header) {
+  border-color: color-mix(in srgb, var(--border-readable) 48%, transparent);
+  border-radius: 12px;
+  box-shadow:
+    0 16px 36px -34px rgb(15 23 42 / 0.46),
+    inset 0 1px 0 color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+
+.runops-detail :deep(.app-page-header__title) {
+  font-size: clamp(19px, 1.55vw, 23px);
+  letter-spacing: -0.015em;
+}
+
+.runops-detail :deep(.app-page-header__action-dock) {
+  gap: 4px;
+  padding: 3px;
+  border-radius: 11px;
+  box-shadow:
+    0 12px 24px -22px rgb(15 23 42 / 0.44),
+    inset 0 1px 0 rgb(255 255 255 / 0.9);
+}
+
+.runops-detail :deep(.app-page-header__actions .el-button) {
+  min-height: 34px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.runops-detail :deep(.app-page-header__actions .el-button.is-circle) {
+  width: 34px;
+}
+
+.run-overview-panel {
+  --run-tone: var(--status-info);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border-readable) 48%, transparent);
+  border-left: 2px solid var(--run-tone);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface-solid-overlay) 78%, transparent);
+  box-shadow:
+    0 14px 28px -30px color-mix(in srgb, var(--run-tone) 42%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--text-primary) 6%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.02);
+  backdrop-filter: blur(16px) saturate(1.02);
+
+  &.is-success { --run-tone: var(--status-success); }
+  &.is-danger { --run-tone: var(--status-danger); }
+  &.is-warning { --run-tone: var(--status-warning); }
+  &.is-primary { --run-tone: var(--brand-primary); }
+}
+
+.run-conclusion-row {
+  display: grid;
+  min-width: 0;
+  min-height: 54px;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--run-tone) 3%, transparent);
+}
+
+.run-conclusion-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--run-tone);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.run-conclusion-copy {
+  min-width: 0;
+
+  p {
+    margin: 3px 0 0;
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.run-conclusion-heading {
+  min-width: 0;
+  gap: 7px;
+
+  strong {
+    overflow: hidden;
+    color: var(--text-primary);
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :deep(.el-tag) {
+    flex: 0 0 auto;
+  }
+
+  :deep(.el-button) {
+    flex: 0 0 auto;
+    padding: 0;
+  }
+}
+
+.run-overview-panel .run-vitals {
+  display: grid;
+  min-width: 306px;
+  grid-template-columns: repeat(3, minmax(90px, 1fr));
+  gap: 0;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--border-readable) 42%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-solid-control) 66%, transparent);
+
+  > div {
+    min-width: 0;
+    padding: 0 10px;
+    border-left: 1px solid var(--border-divider);
+  }
+
+  dt,
+  dd {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  dt {
+    color: var(--text-muted);
+    font-size: 9px;
+  }
+
+  dd {
+    margin-top: 2px;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 750;
+  }
+}
+
+.run-context-strip {
+  display: flex;
+  min-width: 0;
+  min-height: 29px;
+  align-items: center;
+  gap: 12px;
+  padding: 3px 10px;
+  border-top: 1px solid var(--border-divider);
+  color: var(--text-muted);
+  font-size: 10px;
+
+  > span {
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  strong,
+  code {
+    margin-left: 3px;
+    color: var(--text-primary);
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .context-entry {
+    margin-left: auto;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--surface-solid-control) 58%, transparent);
+    color: var(--text-secondary);
+  }
+}
+
+.trace-context {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+
+  code {
+    display: block;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :deep(.el-button) {
+    min-height: auto;
+    padding: 0 4px;
+  }
+}
+
+:global(.menu-state) {
+  margin-left: 16px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.context-drawer-section {
+  & + & {
+    margin-top: 20px;
+  }
+
+  h3 {
+    margin: 0 0 10px;
+    color: var(--text-primary);
+    font-size: 14px;
+  }
+
+  code {
+    color: var(--text-secondary);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+}
+
+.copyable-value {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  code {
+    min-width: 0;
+  }
+}
+
+.replay-version-box {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--fill-color-light);
+  color: var(--text-secondary);
+  font-size: 12px;
+
+  strong {
+    color: var(--text-primary);
+  }
+}
+
+.replay-advanced {
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+
+  summary {
+    padding: 11px 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+
+    small {
+      margin-left: 8px;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 500;
+    }
+  }
+
+  :deep(.el-form) {
+    padding: 14px 14px 2px;
+    border-top: 1px solid var(--border-divider);
+  }
+}
+
+.candidate-blocker-panel {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--fill-color-light);
+
+  > strong {
+    color: var(--text-primary);
+    font-size: 13px;
+  }
+
+  ol {
+    display: grid;
+    gap: 7px;
+    margin: 10px 0 0;
+    padding-left: 20px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+@media (max-width: 1180px) {
+  .run-overview-panel .run-vitals {
+    min-width: 280px;
+  }
+
+  .run-context-strip > span:nth-child(2) {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .runops-detail :deep(.app-page-header__actions) {
+    flex-wrap: wrap;
+  }
+
+  .run-conclusion-row {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .run-overview-panel .run-vitals {
+    min-width: 0;
+    grid-column: 1 / -1;
+    padding-left: 40px;
+  }
+
+  .run-context-strip {
+    flex-wrap: wrap;
+  }
+
+  .run-context-strip .context-entry {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .run-conclusion-copy p {
+    white-space: normal;
+  }
+
+  .run-conclusion-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .run-overview-panel .run-vitals {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding-left: 0;
+
+    > div {
+      padding: 0 7px;
+    }
+  }
+
+  .run-context-strip > span:nth-child(1),
+  .run-context-strip > span:nth-child(3) {
+    display: none;
+  }
+
+  .trace-context {
+    flex: 1 1 auto;
   }
 }
 </style>

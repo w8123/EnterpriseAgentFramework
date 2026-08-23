@@ -36,7 +36,7 @@ public class CapabilityDiffItemEntity {
     /** 字段级差异 JSON，便于前端评审展示。 */
     private String fieldDiffJson;
 
-    /** 被 Agent / Skill / ACL / MCP / A2A 等引用的影响分析 JSON。 */
+    /** 被 Agent / Tool / ACL / MCP / A2A 等引用的影响分析 JSON。 */
     private String impactJson;
 
     /**

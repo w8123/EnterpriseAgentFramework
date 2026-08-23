@@ -5,7 +5,6 @@ export type CanvasNodeKind =
   | 'interaction'
   | 'pageAction'
   | 'llm'
-  | 'skill'
   | 'tool'
   | 'knowledge'
   | 'condition'
@@ -172,7 +171,7 @@ export interface UserInputNodeConfig {
 }
 
 export type InteractionNodeType = 'COLLECT_INPUT' | 'PRESENT_OUTPUT' | 'USER_CHOICE' | 'CONFIRM_ACTION' | 'REVIEW_EDIT'
-export type InteractionBindingSourceKind = 'NONE' | 'TOOL' | 'COMPOSITION' | 'API'
+export type InteractionBindingSourceKind = 'NONE' | 'TOOL' | 'API'
 export type InteractionPresentationMode = 'card_only' | 'text_and_card' | 'text_only'
 
 export interface InteractionPresentationConfig {

@@ -1,5 +1,4 @@
 import { type Ref } from 'vue'
-import type { CompositionInfo } from '@/types/composition'
 import type { KnowledgeBase } from '@/types/knowledge'
 import type { ModelInstance } from '@/types/model'
 import type { ToolInfo } from '@/types/tool'
@@ -33,16 +32,6 @@ export function useWorkflowStudioProposalContext({
     }
   }
 
-  function compositionToProposalResource(composition: CompositionInfo): WorkflowProposalResource {
-    return {
-      kind: 'SKILL',
-      name: composition.name,
-      qualifiedName: composition.qualifiedName,
-      projectCode: composition.projectCode,
-      description: composition.aiDescription || composition.description,
-    }
-  }
-
   function knowledgeToProposalResource(knowledge: KnowledgeBase): WorkflowProposalResource {
     return {
       kind: 'KNOWLEDGE',
@@ -55,7 +44,6 @@ export function useWorkflowStudioProposalContext({
   return {
     resolveAiModelInstanceId,
     toolToProposalResource,
-    compositionToProposalResource,
     knowledgeToProposalResource,
   }
 }

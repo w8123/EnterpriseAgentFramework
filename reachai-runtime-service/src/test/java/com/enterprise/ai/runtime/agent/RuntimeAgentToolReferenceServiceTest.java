@@ -34,7 +34,6 @@ class RuntimeAgentToolReferenceServiceTest {
         assertEquals("agent-1", refs.get(0).agentId());
         assertEquals("Team Assistant", refs.get(0).agentName());
         assertEquals(List.of("orders_create", "orders_cancel"), refs.get(0).tools());
-        assertEquals(List.of(), refs.get(0).skills());
     }
 
     @Test
@@ -48,7 +47,6 @@ class RuntimeAgentToolReferenceServiceTest {
         List<RuntimeAgentToolReferenceService.AgentToolReference> refs = service.listAgentToolReferences();
 
         assertEquals(List.of(), refs.get(0).tools());
-        assertEquals(List.of(), refs.get(0).skills());
     }
 
     private RuntimeAgentEntity agent(String id, String name) {

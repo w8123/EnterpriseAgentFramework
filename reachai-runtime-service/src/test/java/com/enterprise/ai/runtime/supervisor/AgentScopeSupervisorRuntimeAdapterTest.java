@@ -503,7 +503,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         version.setGraphSpecSnapshotJson("""
                 {"nodes":[
                   {"id":"page-action","type":"PAGE_ACTION","config":{"pageKey":"orders","actionKey":"query","inputMapping":{}}},
-                  {"id":"write-api","type":"CAPABILITY","config":{"qualifiedName":"orders:update"}},
+                  {"id":"write-api","type":"TOOL","config":{"qualifiedName":"orders:update"}},
                   {"id":"answer","type":"ANSWER","config":{"template":"done"}}
                 ],"edges":[]}
                 """);

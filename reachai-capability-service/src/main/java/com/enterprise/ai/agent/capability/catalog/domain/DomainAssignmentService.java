@@ -25,7 +25,7 @@ public class DomainAssignmentService {
      *
      * <p>命中规则：</p>
      * <ul>
-     *     <li>{@code targetKind} 精确匹配传入值（注意 PROJECT 是 project_id 字符串，TOOL/SKILL 是 name）；</li>
+     *     <li>{@code targetKind} 精确匹配传入值（PROJECT 是 project_id 字符串，TOOL 是 name）；</li>
      *     <li>对于一个 (kind, name)，可能挂多个 domain，全部返回。</li>
      * </ul>
      */

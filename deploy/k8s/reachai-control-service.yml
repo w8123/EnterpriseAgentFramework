@@ -47,6 +47,11 @@ spec:
               value: http://reachai-model-service:18601
             - name: KNOWLEDGE_SERVICE_URL
               value: http://reachai-knowledge-service:18602
+            # Production example: never inherit the public local-development credential.
+            - name: REACHAI_LOCAL_AUTH_ENABLED
+              value: "false"
+            - name: REACHAI_BOOTSTRAP_ADMIN_ENABLED
+              value: "false"
             - name: REACHAI_INTERNAL_SERVICE_SECRET
               valueFrom:
                 secretKeyRef:

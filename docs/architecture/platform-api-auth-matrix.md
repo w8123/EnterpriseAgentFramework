@@ -11,12 +11,13 @@
 | `/api/platform/auth/login` | PUBLIC_LOGIN | `PlatformConsoleAuthWebConfig` 排除 | LOCAL 未配置返回 503；凭据错误返回 401。 |
 | `/api/platform/**`（除 login） | PLATFORM_SESSION | 控制台会话拦截器；高危身份管理追加 `platform:admin` | 缺失、过期、撤销 Token 为带 `PLATFORM_SESSION_INVALID` 标记的 401。 |
 | `/api/ai-coding-console/**`、`/api/ai-assist/projects/*/**`、`/api/registry/projects/*/page-workbench/**` | PLATFORM_SESSION | 控制台会话拦截器 | AI Coding 控制台、项目接入与页面工作台。 |
-| `/api/context/**`、`/api/slot-*`、`/api/tool-acl/**`、`/api/admin/a2a/**`、`/api/mcp/**`、`/api/market/**` | PLATFORM_SESSION | 控制台会话拦截器 | 管理/治理操作。 |
+| `/api/context/**`、`/api/tool-acl/**`、`/api/admin/a2a/**`、`/api/mcp/**`、`/api/market/**` | PLATFORM_SESSION | 控制台会话拦截器 | 管理/治理操作。 |
 | `/api/workflows/**`、`/api/agents/**`、`/api/traces/**`、`/api/runops/**`、`/api/trace-center/**` | PLATFORM_SESSION | 控制台会话拦截器 | Workflow Studio、Agent 管理、Trace 与 RunOps。 |
 | `/api/runtime/evals/**`、`/api/runtime/agents/sessions/**`、`/api/runtime/agents/route-evaluation`、`/api/runtime/tools/**`、`/api/runtime/compositions/**`、`/api/runtime/interactions/**`、`/api/runtime/debug-sessions/**` | PLATFORM_SESSION | 控制台会话拦截器 | 管理端调试、评测、人审和执行辅助操作。 |
-| `/api/capabilities/**`、`/api/tools/**`、`/api/compositions/**`、`/api/api-graph/**`、`/api/tool-retrieval/**`、`/api/skill-mining/**`、`/api/capability-mining/**`、`/api/scan-projects/**`、`/api/scan-modules/**`、`/api/semantic-docs/**`、`/api/domains/**` | PLATFORM_SESSION | `CapabilityCompatibilityProxyController` 已把 console mapping 与 registry mapping 分开；入口拦截后才代理 | Capability 目录、扫描和项目配置管理。 |
+| `/api/capabilities/**`、`/api/tools/**`、`/api/api-graph/**`、`/api/tool-retrieval/**`、`/api/scan-projects/**`、`/api/scan-modules/**`、`/api/semantic-docs/**`、`/api/domains/**` | PLATFORM_SESSION | `CapabilityCompatibilityProxyController` 已把 console mapping 与 registry mapping 分开；入口拦截后才代理 | Capability 目录、扫描和项目配置管理。 |
 | `/api/internal-services/health` | PLATFORM_SESSION | 控制台会话拦截器 | Dashboard 聚合健康接口；不是 `/internal/**`。 |
 | `/api/knowledge/biz-index/**` | PLATFORM_SESSION + RBAC | 控制台会话拦截器；Controller 追加 `platform:read` / `platform:write`；随后 HMAC 到 Knowledge | 业务索引控制台。浏览器 Bearer 不再直达 Knowledge。 |
+| `/api/knowledge/import-jobs/**`、`/api/knowledge/import-files/{fileId}/reparse` | PLATFORM_SESSION + RESOURCE_RBAC | 控制台会话拦截器；Controller 根据 Knowledge 返回的 workspace/project scope 校验 `platform:read` / `platform:write`；随后以精确请求体 HMAC 到 Knowledge | 文档导入、任务查询/操作和重新解析。任务还由 Knowledge 按 tenant/actor owner fence 隔离。 |
 | `/api/knowledge-ingress/projects/{projectCode}/biz-index/**` | PROJECT_REQUEST_V1 | Control 校验精确 body 摘要；Capability 作为项目凭证 owner 验签并消费 nonce；Knowledge 校验项目归属 | 业务系统结构化同步；平台 session 不能替代，认证失败不触发浏览器登出。 |
 | `/api/embed/**`、`/embed/**` | EMBED_TOKEN / PROJECT_HMAC | Embed controller 自身校验 | 业务终端用户协议；平台 Token 不能代替。 |
 | `/api/ai-coding/projects/**` | AI_CODING_KEY | `ControlAiCodingAccessInterceptor` | `X-ReachAI-AiCoding-Key`；平台登录不能代替。 |

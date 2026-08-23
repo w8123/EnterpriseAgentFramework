@@ -93,13 +93,13 @@ class RuntimePageWorkbenchExecutionReadinessServiceTest {
         RuntimeWorkflowVersionEntity version = version();
         version.setGraphSpecSnapshotJson(
                 "{\"schemaVersion\":2,\"nodes\":["
-                        + "{\"id\":\"query-api\",\"type\":\"CAPABILITY\"},"
+                        + "{\"id\":\"query-api\",\"type\":\"TOOL\"},"
                         + "{\"id\":\"refresh-page\",\"type\":\"PAGE_ACTION\"}],"
                         + "\"edges\":[]}");
         when(versionMapper.selectById(21L)).thenReturn(version);
         when(spanMapper.selectList(any())).thenReturn(List.of(
                 workflowSpan("SUCCESS", 21L),
-                nodeSpan("CAPABILITY", "SUCCESS"),
+                nodeSpan("TOOL", "SUCCESS"),
                 nodeSpan("PAGE_ACTION", "SUCCESS")));
 
         ExecutionReadinessView result = evaluate();

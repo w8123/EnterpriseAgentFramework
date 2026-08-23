@@ -43,6 +43,7 @@
 | [architecture/physical-split-route-ownership.md](./architecture/physical-split-route-ownership.md) | public route owning service 归属 |
 | [architecture/internal-api-contracts.md](./architecture/internal-api-contracts.md) | 服务间 internal API 契约、owner/consumer 和前端禁用边界 |
 | [architecture/service-table-ownership.md](./architecture/service-table-ownership.md) | 同库阶段的服务表所有权 |
+| [architecture/docling-document-ingestion.md](./architecture/docling-document-ingestion.md) | Java Fast / Docling 固定解析路由、导入任务、原件工件与部署安全边界 |
 | [architecture/agent-supervisor-runtime.md](./architecture/agent-supervisor-runtime.md) | AgentScope Supervisor、Agent 配置版本、Workflow-as-Tool 和 Page Bridge 跨路由协议 |
 | [architecture/backend-boundaries-and-naming.md](./architecture/backend-boundaries-and-naming.md) | 五服务边界、同库策略、命名规则和公共入口 |
 | [architecture/physical-services-and-startup.md](./architecture/physical-services-and-startup.md) | 五服务启动、IDEA 配置、环境变量和验证入口 |

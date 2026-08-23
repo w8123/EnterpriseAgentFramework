@@ -28,6 +28,7 @@
     "test:workflow": "vitest run --config vitest.workflow.config.ts",
     "test:model": "vitest run --config vitest.model.config.ts",
     "test:auth": "vitest run --config vitest.auth.config.ts",
+    "test:knowledge": "vitest run --config vitest.knowledge.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {

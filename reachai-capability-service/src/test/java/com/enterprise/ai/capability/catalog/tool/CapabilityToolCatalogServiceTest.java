@@ -68,10 +68,8 @@ class CapabilityToolCatalogServiceTest {
         ToolDefinitionEntity entity = inserted.get();
         assertNotNull(entity);
         assertEquals("orders_create", entity.getName());
-        assertEquals("TOOL", entity.getKind());
         assertEquals("manual", entity.getSource());
         assertEquals("WRITE", entity.getSideEffect());
-        assertFalse(Boolean.TRUE.equals(entity.getDraft()));
         assertNotNull(entity.getCreateTime());
         assertNotNull(entity.getUpdateTime());
     }
@@ -203,7 +201,6 @@ class CapabilityToolCatalogServiceTest {
         ToolDefinitionEntity entity = new ToolDefinitionEntity();
         entity.setName(name);
         entity.setTitle("创建订单");
-        entity.setKind("TOOL");
         entity.setDescription(description);
         entity.setSource("manual");
         entity.setHttpMethod("POST");

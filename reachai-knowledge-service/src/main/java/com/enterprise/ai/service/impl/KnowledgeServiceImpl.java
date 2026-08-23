@@ -12,10 +12,7 @@ import com.enterprise.ai.domain.vo.SimilarItem;
 import com.enterprise.ai.client.ModelServiceClient;
 import com.enterprise.ai.common.dto.ApiResult;
 import com.enterprise.ai.embedding.EmbeddingService;
-import com.enterprise.ai.pipeline.chunk.ChunkStrategy;
-import com.enterprise.ai.pipeline.chunk.ChunkStrategyFactory;
-import com.enterprise.ai.pipeline.parser.DocumentParser;
-import com.enterprise.ai.pipeline.parser.DocumentParserFactory;
+import com.enterprise.ai.pipeline.document.artifact.DocumentArtifactStore;
 import com.enterprise.ai.repository.ChunkRepository;
 import com.enterprise.ai.repository.FileInfoRepository;
 import com.enterprise.ai.repository.KnowledgeBaseRepository;
@@ -33,8 +30,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -54,8 +52,7 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
     private final EmbeddingService embeddingService;
     private final ModelServiceClient modelServiceClient;
     private final VectorService vectorService;
-    private final DocumentParserFactory documentParserFactory;
-    private final ChunkStrategyFactory chunkStrategyFactory;
+    private final DocumentArtifactStore documentArtifactStore;
 
     @Value("${milvus.dimension:1536}")
     private int dimension;
@@ -91,7 +88,7 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
         List<String> fileIds = Collections.nCopies(texts.size(), request.getFileId());
 
         // 5. 插入 Milvus
-        vectorService.insert(kb.getCode(), ids, vectors, fileIds, texts);
+        vectorService.upsert(kb.getCode(), ids, vectors, fileIds, texts);
 
         // 6. 保存文件记录
         FileInfo fileInfo = new FileInfo();
@@ -145,10 +142,36 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteByFileId(String knowledgeBaseCode, String fileId) {
+        List<FileInfo> files = fileInfoRepository.selectList(
+                new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileId));
         vectorService.deleteByFileId(knowledgeBaseCode, fileId);
         chunkRepository.delete(new LambdaQueryWrapper<Chunk>().eq(Chunk::getFileId, fileId));
         fileInfoRepository.delete(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileId));
+        files.forEach(this::deleteArtifactsAfterCommit);
         log.info("删除文件数据: knowledgeBase={}, fileId={}", knowledgeBaseCode, fileId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void cleanupImportIndexData(String knowledgeBaseCode, String fileId, String importJobId) {
+        FileInfo existing = fileInfoRepository.selectOne(
+                new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileId));
+        if (existing != null && !Objects.equals(existing.getImportJobId(), importJobId)) {
+            log.error("拒绝清理其他导入任务的索引数据: fileId={}, expectedJob={}, actualJob={}",
+                    fileId, importJobId, existing.getImportJobId());
+            return;
+        }
+        try {
+            vectorService.deleteByFileId(knowledgeBaseCode, fileId);
+        } catch (Exception e) {
+            // Milvus may be the failing dependency. Database visibility must still
+            // be removed; stable primary keys make a later upsert retry safe.
+            log.warn("索引失败补偿未能删除 Milvus 向量: fileId={}, error={}", fileId, e.getMessage());
+        }
+        chunkRepository.delete(new LambdaQueryWrapper<Chunk>().eq(Chunk::getFileId, fileId));
+        fileInfoRepository.delete(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileId));
+        log.info("已补偿失败的文档索引数据: knowledgeBase={}, fileId={}, jobId={}",
+                knowledgeBaseCode, fileId, importJobId);
     }
 
     // ==================== 知识库 CRUD ====================
@@ -250,38 +273,18 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
         if (kb == null) {
             throw new IllegalArgumentException("知识库不存在: " + code);
         }
+        List<FileInfo> files = fileInfoRepository.selectList(
+                new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getKnowledgeBaseId, kb.getId()));
         chunkRepository.delete(new LambdaQueryWrapper<Chunk>().eq(Chunk::getKnowledgeBaseId, kb.getId()));
         fileInfoRepository.delete(new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getKnowledgeBaseId, kb.getId()));
         knowledgeBaseRepository.deleteById(kb.getId());
+        files.forEach(this::deleteArtifactsAfterCommit);
         try {
             vectorService.dropCollection(code);
         } catch (Exception e) {
             log.warn("删除向量集合失败（可能不存在）: {}", code, e);
         }
         log.info("删除知识库: code={}", code);
-    }
-
-    // ==================== Chunk 预览 ====================
-
-    @Override
-    public ChunkPreviewResponse previewChunks(MultipartFile file, String chunkStrategy,
-                                               Integer chunkSize, Integer chunkOverlap) {
-        String fileName = file.getOriginalFilename();
-        int size = chunkSize != null ? chunkSize : 500;
-        int overlap = chunkOverlap != null ? chunkOverlap : 50;
-        String strategy = chunkStrategy != null ? chunkStrategy : "fixed_length";
-
-        DocumentParser parser = documentParserFactory.getParser(fileName);
-        String rawText = parser.parse(file);
-
-        ChunkStrategy chunker = chunkStrategyFactory.getStrategy(strategy);
-        List<String> textChunks = chunker.split(rawText, size, overlap);
-
-        List<ChunkPreviewResponse.ChunkItem> items = IntStream.range(0, textChunks.size())
-                .mapToObj(i -> new ChunkPreviewResponse.ChunkItem(i, textChunks.get(i), textChunks.get(i).length()))
-                .collect(Collectors.toList());
-
-        return new ChunkPreviewResponse(fileName, strategy, size, overlap, items.size(), items);
     }
 
     // ==================== V2 新增：知识库详情/文件管理/检索测试 ====================
@@ -293,11 +296,7 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
                 new LambdaQueryWrapper<FileInfo>()
                         .eq(FileInfo::getKnowledgeBaseId, kb.getId())
                         .orderByDesc(FileInfo::getCreateTime));
-        return files.stream().map(f -> {
-            FileInfoVO vo = new FileInfoVO();
-            BeanUtils.copyProperties(f, vo);
-            return vo;
-        }).collect(Collectors.toList());
+        return files.stream().map(this::toFileInfoVO).collect(Collectors.toList());
     }
 
     @Override
@@ -397,7 +396,7 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
             log.warn("Delete old vector failed, will insert replacement. vectorId={}, error={}", vectorId, e.getMessage());
         }
         List<Float> vector = embeddingService.embed(requireEmbeddingModelInstanceId(kb), chunk.getContent());
-        vectorService.insert(kb.getCode(), List.of(vectorId), List.of(vector), List.of(chunk.getFileId()), List.of(chunk.getContent()));
+        vectorService.upsert(kb.getCode(), List.of(vectorId), List.of(vector), List.of(chunk.getFileId()), List.of(chunk.getContent()));
         chunk.setCollectionName(kb.getCode());
         chunkRepository.updateById(chunk);
     }
@@ -464,81 +463,8 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
         }
         chunkRepository.delete(new LambdaQueryWrapper<Chunk>().eq(Chunk::getFileId, fileId));
         fileInfoRepository.deleteById(fileInfo.getId());
+        deleteArtifactsAfterCommit(fileInfo);
         log.info("删除文件: fileId={}, kb={}", fileId, kb.getCode());
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void reparseFile(String fileId) {
-        FileInfo fileInfo = fileInfoRepository.selectOne(
-                new LambdaQueryWrapper<FileInfo>().eq(FileInfo::getFileId, fileId));
-        if (fileInfo == null) {
-            throw new IllegalArgumentException("文件不存在: " + fileId);
-        }
-        if (fileInfo.getRawText() == null || fileInfo.getRawText().isBlank()) {
-            throw new IllegalStateException("该文件没有保存原始文本，无法重新解析");
-        }
-        KnowledgeBase kb = knowledgeBaseRepository.selectById(fileInfo.getKnowledgeBaseId());
-        if (kb == null) {
-            throw new IllegalArgumentException("文件所属知识库不存在");
-        }
-
-        // 标记为解析中
-        fileInfo.setStatus(0);
-        fileInfoRepository.updateById(fileInfo);
-
-        try {
-            // 1. 删除旧向量和旧chunk
-            try {
-                vectorService.deleteByFileId(kb.getCode(), fileId);
-            } catch (Exception e) {
-                log.warn("删除旧向量数据失败: {}", e.getMessage());
-            }
-            chunkRepository.delete(new LambdaQueryWrapper<Chunk>().eq(Chunk::getFileId, fileId));
-
-            // 2. 使用知识库最新配置重新切分
-            String strategyName = mapSplitType(kb.getSplitType());
-            int chunkSize = kb.getChunkSize() != null ? kb.getChunkSize() : 500;
-            int chunkOverlap = kb.getChunkOverlap() != null ? kb.getChunkOverlap() : 50;
-
-            ChunkStrategy chunker = chunkStrategyFactory.getStrategy(strategyName);
-            List<String> textChunks = chunker.split(fileInfo.getRawText(), chunkSize, chunkOverlap);
-
-            // 3. 重新生成向量
-            vectorService.ensureCollection(kb.getCode(), kb.getDimension() != null ? kb.getDimension() : dimension);
-            List<List<Float>> vectors = embeddingService.embedBatch(requireEmbeddingModelInstanceId(kb), textChunks);
-            List<String> ids = IntStream.range(0, textChunks.size())
-                    .mapToObj(i -> fileId + "_chunk_" + i)
-                    .collect(Collectors.toList());
-            List<String> fileIds = Collections.nCopies(textChunks.size(), fileId);
-            vectorService.insert(kb.getCode(), ids, vectors, fileIds, textChunks);
-
-            // 4. 重新保存chunk记录
-            for (int i = 0; i < textChunks.size(); i++) {
-                Chunk chunk = new Chunk();
-                chunk.setFileId(fileId);
-                chunk.setKnowledgeBaseId(kb.getId());
-                chunk.setContent(textChunks.get(i));
-                chunk.setChunkIndex(i);
-                chunk.setVectorId(ids.get(i));
-                chunk.setCollectionName(kb.getCode());
-                chunk.setHitCount(0);
-                chunk.setEnabled(1);
-                chunkRepository.insert(chunk);
-            }
-
-            // 5. 更新文件状态
-            fileInfo.setChunkCount(textChunks.size());
-            fileInfo.setStatus(1);
-            fileInfoRepository.updateById(fileInfo);
-            log.info("重新解析完成: fileId={}, chunks={}", fileId, textChunks.size());
-
-        } catch (Exception e) {
-            fileInfo.setStatus(2);
-            fileInfoRepository.updateById(fileInfo);
-            log.error("重新解析失败: fileId={}", fileId, e);
-            throw new RuntimeException("重新解析失败: " + e.getMessage(), e);
-        }
     }
 
     @Override
@@ -1014,13 +940,41 @@ public class KnowledgeServiceImpl implements KnowledgeService, KnowledgeRetrieva
                 .count();
     }
 
-    private String mapSplitType(String splitType) {
-        if (splitType == null) return "fixed_length";
-        return switch (splitType.toUpperCase()) {
-            case "PARAGRAPH" -> "paragraph";
-            case "SEMANTIC" -> "semantic";
-            default -> "fixed_length";
+    private void deleteArtifactsAfterCommit(FileInfo fileInfo) {
+        if (fileInfo == null) {
+            return;
+        }
+        Runnable cleanup = () -> {
+            deleteArtifactQuietly(fileInfo.getSourceObjectKey(), fileInfo.getFileId());
+            deleteArtifactQuietly(fileInfo.getParseArtifactObjectKey(), fileInfo.getFileId());
         };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    cleanup.run();
+                }
+            });
+        } else {
+            cleanup.run();
+        }
+    }
+
+    private FileInfoVO toFileInfoVO(FileInfo file) {
+        FileInfoVO vo = new FileInfoVO();
+        BeanUtils.copyProperties(file, vo);
+        return vo;
+    }
+
+    private void deleteArtifactQuietly(String objectKey, String fileId) {
+        if (objectKey == null || objectKey.isBlank()) {
+            return;
+        }
+        try {
+            documentArtifactStore.delete(objectKey);
+        } catch (Exception e) {
+            log.error("文件记录已删除但文档工件清理失败: fileId={}, objectKey={}", fileId, objectKey, e);
+        }
     }
 
     /**

@@ -1,7 +1,7 @@
 <template>
   <div class="node-specific-panel">
-    <el-divider>{{ data.kind === 'skill' ? '能力调用' : '工具调用' }}</el-divider>
-    <el-form-item :label="data.kind === 'skill' ? '引用能力' : '引用工具'">
+    <el-divider>能力调用</el-divider>
+    <el-form-item label="引用能力">
       <div class="reference-row">
         <el-select v-model="config.ref" filterable placeholder="选择引用" style="width: 100%" @change="handleRefChange">
           <el-option v-for="item in options" :key="item.name" :label="assetLabel(item)" :value="item.name" />
@@ -145,7 +145,6 @@ import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import type { CanvasNodeData, ToolNodeConfig } from '@/types/studio'
 import type { ToolInfo, ToolParameter } from '@/types/tool'
-import type { CompositionInfo } from '@/types/composition'
 import type { WorkflowCredential } from '@/types/workflowCredential'
 import type { ApiGraphParamSourceHint } from '@/api/apiGraph'
 import { getScanProjectTools } from '@/api/scanProject'
@@ -164,7 +163,7 @@ import CredentialSelect from './CredentialSelect.vue'
 
 const props = defineProps<{
   data: CanvasNodeData
-  options: (ToolInfo | CompositionInfo)[]
+  options: ToolInfo[]
   credentialOptions: WorkflowCredential[]
   paramSourceHints: ApiGraphParamSourceHint[]
   projectId?: number | null
@@ -316,7 +315,7 @@ function applyHint(hint: ApiGraphParamSourceHint) {
   }
 }
 
-function assetLabel(item: ToolInfo | CompositionInfo) {
+function assetLabel(item: ToolInfo) {
   const project = item.projectCode ? ` / ${item.projectCode}` : ''
   const label = 'title' in item && item.title ? `${item.title} (${item.name})` : item.name
   return `${label}${project}`

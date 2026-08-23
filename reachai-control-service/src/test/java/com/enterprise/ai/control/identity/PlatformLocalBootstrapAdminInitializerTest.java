@@ -16,6 +16,32 @@ import static org.mockito.Mockito.when;
 class PlatformLocalBootstrapAdminInitializerTest {
 
     @Test
+    void createsTheBuiltInDevelopmentAdministratorByDefault() throws Exception {
+        PlatformAuthProperties properties = new PlatformAuthProperties();
+        PlatformUserMapper userMapper = mock(PlatformUserMapper.class);
+        PlatformRoleMapper roleMapper = mock(PlatformRoleMapper.class);
+        PlatformUserRoleMapper userRoleMapper = mock(PlatformUserRoleMapper.class);
+        PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
+        PlatformRoleEntity platformAdmin = new PlatformRoleEntity();
+        platformAdmin.setId(9L);
+        platformAdmin.setRoleCode("PLATFORM_ADMIN");
+        when(roleMapper.selectOne(any())).thenReturn(platformAdmin);
+        when(passwordEncoder.encode("admin123")).thenReturn("$2a$12$development-hash");
+        doAnswer(invocation -> {
+            PlatformUserEntity user = invocation.getArgument(0);
+            user.setId(17L);
+            return 1;
+        }).when(userMapper).insert(any(PlatformUserEntity.class));
+
+        new PlatformLocalBootstrapAdminInitializer(
+                properties, userMapper, roleMapper, userRoleMapper, passwordEncoder).run(arguments());
+
+        verify(userMapper).insert(any(PlatformUserEntity.class));
+        verify(userRoleMapper).insert(any(PlatformUserRoleEntity.class));
+        verify(passwordEncoder).encode("admin123");
+    }
+
+    @Test
     void doesNothingUnlessExplicitlyEnabled() throws Exception {
         PlatformUserMapper userMapper = mock(PlatformUserMapper.class);
         initializer(properties(false, false, null, null), userMapper).run(arguments());

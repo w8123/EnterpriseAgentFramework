@@ -60,7 +60,7 @@ export function useWorkflowStudioRelease({
       warnings.push('未配置 keySlug，业务系统可能无法稳定访问发布后的 Workflow。')
     }
     const callableNodeCount = nodes.value.filter((node) =>
-      ['tool', 'skill', 'http', 'pageAction', 'mcp'].includes(node.data.kind),
+      ['tool', 'http', 'pageAction', 'mcp'].includes(node.data.kind),
     ).length
     if (!callableNodeCount) {
       warnings.push('画布中没有工具、能力、接口、页面动作或 MCP 节点，本版本只能进行纯流程/纯对话编排。')

@@ -9,7 +9,6 @@ public interface ScanProjectAgentReferenceReader {
     record AgentToolReference(
             String agentId,
             String agentName,
-            List<String> tools,
-            List<String> skills) {
+            List<String> tools) {
     }
 }

@@ -54,8 +54,8 @@ public class VectorStoreStep implements PipelineStep {
         // file_id 列表（每条向量都关联同一个 fileId）
         List<String> fileIds = Collections.nCopies(vectors.size(), fileId);
 
-        // 写入 Milvus
-        vectorService.insert(collectionName, vectorIds, vectors, fileIds, chunks);
+        // 幂等写入 Milvus。任务在后续元数据阶段失败时，可以安全重试同一批主键。
+        vectorService.upsert(collectionName, vectorIds, vectors, fileIds, chunks);
 
         context.setVectorIds(vectorIds);
         log.debug("VectorStoreStep 完成: fileId={}, collection={}, 向量数={}",

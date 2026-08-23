@@ -26,14 +26,9 @@
             </button>
           </div>
         </el-form-item>
-        <el-form-item v-if="binding.sourceKind === 'TOOL'" label="选择工具">
-          <el-select v-model="binding.ref" filterable clearable :teleported="false" placeholder="选择已注册 Tool" @change="handleBindingRefChange">
+        <el-form-item v-if="binding.sourceKind === 'TOOL'" label="选择能力">
+          <el-select v-model="binding.ref" filterable clearable :teleported="false" placeholder="选择已注册能力" @change="handleBindingRefChange">
             <el-option v-for="item in toolOptions" :key="item.name" :label="assetLabel(item)" :value="item.name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="binding.sourceKind === 'COMPOSITION'" label="选择组合">
-          <el-select v-model="binding.ref" filterable clearable :teleported="false" placeholder="选择 Composition" @change="handleBindingRefChange">
-            <el-option v-for="item in compositionOptions" :key="item.name" :label="assetLabel(item)" :value="item.name" />
           </el-select>
         </el-form-item>
         <el-form-item v-if="binding.sourceKind === 'API'" label="选择接口">
@@ -399,8 +394,7 @@ import type {
   StudioVariableOption,
 } from '@/types/studio'
 import type { ToolInfo, ToolParameter } from '@/types/tool'
-import type { CompositionInfo } from '@/types/composition'
-import { isToolInputParameter } from '@/types/composition'
+import { isToolInputParameter } from '@/types/tool'
 import { interactionOutputPorts } from '@/utils/studio'
 import { getScanProjectTools } from '@/api/scanProject'
 import type { ProjectToolInfo } from '@/types/scanProject'
@@ -419,7 +413,6 @@ const props = defineProps<{
   data: CanvasNodeData
   variableOptions?: Array<string | StudioVariableOption>
   toolOptions?: ToolInfo[]
-  compositionOptions?: CompositionInfo[]
   projectId?: number | null
   projectCode?: string | null
   nodeTypeOptions?: WorkflowGraphNodeTypeDescriptor[]
@@ -431,8 +424,7 @@ const emit = defineEmits<{
 
 const bindingSourceOptions: Array<{ label: string; value: InteractionBindingSourceKind }> = [
   { label: '不绑定', value: 'NONE' },
-  { label: '工具', value: 'TOOL' },
-  { label: '组合', value: 'COMPOSITION' },
+  { label: '能力', value: 'TOOL' },
   { label: '项目接口', value: 'API' },
 ]
 
@@ -452,7 +444,6 @@ const enabledInteractionTypes = computed(() => {
 })
 
 const toolOptions = computed(() => props.toolOptions || [])
-const compositionOptions = computed(() => props.compositionOptions || [])
 const apiToolOptions = computed(() => toolOptions.value.filter((item) => !!item.httpMethod || !!item.endpointPath || !!item.catalogScanToolId))
 const selectedProjectApiTool = ref<ToolInfo | null>(null)
 const projectApiDialogOpen = ref(false)
@@ -493,10 +484,7 @@ const binding = computed<InteractionBindingConfig>(() => {
   return config.value.binding
 })
 
-const selectedBindingAsset = computed<ToolInfo | CompositionInfo | undefined>(() => {
-  if (binding.value.sourceKind === 'COMPOSITION') {
-    return compositionOptions.value.find((item) => item.name === binding.value.ref)
-  }
+const selectedBindingAsset = computed<ToolInfo | undefined>(() => {
   if (binding.value.sourceKind === 'API') {
     if (selectedProjectApiTool.value?.name === binding.value.ref) {
       return selectedProjectApiTool.value || undefined
@@ -703,7 +691,7 @@ async function handleBindingRefChange() {
   binding.value.qualifiedName = asset?.qualifiedName || null
   binding.value.projectCode = asset?.projectCode || null
   binding.value.projectId = asset?.projectId || null
-  if (isTool(asset)) {
+  if (asset) {
     binding.value.apiMethod = asset.httpMethod || null
     binding.value.apiPath = asset.endpointPath || null
   }
@@ -730,7 +718,7 @@ async function generateFieldsFromBinding() {
   }
 }
 
-async function maybeGenerateFieldsFromBinding(asset: ToolInfo | CompositionInfo): Promise<boolean> {
+async function maybeGenerateFieldsFromBinding(asset: ToolInfo): Promise<boolean> {
   const generatedKey = bindingGeneratedKey(asset)
   const fields = config.value.fields || []
   const canOverwrite =
@@ -761,7 +749,7 @@ async function maybeGenerateFieldsFromBinding(asset: ToolInfo | CompositionInfo)
   }
 }
 
-async function applyFieldsFromBinding(asset: ToolInfo | CompositionInfo, notify: boolean) {
+async function applyFieldsFromBinding(asset: ToolInfo, notify: boolean) {
   const parameters = (asset.parameters || []).filter(isToolInputParameter)
   const fields = parameters.flatMap((parameter) => mapParameterToFields(parameter))
   config.value.fields = fields.length ? fields : [{
@@ -784,8 +772,8 @@ async function applyFieldsFromBinding(asset: ToolInfo | CompositionInfo, notify:
       ref: asset.name,
       qualifiedName: asset.qualifiedName || null,
       projectCode: asset.projectCode || null,
-      apiMethod: isTool(asset) ? asset.httpMethod || null : null,
-      apiPath: isTool(asset) ? asset.endpointPath || null : null,
+      apiMethod: asset.httpMethod || null,
+      apiPath: asset.endpointPath || null,
     },
   }
   if (notify) {
@@ -841,7 +829,7 @@ async function handleAutoCreateDisplayNodeChange(value: string | number | boolea
   emitCallNodeRequest(asset)
 }
 
-function emitCallNodeRequest(asset: ToolInfo | CompositionInfo) {
+function emitCallNodeRequest(asset: ToolInfo) {
   if (!asset?.name) return
   emit('createCallNode', {
     sourceKind: binding.value.sourceKind,
@@ -849,9 +837,9 @@ function emitCallNodeRequest(asset: ToolInfo | CompositionInfo) {
     qualifiedName: asset.qualifiedName || null,
     projectCode: asset.projectCode || null,
     projectId: asset.projectId || null,
-    apiMethod: isTool(asset) ? asset.httpMethod || null : null,
-    apiPath: isTool(asset) ? asset.endpointPath || null : null,
-    responseType: isTool(asset) ? asset.responseType || null : null,
+    apiMethod: asset.httpMethod || null,
+    apiPath: asset.endpointPath || null,
+    responseType: asset.responseType || null,
     autoCreateDisplayNode: binding.value.autoCreateDisplayNode === true,
     label: `调用 ${asset.name}`,
     description: asset.description || '',
@@ -860,7 +848,7 @@ function emitCallNodeRequest(asset: ToolInfo | CompositionInfo) {
   })
 }
 
-function buildInputMapping(asset: ToolInfo | CompositionInfo) {
+function buildInputMapping(asset: ToolInfo) {
   const alias = config.value.outputAlias || 'interaction_output'
   const mapping: Record<string, string> = {}
   for (const parameter of asset.parameters || []) {
@@ -884,7 +872,7 @@ function collectInputMapping(parameter: ToolParameter, alias: string, mapping: R
   mapping[targetName] = `${alias}.targetArgs.${targetName}`
 }
 
-function bindingGeneratedKey(asset: ToolInfo | CompositionInfo) {
+function bindingGeneratedKey(asset: ToolInfo) {
   return `${binding.value.sourceKind}:${asset.name}`
 }
 
@@ -1056,7 +1044,7 @@ function fieldSlotStrategiesLabel(field: StudioFieldSchema) {
     .join(' / ')
 }
 
-function assetLabel(item: ToolInfo | CompositionInfo) {
+function assetLabel(item: ToolInfo) {
   const project = item.projectCode ? ` / ${item.projectCode}` : ''
   const label = 'title' in item && item.title ? `${item.title} (${item.name})` : item.name
   return `${label}${project}`
@@ -1067,10 +1055,6 @@ function apiLabel(item: ToolInfo) {
   const path = item.endpointPath || item.sourceLocation || item.name
   const project = item.projectCode ? ` / ${item.projectCode}` : ''
   return `${item.title || item.name} · ${method}${path}${project}`
-}
-
-function isTool(item: ToolInfo | CompositionInfo | undefined): item is ToolInfo {
-  return !!item && ('httpMethod' in item || 'endpointPath' in item || 'source' in item)
 }
 </script>
 

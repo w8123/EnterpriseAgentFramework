@@ -158,7 +158,6 @@ public class RuntimeWorkflowNodeCapabilityRegistry {
                 AgentGraphNodeType.PARAMETER_EXTRACT,
                 AgentGraphNodeType.LLM,
                 AgentGraphNodeType.TOOL,
-                AgentGraphNodeType.CAPABILITY,
                 AgentGraphNodeType.ANSWER,
                 AgentGraphNodeType.VARIABLE_ASSIGN,
                 AgentGraphNodeType.TEMPLATE,

@@ -1,7 +1,7 @@
 import { computed } from 'vue'
 import type { Ref } from 'vue'
 import type { Component } from 'vue'
-import { Briefcase, Coin, Collection, Connection, Document, Finished, Files, Link, MagicStick, Operation, SetUp, Switch, Tools } from '@element-plus/icons-vue'
+import { Briefcase, Coin, Collection, Connection, Document, Finished, Files, Link, MagicStick, Operation, SetUp, Switch } from '@element-plus/icons-vue'
 import LlmModelIcon from '@/components/icons/LlmModelIcon.vue'
 import type { WorkflowGraphNodeTypeDescriptor as NodeTypeDescriptor } from '@/types/workflow'
 import type { CanvasNodeKind } from '@/types/studio'
@@ -36,8 +36,7 @@ const nodeIconMap: Record<CanvasNodeKind, Component> = {
   interaction: SetUp,
   pageAction: Link,
   llm: LlmModelIcon,
-  skill: Briefcase,
-  tool: Tools,
+  tool: Briefcase,
   knowledge: Coin,
   condition: Switch,
   variable: SetUp,
@@ -62,7 +61,7 @@ const groupIconMap: Record<string, Component> = {
   Collection,
 }
 
-const kindColorMap: Record<'start'|'end'|'answer'|'approval'|'llm'|'classifier'|'tool'|'skill'|'http'|'mcp'|'knowledge'|'knowledgeWrite'|'documentExtract'|'condition'|'variable'|'aggregate'|'loop', { border: string; bg: string }> = {
+const kindColorMap: Record<'start'|'end'|'answer'|'approval'|'llm'|'classifier'|'tool'|'http'|'mcp'|'knowledge'|'knowledgeWrite'|'documentExtract'|'condition'|'variable'|'aggregate'|'loop', { border: string; bg: string }> = {
   start: { border: '#34d399', bg: 'rgba(52, 211, 153, 0.12)' },
   end: { border: '#34d399', bg: 'rgba(52, 211, 153, 0.12)' },
   answer: { border: '#34d399', bg: 'rgba(52, 211, 153, 0.12)' },
@@ -70,7 +69,6 @@ const kindColorMap: Record<'start'|'end'|'answer'|'approval'|'llm'|'classifier'|
   llm: { border: '#7c6cff', bg: 'rgba(124, 108, 255, 0.12)' },
   classifier: { border: '#7c6cff', bg: 'rgba(124, 108, 255, 0.12)' },
   tool: { border: '#5b8def', bg: 'rgba(91, 141, 239, 0.12)' },
-  skill: { border: '#5b8def', bg: 'rgba(91, 141, 239, 0.12)' },
   http: { border: '#5b8def', bg: 'rgba(91, 141, 239, 0.12)' },
   mcp: { border: '#5b8def', bg: 'rgba(91, 141, 239, 0.12)' },
   knowledge: { border: '#22c55e', bg: 'rgba(34, 197, 94, 0.12)' },

@@ -228,58 +228,6 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '交互', layoutMode: 'standard' },
       },
       {
-        path: 'capability/mining',
-        name: 'CapabilityMining',
-        component: () => import('@/views/capability/CapabilityMining.vue'),
-        meta: { title: '能力挖掘', layoutMode: 'standard' },
-      },
-      {
-        path: 'capability/slot/extractors',
-        name: 'SlotExtractorList',
-        component: () => import('@/views/capability/slot/SlotExtractorList.vue'),
-        meta: { title: '槽位提取器', layoutMode: 'standard' },
-      },
-      {
-        path: 'capability/slot/dict-dept',
-        name: 'SlotDictDept',
-        component: () => import('@/views/capability/slot/SlotDictDept.vue'),
-        meta: { title: '部门字典', layoutMode: 'standard' },
-      },
-      {
-        path: 'capability/slot/dict-user',
-        name: 'SlotDictUser',
-        component: () => import('@/views/capability/slot/SlotDictUser.vue'),
-        meta: { title: '人员字典', layoutMode: 'standard' },
-      },
-      {
-        path: 'capability/slot/logs',
-        name: 'SlotExtractLogs',
-        component: () => import('@/views/capability/slot/SlotExtractLogs.vue'),
-        meta: { title: '槽位提取日志', layoutMode: 'standard' },
-      },
-      { path: 'skill', redirect: '/capability/compositions', meta: { layoutMode: 'standard' } },
-      { path: 'skill/mining', redirect: '/capability/mining', meta: { layoutMode: 'standard' } },
-      {
-        path: 'skill/slot/extractors',
-        redirect: '/capability/slot/extractors',
-        meta: { layoutMode: 'standard' },
-      },
-      {
-        path: 'skill/slot/dict-dept',
-        redirect: '/capability/slot/dict-dept',
-        meta: { layoutMode: 'standard' },
-      },
-      {
-        path: 'skill/slot/dict-user',
-        redirect: '/capability/slot/dict-user',
-        meta: { layoutMode: 'standard' },
-      },
-      {
-        path: 'skill/slot/logs',
-        redirect: '/capability/slot/logs',
-        meta: { layoutMode: 'standard' },
-      },
-      {
         path: 'registry/projects',
         name: 'RegistryProjectList',
         component: () => import('@/views/registry/RegistryProjectList.vue'),

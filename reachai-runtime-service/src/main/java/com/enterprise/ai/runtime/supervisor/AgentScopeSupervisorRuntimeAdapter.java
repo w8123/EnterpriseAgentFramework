@@ -2350,7 +2350,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             Map<String, Object> safeArgs = args == null ? Map.of() : new LinkedHashMap<>(args);
             SupervisorToolPolicyService.PolicyDecision decision = policyService.evaluate(
                     trace, request.agent(), request.config(), tool, request.input(), safeArgs,
-                    request.approvalGrant());
+                    request.approvalGrant(), resolveTrustedIdentity(request));
             if (!decision.allowed()) {
                 if (decision.confirmationRequired()) {
                     approvalCount.incrementAndGet();

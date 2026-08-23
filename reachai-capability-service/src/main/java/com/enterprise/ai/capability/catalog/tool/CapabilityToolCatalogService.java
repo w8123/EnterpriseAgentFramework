@@ -32,9 +32,7 @@ public class CapabilityToolCatalogService {
 
     private static final TypeReference<List<ToolDefinitionParameter>> PARAMETER_LIST_TYPE = new TypeReference<>() {
     };
-    public static final String KIND_TOOL = "TOOL";
-    public static final String KIND_SKILL = "SKILL";
-    private static final String SOURCE_CODE = "code";
+    public static final String SOURCE_CODE = "code";
     private static final String SOURCE_MANUAL = "manual";
     private static final String SOURCE_SCANNER = "scanner";
 
@@ -121,9 +119,6 @@ public class CapabilityToolCatalogService {
     public ToolDefinitionEntity toggle(String name, boolean enabled) {
         ToolDefinitionEntity existing = findByName(name)
                 .orElseThrow(() -> new IllegalArgumentException("tool does not exist: " + name));
-        if (Boolean.TRUE.equals(existing.getDraft()) && enabled) {
-            throw new IllegalArgumentException("draft tool cannot be enabled");
-        }
         existing.setEnabled(enabled);
         existing.setUpdateTime(LocalDateTime.now());
         toolMapper.updateById(existing);
@@ -264,12 +259,10 @@ public class CapabilityToolCatalogService {
     private ToolDefinitionEntity applyRequest(ToolDefinitionEntity entity,
                                               ToolDefinitionUpsertRequest request,
                                               boolean updating) {
-        String kind = normalizeKind(request.kind());
         if (!updating) {
             entity.setName(request.name().trim());
         }
         entity.setTitle(request.title().trim());
-        entity.setKind(kind);
         entity.setDescription(request.description());
         entity.setParametersJson(writeJson(request.parameters() == null ? List.of() : request.parameters()));
         entity.setCapabilityMetadataJson(writeJson(request.capabilityMetadata()));
@@ -280,10 +273,7 @@ public class CapabilityToolCatalogService {
         String qualifiedName = resolveQualifiedName(request.qualifiedName(), entity.getProjectCode(), entity.getName());
         entity.setQualifiedName(updating && qualifiedName == null ? entity.getQualifiedName() : qualifiedName);
         entity.setSideEffect(normalizeSideEffect(request.sideEffect()));
-        entity.setDraft(false);
         entity.setEnabled(request.enabled());
-        entity.setSkillKind(null);
-        entity.setSpecJson(null);
         entity.setSource(updating ? entity.getSource() : normalizeSource(request.source()));
         entity.setSourceLocation(request.sourceLocation());
         entity.setHttpMethod(request.httpMethod());
@@ -305,9 +295,6 @@ public class CapabilityToolCatalogService {
         if (!StringUtils.hasText(request.title())) {
             throw new IllegalArgumentException("tool title is required");
         }
-        if (!KIND_TOOL.equals(normalizeKind(request.kind()))) {
-            throw new IllegalArgumentException("tool catalog endpoint only accepts TOOL kind");
-        }
         if (!StringUtils.hasText(request.description())) {
             throw new IllegalArgumentException("tool description is required");
         }
@@ -318,13 +305,6 @@ public class CapabilityToolCatalogService {
         if ((SOURCE_MANUAL.equals(source) || SOURCE_SCANNER.equals(source)) && !StringUtils.hasText(request.httpMethod())) {
             throw new IllegalArgumentException("httpMethod is required");
         }
-    }
-
-    private String normalizeKind(String kind) {
-        if (!StringUtils.hasText(kind)) {
-            return KIND_TOOL;
-        }
-        return kind.trim().toUpperCase(Locale.ROOT);
     }
 
     private String normalizeSource(String source) {

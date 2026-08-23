@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reachai-docling
+  labels:
+    app: reachai-docling
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reachai-docling
+  template:
+    metadata:
+      labels:
+        app: reachai-docling
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 0
+      containers:
+        - name: docling
+          image: registry.enterprise.com/ai/reachai-docling:v1.30.0
+          ports:
+            - containerPort: 5001
+          env:
+            - name: DOCLING_SERVE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: docling-api-key
+            - name: DOCLING_SERVE_ENABLE_UI
+              value: "false"
+            - name: DOCLING_SERVE_MAX_FILE_SIZE
+              value: "52428800"
+            - name: DOCLING_SERVE_MAX_NUM_PAGES
+              value: "1000"
+            - name: DOCLING_SERVE_ENG_KIND
+              value: local
+            - name: DOCLING_SERVE_ENG_LOC_NUM_WORKERS
+              value: "2"
+            - name: DOCLING_DEVICE
+              value: cpu
+            - name: DOCLING_NUM_THREADS
+              value: "8"
+            - name: DOCLING_SERVE_ALLOW_CUSTOM_VLM_CONFIG
+              value: "false"
+            - name: DOCLING_SERVE_ALLOW_CUSTOM_PICTURE_DESCRIPTION_CONFIG
+              value: "false"
+          resources:
+            requests:
+              memory: "6Gi"
+              cpu: "1500m"
+            limits:
+              memory: "8Gi"
+              cpu: "4"
+          readinessProbe:
+            tcpSocket:
+              port: 5001
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: 5001
+            initialDelaySeconds: 90
+            periodSeconds: 20
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reachai-docling
+spec:
+  selector:
+    app: reachai-docling
+  ports:
+    - port: 5001
+      targetPort: 5001
+  type: ClusterIP

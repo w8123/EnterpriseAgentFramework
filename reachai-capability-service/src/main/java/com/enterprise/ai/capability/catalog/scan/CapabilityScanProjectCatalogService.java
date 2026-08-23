@@ -1111,7 +1111,6 @@ public class CapabilityScanProjectCatalogService {
         String sdkCapabilityName = sdkCapabilityName(project, scanTool);
         globalTool.setName(scanTool.getName());
         globalTool.setTitle(scanTool.getTitle());
-        globalTool.setKind("TOOL");
         globalTool.setDescription(scanTool.getDescription());
         globalTool.setAiDescription(scanTool.getAiDescription());
         globalTool.setCapabilityMetadataJson(scanTool.getCapabilityMetadataJson());
@@ -1133,9 +1132,6 @@ public class CapabilityScanProjectCatalogService {
         globalTool.setSideEffect(sdkCapabilityName == null
                 ? "WRITE"
                 : sdkSideEffect(scanTool.getCapabilityMetadataJson()));
-        globalTool.setDraft(false);
-        globalTool.setSkillKind(null);
-        globalTool.setSpecJson(null);
     }
 
     private String sdkCapabilityName(ScanProjectEntity project, ScanProjectToolEntity scanTool) {

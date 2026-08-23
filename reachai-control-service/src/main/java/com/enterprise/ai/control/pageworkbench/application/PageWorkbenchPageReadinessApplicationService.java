@@ -221,7 +221,7 @@ public class PageWorkbenchPageReadinessApplicationService {
                 "capabilityObserved",
                 null,
                 workflowTrace,
-                "当前发布的 Workflow 未声明 CAPABILITY 或 TOOL 节点，本页不要求业务能力 API 验收。",
+                "当前发布的 Workflow 未声明 TOOL 节点，本页不要求业务能力 API 验收。",
                 "Workflow 已声明业务能力 / API 调用，但本次真实 Trace 尚未观察到其成功执行。"));
         items.add(nodeExecutionReadiness(
                 "PAGE_ACTION_E2E_READY",

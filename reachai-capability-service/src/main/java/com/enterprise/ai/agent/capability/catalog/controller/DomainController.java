@@ -126,7 +126,6 @@ public class DomainController {
             row.put("domainCode", d.getCode());
             row.put("name", d.getName());
             row.put("toolCount", kindCount.getOrDefault("TOOL", 0L));
-            row.put("skillCount", kindCount.getOrDefault("SKILL", 0L));
             row.put("agentCount", kindCount.getOrDefault("AGENT", 0L));
             row.put("projectCount", kindCount.getOrDefault("PROJECT", 0L));
             out.add(row);

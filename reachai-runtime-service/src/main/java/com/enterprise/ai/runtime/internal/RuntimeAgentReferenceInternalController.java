@@ -20,11 +20,10 @@ public class RuntimeAgentReferenceInternalController {
                 .map(ref -> new AgentToolReferenceView(
                         ref.agentId(),
                         ref.agentName(),
-                        ref.tools(),
-                        ref.skills()))
+                        ref.tools()))
                 .toList());
     }
 
-    public record AgentToolReferenceView(String agentId, String agentName, List<String> tools, List<String> skills) {
+    public record AgentToolReferenceView(String agentId, String agentName, List<String> tools) {
     }
 }

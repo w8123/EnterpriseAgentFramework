@@ -113,7 +113,7 @@
           </div>
           <div class="topo-row topo-row-split">
             <div class="topo-node" :class="serviceHealth['reachai-knowledge-service']">
-              <div class="topo-node-icon skill-bg">
+              <div class="topo-node-icon knowledge-bg">
                 <el-icon :size="20"><SetUp /></el-icon>
               </div>
               <span class="topo-node-name">Knowledge / Retrieval</span>
@@ -633,7 +633,7 @@ onMounted(refresh)
     background: linear-gradient(135deg, #6366f1, #8b5cf6);
   }
 
-  &.skill-bg {
+  &.knowledge-bg {
     background: linear-gradient(135deg, #22d3ee, #06b6d4);
   }
 

@@ -54,6 +54,8 @@
 
 这些配置只绑定 Spring Boot 主类和 Maven module，不包含本机数据库密码或 token。IDEA 重新加载 Maven 项目后，可以按编号启动，然后运行 live smoke。
 
+源码默认启用 LOCAL 平台登录；首次启动 Control 且数据库没有全局管理员时，会创建本地开发账号 `admin / admin123`，登录页会自动填充。生产部署必须设置 `REACHAI_LOCAL_AUTH_ENABLED=false`、`REACHAI_BOOTSTRAP_ADMIN_ENABLED=false`，或者在首次启动前用环境变量替换默认 bootstrap 凭据。
+
 1. `reachai-model-service`：`18601`
 2. `reachai-knowledge-service`：`18602`，context-path `/ai`
 3. `reachai-capability-service`：`18605`
@@ -73,6 +75,9 @@
 | `KNOWLEDGE_SERVICE_URL` | 默认 `http://localhost:18602` |
 | `CAPABILITY_SERVICE_URL` | 默认 `http://localhost:18605` |
 | `RUNTIME_SERVICE_URL` | 默认 `http://localhost:18604` |
+| `REACHAI_LOCAL_AUTH_ENABLED` | 开源本地默认 `true`；生产必须显式设为 `false`，除非有意保留 LOCAL 登录。 |
+| `REACHAI_BOOTSTRAP_ADMIN_ENABLED` | 本地默认 `true`；仅在没有 ACTIVE 全局管理员时创建一次账号，生产必须显式关闭。 |
+| `REACHAI_BOOTSTRAP_ADMIN_USERNAME`、`REACHAI_BOOTSTRAP_ADMIN_PASSWORD` | 覆盖本地默认管理员；自定义密码至少 12 位，不得提交到仓库。 |
 | `REACHAI_INTERNAL_TRANSPORT_MODE` | 开发默认 `DEVELOPMENT_PLAINTEXT`。prod/production 必须显式使用 `DIRECT_TLS`（全部内部和动态 Capability URL 为 HTTPS）或 `MTLS_MESH`（由部署侧 mTLS mesh 保护 sidecar hop）。 |
 
 `MTLS_MESH` 只是应用侧的显式部署声明，不会自动建立 mTLS。生产验收仍须核对证书、mesh policy、NetworkPolicy/安全组和链路抓包；HMAC 不能替代传输加密。

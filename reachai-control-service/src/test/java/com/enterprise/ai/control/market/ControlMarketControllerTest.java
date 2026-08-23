@@ -67,38 +67,6 @@ class ControlMarketControllerTest {
     }
 
     @Test
-    void submitsSkillThroughCapabilityLookupWithoutFallingThroughToRetiredProxy() {
-        ControlMarketItemMapper marketItemMapper = mock(ControlMarketItemMapper.class);
-        CapabilityProxyClient capabilityClient = mock(CapabilityProxyClient.class);
-        ControlMarketController controller = new ControlMarketController(
-                new ControlMarketService(marketItemMapper, mock(RuntimeProxyClient.class), capabilityClient),
-                marketItemMapper);
-        when(capabilityClient.getToolDefinition("billing.refund")).thenReturn(ResponseEntity.ok(Map.of(
-                "id", 99L,
-                "qualifiedName", "billing.refund",
-                "name", "Refund",
-                "description", "Refund capability",
-                "kind", "SKILL",
-                "projectId", 8L,
-                "projectCode", "billing",
-                "visibility", "PUBLIC",
-                "specJson", "{\"steps\":[]}")));
-
-        ResponseEntity<?> submitted = controller.submitSkill(new ControlMarketController.MarketSubmitRequest(
-                "billing.refund",
-                null,
-                "jsh"));
-
-        assertEquals(HttpStatus.OK, submitted.getStatusCode());
-        ControlMarketItemEntity item = (ControlMarketItemEntity) submitted.getBody();
-        assertEquals("SKILL", item.getAssetKind());
-        assertEquals("billing.refund", item.getAssetKey());
-        assertEquals("1.0.0", item.getVersion());
-        verify(capabilityClient).getToolDefinition("billing.refund");
-        verify(marketItemMapper).insert(any());
-    }
-
-    @Test
     void rejectsMarketSubmissionWhenAssetIsNotVisible() {
         RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
         ControlMarketController controller = new ControlMarketController(

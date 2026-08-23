@@ -36,6 +36,24 @@ public class FileInfo {
     /** 解析后的原始文本（用于重新解析） */
     private String rawText;
 
+    /** Durable upload original; required for a real provider reparse. */
+    private String sourceObjectKey;
+
+    private String sourceContentType;
+
+    private String sourceSha256;
+
+    /** Java Fast or Docling, recorded with the result rather than inferred later. */
+    private String parseProvider;
+
+    private String parseProviderVersion;
+
+    /** JSON parse result persisted as an immutable object-storage artifact. */
+    private String parseArtifactObjectKey;
+
+    /** Import job that produced this file record. */
+    private String importJobId;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 

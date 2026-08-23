@@ -3,7 +3,6 @@ package com.enterprise.ai.service;
 import com.enterprise.ai.domain.dto.*;
 import com.enterprise.ai.domain.entity.KnowledgeBase;
 import com.enterprise.ai.domain.vo.SimilarItem;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -33,6 +32,13 @@ public interface KnowledgeService {
      */
     void deleteByFileId(String knowledgeBaseCode, String fileId);
 
+    /**
+     * Best-effort compensation for a failed document indexing attempt. Removes
+     * only vector/database index data owned by the same import job and keeps the
+     * source plus parse artifacts available for retry.
+     */
+    void cleanupImportIndexData(String knowledgeBaseCode, String fileId, String importJobId);
+
     // ==================== 知识库 CRUD ====================
 
     List<KnowledgeBaseVO> listAll();
@@ -42,10 +48,6 @@ public interface KnowledgeService {
     void update(KnowledgeBaseRequest request);
 
     void deleteByCode(String code);
-
-    // ==================== Chunk 预览 ====================
-
-    ChunkPreviewResponse previewChunks(MultipartFile file, String chunkStrategy, Integer chunkSize, Integer chunkOverlap);
 
     // ==================== V2 新增：知识库详情/文件管理/检索测试 ====================
 
@@ -69,9 +71,6 @@ public interface KnowledgeService {
 
     /** 按文件ID删除（自动查找所属知识库，同时删除向量） */
     void deleteFileById(String fileId);
-
-    /** 重新解析文件（使用知识库最新配置重新切分、向量化） */
-    void reparseFile(String fileId);
 
     /** 更新知识库 chunk 策略配置 */
     void updateKbConfig(String kbCode, KbConfigRequest request);

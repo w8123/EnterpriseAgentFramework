@@ -15,6 +15,16 @@ import static org.mockito.Mockito.when;
 class PlatformConsoleAuthAvailabilityTest {
 
     @Test
+    void defaultsToLocalLoginAndTheOpenSourceDevelopmentAdministrator() {
+        PlatformAuthProperties properties = new PlatformAuthProperties();
+
+        assertTrue(properties.localPasswordLoginEnabled());
+        assertTrue(properties.getLocal().getBootstrapAdmin().isEnabled());
+        assertEquals("admin", properties.getLocal().getBootstrapAdmin().getUsername());
+        assertEquals("admin123", properties.getLocal().getBootstrapAdmin().getPassword());
+    }
+
+    @Test
     void localLoginNeedsBothEnvironmentAndAnActiveLocalProvider() {
         PlatformAuthProperties properties = localProperties(false);
         PlatformAuthProviderMapper mapper = mock(PlatformAuthProviderMapper.class);

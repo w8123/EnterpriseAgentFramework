@@ -11,15 +11,14 @@
 - `sql/initV2.sql` is the long-term SQL baseline and every `CREATE TABLE` row must appear in this matrix, even if the table has no current direct code access.
 - Temporary same-database reads or compatibility writes must be documented in `Additional direct access` with the accessing service and reason.
 - The current target state is zero cross-service direct table access in application code; service collaboration must go through internal HTTP APIs, explicit clients, or service-owned read models.
-- The current baseline targets a new database: legacy names such as `ai_workflow`, `ai_agent`, `skill_draft`, `skill_interaction`, `eaf_page_registry`, and `tool_call_log` are replaced by service/domain-prefixed names. No old-table compatibility views or data migration scripts are required.
+- The current baseline targets a new database: legacy names such as `ai_workflow`, `ai_agent`, `skill_draft`, `skill_interaction`, `eaf_page_registry`, and `tool_call_log` are replaced by service/domain-prefixed names. No old-table compatibility views or data migration scripts are required. ReachAI no longer creates `capability_draft`, `runtime_skill_interaction`, or `kind=SKILL` catalog rows.
 
 ## Shared Table Exceptions Retired
 
 The current scan finds no direct table access shared across physical services. Former first-phase exceptions have been moved behind internal service APIs:
 
 - `control_page_action`: owned by `reachai-control-service`; Runtime calls the Control internal page-action catalog API.
-- `runtime_skill_interaction`: owned by `reachai-runtime-service`; Capability now calls Runtime internal interaction APIs.
-- `runtime_tool_call_log`: owned by `reachai-runtime-service`; Capability now calls Runtime internal trace/tool-call-log APIs.
+- `runtime_tool_call_log`: owned by `reachai-runtime-service`; remaining consumers call Runtime internal APIs when needed.
 
 These rows remain in the ownership matrix because the current baseline still records their owner service, not because direct cross-service table access is still allowed.
 
@@ -99,8 +98,8 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `control_project_page` | `reachai-control-service` | - | Canonical project page definition |
 | `control_project_page_resource` | `reachai-control-service` | - | Page routes, components, APIs, permissions, config and test locations |
 | `runtime_executable_debug_session` | `reachai-runtime-service` | - | Runtime executable debug session |
-| `control_field_extractor_binding` | `reachai-control-service` | - | Control slot extraction binding |
 | `knowledge_file_info` | `reachai-knowledge-service` | - | Knowledge file metadata |
+| `knowledge_document_import_job` | `reachai-knowledge-service` | - | Durable source document, parser artifact and import-job state; only Knowledge workers claim or mutate it |
 | `runtime_guard_decision_log` | `reachai-runtime-service` | - | Runtime guard decision log |
 | `capability_interaction_definition` | `reachai-capability-service` | - | Capability interaction definition |
 | `runtime_interaction_event` | `reachai-runtime-service` | - | Runtime interaction event |
@@ -129,15 +128,9 @@ These rows remain in the ownership matrix because the current baseline still rec
 | `capability_scan_project` | `reachai-capability-service` | - | Capability scan project |
 | `capability_scan_project_tool` | `reachai-capability-service` | - | Capability scan project tool |
 | `capability_semantic_doc` | `reachai-capability-service` | - | Capability semantic document |
-| `capability_draft` | `reachai-capability-service` | - | Compatibility-sensitive capability draft storage |
-| `capability_eval_snapshot` | `reachai-capability-service` | - | Compatibility-sensitive capability evaluation snapshot |
-| `runtime_skill_interaction` | `reachai-runtime-service` | - | Capability admin-test Composition flows use Runtime internal interaction APIs |
-| `control_slot_dict_dept` | `reachai-control-service` | - | Control slot department dictionary |
-| `control_slot_dict_user` | `reachai-control-service` | - | Control slot user dictionary |
-| `control_slot_extract_log` | `reachai-control-service` | - | Control slot extraction log |
 | `control_tool_acl` | `reachai-control-service` | - | Control tool ACL |
 | `capability_tool_asset` | `reachai-capability-service` | - | Capability tool asset |
-| `runtime_tool_call_log` | `reachai-runtime-service` | - | Capability mining and metrics read/write demo trace data through Runtime internal trace APIs |
+| `runtime_tool_call_log` | `reachai-runtime-service` | - | Runtime Tool call audit |
 | `capability_tool_definition` | `reachai-capability-service` | - | Capability tool definition |
 | `capability_tool_retrieval_setting` | `reachai-capability-service` | - | Capability tool retrieval setting |
 | `knowledge_user_file_permission` | `reachai-knowledge-service` | - | Knowledge file permission |

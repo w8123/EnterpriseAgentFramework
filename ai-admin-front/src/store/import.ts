@@ -25,7 +25,6 @@ export const useImportStore = defineStore('import', () => {
 
   /** 高级参数 */
   const extraParams = reactive<ExtraParams>({
-    enableOcr: false,
     tags: [],
     deptId: '',
     overwrite: false,
@@ -63,7 +62,6 @@ export const useImportStore = defineStore('import', () => {
     totalChunks.value = 0
     previewLoading.value = false
     importLoading.value = false
-    extraParams.enableOcr = false
     extraParams.tags = []
     extraParams.deptId = ''
     extraParams.overwrite = false

@@ -49,21 +49,19 @@ stateDiagram-v2
 - `/api/platform/auth-providers`、用户/角色管理等高危操作需 `platform:admin`；普通已认证用户得到 403，不会被登出。
 - 角色替换在事务内校验角色状态和 scope，且用锁保护至少一个 ACTIVE 全局 `PLATFORM_ADMIN` 不变量。
 - 认证 Provider 读接口只返回 `configurationPresent`，不返回 `configJson`。当前只有 LOCAL 可实现；HEADER、OIDC、SAML 均不可启用，直到适配器和密文配置存储完成。
-- LOCAL 真正可登录需要：`REACHAI_AUTH_PROVIDER=LOCAL`、`REACHAI_LOCAL_AUTH_ENABLED=true` 与数据库 LOCAL provider 为 `ACTIVE`。Control 进程可继续为 Embed/SDK/BFF 运行，但 readiness 会报告控制台登录不可用。
-- bootstrap 仅显式启用时，在没有任何 ACTIVE 全局管理员的事务内创建首个 LOCAL 管理员；同名用户存在而又没有合格管理员时 fail-fast，绝不覆盖密码或角色。
+- 开源本地启动默认使用 `REACHAI_AUTH_PROVIDER=LOCAL`、`REACHAI_LOCAL_AUTH_ENABLED=true`，数据库 LOCAL provider 仍必须为 `ACTIVE`。生产部署必须显式关闭 LOCAL 或切换到已实现的企业 Provider；Control 即使无法登录仍可继续承担 Embed/SDK/BFF。
+- 本地 bootstrap 默认启用，并在没有任何 ACTIVE 全局管理员时创建 `admin / admin123`。自定义 bootstrap 密码至少 12 位；同名用户存在而又没有合格管理员时 fail-fast，绝不覆盖密码或角色。生产部署必须显式关闭 bootstrap。
 - Provider 保存和用户角色替换会写入 `control_platform_auth_audit_event`，只含操作者会话引用和非敏感元数据，不记录密码、Token、密钥或完整配置。
 
-推荐的本地开发环境变量（不要把真实密码提交到仓库）：
+本地开箱不需要额外认证环境变量；以下变量用于覆盖默认管理员（不要把真实密码提交到仓库）：
 
 ```text
-REACHAI_AUTH_PROVIDER=LOCAL
-REACHAI_LOCAL_AUTH_ENABLED=true
 REACHAI_BOOTSTRAP_ADMIN_ENABLED=true
-REACHAI_BOOTSTRAP_ADMIN_USERNAME=admin
+REACHAI_BOOTSTRAP_ADMIN_USERNAME=<本地管理员用户名>
 REACHAI_BOOTSTRAP_ADMIN_PASSWORD=<至少12位的本地开发密码>
 ```
 
-首次成功启动后，应关闭 `REACHAI_BOOTSTRAP_ADMIN_ENABLED` 并重启验证。
+生产部署至少应设置 `REACHAI_LOCAL_AUTH_ENABLED=false` 与 `REACHAI_BOOTSTRAP_ADMIN_ENABLED=false`；若生产仍需 LOCAL，必须在首次启动前替换默认账号密码。
 
 ## 尚待真实验收
 

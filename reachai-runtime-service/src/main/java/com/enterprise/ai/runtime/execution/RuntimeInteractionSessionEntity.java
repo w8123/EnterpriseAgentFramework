@@ -15,6 +15,8 @@ public class RuntimeInteractionSessionEntity {
 
     private String sourceType;
 
+    private String agentId;
+
     private String runId;
 
     private String traceId;

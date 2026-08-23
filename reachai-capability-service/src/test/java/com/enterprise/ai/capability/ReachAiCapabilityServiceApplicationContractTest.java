@@ -30,7 +30,6 @@ class ReachAiCapabilityServiceApplicationContractTest {
         assertArrayEquals(new String[] {
                 "com.enterprise.ai.agent.registry",
                 "com.enterprise.ai.agent.capability",
-                "com.enterprise.ai.capability.catalog.mining",
                 "com.enterprise.ai.capability.catalog.retrieval"
         }, mapperScan.value());
         assertEquals(Mapper.class, mapperScan.annotationClass());

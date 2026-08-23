@@ -54,6 +54,18 @@ public class PlatformAuthorizationService {
         }
     }
 
+    public void requireResourcePermission(PlatformAuthenticatedSession session,
+                                          String permission,
+                                          String resourceScope,
+                                          String workspaceId,
+                                          String projectCode) {
+        if (session == null || !session.hasResourcePermission(
+                permission, resourceScope, workspaceId, projectCode)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "platform permission is required for the Knowledge resource: " + permission);
+        }
+    }
+
     public List<ResolvedRoleGrant> resolveRoleGrants(Long userId) {
         if (userId == null) {
             return List.of();

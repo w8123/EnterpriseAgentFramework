@@ -1,4 +1,4 @@
-import request from './request'
+import request, { controlRequest } from './request'
 import type {
   KnowledgeBase,
   KnowledgeBaseForm,
@@ -19,6 +19,7 @@ import type {
   KnowledgeOpsDashboard,
 } from '@/types/knowledge'
 import type { ApiResult } from '@/types/import'
+import type { DocumentImportJob } from '@/types/import'
 
 // ==================== 知识库 CRUD ====================
 
@@ -123,7 +124,7 @@ export function deleteFile(fileId: string) {
 }
 
 export function reparseFile(fileId: string) {
-  return request.post<ApiResult<void>>(`/file/${fileId}/reparse`)
+  return controlRequest.post<ApiResult<DocumentImportJob>>(`/api/knowledge/import-files/${fileId}/reparse`)
 }
 
 // ==================== 检索测试 ====================

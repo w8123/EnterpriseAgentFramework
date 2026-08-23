@@ -303,7 +303,7 @@ public class RuntimePageWorkbenchExecutionReadinessService {
             boolean structuredPresentation = false;
             for (JsonNode node : nodes) {
                 String type = node.path("type").asText("").trim().toUpperCase();
-                capability = capability || "CAPABILITY".equals(type) || "TOOL".equals(type);
+                capability = capability || "TOOL".equals(type);
                 pageAction = pageAction || "PAGE_ACTION".equals(type);
                 if ("INTERACTION".equals(type)) {
                     JsonNode config = node.path("config");
@@ -338,7 +338,7 @@ public class RuntimePageWorkbenchExecutionReadinessService {
             }
             String type = metadata(span).path("nodeType").asText("")
                     .trim().toUpperCase();
-            if (("CAPABILITY".equals(type) || "TOOL".equals(type))
+            if ("TOOL".equals(type)
                     && "SUCCESS".equalsIgnoreCase(span.getStatus())) {
                 capabilityObserved = true;
             }

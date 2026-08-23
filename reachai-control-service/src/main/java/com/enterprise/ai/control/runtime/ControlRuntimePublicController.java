@@ -619,18 +619,6 @@ public class ControlRuntimePublicController {
         return runtimeProxyClient.listHumanApprovals(agentId, userId, limit);
     }
 
-    @PostMapping("/api/runtime/interactions/human-approvals/{interactionId}/submit")
-    public ResponseEntity<Object> submitHumanApproval(@PathVariable String interactionId,
-                                                      @RequestBody Map<String, Object> body) {
-        return runtimeProxyClient.submitHumanApproval(interactionId, body);
-    }
-
-    @DeleteMapping("/api/runtime/interactions/human-approvals/{interactionId}")
-    public ResponseEntity<Object> cancelHumanApproval(@PathVariable String interactionId,
-                                                      @RequestParam(required = false) String userId) {
-        return runtimeProxyClient.cancelHumanApproval(interactionId, userId);
-    }
-
     private static List<Map<String, Object>> toGatewayAgentItems(Object runtimeBody) {
         List<Map<String, Object>> agents = new ArrayList<>();
         for (Object value : extractItems(runtimeBody)) {

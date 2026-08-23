@@ -73,9 +73,9 @@ Capability Catalog 负责从业务系统接收 SDK 注册和能力上报，并�
 
 ## Knowledge 命名
 
-历史目录或代码里出现的 `skill` 多数是兼容命名或存储命名，不应机械全局替换。但产品和文档口径应默认使用 `Capability / 能力`，并把原 `ai-skills-service` 的职责描述为 Knowledge / Retrieval。
+历史目录或代码里出现的 `skill` 多数是已退役的自创 Skill 业务模型，或合法的 Agent Skill / 协议字段。不要机械全局替换，也不要重新引入 `kind=SKILL` 目录、`capability_draft` 或 GraphSpec `CAPABILITY` 节点。产品和文档口径应默认使用 `Capability / 能力`，并把原 `ai-skills-service` 的职责描述为 Knowledge / Retrieval。
 
-当前主线使用 `reachai-knowledge-service` 作为部署单元名称。`skill_draft`、`skill_eval_snapshot`、`skill_interaction`、`skill_name`、`skill_kind` 等 SQL 名称属于兼容敏感存储名，除非有明确迁移任务，不要顺手重命名。
+当前主线使用 `reachai-knowledge-service` 作为部署单元名称。合法 Skill 仅包括 `ai-assist/skills/**` 中的 `SKILL.md` 包、`/api/ai-assist/skills/**`、A2A 标准 `skills` 字段，以及对已退役 `ai-skills-service` 的否定性记录。
 
 ## 兼容合同
 

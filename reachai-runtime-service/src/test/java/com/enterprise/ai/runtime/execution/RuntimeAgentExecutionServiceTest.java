@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -153,24 +154,33 @@ class RuntimeAgentExecutionServiceTest {
         RuntimeAgentConfigVersionEntity config = activeConfig();
         SupervisorRuntimeAdapter.PolicyApprovalGrant grant = new SupervisorRuntimeAdapter.PolicyApprovalGrant(
                 "spv_1", "orders:write", "update_order", Map.of("orderId", "O-1"), "u-1");
-        when(approvals.prepareResume(any(), any()))
+        when(approvals.prepareResume(any(), any(), any()))
                 .thenReturn(new SupervisorApprovalInteractionService.ResumeDecision(
                         true, false, "agent-1",
                         Map.of("message", "更新订单", "sessionId", "s1", "agentId", "agent-1",
                                 "traceId", "trace-original"),
                         grant, "审批已通过"));
+        when(approvals.completeResume(any(), any(), any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(3));
         when(resolver.resolve("agent-1")).thenReturn(Optional.of(context(agent, config, List.of())));
         when(supervisor.execute(any())).thenReturn(new SupervisorRuntimeAdapter.SupervisorResult(
                 true, "SUPERVISOR_COMPLETED", "订单已更新", "trace-original", List.of(), Map.of(), null));
+        WorkflowExecutionIdentity trustedIdentity =
+                WorkflowExecutionIdentity.fromAgent("default", 7L, "orders", "u-1");
 
         Map<String, Object> response = service.execute(Map.of(
                 "interactionId", "spv_1",
                 "traceId", "trace-submit-must-not-win",
                 "sessionId", "s1",
-                "uiSubmit", Map.of("action", "confirm")), true);
+                "userId", "forged-body-user",
+                "uiSubmit", Map.of("action", "confirm")), true,
+                SupervisorRuntimeAdapter.SupervisorEventSink.NOOP,
+                RuntimeAgentExecutionCancellation.NOOP,
+                trustedIdentity);
 
         assertEquals(true, response.get("success"));
         assertEquals("订单已更新", response.get("answer"));
+        verify(approvals).prepareResume(any(), any(), same(trustedIdentity));
         ArgumentCaptor<SupervisorRuntimeAdapter.SupervisorRequest> captor =
                 ArgumentCaptor.forClass(SupervisorRuntimeAdapter.SupervisorRequest.class);
         verify(supervisor).execute(captor.capture());
@@ -182,6 +192,37 @@ class RuntimeAgentExecutionServiceTest {
     }
 
     @Test
+    void returnsCompletedSupervisorApprovalReplayWithoutExecutingAgain() {
+        RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
+        SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
+        SupervisorApprovalInteractionService approvals = mock(SupervisorApprovalInteractionService.class);
+        RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
+                resolver, supervisor, approvals, mock(RuntimeInteractionResumeService.class),
+                mock(RuntimeChatMemoryStore.class), mock(RuntimeRunLifecycleService.class));
+        Map<String, Object> replay = Map.of(
+                "success", true,
+                "answer", "订单已更新",
+                "metadata", Map.of(
+                        "code", "SUPERVISOR_COMPLETED",
+                        "interactionId", "spv_1",
+                        "idempotentReplay", true));
+        when(approvals.prepareResume(any(), any(), any()))
+                .thenReturn(new SupervisorApprovalInteractionService.ResumeDecision(
+                        false, false, "agent-1", Map.of(), null, "",
+                        "attempt-1", Map.of("action", "confirm"), replay));
+
+        Map<String, Object> response = service.execute(Map.of(
+                "interactionId", "spv_1",
+                "idempotencyKey", "attempt-1",
+                "uiSubmit", Map.of("action", "confirm")), true);
+
+        assertEquals(replay, response);
+        verify(supervisor, never()).execute(any());
+        verify(resolver, never()).resolve(any());
+        verify(approvals, never()).completeResume(any(), any(), any(), any());
+    }
+
+    @Test
     void returnsSafeResultWhenUserRejectsSupervisorApproval() {
         SupervisorApprovalInteractionService approvals = mock(SupervisorApprovalInteractionService.class);
         RuntimeRunLifecycleService runLifecycle = mock(RuntimeRunLifecycleService.class);
@@ -189,10 +230,12 @@ class RuntimeAgentExecutionServiceTest {
                 mock(RuntimeAgentExecutionContextResolver.class), mock(SupervisorRuntimeAdapter.class), approvals,
                 mock(RuntimeInteractionResumeService.class),
                 mock(RuntimeChatMemoryStore.class), runLifecycle);
-        when(approvals.prepareResume(any(), any())).thenReturn(
+        when(approvals.prepareResume(any(), any(), any())).thenReturn(
                 new SupervisorApprovalInteractionService.ResumeDecision(
                         false, true, "agent-1", Map.of("traceId", "trace-original"), null,
                         "用户已拒绝执行该 Workflow Tool"));
+        when(approvals.completeResume(any(), any(), any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(3));
 
         Map<String, Object> response = service.execute(Map.of(
                 "interactionId", "spv_1",

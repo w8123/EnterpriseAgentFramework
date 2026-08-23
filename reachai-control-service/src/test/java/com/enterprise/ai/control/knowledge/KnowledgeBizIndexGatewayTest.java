@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -85,6 +86,42 @@ class KnowledgeBizIndexGatewayTest {
             assertTrue(!multipart.contains("unsafe\r\nname"));
             try (var files = Files.list(temporaryDirectory)) {
                 assertEquals(0, files.count(), "signed multipart temp file must be removed");
+            }
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void streamsSignedDocumentImportMultipartWithAuthorizationScope() throws Exception {
+        AtomicReference<CapturedRequest> captured = new AtomicReference<>();
+        HttpServer server = server(captured);
+        try {
+            KnowledgeBizIndexGateway gateway = gateway(server, 1_048_576);
+            MockMultipartFile file = new MockMultipartFile(
+                    "file", "contract.pdf", "application/pdf", "pdf-body".getBytes(StandardCharsets.UTF_8));
+            LinkedHashMap<String, String> fields = new LinkedHashMap<>();
+            fields.put("knowledgeBaseCode", "contracts");
+            fields.put("workspaceId", "workspace-a");
+            fields.put("projectCode", "orders");
+            fields.put("resourceScope", "PROJECT");
+
+            gateway.exchangeDocumentMultipart(
+                    KnowledgeBizIndexGateway.DOCUMENT_IMPORT_INTERNAL_ROOT + "/jobs",
+                    "default",
+                    "42",
+                    file,
+                    fields);
+
+            CapturedRequest request = captured.get();
+            verifySignature(request);
+            String multipart = new String(request.body(), StandardCharsets.UTF_8);
+            assertTrue(multipart.contains("name=\"workspaceId\""));
+            assertTrue(multipart.contains("workspace-a"));
+            assertTrue(multipart.contains("name=\"file\"; filename=\"contract.pdf\""));
+            assertTrue(multipart.contains("pdf-body"));
+            try (var files = Files.list(temporaryDirectory)) {
+                assertEquals(0, files.count(), "signed document-import temp file must be removed");
             }
         } finally {
             server.stop(0);

@@ -19,6 +19,8 @@ node scripts/check-service-table-ownership.test.mjs
 node scripts/check-service-table-ownership.mjs
 node scripts/check-internal-api-contracts.test.mjs
 node scripts/check-internal-api-contracts.mjs
+node --test scripts/check-legacy-skill-contract.test.mjs
+node scripts/check-legacy-skill-contract.mjs
 ```
 
 `check-service-table-ownership.mjs` 覆盖同库阶段的表边界治理：优先检查 `sql/initV2.sql` 中每张 `CREATE TABLE` 表必须登记 owner；后端 `@TableName`、MyBatis 注解 SQL、MyBatis XML SQL 和 JdbcTemplate SQL 不得跨服务直接访问非 owner 表，除非在 `docs/architecture/service-table-ownership.md` 的 `Additional direct access` 中登记临时例外。
@@ -197,6 +199,7 @@ node scripts/check-service-table-ownership.mjs
 git diff --check
 node scripts/check-backend-boundary-naming.mjs
 node scripts/check-frontend-public-api-routes.mjs
+node scripts/check-legacy-skill-contract.mjs
 node scripts/check-service-table-ownership.mjs
 node scripts/check-internal-api-contracts.mjs
 ```

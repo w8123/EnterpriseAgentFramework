@@ -39,7 +39,6 @@ These node types can mutate external systems or data:
 
 - `HTTP_REQUEST`
 - `TOOL`
-- `CAPABILITY`
 - `MCP_CALL`
 - `KNOWLEDGE_WRITE`
 

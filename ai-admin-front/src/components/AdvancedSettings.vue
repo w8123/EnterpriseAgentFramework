@@ -7,9 +7,9 @@
         label-position="left"
         class="form-section"
       >
-        <el-form-item label="OCR 识别">
-          <el-switch v-model="params.enableOcr" active-text="开启" inactive-text="关闭" />
-          <span class="form-hint">开启后将对图片内容进行 OCR 提取（预留功能）</span>
+        <el-form-item label="OCR 策略">
+          <el-tag type="success" effect="plain">Docling 统一处理</el-tag>
+          <span class="form-hint">图片和扫描件由服务端固定策略处理，不能在浏览器绕过或降级</span>
         </el-form-item>
 
         <el-form-item label="标签">

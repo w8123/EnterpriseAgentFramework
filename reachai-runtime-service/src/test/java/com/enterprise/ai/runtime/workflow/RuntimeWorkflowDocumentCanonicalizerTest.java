@@ -116,6 +116,40 @@ class RuntimeWorkflowDocumentCanonicalizerTest {
     }
 
     @Test
+    void rejectsRetiredNodeTypeAndRefKindValues() {
+        assertThrows(IllegalArgumentException.class, () -> canonicalizer.canonicalizeGraphSpecJson("""
+                {
+                  "schemaVersion": 2,
+                  "entryNodeId": "lookup",
+                  "exitNodeIds": ["lookup"],
+                  "nodes": [
+                    {
+                      "id": "lookup",
+                      "type": "CAPABILITY",
+                      "config": {
+                        "qualifiedName": "orders.lookup"
+                      }
+                    }
+                  ],
+                  "edges": []
+                }
+                """));
+        assertThrows(IllegalArgumentException.class, () -> canonicalizer.canonicalizeGraphSpecJson("""
+                {
+                  "schemaVersion": 2,
+                  "entryNodeId": "lookup",
+                  "exitNodeIds": ["lookup"],
+                  "nodes": [{
+                    "id": "lookup",
+                    "type": "TOOL",
+                    "ref": {"kind": "SKILL", "qualifiedName": "orders.lookup"}
+                  }],
+                  "edges": []
+                }
+                """));
+    }
+
+    @Test
     void rejectsUnknownFieldsAndNodeTypeAliases() {
         assertThrows(IllegalArgumentException.class, () -> canonicalizer.canonicalizeGraphSpecJson("""
                 {"schemaVersion":2,"entryNodeId":"answer","exitNodeIds":["answer"],

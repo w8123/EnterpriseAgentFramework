@@ -24,6 +24,8 @@ class KnowledgeBizIndexConsoleAuthFilterTest {
 
     private static final String SECRET = "knowledge-console-test-secret-with-32-bytes";
     private static final String PATH = "/internal/knowledge/console/biz-index/orders/search";
+    private static final String DOCUMENT_IMPORT_PATH =
+            "/internal/knowledge/console/document-import/jobs/dij_test/commit";
 
     @Test
     void acceptsExactBodySignatureAndReplaysBodyToController() throws Exception {
@@ -91,6 +93,22 @@ class KnowledgeBizIndexConsoleAuthFilterTest {
         assertNotNull(response.getContentAsString());
     }
 
+    @Test
+    void protectsDocumentImportInternalRoutesWithTheSameExactBodySignature() throws Exception {
+        KnowledgeInternalNonceStore nonceStore = mock(KnowledgeInternalNonceStore.class);
+        when(nonceStore.tryConsume(eq(InternalServiceAuthHeaders.CALLER_CONTROL), any(), any(Duration.class)))
+                .thenReturn(true);
+        byte[] body = new byte[0];
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        CapturingChain chain = new CapturingChain();
+
+        filter(nonceStore, 1_048_576).doFilter(
+                signedRequest(body, body, DOCUMENT_IMPORT_PATH), response, chain);
+
+        assertEquals(200, response.getStatus());
+        assertEquals("42", chain.actor);
+    }
+
     private KnowledgeBizIndexConsoleAuthFilter filter(KnowledgeInternalNonceStore nonceStore,
                                                        long maxBodyBytes) {
         return new KnowledgeBizIndexConsoleAuthFilter(
@@ -98,13 +116,17 @@ class KnowledgeBizIndexConsoleAuthFilterTest {
     }
 
     private MockHttpServletRequest signedRequest(byte[] actualBody, byte[] signedBody) {
-        MockHttpServletRequest request = request("POST", actualBody);
+        return signedRequest(actualBody, signedBody, PATH);
+    }
+
+    private MockHttpServletRequest signedRequest(byte[] actualBody, byte[] signedBody, String path) {
+        MockHttpServletRequest request = request("POST", actualBody, path);
         String timestamp = String.valueOf(System.currentTimeMillis());
         String nonce = UUID.randomUUID().toString();
         String digest = InternalServiceHmac.bodySha256Hex(signedBody);
         String canonical = InternalServiceHmac.canonical(
                 "POST",
-                PATH,
+                path,
                 InternalServiceAuthHeaders.CALLER_CONTROL,
                 InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION,
                 "default",
@@ -125,7 +147,11 @@ class KnowledgeBizIndexConsoleAuthFilterTest {
     }
 
     private MockHttpServletRequest request(String method, byte[] body) {
-        MockHttpServletRequest request = new MockHttpServletRequest(method, "/ai" + PATH);
+        return request(method, body, PATH);
+    }
+
+    private MockHttpServletRequest request(String method, byte[] body, String path) {
+        MockHttpServletRequest request = new MockHttpServletRequest(method, "/ai" + path);
         request.setContextPath("/ai");
         request.setContent(body);
         request.setContentType("application/json");

@@ -4,7 +4,7 @@
  * 决策语义与 `tool_acl_phase3_1.sql` 和 `ToolAclService.decide` 保持一致。
  */
 
-export type ToolAclTargetKind = 'TOOL' | 'SKILL' | 'ALL'
+export type ToolAclTargetKind = 'TOOL' | 'ALL'
 export type ToolAclPermission = 'ALLOW' | 'DENY'
 
 export interface ToolAclRule {

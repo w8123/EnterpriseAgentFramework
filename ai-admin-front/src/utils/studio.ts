@@ -46,15 +46,11 @@ interface CanvasLayoutDocument {
 
 export function canvasToDefinition(base: AgentForm, snapshot: CanvasSnapshot): AgentForm {
   const tools: string[] = []
-  const skills: string[] = []
   const knowledgeCodes: string[] = []
 
   for (const node of snapshot.nodes) {
-    if (node.data.kind === 'tool' && node.data.toolConfig?.ref && !tools.includes(node.data.toolConfig.ref)) {
+    if (canvasKindValue(node.data.kind) === 'tool' && node.data.toolConfig?.ref && !tools.includes(node.data.toolConfig.ref)) {
       tools.push(node.data.toolConfig.ref)
-    }
-    if (node.data.kind === 'skill' && node.data.toolConfig?.ref && !skills.includes(node.data.toolConfig.ref)) {
-      skills.push(node.data.toolConfig.ref)
     }
     if (node.data.kind === 'knowledge') {
       for (const code of node.data.knowledgeConfig?.knowledgeBaseCodes || []) {
@@ -72,7 +68,6 @@ export function canvasToDefinition(base: AgentForm, snapshot: CanvasSnapshot): A
   return {
     ...base,
     tools,
-    skills,
     knowledgeBaseGroupId: knowledgeCodes[0] || '',
     canvasJson: JSON.stringify(canvasLayoutFromSnapshot(normalized)),
     graphSpec: canvasToGraphSpec(base, normalized),
@@ -275,16 +270,15 @@ function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): WorkflowGraph
       },
     }
   }
-  if (node.data.kind === 'tool' || node.data.kind === 'skill') {
+  if (canvasKindValue(node.data.kind) === 'tool') {
     const tool = node.data.toolConfig || defaultToolConfig()
-    const kind = node.data.kind === 'tool' ? 'TOOL' : 'CAPABILITY'
     return {
       id: node.id,
-      type: kind,
+      type: 'TOOL',
       name: node.data.label,
       ...graphNodeChrome(node),
       ref: {
-        kind,
+        kind: 'TOOL',
         name: tool.ref,
         qualifiedName: tool.qualifiedName || tool.ref,
         projectCode: tool.projectCode,
@@ -866,8 +860,8 @@ function graphConfigToNodeData(
       } satisfies LlmNodeConfig,
     }
   }
-  if (kind === 'tool' || kind === 'skill') {
-    const nested = objectRecordValue(config.toolConfig || config.capabilityConfig)
+  if (kind === 'tool') {
+    const nested = objectRecordValue(config.toolConfig)
     const configuredRef = firstNonEmptyText(
       configuredReferenceValue(config.ref),
       config.toolName,
@@ -1097,6 +1091,7 @@ function graphConfigToNodeData(
 }
 
 export function createDefaultNodeData(kind: CanvasNodeKind, label: string, base?: AgentForm): CanvasNode['data'] {
+  kind = canvasKindValue(kind)
   const common = {
     label,
     kind,
@@ -1142,7 +1137,7 @@ export function createDefaultNodeData(kind: CanvasNodeKind, label: string, base?
     }
   }
   if (kind === 'llm') return { ...common, llmConfig: defaultLlmConfig(base) }
-  if (kind === 'tool' || kind === 'skill') return { ...common, toolConfig: defaultToolConfig() }
+  if (kind === 'tool') return { ...common, toolConfig: defaultToolConfig() }
   if (kind === 'knowledge') return { ...common, knowledgeConfig: defaultKnowledgeConfig() }
   if (kind === 'http') return { ...common, httpConfig: defaultHttpConfig() }
   if (kind === 'parameter') return { ...common, parameterConfig: defaultParameterConfig() }
@@ -1409,8 +1404,22 @@ function defaultOutputAlias(kind: CanvasNodeKind) {
   return ''
 }
 
+const CANVAS_NODE_KINDS = new Set<CanvasNodeKind>([
+  'start', 'end', 'userInput', 'interaction', 'pageAction', 'llm', 'tool', 'knowledge',
+  'condition', 'variable', 'template', 'parameter', 'http', 'answer', 'code', 'classifier',
+  'aggregate', 'approval', 'loop', 'knowledgeWrite', 'documentExtract', 'mcp',
+])
+
+function canvasKindValue(kind: string | undefined | null): CanvasNodeKind {
+  const raw = String(kind || '').trim()
+  if (!CANVAS_NODE_KINDS.has(raw as CanvasNodeKind)) {
+    throw new Error(`Canvas node kind must use a canonical value: ${raw}`)
+  }
+  return raw as CanvasNodeKind
+}
+
 function normalizeCanvasNodeData(node: CanvasNode, base: AgentForm): CanvasNode {
-  const kind = (node.data?.kind ?? node.type) as CanvasNodeKind
+  const kind = canvasKindValue(node.data?.kind ?? node.type)
   const label = node.data?.label ?? kind
   const defaults = createDefaultNodeData(kind, label, base)
   const data = node.data ?? {}
@@ -1445,12 +1454,12 @@ function canvasEndpoint(endpoint: string) {
   return endpoint
 }
 
-function graphNodeKindToCanvas(type: WorkflowGraphNode['type']): CanvasNodeKind {
+function graphNodeKindToCanvas(type: string): CanvasNodeKind {
   if (type === 'USER_INPUT') return 'userInput'
   if (type === 'INTERACTION') return 'interaction'
   if (type === 'PAGE_ACTION') return 'pageAction'
   if (type === 'LLM') return 'llm'
-  if (type === 'CAPABILITY') return 'skill'
+  if (type === 'TOOL') return 'tool'
   if (type === 'IF_ELSE') return 'condition'
   if (type === 'VARIABLE_ASSIGN') return 'variable'
   if (type === 'TEMPLATE') return 'template'
@@ -1466,7 +1475,7 @@ function graphNodeKindToCanvas(type: WorkflowGraphNode['type']): CanvasNodeKind 
   if (type === 'PARAMETER_EXTRACT') return 'parameter'
   if (type === 'HTTP_REQUEST') return 'http'
   if (type === 'KNOWLEDGE_RETRIEVAL') return 'knowledge'
-  return 'tool'
+  throw new Error(`GraphSpec node.type must use a canonical value: ${type}`)
 }
 
 function emptyCanvas(): CanvasSnapshot {
@@ -1975,9 +1984,9 @@ function interactionComponentValue(value: unknown): InteractionNodeConfig['compo
 function interactionBindingValue(value: unknown): InteractionNodeConfig['binding'] {
   const raw = objectRecordValue(value)
   const sourceKind = stringValue(raw.sourceKind).toUpperCase()
-  const normalizedSourceKind = ['TOOL', 'COMPOSITION', 'API'].includes(sourceKind)
-    ? sourceKind as NonNullable<InteractionNodeConfig['binding']>['sourceKind']
-    : 'NONE'
+  const normalizedSourceKind = sourceKind === 'API'
+    ? 'API'
+    : (sourceKind === 'TOOL' ? 'TOOL' : 'NONE')
   return {
     sourceKind: normalizedSourceKind,
     ref: stringValue(raw.ref),

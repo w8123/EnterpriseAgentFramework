@@ -46,18 +46,6 @@ public class ControlMarketController {
         }
     }
 
-    @PostMapping("/skills/submit")
-    public ResponseEntity<?> submitSkill(@RequestBody(required = false) MarketSubmitRequest request) {
-        try {
-            return ResponseEntity.ok(marketService.submitSkill(
-                    request == null ? null : request.qualifiedName(),
-                    request == null ? null : request.version(),
-                    request == null ? null : request.operator()));
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(ex.getMessage()));
-        }
-    }
-
     @PostMapping("/items/{id}/approve")
     public ResponseEntity<?> approve(@PathVariable Long id,
                                      @RequestBody(required = false) MarketApproveRequest request) {

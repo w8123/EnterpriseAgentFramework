@@ -24,12 +24,13 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
-/** Fail-closed Control → Knowledge gate for platform-console business-index operations. */
+/** Fail-closed Control → Knowledge gate for platform-console operations. */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 19)
 public class KnowledgeBizIndexConsoleAuthFilter extends OncePerRequestFilter {
 
     public static final String PREFIX = "/internal/knowledge/console/biz-index";
+    public static final String DOCUMENT_IMPORT_PREFIX = "/internal/knowledge/console/document-import";
     public static final String VERIFIED_TENANT_ATTRIBUTE =
             "reachai.knowledge.console.verified-tenant";
     public static final String VERIFIED_ACTOR_ATTRIBUTE =
@@ -69,7 +70,7 @@ public class KnowledgeBizIndexConsoleAuthFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = normalizedPath(request);
-        return !(PREFIX.equals(path) || path.startsWith(PREFIX + "/"));
+        return !matches(path, PREFIX) && !matches(path, DOCUMENT_IMPORT_PREFIX);
     }
 
     @Override
@@ -172,6 +173,10 @@ public class KnowledgeBizIndexConsoleAuthFilter extends OncePerRequestFilter {
 
     private static String normalized(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static boolean matches(String path, String prefix) {
+        return prefix.equals(path) || path.startsWith(prefix + "/");
     }
 
     private static boolean isProduction(Environment environment) {

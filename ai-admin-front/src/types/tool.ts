@@ -11,6 +11,11 @@ export interface ToolParameter {
   metadata?: Record<string, unknown> | null
 }
 
+export function isToolInputParameter(parameter: ToolParameter): boolean {
+  const location = String(parameter.location || '').trim().toLowerCase()
+  return location !== 'output' && location !== 'return' && location !== 'response'
+}
+
 /** 已注册 Tool 信息 */
 export interface ToolInfo {
   name: string

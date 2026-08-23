@@ -9,12 +9,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -34,37 +31,27 @@ public class CapabilityScanProjectBlockerService {
         if (owned.isEmpty()) {
             return ScanProjectBlockers.empty();
         }
-        Map<String, String> nameToKind = new HashMap<>();
+        Set<String> ownedNames = new HashSet<>();
         for (ToolDefinitionEntity tool : owned) {
             if (tool.getName() != null && !tool.getName().isBlank()) {
-                nameToKind.put(tool.getName().trim(), normalizeKind(tool.getKind()));
+                ownedNames.add(tool.getName().trim());
             }
         }
-        if (nameToKind.isEmpty()) {
+        if (ownedNames.isEmpty()) {
             return ScanProjectBlockers.empty();
         }
 
-        Set<String> ownedNames = nameToKind.keySet();
         LinkedHashSet<String> refTools = new LinkedHashSet<>();
-        LinkedHashSet<String> refSkills = new LinkedHashSet<>();
         LinkedHashSet<ScanProjectBlockers.AgentRef> refAgents = new LinkedHashSet<>();
 
         for (ScanProjectAgentReferenceReader.AgentToolReference agent : agentReferenceReader.listAgentToolReferences()) {
-            Set<String> mentioned = new HashSet<>();
-            mentioned.addAll(agent.tools() == null ? List.of() : agent.tools());
-            mentioned.addAll(agent.skills() == null ? List.of() : agent.skills());
             boolean hit = false;
-            for (String name : mentioned) {
+            for (String name : agent.tools() == null ? List.<String>of() : agent.tools()) {
                 if (name == null || name.isBlank() || !ownedNames.contains(name.trim())) {
                     continue;
                 }
                 hit = true;
-                String kind = nameToKind.get(name.trim());
-                if ("SKILL".equalsIgnoreCase(kind)) {
-                    refSkills.add(name.trim());
-                } else {
-                    refTools.add(name.trim());
-                }
+                refTools.add(name.trim());
             }
             if (hit) {
                 refAgents.add(new ScanProjectBlockers.AgentRef(agent.agentId(), agent.agentName()));
@@ -73,14 +60,6 @@ public class CapabilityScanProjectBlockerService {
         return new ScanProjectBlockers(
                 !refAgents.isEmpty(),
                 new ArrayList<>(refTools),
-                new ArrayList<>(refSkills),
                 new ArrayList<>(refAgents));
-    }
-
-    private String normalizeKind(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return "TOOL";
-        }
-        return raw.trim().toUpperCase(Locale.ROOT);
     }
 }

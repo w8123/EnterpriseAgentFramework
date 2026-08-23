@@ -501,7 +501,7 @@ class CapabilityScanProjectCatalogServiceTest {
         ScanProjectToolEntity stale = tool(11L, "GET", "/legacy", "Legacy", "AI", 501L);
         stale.setProjectId(7L);
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
-        when(scanProjectBlockerService.analyze(7L)).thenReturn(new ScanProjectBlockers(false, List.of(), List.of(), List.of()));
+        when(scanProjectBlockerService.analyze(7L)).thenReturn(new ScanProjectBlockers(false, List.of(), List.of()));
         when(scanProjectToolMapper.selectList(any())).thenReturn(List.of(stale), List.of(stale));
         when(scannerClient.scanOpenApi(any())).thenReturn(okManifest(List.of()));
 
@@ -604,7 +604,6 @@ class CapabilityScanProjectCatalogServiceTest {
         assertEquals(501L, result.globalToolId());
         assertEquals("tool11", result.globalToolName());
         assertEquals(501L, scanTool.getGlobalToolDefinitionId());
-        assertEquals("TOOL", inserted.get().getKind());
         assertEquals("Tool 11", inserted.get().getTitle());
         assertEquals("scanner", inserted.get().getSource());
         assertEquals(7L, inserted.get().getProjectId());
@@ -834,7 +833,6 @@ class CapabilityScanProjectCatalogServiceTest {
         ScanProjectBlockers blockers = new ScanProjectBlockers(
                 true,
                 List.of("orders_create"),
-                List.of(),
                 List.of(new ScanProjectBlockers.AgentRef("agent-1", "Team Assistant")));
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
         when(scanProjectBlockerService.analyze(7L)).thenReturn(blockers);

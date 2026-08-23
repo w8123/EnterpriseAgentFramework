@@ -47,7 +47,6 @@ public class TraceWorkflowCandidateTaskProvider
             "USER_INPUT",
             "LLM",
             "TOOL",
-            "CAPABILITY",
             "IF_ELSE",
             "VARIABLE_ASSIGN",
             "TEMPLATE",
@@ -569,7 +568,7 @@ public class TraceWorkflowCandidateTaskProvider
             }
             String type = node.path("type").asText("")
                     .trim().toUpperCase(Locale.ROOT);
-            if (!("TOOL".equals(type) || "CAPABILITY".equals(type))) {
+            if (!"TOOL".equals(type)) {
                 continue;
             }
             String reference = firstText(

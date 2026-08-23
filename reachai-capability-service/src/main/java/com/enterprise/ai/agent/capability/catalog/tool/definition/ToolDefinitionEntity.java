@@ -19,9 +19,6 @@ public class ToolDefinitionEntity {
     /** 用户可读的简短名称；name 仍是稳定机器标识。 */
     private String title;
 
-    /** 能力形态：TOOL / SKILL。默认 TOOL；Phase 2.0 新增。 */
-    private String kind;
-
     private String description;
 
     private String aiDescription;
@@ -30,9 +27,6 @@ public class ToolDefinitionEntity {
     private String capabilityMetadataJson;
 
     private String parametersJson;
-
-    /** Skill 专属 spec JSON（SubAgent: {systemPrompt, toolWhitelist, modelInstanceId, maxSteps}）。 */
-    private String specJson;
 
     private String source;
 
@@ -64,12 +58,6 @@ public class ToolDefinitionEntity {
 
     /** 副作用等级：NONE / READ_ONLY / IDEMPOTENT_WRITE / WRITE / IRREVERSIBLE。 */
     private String sideEffect;
-
-    /** 仅 kind=SKILL 有值：SUB_AGENT / WORKFLOW / AUGMENTED_TOOL。 */
-    private String skillKind;
-
-    /** kind=SKILL 时：true 表示草稿暂存，不落 ToolRegistry、不可执行。 */
-    private Boolean draft;
 
     private LocalDateTime createTime;
 

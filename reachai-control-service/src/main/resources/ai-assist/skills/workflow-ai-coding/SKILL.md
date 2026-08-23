@@ -138,7 +138,7 @@ Returns workflow metadata, `graphSpec`, `canvas`, release validation, node type 
 
 Use `workflow.updatedAt` as patch and publish `baseRevision`.
 
-When building LLM nodes, pick `modelInstanceId` from `availableModels[].id` only. When building TOOL/CAPABILITY nodes, pick tools from `availableTools[]` (`toolId` / `keySlug` / `displayName`). Never invent internal ids. If either array is empty and `warnings` contains `MODEL_CATALOG_UNAVAILABLE`, `CAPABILITY_CATALOG_UNAVAILABLE`, `NO_ACTIVE_LLM`, or `NO_PROJECT_TOOLS`, fix the dependency/warning first; empty+warning means “unavailable or missing”, not “safe to guess”.
+When building LLM nodes, pick `modelInstanceId` from `availableModels[].id` only. When building TOOL nodes, pick tools from `availableTools[]` (`toolId` / `keySlug` / `displayName`). Never invent internal ids. If either array is empty and `warnings` contains `MODEL_CATALOG_UNAVAILABLE`, `CAPABILITY_CATALOG_UNAVAILABLE`, `NO_ACTIVE_LLM`, or `NO_PROJECT_TOOLS`, fix the dependency/warning first; empty+warning means “unavailable or missing”, not “safe to guess”.
 
 Generic Workflow create defaults to `workflowKind=GENERAL`. A business-page Workflow must send `"workflowKind":"PAGE_ASSISTANT"` and its `resourceBindings` explicitly. Attach GENERAL or PAGE_ASSISTANT with:
 
@@ -254,7 +254,7 @@ Fields:
 
 Safety gates:
 
-- Side-effect nodes (`HTTP_REQUEST`, `TOOL`, `CAPABILITY`, `MCP_CALL`, `KNOWLEDGE_WRITE`) require `runtimeContext.confirmSideEffects=true`
+- Side-effect nodes (`HTTP_REQUEST`, `TOOL`, `MCP_CALL`, `KNOWLEDGE_WRITE`) require `runtimeContext.confirmSideEffects=true`
 - `PAGE_ACTION` nodes require page bridge context (`embedSessionId`, `pageBridge`, `pageContext`, or `bridgeGlobal`)
 
 Example safe dry run:

@@ -37,6 +37,15 @@
           </span>
           <span class="chunk-length">{{ chunk.length }} 字符</span>
         </div>
+        <div v-if="chunk.elementType || chunk.sectionPath || sourceLabel(chunk.sourceLocatorJson)" class="chunk-source">
+          <el-tag v-if="chunk.elementType" size="small" effect="plain">
+            {{ documentElementLabel(chunk.elementType) }}
+          </el-tag>
+          <span v-if="chunk.sectionPath" class="source-section">{{ chunk.sectionPath }}</span>
+          <span v-if="sourceLabel(chunk.sourceLocatorJson)" class="source-locator">
+            {{ sourceLabel(chunk.sourceLocatorJson) }}
+          </span>
+        </div>
         <div class="chunk-content">{{ chunk.content }}</div>
       </div>
     </div>
@@ -46,6 +55,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ChunkItem } from '@/types/import'
+import { documentElementLabel, formatDocumentSourceLocator } from '@/utils/documentImport'
 
 const props = defineProps<{
   chunks: ChunkItem[]
@@ -58,6 +68,10 @@ const averageLength = computed(() => {
   const total = props.chunks.reduce((sum, c) => sum + c.length, 0)
   return Math.round(total / props.chunks.length)
 })
+
+function sourceLabel(value?: string | null) {
+  return formatDocumentSourceLocator(value)
+}
 </script>
 
 <style scoped lang="scss">
@@ -113,6 +127,21 @@ const averageLength = computed(() => {
   color: var(--text-secondary);
   word-break: break-all;
   white-space: pre-wrap;
+}
+
+.chunk-source {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.source-section {
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 // ── 日间模式覆盖 ──

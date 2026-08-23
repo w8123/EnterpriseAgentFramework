@@ -17,7 +17,6 @@ public enum AgentGraphNodeType {
     USER_INPUT("USER_INPUT", "userInput", "input", NodeFamily.FLOW, false),
     INTERACTION("INTERACTION", "interaction", "interaction", NodeFamily.FLOW, false),
     TOOL("TOOL", "tool", "action", NodeFamily.TOOL, true),
-    CAPABILITY("CAPABILITY", "skill", "action", NodeFamily.TOOL, true),
     IF_ELSE("IF_ELSE", "condition", "flow", NodeFamily.FLOW, false),
     VARIABLE_ASSIGN("VARIABLE_ASSIGN", "variable", "flow", NodeFamily.FLOW, false),
     TEMPLATE("TEMPLATE", "template", "flow", NodeFamily.FLOW, false),

@@ -7,13 +7,18 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 /**
- * Explicit platform-console authentication settings. LOCAL remains useful for
- * isolated development, but is fail-closed unless deliberately enabled.
+ * Explicit platform-console authentication settings. The source distribution
+ * defaults to a well-known LOCAL development administrator for an immediately
+ * usable open-source quick start. Deployments must explicitly disable LOCAL or
+ * replace these bootstrap credentials before exposing the service.
  */
 @Data
 @Component
 @ConfigurationProperties(prefix = "reachai.auth")
 public class PlatformAuthProperties {
+
+    public static final String DEVELOPMENT_ADMIN_USERNAME = "admin";
+    public static final String DEVELOPMENT_ADMIN_PASSWORD = "admin123";
 
     private String provider = "LOCAL";
 
@@ -23,18 +28,23 @@ public class PlatformAuthProperties {
 
     @Data
     public static class Local {
-        private boolean enabled;
+        private boolean enabled = true;
         private BootstrapAdmin bootstrapAdmin = new BootstrapAdmin();
     }
 
     @Data
     public static class BootstrapAdmin {
-        private boolean enabled;
-        private String username;
-        private String password;
+        private boolean enabled = true;
+        private String username = DEVELOPMENT_ADMIN_USERNAME;
+        private String password = DEVELOPMENT_ADMIN_PASSWORD;
     }
 
     public boolean localPasswordLoginEnabled() {
         return "LOCAL".equalsIgnoreCase(provider) && local != null && local.isEnabled();
+    }
+
+    public boolean usesBuiltInDevelopmentAdmin(String username, String password) {
+        return DEVELOPMENT_ADMIN_USERNAME.equals(username)
+                && DEVELOPMENT_ADMIN_PASSWORD.equals(password);
     }
 }

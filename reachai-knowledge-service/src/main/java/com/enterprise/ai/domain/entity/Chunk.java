@@ -36,6 +36,15 @@ public class Chunk {
 
     private Integer enabled;
 
+    /** Docling element type, e.g. HEADING / TABLE / PARAGRAPH. */
+    private String elementType;
+
+    /** Logical heading path at extraction time. */
+    private String sectionPath;
+
+    /** JSON source anchor (page / slide / sheet / cell / bounding box). */
+    private String sourceLocatorJson;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 }

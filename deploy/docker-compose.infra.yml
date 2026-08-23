@@ -47,6 +47,7 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
     ports:
+      - "9000:9000"
       - "9001:9001"
     volumes:
       - minio-data:/minio_data
@@ -71,6 +72,27 @@ services:
       MINIO_ADDRESS: minio:9000
     volumes:
       - milvus-data:/var/lib/milvus
+
+  # Opt-in because the image is large. Start with:
+  # docker compose -f deploy/docker-compose.infra.yml --profile docling up -d
+  docling:
+    profiles: ["docling"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.docling
+    image: reachai-docling:v1.30.0
+    container_name: reachai-docling
+    ports:
+      - "5001:5001"
+    environment:
+      DOCLING_SERVE_ENABLE_UI: "false"
+      DOCLING_SERVE_API_KEY: ${REACHAI_DOCLING_API_KEY:-local-dev-change-me}
+      DOCLING_SERVE_MAX_FILE_SIZE: "52428800"
+      DOCLING_SERVE_MAX_NUM_PAGES: "1000"
+      DOCLING_SERVE_ENG_KIND: local
+      DOCLING_SERVE_ENG_LOC_NUM_WORKERS: "2"
+      DOCLING_DEVICE: cpu
+      DOCLING_NUM_THREADS: "8"
 
 volumes:
   mysql-data:

@@ -117,11 +117,6 @@ const STANDARD_PAGE_FILES = new Set([
   'src/views/tool/ToolList.vue',
   'src/views/tool/ToolRetrievalTest.vue',
   'src/views/capability/CapabilityKernel.vue',
-  'src/views/capability/CapabilityMining.vue',
-  'src/views/capability/slot/SlotExtractorList.vue',
-  'src/views/capability/slot/SlotDictDept.vue',
-  'src/views/capability/slot/SlotDictUser.vue',
-  'src/views/capability/slot/SlotExtractLogs.vue',
   'src/views/registry/CapabilitySyncDebug.vue',
   'src/views/mcp/McpVisibilityBoard.vue',
   'src/views/mcp/McpClientList.vue',
@@ -160,10 +155,6 @@ const LIST_FILL_PAGE_FILES = new Set([
   'src/views/model/ModelInstances.vue',
   'src/views/tool/ToolList.vue',
   'src/views/capability/CapabilityKernel.vue',
-  'src/views/capability/slot/SlotExtractorList.vue',
-  'src/views/capability/slot/SlotDictDept.vue',
-  'src/views/capability/slot/SlotDictUser.vue',
-  'src/views/capability/slot/SlotExtractLogs.vue',
   'src/views/registry/RegistryProjectList.vue',
   'src/views/registry/RegistryProjectDetail.vue',
   'src/views/mcp/McpVisibilityBoard.vue',
@@ -2049,8 +2040,8 @@ function createRepositoryFixture() {
     projectWorkbenchDirectComponentFiles: PROJECT_WORKBENCH_DIRECT_COMPONENT_FILES,
     exemptPageFiles: EXEMPT_PAGE_FILES,
     listFillPageFiles: LIST_FILL_PAGE_FILES,
-    expectedSetSizes: { standard: 41, projectWorkbench: 8, exempt: 3 },
-    expectedListFillSize: 23,
+    expectedSetSizes: { standard: 36, projectWorkbench: 8, exempt: 3 },
+    expectedListFillSize: 19,
   }
 }
 
